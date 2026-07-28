@@ -158,8 +158,16 @@ export function Sidebar(): JSX.Element {
         </span>
         <button
           type="button"
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => useAppStore.getState().setOnboardingOpen(true)}
           className="ml-auto rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          title="Setup checklist"
+        >
+          🧭
+        </button>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
           title="Settings (⌘,)"
         >
           ⚙️

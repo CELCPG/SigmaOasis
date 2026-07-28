@@ -61,6 +61,8 @@ export interface AppSettings {
   voice: VoiceSettings
   stt: SttSettings
   memory: MemorySettings
+  /** First-run setup checklist has been dismissed. */
+  onboardingCompleted: boolean
 }
 
 function defaultSettings(): AppSettings {
@@ -128,7 +130,8 @@ function defaultSettings(): AppSettings {
       autoContext: true,
       topK: 3,
       embeddingModel: ''
-    }
+    },
+    onboardingCompleted: false
   }
 }
 
@@ -273,7 +276,11 @@ export async function writeNotes(notes: Note[]): Promise<void> {
  * Registers all IPC handlers related to persistence: settings, conversations.
  */
 export function registerStoreHandlers(): void {
-  ipcMain.handle('store:getSettings', () => store.get('settings'))
+  ipcMain.handle('store:getSettings', () => ({
+    // Merge defaults so installs created before a setting existed still get it.
+    ...defaultSettings(),
+    ...store.get('settings')
+  }))
 
   ipcMain.handle('store:setSettings', (_e, settings: AppSettings) => {
     store.set('settings', normalizeSettings(settings))

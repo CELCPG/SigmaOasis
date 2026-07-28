@@ -97,6 +97,8 @@ export interface AppSettings {
   voice: VoiceSettings
   stt: SttSettings
   memory: MemorySettings
+  /** First-run setup checklist has been dismissed. */
+  onboardingCompleted: boolean
 }
 
 // ---- LM Studio / OpenAI-compatible API --------------------------------------

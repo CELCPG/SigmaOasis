@@ -7,6 +7,7 @@ import { ModelTabs } from './components/ModelTabs'
 import { ChatArea } from './components/ChatArea'
 import { InputBar } from './components/InputBar'
 import { SettingsModal } from './components/SettingsModal'
+import { OnboardingModal } from './components/OnboardingModal'
 
 export default function App(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
@@ -20,7 +21,10 @@ export default function App(): JSX.Element {
 
   // Boot: load settings, then probe LM Studio and load saved conversations.
   useEffect(() => {
-    void window.api.getSettings().then((s) => setSettings(s))
+    void window.api.getSettings().then((s) => {
+      setSettings(s)
+      if (!s.onboardingCompleted) useAppStore.getState().setOnboardingOpen(true)
+    })
   }, [setSettings])
 
   // Global shortcuts: ⌘N new conversation, ⌘, settings.
@@ -81,6 +85,7 @@ export default function App(): JSX.Element {
       </main>
 
       <SettingsModal />
+      <OnboardingModal />
     </div>
   )
 }

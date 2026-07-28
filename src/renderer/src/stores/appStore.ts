@@ -19,6 +19,9 @@ interface AppState {
   settingsOpen: boolean
   setSettingsOpen: (open: boolean) => void
 
+  onboardingOpen: boolean
+  setOnboardingOpen: (open: boolean) => void
+
   connection: ConnectionStatus
   setConnection: (status: ConnectionStatus) => void
 
@@ -57,6 +60,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   settingsOpen: false,
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+
+  onboardingOpen: false,
+  setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
 
   connection: 'offline',
   setConnection: (connection) => set({ connection }),
