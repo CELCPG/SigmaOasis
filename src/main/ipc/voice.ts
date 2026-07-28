@@ -2,7 +2,7 @@ import { app, ipcMain } from 'electron'
 import { execFile } from 'child_process'
 import { promises as fs } from 'fs'
 import { homedir } from 'os'
-import { join } from 'path'
+import { extname, join } from 'path'
 import { getSettings } from './store'
 
 /**
@@ -193,6 +193,48 @@ async function sttStatus(): Promise<SttStatus> {
   }
 }
 
+/** Audio formats whisper.cpp reads natively. */
+const WHISPER_NATIVE = new Set(['.wav', '.mp3', '.ogg', '.flac'])
+/** Formats we convert to WAV first (via macOS afconvert). */
+const CONVERTIBLE = new Set(['.m4a', '.aac', '.opus', '.webm', '.aiff', '.aif'])
+/** File transcription gets a longer budget than push-to-talk clips. */
+const FILE_TRANSCRIBE_TIMEOUT_MS = 600_000
+const MAX_AUDIO_FILE_BYTES = 200 * 1024 * 1024
+
+function runWhisper(
+  cliPath: string,
+  modelPath: string,
+  audioPath: string,
+  timeoutMs = TRANSCRIBE_TIMEOUT_MS
+): Promise<string> {
+  return new Promise<string>((resolvePromise, rejectPromise) => {
+    execFile(
+      cliPath,
+      ['-m', modelPath, '-f', audioPath, '--no-timestamps'],
+      { timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          rejectPromise(new Error(stderr.trim() || err.message))
+        } else {
+          resolvePromise(stdout)
+        }
+      }
+    )
+  })
+}
+
+/** Convert any CoreAudio-supported format to 16 kHz mono WAV (macOS only). */
+function afconvertToWav(src: string, dst: string): Promise<void> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      '/usr/bin/afconvert',
+      ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', src, dst],
+      { timeout: 60_000 },
+      (err, _stdout, stderr) => (err ? rejectPromise(new Error(stderr.trim() || err.message)) : resolvePromise())
+    )
+  })
+}
+
 export function registerVoiceHandlers(): void {
   ipcMain.handle('voice:sttStatus', () => sttStatus())
 
@@ -218,22 +260,7 @@ export function registerVoiceHandlers(): void {
     const wavPath = join(app.getPath('temp'), `funkinai-stt-${Date.now()}.wav`)
     try {
       await fs.writeFile(wavPath, wavBuffer)
-
-      const text = await new Promise<string>((resolvePromise, rejectPromise) => {
-        execFile(
-          status.cliPath!,
-          ['-m', status.modelPath!, '-f', wavPath, '--no-timestamps'],
-          { timeout: TRANSCRIBE_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
-          (err, stdout, stderr) => {
-            if (err) {
-              rejectPromise(new Error(stderr.trim() || err.message))
-            } else {
-              resolvePromise(stdout)
-            }
-          }
-        )
-      })
-
+      const text = await runWhisper(status.cliPath, status.modelPath, wavPath)
       // whisper-cli echoes blank lines / noise tokens around the transcript.
       const transcript = cleanTranscript(text)
       return transcript
@@ -243,6 +270,58 @@ export function registerVoiceHandlers(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     } finally {
       await fs.unlink(wavPath).catch(() => undefined)
+    }
+  })
+
+  // Transcribe a dropped/picked audio file (voice memo, meeting recording…).
+  ipcMain.handle('voice:transcribeFile', async (_event, filePath: string) => {
+    const status = await sttStatus()
+    if (!status.available || !status.cliPath || !status.modelPath) {
+      return { ok: false, error: status.reason ?? 'Speech-to-text is not set up.' }
+    }
+    const ext = extname(String(filePath ?? '')).toLowerCase()
+    if (!WHISPER_NATIVE.has(ext) && !CONVERTIBLE.has(ext)) {
+      return { ok: false, error: `Unsupported audio type "${ext || 'unknown'}".` }
+    }
+    const stat = await fs.stat(filePath).catch(() => null)
+    if (!stat?.isFile()) return { ok: false, error: 'File not found.' }
+    if (stat.size > MAX_AUDIO_FILE_BYTES) {
+      return { ok: false, error: 'That audio file is too large (200 MB max).' }
+    }
+
+    let audioPath = filePath
+    let converted: string | null = null
+    if (!WHISPER_NATIVE.has(ext)) {
+      if (process.platform !== 'darwin') {
+        return {
+          ok: false,
+          error: `Files of type "${ext}" need conversion first — use wav, mp3, ogg or flac on this platform.`
+        }
+      }
+      converted = join(app.getPath('temp'), `funkinai-stt-${Date.now()}.wav`)
+      try {
+        await afconvertToWav(filePath, converted)
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+      audioPath = converted
+    }
+
+    try {
+      const text = await runWhisper(
+        status.cliPath,
+        status.modelPath,
+        audioPath,
+        FILE_TRANSCRIBE_TIMEOUT_MS
+      )
+      const transcript = cleanTranscript(text)
+      return transcript
+        ? { ok: true, text: transcript }
+        : { ok: false, error: 'No speech detected in this file.' }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      if (converted) await fs.unlink(converted).catch(() => undefined)
     }
   })
 }

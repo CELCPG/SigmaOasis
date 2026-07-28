@@ -126,6 +126,8 @@ export interface Attachment {
 export interface AttachmentLoadResult {
   attachments: Attachment[]
   rejected: { name: string; reason: string }[]
+  /** Audio files to transcribe locally instead of attaching. */
+  audioPaths: string[]
 }
 
 // ---- Chat domain ------------------------------------------------------------

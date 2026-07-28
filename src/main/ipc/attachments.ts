@@ -23,6 +23,8 @@ interface AttachmentPayload {
 interface LoadResult {
   attachments: AttachmentPayload[]
   rejected: { name: string; reason: string }[]
+  /** Audio files the renderer should send to local transcription instead. */
+  audioPaths: string[]
 }
 
 const IMAGE_MIME: Record<string, string> = {
@@ -40,6 +42,14 @@ const TEXT_EXTENSIONS = new Set([
   '.css', '.scss', '.less', '.java', '.go', '.rs', '.c', '.h', '.cpp', '.hpp',
   '.cs', '.rb', '.php', '.swift', '.kt', '.kts', '.lua', '.r', '.vue', '.svelte',
   '.diff', '.patch'
+])
+
+/**
+ * Audio files are never attached to the chat — they're routed to local
+ * whisper transcription (main/ipc/voice.ts) and surface as `audioPaths`.
+ */
+export const AUDIO_EXTENSIONS = new Set([
+  '.wav', '.mp3', '.ogg', '.flac', '.m4a', '.aac', '.opus', '.webm', '.aiff', '.aif'
 ])
 
 /**
@@ -111,8 +121,12 @@ async function loadOne(path: string): Promise<AttachmentPayload | { name: string
 }
 
 async function loadPaths(paths: string[]): Promise<LoadResult> {
-  const result: LoadResult = { attachments: [], rejected: [] }
+  const result: LoadResult = { attachments: [], rejected: [], audioPaths: [] }
   for (const p of paths) {
+    if (AUDIO_EXTENSIONS.has(extname(p).toLowerCase())) {
+      result.audioPaths.push(p)
+      continue
+    }
     try {
       const loaded = await loadOne(p)
       if ('reason' in loaded) result.rejected.push(loaded)
@@ -135,10 +149,11 @@ export function registerAttachmentHandlers(): void {
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'Images & text', extensions: [...Object.keys(IMAGE_MIME), ...TEXT_EXTENSIONS].map((e) => e.slice(1)) },
+        { name: 'Audio (transcribed locally)', extensions: [...AUDIO_EXTENSIONS].map((e) => e.slice(1)) },
         { name: 'All files', extensions: ['*'] }
       ]
     })
-    if (canceled || filePaths.length === 0) return { attachments: [], rejected: [] }
+    if (canceled || filePaths.length === 0) return { attachments: [], rejected: [], audioPaths: [] }
     return loadPaths(filePaths)
   })
 

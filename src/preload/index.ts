@@ -54,6 +54,10 @@ const api = {
   getSttStatus: (): Promise<SttStatus> => ipcRenderer.invoke('voice:sttStatus'),
   transcribeAudio: (wav: ArrayBuffer): Promise<{ ok: boolean; text?: string; error?: string }> =>
     ipcRenderer.invoke('voice:transcribe', wav),
+  transcribeAudioFile: (
+    path: string
+  ): Promise<{ ok: boolean; text?: string; error?: string }> =>
+    ipcRenderer.invoke('voice:transcribeFile', path),
 
   // Local memory / RAG (main/ipc/memory.ts)
   memoryStats: (): Promise<MemoryStats> => ipcRenderer.invoke('memory:stats'),

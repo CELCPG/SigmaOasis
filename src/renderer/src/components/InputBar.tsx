@@ -19,6 +19,7 @@ export function InputBar(): JSX.Element {
   const [dragOver, setDragOver] = useState(false)
   const [micState, setMicState] = useState<MicState>('idle')
   const [recSeconds, setRecSeconds] = useState(0)
+  const [recLevel, setRecLevel] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const recorderRef = useRef<WavRecorder | null>(null)
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -94,11 +95,37 @@ export function InputBar(): JSX.Element {
   const addResult = (result: {
     attachments: Attachment[]
     rejected: { name: string; reason: string }[]
+    audioPaths?: string[]
   }): void => {
     if (result.attachments.length > 0) {
       setAttachments((prev) => [...prev, ...result.attachments])
     }
     showRejected(result.rejected)
+    if (result.audioPaths && result.audioPaths.length > 0) {
+      void transcribeFiles(result.audioPaths)
+    }
+  }
+
+  /** Transcribe dropped/picked audio files locally, one by one. */
+  const transcribeFiles = async (paths: string[]): Promise<void> => {
+    if (micState !== 'idle') return
+    setMicState('transcribing')
+    try {
+      for (const p of paths) {
+        const name = p.split('/').pop() ?? 'audio file'
+        showNotice(`Transcribing ${name} locally…`)
+        const result = await window.api.transcribeAudioFile(p)
+        if (result.ok && result.text) {
+          setText((prev) => (prev.trim() ? `${prev.trim()} ${result.text}` : result.text!))
+          showNotice(`Transcribed ${name}.`)
+        } else {
+          showNotice(`${name}: ${result.error ?? 'transcription failed.'}`)
+        }
+      }
+      textareaRef.current?.focus()
+    } finally {
+      setMicState('idle')
+    }
   }
 
   const pick = async (): Promise<void> => {
@@ -128,27 +155,32 @@ export function InputBar(): JSX.Element {
     setTimeout(() => setNotice(null), 8000)
   }
 
+  /** Shared stop path for the mic button AND silence auto-stop (VAD). */
+  const stopAndTranscribe = async (): Promise<void> => {
+    const recorder = recorderRef.current
+    recorderRef.current = null
+    stopRecTimer()
+    setRecSeconds(0)
+    setRecLevel(0)
+    if (!recorder) return
+    const wav = recorder.stop()
+    setMicState('transcribing')
+    try {
+      const result = await window.api.transcribeAudio(wav)
+      if (result.ok && result.text) {
+        setText((prev) => (prev.trim() ? `${prev.trim()} ${result.text}` : result.text!))
+        textareaRef.current?.focus()
+      } else {
+        showNotice(result.error ?? 'Transcription failed.')
+      }
+    } finally {
+      setMicState('idle')
+    }
+  }
+
   const toggleMic = async (): Promise<void> => {
     if (micState === 'recording') {
-      // Stop → transcribe locally via whisper.cpp.
-      const recorder = recorderRef.current
-      recorderRef.current = null
-      stopRecTimer()
-      setRecSeconds(0)
-      if (!recorder) return
-      const wav = recorder.stop()
-      setMicState('transcribing')
-      try {
-        const result = await window.api.transcribeAudio(wav)
-        if (result.ok && result.text) {
-          setText((prev) => (prev.trim() ? `${prev.trim()} ${result.text}` : result.text!))
-          textareaRef.current?.focus()
-        } else {
-          showNotice(result.error ?? 'Transcription failed.')
-        }
-      } finally {
-        setMicState('idle')
-      }
+      await stopAndTranscribe()
       return
     }
 
@@ -164,13 +196,14 @@ export function InputBar(): JSX.Element {
     try {
       const recorder = new WavRecorder()
       await recorder.start()
+      recorder.onAutoStop = () => void stopAndTranscribe()
       recorderRef.current = recorder
       setMicState('recording')
       setRecSeconds(0)
-      recTimerRef.current = setInterval(
-        () => setRecSeconds(Math.floor(recorderRef.current?.elapsedSeconds ?? 0)),
-        500
-      )
+      recTimerRef.current = setInterval(() => {
+        setRecSeconds(Math.floor(recorderRef.current?.elapsedSeconds ?? 0))
+        setRecLevel(recorderRef.current?.currentLevel ?? 0)
+      }, 150)
     } catch {
       showNotice('Microphone access was denied — allow it in your system privacy settings.')
     }
@@ -325,7 +358,17 @@ export function InputBar(): JSX.Element {
         </div>
 
         <div className="mt-1.5 flex justify-between px-1 text-xs">
-          {notice ? (
+          {micState === 'recording' && !notice ? (
+            <span className="flex items-center gap-2 text-red-500">
+              Recording {recSeconds}s — auto-stops when you stop talking · Esc cancels
+              <span className="h-1.5 w-20 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                <span
+                  className="block h-full bg-red-500 transition-[width] duration-150"
+                  style={{ width: `${Math.round(recLevel * 100)}%` }}
+                />
+              </span>
+            </span>
+          ) : notice ? (
             <span className="text-red-500">{notice}</span>
           ) : (
             <span className="text-neutral-400">

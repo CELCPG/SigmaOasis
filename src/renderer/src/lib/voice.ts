@@ -179,9 +179,22 @@ function downsample(input: Float32Array, fromRate: number, toRate: number): Floa
  *
  * Capture is capped at MAX_SECONDS so a forgotten recording can't grow
  * memory unboundedly; samples past the cap are dropped (stop() still works).
+ *
+ * Voice-activity detection: once speech has been heard, SILENCE_HOLD_S of
+ * continuous quiet fires onAutoStop — set it to run the same stop→transcribe
+ * path as the mic button. currentLevel (0–1) powers the live level meter.
  */
 export class WavRecorder {
   static readonly MAX_SECONDS = 150
+  /** RMS above this counts as speech (mic noise floor is typically < 0.005). */
+  private static readonly SPEECH_RMS = 0.01
+  /** Quiet this long after speech → auto-stop. */
+  private static readonly SILENCE_HOLD_S = 1.5
+  /** Never auto-stop before this much audio exists. */
+  private static readonly MIN_CLIP_S = 0.5
+
+  /** Fired once when silence auto-stop triggers; assign after start(). */
+  onAutoStop: (() => void) | null = null
 
   private ctx: AudioContext | null = null
   private stream: MediaStream | null = null
@@ -189,6 +202,12 @@ export class WavRecorder {
   private processor: ScriptProcessorNode | null = null
   private chunks: Float32Array[] = []
   private capturedSeconds = 0
+  private heardSpeech = false
+  private silenceSince: number | null = null
+  private autoStopped = false
+
+  /** Most recent chunk loudness, scaled to roughly 0–1 for UI meters. */
+  currentLevel = 0
 
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -201,11 +220,36 @@ export class WavRecorder {
     this.processor = this.ctx.createScriptProcessor(4096, 1, 1)
     this.chunks = []
     this.capturedSeconds = 0
+    this.heardSpeech = false
+    this.silenceSince = null
+    this.autoStopped = false
+    this.currentLevel = 0
     this.processor.onaudioprocess = (e) => {
       if (this.capturedSeconds >= WavRecorder.MAX_SECONDS) return
       const data = e.inputBuffer.getChannelData(0)
       this.chunks.push(new Float32Array(data))
+      const at = this.capturedSeconds
       this.capturedSeconds += data.length / (this.ctx?.sampleRate ?? 48_000)
+
+      // VAD on the raw chunk.
+      let sum = 0
+      for (let i = 0; i < data.length; i++) sum += data[i] * data[i]
+      const rms = Math.sqrt(sum / data.length)
+      this.currentLevel = Math.min(1, rms * 5)
+      if (rms > WavRecorder.SPEECH_RMS) {
+        this.heardSpeech = true
+        this.silenceSince = null
+      } else if (this.heardSpeech && at >= WavRecorder.MIN_CLIP_S) {
+        if (this.silenceSince === null) {
+          this.silenceSince = at
+        } else if (
+          at - this.silenceSince >= WavRecorder.SILENCE_HOLD_S &&
+          !this.autoStopped
+        ) {
+          this.autoStopped = true
+          this.onAutoStop?.()
+        }
+      }
     }
     this.source.connect(this.processor)
     this.processor.connect(this.ctx.destination)
