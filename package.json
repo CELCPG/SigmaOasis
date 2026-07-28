@@ -5,6 +5,14 @@
   "author": "Colin Long",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CELCPG/FunkAI.git"
+  },
+  "homepage": "https://github.com/CELCPG/FunkAI#readme",
+  "bugs": {
+    "url": "https://github.com/CELCPG/FunkAI/issues"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
