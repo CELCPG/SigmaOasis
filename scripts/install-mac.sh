@@ -17,10 +17,21 @@ else
   echo "⚠️  No scripts/signing.env — building unsigned (personal use)"
 fi
 
-npm run build:mac
+# Release builds cover arm64 + x64; installing locally only needs this Mac's
+# architecture, so build the one and skip the cross-compile.
+case "$(uname -m)" in
+  arm64)  ARCH=arm64 ;;
+  x86_64) ARCH=x64 ;;
+  *)
+    echo "❌ Unsupported architecture: $(uname -m)"
+    exit 1
+    ;;
+esac
+
+npm run build:mac -- --"$ARCH"
 
 VERSION=$(node -p "require('./package.json').version")
-DMG="dist/OpenMind-${VERSION}-mac.dmg"
+DMG="dist/OpenMind-${VERSION}-mac-${ARCH}.dmg"
 if [ ! -f "$DMG" ]; then
   echo "❌ Expected build artifact not found: $DMG"
   exit 1

@@ -64,7 +64,7 @@ npm run build:win    # → dist/*-setup.exe (NSIS installer)
 ```
 
 Packaged installers are written to the `dist/` folder:
-- **macOS** → `.dmg`
+- **macOS** → `.dmg`, built for both `arm64` and `x64` (`npm run install:mac` builds only this Mac's architecture)
 - **Windows** → `.exe` (NSIS installer)
 - **Linux** → `.AppImage`
 

@@ -14,9 +14,13 @@ files:
 asar: true
 mac:
   category: public.app-category.productivity
+  # Both architectures, so Intel Macs get a native build rather than Rosetta.
   target:
-    - dmg
-  artifactName: ${productName}-${version}-mac.${ext}
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
