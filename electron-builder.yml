@@ -1,5 +1,5 @@
-appId: com.openmind.app
-productName: OpenMind
+appId: com.funkinai.app
+productName: FunkinAI
 directories:
   output: dist
   buildResources: build
@@ -26,7 +26,7 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   notarize: true
   extendInfo:
-    NSMicrophoneUsageDescription: OpenMind uses the microphone for push-to-talk voice input, transcribed locally on your Mac.
+    NSMicrophoneUsageDescription: FunkinAI uses the microphone for push-to-talk voice input, transcribed locally on your Mac.
 win:
   target:
     - nsis
@@ -34,7 +34,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  shortcutName: OpenMind
+  shortcutName: FunkinAI
 linux:
   target:
     - AppImage

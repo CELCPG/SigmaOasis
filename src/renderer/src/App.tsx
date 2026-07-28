@@ -52,7 +52,7 @@ export default function App(): JSX.Element {
             <div className="max-w-md text-center text-sm text-neutral-500">
               <p className="mb-2 text-4xl">🧠</p>
               <p className="font-medium text-neutral-700 dark:text-neutral-300">
-                Welcome to OpenMind
+                Welcome to FunkinAI
               </p>
               <p className="mt-2">
                 A private, local-first AI chat powered by LM Studio. Click{' '}

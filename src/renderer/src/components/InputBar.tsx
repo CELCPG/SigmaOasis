@@ -239,7 +239,7 @@ export function InputBar(): JSX.Element {
               }}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder="Message OpenMind… (@RoleName to route, drop files to attach)"
+              placeholder="Message FunkinAI… (@RoleName to route, drop files to attach)"
               className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-neutral-400"
             />
             {streaming ? (

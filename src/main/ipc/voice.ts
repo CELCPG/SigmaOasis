@@ -141,7 +141,7 @@ export function registerVoiceHandlers(): void {
       return { ok: false, error: 'The recording was empty — try again.' }
     }
 
-    const wavPath = join(app.getPath('temp'), `openmind-stt-${Date.now()}.wav`)
+    const wavPath = join(app.getPath('temp'), `funkinai-stt-${Date.now()}.wav`)
     try {
       await fs.writeFile(wavPath, Buffer.from(wav))
 

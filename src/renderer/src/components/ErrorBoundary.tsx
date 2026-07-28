@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('OpenMind renderer crashed:', error, info.componentStack)
+    console.error('FunkinAI renderer crashed:', error, info.componentStack)
   }
 
   render(): ReactNode {
@@ -33,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
       <div className="flex h-screen items-center justify-center bg-base-light p-8 text-neutral-900 dark:bg-base-dark dark:text-neutral-100">
         <div className="max-w-lg text-center">
           <p className="mb-2 text-4xl">🧠💥</p>
-          <p className="font-medium">OpenMind hit an unexpected error</p>
+          <p className="font-medium">FunkinAI hit an unexpected error</p>
           <p className="mt-2 text-sm text-neutral-500">
             Your conversations are saved on disk — reloading should pick up where you left off.
           </p>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build OpenMind and install it to /Applications.
+# Build FunkinAI and install it to /Applications.
 #
 # If scripts/signing.env exists (see signing.env.example), the build is
 # signed with your Developer ID certificate and notarized by Apple — no
@@ -31,7 +31,7 @@ esac
 npm run build:mac -- --"$ARCH"
 
 VERSION=$(node -p "require('./package.json').version")
-DMG="dist/OpenMind-${VERSION}-mac-${ARCH}.dmg"
+DMG="dist/FunkinAI-${VERSION}-mac-${ARCH}.dmg"
 if [ ! -f "$DMG" ]; then
   echo "❌ Expected build artifact not found: $DMG"
   exit 1
@@ -43,14 +43,14 @@ if [ -z "$MOUNT" ]; then
   exit 1
 fi
 
-cp -R "$MOUNT/OpenMind.app" /Applications/
+cp -R "$MOUNT/FunkinAI.app" /Applications/
 hdiutil detach "$MOUNT" -quiet
 
 if [ -f scripts/signing.env ]; then
   # Verify Gatekeeper accepts the notarized app.
-  spctl --assess --verbose /Applications/OpenMind.app && \
-    echo "✅ OpenMind ${VERSION} installed — signed, notarized, Gatekeeper-approved"
+  spctl --assess --verbose /Applications/FunkinAI.app && \
+    echo "✅ FunkinAI ${VERSION} installed — signed, notarized, Gatekeeper-approved"
 else
-  xattr -dr com.apple.quarantine /Applications/OpenMind.app
-  echo "✅ OpenMind ${VERSION} installed to /Applications (unsigned; quarantine flag cleared)"
+  xattr -dr com.apple.quarantine /Applications/FunkinAI.app
+  echo "✅ FunkinAI ${VERSION} installed to /Applications (unsigned; quarantine flag cleared)"
 fi

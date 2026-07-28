@@ -16,7 +16,7 @@ export function Sidebar(): JSX.Element {
     <aside className="flex w-64 shrink-0 flex-col border-r border-black/10 dark:border-white/10 bg-panel-light dark:bg-panel-dark">
       <div className="flex items-center gap-2 p-3">
         <span className="text-lg">🧠</span>
-        <span className="text-sm font-semibold">OpenMind</span>
+        <span className="text-sm font-semibold">FunkinAI</span>
         <button
           type="button"
           onClick={createConversation}

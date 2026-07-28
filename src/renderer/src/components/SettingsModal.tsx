@@ -171,7 +171,7 @@ export function SettingsModal(): JSX.Element | null {
                   </p>
                   {!isLoopbackUrl(draft.baseUrl) && (
                     <p className="mt-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
-                      Only servers on this machine are supported. OpenMind&apos;s
+                      Only servers on this machine are supported. FunkinAI&apos;s
                       Content-Security-Policy blocks connections to other hosts, so chat will fail
                       against this URL even if the model list loads.
                     </p>
@@ -461,7 +461,7 @@ export function SettingsModal(): JSX.Element | null {
                     type="button"
                     onClick={() =>
                       speak(
-                        'Hello! This is how OpenMind will sound when reading replies aloud.',
+                        'Hello! This is how FunkinAI will sound when reading replies aloud.',
                         draft.voice.voiceURI,
                         draft.voice.rate
                       )
