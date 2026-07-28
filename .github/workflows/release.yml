@@ -1,0 +1,75 @@
+name: Release
+
+# Tagging a version builds, signs, notarizes, and attaches the installers to a
+# GitHub Release:
+#
+#   npm version 1.0.0 && git push --follow-tags
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   APPLE_ID                     Apple ID enrolled in the Developer Program
+#   APPLE_APP_SPECIFIC_PASSWORD  from appleid.apple.com → App-Specific Passwords
+#   APPLE_TEAM_ID                10-character Team ID
+#   CSC_LINK                     base64 of your Developer ID .p12:
+#                                  base64 -i cert.p12 | pbcopy
+#   CSC_KEY_PASSWORD             password protecting that .p12
+#
+# Without these the macOS job fails at signing — that is deliberate, so an
+# unsigned build is never published as a release.
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  macos:
+    name: macOS (signed & notarized)
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - name: Bundle main, preload & renderer
+        run: npx electron-vite build
+
+      - name: Build, sign, notarize, publish
+        run: npx electron-builder --mac --publish always
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Bundle main, preload & renderer
+        run: npx electron-vite build
+
+      - name: Build & publish
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

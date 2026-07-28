@@ -1,0 +1,38 @@
+appId: com.openmind.app
+productName: OpenMind
+directories:
+  output: dist
+  buildResources: build
+# Releases are published to GitHub Releases by .github/workflows/release.yml.
+# Owner/repo are inferred from the git remote locally and from the Actions
+# environment in CI, so nothing here needs to change if the repo is renamed.
+publish:
+  provider: github
+files:
+  - out/**
+  - package.json
+asar: true
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+  artifactName: ${productName}-${version}-mac.${ext}
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  extendInfo:
+    NSMicrophoneUsageDescription: OpenMind uses the microphone for push-to-talk voice input, transcribed locally on your Mac.
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: OpenMind
+linux:
+  target:
+    - AppImage
+  category: Utility
+  artifactName: ${productName}-${version}-linux.${ext}
