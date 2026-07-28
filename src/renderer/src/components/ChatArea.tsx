@@ -23,6 +23,12 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   }, [conversation.id, conversation.messages.length, lastContentLength, lastToolCount])
 
   if (conversation.messages.length === 0) {
+    const suggestions = [
+      'Explain a concept I can double-check against local files',
+      'Summarize the document I drag in here',
+      'Help me debug an error message',
+      'Draft an email in my voice'
+    ]
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="max-w-md text-center text-sm text-neutral-500">
@@ -31,10 +37,21 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
             Start a conversation
           </p>
           <p className="mt-2">
-            Everything runs locally through LM Studio — no cloud, no telemetry. Try a
-            question, route with <code>@RoleName</code>, or switch to Collaborative mode to
-            chain models.
+            Everything runs locally through LM Studio — no cloud, no telemetry. Route with{' '}
+            <code>@RoleName</code>, drop files to attach, or hold 🎙️ to talk.
           </p>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => useAppStore.getState().setComposerPrefill(s)}
+                className="rounded-xl border border-black/10 dark:border-white/15 px-3 py-2.5 text-left text-xs text-neutral-500 hover:border-accent hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     )
@@ -47,6 +64,7 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
           key={m.id}
           message={m}
           isStreaming={streaming && idx === conversation.messages.length - 1 && m.role === 'assistant'}
+          isLast={idx === conversation.messages.length - 1 && m.role === 'assistant'}
         />
       ))}
       <div ref={bottomRef} />

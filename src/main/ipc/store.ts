@@ -1,5 +1,5 @@
 import Store from 'electron-store'
-import { app, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
@@ -320,6 +320,32 @@ export function registerStoreHandlers(): void {
     }
     return true
   })
+
+  // Export a rendered Markdown transcript via the native save dialog.
+  ipcMain.handle(
+    'conversations:exportMarkdown',
+    async (event, payload: { title: string; markdown: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const safeName =
+        String(payload.title ?? 'conversation')
+          .replace(/[^\w\s-]+/g, '')
+          .trim()
+          .replace(/\s+/g, '-')
+          .slice(0, 60) || 'conversation'
+      const { canceled, filePath } = await dialog.showSaveDialog(win!, {
+        title: 'Export conversation as Markdown',
+        defaultPath: join(app.getPath('documents'), `${safeName}.md`),
+        filters: [{ name: 'Markdown', extensions: ['md'] }]
+      })
+      if (canceled || !filePath) return { ok: false, canceled: true }
+      try {
+        await fs.writeFile(filePath, String(payload.markdown ?? ''), 'utf-8')
+        return { ok: true, path: filePath }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
 }
 
 export function getSettings(): AppSettings {

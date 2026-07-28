@@ -39,6 +39,10 @@ interface AppState {
   streaming: boolean
   setStreaming: (streaming: boolean) => void
 
+  /** One-shot text a component wants dropped into the composer (e.g. a prompt chip). */
+  composerPrefill: string | null
+  setComposerPrefill: (text: string | null) => void
+
   appendMessage: (conversationId: string, message: ChatMessage) => void
   patchMessage: (
     conversationId: string,
@@ -81,6 +85,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   streaming: false,
   setStreaming: (streaming) => set({ streaming }),
+
+  composerPrefill: null,
+  setComposerPrefill: (composerPrefill) => set({ composerPrefill }),
 
   appendMessage: (conversationId, message) =>
     set((s) => ({

@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/appStore'
-import { speak, stopSpeaking } from '../lib/voice'
+import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/voice'
 import type {
   AppSettings,
   Attachment,
@@ -114,6 +114,47 @@ function mentionTarget(settings: AppSettings, text: string): ModelConfig | null 
     if (lower.includes(handle)) return m
   }
   return null
+}
+
+/**
+ * Decide which model slots answer a user message: @mention wins, then the
+ * conversation's mode decides (active slot / pipeline chain / orchestrator).
+ */
+function routeTargets(
+  settings: AppSettings,
+  convo: Conversation,
+  text: string
+): { targets: ModelConfig[]; delegation?: DelegationContext } {
+  const mention = mentionTarget(settings, text)
+  if (mention) return { targets: [mention] }
+
+  if (convo.mode === 'collaborative') {
+    return {
+      targets: settings.pipeline
+        .map((id) => settings.models.find((m) => m.id === id))
+        .filter((m): m is ModelConfig => Boolean(m?.enabled && m.modelId))
+    }
+  }
+
+  if (convo.mode === 'orchestrated') {
+    const orchestrator =
+      settings.models.find((m) => m.id === convo.orchestratorSlotId && m.enabled) ??
+      settings.models.find((m) => m.enabled)
+    if (!orchestrator) return { targets: [] }
+    return {
+      targets: [orchestrator],
+      delegation: {
+        specialists: settings.models.filter(
+          (m) => m.enabled && m.modelId && m.id !== orchestrator.id
+        )
+      }
+    }
+  }
+
+  const active =
+    settings.models.find((m) => m.id === convo.activeModelSlotId && m.enabled) ??
+    settings.models.find((m) => m.enabled)
+  return { targets: active ? [active] : [] }
 }
 
 /**
@@ -385,6 +426,22 @@ async function runTurn(
   const allRecords: ToolCallRecord[] = []
   let delegationCount = 0
 
+  // Voice mode: read the reply aloud sentence-by-sentence as it streams.
+  const voice = useAppStore.getState().settings?.voice
+  let spokenUpTo = 0
+  const speakNewSentences = (flush: boolean): void => {
+    if (!voice?.autoRead || signal.aborted) return
+    const full = assistantMsg.content
+    const unspoken = full.slice(spokenUpTo)
+    // Don't read half a code block — wait for the closing fence.
+    if ((unspoken.match(/```/g) ?? []).length % 2 === 1) return
+    const { complete, rest } = flush
+      ? { complete: unspoken, rest: '' }
+      : extractCompleteSentences(unspoken)
+    if (complete.trim()) enqueueSpeech(complete, voice.voiceURI, voice.rate)
+    spokenUpTo = full.length - rest.length
+  }
+
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     let content = ''
     const { toolCalls } = await streamChat(
@@ -396,9 +453,15 @@ async function runTurn(
       (chunk) => {
         content += chunk
         patch({ content: (assistantMsg.content += chunk) })
+        speakNewSentences(false)
       }
     )
-    if (signal.aborted || toolCalls.length === 0) return
+    if (signal.aborted) return
+    if (toolCalls.length === 0) {
+      // Normal completion — read whatever tail fragment is left unspoken.
+      speakNewSentences(true)
+      return
+    }
 
     // Record the calls on the visible message, then execute them in order.
     apiMessages.push({ role: 'assistant', content: content || null, tool_calls: toolCalls })
@@ -475,18 +538,15 @@ async function runTurn(
         (assistantMsg.content ? `${assistantMsg.content}\n\n` : '') +
         `⚠️ Stopped after ${MAX_TOOL_ITERATIONS} consecutive tool-call rounds.`
     })
-  }
-
-  // Voice mode: read the finished reply aloud.
-  const voice = useAppStore.getState().settings?.voice
-  if (!signal.aborted && voice?.autoRead && assistantMsg.content.trim()) {
-    speak(assistantMsg.content, voice.voiceURI, voice.rate)
+    // Read whatever is left unspoken (including the warning above).
+    speakNewSentences(true)
   }
 }
 
 export function useLMStudio(): {
   sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>
   stopStreaming: () => void
+  regenerate: () => Promise<void>
 } {
   const abortRef = useRef<AbortController | null>(null)
 
@@ -540,36 +600,9 @@ export function useLMStudio(): {
       }
 
       // Routing: @mention wins, then the conversation's mode decides.
-      const mention = mentionTarget(settings, text)
-      let targets: ModelConfig[]
-      let delegation: DelegationContext | undefined
-
-      if (mention) {
-        targets = [mention]
-      } else if (convo.mode === 'collaborative') {
-        targets = settings.pipeline
-          .map((id) => settings.models.find((m) => m.id === id))
-          .filter((m): m is ModelConfig => Boolean(m?.enabled))
-      } else if (convo.mode === 'orchestrated') {
-        const orchestrator =
-          settings.models.find((m) => m.id === convo!.orchestratorSlotId && m.enabled) ??
-          settings.models.find((m) => m.enabled)
-        targets = orchestrator ? [orchestrator] : []
-        if (orchestrator) {
-          // Every other enabled, model-selected slot becomes consultable.
-          delegation = {
-            specialists: settings.models.filter(
-              (m) => m.enabled && m.modelId && m.id !== orchestrator.id
-            )
-          }
-        }
-      } else {
-        const active =
-          settings.models.find((m) => m.id === convo!.activeModelSlotId && m.enabled) ??
-          settings.models.find((m) => m.enabled)
-        targets = active ? [active] : []
-      }
-      targets = targets.filter((t) => t.modelId)
+      const routed = routeTargets(settings, convo, text)
+      const targets = routed.targets.filter((t) => t.modelId)
+      const delegation = routed.delegation
 
       if (targets.length === 0) {
         store.appendMessage(convo.id, {
@@ -584,10 +617,24 @@ export function useLMStudio(): {
       }
 
       const tools = await window.api.listTools().catch(() => [] as ToolSchema[])
+      await executeTargets(convo.id, settings.baseUrl, targets, delegation, tools)
+    },
+    []
+  )
+
+  /** Shared tail: run the routed targets, stream, handle errors, persist. */
+  const executeTargets = useCallback(
+    async (
+      convoId: string,
+      baseUrl: string,
+      targets: ModelConfig[],
+      delegation: DelegationContext | undefined,
+      tools: ToolSchema[]
+    ): Promise<void> => {
+      const store = useAppStore.getState()
       const controller = new AbortController()
       abortRef.current = controller
       store.setStreaming(true)
-      const convoId = convo.id
 
       try {
         for (const slot of targets) {
@@ -596,7 +643,7 @@ export function useLMStudio(): {
           // every turn appends its assistant message to the conversation.
           // In orchestrated mode the single target is the orchestrator and
           // `delegation` carries its consultable specialists.
-          await runTurn(convoId, slot, settings.baseUrl, tools, controller.signal, delegation)
+          await runTurn(convoId, slot, baseUrl, tools, controller.signal, delegation)
         }
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -617,5 +664,39 @@ export function useLMStudio(): {
     []
   )
 
-  return { sendMessage, stopStreaming }
+  /**
+   * Re-answer the most recent user message: drops everything after it and
+   * runs the routing again, so a different answer (or a different active
+   * model) can take its place.
+   */
+  const regenerate = useCallback(async (): Promise<void> => {
+    const store = useAppStore.getState()
+    const settings = store.settings
+    if (!settings || store.streaming) return
+    const convo = store.conversations.find((c) => c.id === store.activeConversationId)
+    if (!convo) return
+    const lastUserIdx = convo.messages.map((m) => m.role).lastIndexOf('user')
+    if (lastUserIdx === -1) return
+
+    const lastUser = convo.messages[lastUserIdx]
+    const truncated: Conversation = { ...convo, messages: convo.messages.slice(0, lastUserIdx + 1) }
+    store.upsertConversation(truncated)
+
+    const routed = routeTargets(settings, truncated, lastUser.content)
+    const targets = routed.targets.filter((t) => t.modelId)
+    if (targets.length === 0) {
+      store.appendMessage(convo.id, {
+        id: uid(),
+        role: 'assistant',
+        content: '⚠️ No routable model. Enable a slot and pick a model under Settings → Models.',
+        createdAt: Date.now()
+      })
+      return
+    }
+
+    const tools = await window.api.listTools().catch(() => [] as ToolSchema[])
+    await executeTargets(convo.id, settings.baseUrl, targets, routed.delegation, tools)
+  }, [executeTargets])
+
+  return { sendMessage, stopStreaming, regenerate }
 }

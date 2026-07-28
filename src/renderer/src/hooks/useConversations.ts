@@ -16,6 +16,7 @@ export function useConversations(): {
   createConversation: () => void
   selectConversation: (id: string) => void
   removeConversation: (id: string) => Promise<void>
+  renameConversation: (id: string, title: string) => Promise<void>
 } {
   const load = useCallback(async (): Promise<void> => {
     const store = useAppStore.getState()
@@ -62,5 +63,16 @@ export function useConversations(): {
     await window.api.deleteConversation(id).catch(() => undefined)
   }, [])
 
-  return { load, createConversation, selectConversation, removeConversation }
+  const renameConversation = useCallback(async (id: string, title: string): Promise<void> => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    const store = useAppStore.getState()
+    const convo = store.conversations.find((c) => c.id === id)
+    if (!convo || convo.title === trimmed) return
+    const updated = { ...convo, title: trimmed }
+    store.upsertConversation(updated)
+    await window.api.saveConversation(updated).catch(() => undefined)
+  }, [])
+
+  return { load, createConversation, selectConversation, removeConversation, renameConversation }
 }

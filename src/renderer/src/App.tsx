@@ -16,12 +16,28 @@ export default function App(): JSX.Element {
     s.conversations.find((c) => c.id === s.activeConversationId)
   )
   const { refresh } = useModels()
-  const { load } = useConversations()
+  const { load, createConversation } = useConversations()
 
   // Boot: load settings, then probe LM Studio and load saved conversations.
   useEffect(() => {
     void window.api.getSettings().then((s) => setSettings(s))
   }, [setSettings])
+
+  // Global shortcuts: ⌘N new conversation, ⌘, settings.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key === 'n') {
+        e.preventDefault()
+        createConversation()
+      } else if (e.key === ',') {
+        e.preventDefault()
+        useAppStore.getState().setSettingsOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [createConversation])
 
   useEffect(() => {
     if (!settings) return

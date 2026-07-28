@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import type { ChatMode, Conversation, ModelConfig } from '../types'
 import { ACCENT } from '../lib/colors'
+import { conversationToMarkdown } from '../lib/exportMarkdown'
 
 interface Props {
   conversation: Conversation
@@ -21,6 +23,20 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const upsertConversation = useAppStore((s) => s.upsertConversation)
   const streaming = useAppStore((s) => s.streaming)
+  const [exported, setExported] = useState(false)
+
+  const exportMarkdown = async (): Promise<void> => {
+    const result = await window.api.exportConversationMarkdown(
+      conversation.title,
+      conversationToMarkdown(conversation)
+    )
+    if (result.ok) {
+      setExported(true)
+      setTimeout(() => setExported(false), 2000)
+    } else if (result.error) {
+      alert(`Export failed: ${result.error}`)
+    }
+  }
 
   if (!settings) return <div className="h-12 border-b border-black/10 dark:border-white/10" />
 
@@ -118,6 +134,17 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
           </span>
         </div>
       )}
+
+      {/* Export transcript */}
+      <button
+        type="button"
+        onClick={() => void exportMarkdown()}
+        disabled={conversation.messages.length === 0}
+        className="ml-auto shrink-0 rounded-lg px-2 py-1 text-xs text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+        title="Export conversation as Markdown"
+      >
+        {exported ? '✓ Exported' : '⤓ Export'}
+      </button>
     </div>
   )
 }

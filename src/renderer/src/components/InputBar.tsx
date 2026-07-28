@@ -41,6 +41,21 @@ export function InputBar(): JSX.Element {
     setMicState('idle')
   }
 
+  // One-shot prefill from prompt chips (empty state) — fill, focus, consume.
+  const composerPrefill = useAppStore((s) => s.composerPrefill)
+  const setComposerPrefill = useAppStore((s) => s.setComposerPrefill)
+  useEffect(() => {
+    if (!composerPrefill) return
+    setText(composerPrefill)
+    setComposerPrefill(null)
+    const el = textareaRef.current
+    if (el) {
+      el.focus()
+      el.style.height = 'auto'
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+    }
+  }, [composerPrefill, setComposerPrefill])
+
   // Escape cancels an in-progress recording; the mic is always released on unmount.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

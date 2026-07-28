@@ -32,6 +32,11 @@ const api = {
     ipcRenderer.invoke('conversations:save', convo),
   deleteConversation: (id: string): Promise<boolean> =>
     ipcRenderer.invoke('conversations:delete', id),
+  exportConversationMarkdown: (
+    title: string,
+    markdown: string
+  ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('conversations:exportMarkdown', { title, markdown }),
 
   // Agentic tool execution (main/ipc/tools.ts)
   listTools: (): Promise<ToolSchema[]> => ipcRenderer.invoke('tools:list'),

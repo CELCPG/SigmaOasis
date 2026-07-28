@@ -4,12 +4,15 @@ import { ACCENT } from '../lib/colors'
 import { renderMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { useAppStore } from '../stores/appStore'
+import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
 
 interface Props {
   message: ChatMessage
   /** True while this message is the one currently streaming. */
   isStreaming: boolean
+  /** True for the final message in the conversation (enables Regenerate). */
+  isLast: boolean
 }
 
 function handleCopyClick(event: React.MouseEvent<HTMLDivElement>): void {
@@ -25,7 +28,11 @@ function handleCopyClick(event: React.MouseEvent<HTMLDivElement>): void {
   })
 }
 
-export function MessageBubble({ message, isStreaming }: Props): JSX.Element {
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Element {
   const html = useMemo(
     () => (message.role === 'assistant' ? renderMarkdown(message.content) : ''),
     [message.role, message.content]
@@ -33,6 +40,16 @@ export function MessageBubble({ message, isStreaming }: Props): JSX.Element {
   // Declared before the user-message branch below: hooks must run in the same
   // order on every render, and an early return would skip this one.
   const [speaking, setSpeaking] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const regenerate = useLMStudio().regenerate
+  const streaming = useAppStore((s) => s.streaming)
+
+  const copyMessage = (): void => {
+    void navigator.clipboard.writeText(message.content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
 
   if (message.role === 'user') {
     const images = (message.attachments ?? []).filter((a) => a.kind === 'image' && a.dataUrl)
@@ -66,6 +83,12 @@ export function MessageBubble({ message, isStreaming }: Props): JSX.Element {
             {message.content}
           </div>
         )}
+        <span
+          className="text-[10px] text-neutral-400"
+          title={new Date(message.createdAt).toLocaleString()}
+        >
+          {formatTime(message.createdAt)}
+        </span>
       </div>
     )
   }
@@ -99,16 +122,43 @@ export function MessageBubble({ message, isStreaming }: Props): JSX.Element {
               {message.roleName}
             </span>
             <span className="font-mono text-xs text-neutral-400">{message.modelId}</span>
-            {!isStreaming && message.content && (
+          </div>
+        )}
+
+        {!isStreaming && message.content && (
+          <div className="mb-1 flex items-center gap-1 text-xs text-neutral-400">
+            <button
+              type="button"
+              onClick={copyMessage}
+              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+              title="Copy message"
+            >
+              {copied ? '✓ Copied' : '📋 Copy'}
+            </button>
+            <button
+              type="button"
+              onClick={toggleSpeak}
+              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+              title={speaking ? 'Stop reading' : 'Read aloud'}
+            >
+              {speaking ? '⏹ Stop' : '🔊 Listen'}
+            </button>
+            {isLast && !streaming && (
               <button
                 type="button"
-                onClick={toggleSpeak}
-                className="ml-auto rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
-                title={speaking ? 'Stop reading' : 'Read aloud'}
+                onClick={() => void regenerate()}
+                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+                title="Re-answer the last message"
               >
-                {speaking ? '⏹ Stop' : '🔊 Listen'}
+                ↻ Regenerate
               </button>
             )}
+            <span
+              className="ml-auto px-1.5 text-[10px]"
+              title={new Date(message.createdAt).toLocaleString()}
+            >
+              {formatTime(message.createdAt)}
+            </span>
           </div>
         )}
 

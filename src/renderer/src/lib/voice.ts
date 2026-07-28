@@ -48,7 +48,77 @@ export function speak(text: string, voiceURI: string, rate: number, onEnd?: () =
 }
 
 export function stopSpeaking(): void {
-  if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  streamQueue.cancel()
+}
+
+// ---- Streaming TTS ------------------------------------------------------------
+
+/**
+ * Sequential speech queue for read-aloud during streaming. speak() cancels
+ * whatever is currently playing, so sentence-by-sentence playback must queue
+ * utterances instead of calling speak() repeatedly.
+ */
+class SpeechQueue {
+  private pending: string[] = []
+  private active = false
+  private voiceURI = ''
+  private rate = 1
+
+  enqueue(sentence: string, voiceURI: string, rate: number): void {
+    if (!('speechSynthesis' in window)) return
+    const text = stripForSpeech(sentence)
+    if (!text) return
+    this.voiceURI = voiceURI
+    this.rate = rate
+    this.pending.push(text)
+    if (!this.active) this.next()
+  }
+
+  private next(): void {
+    const text = this.pending.shift()
+    if (!text) {
+      this.active = false
+      return
+    }
+    this.active = true
+    const utterance = new SpeechSynthesisUtterance(text)
+    if (this.voiceURI) {
+      const voice = window.speechSynthesis.getVoices().find((v) => v.voiceURI === this.voiceURI)
+      if (voice) utterance.voice = voice
+    }
+    utterance.rate = Math.min(2, Math.max(0.5, this.rate))
+    utterance.onend = () => this.next()
+    utterance.onerror = () => this.next()
+    window.speechSynthesis.speak(utterance)
+  }
+
+  cancel(): void {
+    this.pending = []
+    this.active = false
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  }
+}
+
+const streamQueue = new SpeechQueue()
+
+/** Queue a sentence (or sentence fragment) for streaming read-aloud. */
+export function enqueueSpeech(sentence: string, voiceURI: string, rate: number): void {
+  streamQueue.enqueue(sentence, voiceURI, rate)
+}
+
+/**
+ * Splits already-complete sentences off the front of a streaming buffer.
+ * A sentence counts as complete once its terminator is followed by whitespace
+ * or a newline; anything after the last terminator stays in `rest`.
+ */
+export function extractCompleteSentences(buffer: string): { complete: string; rest: string } {
+  const re = /[.!?…]+["'”’)\]]*\s|\n/g
+  let lastEnd = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(buffer)) !== null) lastEnd = m.index + m[0].length
+  return lastEnd === 0
+    ? { complete: '', rest: buffer }
+    : { complete: buffer.slice(0, lastEnd), rest: buffer.slice(lastEnd) }
 }
 
 // ---- WAV recording -------------------------------------------------------------
