@@ -156,3 +156,19 @@ xcrun notarytool log <submission-id> \
 - The repo has **no tests** — CI typechecks and does an unpacked build only.
 - **PDF attachment support** is documented as planned, not implemented — keep
   release notes from implying otherwise.
+
+## Troubleshooting: macOS "malware" dialog deletes Electron on `npm run dev`
+
+On macOS 26+, Gatekeeper's revocation list covers the **stock ad-hoc-signed
+Electron binary** that npm downloads. The dialog says the app "contains
+malware" and macOS silently moves the binary to the Trash — dev mode then
+fails with `spawn …/Electron.app/Contents/MacOS/Electron ENOENT`, and
+locally-built unsigned `dist/*.app` bundles get the same treatment on launch.
+
+- **Dev copies** are fixed automatically: the `postinstall` script
+  (`scripts/sign-dev-electron.sh`) re-signs the local Electron ad-hoc (fresh
+  CDHash, not on the revocation list) after every `npm install`. If you ever
+  hit this mid-session, run it manually.
+- **Release builds** are never fixed locally — unsigned release apps will
+  always be flagged. Only the CI pipeline (steps 3–5 above: Developer ID
+  certificate + the five signing secrets) produces builds macOS trusts.

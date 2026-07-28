@@ -54,6 +54,70 @@ const INSTALL_HINT = IS_WINDOWS
 
 const TRANSCRIBE_TIMEOUT_MS = 120_000
 
+/** 16 kHz mono PCM16 — 10 minutes is far beyond any push-to-talk clip. */
+const MAX_WAV_BYTES = 16_000 * 2 * 60 * 10
+
+/**
+ * whisper.cpp hallucinates on silence (classic outputs: "you", "Thank you.",
+ * "[BLANK_AUDIO]"). Gate on RMS energy before ever invoking the CLI, and
+ * filter residual noise-only transcripts below.
+ */
+const MIN_RMS = 0.004
+
+/** Whole-transcript phrases whisper emits for noise/silence (lowercased). */
+const SILENCE_HALLUCINATIONS = new Set([
+  'you',
+  'thank you',
+  'thank you.',
+  'thanks',
+  'thanks for watching',
+  'thanks for watching!',
+  'bye',
+  'bye bye',
+  '.',
+  '..'
+])
+
+/** RMS amplitude of 16-bit PCM data inside a WAV buffer (0–1 scale). */
+function wavRms(wav: Buffer): number {
+  // Locate the "data" chunk rather than assuming a 44-byte header.
+  let offset = 12
+  while (offset + 8 <= wav.length) {
+    const id = wav.toString('ascii', offset, offset + 4)
+    const size = wav.readUInt32LE(offset + 4)
+    if (id === 'data') {
+      const start = offset + 8
+      const end = Math.min(start + size, wav.length - 1)
+      if (end <= start) return 0
+      let sum = 0
+      let count = 0
+      for (let i = start; i + 1 < end; i += 2) {
+        const s = wav.readInt16LE(i) / 0x8000
+        sum += s * s
+        count++
+      }
+      return count > 0 ? Math.sqrt(sum / count) : 0
+    }
+    offset += 8 + size + (size % 2) // chunks are word-aligned
+  }
+  return 0
+}
+
+/** Strips whisper noise tokens and known silence hallucinations. */
+function cleanTranscript(raw: string): string {
+  const text = raw
+    // Bracketed/parenthesized whisper tokens: [BLANK_AUDIO], (silence), [ Music ]
+    .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text) return ''
+  return SILENCE_HALLUCINATIONS.has(text.toLowerCase()) ? '' : text
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fs.access(path)
@@ -140,10 +204,20 @@ export function registerVoiceHandlers(): void {
     if (!wav || wav.byteLength < 100) {
       return { ok: false, error: 'The recording was empty — try again.' }
     }
+    if (wav.byteLength > MAX_WAV_BYTES) {
+      return { ok: false, error: 'The recording is too long — keep voice clips under 10 minutes.' }
+    }
+
+    const wavBuffer = Buffer.from(wav)
+    // Silence gate: whisper hallucinates plausible-looking text on quiet
+    // noise, so don't invoke it at all when nothing was said.
+    if (wavRms(wavBuffer) < MIN_RMS) {
+      return { ok: false, error: 'No speech detected — check your microphone and try again.' }
+    }
 
     const wavPath = join(app.getPath('temp'), `funkinai-stt-${Date.now()}.wav`)
     try {
-      await fs.writeFile(wavPath, Buffer.from(wav))
+      await fs.writeFile(wavPath, wavBuffer)
 
       const text = await new Promise<string>((resolvePromise, rejectPromise) => {
         execFile(
@@ -160,13 +234,8 @@ export function registerVoiceHandlers(): void {
         )
       })
 
-      // whisper-cli echoes blank lines / leading whitespace around the transcript.
-      const transcript = text
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .join(' ')
-        .trim()
+      // whisper-cli echoes blank lines / noise tokens around the transcript.
+      const transcript = cleanTranscript(text)
       return transcript
         ? { ok: true, text: transcript }
         : { ok: false, error: 'No speech detected in the recording.' }

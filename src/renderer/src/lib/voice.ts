@@ -24,9 +24,17 @@ export function stripForSpeech(markdown: string): string {
 }
 
 export function speak(text: string, voiceURI: string, rate: number, onEnd?: () => void): void {
-  if (!('speechSynthesis' in window)) return
+  if (!('speechSynthesis' in window)) {
+    onEnd?.()
+    return
+  }
   window.speechSynthesis.cancel()
-  const utterance = new SpeechSynthesisUtterance(stripForSpeech(text))
+  const stripped = stripForSpeech(text)
+  if (!stripped) {
+    onEnd?.()
+    return
+  }
+  const utterance = new SpeechSynthesisUtterance(stripped)
   if (voiceURI) {
     const voice = window.speechSynthesis.getVoices().find((v) => v.voiceURI === voiceURI)
     if (voice) utterance.voice = voice
@@ -98,13 +106,19 @@ function downsample(input: Float32Array, fromRate: number, toRate: number): Floa
 /**
  * Records microphone audio and returns it as a 16 kHz mono WAV ArrayBuffer.
  * Usage: `const rec = new WavRecorder(); await rec.start(); … rec.stop()`
+ *
+ * Capture is capped at MAX_SECONDS so a forgotten recording can't grow
+ * memory unboundedly; samples past the cap are dropped (stop() still works).
  */
 export class WavRecorder {
+  static readonly MAX_SECONDS = 150
+
   private ctx: AudioContext | null = null
   private stream: MediaStream | null = null
   private source: MediaStreamAudioSourceNode | null = null
   private processor: ScriptProcessorNode | null = null
   private chunks: Float32Array[] = []
+  private capturedSeconds = 0
 
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -116,11 +130,20 @@ export class WavRecorder {
     // Chromium and fine for short push-to-talk clips.
     this.processor = this.ctx.createScriptProcessor(4096, 1, 1)
     this.chunks = []
+    this.capturedSeconds = 0
     this.processor.onaudioprocess = (e) => {
-      this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)))
+      if (this.capturedSeconds >= WavRecorder.MAX_SECONDS) return
+      const data = e.inputBuffer.getChannelData(0)
+      this.chunks.push(new Float32Array(data))
+      this.capturedSeconds += data.length / (this.ctx?.sampleRate ?? 48_000)
     }
     this.source.connect(this.processor)
     this.processor.connect(this.ctx.destination)
+  }
+
+  /** Seconds of audio captured so far. */
+  get elapsedSeconds(): number {
+    return this.capturedSeconds
   }
 
   /** Stops recording and returns the WAV bytes (16 kHz mono PCM16). */

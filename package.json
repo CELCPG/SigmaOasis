@@ -23,6 +23,7 @@
     "build:win": "electron-vite build && electron-builder --win",
     "build:linux": "electron-vite build && electron-builder --linux",
     "install:mac": "bash scripts/install-mac.sh",
+    "postinstall": "bash scripts/sign-dev-electron.sh || true",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {

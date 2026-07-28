@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
@@ -18,11 +18,46 @@ export function InputBar(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [micState, setMicState] = useState<MicState>('idle')
+  const [recSeconds, setRecSeconds] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const recorderRef = useRef<WavRecorder | null>(null)
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const streaming = useAppStore((s) => s.streaming)
   const settings = useAppStore((s) => s.settings)
   const { sendMessage, stopStreaming } = useLMStudio()
+
+  const stopRecTimer = (): void => {
+    if (recTimerRef.current) {
+      clearInterval(recTimerRef.current)
+      recTimerRef.current = null
+    }
+  }
+
+  const cancelRecording = (): void => {
+    recorderRef.current?.cancel()
+    recorderRef.current = null
+    stopRecTimer()
+    setRecSeconds(0)
+    setMicState('idle')
+  }
+
+  // Escape cancels an in-progress recording; the mic is always released on unmount.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && recorderRef.current) {
+        cancelRecording()
+        setNotice('Recording cancelled.')
+        setTimeout(() => setNotice(null), 4000)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      recorderRef.current?.cancel()
+      recorderRef.current = null
+      stopRecTimer()
+    }
+  }, [])
 
   const handles = (settings?.models ?? [])
     .filter((m) => m.enabled && m.roleName.trim())
@@ -83,6 +118,8 @@ export function InputBar(): JSX.Element {
       // Stop → transcribe locally via whisper.cpp.
       const recorder = recorderRef.current
       recorderRef.current = null
+      stopRecTimer()
+      setRecSeconds(0)
       if (!recorder) return
       const wav = recorder.stop()
       setMicState('transcribing')
@@ -114,6 +151,11 @@ export function InputBar(): JSX.Element {
       await recorder.start()
       recorderRef.current = recorder
       setMicState('recording')
+      setRecSeconds(0)
+      recTimerRef.current = setInterval(
+        () => setRecSeconds(Math.floor(recorderRef.current?.elapsedSeconds ?? 0)),
+        500
+      )
     } catch {
       showNotice('Microphone access was denied — allow it in your system privacy settings.')
     }
@@ -222,13 +264,17 @@ export function InputBar(): JSX.Element {
               }`}
               title={
                 micState === 'recording'
-                  ? 'Recording — click to stop and transcribe'
+                  ? `Recording ${recSeconds}s — click to stop and transcribe, Esc to cancel`
                   : micState === 'transcribing'
                     ? 'Transcribing locally…'
                     : 'Push-to-talk (local whisper.cpp transcription)'
               }
             >
-              {micState === 'transcribing' ? '⏳' : '🎙️'}
+              {micState === 'recording'
+                ? `🔴 ${recSeconds}s`
+                : micState === 'transcribing'
+                  ? '⏳'
+                  : '🎙️'}
             </button>
             <textarea
               ref={textareaRef}

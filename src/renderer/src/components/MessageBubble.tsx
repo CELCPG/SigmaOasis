@@ -79,6 +79,7 @@ export function MessageBubble({ message, isStreaming }: Props): JSX.Element {
       setSpeaking(false)
       return
     }
+    if (!('speechSynthesis' in window)) return
     const voice = useAppStore.getState().settings?.voice
     speak(message.content, voice?.voiceURI ?? '', voice?.rate ?? 1, () => setSpeaking(false))
     setSpeaking(true)

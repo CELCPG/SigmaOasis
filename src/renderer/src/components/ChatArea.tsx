@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '../stores/appStore'
+import { stopSpeaking } from '../lib/voice'
 import type { Conversation } from '../types'
 import { MessageBubble } from './MessageBubble'
 
@@ -11,6 +12,11 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   const lastMessage = conversation.messages[conversation.messages.length - 1]
   const lastContentLength = lastMessage?.content.length ?? 0
   const lastToolCount = lastMessage?.toolCalls?.length ?? 0
+
+  // Stop any read-aloud from the previous conversation.
+  useEffect(() => {
+    stopSpeaking()
+  }, [conversation.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
