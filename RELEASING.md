@@ -1,0 +1,158 @@
+# Releasing FunkinAI
+
+Step-by-step checklist for publishing a signed, notarized release to GitHub
+Releases. Everything here is account-side setup — the code side is already
+verified (typecheck clean, arm64 + x64 DMGs build, v0.5.0 smoke-tested on
+macOS 26).
+
+Do the steps in order. Steps 1–5 are one-time setup; step 6 is the actual
+release and is all you need to repeat for future versions.
+
+---
+
+## 1. Install and authenticate the GitHub CLI
+
+```bash
+brew install gh
+gh auth login
+```
+
+Choose **GitHub.com → HTTPS → Yes (authenticate Git with GitHub credentials) →
+Login with a web browser**. This also configures git's credential helper, so
+plain `git push` works afterwards.
+
+## 2. Create the GitHub repo and push `main`
+
+```bash
+cd /Users/colinlong/Documents/OpenMind
+gh repo create CELCPG/FunkinAI --public --source=. --remote=origin --push
+```
+
+This creates the repo, adds it as the `origin` remote, and pushes `main` in
+one command. Verify with `git remote -v` and by opening
+https://github.com/CELCPG/FunkinAI — the `package.json` repository/homepage/bugs
+URLs already point there.
+
+## 3. Get your Developer ID certificate into Keychain
+
+You need a **Developer ID Application** certificate:
+
+1. Go to https://developer.apple.com/account/resources/certificates/list
+2. If no "Developer ID Application" certificate exists, click **+**, choose
+   **Developer ID Application**, and follow the CSR flow (Keychain Access →
+   Certificate Assistant → Request a Certificate from a Certificate Authority).
+3. Download the `.cer`, double-click to import it into Keychain Access
+   (login keychain).
+4. Verify the private key paired with it is visible:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+You should see `1) … "Developer ID Application: Colin Long (TEAMID)"`.
+If it says `0 valid identities`, the private key is missing — re-do the CSR
+flow on this Mac (the private key is created locally during the CSR step).
+
+## 4. Export the certificate as .p12 and base64 it
+
+1. Open **Keychain Access** → login keychain → **My Certificates**.
+2. Expand **Developer ID Application: …**, select **both** the certificate and
+   its private key, right-click → **Export 2 items…** → save as `cert.p12`
+   with a strong password (you'll need it in the next step).
+3. Base64-encode it to the clipboard:
+
+```bash
+base64 -i cert.p12 | pbcopy
+```
+
+4. **Delete `cert.p12` immediately after the secrets are saved** (step 5) —
+   never commit it. `.gitignore` already excludes `scripts/signing.env`, but
+   the `.p12` itself is not ignored, so don't leave it in the repo directory.
+
+## 5. Add the five repository secrets
+
+Go to https://github.com/CELCPG/FunkinAI/settings/secrets/actions and add
+**New repository secret** for each:
+
+| Secret | Value |
+| --- | --- |
+| `CSC_LINK` | The base64 string from step 4 (paste from clipboard) |
+| `CSC_KEY_PASSWORD` | The password you set when exporting `cert.p12` |
+| `APPLE_ID` | The Apple ID email enrolled in the Developer Program |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Generate at https://appleid.apple.com → Sign-In and Security → App-Specific Passwords |
+| `APPLE_TEAM_ID` | Your 10-character Team ID, from https://developer.apple.com/account → Membership details |
+
+These names are exactly what `.github/workflows/release.yml` reads. Without
+them the macOS job fails at signing on purpose — an unsigned build is never
+published as a release.
+
+## 6. Cut the release
+
+```bash
+cd /Users/colinlong/Documents/OpenMind
+git tag v0.5.0
+git push origin v0.5.0
+```
+
+(or `npm version <x.y.z> && git push --follow-tags` for later versions, which
+bumps `package.json` and tags in one step.)
+
+Then watch the run:
+
+```bash
+gh run watch
+```
+
+The `Release` workflow runs two jobs:
+
+- **macOS (signed & notarized)** — typecheck → bundle → build both DMGs →
+  sign → notarize → staple → attach to the GitHub Release. Notarization is
+  the slow part; expect 5–15 minutes.
+- **Windows** — builds the unsigned NSIS installer and attaches it.
+
+When it finishes, verify the release page shows:
+
+- `FunkinAI-0.5.0-mac-arm64.dmg`
+- `FunkinAI-0.5.0-mac-x64.dmg`
+- `FunkinAI-0.5.0-setup.exe`
+- `latest-mac.yml` / `latest.yml` (auto-update metadata)
+
+## 7. Spot-check the signed DMG (recommended, first release only)
+
+Download the arm64 DMG from the release page on your Mac, install, and:
+
+```bash
+spctl --assess --verbose /Applications/FunkinAI.app
+# → accepted, source=Notarized Developer ID
+
+codesign --verify --deep --strict --verbose=2 /Applications/FunkinAI.app
+# → valid on disk / satisfies its Designated Requirement
+```
+
+It should launch with **no Gatekeeper dialog at all**.
+
+---
+
+## If the macOS job fails
+
+- **At signing** — re-check all five secrets for typos/extra whitespace, and
+  that the `.p12` contained *both* certificate and private key.
+- **At notarization** — get the log (the submission ID is in the CI log):
+
+```bash
+xcrun notarytool log <submission-id> \
+  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+  --password "$APPLE_APP_SPECIFIC_PASSWORD"
+```
+
+  Common causes: an unsigned nested binary, or a missing hardened-runtime
+  entitlement (`build/entitlements.mac.plist` — the app spawns `whisper-cli`
+  and a shell, so the entitlements are load-bearing).
+- **Windows SmartScreen warning** — expected; Windows builds are unsigned for
+  now.
+
+## Known non-blockers
+
+- The repo has **no tests** — CI typechecks and does an unpacked build only.
+- **PDF attachment support** is documented as planned, not implemented — keep
+  release notes from implying otherwise.
