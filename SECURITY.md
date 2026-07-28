@@ -50,5 +50,6 @@ spctl --assess --verbose /Applications/FunkinAI.app
 codesign --verify --deep --strict --verbose=2 /Applications/FunkinAI.app
 ```
 
-Builds you make yourself without signing credentials are unsigned; Gatekeeper will block them until
-the quarantine flag is cleared. See the README's troubleshooting section.
+Builds you make yourself without signing credentials are unsigned; Gatekeeper will block them
+until you approve the app via System Settings → Privacy & Security → Open Anyway. See the
+README's troubleshooting section.

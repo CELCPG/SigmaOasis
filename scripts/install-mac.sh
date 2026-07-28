@@ -51,6 +51,8 @@ if [ -f scripts/signing.env ]; then
   spctl --assess --verbose /Applications/FunkinAI.app && \
     echo "✅ FunkinAI ${VERSION} installed — signed, notarized, Gatekeeper-approved"
 else
-  xattr -dr com.apple.quarantine /Applications/FunkinAI.app
-  echo "✅ FunkinAI ${VERSION} installed to /Applications (unsigned; quarantine flag cleared)"
+  xattr -dr com.apple.quarantine /Applications/FunkinAI.app 2>/dev/null || true
+  echo "✅ FunkinAI ${VERSION} installed to /Applications (unsigned)"
+  echo "⚠️  Unsigned build: on first launch macOS will block it as 'malware'."
+  echo "   Approve it once via System Settings → Privacy & Security → Open Anyway."
 fi
