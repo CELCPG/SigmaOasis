@@ -173,7 +173,7 @@ export function SettingsModal(): JSX.Element | null {
                   </p>
                   {!isLoopbackUrl(draft.baseUrl) && (
                     <p className="mt-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
-                      Only servers on this machine are supported. FunkinAI&apos;s
+                      Only servers on this machine are supported. Sigma Oasis&apos;s
                       Content-Security-Policy blocks connections to other hosts, so chat will fail
                       against this URL even if the model list loads.
                     </p>
@@ -360,10 +360,26 @@ export function SettingsModal(): JSX.Element | null {
                     Maximum number of conversations to keep.
                   </p>
                 </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Chat appearance</label>
+                  <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.hideToolCalls}
+                      onChange={(e) => update({ hideToolCalls: e.target.checked })}
+                      className="h-4 w-4 accent-accent"
+                    />
+                    Hide tool-call details
+                  </label>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    When on, tool activity collapses to a subtle thinking animation — the chat
+                    stays clean. Off by default.
+                  </p>
+                </div>
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <label className="mb-1 block text-sm font-medium">About</label>
                   <p className="text-sm text-neutral-500">
-                    FunkinAI v{updateStatus?.currentVersion ?? '…'}
+                    Sigma Oasis v{updateStatus?.currentVersion ?? '…'}
                   </p>
                   <div className="mt-2 flex items-center gap-3">
                     <span className="text-xs text-neutral-500">
@@ -504,7 +520,7 @@ export function SettingsModal(): JSX.Element | null {
                     type="button"
                     onClick={() =>
                       speak(
-                        'Hello! This is how FunkinAI will sound when reading replies aloud.',
+                        'Hello! This is how Sigma Oasis will sound when reading replies aloud.',
                         draft.voice.voiceURI,
                         draft.voice.rate
                       )

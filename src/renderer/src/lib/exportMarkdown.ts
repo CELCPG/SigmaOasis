@@ -9,7 +9,7 @@ export function conversationToMarkdown(convo: Conversation): string {
   const lines: string[] = [
     `# ${convo.title}`,
     '',
-    `_Exported from FunkinAI · ${new Date(convo.updatedAt).toLocaleString()}_`,
+    `_Exported from Sigma Oasis · ${new Date(convo.updatedAt).toLocaleString()}_`,
     ''
   ]
 

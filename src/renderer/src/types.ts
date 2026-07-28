@@ -99,6 +99,8 @@ export interface AppSettings {
   memory: MemorySettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean
+  /** Hide tool-call blocks in chat; show a thinking animation instead. */
+  hideToolCalls: boolean
 }
 
 // ---- LM Studio / OpenAI-compatible API --------------------------------------

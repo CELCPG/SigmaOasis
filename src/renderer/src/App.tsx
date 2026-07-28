@@ -8,6 +8,7 @@ import { ChatArea } from './components/ChatArea'
 import { InputBar } from './components/InputBar'
 import { SettingsModal } from './components/SettingsModal'
 import { OnboardingModal } from './components/OnboardingModal'
+import { Logo } from './components/Logo'
 
 export default function App(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
@@ -70,9 +71,9 @@ export default function App(): JSX.Element {
         ) : (
           <div className="flex flex-1 items-center justify-center p-8">
             <div className="max-w-md text-center text-sm text-neutral-500">
-              <p className="mb-2 text-4xl">🧠</p>
+              <p className="mb-2 flex justify-center"><Logo size={44} /></p>
               <p className="font-medium text-neutral-700 dark:text-neutral-300">
-                Welcome to FunkinAI
+                Welcome to Sigma Oasis
               </p>
               <p className="mt-2">
                 A private, local-first AI chat powered by LM Studio. Click{' '}

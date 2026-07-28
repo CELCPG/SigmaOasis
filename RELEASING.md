@@ -1,4 +1,4 @@
-# Releasing FunkinAI
+# Releasing Sigma Oasis
 
 Step-by-step checklist for publishing a signed, notarized release to GitHub
 Releases. Everything here is account-side setup — the code side is already
@@ -25,12 +25,12 @@ plain `git push` works afterwards.
 
 ```bash
 cd /Users/colinlong/Documents/OpenMind
-gh repo create CELCPG/FunkinAI --public --source=. --remote=origin --push
+gh repo create CELCPG/SigmaOasis --public --source=. --remote=origin --push
 ```
 
 This creates the repo, adds it as the `origin` remote, and pushes `main` in
 one command. Verify with `git remote -v` and by opening
-https://github.com/CELCPG/FunkinAI — the `package.json` repository/homepage/bugs
+https://github.com/CELCPG/SigmaOasis — the `package.json` repository/homepage/bugs
 URLs already point there.
 
 ## 3. Get your Developer ID certificate into Keychain
@@ -71,7 +71,7 @@ base64 -i cert.p12 | pbcopy
 
 ## 5. Add the five repository secrets
 
-Go to https://github.com/CELCPG/FunkinAI/settings/secrets/actions and add
+Go to https://github.com/CELCPG/SigmaOasis/settings/secrets/actions and add
 **New repository secret** for each:
 
 | Secret | Value |
@@ -112,9 +112,9 @@ The `Release` workflow runs two jobs:
 
 When it finishes, verify the release page shows:
 
-- `FunkinAI-0.5.0-mac-arm64.dmg`
-- `FunkinAI-0.5.0-mac-x64.dmg`
-- `FunkinAI-0.5.0-setup.exe`
+- `Sigma Oasis-0.5.0-mac-arm64.dmg`
+- `Sigma Oasis-0.5.0-mac-x64.dmg`
+- `Sigma Oasis-0.5.0-setup.exe`
 - `latest-mac.yml` / `latest.yml` (auto-update metadata)
 
 ## 7. Spot-check the signed DMG (recommended, first release only)
@@ -122,10 +122,10 @@ When it finishes, verify the release page shows:
 Download the arm64 DMG from the release page on your Mac, install, and:
 
 ```bash
-spctl --assess --verbose /Applications/FunkinAI.app
+spctl --assess --verbose /Applications/Sigma Oasis.app
 # → accepted, source=Notarized Developer ID
 
-codesign --verify --deep --strict --verbose=2 /Applications/FunkinAI.app
+codesign --verify --deep --strict --verbose=2 /Applications/Sigma Oasis.app
 # → valid on disk / satisfies its Designated Requirement
 ```
 

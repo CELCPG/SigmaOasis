@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
+import { Logo } from './Logo'
 import type { SttStatus } from '../types'
 
 type CheckState = 'ok' | 'warn' | 'fail' | 'checking'
@@ -21,7 +22,7 @@ const ICONS: Record<CheckState, string> = {
 }
 
 /**
- * First-run setup checklist: verifies the four things FunkinAI needs —
+ * First-run setup checklist: verifies the four things Sigma Oasis needs —
  * LM Studio, a configured model, whisper.cpp for voice input, and mic
  * permission — and points at the exact fix for each. Re-openable any time
  * from the 🧭 button in the sidebar.
@@ -116,7 +117,7 @@ export function OnboardingModal(): JSX.Element | null {
       state: mic === 'granted' ? 'ok' : mic === 'denied' ? 'warn' : 'checking',
       detail:
         mic === 'granted'
-          ? 'FunkinAI can use your microphone.'
+          ? 'Sigma Oasis can use your microphone.'
           : mic === 'denied'
             ? 'Blocked — enable it in System Settings → Privacy & Security → Microphone.'
             : 'macOS will ask the first time you use push-to-talk.'
@@ -134,8 +135,8 @@ export function OnboardingModal(): JSX.Element | null {
         className="w-full max-w-md rounded-2xl bg-panel-light dark:bg-panel-dark p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="mb-1 text-3xl">🧠</p>
-        <h2 className="text-lg font-semibold">Welcome to FunkinAI</h2>
+        <p className="mb-1"><Logo size={44} /></p>
+        <h2 className="text-lg font-semibold">Welcome to Sigma Oasis</h2>
         <p className="mt-1 text-sm text-neutral-500">
           Private, local-first AI chat. Let&apos;s make sure everything is ready:
         </p>

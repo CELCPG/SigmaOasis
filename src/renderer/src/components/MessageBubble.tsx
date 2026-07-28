@@ -94,7 +94,15 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
   }
 
   const accent = message.color ? ACCENT[message.color] : null
-  const showTyping = isStreaming && message.content === '' && (message.toolCalls?.length ?? 0) === 0
+  const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
+  const toolCalls = message.toolCalls ?? []
+  const showTyping = isStreaming && message.content === '' && toolCalls.length === 0
+  // Hidden tool calls: a spinner stands in while tools run with nothing said yet.
+  const showThinking =
+    hideToolCalls &&
+    isStreaming &&
+    message.content === '' &&
+    toolCalls.some((t) => t.status === 'running')
 
   const toggleSpeak = (): void => {
     if (speaking) {
@@ -177,7 +185,15 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
           />
         )}
 
-        {message.toolCalls?.map((record) => <ToolCallBlock key={record.id} record={record} />)}
+        {showThinking && (
+          <div className="flex items-center gap-2 py-1 text-xs text-neutral-400">
+            <span className="thinking-spinner" />
+            Thinking…
+          </div>
+        )}
+
+        {!hideToolCalls &&
+          toolCalls.map((record) => <ToolCallBlock key={record.id} record={record} />)}
       </div>
     </div>
   )

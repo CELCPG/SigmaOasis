@@ -307,7 +307,7 @@ async function executeTool(
       case 'web_search': {
         const query = String(args.query ?? '')
         const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`
-        const res = await fetch(url, { headers: { 'User-Agent': 'FunkinAI/0.1' } })
+        const res = await fetch(url, { headers: { 'User-Agent': 'Sigma Oasis/0.1' } })
         if (!res.ok) return { ok: false, error: `DuckDuckGo returned HTTP ${res.status}` }
         const data = (await res.json()) as {
           AbstractText?: string

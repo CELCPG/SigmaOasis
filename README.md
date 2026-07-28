@@ -1,8 +1,8 @@
-# 🧠 FunkinAI
+# 🧠 Sigma Oasis
 
 **A private, local-first desktop AI chat app powered by [LM Studio](https://lmstudio.ai).**
 
-FunkinAI is a cross-platform (macOS + Windows + Linux) desktop application, inspired by the
+Sigma Oasis is a cross-platform (macOS + Windows + Linux) desktop application, inspired by the
 Claude Desktop UI, that talks to models running locally in LM Studio via its OpenAI-compatible
 API. It supports **up to 3 model "roles"** simultaneously, **agentic tools** (file I/O, terminal,
 web search, notes), **@mention routing**, and a **collaborative pipeline** mode — all while keeping
@@ -111,7 +111,7 @@ Example pipeline: `Researcher → Coder → Assistant` — research the problem,
 
 ## 🛠️ Agentic tools
 
-Tools use LM Studio's OpenAI-compatible **tool calling**. When a model requests a tool, FunkinAI
+Tools use LM Studio's OpenAI-compatible **tool calling**. When a model requests a tool, Sigma Oasis
 executes it **in the Electron main process** (never the renderer) and feeds the result back to the
 model. Each call appears as a collapsible **"Tool Used: …"** block showing the arguments and result.
 
@@ -150,9 +150,9 @@ All data lives in your OS application-data directory (`app.getPath('userData')`)
 - **Notes** — `notes.json`
 
 Typical locations:
-- macOS: `~/Library/Application Support/FunkinAI`
-- Windows: `%APPDATA%\FunkinAI`
-- Linux: `~/.config/FunkinAI`
+- macOS: `~/Library/Application Support/Sigma Oasis`
+- Windows: `%APPDATA%\Sigma Oasis`
+- Linux: `~/.config/Sigma Oasis`
 
 There is **no cloud sync and no telemetry**.
 
@@ -161,7 +161,7 @@ There is **no cloud sync and no telemetry**.
 ## 🧱 Project structure
 
 ```
-funkinai/
+sigma-oasis/
 ├── src/
 │   ├── main/                 # Electron main process
 │   │   ├── index.ts          # App/window bootstrap
@@ -214,7 +214,7 @@ funkinai/
 
 ## 🩺 Troubleshooting
 
-- **macOS says "FunkinAI.app was not opened because it contains malware" / moves it to Trash** — the app is built without an Apple Developer ID signature, so Gatekeeper hard-blocks it. This is expected for unsigned builds, not an actual malware finding. Fix: after the block happens, open **System Settings → Privacy & Security**, scroll to the Security section, and click **Open Anyway** next to the blocked-app notice (then confirm with your password). If the app was moved to Trash, drag it back to `/Applications` first; the approval is tied to the binary, so it only needs doing once per build. On macOS 26+, the old `xattr -dr com.apple.quarantine` workaround no longer bypasses this block. For public distribution, sign with a Developer ID certificate and notarize (Apple Developer Program, $99/yr) — electron-builder supports both automatically once credentials are configured, and properly notarized builds don't trigger this dialog at all.
+- **macOS says "Sigma Oasis.app was not opened because it contains malware" / moves it to Trash** — the app is built without an Apple Developer ID signature, so Gatekeeper hard-blocks it. This is expected for unsigned builds, not an actual malware finding. Fix: after the block happens, open **System Settings → Privacy & Security**, scroll to the Security section, and click **Open Anyway** next to the blocked-app notice (then confirm with your password). If the app was moved to Trash, drag it back to `/Applications` first; the approval is tied to the binary, so it only needs doing once per build. On macOS 26+, the old `xattr -dr com.apple.quarantine` workaround no longer bypasses this block. For public distribution, sign with a Developer ID certificate and notarize (Apple Developer Program, $99/yr) — electron-builder supports both automatically once credentials are configured, and properly notarized builds don't trigger this dialog at all.
 - **"LM Studio not detected"** — make sure LM Studio's local server is **started** and a model is **loaded**. Click the **Retry** button or **Settings → Connection → Test / Refresh**.
 - **A model slot says "No model selected"** — open **Settings → Models** and choose a model from the dropdown for that slot.
 - **Different port/URL** — update the base URL in **Settings → Connection** (e.g. `http://127.0.0.1:1234/v1`). The server must be on **this machine**: the renderer's Content-Security-Policy only permits loopback connections, so a LAN or remote LM Studio won't work for chat.

@@ -145,6 +145,22 @@ body {
   line-height: 1.5;
 }
 
+/* ---- Thinking spinner (hidden tool calls) ----------------------------------- */
+
+.thinking-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(13, 148, 136, 0.25);
+  border-top-color: #0d9488;
+  animation: thinking-rotate 0.8s linear infinite;
+}
+@keyframes thinking-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---- Typing indicator ------------------------------------------------------- */
 
 .typing-indicator span {

@@ -65,7 +65,7 @@ export function registerUpdateHandlers(): void {
     const { response } = await dialog.showMessageBox(win!, {
       type: 'info',
       title: 'Update ready',
-      message: `FunkinAI ${info.version} is ready`,
+      message: `Sigma Oasis ${info.version} is ready`,
       detail: 'The update has been downloaded. Restart to finish installing it.',
       buttons: ['Restart now', 'Later'],
       defaultId: 0,

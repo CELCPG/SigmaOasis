@@ -1,6 +1,7 @@
 import Store from 'electron-store'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { promises as fs } from 'fs'
+import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
 
@@ -63,6 +64,8 @@ export interface AppSettings {
   memory: MemorySettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean
+  /** Hide tool-call blocks in chat; show a thinking animation instead. */
+  hideToolCalls: boolean
 }
 
 function defaultSettings(): AppSettings {
@@ -131,7 +134,8 @@ function defaultSettings(): AppSettings {
       topK: 3,
       embeddingModel: ''
     },
-    onboardingCompleted: false
+    onboardingCompleted: false,
+    hideToolCalls: false
   }
 }
 
@@ -205,7 +209,9 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       autoContext: Boolean(settings.memory?.autoContext),
       embeddingModel: str(settings.memory?.embeddingModel, ''),
       topK: clamp(settings.memory?.topK, 1, 8, 3)
-    }
+    },
+    onboardingCompleted: Boolean(settings.onboardingCompleted),
+    hideToolCalls: Boolean(settings.hideToolCalls)
   }
 }
 
@@ -226,6 +232,46 @@ export function migrateSettings(): void {
   } as AppSettings
   store.set('settings', normalizeSettings(merged))
 }
+
+/**
+ * Rebrand migration (FunkinAI → Sigma Oasis): the app data directory is named
+ * after the app, so renaming the app would orphan every setting, conversation,
+ * note and memory. Chromium creates the new profile directory at startup —
+ * before this module runs — so migration is per-item: legacy data wins over
+ * the just-created fresh defaults (those are kept as *.pre-rebrand-backup).
+ * Runs at import time, before `new Store` below.
+ */
+function migrateLegacyDataDir(): void {
+  try {
+    const current = app.getPath('userData')
+    const marker = join(current, '.rebrand-migrated')
+    if (existsSync(marker)) return
+    const appData = app.getPath('appData')
+    // 'FunkinAI' = packaged builds (productName), 'funkinai' = dev (npm name).
+    // Prefer the dir matching this run mode when both exist.
+    const packaged = join(appData, 'FunkinAI')
+    const dev = join(appData, 'funkinai')
+    const candidates = app.isPackaged ? [packaged, dev] : [dev, packaged]
+    for (const legacy of candidates) {
+      if (legacy === current || !existsSync(legacy)) continue
+      for (const item of ['config.json', 'conversations', 'notes.json', 'memory.json']) {
+        const src = join(legacy, item)
+        const dst = join(current, item)
+        if (!existsSync(src)) continue
+        if (existsSync(dst) && !existsSync(`${dst}.pre-rebrand-backup`)) {
+          renameSync(dst, `${dst}.pre-rebrand-backup`)
+        }
+        if (!existsSync(dst)) renameSync(src, dst)
+      }
+      writeFileSync(marker, new Date().toISOString())
+      return
+    }
+    // No legacy data found — nothing to migrate; re-check next launch.
+  } catch {
+    // Best effort — a fresh directory is created either way.
+  }
+}
+migrateLegacyDataDir()
 
 const store = new Store<{ settings: AppSettings }>({
   defaults: { settings: defaultSettings() }

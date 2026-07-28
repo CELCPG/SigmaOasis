@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build FunkinAI and install it to /Applications.
+# Build Sigma Oasis and install it to /Applications.
 #
 # If scripts/signing.env exists (see signing.env.example), the build is
 # signed with your Developer ID certificate and notarized by Apple — no
@@ -31,7 +31,7 @@ esac
 npm run build:mac -- --"$ARCH"
 
 VERSION=$(node -p "require('./package.json').version")
-DMG="dist/FunkinAI-${VERSION}-mac-${ARCH}.dmg"
+DMG="dist/Sigma Oasis-${VERSION}-mac-${ARCH}.dmg"
 if [ ! -f "$DMG" ]; then
   echo "❌ Expected build artifact not found: $DMG"
   exit 1
@@ -43,16 +43,16 @@ if [ -z "$MOUNT" ]; then
   exit 1
 fi
 
-cp -R "$MOUNT/FunkinAI.app" /Applications/
+cp -R "$MOUNT/Sigma Oasis.app" /Applications/
 hdiutil detach "$MOUNT" -quiet
 
 if [ -f scripts/signing.env ]; then
   # Verify Gatekeeper accepts the notarized app.
-  spctl --assess --verbose /Applications/FunkinAI.app && \
-    echo "✅ FunkinAI ${VERSION} installed — signed, notarized, Gatekeeper-approved"
+  spctl --assess --verbose /Applications/Sigma Oasis.app && \
+    echo "✅ Sigma Oasis ${VERSION} installed — signed, notarized, Gatekeeper-approved"
 else
-  xattr -dr com.apple.quarantine /Applications/FunkinAI.app 2>/dev/null || true
-  echo "✅ FunkinAI ${VERSION} installed to /Applications (unsigned)"
+  xattr -dr com.apple.quarantine /Applications/Sigma Oasis.app 2>/dev/null || true
+  echo "✅ Sigma Oasis ${VERSION} installed to /Applications (unsigned)"
   echo "⚠️  Unsigned build: on first launch macOS will block it as 'malware'."
   echo "   Approve it once via System Settings → Privacy & Security → Open Anyway."
 fi

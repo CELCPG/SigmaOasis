@@ -6,8 +6,8 @@ module.exports = {
     extend: {
       colors: {
         accent: {
-          DEFAULT: '#3b82f6',
-          hover: '#2563eb'
+          DEFAULT: '#0d9488',
+          hover: '#0f766e'
         },
         panel: {
           light: '#ffffff',

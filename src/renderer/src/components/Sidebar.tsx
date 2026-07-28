@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { useUpdates } from '../hooks/useUpdates'
+import { Logo } from './Logo'
 
 /** Left rail: conversation search + list, new-chat button, settings footer. */
 export function Sidebar(): JSX.Element {
@@ -42,8 +43,8 @@ export function Sidebar(): JSX.Element {
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-black/10 dark:border-white/10 bg-panel-light dark:bg-panel-dark">
       <div className="flex items-center gap-2 p-3 pb-2">
-        <span className="text-lg">🧠</span>
-        <span className="text-sm font-semibold">FunkinAI</span>
+        <Logo size={22} />
+        <span className="text-sm font-semibold">Sigma Oasis</span>
         <button
           type="button"
           onClick={createConversation}
@@ -151,7 +152,7 @@ export function Sidebar(): JSX.Element {
               type="button"
               onClick={installUpdate}
               className="w-full rounded-lg bg-green-500/15 px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-500/25"
-              title={`FunkinAI ${updateStatus.version} is ready to install`}
+              title={`Sigma Oasis ${updateStatus.version} is ready to install`}
             >
               ⬇ Restart to update to {updateStatus.version}
             </button>

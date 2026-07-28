@@ -4,11 +4,11 @@
 
 Please report security issues privately through
 [GitHub Security Advisories](../../security/advisories/new) rather than opening a public issue.
-Include reproduction steps and the FunkinAI version. Expect an initial response within a week.
+Include reproduction steps and the Sigma Oasis version. Expect an initial response within a week.
 
 ## Security model
 
-FunkinAI runs local models with **agentic tools** — file access, a shell, and a local memory store.
+Sigma Oasis runs local models with **agentic tools** — file access, a shell, and a local memory store.
 That capability is the point of the app, and it is also its main risk surface. The design rules:
 
 - **Tools execute only in the Electron main process.** The renderer can request a tool through the
@@ -36,7 +36,7 @@ dialog rather than clicking through it.
 
 ## Network
 
-FunkinAI talks to your local LM Studio server (loopback only — enforced by the renderer's CSP).
+Sigma Oasis talks to your local LM Studio server (loopback only — enforced by the renderer's CSP).
 The single outbound call to the internet is the optional `web_search` tool, which queries
 DuckDuckGo's instant-answer API. There is no telemetry, no analytics, and no cloud sync.
 
@@ -46,8 +46,8 @@ Release builds are signed with a Developer ID certificate and notarized by Apple
 download before running it:
 
 ```bash
-spctl --assess --verbose /Applications/FunkinAI.app
-codesign --verify --deep --strict --verbose=2 /Applications/FunkinAI.app
+spctl --assess --verbose /Applications/Sigma Oasis.app
+codesign --verify --deep --strict --verbose=2 /Applications/Sigma Oasis.app
 ```
 
 Builds you make yourself without signing credentials are unsigned; Gatekeeper will block them

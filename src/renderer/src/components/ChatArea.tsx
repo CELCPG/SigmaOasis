@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { stopSpeaking } from '../lib/voice'
 import type { Conversation } from '../types'
 import { MessageBubble } from './MessageBubble'
+import { Logo } from './Logo'
 
 /** Scrollable message list for the active conversation, with auto-scroll. */
 export function ChatArea({ conversation }: { conversation: Conversation }): JSX.Element {
@@ -32,7 +33,7 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="max-w-md text-center text-sm text-neutral-500">
-          <p className="mb-2 text-4xl">🧠</p>
+          <p className="mb-2 flex justify-center"><Logo size={44} /></p>
           <p className="font-medium text-neutral-700 dark:text-neutral-300">
             Start a conversation
           </p>

@@ -1,17 +1,17 @@
 {
-  "name": "funkinai",
+  "name": "sigma-oasis",
   "version": "0.5.0",
-  "description": "A private, local-first desktop AI chat app powered by LM Studio",
+  "description": "Sigma Oasis — a private, local-first desktop AI chat powered by LM Studio. Your safe oasis of data protection.",
   "author": "Colin Long",
   "license": "MIT",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CELCPG/FunkinAI.git"
+    "url": "git+https://github.com/CELCPG/SigmaOasis.git"
   },
-  "homepage": "https://github.com/CELCPG/FunkinAI#readme",
+  "homepage": "https://github.com/CELCPG/SigmaOasis#readme",
   "bugs": {
-    "url": "https://github.com/CELCPG/FunkinAI/issues"
+    "url": "https://github.com/CELCPG/SigmaOasis/issues"
   },
   "main": "out/main/index.js",
   "scripts": {

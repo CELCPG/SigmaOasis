@@ -257,7 +257,7 @@ export function registerVoiceHandlers(): void {
       return { ok: false, error: 'No speech detected — check your microphone and try again.' }
     }
 
-    const wavPath = join(app.getPath('temp'), `funkinai-stt-${Date.now()}.wav`)
+    const wavPath = join(app.getPath('temp'), `sigmaoasis-stt-${Date.now()}.wav`)
     try {
       await fs.writeFile(wavPath, wavBuffer)
       const text = await runWhisper(status.cliPath, status.modelPath, wavPath)
@@ -298,7 +298,7 @@ export function registerVoiceHandlers(): void {
           error: `Files of type "${ext}" need conversion first — use wav, mp3, ogg or flac on this platform.`
         }
       }
-      converted = join(app.getPath('temp'), `funkinai-stt-${Date.now()}.wav`)
+      converted = join(app.getPath('temp'), `sigmaoasis-stt-${Date.now()}.wav`)
       try {
         await afconvertToWav(filePath, converted)
       } catch (err) {
