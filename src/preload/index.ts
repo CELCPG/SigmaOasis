@@ -7,7 +7,8 @@ import type {
   MemoryStats,
   SttStatus,
   ToolResult,
-  ToolSchema
+  ToolSchema,
+  UpdateStatus
 } from '../renderer/src/types'
 
 /**
@@ -76,7 +77,19 @@ const api = {
   ): Promise<{ ok: boolean; name?: string; chunks?: number; truncated?: boolean; error?: string }> =>
     ipcRenderer.invoke('memory:addDocumentFromPath', path),
   memoryDeleteSource: (source: string): Promise<{ ok: boolean; removed?: number; error?: string }> =>
-    ipcRenderer.invoke('memory:delete', source)
+    ipcRenderer.invoke('memory:delete', source),
+
+  // Auto-update (main/updates.ts)
+  getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:getStatus'),
+  checkForUpdates: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:check'),
+  installUpdate: (): Promise<boolean> => ipcRenderer.invoke('updates:install'),
+  onUpdateStatus: (cb: (status: UpdateStatus) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus): void => cb(status)
+    ipcRenderer.on('updates:status', listener)
+    return () => {
+      ipcRenderer.removeListener('updates:status', listener)
+    }
+  }
 }
 
 export type AppApi = typeof api

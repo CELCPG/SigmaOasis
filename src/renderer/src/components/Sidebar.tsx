@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
+import { useUpdates } from '../hooks/useUpdates'
 
 /** Left rail: conversation search + list, new-chat button, settings footer. */
 export function Sidebar(): JSX.Element {
@@ -11,6 +12,7 @@ export function Sidebar(): JSX.Element {
   const streaming = useAppStore((s) => s.streaming)
   const { createConversation, selectConversation, removeConversation, renameConversation } =
     useConversations()
+  const { status: updateStatus, install: installUpdate } = useUpdates()
 
   const [query, setQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -141,6 +143,25 @@ export function Sidebar(): JSX.Element {
           ))
         )}
       </div>
+
+      {(updateStatus?.state === 'downloaded' || updateStatus?.state === 'downloading') && (
+        <div className="border-t border-black/10 dark:border-white/10 px-3 py-2">
+          {updateStatus.state === 'downloaded' ? (
+            <button
+              type="button"
+              onClick={installUpdate}
+              className="w-full rounded-lg bg-green-500/15 px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-500/25"
+              title={`FunkinAI ${updateStatus.version} is ready to install`}
+            >
+              ⬇ Restart to update to {updateStatus.version}
+            </button>
+          ) : (
+            <p className="px-1 text-xs text-neutral-500">
+              ⬇ Downloading update… {updateStatus.percent ?? 0}%
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center gap-2 border-t border-black/10 dark:border-white/10 p-3">
         <span

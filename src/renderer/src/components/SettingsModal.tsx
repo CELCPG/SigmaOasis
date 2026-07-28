@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
+import { useUpdates } from '../hooks/useUpdates'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
 import type { AppSettings, AccentColor, ToolToggles, SttStatus, MemoryStats } from '../types'
@@ -46,6 +47,7 @@ export function SettingsModal(): JSX.Element | null {
   const availableModels = useAppStore((s) => s.availableModels)
   const connection = useAppStore((s) => s.connection)
   const { refresh } = useModels()
+  const { status: updateStatus, check: checkForUpdates, install: installUpdate } = useUpdates()
 
   const [draft, setDraft] = useState<AppSettings | null>(settings)
   const [tab, setTab] = useState<Tab>('connection')
@@ -357,6 +359,47 @@ export function SettingsModal(): JSX.Element | null {
                   <p className="mt-1 text-xs text-neutral-500">
                     Maximum number of conversations to keep.
                   </p>
+                </div>
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <label className="mb-1 block text-sm font-medium">About</label>
+                  <p className="text-sm text-neutral-500">
+                    FunkinAI v{updateStatus?.currentVersion ?? '…'}
+                  </p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <span className="text-xs text-neutral-500">
+                      {updateStatus?.state === 'dev'
+                        ? 'Development build — updates apply to packaged releases.'
+                        : updateStatus?.state === 'checking'
+                          ? 'Checking for updates…'
+                          : updateStatus?.state === 'available'
+                            ? `Update ${updateStatus.version} found — downloading…`
+                            : updateStatus?.state === 'downloading'
+                              ? `Downloading update… ${updateStatus.percent ?? 0}%`
+                              : updateStatus?.state === 'downloaded'
+                                ? `Update ${updateStatus.version} is ready to install.`
+                                : updateStatus?.state === 'error'
+                                  ? `Update check failed: ${updateStatus.error ?? 'unknown error'}`
+                                  : 'You’re up to date.'}
+                    </span>
+                    {updateStatus?.state === 'downloaded' ? (
+                      <button
+                        type="button"
+                        onClick={installUpdate}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                      >
+                        Restart to update
+                      </button>
+                    ) : updateStatus?.state !== 'dev' ? (
+                      <button
+                        type="button"
+                        onClick={() => void checkForUpdates()}
+                        disabled={updateStatus?.state === 'checking' || updateStatus?.state === 'downloading'}
+                        className="rounded-lg border border-black/10 dark:border-white/15 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Check now
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             )}

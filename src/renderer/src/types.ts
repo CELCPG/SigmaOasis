@@ -132,6 +132,24 @@ export interface AttachmentLoadResult {
   audioPaths: string[]
 }
 
+// ---- Auto-update ------------------------------------------------------------
+
+export interface UpdateStatus {
+  state:
+    | 'idle'
+    | 'checking'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'unavailable'
+    | 'error'
+    | 'dev'
+  currentVersion: string
+  version?: string
+  percent?: number
+  error?: string
+}
+
 // ---- Chat domain ------------------------------------------------------------
 
 export type ChatMode = 'independent' | 'collaborative' | 'orchestrated'
