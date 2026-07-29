@@ -6,6 +6,7 @@ import type {
   MemorySearchResult,
   MemoryStats,
   NetworkActivityEntry,
+  ResearchIndexStats,
   SttStatus,
   ToolResult,
   ToolSchema,
@@ -52,6 +53,12 @@ const api = {
     ipcRenderer.invoke('search:braveKeyStatus'),
   setBraveApiKey: (key: string): Promise<{ ok: boolean; warning?: string }> =>
     ipcRenderer.invoke('search:setBraveApiKey', key),
+
+  // Ephemeral research index over fetched pages (main/ipc/researchIndex.ts).
+  // RAM only — nothing here is ever written to disk.
+  researchIndexStats: (): Promise<ResearchIndexStats> => ipcRenderer.invoke('research:stats'),
+  clearResearchIndex: (): Promise<{ pages: number; entries: number }> =>
+    ipcRenderer.invoke('research:clear'),
 
   // Network egress audit (main/ipc/net.ts)
   getNetworkActivity: (): Promise<NetworkActivityEntry[]> => ipcRenderer.invoke('net:getActivity'),

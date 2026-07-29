@@ -4,7 +4,15 @@ import { useModels } from '../hooks/useModels'
 import { useUpdates } from '../hooks/useUpdates'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
-import type { AppSettings, AccentColor, ToolToggles, SttStatus, MemoryStats, NetworkActivityEntry } from '../types'
+import type {
+  AppSettings,
+  AccentColor,
+  ToolToggles,
+  SttStatus,
+  MemoryStats,
+  NetworkActivityEntry,
+  ResearchIndexStats
+} from '../types'
 import { speak } from '../lib/voice'
 
 const TOOL_LABELS: Record<keyof ToolToggles, string> = {
@@ -56,6 +64,7 @@ export function SettingsModal(): JSX.Element | null {
   const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null)
+  const [researchStats, setResearchStats] = useState<ResearchIndexStats | null>(null)
   const [searchTest, setSearchTest] = useState<{ ok: boolean; detail: string } | null>(null)
   const [searchTesting, setSearchTesting] = useState(false)
   const [braveKeyInput, setBraveKeyInput] = useState('')
@@ -93,7 +102,10 @@ export function SettingsModal(): JSX.Element | null {
 
   // Load the network activity log when the Privacy tab opens.
   useEffect(() => {
-    if (tab === 'privacy') void window.api.getNetworkActivity().then(setNetActivity)
+    if (tab === 'privacy') {
+      void window.api.getNetworkActivity().then(setNetActivity)
+      void window.api.researchIndexStats().then(setResearchStats)
+    }
   }, [tab])
 
   if (!open || !draft) return null
@@ -718,6 +730,60 @@ export function SettingsModal(): JSX.Element | null {
                     </span>
                   </span>
                 </label>
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-medium">Pages read this session</div>
+                    <button
+                      type="button"
+                      onClick={() => void window.api.researchIndexStats().then(setResearchStats)}
+                      className="ml-auto rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void window.api
+                          .clearResearchIndex()
+                          .then(() => window.api.researchIndexStats())
+                          .then(setResearchStats)
+                      }
+                      className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-red-500 hover:bg-black/5 dark:hover:bg-white/10"
+                    >
+                      Forget
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    When a model reads a web page, the text is held in memory and split into
+                    passages so only the relevant parts are shown to it. This is{' '}
+                    <strong>never written to disk</strong> and is discarded when you quit — it is
+                    not part of your long-term memory unless you explicitly save it. Keeping it
+                    means re-reading a page you already fetched costs no new network request.
+                  </p>
+                  {researchStats === null ||
+                  (researchStats.pages === 0 && researchStats.searchQueries === 0) ? (
+                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                      Nothing held in memory.
+                    </p>
+                  ) : (
+                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                      <strong className="text-neutral-700 dark:text-neutral-300">
+                        {researchStats.pages}
+                      </strong>{' '}
+                      page{researchStats.pages === 1 ? '' : 's'} ·{' '}
+                      <strong className="text-neutral-700 dark:text-neutral-300">
+                        {researchStats.chunks}
+                      </strong>{' '}
+                      passages ({researchStats.embeddedChunks} embedded) ·{' '}
+                      {Math.round(researchStats.chars / 1024)} KB of text ·{' '}
+                      <strong className="text-neutral-700 dark:text-neutral-300">
+                        {researchStats.searchQueries}
+                      </strong>{' '}
+                      cached search{researchStats.searchQueries === 1 ? '' : 'es'}. In RAM only.
+                    </p>
+                  )}
+                </div>
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="flex items-center gap-2">

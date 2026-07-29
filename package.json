@@ -24,7 +24,8 @@
     "build:linux": "electron-vite build && electron-builder --linux",
     "install:mac": "bash scripts/install-mac.sh",
     "postinstall": "bash scripts/sign-dev-electron.sh || true",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "bash scripts/test.sh"
   },
   "dependencies": {
     "dompurify": "^3.4.12",

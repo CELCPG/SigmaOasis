@@ -2,9 +2,9 @@ import { app, ipcMain } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { getSettings } from './store'
-import { auditedFetch } from './net'
 import { readTextDocument } from './attachments'
 import { writeFileAtomic } from './fsAtomic'
+import { chunkText, cosine, embedTexts, resolveEmbeddingModel } from './embeddings'
 
 /**
  * Local long-term memory (RAG): text is chunked, embedded with a local
@@ -12,6 +12,10 @@ import { writeFileAtomic } from './fsAtomic'
  * the userData directory. Search is cosine similarity computed in-process —
  * no external vector DB. At the scale of a personal knowledge base (hundreds
  * to low-thousands of chunks) this is instant and keeps every byte local.
+ *
+ * The chunking and embedding primitives live in embeddings.ts, shared with the
+ * ephemeral research index over fetched web pages (researchIndex.ts). This
+ * store is the durable half: only what the user explicitly saves lands here.
  */
 
 interface MemoryChunk {
@@ -34,9 +38,6 @@ export interface MemorySearchResult {
   score: number
 }
 
-const CHUNK_CHARS = 1000
-const CHUNK_OVERLAP = 150
-const EMBED_BATCH = 16
 const MAX_DOCUMENT_CHARS = 500_000
 
 function uid(): string {
@@ -71,95 +72,6 @@ function withMemoryLock<T>(fn: () => Promise<T>): Promise<T> {
   const run = memoryQueue.then(fn, fn)
   memoryQueue = run.catch(() => undefined)
   return run
-}
-
-/** Split text into ~CHUNK_CHARS pieces on paragraph/sentence boundaries. */
-export function chunkText(text: string): string[] {
-  const clean = text.replace(/\r\n/g, '\n').trim()
-  if (!clean) return []
-
-  const chunks: string[] = []
-  let start = 0
-  while (start < clean.length) {
-    let end = Math.min(start + CHUNK_CHARS, clean.length)
-    if (end < clean.length) {
-      const slice = clean.slice(start, end)
-      const cut = Math.max(
-        slice.lastIndexOf('\n\n'),
-        slice.lastIndexOf('. '),
-        slice.lastIndexOf('\n')
-      )
-      if (cut > CHUNK_CHARS * 0.5) end = start + cut + 1
-    }
-    const piece = clean.slice(start, end).trim()
-    if (piece) chunks.push(piece)
-    // Always make progress, even if overlap would exceed the chunk.
-    start = end - CHUNK_OVERLAP > start ? end - CHUNK_OVERLAP : end
-  }
-  return chunks
-}
-
-/** Resolve the embedding model: configured value wins, else auto-detect. */
-export async function resolveEmbeddingModel(): Promise<string | null> {
-  const settings = getSettings()
-  const configured = settings.memory.embeddingModel.trim()
-  if (configured) return configured
-  try {
-    const res = await auditedFetch(`${settings.baseUrl.replace(/\/+$/, '')}/models`, undefined, 'lmstudio')
-    if (!res.ok) return null
-    const data = (await res.json()) as { data?: { id: string }[] }
-    return data.data?.find((m) => /embed/i.test(m.id))?.id ?? null
-  } catch {
-    return null
-  }
-}
-
-async function embedTexts(texts: string[]): Promise<{ model: string; vectors: number[][] }> {
-  const settings = getSettings()
-  const model = await resolveEmbeddingModel()
-  if (!model) {
-    throw new Error(
-      'No embedding model found. Load one in LM Studio (e.g. nomic-embed-text) or set it under Settings → Memory.'
-    )
-  }
-
-  const vectors: number[][] = []
-  for (let i = 0; i < texts.length; i += EMBED_BATCH) {
-    const batch = texts.slice(i, i + EMBED_BATCH)
-    const res = await auditedFetch(
-      `${settings.baseUrl.replace(/\/+$/, '')}/embeddings`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, input: batch })
-      },
-      'lmstudio'
-    )
-    if (!res.ok) throw new Error(`Embeddings endpoint returned HTTP ${res.status}`)
-    const data = (await res.json()) as { data?: { embedding: number[]; index: number }[] }
-    const byIndex = (data.data ?? []).sort((a, b) => a.index - b.index)
-    for (const item of byIndex) vectors.push(item.embedding)
-  }
-  if (vectors.length !== texts.length) {
-    throw new Error('Embeddings endpoint returned an unexpected number of vectors.')
-  }
-  return { model, vectors }
-}
-
-function cosine(a: number[], b: number[]): number {
-  // Vectors from different embedding models have different lengths; comparing
-  // them would read past the end of one and produce NaN scores.
-  if (a.length !== b.length) return 0
-  let dot = 0
-  let normA = 0
-  let normB = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB)
-  return denom === 0 ? 0 : dot / denom
 }
 
 /** Add or replace a named source in memory (chunks + embeds + persists). */

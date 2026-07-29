@@ -37,8 +37,50 @@ dialog rather than clicking through it.
 ## Network
 
 Sigma Oasis talks to your local LM Studio server (loopback only — enforced by the renderer's CSP).
-The single outbound call to the internet is the optional `web_search` tool, which queries
-DuckDuckGo's instant-answer API. There is no telemetry, no analytics, and no cloud sync.
+There is no telemetry, no analytics, and no cloud sync.
+
+Every request the main process makes passes through an egress allowlist derived from your settings,
+and is recorded (origin only, never the full URL) in the activity log under Settings → Privacy.
+The outbound paths are:
+
+- **`web_search`** — the one provider you chose under Settings → Search (self-hosted SearXNG, the
+  Brave Search API, or DuckDuckGo). Queries are sanitized before sending: emails, API-key-shaped
+  tokens, JWTs, private IPs, card-shaped numbers, and local filesystem paths — including your home
+  directory and configured working directory by exact match — are redacted. Enable **Confirm every
+  query** to approve the exact outgoing string each time.
+- **`fetch_webpage`** — arbitrary HTTPS URLs, at a model's direction. This is the one path not bound
+  by the allowlist, so it is guarded separately: HTTPS only, DNS-resolved private/loopback/link-local
+  addresses refused, redirects followed manually with the check re-run on every hop, and hard size
+  and time caps. HTML, plain text and PDF are accepted; every other content type is refused.
+- **Update checks** — GitHub Releases, opt-in and off by default.
+
+Requests carry a common browser User-Agent rather than an app-specific one, so an install does not
+identify itself (or its version) to the hosts it contacts.
+
+Page text read via `fetch_webpage` is chunked and embedded **in RAM only** for relevance ranking, and
+recent search responses are cached the same way. Embedding happens against your local LM Studio
+server; both caches are size-capped, expire, are never written to disk, and never enter long-term
+memory unless you explicitly save something. Settings → Privacy reports their size and clears them on
+demand.
+
+### Parsing untrusted input
+
+Two parsers read data from the public web, and both are deliberately dependency-free: the HTML
+extractor and the PDF text extractor. The PDF path decompresses and parses attacker-controlled binary
+input, which is worth naming explicitly:
+
+- It is pure TypeScript over Node's built-in `zlib` — no native PDF library, no font rasterization, no
+  JavaScript execution, and nothing in a PDF is evaluated. A malicious PDF has no code path to run on.
+- Object count, decompressed size, and output length are all capped, and every parse step is wrapped
+  so malformed structure fails the fetch rather than throwing out of it. The realistic residual risk
+  is CPU/memory waste on a hostile file, bounded by those caps.
+- Extraction output is checked for being plausible natural language before it is returned. If it is
+  not, the fetch fails with an explanation. This is a correctness guard, not a security one, but it
+  matters for the same reason: a model cannot distinguish confidently-wrong text from real content.
+
+Text from either parser is still untrusted external content and is passed to models behind the same
+`⚠️ UNTRUSTED EXTERNAL CONTENT` marker as everything else from the web. Prompt injection remains the
+unsolved risk described above — extraction quality does not change that.
 
 ## Distribution
 

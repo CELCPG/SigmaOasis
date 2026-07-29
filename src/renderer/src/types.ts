@@ -117,6 +117,20 @@ export interface MemorySearchResult {
   score: number
 }
 
+/**
+ * Live size of the ephemeral research index — web pages fetched this session,
+ * chunked and embedded in RAM for relevance ranking. Never written to disk and
+ * discarded when the app exits.
+ */
+export interface ResearchIndexStats {
+  pages: number
+  chunks: number
+  chars: number
+  embeddedChunks: number
+  /** Cached search responses held in RAM. */
+  searchQueries: number
+}
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]

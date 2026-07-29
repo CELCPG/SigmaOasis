@@ -122,7 +122,7 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | `list_directory` | List entries in a directory. |
 | `run_terminal_command` | Run a shell command — **off by default**; shows a confirmation dialog before every run, with destructive patterns (e.g. `rm -rf`, `dd`, `curl \| sh`) flagged as dangerous. |
 | `web_search` | Web search via your chosen privacy-preserving provider — self-hosted **SearXNG**, **Brave Search API**, or **DuckDuckGo** (Settings → Search). Queries are sanitized (emails, tokens, paths, etc. redacted) before they leave the machine. |
-| `fetch_webpage` | Fetch and read a public web page (HTTPS only, scripts/ads stripped). Private/internal addresses are refused (SSRF guard). |
+| `fetch_webpage` | Fetch and read a public web page or **PDF** (HTTPS only, scripts/ads/site chrome stripped). Private/internal addresses are refused (SSRF guard). Pass a `query` and the page is split into passages and **ranked** — the model gets the parts that answer the query instead of the first few thousand characters. Outbound links are returned so a citation can be followed directly. Re-reading a page already fetched makes no new network request. |
 | `get_current_datetime` | Return the current local date/time. |
 | `create_note` | Save a note to the local notes store. |
 | `list_notes` | List saved note titles. |
@@ -158,6 +158,45 @@ is enforced structurally, not just by policy:
   even in the log. With search disabled, this list should show nothing but LM Studio.
 - **Update checks are opt-in.** The app can check GitHub Releases for updates, but only if you
   enable it (Settings → Privacy or General). Manual "Check now" always works.
+- **Pages you read are never written to disk.** Web pages a model reads are chunked and embedded in
+  RAM so only relevant passages are surfaced; the index is discarded on quit and never becomes part
+  of your long-term memory unless you explicitly save it. Settings → **Privacy** shows how much is
+  held and lets you forget it immediately.
+
+### Deep reading: relevance instead of truncation
+
+A long reference page has to be cut down before it fits in a model's context. Cutting it at the
+first 8,000 characters — what v0.6 did — usually removes the part that answers the question and
+burns the budget the next four sources needed.
+
+Instead, a fetched page is split into passages, embedded locally through LM Studio's
+`/v1/embeddings`, and ranked against what the model is actually looking for:
+
+- **Hybrid ranking.** Semantic (embedding) and keyword (BM25) rankings are fused with Reciprocal
+  Rank Fusion. Embeddings catch paraphrase and synonym; BM25 catches the exact tokens embeddings are
+  weak on — version numbers, error codes, API names — and neither is trusted alone.
+- **Works with no embedding model.** If LM Studio has none loaded, retrieval degrades to keyword-only
+  and says so, rather than failing.
+- **Near-duplicates removed.** Overlapping passages are pruned (MMR) so the results aren't five
+  windows onto the same paragraph, and survivors are shown in page order with a position and score.
+- **Local only.** Chunking, embedding and ranking all happen on your machine; the page text is the
+  only thing that ever crossed the network, and it already did.
+
+Alongside ranking, reading a source now handles the things that used to make deep research
+impractical:
+
+- **Site chrome is removed properly.** Menus, cookie banners and "related stories" rails are stripped
+  by class and id, not just by tag, and the article container is picked by text density. When no
+  distinct article can be identified, the model is told so rather than left to guess.
+- **PDFs are read.** Papers, filings and standards are extracted directly (including the ToUnicode
+  font maps modern PDF producers use). If a PDF is encrypted, is a scan with no text layer, or uses an
+  encoding that cannot be decoded, Sigma Oasis says exactly that instead of returning garbled text —
+  a model cannot tell mojibake from content, so guessing is worse than refusing.
+- **Links come back.** An agent that reads a page can follow a citation directly instead of going
+  back to the search provider, which saves both a round-trip and another query on the wire.
+- **Repeated searches are served locally.** Identical queries within ten minutes are answered from
+  RAM, so the provider sees one query instead of five. This also keeps bursts inside the rate limits
+  DuckDuckGo and Brave's free tier enforce.
 
 ### Choosing a search provider (Settings → Search)
 
@@ -201,7 +240,13 @@ sigma-oasis/
 │   │       ├── tools.ts      # Agentic tool implementations + schemas
 │   │       ├── store.ts      # electron-store, conversations, notes, encrypted secrets
 │   │       ├── net.ts        # Egress allowlist + network activity log
-│   │       └── search.ts     # Search providers + SSRF-guarded webpage fetch
+│   │       ├── search.ts     # Search providers + SSRF-guarded webpage fetch
+│   │       ├── extract.ts    # HTML → main content, text and outbound links
+│   │       ├── pdf.ts        # PDF text extraction (zlib only, no dependencies)
+│   │       ├── embeddings.ts # Chunking + local embedding via LM Studio (shared)
+│   │       ├── retrieval.ts  # BM25, rank fusion, MMR — pure ranking primitives
+│   │       ├── researchIndex.ts # Ephemeral RAM index over fetched pages
+│   │       └── memory.ts     # Durable long-term memory (RAG) on disk
 │   ├── preload/
 │   │   ├── index.ts          # Secure context bridge (window.api)
 │   │   └── index.d.ts        # Renderer-side typings
@@ -227,12 +272,35 @@ sigma-oasis/
 │               ├── ToolCallBlock.tsx
 │               ├── SettingsModal.tsx
 │               └── CollaborativeMode.tsx
+├── test/                     # node:test suite (see Tests below)
+│   ├── harness.ts            # Stubs the electron/net/store seams
+│   └── fixtures/
+├── scripts/test.sh
 ├── electron.vite.config.ts
 ├── electron-builder.yml
 ├── tailwind.config.js
 ├── package.json
 └── README.md
 ```
+
+---
+
+## 🧪 Tests
+
+```bash
+npm test
+```
+
+The suite covers the search, extraction, retrieval and PDF code paths — the parts that are pure
+logic and easy to regress. It uses Node's built-in `node:test` runner and **adds no dependencies**;
+if `node` is not on your PATH it falls back to the Node runtime already bundled inside the project's
+Electron.
+
+Tests run against the real main-process modules, with only three seams stubbed (`electron`, the
+network layer, and settings), so what is verified is the code that ships rather than a
+re-implementation of it. The embedding stub is deterministic and folds a few synonyms onto shared
+dimensions, which is what makes it possible to assert that semantic retrieval finds a passage keyword
+retrieval provably cannot.
 
 ---
 
