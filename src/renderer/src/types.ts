@@ -20,6 +20,7 @@ export interface ToolToggles {
   list_directory: boolean
   run_terminal_command: boolean
   web_search: boolean
+  fetch_webpage: boolean
   get_current_datetime: boolean
   create_note: boolean
   list_notes: boolean
@@ -27,6 +28,37 @@ export interface ToolToggles {
   memory_save: boolean
   memory_search: boolean
   memory_forget: boolean
+}
+
+export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
+
+export interface SearchSettings {
+  /** Which backend serves the web_search tool. */
+  provider: SearchProviderId
+  /** Base URL of a self-hosted SearXNG instance (loopback recommended). */
+  searxngUrl: string
+  /** Max results handed to the model per search (1–10). */
+  maxResults: number
+  /** Show a confirmation dialog with the exact outgoing query before every search. */
+  confirmBeforeSearch: boolean
+}
+
+export interface UpdateSettings {
+  /** Periodic background update checks. Off by default — manual "Check now" always works. */
+  autoCheck: boolean
+}
+
+/** One entry in the main-process network activity log (Settings → Privacy). */
+export interface NetworkActivityEntry {
+  at: number
+  purpose: 'lmstudio' | 'search' | 'webpage' | 'update'
+  /** Origin only — full URLs (and queries) are never logged. */
+  origin: string
+  method: string
+  status: number | null
+  ok: boolean
+  blocked?: boolean
+  error?: string
 }
 
 export interface VoiceSettings {
@@ -97,6 +129,8 @@ export interface AppSettings {
   voice: VoiceSettings
   stt: SttSettings
   memory: MemorySettings
+  search: SearchSettings
+  updates: UpdateSettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean
   /** Hide tool-call blocks in chat; show a thinking animation instead. */

@@ -4,7 +4,7 @@ import { useModels } from '../hooks/useModels'
 import { useUpdates } from '../hooks/useUpdates'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
-import type { AppSettings, AccentColor, ToolToggles, SttStatus, MemoryStats } from '../types'
+import type { AppSettings, AccentColor, ToolToggles, SttStatus, MemoryStats, NetworkActivityEntry } from '../types'
 import { speak } from '../lib/voice'
 
 const TOOL_LABELS: Record<keyof ToolToggles, string> = {
@@ -12,7 +12,8 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   write_file: 'Write file (confirms when no working directory is set)',
   list_directory: 'List directory',
   run_terminal_command: 'Run terminal command (asks to confirm)',
-  web_search: 'Web search (DuckDuckGo)',
+  web_search: 'Web search (provider chosen in Settings → Search)',
+  fetch_webpage: 'Fetch webpage (HTTPS only, private addresses refused)',
   get_current_datetime: 'Get current date/time',
   create_note: 'Create note',
   list_notes: 'List notes',
@@ -22,7 +23,7 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   memory_forget: 'Delete a memory'
 }
 
-type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'voice' | 'memory'
+type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory'
 
 /**
  * The renderer's Content-Security-Policy (index.html) only permits connections
@@ -55,6 +56,12 @@ export function SettingsModal(): JSX.Element | null {
   const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null)
+  const [searchTest, setSearchTest] = useState<{ ok: boolean; detail: string } | null>(null)
+  const [searchTesting, setSearchTesting] = useState(false)
+  const [braveKeyInput, setBraveKeyInput] = useState('')
+  const [braveKeyInfo, setBraveKeyInfo] = useState<{ set: boolean; encrypted: boolean } | null>(null)
+  const [braveKeyNotice, setBraveKeyNotice] = useState<string | null>(null)
+  const [netActivity, setNetActivity] = useState<NetworkActivityEntry[]>([])
 
   useEffect(() => {
     if (open) setDraft(settings)
@@ -73,6 +80,20 @@ export function SettingsModal(): JSX.Element | null {
   // Load memory stats when the Memory tab opens.
   useEffect(() => {
     if (tab === 'memory') void window.api.memoryStats().then(setMemoryStats)
+  }, [tab])
+
+  // Load Brave key status when the Search tab opens; reset transient UI state.
+  useEffect(() => {
+    if (tab !== 'search') return
+    void window.api.braveKeyStatus().then(setBraveKeyInfo)
+    setSearchTest(null)
+    setBraveKeyNotice(null)
+    setBraveKeyInput('')
+  }, [tab])
+
+  // Load the network activity log when the Privacy tab opens.
+  useEffect(() => {
+    if (tab === 'privacy') void window.api.getNetworkActivity().then(setNetActivity)
   }, [tab])
 
   if (!open || !draft) return null
@@ -111,6 +132,8 @@ export function SettingsModal(): JSX.Element | null {
     { key: 'pipeline', label: 'Pipeline' },
     { key: 'general', label: 'General' },
     { key: 'tools', label: 'Tools' },
+    { key: 'search', label: 'Search' },
+    { key: 'privacy', label: 'Privacy' },
     { key: 'voice', label: 'Voice' },
     { key: 'memory', label: 'Memory' }
   ]
@@ -465,6 +488,295 @@ export function SettingsModal(): JSX.Element | null {
                       </label>
                     ))}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {tab === 'search' && (
+              <div className="space-y-5">
+                <p className="rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                  Web search is the only feature that sends your words off this machine — and only
+                  the query itself, only to the provider you choose below, only when the{' '}
+                  <code>web_search</code> / <code>fetch_webpage</code> tools are enabled. Obvious
+                  personal data and secrets are redacted from queries before they are sent, and
+                  every request appears in the Privacy tab&apos;s activity log.
+                </p>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Search provider</label>
+                  <div className="space-y-1.5">
+                    {(
+                      [
+                        {
+                          id: 'searxng',
+                          label: 'Self-hosted SearXNG (most private)',
+                          hint: 'Metasearch over 70+ engines from a server you run. No keys, no tracking.'
+                        },
+                        {
+                          id: 'brave',
+                          label: 'Brave Search API',
+                          hint: 'Independent index, no user profiling. Requires a free API key.'
+                        },
+                        {
+                          id: 'duckduckgo',
+                          label: 'DuckDuckGo',
+                          hint: 'No key needed, no tracking. Rate-limited; best for light use.'
+                        }
+                      ] as const
+                    ).map((p) => (
+                      <label
+                        key={p.id}
+                        className={`block cursor-pointer rounded-lg border px-3 py-2 ${
+                          draft.search.provider === p.id
+                            ? 'border-accent/50 bg-accent/10'
+                            : 'border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 text-sm font-medium">
+                          <input
+                            type="radio"
+                            name="search-provider"
+                            checked={draft.search.provider === p.id}
+                            onChange={() =>
+                              update({ search: { ...draft.search, provider: p.id } })
+                            }
+                            className="accent-accent"
+                          />
+                          {p.label}
+                        </span>
+                        <span className="mt-0.5 block pl-6 text-xs text-neutral-500">{p.hint}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {draft.search.provider === 'searxng' && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">SearXNG instance URL</label>
+                    <input
+                      value={draft.search.searxngUrl}
+                      onChange={(e) =>
+                        update({ search: { ...draft.search, searxngUrl: e.target.value } })
+                      }
+                      placeholder="http://127.0.0.1:8888"
+                      className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none"
+                    />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Run one with <code>docker run -p 8888:8080 searxng/searxng</code> and enable
+                      JSON output (<code>formats: [html, json]</code>). A loopback instance means
+                      only infrastructure you control ever sees your queries.
+                    </p>
+                  </div>
+                )}
+
+                {draft.search.provider === 'brave' && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Brave Search API key</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={braveKeyInput}
+                        onChange={(e) => setBraveKeyInput(e.target.value)}
+                        placeholder={
+                          braveKeyInfo?.set
+                            ? `Key saved${braveKeyInfo.encrypted ? ' (OS-keychain encrypted)' : ''} — enter a new one to replace`
+                            : 'Get a free key at brave.com/search/api'
+                        }
+                        className="flex-1 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={!braveKeyInput.trim()}
+                        onClick={() =>
+                          void window.api.setBraveApiKey(braveKeyInput).then((res) => {
+                            setBraveKeyInput('')
+                            setBraveKeyNotice(res.warning ?? (res.ok ? 'API key saved.' : 'Failed.'))
+                            void window.api.braveKeyStatus().then(setBraveKeyInfo)
+                          })
+                        }
+                        className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Save key
+                      </button>
+                      {braveKeyInfo?.set && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void window.api.setBraveApiKey('').then(() => {
+                              setBraveKeyNotice('API key removed.')
+                              void window.api.braveKeyStatus().then(setBraveKeyInfo)
+                            })
+                          }
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm text-red-500 hover:bg-black/5 dark:hover:bg-white/10"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    {braveKeyNotice && (
+                      <p className="mt-1 text-xs text-neutral-500">{braveKeyNotice}</p>
+                    )}
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Stored via your OS keychain (Electron safeStorage) — never in the settings
+                      file the UI can read back.
+                    </p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">
+                      Results per search: {draft.search.maxResults}
+                    </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      value={draft.search.maxResults}
+                      onChange={(e) =>
+                        update({ search: { ...draft.search, maxResults: Number(e.target.value) } })
+                      }
+                      className="w-full accent-accent"
+                    />
+                  </div>
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.search.confirmBeforeSearch}
+                      onChange={(e) =>
+                        update({
+                          search: { ...draft.search, confirmBeforeSearch: e.target.checked }
+                        })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Confirm every query
+                      <span className="block text-xs text-neutral-500">
+                        Show the exact outgoing query for approval before each search.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3 border-t border-black/10 dark:border-white/10 pt-4">
+                  <button
+                    type="button"
+                    disabled={searchTesting}
+                    onClick={async () => {
+                      // Test uses the saved provider; save first so the test matches the draft.
+                      await window.api.setSettings(draft)
+                      setSettings(draft)
+                      setSearchTesting(true)
+                      setSearchTest(null)
+                      try {
+                        setSearchTest(await window.api.testSearchProvider())
+                      } finally {
+                        setSearchTesting(false)
+                      }
+                    }}
+                    className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                  >
+                    {searchTesting ? 'Testing…' : 'Test connection'}
+                  </button>
+                  {searchTest && (
+                    <span
+                      className={`text-xs ${searchTest.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
+                    >
+                      {searchTest.detail}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {tab === 'privacy' && (
+              <div className="space-y-5">
+                <div>
+                  <div className="text-sm font-medium">The privacy promise</div>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Sigma Oasis runs your models locally and stores everything on this machine.
+                    The only outbound connections it can make are: your local LM Studio server, the
+                    search provider you chose (only when search tools run), and GitHub — only if
+                    you enable update checks below. Anything else is blocked by the egress
+                    allowlist before it is sent.
+                  </p>
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={draft.updates.autoCheck}
+                    onChange={(e) => update({ updates: { autoCheck: e.target.checked } })}
+                    className="mt-0.5 h-4 w-4 accent-accent"
+                  />
+                  <span>
+                    Automatically check for updates
+                    <span className="block text-xs text-neutral-500">
+                      Contacts GitHub Releases periodically. Off by default — the manual
+                      &quot;Check now&quot; button (General tab) always works.
+                    </span>
+                  </span>
+                </label>
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-medium">Network activity</div>
+                    <button
+                      type="button"
+                      onClick={() => void window.api.getNetworkActivity().then(setNetActivity)}
+                      className="ml-auto rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void window.api.clearNetworkActivity().then(() => setNetActivity([]))
+                      }
+                      className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-red-500 hover:bg-black/5 dark:hover:bg-white/10"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Every request the app makes, newest first. Only origins are recorded — never
+                    full URLs, so your queries stay private even here.
+                  </p>
+                  {netActivity.length === 0 ? (
+                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                      No network activity yet this session. With search disabled, this list should
+                      show nothing but your local LM Studio server.
+                    </p>
+                  ) : (
+                    <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+                      {netActivity.map((a, i) => (
+                        <li
+                          key={i}
+                          className="flex items-center gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs"
+                        >
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              a.blocked ? 'bg-red-500' : a.ok ? 'bg-green-500' : 'bg-amber-500'
+                            }`}
+                            title={a.blocked ? 'Blocked by egress policy' : a.ok ? 'OK' : 'Failed'}
+                          />
+                          <span className="shrink-0 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 font-mono">
+                            {a.purpose}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-mono" title={a.origin}>
+                            {a.origin}
+                          </span>
+                          <span className="shrink-0 text-neutral-400">
+                            {a.blocked ? 'blocked' : (a.status ?? a.error?.slice(0, 30) ?? '—')}
+                          </span>
+                          <span className="shrink-0 text-neutral-400">
+                            {new Date(a.at).toLocaleTimeString()}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             )}

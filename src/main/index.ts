@@ -6,6 +6,8 @@ import { registerToolHandlers } from './ipc/tools'
 import { registerAttachmentHandlers } from './ipc/attachments'
 import { registerVoiceHandlers } from './ipc/voice'
 import { registerMemoryHandlers } from './ipc/memory'
+import { registerNetworkHandlers } from './ipc/net'
+import { registerSearchHandlers } from './ipc/search'
 import { registerUpdateHandlers } from './updates'
 
 /** electron-vite serves the renderer over http in dev, from a file in production. */
@@ -96,6 +98,8 @@ app.whenReady().then(() => {
   registerAttachmentHandlers()
   registerVoiceHandlers()
   registerMemoryHandlers()
+  registerNetworkHandlers()
+  registerSearchHandlers()
   registerUpdateHandlers()
 
   ipcMain.handle('dialog:pickDirectory', async (event) => {

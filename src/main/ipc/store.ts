@@ -1,5 +1,5 @@
 import Store from 'electron-store'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron'
 import { promises as fs } from 'fs'
 import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -24,6 +24,7 @@ export interface ToolToggles {
   list_directory: boolean
   run_terminal_command: boolean
   web_search: boolean
+  fetch_webpage: boolean
   get_current_datetime: boolean
   create_note: boolean
   list_notes: boolean
@@ -31,6 +32,24 @@ export interface ToolToggles {
   memory_save: boolean
   memory_search: boolean
   memory_forget: boolean
+}
+
+export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
+
+export interface SearchSettings {
+  /** Which backend serves the web_search tool. */
+  provider: SearchProviderId
+  /** Base URL of a self-hosted SearXNG instance (loopback recommended). */
+  searxngUrl: string
+  /** Max results handed to the model per search (1–10). */
+  maxResults: number
+  /** Show a confirmation dialog with the exact outgoing query before every search. */
+  confirmBeforeSearch: boolean
+}
+
+export interface UpdateSettings {
+  /** Periodic background update checks. Off by default — manual "Check now" always works. */
+  autoCheck: boolean
 }
 
 export interface VoiceSettings {
@@ -62,6 +81,8 @@ export interface AppSettings {
   voice: VoiceSettings
   stt: SttSettings
   memory: MemorySettings
+  search: SearchSettings
+  updates: UpdateSettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean
   /** Hide tool-call blocks in chat; show a thinking animation instead. */
@@ -110,6 +131,7 @@ function defaultSettings(): AppSettings {
       list_directory: true,
       run_terminal_command: false,
       web_search: true,
+      fetch_webpage: true,
       get_current_datetime: true,
       create_note: true,
       list_notes: true,
@@ -133,6 +155,15 @@ function defaultSettings(): AppSettings {
       autoContext: true,
       topK: 3,
       embeddingModel: ''
+    },
+    search: {
+      provider: 'duckduckgo',
+      searxngUrl: 'http://127.0.0.1:8888',
+      maxResults: 8,
+      confirmBeforeSearch: false
+    },
+    updates: {
+      autoCheck: false
     },
     onboardingCompleted: false,
     hideToolCalls: false
@@ -210,6 +241,19 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       embeddingModel: str(settings.memory?.embeddingModel, ''),
       topK: clamp(settings.memory?.topK, 1, 8, 3)
     },
+    search: {
+      provider: (['searxng', 'brave', 'duckduckgo'] as const).includes(
+        settings.search?.provider as SearchProviderId
+      )
+        ? (settings.search!.provider as SearchProviderId)
+        : defaults.search.provider,
+      searxngUrl: str(settings.search?.searxngUrl, defaults.search.searxngUrl),
+      maxResults: clamp(settings.search?.maxResults, 1, 10, defaults.search.maxResults),
+      confirmBeforeSearch: Boolean(settings.search?.confirmBeforeSearch)
+    },
+    updates: {
+      autoCheck: Boolean(settings.updates?.autoCheck)
+    },
     onboardingCompleted: Boolean(settings.onboardingCompleted),
     hideToolCalls: Boolean(settings.hideToolCalls)
   }
@@ -228,7 +272,9 @@ export function migrateSettings(): void {
     tools: { ...defaults.tools, ...current.tools },
     voice: { ...defaults.voice, ...current.voice },
     stt: { ...defaults.stt, ...current.stt },
-    memory: { ...defaults.memory, ...current.memory }
+    memory: { ...defaults.memory, ...current.memory },
+    search: { ...defaults.search, ...current.search },
+    updates: { ...defaults.updates, ...current.updates }
   } as AppSettings
   store.set('settings', normalizeSettings(merged))
 }
@@ -273,9 +319,59 @@ function migrateLegacyDataDir(): void {
 }
 migrateLegacyDataDir()
 
-const store = new Store<{ settings: AppSettings }>({
+interface StoredSecrets {
+  /** Brave Search API key, safeStorage-encrypted (base64) when the OS keychain is available. */
+  braveApiKey?: string
+  /** True when braveApiKey could only be stored unencrypted (no OS keychain). */
+  braveApiKeyUnencrypted?: boolean
+}
+
+const store = new Store<{ settings: AppSettings; secrets?: StoredSecrets }>({
   defaults: { settings: defaultSettings() }
 })
+
+/**
+ * API keys never live in `settings` (which round-trips to the renderer in
+ * plaintext). They go through safeStorage into a separate store key; the
+ * renderer only ever learns whether a key is set.
+ */
+export function setBraveApiKey(key: string): { ok: boolean; warning?: string } {
+  const trimmed = key.trim()
+  if (!trimmed) {
+    store.set('secrets', {})
+    return { ok: true }
+  }
+  if (safeStorage.isEncryptionAvailable()) {
+    store.set('secrets', { braveApiKey: safeStorage.encryptString(trimmed).toString('base64') })
+    return { ok: true }
+  }
+  // No OS keychain (some Linux setups). Store it, but tell the user.
+  store.set('secrets', { braveApiKey: trimmed, braveApiKeyUnencrypted: true })
+  return {
+    ok: true,
+    warning:
+      'OS keychain unavailable — the API key was stored without encryption in config.json.'
+  }
+}
+
+export function getBraveApiKey(): string | null {
+  const secrets = store.get('secrets')
+  if (!secrets?.braveApiKey) return null
+  if (secrets.braveApiKeyUnencrypted) return secrets.braveApiKey
+  try {
+    return safeStorage.decryptString(Buffer.from(secrets.braveApiKey, 'base64'))
+  } catch {
+    return null
+  }
+}
+
+export function braveApiKeyStatus(): { set: boolean; encrypted: boolean } {
+  const secrets = store.get('secrets')
+  return {
+    set: Boolean(secrets?.braveApiKey),
+    encrypted: Boolean(secrets?.braveApiKey && !secrets.braveApiKeyUnencrypted)
+  }
+}
 
 // ---- Conversation & note file persistence ----------------------------------
 

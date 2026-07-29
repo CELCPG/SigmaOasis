@@ -12,7 +12,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode 
 
 ## ✨ Features
 
-- **Local & private** — connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only outbound network call is the optional `web_search` tool.
+- **Local & private** — connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `fetch_webpage` tools (provider of your choice) and update checks (opt-in, off by default) — all enforced by a built-in egress allowlist and visible in a network activity log.
 - **Multi-model roles (up to 3)** — each slot has its own model, role name, system prompt, and color accent.
 - **Three ways to use your models**
   - **Independent mode** — pick the active model from the top bar; each conversation keeps its thread.
@@ -120,8 +120,9 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | `read_file` | Read the contents of a local file. |
 | `write_file` | Write/overwrite a local file — **off by default**; confirms each write when no working directory is set. |
 | `list_directory` | List entries in a directory. |
-| `run_terminal_command` | Run a shell command — **off by default**; shows a confirmation dialog before every run. |
-| `web_search` | Web search via DuckDuckGo's instant-answer API (no key). |
+| `run_terminal_command` | Run a shell command — **off by default**; shows a confirmation dialog before every run, with destructive patterns (e.g. `rm -rf`, `dd`, `curl \| sh`) flagged as dangerous. |
+| `web_search` | Web search via your chosen privacy-preserving provider — self-hosted **SearXNG**, **Brave Search API**, or **DuckDuckGo** (Settings → Search). Queries are sanitized (emails, tokens, paths, etc. redacted) before they leave the machine. |
+| `fetch_webpage` | Fetch and read a public web page (HTTPS only, scripts/ads stripped). Private/internal addresses are refused (SSRF guard). |
 | `get_current_datetime` | Return the current local date/time. |
 | `create_note` | Save a note to the local notes store. |
 | `list_notes` | List saved note titles. |
@@ -138,6 +139,37 @@ it. Leave it empty for unrestricted paths; every `write_file` call is then confi
 > and a model can be influenced by anything it reads — web search results, attached documents, files
 > on disk. `write_file` and `run_terminal_command` ship **disabled**; the terminal tool always asks
 > for confirmation. Set a scoped working directory before enabling write access.
+> All text returned from the web (`web_search`, `fetch_webpage`) is fed back to models wrapped in an
+> explicit **"untrusted external content"** marker, so the trust boundary is visible to both the
+> model and you.
+
+---
+
+## 🔒 Privacy, search & network egress
+
+Sigma Oasis's promise — *your data is never sold and never leaves your machine without your say-so* —
+is enforced structurally, not just by policy:
+
+- **Egress allowlist.** Every request the main process makes goes through an allowlist derived from
+  your settings: your loopback LM Studio server, plus the one search provider you chose. Anything
+  else is blocked before it is sent and recorded as blocked.
+- **Network activity log.** Settings → **Privacy** shows every request (newest first): purpose,
+  origin, status, time. Only origins are recorded — never full URLs — so your queries stay private
+  even in the log. With search disabled, this list should show nothing but LM Studio.
+- **Update checks are opt-in.** The app can check GitHub Releases for updates, but only if you
+  enable it (Settings → Privacy or General). Manual "Check now" always works.
+
+### Choosing a search provider (Settings → Search)
+
+| Provider | Privacy profile | Setup |
+| --- | --- | --- |
+| **Self-hosted SearXNG** (recommended) | Best — metasearch over 70+ engines from a server **you** run; only infrastructure you control ever sees queries. | `docker run -p 8888:8080 searxng/searxng`, enable JSON output (`formats: [html, json]`), set the URL in Settings → Search. |
+| **Brave Search API** | Strong — independent index, no user profiling. | Free API key from brave.com/search/api; stored via your OS keychain (Electron `safeStorage`), never in the plaintext settings file. |
+| **DuckDuckGo** | Good — no key, no tracking; rate-limited. | Works out of the box (default). |
+
+Also configurable per your taste: results per search (1–10) and **Confirm every query**, which shows
+the exact sanitized query for approval before each search is sent. Use the **Test connection**
+button to verify your provider setup.
 
 ---
 
@@ -167,7 +199,9 @@ sigma-oasis/
 │   │   ├── index.ts          # App/window bootstrap
 │   │   └── ipc/
 │   │       ├── tools.ts      # Agentic tool implementations + schemas
-│   │       └── store.ts      # electron-store, conversations, notes
+│   │       ├── store.ts      # electron-store, conversations, notes, encrypted secrets
+│   │       ├── net.ts        # Egress allowlist + network activity log
+│   │       └── search.ts     # Search providers + SSRF-guarded webpage fetch
 │   ├── preload/
 │   │   ├── index.ts          # Secure context bridge (window.api)
 │   │   └── index.d.ts        # Renderer-side typings

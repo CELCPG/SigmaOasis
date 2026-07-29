@@ -1,12 +1,15 @@
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { getSettings } from './ipc/store'
 
 /**
  * Auto-update via electron-updater + GitHub Releases (the publish provider
- * in electron-builder.yml). Packaged builds check 10s after launch and every
- * 4h; updates download in the background and offer a restart when ready.
- * In dev the handlers still register (returning a 'dev build' status) so the
- * renderer never has to care which mode it's in.
+ * in electron-builder.yml). Update checks contact GitHub — one of only two
+ * non-loopback network paths in the app — so background checks are **opt-in**
+ * (Settings → General → "Automatically check for updates"). The manual
+ * "Check now" button always works. In dev the handlers still register
+ * (returning a 'dev build' status) so the renderer never has to care which
+ * mode it's in.
  */
 
 export interface UpdateStatus {
@@ -91,7 +94,13 @@ export function registerUpdateHandlers(): void {
     return true
   })
 
-  // First check shortly after launch, then periodically while running.
-  setTimeout(() => void autoUpdater.checkForUpdates().catch(() => undefined), 10_000)
-  setInterval(() => void autoUpdater.checkForUpdates().catch(() => undefined), CHECK_INTERVAL_MS)
+  // Background checks only when the user opted in (Settings → General). The
+  // manual updates:check handler above always works.
+  const checkIfEnabled = (): void => {
+    if (getSettings().updates.autoCheck) {
+      void autoUpdater.checkForUpdates().catch(() => undefined)
+    }
+  }
+  setTimeout(checkIfEnabled, 10_000)
+  setInterval(checkIfEnabled, CHECK_INTERVAL_MS)
 }

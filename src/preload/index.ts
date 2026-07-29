@@ -5,6 +5,7 @@ import type {
   Conversation,
   MemorySearchResult,
   MemoryStats,
+  NetworkActivityEntry,
   SttStatus,
   ToolResult,
   ToolSchema,
@@ -43,6 +44,18 @@ const api = {
   listTools: (): Promise<ToolSchema[]> => ipcRenderer.invoke('tools:list'),
   executeTool: (name: string, args: Record<string, unknown>): Promise<ToolResult> =>
     ipcRenderer.invoke('tools:execute', name, args),
+
+  // Private web search (main/ipc/search.ts)
+  testSearchProvider: (): Promise<{ ok: boolean; detail: string }> =>
+    ipcRenderer.invoke('search:test'),
+  braveKeyStatus: (): Promise<{ set: boolean; encrypted: boolean }> =>
+    ipcRenderer.invoke('search:braveKeyStatus'),
+  setBraveApiKey: (key: string): Promise<{ ok: boolean; warning?: string }> =>
+    ipcRenderer.invoke('search:setBraveApiKey', key),
+
+  // Network egress audit (main/ipc/net.ts)
+  getNetworkActivity: (): Promise<NetworkActivityEntry[]> => ipcRenderer.invoke('net:getActivity'),
+  clearNetworkActivity: (): Promise<boolean> => ipcRenderer.invoke('net:clearActivity'),
 
   // Attachments (main/ipc/attachments.ts)
   pickAttachments: (): Promise<AttachmentLoadResult> => ipcRenderer.invoke('attachments:pick'),

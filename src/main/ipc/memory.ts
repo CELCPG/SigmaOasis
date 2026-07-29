@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { getSettings } from './store'
+import { auditedFetch } from './net'
 import { readTextDocument } from './attachments'
 import { writeFileAtomic } from './fsAtomic'
 
@@ -104,7 +105,7 @@ export async function resolveEmbeddingModel(): Promise<string | null> {
   const configured = settings.memory.embeddingModel.trim()
   if (configured) return configured
   try {
-    const res = await fetch(`${settings.baseUrl.replace(/\/+$/, '')}/models`)
+    const res = await auditedFetch(`${settings.baseUrl.replace(/\/+$/, '')}/models`, undefined, 'lmstudio')
     if (!res.ok) return null
     const data = (await res.json()) as { data?: { id: string }[] }
     return data.data?.find((m) => /embed/i.test(m.id))?.id ?? null
@@ -125,11 +126,15 @@ async function embedTexts(texts: string[]): Promise<{ model: string; vectors: nu
   const vectors: number[][] = []
   for (let i = 0; i < texts.length; i += EMBED_BATCH) {
     const batch = texts.slice(i, i + EMBED_BATCH)
-    const res = await fetch(`${settings.baseUrl.replace(/\/+$/, '')}/embeddings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, input: batch })
-    })
+    const res = await auditedFetch(
+      `${settings.baseUrl.replace(/\/+$/, '')}/embeddings`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, input: batch })
+      },
+      'lmstudio'
+    )
     if (!res.ok) throw new Error(`Embeddings endpoint returned HTTP ${res.status}`)
     const data = (await res.json()) as { data?: { embedding: number[]; index: number }[] }
     const byIndex = (data.data ?? []).sort((a, b) => a.index - b.index)
