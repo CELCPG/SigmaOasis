@@ -295,6 +295,10 @@ async function runConsultation(
   tools: ToolSchema[],
   signal: AbortSignal
 ): Promise<string> {
+  // Pin before anything else: a memory or research embedding between turns
+  // would otherwise let LM Studio's auto-evict unload this model mid-turn.
+  await window.api.pinModel(specialist.modelId).catch(() => false)
+
   let systemPrompt = specialist.systemPrompt
   try {
     const memory = useAppStore.getState().settings?.memory
@@ -385,6 +389,13 @@ async function runTurn(
   store.appendMessage(conversationId, assistantMsg)
   const patch = (p: Partial<ChatMessage>): void =>
     useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
+
+  // Pin before the memory RAG below: its embedding call JIT-loads the
+  // embedding model, and LM Studio's default auto-evict would unload this
+  // slot's model in response — an eject/reload cycle on every turn. After the
+  // append so the ripple covers a cold model load, which a first-turn pin
+  // waits for.
+  await window.api.pinModel(slot.modelId).catch(() => false)
 
   // RAG: pull relevant long-term memory into the system prompt (best effort).
   let systemPrompt = slot.systemPrompt

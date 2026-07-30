@@ -8,6 +8,7 @@ import { registerVoiceHandlers } from './ipc/voice'
 import { registerMemoryHandlers } from './ipc/memory'
 import { registerNetworkHandlers } from './ipc/net'
 import { registerSearchHandlers } from './ipc/search'
+import { registerModelPinHandlers, hasLegacyPins, unloadLegacyPins } from './ipc/modelPin'
 import { registerUpdateHandlers } from './updates'
 
 /** electron-vite serves the renderer over http in dev, from a file in production. */
@@ -101,6 +102,7 @@ app.whenReady().then(() => {
   registerNetworkHandlers()
   registerSearchHandlers()
   registerUpdateHandlers()
+  registerModelPinHandlers()
 
   ipcMain.handle('dialog:pickDirectory', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -131,4 +133,17 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Undo TTL-less model pins before exiting (see ipc/modelPin.ts): the legacy
+// LM Studio load endpoint accepts no TTL, so models we explicitly loaded
+// would otherwise stay resident after the app is gone.
+let allowQuit = false
+app.on('before-quit', (event) => {
+  if (allowQuit || !hasLegacyPins()) return
+  event.preventDefault()
+  void unloadLegacyPins().finally(() => {
+    allowQuit = true
+    app.quit()
+  })
 })

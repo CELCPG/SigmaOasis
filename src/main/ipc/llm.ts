@@ -1,4 +1,5 @@
 import { auditedFetch } from './net'
+import { pinChatModel } from './modelPin'
 import { getSettings } from './store'
 
 /**
@@ -35,6 +36,10 @@ const DEFAULT_TIMEOUT_MS = 120_000
 /** One non-streaming completion. Returns the assistant's text. */
 export async function chatComplete(options: CompleteOptions): Promise<string> {
   const settings = getSettings()
+  // Keep the model resident before reasoning: without the pin, an embedding
+  // call between research steps lets LM Studio's auto-evict unload it, and
+  // every reflect/synthesize pays a full reload.
+  await pinChatModel(options.model)
   try {
     const res = await auditedFetch(
       `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`,

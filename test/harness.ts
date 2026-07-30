@@ -55,6 +55,18 @@ export interface HarnessState {
   completionPrompts: string[]
   /** Make every /chat/completions call throw. */
   failCompletions: boolean
+  /** Bodies received by /api/v0/models/load, in order. */
+  pinCalls: { model?: string; ttl?: number }[]
+  /** Bodies received by the legacy /api/v1/models/load, in order. */
+  legacyPinCalls: { model?: string }[]
+  /** Bodies received by /api/v1/models/unload, in order. */
+  unloadCalls: { instance_id?: string }[]
+  /** Make /api/v0/models/load return "Unexpected endpoint" (older LM Studio). */
+  pinUnavailable: boolean
+  /** Make the legacy /api/v1/models/load also return "Unexpected endpoint". */
+  pinLegacyUnavailable: boolean
+  /** Reported `state` per model id from GET /api/v0/models (default: not-loaded). */
+  modelStates: Record<string, string>
   /**
    * DNS answers per hostname, for search.ts's SSRF guard. Anything not listed
    * resolves to a public address.
@@ -80,6 +92,12 @@ export const state: HarnessState = {
   completions: [],
   completionPrompts: [],
   failCompletions: false,
+  pinCalls: [],
+  legacyPinCalls: [],
+  unloadCalls: [],
+  pinUnavailable: false,
+  pinLegacyUnavailable: false,
+  modelStates: {},
   dnsOverrides: {},
   dnsFailures: []
 }
@@ -96,6 +114,12 @@ export function resetState(): void {
   state.completions = []
   state.completionPrompts = []
   state.failCompletions = false
+  state.pinCalls = []
+  state.legacyPinCalls = []
+  state.unloadCalls = []
+  state.pinUnavailable = false
+  state.pinLegacyUnavailable = false
+  state.modelStates = {}
   state.dnsOverrides = {}
   state.dnsFailures = []
 }
@@ -171,6 +195,37 @@ const netStub = {
   auditedFetch: async (url: string, init: { body?: string } | undefined, purpose: string) => {
     state.fetchLog.push({ url, purpose })
 
+    if (url.endsWith('/api/v0/models/load')) {
+      if (state.pinUnavailable) {
+        return makeResponse('{"error":"Unexpected endpoint or method. (POST /api/v0/models/load)"}', 'application/json', 404)
+      }
+      state.pinCalls.push(JSON.parse(init!.body!) as { model?: string; ttl?: number })
+      return makeResponse(JSON.stringify({ status: 'loaded' }), 'application/json')
+    }
+    if (url.endsWith('/api/v1/models/load')) {
+      if (state.pinLegacyUnavailable) {
+        return makeResponse('{"error":"Unexpected endpoint or method. (POST /api/v1/models/load)"}', 'application/json', 404)
+      }
+      const body = JSON.parse(init!.body!) as { model?: string }
+      state.legacyPinCalls.push(body)
+      if (body.model) state.modelStates[body.model] = 'loaded'
+      return makeResponse(JSON.stringify({ status: 'loaded' }), 'application/json')
+    }
+    if (url.endsWith('/api/v1/models/unload')) {
+      const body = JSON.parse(init!.body!) as { instance_id?: string }
+      state.unloadCalls.push(body)
+      if (body.instance_id) state.modelStates[body.instance_id] = 'not-loaded'
+      return makeResponse(JSON.stringify({ status: 'unloaded' }), 'application/json')
+    }
+    if (url.endsWith('/api/v0/models')) {
+      const ids = new Set(['fake-embed', 'fake-chat', ...Object.keys(state.modelStates)])
+      return makeResponse(
+        JSON.stringify({
+          data: [...ids].map((id) => ({ id, state: state.modelStates[id] ?? 'not-loaded' }))
+        }),
+        'application/json'
+      )
+    }
     if (url.endsWith('/embeddings')) {
       if (state.failEmbeddings) throw new Error('simulated embedding failure')
       state.embedCalls += 1

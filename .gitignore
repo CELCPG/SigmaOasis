@@ -6,6 +6,3 @@ dist/
 .DS_Store
 scripts/signing.env
 .test-build/
-
-# Standalone marketing site — lives in its own repo
-Sigma Oaisis Website/

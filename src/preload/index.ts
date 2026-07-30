@@ -49,6 +49,9 @@ const api = {
     context?: { modelId?: string }
   ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
 
+  // Keep a chat model resident in LM Studio (main/ipc/modelPin.ts)
+  pinModel: (modelId: string): Promise<boolean> => ipcRenderer.invoke('models:pin', modelId),
+
   /** Live phase updates from a running deep_research call. */
   onResearchProgress: (
     cb: (update: { phase: string; detail: string }) => void
