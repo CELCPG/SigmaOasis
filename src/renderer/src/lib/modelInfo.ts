@@ -1,0 +1,60 @@
+import type { ModelInfo } from '../types'
+
+/**
+ * Presentation helpers for what LM Studio tells us about a model. Kept free of
+ * React so the formatting — and, more importantly, the rules about what we do
+ * and do not claim — can be tested directly.
+ */
+
+/** `32K`, `4.5K`, `900`. */
+export function formatContextLength(tokens: number): string {
+  if (tokens >= 1000) {
+    const thousands = tokens / 1000
+    return `${thousands >= 10 || Number.isInteger(thousands) ? Math.round(thousands) : thousands.toFixed(1)}K`
+  }
+  return String(tokens)
+}
+
+/**
+ * The context window to budget against: what the model is actually loaded
+ * with, falling back to what it supports. These differ often and by a lot —
+ * a 128K model loaded at 4K will happily accept a request it then truncates,
+ * so preferring the loaded value is the difference between a budget and a
+ * guess. Undefined when the server did not report either.
+ */
+export function effectiveContextLength(model: ModelInfo | undefined): number | undefined {
+  return model?.loadedContextLength ?? model?.maxContextLength
+}
+
+/**
+ * Short capability suffix for a model row: quantization, context, loaded state.
+ *
+ * Deliberately silent about tool support. LM Studio reports no tool-use
+ * capability field, and a badge claiming a model can call tools when it cannot
+ * would send users to the wrong place when a model ignores every tool.
+ */
+export function describeModel(model: ModelInfo): string {
+  const parts: string[] = []
+  if (model.vision) parts.push('vision')
+  if (model.quantization) parts.push(model.quantization)
+  const context = effectiveContextLength(model)
+  if (context) parts.push(`${formatContextLength(context)} ctx`)
+  if (model.loaded) parts.push('loaded')
+  return parts.join(' · ')
+}
+
+/** A model row as one line: `qwen3-8b — vision · Q4_K_M · 32K ctx · loaded`. */
+export function modelLabel(model: ModelInfo): string {
+  const detail = describeModel(model)
+  return detail ? `${model.id} — ${detail}` : model.id
+}
+
+/**
+ * True only when LM Studio positively reported that the model cannot take
+ * images. An unknown capability (older server, model not in the catalog) is
+ * not a refusal — warning on "we don't know" would train users to dismiss the
+ * warning that matters.
+ */
+export function knownToLackVision(model: ModelInfo | undefined): boolean {
+  return Boolean(model && model.type && model.type !== 'vlm')
+}

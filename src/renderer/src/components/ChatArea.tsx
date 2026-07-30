@@ -9,6 +9,7 @@ import { Logo } from './Logo'
 export function ChatArea({ conversation }: { conversation: Conversation }): JSX.Element {
   const streaming = useAppStore((s) => s.streaming)
   const researchProgress = useAppStore((s) => s.researchProgress)
+  const compacting = useAppStore((s) => s.compacting)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const lastMessage = conversation.messages[conversation.messages.length - 1]
@@ -69,6 +70,18 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
           isLast={idx === conversation.messages.length - 1 && m.role === 'assistant'}
         />
       ))}
+      {compacting && (
+        <div
+          className="mx-auto flex max-w-3xl items-center gap-2.5 px-4 py-2 text-xs"
+          style={{ color: 'var(--accent-teal-glow)' }}
+        >
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(0,212,170,0.8)]" />
+          <span className="font-medium tracking-[0.08em]">Compacting earlier messages…</span>
+          <span className="min-w-0 truncate text-neutral-400">
+            summarizing what no longer fits the context window
+          </span>
+        </div>
+      )}
       {streaming && researchProgress && (
         <div className="mx-auto flex max-w-3xl items-center gap-2.5 px-4 py-2 text-xs" style={{ color: 'var(--accent-teal-glow)' }}>
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(0,212,170,0.8)]" />

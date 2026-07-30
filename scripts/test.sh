@@ -55,8 +55,13 @@ rm -rf "$OUT"
   src/main/ipc/search.ts \
   src/main/ipc/llm.ts \
   src/main/ipc/modelPin.ts \
+  src/main/ipc/modelCatalog.ts \
+  src/main/ipc/attachments.ts \
   src/main/ipc/deepResearch.ts \
   src/renderer/src/lib/oasisRipple.ts \
+  src/renderer/src/lib/reasoning.ts \
+  src/renderer/src/lib/contextBudget.ts \
+  src/renderer/src/lib/modelInfo.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts

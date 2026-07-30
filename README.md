@@ -19,7 +19,11 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
   - **@mention routing.** Type `@Coder write a sort function` to route a single message to a specific role.
   - **Collaborative pipeline.** Your message flows through an ordered chain of models, each building on the previous one's output.
   - **Orchestrated mode.** An orchestrator model reasons about your request and **delegates to the other roles as tools** (`consult_model`), reads their answers, consults again if needed, then synthesizes the final reply. Specialists run with their own persona, tools, and memory; delegation loops are structurally impossible and consultations are capped per turn. Every delegation appears as an expandable "🤝 Consulted …" block.
-- **File & image attachments.** Drag & drop or use the 📎 button. Images are sent to vision-capable models (multimodal `image_url` parts); text files are inlined into context (truncated at 20 K chars). Attaching a PDF from disk is not supported yet, but a model can read a PDF on the web with `fetch_webpage`.
+- **Reasoning models are first-class.** Qwen3, the DeepSeek-R1 distills, gpt-oss, Magistral and friends emit their chain-of-thought inline. Sigma Oasis separates it from the answer as the tokens arrive, so thinking appears as a collapsed **"💭 Thought for 12s"** block instead of unlabeled prose, is never read aloud by voice mode, and is not replayed back to the model on the next turn.
+- **File, image & PDF attachments.** Drag & drop or use the 📎 button. Images are sent to vision-capable models (multimodal `image_url` parts); text files and **PDFs** are extracted and inlined into context (truncated at 20 K chars). An encrypted PDF, a scan with no text layer, or an encoding that cannot be decoded is refused by name rather than handed to a model as garbled text.
+- **Per-role sampling, with an honest performance readout.** Each slot has its own temperature, top-p, max tokens and seed; set temperature to 0 with a fixed seed and a role becomes reproducible. Under each reply: tokens/sec and time to first token. Token counts come from LM Studio's own accounting; when a server does not report them, only timing is shown rather than an estimate dressed up as a measurement.
+- **Knows what your models can do.** Model discovery reads LM Studio's REST API, so the picker shows quantization, context length and whether a model is currently loaded, and the composer warns before you send an image to a model LM Studio reports as text-only.
+- **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter in the top bar shows how full the window is. Switch to plain trimming under Settings → General.
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches.
 - **Agentic tools** via OpenAI tool-calling: file read/write, directory listing, terminal (with a confirmation dialog), web search, date/time, and a local notes store.
@@ -75,12 +79,22 @@ Packaged installers are written to the `dist/` folder:
 Open **Settings** (gear icon, bottom-left) → **Models**. For each of the 3 slots:
 
 1. **Enable** the slot with the checkbox.
-2. Choose a **Model** from the dropdown (auto-populated from LM Studio's `/v1/models`).
+2. Choose a **Model** from the dropdown. Each entry shows what LM Studio reports about it:
+   quantization, context length, whether it takes images, and whether it is currently loaded.
 3. Give it a **Role name** (e.g. `Assistant`, `Researcher`, `Coder`). This becomes its badge and its @mention handle.
 4. Write a **System prompt** describing the model's persona/instructions.
 5. Pick a **color accent** (blue / purple / green).
+6. Open **Sampling** for per-role **temperature**, **top-p**, **max tokens** and **seed**.
+   Temperature `0` with a fixed seed makes a role reproducible: the same prompt returns the same
+   answer, which is what you want for a Coder slot and not what you want for a brainstorming one.
+   Max tokens `-1` leaves the reply length to LM Studio.
 
 Under **Settings → Connection** you can change the LM Studio base URL and test the connection.
+
+> The capability details come from LM Studio's own REST API. On an older LM Studio without it, the
+> dropdown falls back to plain model ids and the app behaves as it did before; it does not guess.
+> Note that LM Studio reports **no tool-use capability flag**, so there is deliberately no badge
+> claiming a model can call tools: a wrong badge would be worse than none.
 
 ---
 
@@ -141,6 +155,42 @@ it. Leave it empty for unrestricted paths; every `write_file` call is then confi
 > All text returned from the web (`web_search`, `fetch_webpage`) is fed back to models wrapped in an
 > explicit **"untrusted external content"** marker, so the trust boundary is visible to both the
 > model and you.
+
+---
+
+## 🧮 Context: budgeting and compaction
+
+A conversation eventually outgrows what the model can hold. Through v0.8.1 the response was two
+constants (40 messages, 48,000 characters) applied identically to a 4K model and a 128K one, and
+whatever did not fit was deleted from the wire history with no summary and no signal. The model lost
+the beginning of the conversation, and you found out when it contradicted itself.
+
+Two changes:
+
+- **The budget is the real window.** LM Studio reports `loaded_context_length`: what the model is
+  *actually* loaded with, which is often far below what it supports. A 128K model loaded at 4K will
+  accept a request it then truncates from the front, taking the system prompt with it. History is
+  sized against that number, minus the system prompt, the tool schemas, a reply reservation and a
+  safety margin.
+- **The overflow is summarized, not deleted.** What no longer fits is compacted by your local model
+  into a short note carried in the system prompt as *"Earlier in this conversation…"*. Each
+  compaction folds the previous note in with the newly dropped messages, so it stays one bounded
+  block however long the conversation runs.
+
+The top bar shows a context meter (`~12.4K / 32K`, amber near the limit), and `· compacted` once a
+conversation has been summarized. **Settings → General** switches back to plain trimming.
+
+Two honest caveats, both stated in the UI as well:
+
+- **The token count is an estimate**, derived from text length rather than a real tokenizer. Matching
+  the tokenizer would mean shipping the vocabulary of whatever model you happened to load; being
+  wrong by ~15% inside a budget that already reserves headroom costs nothing.
+- **Compaction is best effort.** No summarizer model, a timeout, an empty reply: any failure falls
+  through to plain dropping. Losing the start of a conversation is bad; refusing to answer the
+  message you just sent because the summarizer had a bad day is worse.
+
+When LM Studio reports no context length at all, the pre-0.8.2 message/character rule applies
+unchanged, so an older server behaves exactly as it did before.
 
 ---
 
@@ -355,6 +405,9 @@ sigma-oasis/
 │   │       ├── deepResearch.ts  # Plan → search → read → reflect → synthesize
 │   │       ├── llm.ts        # Main-process model calls + tolerant JSON parsing
 │   │       ├── modelPin.ts   # Keeps the chat model resident in LM Studio
+│   │       ├── modelCatalog.ts # Model list + capabilities (context, vision, loaded)
+│   │       ├── summarize.ts  # Rolling compaction of history that no longer fits
+│   │       ├── attachments.ts # Images, text files and PDFs from disk
 │   │       └── memory.ts     # Durable long-term memory (RAG) on disk
 │   ├── preload/
 │   │   ├── index.ts          # Secure context bridge (window.api)
@@ -366,7 +419,7 @@ sigma-oasis/
 │           ├── App.tsx
 │           ├── types.ts
 │           ├── assets/index.css
-│           ├── lib/          # markdown + color + ripple helpers
+│           ├── lib/          # markdown, colors, ripple, reasoning split, context budget
 │           ├── stores/appStore.ts        # Zustand global state
 │           ├── hooks/
 │           │   ├── useLMStudio.ts         # streaming + tool loop + routing
@@ -379,6 +432,7 @@ sigma-oasis/
 │               ├── InputBar.tsx
 │               ├── ModelTabs.tsx
 │               ├── ToolCallBlock.tsx
+│               ├── ReasoningBlock.tsx
 │               ├── SettingsModal.tsx
 │               └── CollaborativeMode.tsx
 ├── test/                     # node:test suite (see Tests below)
@@ -403,10 +457,17 @@ sigma-oasis/
 npm test
 ```
 
-The suite covers the search, extraction, retrieval, PDF and model-pinning code paths: the parts
-that are pure logic and easy to regress. It uses Node's built-in `node:test` runner and **adds no
-dependencies**; if `node` is not on your PATH it falls back to the Node runtime already bundled
-inside the project's Electron.
+The suite covers the search, extraction, retrieval, PDF, attachment, model-catalog, reasoning-split,
+context-budget and model-pinning code paths: the parts that are pure logic and easy to regress. It
+uses Node's built-in `node:test` runner and **adds no dependencies**; if `node` is not on your PATH
+it falls back to the Node runtime already bundled inside the project's Electron.
+
+Two of these earn their place by being *silent* when they break: nothing throws, the answer is just
+quietly wrong. The reasoning splitter is tested one character per delta, because a `<think>` tag
+straddling two SSE chunks would otherwise leak into the answer; and it is tested with a `<think>` in
+a mid-reply code block, because treating that as a real thought block would swallow the rest of a
+legitimate answer. The context budget is tested for the newest message always surviving and for the
+no-catalog fallback matching pre-0.8.2 behavior exactly.
 
 Tests run against the real main-process modules, with only three seams stubbed (`electron`, the
 network layer, and settings), so what is verified is the code that ships rather than a

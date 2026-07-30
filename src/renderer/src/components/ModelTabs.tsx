@@ -3,6 +3,8 @@ import { useAppStore } from '../stores/appStore'
 import type { ChatMode, Conversation, ModelConfig } from '../types'
 import { ACCENT } from '../lib/colors'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
+import { effectiveContextLength, formatContextLength } from '../lib/modelInfo'
+import { estimateMessageTokens, estimateTokens } from '../lib/contextBudget'
 
 interface Props {
   conversation: Conversation
@@ -23,6 +25,7 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const upsertConversation = useAppStore((s) => s.upsertConversation)
   const streaming = useAppStore((s) => s.streaming)
+  const availableModels = useAppStore((s) => s.availableModels)
   const [exported, setExported] = useState(false)
 
   const exportMarkdown = async (): Promise<void> => {
@@ -41,6 +44,27 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
   if (!settings) return <div className="m-3 mb-0 h-12 glass-panel" />
 
   const enabledModels = settings.models.filter((m) => m.enabled)
+
+  /**
+   * How full the context window is. Shown only when LM Studio reported a
+   * window size — a meter against a guessed denominator would be worse than
+   * no meter. The numerator is an estimate either way, which the tooltip says.
+   */
+  const activeSlot =
+    settings.models.find((m) => m.id === conversation.activeModelSlotId && m.enabled) ??
+    settings.models.find((m) => m.enabled)
+  const total = effectiveContextLength(
+    availableModels.find((m) => m.id === activeSlot?.modelId)
+  )
+  const contextMeter = total
+    ? (() => {
+        const used =
+          conversation.messages.reduce((n, m) => n + estimateMessageTokens(m), 0) +
+          estimateTokens(activeSlot?.systemPrompt ?? '') +
+          estimateTokens(conversation.summary?.text ?? '')
+        return { used, total, ratio: used / total }
+      })()
+    : null
 
   const patchConvo = (partial: Partial<Conversation>): void => {
     const next = { ...conversation, ...partial }
@@ -135,12 +159,29 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
         </div>
       )}
 
+      {/* Context meter — only when LM Studio told us the window size */}
+      {contextMeter && (
+        <span
+          className={`ml-auto shrink-0 text-xs ${
+            contextMeter.ratio > 0.9
+              ? 'text-amber-600 dark:text-amber-500'
+              : 'text-neutral-400'
+          }`}
+          title={`Estimated ${contextMeter.used.toLocaleString()} of ${contextMeter.total.toLocaleString()} tokens used. Token counts here are estimated from text length, not tokenized${
+            conversation.summary ? '. Earlier messages have been summarized to fit' : ''
+          }.`}
+        >
+          ~{formatContextLength(contextMeter.used)} / {formatContextLength(contextMeter.total)}
+          {conversation.summary && ' · compacted'}
+        </span>
+      )}
+
       {/* Export transcript */}
       <button
         type="button"
         onClick={() => void exportMarkdown()}
         disabled={conversation.messages.length === 0}
-        className="ml-auto shrink-0 rounded-lg px-2 py-1 text-xs text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+        className={`${contextMeter ? 'ml-2' : 'ml-auto'} shrink-0 rounded-lg px-2 py-1 text-xs text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40`}
         title="Export conversation as Markdown"
       >
         {exported ? '✓ Exported' : '⤓ Export'}

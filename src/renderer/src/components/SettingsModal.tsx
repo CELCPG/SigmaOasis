@@ -4,6 +4,7 @@ import { useModels } from '../hooks/useModels'
 import { useUpdates } from '../hooks/useUpdates'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
+import { describeModel, modelLabel } from '../lib/modelInfo'
 import type {
   AppSettings,
   AccentColor,
@@ -11,7 +12,8 @@ import type {
   SttStatus,
   MemoryStats,
   NetworkActivityEntry,
-  ResearchIndexStats
+  ResearchIndexStats,
+  SamplingSettings
 } from '../types'
 import { speak } from '../lib/voice'
 
@@ -120,6 +122,19 @@ export function SettingsModal(): JSX.Element | null {
     setDraft((d) =>
       d
         ? { ...d, models: d.models.map((m) => (m.id === id ? { ...m, ...partial } : m)) }
+        : d
+    )
+
+  /** Sampling is nested, so it needs its own merge rather than updateModel's spread. */
+  const updateSampling = (id: string, partial: Partial<SamplingSettings>): void =>
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            models: d.models.map((m) =>
+              m.id === id ? { ...m, sampling: { ...m.sampling, ...partial } } : m
+            )
+          }
         : d
     )
 
@@ -249,6 +264,11 @@ export function SettingsModal(): JSX.Element | null {
                       {availableModels.map((m) => (
                         <li key={m.id} className="font-mono">
                           {m.id}
+                          {describeModel(m) && (
+                            <span className="ml-2 font-sans text-neutral-500">
+                              {describeModel(m)}
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -291,7 +311,7 @@ export function SettingsModal(): JSX.Element | null {
                           <option value="">— select a model —</option>
                           {availableModels.map((am) => (
                             <option key={am.id} value={am.id}>
-                              {am.id}
+                              {modelLabel(am)}
                             </option>
                           ))}
                           {/* Keep a stale selection visible even if offline */}
@@ -341,6 +361,72 @@ export function SettingsModal(): JSX.Element | null {
                         Route with <code>@{m.roleName.replace(/\s+/g, '')}</code>
                       </span>
                     </div>
+
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                        Sampling
+                      </summary>
+                      <div className="mt-2 grid grid-cols-4 gap-3">
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Temperature</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={2}
+                            step={0.1}
+                            value={m.sampling.temperature}
+                            onChange={(e) =>
+                              updateSampling(m.id, { temperature: Number(e.target.value) })
+                            }
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Top P</label>
+                          <input
+                            type="number"
+                            min={0.01}
+                            max={1}
+                            step={0.05}
+                            value={m.sampling.topP}
+                            onChange={(e) => updateSampling(m.id, { topP: Number(e.target.value) })}
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Max tokens</label>
+                          <input
+                            type="number"
+                            min={-1}
+                            step={128}
+                            value={m.sampling.maxTokens}
+                            onChange={(e) =>
+                              updateSampling(m.id, { maxTokens: Number(e.target.value) })
+                            }
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Seed</label>
+                          <input
+                            type="number"
+                            placeholder="random"
+                            value={m.sampling.seed ?? ''}
+                            onChange={(e) =>
+                              updateSampling(m.id, {
+                                seed: e.target.value === '' ? null : Number(e.target.value)
+                              })
+                            }
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-neutral-400">
+                        Temperature 0 with a fixed seed makes this role reproducible: the same
+                        prompt returns the same answer. Max tokens <code>-1</code> leaves the reply
+                        length to LM Studio.
+                      </p>
+                    </details>
                   </div>
                 ))}
               </div>
@@ -412,6 +498,39 @@ export function SettingsModal(): JSX.Element | null {
                   <p className="mt-1 text-xs text-neutral-500">
                     When on, tool activity collapses to a subtle thinking animation — the chat
                     stays clean. Off by default.
+                  </p>
+                  <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.showResponseStats}
+                      onChange={(e) => update({ showResponseStats: e.target.checked })}
+                      className="h-4 w-4 accent-accent"
+                    />
+                    Show response stats
+                  </label>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Tokens/sec and time to first token under each reply. Token counts come from LM
+                    Studio; when a server does not report them, only timing is shown.
+                  </p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    When a conversation outgrows the context window
+                  </label>
+                  <select
+                    value={draft.contextManagement}
+                    onChange={(e) =>
+                      update({ contextManagement: e.target.value as 'compact' | 'trim' })
+                    }
+                    className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                  >
+                    <option value="compact">Summarize what no longer fits</option>
+                    <option value="trim">Drop it silently</option>
+                  </select>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Summarizing costs one extra local model call when the limit is first reached,
+                    and keeps the model aware of how the conversation began. Dropping is what
+                    versions before 0.8.2 did.
                   </p>
                 </div>
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">

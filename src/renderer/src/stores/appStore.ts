@@ -49,6 +49,14 @@ interface AppState {
   researchProgress: { phase: string; detail: string } | null
   setResearchProgress: (progress: { phase: string; detail: string } | null) => void
 
+  /**
+   * True while earlier messages are being summarized to fit the context
+   * window. Compaction is a model call that happens before the reply starts,
+   * so without this the turn just appears to hang.
+   */
+  compacting: boolean
+  setCompacting: (compacting: boolean) => void
+
   /** One-shot text a component wants dropped into the composer (e.g. a prompt chip). */
   composerPrefill: string | null
   setComposerPrefill: (text: string | null) => void
@@ -104,10 +112,13 @@ export const useAppStore = create<AppState>((set) => ({
   // Clearing progress whenever streaming stops keeps a stale phase from
   // lingering after the turn ends, however it ended.
   setStreaming: (streaming) =>
-    set(streaming ? { streaming } : { streaming, researchProgress: null }),
+    set(streaming ? { streaming } : { streaming, researchProgress: null, compacting: false }),
 
   researchProgress: null,
   setResearchProgress: (researchProgress) => set({ researchProgress }),
+
+  compacting: false,
+  setCompacting: (compacting) => set({ compacting }),
 
   composerPrefill: null,
   setComposerPrefill: (composerPrefill) => set({ composerPrefill }),

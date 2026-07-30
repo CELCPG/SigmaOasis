@@ -9,6 +9,22 @@ import { writeFileAtomic } from './fsAtomic'
  * Default settings shape. The renderer keeps a mirror of this shape in its
  * Zustand store, but electron-store is the source of truth for persistence.
  */
+/**
+ * Per-role sampling. Through v0.8.1 the chat path sent no sampling parameters
+ * at all, so every role ran at whatever the server defaulted to and there was
+ * no way to make one deterministic.
+ */
+export interface SamplingSettings {
+  /** 0–2. 0 is greedy decoding: same prompt, same answer. */
+  temperature: number
+  /** 0–1 nucleus sampling. 1 disables it. */
+  topP: number
+  /** Reply length cap. -1 leaves it to the server. */
+  maxTokens: number
+  /** Fixed RNG seed for reproducible replies; null lets the server choose. */
+  seed: number | null
+}
+
 export interface ModelConfig {
   id: string
   modelId: string // the model identifier from LM Studio /v1/models
@@ -16,6 +32,7 @@ export interface ModelConfig {
   systemPrompt: string
   color: string // 'blue' | 'purple' | 'green' (accent key)
   enabled: boolean
+  sampling: SamplingSettings
 }
 
 export interface ToolToggles {
@@ -121,6 +138,18 @@ export interface AppSettings {
   onboardingCompleted: boolean
   /** Hide tool-call blocks in chat; show a thinking animation instead. */
   hideToolCalls: boolean
+  /** Show tokens/sec and time-to-first-token under each reply. */
+  showResponseStats: boolean
+  /**
+   * What happens when a conversation outgrows the model's context window.
+   * 'compact' summarizes the dropped span and carries it forward; 'trim'
+   * silently drops it, which is what every version before 0.8.2 did.
+   */
+  contextManagement: 'compact' | 'trim'
+}
+
+export function defaultSampling(): SamplingSettings {
+  return { temperature: 0.7, topP: 1, maxTokens: -1, seed: null }
 }
 
 function defaultSettings(): AppSettings {
@@ -134,7 +163,8 @@ function defaultSettings(): AppSettings {
         systemPrompt:
           'You are a helpful, harmless, and honest AI assistant. Answer questions clearly and concisely.',
         color: 'blue',
-        enabled: true
+        enabled: true,
+        sampling: defaultSampling()
       },
       {
         id: 'model-2',
@@ -143,7 +173,8 @@ function defaultSettings(): AppSettings {
         systemPrompt:
           'You are a meticulous researcher. Use available tools to gather facts, cite sources, and summarize findings.',
         color: 'purple',
-        enabled: false
+        enabled: false,
+        sampling: defaultSampling()
       },
       {
         id: 'model-3',
@@ -152,7 +183,8 @@ function defaultSettings(): AppSettings {
         systemPrompt:
           'You are an expert software engineer. Write clean, correct code and explain your reasoning briefly.',
         color: 'green',
-        enabled: false
+        enabled: false,
+        sampling: defaultSampling()
       }
     ],
     theme: 'dark',
@@ -212,7 +244,9 @@ function defaultSettings(): AppSettings {
       autoCheck: false
     },
     onboardingCompleted: false,
-    hideToolCalls: false
+    hideToolCalls: false,
+    showResponseStats: true,
+    contextManagement: 'compact'
   }
 }
 
@@ -224,6 +258,34 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 
 function str(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
+}
+
+/** Like clamp, but without rounding — sampling values are fractional. */
+function clampFloat(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
+/**
+ * Sampling needs its own merge rather than riding the `{ ...base, ...m }`
+ * spread the model loop uses: a spread copies a half-written or hand-edited
+ * `sampling` object through verbatim, and a NaN temperature reaching the wire
+ * makes LM Studio reject every request in the conversation.
+ */
+function normalizeSampling(value: unknown): SamplingSettings {
+  const s = (value ?? {}) as Partial<SamplingSettings>
+  const defaults = defaultSampling()
+  const seed = typeof s.seed === 'number' && Number.isFinite(s.seed) ? Math.round(s.seed) : null
+  return {
+    temperature: clampFloat(s.temperature, 0, 2, defaults.temperature),
+    topP: clampFloat(s.topP, 0.01, 1, defaults.topP),
+    // -1 means "server default". A cleared number input reads as 0/NaN, and
+    // clamping that up to 1 would silently cap every reply at one token — so
+    // anything non-positive falls back to the server default instead.
+    maxTokens: Number(s.maxTokens) > 0 ? clamp(s.maxTokens, 1, 128_000, -1) : -1,
+    seed
+  }
 }
 
 /**
@@ -247,7 +309,8 @@ function normalizeSettings(settings: AppSettings): AppSettings {
           roleName: str(m?.roleName, base.roleName),
           systemPrompt: str(m?.systemPrompt, base.systemPrompt),
           color: ['blue', 'purple', 'green'].includes(m?.color) ? m.color : base.color,
-          enabled: Boolean(m?.enabled)
+          enabled: Boolean(m?.enabled),
+          sampling: normalizeSampling(m?.sampling)
         }
       })
     : defaults.models
@@ -319,7 +382,9 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       autoCheck: Boolean(settings.updates?.autoCheck)
     },
     onboardingCompleted: Boolean(settings.onboardingCompleted),
-    hideToolCalls: Boolean(settings.hideToolCalls)
+    hideToolCalls: Boolean(settings.hideToolCalls),
+    showResponseStats: settings.showResponseStats !== false,
+    contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact'
   }
 }
 

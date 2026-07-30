@@ -5,6 +5,7 @@ import type {
   Conversation,
   MemorySearchResult,
   MemoryStats,
+  ModelInfo,
   NetworkActivityEntry,
   ResearchIndexStats,
   SttStatus,
@@ -51,6 +52,24 @@ const api = {
 
   // Keep a chat model resident in LM Studio (main/ipc/modelPin.ts)
   pinModel: (modelId: string): Promise<boolean> => ipcRenderer.invoke('models:pin', modelId),
+
+  /**
+   * The model list with capabilities (main/ipc/modelCatalog.ts). Goes through
+   * the main process rather than fetching from the renderer so it passes the
+   * egress allowlist and shows up in the Privacy activity log like every other
+   * request.
+   */
+  getModelCatalog: (): Promise<
+    { models: ModelInfo[]; detailed: boolean } | { error: string }
+  > => ipcRenderer.invoke('models:catalog'),
+
+  /** Compact dropped conversation history into a carry-forward note (main/ipc/summarize.ts). */
+  summarizeConversation: (request: {
+    previousSummary?: string
+    droppedText: string
+    modelId?: string
+  }): Promise<{ ok: true; summary: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('chat:summarize', request),
 
   // Build version shown in the sidebar footer
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),

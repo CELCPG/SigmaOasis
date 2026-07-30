@@ -10,6 +10,8 @@ import { registerMemoryHandlers } from './ipc/memory'
 import { registerNetworkHandlers } from './ipc/net'
 import { registerSearchHandlers } from './ipc/search'
 import { registerModelPinHandlers, hasLegacyPins, unloadLegacyPins } from './ipc/modelPin'
+import { registerModelCatalogHandlers } from './ipc/modelCatalog'
+import { registerSummarizeHandlers } from './ipc/summarize'
 import { registerUpdateHandlers } from './updates'
 
 /** electron-vite serves the renderer over http in dev, from a file in production. */
@@ -104,6 +106,8 @@ app.whenReady().then(() => {
   registerSearchHandlers()
   registerUpdateHandlers()
   registerModelPinHandlers()
+  registerModelCatalogHandlers()
+  registerSummarizeHandlers()
 
   // Build version for the sidebar badge. Prefer the project's own
   // package.json: in dev, app.getVersion() can report Electron's version

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
+import { knownToLackVision } from '../lib/modelInfo'
 import type { Attachment } from '../types'
 
 type MicState = 'idle' | 'recording' | 'transcribing'
@@ -9,7 +10,7 @@ type MicState = 'idle' | 'recording' | 'transcribing'
 /**
  * Message composer with attachments. Enter sends, Shift+Enter inserts a
  * newline. Files can be attached via the 📎 button or by dragging them onto
- * the composer; images and text files are supported. While a reply streams,
+ * the composer; images, text files and PDFs are supported. While a reply streams,
  * Send becomes Stop. The hint row lists the available @mention handles.
  */
 export function InputBar(): JSX.Element {
@@ -25,7 +26,26 @@ export function InputBar(): JSX.Element {
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const streaming = useAppStore((s) => s.streaming)
   const settings = useAppStore((s) => s.settings)
+  const availableModels = useAppStore((s) => s.availableModels)
+  const activeConversationId = useAppStore((s) => s.activeConversationId)
+  const conversations = useAppStore((s) => s.conversations)
   const { sendMessage, stopStreaming } = useLMStudio()
+
+  /**
+   * Warn before sending an image to a model that cannot see it. LM Studio
+   * accepts the request either way and the model answers confidently about an
+   * image it never received, which is indistinguishable from a bad answer.
+   * Only shown when the catalog positively reports a non-vision model — an
+   * unknown capability stays silent rather than crying wolf.
+   */
+  const activeConvo = conversations.find((c) => c.id === activeConversationId)
+  const activeSlot =
+    settings?.models.find((m) => m.id === activeConvo?.activeModelSlotId && m.enabled) ??
+    settings?.models.find((m) => m.enabled)
+  const blindToImages =
+    attachments.some((a) => a.kind === 'image') &&
+    (activeConvo?.mode ?? 'independent') === 'independent' &&
+    knownToLackVision(availableModels.find((am) => am.id === activeSlot?.modelId))
 
   const stopRecTimer = (): void => {
     if (recTimerRef.current) {
@@ -295,7 +315,7 @@ export function InputBar(): JSX.Element {
               onClick={() => void pick()}
               disabled={streaming}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-neutral-500 transition-colors hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-40"
-              title="Attach images or text files (or drop them here)"
+              title="Attach images, text files or PDFs (or drop them here)"
             >
               📎
             </button>
@@ -368,9 +388,16 @@ export function InputBar(): JSX.Element {
             </span>
           ) : notice ? (
             <span className="text-red-500">{notice}</span>
+          ) : blindToImages ? (
+            <span
+              className="text-amber-600 dark:text-amber-500"
+              title="LM Studio reports this model as text-only. It will answer as if it saw the image."
+            >
+              ⚠ {activeSlot?.roleName} cannot see images — pick a vision model
+            </span>
           ) : (
             <span className="text-neutral-400">
-              Enter to send · Shift+Enter for a new line · 📎 or drop images/text files
+              Enter to send · Shift+Enter for a new line · 📎 or drop images, text or PDF
             </span>
           )}
           <span className="flex items-center gap-3">

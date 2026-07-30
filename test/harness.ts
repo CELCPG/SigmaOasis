@@ -81,6 +81,10 @@ export interface HarnessState {
   pinRefused: boolean
   /** Reported `state` per model id from GET /api/v0/models (default: not-loaded). */
   modelStates: Record<string, string>
+  /** Make GET /api/v0/models 404, as older LM Studio builds without the REST API do. */
+  catalogUnavailable: boolean
+  /** Full override for the GET /api/v0/models `data` array, for capability fields. */
+  catalogModels: Record<string, unknown>[] | null
   /**
    * DNS answers per hostname, for search.ts's SSRF guard. Anything not listed
    * resolves to a public address.
@@ -116,6 +120,8 @@ export const state: HarnessState = {
   pinLegacyUnavailable: false,
   pinRefused: false,
   modelStates: {},
+  catalogUnavailable: false,
+  catalogModels: null,
   dnsOverrides: {},
   dnsFailures: []
 }
@@ -142,6 +148,8 @@ export function resetState(): void {
   state.pinLegacyUnavailable = false
   state.pinRefused = false
   state.modelStates = {}
+  state.catalogUnavailable = false
+  state.catalogModels = null
   state.dnsOverrides = {}
   state.dnsFailures = []
 }
@@ -254,6 +262,12 @@ const netStub = {
       return makeResponse(JSON.stringify({ status: 'unloaded' }), 'application/json')
     }
     if (url.endsWith('/api/v0/models')) {
+      if (state.catalogUnavailable) {
+        return makeResponse('{"error":"Unexpected endpoint or method."}', 'application/json', 404)
+      }
+      if (state.catalogModels) {
+        return makeResponse(JSON.stringify({ data: state.catalogModels }), 'application/json')
+      }
       const ids = new Set(['fake-embed', 'fake-chat', ...Object.keys(state.modelStates)])
       return makeResponse(
         JSON.stringify({

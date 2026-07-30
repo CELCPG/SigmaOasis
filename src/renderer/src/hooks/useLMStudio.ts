@@ -1,12 +1,22 @@
 import { useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/voice'
+import { createReasoningSplitter } from '../lib/reasoning'
+import {
+  estimateTokens,
+  historyBudget,
+  planHistory,
+  planHistoryFallback
+} from '../lib/contextBudget'
+import { effectiveContextLength } from '../lib/modelInfo'
 import type {
   AppSettings,
   Attachment,
   ChatMessage,
   Conversation,
   ModelConfig,
+  ResponseStats,
+  SamplingSettings,
   ToolCallRecord,
   ToolSchema
 } from '../types'
@@ -20,10 +30,6 @@ import type {
  */
 
 const MAX_TOOL_ITERATIONS = 8
-/** Hard cap on how many past messages are replayed to the model each turn. */
-const MAX_HISTORY_MESSAGES = 40
-/** …and a character budget on top, since a few huge messages beat many small ones. */
-const MAX_HISTORY_CHARS = 48_000
 /** Hard cap on consult_model calls in a single orchestrator turn. */
 const MAX_DELEGATIONS_PER_TURN = 5
 /** Specialist replies fed back to the orchestrator are capped to protect context. */
@@ -46,6 +52,12 @@ interface ApiMessage {
   content: string | ApiContentPart[] | null
   tool_calls?: ApiToolCall[]
   tool_call_id?: string
+}
+
+/** The server's own token accounting. Absent on servers that do not report it. */
+interface ApiUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
 }
 
 function uid(): string {
@@ -86,23 +98,97 @@ function toApiContent(m: ChatMessage, withImages: boolean): string | ApiContentP
   return parts
 }
 
+/** Flatten a dropped span into the text handed to the summarizer. */
+function toSummaryText(messages: ChatMessage[]): string {
+  return messages
+    .map((m) => {
+      const who = m.role === 'user' ? 'User' : m.roleName || 'Assistant'
+      const attachments = (m.attachments ?? []).map((a) => `[attached: ${a.name}]`).join(' ')
+      return `${who}: ${[m.content, attachments].filter(Boolean).join(' ')}`.trim()
+    })
+    .filter((line) => line.length > 3)
+    .join('\n\n')
+}
+
 /**
- * Keep the most recent slice of a conversation that fits the budget, oldest
- * dropped first. The newest message is always kept, however large it is.
+ * Decide what history to send, and compact whatever does not fit.
+ *
+ * Budgeting against the model's real context window needs the model catalog;
+ * when the server does not report a context length, this falls back to the
+ * pre-0.8.2 message/character rule so an older LM Studio behaves exactly as
+ * it did before.
+ *
+ * Compaction is best effort in the strongest sense: any failure — no
+ * summarizer model, a timeout, an empty reply — falls through to plain
+ * dropping. Losing the beginning of a conversation is bad; refusing to answer
+ * the current message because the summarizer had a bad day is worse.
  */
-function trimHistory(messages: ChatMessage[]): ChatMessage[] {
-  const kept: ChatMessage[] = []
-  let chars = 0
-  for (let i = messages.length - 1; i >= 0 && kept.length < MAX_HISTORY_MESSAGES; i--) {
-    const m = messages[i]
-    const size =
-      m.content.length +
-      (m.attachments ?? []).reduce((n, a) => n + (a.textContent?.length ?? 0), 0)
-    if (kept.length > 0 && chars + size > MAX_HISTORY_CHARS) break
-    kept.unshift(m)
-    chars += size
+async function planAndCompact(
+  convo: Conversation,
+  slot: ModelConfig,
+  systemPromptTokens: number,
+  toolSchemaTokens: number
+): Promise<{ history: ChatMessage[]; summaryText: string | null }> {
+  const store = useAppStore.getState()
+  const catalogEntry = store.availableModels.find((m) => m.id === slot.modelId)
+  const budget = historyBudget({
+    contextLength: effectiveContextLength(catalogEntry),
+    systemPromptTokens,
+    toolSchemaTokens,
+    maxTokens: slot.sampling.maxTokens
+  })
+
+  const plan =
+    budget === undefined ? planHistoryFallback(convo.messages) : planHistory(convo.messages, budget)
+
+  const existing = convo.summary
+  if (plan.drop.length === 0) {
+    return { history: plan.keep, summaryText: existing?.text ?? null }
   }
-  return kept
+
+  // 'trim' means stop *making* summaries. A summary the conversation already
+  // has is still accurate for the span it covers, and throwing it away would
+  // lose context for nothing.
+  if (store.settings?.contextManagement === 'trim') {
+    return { history: plan.keep, summaryText: existing?.text ?? null }
+  }
+
+  // Only summarize what this compaction newly drops — anything up to
+  // `throughMessageId` is already folded into the existing summary.
+  const alreadyFolded = existing
+    ? plan.drop.findIndex((m) => m.id === existing.throughMessageId) + 1
+    : 0
+  const fresh = plan.drop.slice(alreadyFolded)
+  if (fresh.length === 0) {
+    return { history: plan.keep, summaryText: existing?.text ?? null }
+  }
+
+  useAppStore.getState().setCompacting(true)
+  try {
+    const result = await window.api.summarizeConversation({
+      previousSummary: existing?.text,
+      droppedText: toSummaryText(fresh),
+      modelId: slot.modelId
+    })
+    if (!result.ok) return { history: plan.keep, summaryText: existing?.text ?? null }
+
+    const summary = {
+      text: result.summary,
+      throughMessageId: plan.drop[plan.drop.length - 1].id,
+      updatedAt: Date.now()
+    }
+    const current = useAppStore.getState().conversations.find((c) => c.id === convo.id)
+    if (current) {
+      const next = { ...current, summary }
+      useAppStore.getState().upsertConversation(next)
+      void window.api.saveConversation(next)
+    }
+    return { history: plan.keep, summaryText: summary.text }
+  } catch {
+    return { history: plan.keep, summaryText: existing?.text ?? null }
+  } finally {
+    useAppStore.getState().setCompacting(false)
+  }
 }
 
 /** `@RoleName` (spaces removed, case-insensitive) anywhere in the text routes the message. */
@@ -158,8 +244,15 @@ function routeTargets(
 }
 
 /**
- * Stream one chat completion. Calls `onContent` for each text delta and
- * returns any accumulated tool calls once the stream ends.
+ * Stream one chat completion. Calls `onContent` for each answer delta,
+ * `onReasoning` for each chain-of-thought delta, and returns any accumulated
+ * tool calls once the stream ends.
+ *
+ * Reasoning arrives one of two ways depending on the model and the LM Studio
+ * build: out-of-band in `delta.reasoning_content`, or inline in the content
+ * stream wrapped in `<think>` tags. Both are handled — the inline case through
+ * the splitter in lib/reasoning.ts, which is where the chunk-boundary and
+ * false-positive edge cases live.
  */
 async function streamChat(
   baseUrl: string,
@@ -167,8 +260,11 @@ async function streamChat(
   messages: ApiMessage[],
   tools: ToolSchema[],
   signal: AbortSignal,
-  onContent: (chunk: string) => void
-): Promise<{ toolCalls: ApiToolCall[] }> {
+  onContent: (chunk: string) => void,
+  onReasoning?: (chunk: string) => void,
+  sampling?: SamplingSettings
+): Promise<{ toolCalls: ApiToolCall[]; usage: ApiUsage | null; ttftMs: number | null }> {
+  const startedAt = Date.now()
   const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -176,6 +272,17 @@ async function streamChat(
       model: modelId,
       messages,
       stream: true,
+      // Ask for token counts. Servers that do not know the option ignore it,
+      // and the stats readout falls back to timing alone.
+      stream_options: { include_usage: true },
+      ...(sampling
+        ? {
+            temperature: sampling.temperature,
+            top_p: sampling.topP,
+            ...(sampling.maxTokens > 0 ? { max_tokens: sampling.maxTokens } : {}),
+            ...(sampling.seed !== null ? { seed: sampling.seed } : {})
+          }
+        : {}),
       ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
     }),
     signal
@@ -191,6 +298,15 @@ async function streamChat(
   const decoder = new TextDecoder()
   let buffer = ''
   const pending = new Map<number, ApiToolCall>()
+  const splitter = createReasoningSplitter()
+  let usage: ApiUsage | null = null
+  let ttftMs: number | null = null
+
+  const emit = (delta: { answer: string; reasoning: string }): void => {
+    if ((delta.answer || delta.reasoning) && ttftMs === null) ttftMs = Date.now() - startedAt
+    if (delta.answer) onContent(delta.answer)
+    if (delta.reasoning) onReasoning?.(delta.reasoning)
+  }
 
   for (;;) {
     const { done, value } = await reader.read()
@@ -209,15 +325,21 @@ async function streamChat(
         const json = JSON.parse(payload) as {
           choices?: { delta?: {
             content?: string
+            /** LM Studio's out-of-band reasoning channel; needs no parsing. */
+            reasoning_content?: string
             tool_calls?: {
               index?: number
               id?: string
               function?: { name?: string; arguments?: string }
             }[]
           } }[]
+          usage?: ApiUsage
         }
+        // The usage block rides a final chunk whose `choices` is empty.
+        if (json.usage) usage = json.usage
         const delta = json.choices?.[0]?.delta
-        if (delta?.content) onContent(delta.content)
+        if (delta?.reasoning_content) emit({ answer: '', reasoning: delta.reasoning_content })
+        if (delta?.content) emit(splitter.push(delta.content))
         for (const tc of delta?.tool_calls ?? []) {
           const idx = tc.index ?? 0
           const existing = pending.get(idx) ?? {
@@ -236,7 +358,11 @@ async function streamChat(
     }
   }
 
-  return { toolCalls: [...pending.values()] }
+  // A stream that ended mid-`<think>` (max_tokens, abort) still has text held
+  // back by the splitter — surface it as reasoning rather than losing it.
+  emit(splitter.flush())
+
+  return { toolCalls: [...pending.values()], usage, ttftMs }
 }
 
 // ---- Orchestration: models-as-tools -------------------------------------------
@@ -322,6 +448,9 @@ async function runConsultation(
   let answer = ''
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     let roundContent = ''
+    // No onReasoning handler: a specialist's thinking is discarded rather than
+    // returned to the orchestrator, which asked for an answer and pays context
+    // for everything it gets back.
     const { toolCalls } = await streamChat(
       baseUrl,
       specialist.modelId,
@@ -330,7 +459,9 @@ async function runConsultation(
       signal,
       (chunk) => {
         roundContent += chunk
-      }
+      },
+      undefined,
+      specialist.sampling
     )
     answer = roundContent || answer
     if (signal.aborted || toolCalls.length === 0) break
@@ -423,7 +554,17 @@ async function runTurn(
 
   // The wire history is maintained locally across tool-loop iterations;
   // the visible conversation only keeps final text + tool-call records.
-  const history = trimHistory(convo.messages)
+  const { history, summaryText } = await planAndCompact(
+    convo,
+    slot,
+    estimateTokens(systemPrompt),
+    estimateTokens(JSON.stringify(tools))
+  )
+  if (signal.aborted) return
+  if (summaryText) {
+    systemPrompt +=
+      `\n\nEarlier in this conversation (summarized, because it no longer fits the context window):\n${summaryText}`
+  }
   const currentTurn = history.map((m) => m.role).lastIndexOf('user')
   if (currentTurn === -1) {
     // Refuse a system-prompt-only request: with no user turn the model just
@@ -465,9 +606,61 @@ async function runTurn(
     spokenUpTo = full.length - rest.length
   }
 
+  // Chain-of-thought accumulates on its own field across the whole turn, so it
+  // never reaches `content` — which is what the bubble renders, what voice mode
+  // reads, and what toApiContent replays next turn.
+  let reasoning = assistantMsg.reasoning ?? ''
+  let reasoningStartedAt = 0
+  const onReasoning = (chunk: string): void => {
+    if (!reasoningStartedAt) reasoningStartedAt = Date.now()
+    reasoning += chunk
+    patch({ reasoning, reasoningMs: Date.now() - reasoningStartedAt })
+  }
+
+  // Stats span the whole turn, not one round: a turn with three tool calls is
+  // four completions, and the user experienced it as one wait.
+  const turnStartedAt = Date.now()
+  let firstTtftMs: number | null = null
+  let promptTokens: number | undefined
+  let completionTokens = 0
+  let sawUsage = false
+  let generationMs = 0
+
+  const recordStats = (
+    usage: ApiUsage | null,
+    ttftMs: number | null,
+    roundMs: number
+  ): void => {
+    if (firstTtftMs === null && ttftMs !== null) firstTtftMs = ttftMs
+    generationMs += roundMs
+    if (usage) {
+      sawUsage = true
+      // The first round's prompt is the one the user's turn actually cost;
+      // later rounds re-send it plus tool output, so summing would mislead.
+      if (promptTokens === undefined) promptTokens = usage.prompt_tokens
+      completionTokens += usage.completion_tokens ?? 0
+    }
+    const stats: ResponseStats = {
+      ttftMs: firstTtftMs ?? 0,
+      totalMs: Date.now() - turnStartedAt,
+      ...(sawUsage
+        ? {
+            promptTokens,
+            completionTokens,
+            // Rate against generation time only — waiting on a tool is not
+            // the model being slow.
+            tokensPerSecond:
+              generationMs > 0 ? (completionTokens / generationMs) * 1000 : undefined
+          }
+        : {})
+    }
+    patch({ stats })
+  }
+
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     let content = ''
-    const { toolCalls } = await streamChat(
+    const roundStartedAt = Date.now()
+    const { toolCalls, usage, ttftMs } = await streamChat(
       baseUrl,
       slot.modelId,
       apiMessages,
@@ -477,8 +670,11 @@ async function runTurn(
         content += chunk
         patch({ content: (assistantMsg.content += chunk) })
         speakNewSentences(false)
-      }
+      },
+      onReasoning,
+      slot.sampling
     )
+    recordStats(usage, ttftMs, Date.now() - roundStartedAt)
     if (signal.aborted) return
     if (toolCalls.length === 0) {
       // Normal completion — read whatever tail fragment is left unspoken.

@@ -7,6 +7,7 @@ import { describeOasisState } from '../lib/oasisRipple'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
+import { ReasoningBlock } from './ReasoningBlock'
 import { OasisRipple } from './OasisRipple'
 import { SigmaAvatar } from './SigmaAvatar'
 
@@ -33,6 +34,20 @@ function handleCopyClick(event: React.MouseEvent<HTMLDivElement>): void {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * The performance readout under a reply. Token figures appear only when the
+ * server reported them — timing is always measured, token counts never
+ * estimated, so nothing here is a guess dressed up as a measurement.
+ */
+function formatStats(stats: NonNullable<ChatMessage['stats']>): string {
+  const parts: string[] = []
+  if (stats.completionTokens) parts.push(`${stats.completionTokens.toLocaleString()} tok`)
+  if (stats.tokensPerSecond) parts.push(`${stats.tokensPerSecond.toFixed(1)} tok/s`)
+  if (stats.ttftMs) parts.push(`${(stats.ttftMs / 1000).toFixed(2)}s to first token`)
+  parts.push(`${(stats.totalMs / 1000).toFixed(1)}s total`)
+  return parts.join(' · ')
 }
 
 export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Element {
@@ -98,6 +113,7 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
   const accent = message.color ? ACCENT[message.color] : null
   const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
+  const showStats = useAppStore((s) => s.settings?.showResponseStats) ?? true
   const toolCalls = message.toolCalls ?? []
   // The Oasis Ripple is the single thinking indicator: ambient pool while the
   // model composes, droplet + colored wave when a tool fires — regardless of
@@ -174,6 +190,14 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
         {oasisState.mode !== 'hidden' && <OasisRipple state={oasisState} />}
 
+        {message.reasoning && (
+          <ReasoningBlock
+            reasoning={message.reasoning}
+            reasoningMs={message.reasoningMs}
+            isStreaming={isStreaming && message.content === ''}
+          />
+        )}
+
         {message.content !== '' && (
           <div
             className="markdown-body oasis-enter text-sm leading-relaxed"
@@ -185,6 +209,19 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
         {!hideToolCalls &&
           toolCalls.map((record) => <ToolCallBlock key={record.id} record={record} />)}
+
+        {showStats && !isStreaming && message.stats && (
+          <div
+            className="mt-2 text-[10px] text-neutral-400"
+            title={
+              message.stats.completionTokens
+                ? 'Measured from the server’s own token accounting.'
+                : 'This server did not report token counts, so only timing is shown.'
+            }
+          >
+            {formatStats(message.stats)}
+          </div>
+        )}
         </div>
       </div>
     </div>
