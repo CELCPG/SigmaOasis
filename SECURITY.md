@@ -41,6 +41,13 @@ There is no telemetry, no analytics, and no cloud sync.
 
 Every request the main process makes passes through an egress allowlist derived from your settings,
 and is recorded (origin only, never the full URL) in the activity log under Settings → Privacy.
+
+Transport is **Electron's network stack**, not Node's `fetch`. That is deliberate: undici does not
+consult Electron sessions, so proxy configuration cannot reach it, and its SOCKS support needs a
+dispatcher that cannot be constructed without the `undici` package. Had the proxy been bolted onto the
+old stack, it would have covered only the page renderer and left `web_search` and `fetch_webpage`
+going out directly — a privacy control that silently misses the paths that matter most.
+
 The outbound paths are:
 
 - **`web_search`** — the one provider you chose under Settings → Search (self-hosted SearXNG, the
@@ -49,15 +56,18 @@ The outbound paths are:
   directory and configured working directory by exact match — are redacted. Enable **Confirm every
   query** to approve the exact outgoing string each time.
 - **`fetch_webpage`** — arbitrary HTTPS URLs, at a model's direction. This is the one path not bound
-  by the allowlist, so it is guarded separately: HTTPS only, DNS-resolved private/loopback/link-local
-  addresses refused, redirects followed manually with the check re-run on every hop, and hard size
-  and time caps. HTML, plain text and PDF are accepted; every other content type is refused.
+  by the allowlist, so it is guarded separately: HTTPS only, private/loopback/link-local addresses
+  refused, redirects followed manually with the check re-run on every hop, and hard size and time caps.
+  HTML, plain text and PDF are accepted; every other content type is refused. When a proxy is active the
+  address check narrows — see "The DNS-leak / SSRF tradeoff" below.
 - **`deep_research`** — several `web_search` queries plus several `fetch_webpage` reads per call, all
   subject to the limits above and to a per-call budget capping searches, pages, **distinct domains** and
   wall clock. The user's question is never sent: only the planner's keyword queries, each redacted like
   any other search. Enable "Approve research plans" to see and approve the entire plan before any query
   leaves the machine. Every domain contacted is reported back with the results.
 - **The JavaScript page renderer** — opt-in and off by default (Settings → Search). See below.
+- **`api.ipify.org`** — contacted only when you press "Test proxy", and allowlisted by name so it
+  cannot become a general escape hatch. It is the one third party the app contacts on its own behalf.
 - **Update checks** — GitHub Releases, opt-in and off by default.
 
 Requests carry a common browser User-Agent rather than an app-specific one, so an install does not
@@ -68,6 +78,35 @@ recent search responses are cached the same way. Embedding happens against your 
 server; both caches are size-capped, expire, are never written to disk, and never enter long-term
 memory unless you explicitly save something. Settings → Privacy reports their size and clears them on
 demand.
+
+### Proxying (Tor / VPN)
+
+Off by default. When configured, search, page reads and rendering are all routed through the proxy;
+**LM Studio is pinned to a direct connection explicitly**, so model traffic can never be captured by a
+proxy setting (or by a system-wide one).
+
+SOCKS5 is preferred over an HTTP proxy because Chromium resolves hostnames *at the proxy*, so the local
+resolver never learns which sites are being read.
+
+A misconfigured proxy is treated as a hard failure rather than a silent fallback: an empty host, a host
+containing a scheme or path, or an out-of-range port all fall back to a direct connection **with a
+stated reason**, and "Test proxy" reports the address sites actually see. The failure mode a privacy
+control must never have is quietly not applying while the user believes it is.
+
+#### The DNS-leak / SSRF tradeoff
+
+`fetch_webpage` normally resolves a hostname locally and inspects every answer before connecting — the
+strongest form of the SSRF guard. But resolving locally *tells the local resolver which host is about to
+be visited*, which is exactly what a proxy exists to prevent.
+
+So when a proxy is active, the local lookup is skipped and the guard narrows to what can be judged
+without resolving: literal private, loopback and link-local IP addresses, and loopback hostnames, are
+still refused. Resolution moves to the proxy, which is where it belongs — Tor refuses private address
+ranges itself, and the request never touches the local network stack.
+
+This is a real, deliberate reduction in SSRF strength while proxied. It is taken because the
+alternative silently defeats the user's stated intent, and it is stated here rather than left as a
+surprise.
 
 ### The JavaScript page renderer
 

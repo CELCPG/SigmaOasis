@@ -68,6 +68,17 @@ export interface ResearchSettings {
   confirmPlan: boolean
 }
 
+export interface ProxySettings {
+  /**
+   * Route search, page fetches and rendering through a proxy. SOCKS5 is
+   * preferred: Chromium resolves DNS at the proxy, so the local resolver never
+   * learns which sites are being read. LM Studio traffic is never proxied.
+   */
+  mode: 'none' | 'socks5' | 'http'
+  host: string
+  port: number
+}
+
 export interface UpdateSettings {
   /** Periodic background update checks. Off by default — manual "Check now" always works. */
   autoCheck: boolean
@@ -104,6 +115,7 @@ export interface AppSettings {
   memory: MemorySettings
   search: SearchSettings
   research: ResearchSettings
+  proxy: ProxySettings
   updates: UpdateSettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean
@@ -189,6 +201,12 @@ function defaultSettings(): AppSettings {
     research: {
       depth: 'standard',
       confirmPlan: false
+    },
+    proxy: {
+      mode: 'none',
+      // Tor's default SOCKS port; the Tor Browser bundle uses 9150.
+      host: '127.0.0.1',
+      port: 9050
     },
     updates: {
       autoCheck: false
@@ -288,6 +306,15 @@ function normalizeSettings(settings: AppSettings): AppSettings {
         : defaults.research.depth,
       confirmPlan: Boolean(settings.research?.confirmPlan)
     },
+    proxy: {
+      mode: (['none', 'socks5', 'http'] as const).includes(
+        settings.proxy?.mode as ProxySettings['mode']
+      )
+        ? settings.proxy!.mode
+        : defaults.proxy.mode,
+      host: str(settings.proxy?.host, defaults.proxy.host),
+      port: clamp(settings.proxy?.port, 1, 65535, defaults.proxy.port)
+    },
     updates: {
       autoCheck: Boolean(settings.updates?.autoCheck)
     },
@@ -312,6 +339,7 @@ export function migrateSettings(): void {
     memory: { ...defaults.memory, ...current.memory },
     search: { ...defaults.search, ...current.search },
     research: { ...defaults.research, ...current.research },
+    proxy: { ...defaults.proxy, ...current.proxy },
     updates: { ...defaults.updates, ...current.updates }
   } as AppSettings
   store.set('settings', normalizeSettings(merged))

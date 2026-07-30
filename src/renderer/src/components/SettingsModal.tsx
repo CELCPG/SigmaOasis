@@ -68,6 +68,8 @@ export function SettingsModal(): JSX.Element | null {
   const [researchStats, setResearchStats] = useState<ResearchIndexStats | null>(null)
   const [searchTest, setSearchTest] = useState<{ ok: boolean; detail: string } | null>(null)
   const [searchTesting, setSearchTesting] = useState(false)
+  const [proxyTest, setProxyTest] = useState<{ ok: boolean; detail: string } | null>(null)
+  const [proxyTesting, setProxyTesting] = useState(false)
   const [braveKeyInput, setBraveKeyInput] = useState('')
   const [braveKeyInfo, setBraveKeyInfo] = useState<{ set: boolean; encrypted: boolean } | null>(null)
   const [braveKeyNotice, setBraveKeyNotice] = useState<string | null>(null)
@@ -798,6 +800,95 @@ export function SettingsModal(): JSX.Element | null {
                     </span>
                   </span>
                 </label>
+
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="text-sm font-medium">Proxy (Tor / VPN)</div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Route search, page reads and rendering through a proxy you run. This is the only
+                    control here that hides <em>who is asking</em> rather than what is asked — your
+                    provider still sees the query, but no longer your IP address. Your LM Studio
+                    server is never proxied.
+                  </p>
+
+                  <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                    <select
+                      value={draft.proxy.mode}
+                      onChange={(e) =>
+                        update({
+                          proxy: {
+                            ...draft.proxy,
+                            mode: e.target.value as AppSettings['proxy']['mode']
+                          }
+                        })
+                      }
+                      className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm"
+                    >
+                      <option value="none">No proxy (direct connection)</option>
+                      <option value="socks5">SOCKS5 — recommended (Tor, most VPNs)</option>
+                      <option value="http">HTTP proxy</option>
+                    </select>
+                    <button
+                      type="button"
+                      disabled={proxyTesting}
+                      onClick={async () => {
+                        setProxyTesting(true)
+                        setProxyTest(null)
+                        // Test the saved settings, so what is verified is what is in force.
+                        await window.api.setSettings(draft)
+                        setProxyTest(await window.api.testProxy())
+                        setProxyTesting(false)
+                      }}
+                      className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {proxyTesting ? 'Testing…' : 'Test proxy'}
+                    </button>
+                  </div>
+
+                  {draft.proxy.mode !== 'none' && (
+                    <div className="mt-2 grid grid-cols-[2fr_1fr] gap-2">
+                      <input
+                        value={draft.proxy.host}
+                        onChange={(e) => update({ proxy: { ...draft.proxy, host: e.target.value } })}
+                        placeholder="127.0.0.1"
+                        spellCheck={false}
+                        className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm font-mono"
+                      />
+                      <input
+                        type="number"
+                        value={draft.proxy.port}
+                        onChange={(e) =>
+                          update({ proxy: { ...draft.proxy, port: Number(e.target.value) } })
+                        }
+                        min={1}
+                        max={65535}
+                        className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm font-mono"
+                      />
+                    </div>
+                  )}
+
+                  {draft.proxy.mode === 'socks5' && (
+                    <p className="mt-2 text-xs text-neutral-500">
+                      With SOCKS5, hostnames are resolved <strong>at the proxy</strong>, so your local
+                      resolver never learns which sites you read. Tor&apos;s daemon listens on port
+                      9050; the Tor Browser bundle uses 9150.
+                    </p>
+                  )}
+                  {proxyTest && (
+                    <p
+                      className={`mt-2 text-xs ${
+                        proxyTest.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'
+                      }`}
+                    >
+                      {proxyTest.detail}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs text-neutral-500">
+                    &quot;Test proxy&quot; is the one time the app contacts a third party on its own
+                    behalf: it asks <code>api.ipify.org</code> which IP address sites see, because a
+                    misconfigured proxy otherwise fails silently by simply not being used.
+                  </p>
+                </div>
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="flex items-center gap-2">

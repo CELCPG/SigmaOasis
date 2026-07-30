@@ -50,9 +50,12 @@ rm -rf "$OUT"
   src/main/ipc/userAgent.ts \
   src/main/ipc/pageScript.ts \
   src/main/ipc/render.ts \
+  src/main/ipc/httpClient.ts \
+  src/main/ipc/proxy.ts \
   src/main/ipc/search.ts \
   src/main/ipc/llm.ts \
   src/main/ipc/deepResearch.ts \
+  src/renderer/src/lib/oasisRipple.ts \
   test/harness.ts \
   test/*.test.ts
 

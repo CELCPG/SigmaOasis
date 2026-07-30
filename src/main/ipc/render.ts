@@ -1,6 +1,7 @@
 import { BrowserWindow, session } from 'electron'
 import { originOfUrl, recordExternalRequest } from './net'
 import { GENERIC_USER_AGENT } from './userAgent'
+import { applyProxyToSession } from './proxy'
 import { PAGE_EXTRACTION_SCRIPT } from './pageScript'
 import type { ExtractedLink } from './extract'
 
@@ -141,6 +142,9 @@ export async function renderPage(targetUrl: string): Promise<RenderedPage | Rend
   const ses = session.fromPartition(partition, { cache: false })
   const blockedOrigins = new Set<string>()
 
+  // Same proxy as every other outbound path: if the user routes research through
+  // Tor, a rendered page must not be the one request that goes out directly.
+  await applyProxyToSession(ses)
   ses.setUserAgent(GENERIC_USER_AGENT)
   // Nothing in a rendered page may ask for anything.
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))

@@ -80,6 +80,9 @@ const api = {
   // Network egress audit (main/ipc/net.ts)
   getNetworkActivity: (): Promise<NetworkActivityEntry[]> => ipcRenderer.invoke('net:getActivity'),
   clearNetworkActivity: (): Promise<boolean> => ipcRenderer.invoke('net:clearActivity'),
+  getProxyStatus: (): Promise<{ mode: string; description: string; error?: string }> =>
+    ipcRenderer.invoke('net:proxyStatus'),
+  testProxy: (): Promise<{ ok: boolean; detail: string }> => ipcRenderer.invoke('net:testProxy'),
 
   // Attachments (main/ipc/attachments.ts)
   pickAttachments: (): Promise<AttachmentLoadResult> => ipcRenderer.invoke('attachments:pick'),

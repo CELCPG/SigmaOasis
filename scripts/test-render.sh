@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 #
-# Verify the page-extraction script against a real offscreen Chromium window.
+# Checks that need Electron proper, not the Node runtime inside it.
 #
-# Separate from scripts/test.sh because this needs Electron proper (a browser and
-# a layout engine), not the Node runtime inside it. Hidden-text stripping depends
-# on getComputedStyle, so mocking the DOM would only test the mock.
+#  - renderCheck:     the page-extraction script, in a real offscreen window.
+#                     Hidden-text stripping depends on getComputedStyle and a real
+#                     layout, so mocking a DOM would only test the mock.
+#  - httpClientCheck: the Electron-net transport every outbound request uses.
+#                     The node suite stubs ./net, so nothing there exercises the
+#                     real transport — a regression would break every network
+#                     path in the app with the whole node suite still green.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,14 +21,14 @@ if [ -x "$ELECTRON_MAC" ]; then
 elif [ -x "$ELECTRON_LINUX" ]; then
   ELECTRON="$ELECTRON_LINUX"
 else
-  echo "skipping render checks: no bundled Electron found (run 'npm install')." >&2
+  echo "skipping Electron checks: no bundled Electron found (run 'npm install')." >&2
   exit 0
 fi
 
 # A headless CI box has no display server; Electron cannot open even an offscreen
 # window without one. Skip rather than fail the whole suite.
 if [ "$(uname)" = "Linux" ] && [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-  echo "skipping render checks: no display available (try xvfb-run)." >&2
+  echo "skipping Electron checks: no display available (try xvfb-run)." >&2
   exit 0
 fi
 
@@ -43,8 +47,13 @@ fi
   --esModuleInterop \
   --skipLibCheck \
   --strict \
-  test/renderCheck.ts
+  test/renderCheck.ts \
+  test/httpClientCheck.ts
 
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
-exec "$ELECTRON" --no-sandbox "$OUT/test/renderCheck.js"
+status=0
+for check in renderCheck httpClientCheck; do
+  "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
+done
+exit "$status"

@@ -2,6 +2,9 @@ import { ipcMain } from 'electron'
 import { lookup } from 'dns/promises'
 import { homedir } from 'os'
 import { auditedFetch, isLoopbackHostname } from './net'
+import type { AuditedFetchInit } from './net'
+import type { HttpResponseLike } from './httpClient'
+import { proxyActive } from './proxy'
 import { braveApiKeyStatus, getBraveApiKey, getSettings, setBraveApiKey } from './store'
 import type { SearchProviderId } from './store'
 import {
@@ -130,19 +133,14 @@ function sanitizeQuery(query: string): { query: string; redactions: string[] } {
 /** Shared with the headless renderer so the two paths are indistinguishable. */
 const USER_AGENT = GENERIC_USER_AGENT
 
+/** The transport applies the timeout now, so no AbortController is needed here. */
 async function fetchWithTimeout(
   url: string,
-  init: RequestInit | undefined,
+  init: AuditedFetchInit | undefined,
   purpose: 'search' | 'webpage',
   timeoutMs: number
-): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    return await auditedFetch(url, { ...init, signal: controller.signal }, purpose)
-  } finally {
-    clearTimeout(timer)
-  }
+): Promise<HttpResponseLike> {
+  return auditedFetch(url, { ...init, timeoutMs }, purpose)
 }
 
 // ---- Providers ---------------------------------------------------------------
@@ -457,15 +455,58 @@ function isV4MappedPrivate(lower: string): boolean {
   return isPrivateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`, 4)
 }
 
+/** A hostname written as a bare IP literal, so no resolution is needed to judge it. */
+function literalAddress(hostname: string): { address: string; family: number } | null {
+  const bare = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(bare)) return { address: bare, family: 4 }
+  if (bare.includes(':')) return { address: bare, family: 6 }
+  return null
+}
+
 /**
- * Resolve the host and refuse anything that points at a private, loopback,
- * link-local, or reserved address — including the LM Studio server itself.
+ * Refuse anything pointing at a private, loopback, link-local or reserved
+ * address — including the LM Studio server itself.
+ *
+ * ## The tension with proxying
+ *
+ * Normally this resolves the hostname first and inspects every answer, which is
+ * the strongest form of the check. But resolving locally *tells the local
+ * resolver which host is about to be visited* — and when the user has configured
+ * a proxy precisely so their ISP and resolver learn nothing, doing that lookup
+ * would leak the very thing the proxy exists to hide. A SOCKS5 proxy resolves at
+ * the far end for exactly this reason.
+ *
+ * So when a proxy is active the local lookup is skipped, and the check narrows to
+ * what can be judged without resolving: literal IP addresses and loopback names.
+ * The rest is delegated to the proxy, which is where resolution now happens — Tor
+ * refuses private address ranges itself, and the request never touches the local
+ * network stack.
+ *
+ * That is a real, deliberate reduction in SSRF strength, taken because the
+ * alternative silently defeats the user's stated intent. It is documented in
+ * SECURITY.md rather than left as a surprise.
  */
 async function assertPublicHost(url: URL): Promise<void> {
   const hostname = url.hostname
   if (isLoopbackHostname(hostname)) {
     throw new Error('Refused: fetch_webpage cannot fetch loopback addresses.')
   }
+
+  // A literal address needs no resolution, so this part of the check always runs.
+  const literal = literalAddress(hostname)
+  if (literal && isPrivateAddress(literal.address, literal.family)) {
+    throw new Error(
+      `Refused: "${hostname}" is a private or reserved address (${literal.address}).`
+    )
+  }
+
+  if (proxyActive()) {
+    // Resolution happens at the proxy. Doing it here too would leak the hostname
+    // to the local resolver, defeating the point of proxying at all.
+    return
+  }
+  if (literal) return // Already checked, and there is nothing to resolve.
+
   let addresses: { address: string; family: number }[]
   try {
     addresses = await lookup(hostname, { all: true, verbatim: true })
@@ -482,30 +523,14 @@ async function assertPublicHost(url: URL): Promise<void> {
   }
 }
 
-/** Read a response body with a hard byte cap, as bytes (content-length can lie). */
-async function readCappedBytes(res: Response, cap: number): Promise<Uint8Array> {
-  if (!res.body) return new Uint8Array((await res.arrayBuffer()).slice(0, cap))
-  const reader = res.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > cap) {
-      await reader.cancel()
-      chunks.push(value.slice(0, Math.max(0, cap - (total - value.byteLength))))
-      break
-    }
-    chunks.push(value)
-  }
-  const merged = new Uint8Array(Math.min(total, cap))
-  let offset = 0
-  for (const c of chunks) {
-    merged.set(c, offset)
-    offset += c.byteLength
-  }
-  return merged
+/**
+ * Response body as bytes, capped. The cap is applied by the transport (which
+ * stops reading and drops the connection), so this only has to slice defensively
+ * in case a stub or future transport hands back more than asked for.
+ */
+async function readCappedBytes(res: HttpResponseLike, cap: number): Promise<Uint8Array> {
+  const buffer = await res.arrayBuffer()
+  return new Uint8Array(buffer.byteLength > cap ? buffer.slice(0, cap) : buffer)
 }
 
 export interface WebpageOutcome {
@@ -568,7 +593,8 @@ export async function fetchWebpage(rawUrl: string): Promise<WebpageOutcome> {
           headers: {
             'User-Agent': USER_AGENT,
             Accept: 'text/html,application/xhtml+xml,application/pdf,text/plain'
-          }
+          },
+          maxBytes: MAX_PAGE_BYTES
         },
         'webpage',
         FETCH_TIMEOUT_MS

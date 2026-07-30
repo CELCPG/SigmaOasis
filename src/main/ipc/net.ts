@@ -1,5 +1,23 @@
 import { ipcMain } from 'electron'
 import { getSettings } from './store'
+import { httpRequest } from './httpClient'
+import type { HttpResponseLike } from './httpClient'
+import { currentProxyConfig, getEgressSession, getLocalSession } from './proxy'
+
+/**
+ * Request options accepted by `auditedFetch`. A deliberately small subset of
+ * RequestInit — these are the only fields any call site used — plus the transport
+ * caps that used to be applied by the caller reading a stream.
+ */
+export interface AuditedFetchInit {
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+  redirect?: 'follow' | 'manual'
+  signal?: AbortSignal
+  timeoutMs?: number
+  maxBytes?: number
+}
 
 /**
  * Network egress control and auditing.
@@ -24,6 +42,7 @@ export type NetworkPurpose =
   | 'search' // the configured search provider
   | 'webpage' // fetch_webpage tool (SSRF-guarded in search.ts)
   | 'render' // headless page rendering (filtered in render.ts)
+  | 'proxytest' // user-initiated "Test proxy" check only
   | 'update' // opt-in update checks
 
 export interface NetworkActivityEntry {
@@ -121,6 +140,11 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
       }
       return []
     }
+    case 'proxytest':
+      // A single host, contacted only when the user presses "Test proxy". Listed
+      // explicitly so this cannot become a general-purpose escape hatch, and so
+      // the one third-party contact the app makes on its own behalf is auditable.
+      return ['api.ipify.org']
     case 'update':
       // electron-updater talks to GitHub Releases; listed here so the policy
       // is explicit and auditable even though the updater uses its own stack.
@@ -150,12 +174,18 @@ export class EgressBlockedError extends Error {
  * Allowlist-enforcing, activity-logging replacement for global fetch. All
  * main-process HTTP must go through this (fetch_webpage calls it too, after
  * its own SSRF checks).
+ *
+ * Transport is Electron's `net` module rather than Node's `fetch`: undici does
+ * not consult Electron sessions, so proxy settings would not reach it. See
+ * httpClient.ts. The purpose selects the session, and therefore whether the
+ * request is proxied — `lmstudio` is pinned to a direct connection, everything
+ * outbound goes through the (possibly proxied) egress session.
  */
 export async function auditedFetch(
   url: string,
-  init: RequestInit | undefined,
+  init: AuditedFetchInit | undefined,
   purpose: NetworkPurpose
-): Promise<Response> {
+): Promise<HttpResponseLike> {
   let hostname = ''
   try {
     hostname = new URL(url).hostname
@@ -188,7 +218,21 @@ export async function auditedFetch(
   }
 
   try {
-    const res = await fetch(url, init)
+    // LM Studio is loopback and must never be proxied; everything else goes out
+    // through the session that carries the user's proxy configuration.
+    const target =
+      purpose === 'lmstudio' ? await getLocalSession() : await getEgressSession()
+
+    const res = await httpRequest(url, {
+      method: init?.method,
+      headers: init?.headers,
+      body: init?.body,
+      redirect: init?.redirect,
+      signal: init?.signal,
+      timeoutMs: init?.timeoutMs,
+      maxBytes: init?.maxBytes,
+      session: target
+    })
     record({
       at: Date.now(),
       purpose,
@@ -212,8 +256,44 @@ export async function auditedFetch(
   }
 }
 
+/**
+ * Verify the proxy actually carries traffic, and report the IP the far side sees.
+ *
+ * A proxy that is misconfigured fails by simply not being used, which is the one
+ * failure mode a privacy control must never have silently. This makes it
+ * checkable: if the address differs from an unproxied request, the proxy is
+ * genuinely in the path.
+ */
+async function testProxy(): Promise<{ ok: boolean; detail: string }> {
+  const config = currentProxyConfig()
+  if (config.error) return { ok: false, detail: config.error }
+  if (!config.proxyRules) {
+    return { ok: true, detail: 'No proxy configured — traffic goes out directly.' }
+  }
+  try {
+    // A plain-text IP echo, deliberately not a service that profiles the caller.
+    const res = await auditedFetch('https://api.ipify.org/', { timeoutMs: 20_000 }, 'proxytest')
+    if (!res.ok) return { ok: false, detail: `Proxy reachable but the check returned HTTP ${res.status}.` }
+    const address = (await res.text()).trim().slice(0, 64)
+    return { ok: true, detail: `${config.description}. Sites see ${address}.` }
+  } catch (err) {
+    return {
+      ok: false,
+      detail:
+        `Could not reach the internet through ${config.description}: ` +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        'Check that the proxy is running and that the host and port are right.'
+    }
+  }
+}
+
 export function registerNetworkHandlers(): void {
   ipcMain.handle('net:getActivity', () => getNetworkActivity())
+  ipcMain.handle('net:proxyStatus', () => {
+    const config = currentProxyConfig()
+    return { mode: config.mode, description: config.description, error: config.error }
+  })
+  ipcMain.handle('net:testProxy', () => testProxy())
   ipcMain.handle('net:clearActivity', () => {
     clearNetworkActivity()
     return true

@@ -53,6 +53,13 @@ export interface ResearchSettings {
   confirmPlan: boolean
 }
 
+export interface ProxySettings {
+  /** Route outbound traffic through a proxy. LM Studio is never proxied. */
+  mode: 'none' | 'socks5' | 'http'
+  host: string
+  port: number
+}
+
 export interface UpdateSettings {
   /** Periodic background update checks. Off by default — manual "Check now" always works. */
   autoCheck: boolean
@@ -61,7 +68,7 @@ export interface UpdateSettings {
 /** One entry in the main-process network activity log (Settings → Privacy). */
 export interface NetworkActivityEntry {
   at: number
-  purpose: 'lmstudio' | 'search' | 'webpage' | 'render' | 'update'
+  purpose: 'lmstudio' | 'search' | 'webpage' | 'render' | 'proxytest' | 'update'
   /** Origin only — full URLs (and queries) are never logged. */
   origin: string
   method: string
@@ -155,6 +162,7 @@ export interface AppSettings {
   memory: MemorySettings
   search: SearchSettings
   research: ResearchSettings
+  proxy: ProxySettings
   updates: UpdateSettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean

@@ -12,7 +12,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode 
 
 ## ✨ Features
 
-- **Local & private** — connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `fetch_webpage` tools (provider of your choice), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default) — all enforced by a built-in egress allowlist and visible in a network activity log.
+- **Local & private** — connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `fetch_webpage` tools (provider of your choice), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default) — all enforced by a built-in egress allowlist and visible in a network activity log. All of it can optionally be routed through **Tor or a VPN**, while your LM Studio server stays on a direct loopback connection.
 - **Multi-model roles (up to 3)** — each slot has its own model, role name, system prompt, and color accent.
 - **Three ways to use your models**
   - **Independent mode** — pick the active model from the top bar; each conversation keeps its thread.
@@ -157,6 +157,8 @@ is enforced structurally, not just by policy:
 - **Network activity log.** Settings → **Privacy** shows every request (newest first): purpose,
   origin, status, time. Only origins are recorded — never full URLs — so your queries stay private
   even in the log. With search disabled, this list should show nothing but LM Studio.
+- **Optional proxying.** Search, page reads and rendering can all be routed through a proxy you run
+  (Tor, a VPN). See below — it is the only control here that hides *who is asking*.
 - **Update checks are opt-in.** The app can check GitHub Releases for updates, but only if you
   enable it (Settings → Privacy or General). Manual "Check now" always works.
 - **Pages you read are never written to disk.** Web pages a model reads are chunked and embedded in
@@ -198,6 +200,33 @@ impractical:
 - **Repeated searches are served locally.** Identical queries within ten minutes are answered from
   RAM, so the provider sees one query instead of five. This also keeps bursts inside the rate limits
   DuckDuckGo and Brave's free tier enforce.
+
+### Routing traffic through Tor or a VPN (Settings → Privacy)
+
+Everything else here limits *what* is disclosed: which provider sees a query, what the query says,
+how many domains get contacted. None of it hides *who is asking*. Pointing Sigma Oasis at a proxy you
+run does:
+
+| Setting | Effect |
+| --- | --- |
+| **SOCKS5** (recommended) | Hostnames are resolved **at the proxy**, so your local resolver never learns which sites you read. Tor's daemon listens on `9050`; the Tor Browser bundle uses `9150`. |
+| **HTTP proxy** | Works, but DNS behavior depends on the proxy. Prefer SOCKS5 where you have the choice. |
+| **No proxy** (default) | Direct connections. |
+
+Two things worth knowing:
+
+- **Your LM Studio server is never proxied.** It is pinned to a direct connection explicitly, not
+  merely left unconfigured — routing model traffic through Tor would be slow, pointless (it is
+  loopback) and would break the app whenever the proxy went down.
+- **"Test proxy" exists because a misconfigured proxy fails silently** — by simply not being used,
+  while you believe you are covered. The test reports the IP address sites actually see. It is also the
+  one time the app contacts a third party on its own behalf (`api.ipify.org`), which is why it is on
+  the egress allowlist by name and only ever runs when you press the button.
+
+Under the hood this needed more than a settings field. All outbound traffic now goes through
+**Electron's network stack** rather than Node's `fetch`: undici does not consult Electron sessions, so
+a proxy set there would have covered only the page renderer and left `web_search` and `fetch_webpage`
+going out directly — a privacy feature that silently misses the paths that matter most.
 
 ### Deep research: many sources, one tool call
 
@@ -314,6 +343,8 @@ sigma-oasis/
 │   │       ├── tools.ts      # Agentic tool implementations + schemas
 │   │       ├── store.ts      # electron-store, conversations, notes, encrypted secrets
 │   │       ├── net.ts        # Egress allowlist + network activity log
+│   │       ├── httpClient.ts # fetch-shaped transport over Electron's net stack
+│   │       ├── proxy.ts      # SOCKS5/HTTP proxy config + egress vs local sessions
 │   │       ├── search.ts     # Search providers + SSRF-guarded webpage fetch
 │   │       ├── extract.ts    # HTML → main content, text and outbound links
 │   │       ├── render.ts     # Offscreen renderer + third-party egress filter
@@ -354,6 +385,7 @@ sigma-oasis/
 ├── test/                     # node:test suite (see Tests below)
 │   ├── harness.ts            # Stubs the electron/net/store seams
 │   ├── renderCheck.ts        # Browser checks in a real offscreen window
+│   ├── httpClientCheck.ts    # Transport checks against a local HTTP server
 │   └── fixtures/
 ├── scripts/test.sh
 ├── scripts/test-render.sh
@@ -383,11 +415,18 @@ re-implementation of it. The embedding stub is deterministic and folds a few syn
 dimensions, which is what makes it possible to assert that semantic retrieval finds a passage keyword
 retrieval provably cannot.
 
-The run finishes with a second pass in a **real offscreen Chromium window**
-(`scripts/test-render.sh`), because the page-extraction script's whole job depends on
-`getComputedStyle` and a real layout — mocking a DOM would only test the mock. It serves a fixture
-over loopback and asserts that nine different ways of hiding text from a human reader are all stripped
-before a model can see them. It skips itself, rather than failing, where no display is available.
+The run finishes with a second pass that needs Electron proper (`scripts/test-render.sh`), covering the
+two things the node suite structurally cannot:
+
+- **Page extraction in a real offscreen window.** Its whole job depends on `getComputedStyle` and a
+  real layout, so mocking a DOM would only test the mock. A fixture is served over loopback and nine
+  different ways of hiding text from a human reader are all asserted to be stripped before a model can
+  see them.
+- **The network transport**, against a local HTTP server. The node suite stubs the network layer, so
+  nothing there exercises the transport every outbound request actually uses — status and header
+  handling, manual vs followed redirects, byte caps, timeouts and cancellation.
+
+Both skip themselves, rather than failing, where no display is available.
 
 ---
 

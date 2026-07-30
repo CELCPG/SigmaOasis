@@ -112,7 +112,8 @@ function defaultSettings(): Record<string, unknown> {
       confirmBeforeSearch: false,
       useHeadlessRenderer: false
     },
-    research: { depth: 'standard', confirmPlan: false }
+    research: { depth: 'standard', confirmPlan: false },
+    proxy: { mode: 'none', host: '127.0.0.1', port: 9050 }
   }
 }
 

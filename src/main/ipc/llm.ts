@@ -35,14 +35,6 @@ const DEFAULT_TIMEOUT_MS = 120_000
 /** One non-streaming completion. Returns the assistant's text. */
 export async function chatComplete(options: CompleteOptions): Promise<string> {
   const settings = getSettings()
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
-
-  // Honor an upstream cancellation (the user pressing Stop) as well as our own
-  // timeout, without leaking a listener when this call finishes first.
-  const onAbort = (): void => controller.abort()
-  options.signal?.addEventListener('abort', onAbort, { once: true })
-
   try {
     const res = await auditedFetch(
       `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`,
@@ -57,7 +49,8 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
           ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
           ...(options.json ? { response_format: { type: 'json_object' } } : {})
         }),
-        signal: controller.signal
+        signal: options.signal,
+        timeoutMs: DEFAULT_TIMEOUT_MS
       },
       'lmstudio'
     )
@@ -69,9 +62,8 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
       choices?: { message?: { content?: string } }[]
     }
     return data.choices?.[0]?.message?.content ?? ''
-  } finally {
-    clearTimeout(timer)
-    options.signal?.removeEventListener('abort', onAbort)
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err))
   }
 }
 
