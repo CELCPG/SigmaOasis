@@ -27,6 +27,50 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Notarization failures surface as a JSON parse error, not a useful
+      # message: when Apple rejects a submission it replies in plain text
+      # ("Error: HTTP status code: 403 ..."), and @electron/notarize feeds that
+      # straight into JSON.parse, so the log only ever shows
+      # `Unexpected token 'E', "Error: HTT"... is not valid JSON`.
+      # Asking notarytool the same question up front gets Apple's actual
+      # wording into the log, and does it before the 97 MB Electron download
+      # and the signing pass rather than after.
+      - name: Preflight — verify Apple notary credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          [ -n "$APPLE_ID" ] || missing+=(APPLE_ID)
+          [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] || missing+=(APPLE_APP_SPECIFIC_PASSWORD)
+          [ -n "$APPLE_TEAM_ID" ] || missing+=(APPLE_TEAM_ID)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secret(s): ${missing[*]}"
+            exit 1
+          fi
+
+          # A pasted app-specific password often carries a trailing newline or
+          # space. Apple answers that with a bare 401, so name it explicitly.
+          case "$APPLE_APP_SPECIFIC_PASSWORD" in
+            *[[:space:]]) echo "::warning::APPLE_APP_SPECIFIC_PASSWORD ends in whitespace — re-paste it without the trailing character." ;;
+          esac
+
+          set +e
+          out=$(xcrun notarytool history \
+                  --apple-id "$APPLE_ID" \
+                  --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD" 2>&1)
+          status=$?
+          set -e
+
+          if [ $status -ne 0 ]; then
+            echo "::error::Apple rejected these notary credentials (notarytool exit $status). Raw response:"
+            echo "$out"
+            exit 1
+          fi
+          echo "Notary credentials accepted by Apple for team $APPLE_TEAM_ID."
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -50,8 +94,10 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # electron-builder truncates notarytool's stdout in its own error
-          # message; DEBUG surfaces the real Apple-side response in the log.
+          # Traces the notarytool invocation (args, exit code, temp paths). Note
+          # it does NOT reveal Apple's rejection message — @electron/notarize
+          # throws inside JSON.parse before it logs the response body. The
+          # preflight step above is what surfaces that.
           DEBUG: electron-notarize*
 
   windows:

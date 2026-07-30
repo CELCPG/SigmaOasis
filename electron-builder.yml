@@ -28,7 +28,7 @@ mac:
   # the environment into the notarytool args on its own ("The teamId property
   # is required when using notarization with password credentials").
   notarize:
-    teamId: ${env.APPLE_TEAM_ID}
+    teamId: P85LBTGBM6
   extendInfo:
     NSMicrophoneUsageDescription: Sigma Oasis uses the microphone for push-to-talk voice input, transcribed locally on your Mac.
 win:
