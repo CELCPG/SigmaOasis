@@ -65,6 +65,8 @@ export interface HarnessState {
   pinUnavailable: boolean
   /** Make the legacy /api/v1/models/load also return "Unexpected endpoint". */
   pinLegacyUnavailable: boolean
+  /** Make both load endpoints refuse with a guardrail-style model_load_failed. */
+  pinRefused: boolean
   /** Reported `state` per model id from GET /api/v0/models (default: not-loaded). */
   modelStates: Record<string, string>
   /**
@@ -97,6 +99,7 @@ export const state: HarnessState = {
   unloadCalls: [],
   pinUnavailable: false,
   pinLegacyUnavailable: false,
+  pinRefused: false,
   modelStates: {},
   dnsOverrides: {},
   dnsFailures: []
@@ -119,6 +122,7 @@ export function resetState(): void {
   state.unloadCalls = []
   state.pinUnavailable = false
   state.pinLegacyUnavailable = false
+  state.pinRefused = false
   state.modelStates = {}
   state.dnsOverrides = {}
   state.dnsFailures = []
@@ -199,12 +203,26 @@ const netStub = {
       if (state.pinUnavailable) {
         return makeResponse('{"error":"Unexpected endpoint or method. (POST /api/v0/models/load)"}', 'application/json', 404)
       }
+      if (state.pinRefused) {
+        return makeResponse(
+          '{"error":{"type":"model_load_failed","message":"Model loading was stopped due to insufficient system resources."}}',
+          'application/json',
+          400
+        )
+      }
       state.pinCalls.push(JSON.parse(init!.body!) as { model?: string; ttl?: number })
       return makeResponse(JSON.stringify({ status: 'loaded' }), 'application/json')
     }
     if (url.endsWith('/api/v1/models/load')) {
       if (state.pinLegacyUnavailable) {
         return makeResponse('{"error":"Unexpected endpoint or method. (POST /api/v1/models/load)"}', 'application/json', 404)
+      }
+      if (state.pinRefused) {
+        return makeResponse(
+          '{"error":{"type":"model_load_failed","message":"Model loading was stopped due to insufficient system resources."}}',
+          'application/json',
+          400
+        )
       }
       const body = JSON.parse(init!.body!) as { model?: string }
       state.legacyPinCalls.push(body)

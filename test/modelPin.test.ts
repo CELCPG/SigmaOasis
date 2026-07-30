@@ -109,6 +109,20 @@ describe('pinChatModel — legacy fallback', () => {
     const tries = state.fetchLog.filter((f) => f.url.includes('/models/load'))
     assert.equal(tries.length, 2)
   })
+
+  test('a guardrail refusal is settled, not retried every turn', async () => {
+    resetState()
+    state.pinUnavailable = true
+    state.pinRefused = true
+    await pinChatModel('pin-target-k')
+    assert.equal(hasLegacyPins(), false)
+    // The guardrail will not change its mind between messages; the refusal
+    // stays memoized instead of adding a failed load attempt to every turn.
+    await pinChatModel('pin-target-k')
+    await pinChatModel('pin-target-k')
+    const tries = state.fetchLog.filter((f) => f.url.endsWith('/api/v1/models/load'))
+    assert.equal(tries.length, 1)
+  })
 })
 
 describe('chatComplete pinning', () => {

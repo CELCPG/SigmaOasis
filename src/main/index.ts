@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { registerStoreHandlers, migrateSettings } from './ipc/store'
@@ -104,8 +105,21 @@ app.whenReady().then(() => {
   registerUpdateHandlers()
   registerModelPinHandlers()
 
-  ipcMain.handle('dialog:pickDirectory', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
+  // Build version for the sidebar badge. Prefer the project's own
+  // package.json: in dev, app.getVersion() can report Electron's version
+  // instead, since the app path may resolve into node_modules/electron.
+  ipcMain.handle('app:getVersion', () => {
+    try {
+      const pkg = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf-8')) as {
+        version?: string
+      }
+      return pkg.version ?? app.getVersion()
+    } catch {
+      return app.getVersion()
+    }
+  })
+
+  ipcMain.handle('dialog:pickDirectory', async (event) => {    const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openDirectory', 'createDirectory']
     })

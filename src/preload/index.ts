@@ -52,6 +52,9 @@ const api = {
   // Keep a chat model resident in LM Studio (main/ipc/modelPin.ts)
   pinModel: (modelId: string): Promise<boolean> => ipcRenderer.invoke('models:pin', modelId),
 
+  // Build version shown in the sidebar footer
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+
   /** Live phase updates from a running deep_research call. */
   onResearchProgress: (
     cb: (update: { phase: string; detail: string }) => void

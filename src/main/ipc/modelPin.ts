@@ -26,8 +26,15 @@ import { getSettings } from './store'
  *     pins are recorded and undone with /api/v1/models/unload when the app
  *     quits, restoring whatever state LM Studio was in before we arrived.
  *
- * A model that was already loaded when we checked is left alone both times:
- * we neither pin nor unload it — it was the user's, not ours.
+ * A model that is already loaded when we check is left alone. LM Studio has
+ * no "upgrade a JIT load to a manual one" call: asking the load endpoint for
+ * an already-loaded model tries to start a SECOND instance, which either
+ * doubles the memory or is refused by the server's resource guardrails. So an
+ * already-loaded model is accepted as-is, and the pin does its work on the
+ * common path: the app's first turn, before anything else has JIT-loaded the
+ * model. (A model that something else JIT-loaded first can still be evicted;
+ * the README's troubleshooting section points at the LM Studio setting that
+ * disables auto-evict entirely.)
  *
  * Everything here is best-effort housekeeping. An LM Studio without either
  * endpoint just keeps JIT loading, exactly as before.
@@ -65,7 +72,7 @@ async function isAlreadyLoaded(root: string, model: string): Promise<boolean> {
   }
 }
 
-async function postLoad(url: string, body: Record<string, unknown>): Promise<'ok' | 'missing' | 'failed'> {
+async function postLoad(url: string, body: Record<string, unknown>): Promise<'ok' | 'missing' | 'refused' | 'failed'> {
   try {
     const res = await auditedFetch(
       url,
@@ -83,6 +90,10 @@ async function postLoad(url: string, body: Record<string, unknown>): Promise<'ok
     // Older servers answer an unknown route with 200-less JSON rather than a
     // bare 404 ("Unexpected endpoint or method").
     if (text.includes('Unexpected endpoint')) return 'missing'
+    // The resource guardrail declining the load ("insufficient system
+    // resources") will not change from one turn to the next; treat it as
+    // settled rather than retrying every message.
+    if (text.includes('model_load_failed') || text.includes('insufficient')) return 'refused'
     return 'failed'
   } catch {
     return 'failed'
@@ -123,8 +134,9 @@ export function pinChatModel(model: string): Promise<void> {
         legacyPins.add(trimmed)
         return
       }
-      if (legacy === 'missing') return // No load endpoint at all — JIT as before. Stay memoized.
+      if (legacy === 'missing' || legacy === 'refused') return // Settled for this session. Stay memoized.
     }
+    if (modern === 'refused') return // Guardrail said no; it will keep saying no.
 
     // Transient failure (server busy, model still downloading): allow the
     // next turn to try again rather than giving up for the whole session.

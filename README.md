@@ -457,6 +457,12 @@ Both skip themselves, rather than failing, where no display is available.
   for chat.
 - **Tool didn't run.** Confirm it's enabled in **Settings → Tools**, and that the loaded model
   supports tool/function calling.
+- **LM Studio keeps unloading the chat model between steps.** Sigma Oasis pins your chat model the
+  first time it is used, which exempts it from LM Studio's auto-evict. The pin can only apply before
+  the model is loaded some other way; if you still see eject/reload cycles (for example when LM
+  Studio auto-loads a model at startup), open LM Studio → Developer → Server Settings and turn off
+  **"Only Keep Last JIT Loaded Model"** (auto-evict), or load both your chat model and your embedding
+  model manually in the server tab. Manually loaded models are never auto-evicted.
 
 ---
 

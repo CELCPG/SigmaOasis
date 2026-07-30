@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { useUpdates } from '../hooks/useUpdates'
@@ -18,6 +18,20 @@ export function Sidebar(): JSX.Element {
   const [query, setQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    window.api
+      .getAppVersion()
+      .then((v) => {
+        if (!cancelled) setAppVersion(v)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const sorted = useMemo(
     () => [...conversations].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -181,6 +195,11 @@ export function Sidebar(): JSX.Element {
         <span className="text-xs text-neutral-500">
           {connection === 'online' ? 'LM Studio connected' : connection}
         </span>
+        {appVersion && (
+          <span className="text-[10px] text-neutral-400 dark:text-neutral-600" title="Sigma Oasis build version">
+            v{appVersion}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => useAppStore.getState().setOnboardingOpen(true)}
