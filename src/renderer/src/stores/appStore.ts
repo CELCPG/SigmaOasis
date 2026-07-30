@@ -53,7 +53,11 @@ interface AppState {
   composerPrefill: string | null
   setComposerPrefill: (text: string | null) => void
 
-  appendMessage: (conversationId: string, message: ChatMessage) => void
+  appendMessage: (
+    conversationId: string,
+    message: ChatMessage,
+    options?: { retitle?: string }
+  ) => void
   patchMessage: (
     conversationId: string,
     messageId: string,
@@ -108,13 +112,21 @@ export const useAppStore = create<AppState>((set) => ({
   composerPrefill: null,
   setComposerPrefill: (composerPrefill) => set({ composerPrefill }),
 
-  appendMessage: (conversationId, message) =>
+  appendMessage: (conversationId, message, options) =>
     set((s) => ({
-      conversations: s.conversations.map((c) =>
-        c.id === conversationId
-          ? { ...c, updatedAt: Date.now(), messages: [...c.messages, message] }
-          : c
-      )
+      conversations: s.conversations.map((c) => {
+        if (c.id !== conversationId) return c
+        // Append and retitle in ONE immutable update. Every object here is
+        // replaced rather than mutated, so a caller that appends and then
+        // upserts a snapshot taken before the append silently drops the
+        // message — that interleaving was the first-turn ghost bug, where a
+        // new conversation's opening message never reached the model.
+        const retitle =
+          options?.retitle && c.title === 'New conversation'
+            ? { title: options.retitle }
+            : {}
+        return { ...c, ...retitle, updatedAt: Date.now(), messages: [...c.messages, message] }
+      })
     })),
   patchMessage: (conversationId, messageId, patch) =>
     set((s) => ({

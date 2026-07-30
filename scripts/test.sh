@@ -57,6 +57,7 @@ rm -rf "$OUT"
   src/main/ipc/modelPin.ts \
   src/main/ipc/deepResearch.ts \
   src/renderer/src/lib/oasisRipple.ts \
+  src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts
 

@@ -425,6 +425,16 @@ async function runTurn(
   // the visible conversation only keeps final text + tool-call records.
   const history = trimHistory(convo.messages)
   const currentTurn = history.map((m) => m.role).lastIndexOf('user')
+  if (currentTurn === -1) {
+    // Refuse a system-prompt-only request: with no user turn the model just
+    // free-associates off the system prompt, which is exactly how the
+    // first-turn message wipe presented (a "random" reply to nothing).
+    patch({
+      content:
+        '⚠️ There is no message in this conversation to answer — its history may have been lost. Please send your message again.'
+    })
+    return
+  }
   const apiMessages: ApiMessage[] = [
     { role: 'system', content: systemPrompt },
     ...history.map((m, i) => ({ role: m.role, content: toApiContent(m, i === currentTurn) }))
@@ -601,20 +611,20 @@ export function useLMStudio(): {
         store.setActiveConversationId(convo.id)
       }
 
-      store.appendMessage(convo.id, {
-        id: uid(),
-        role: 'user',
-        content: text,
-        attachments: attachments.length > 0 ? attachments : undefined,
-        createdAt: Date.now()
-      })
-
-      // Give placeholder conversations a real title from the first message.
-      if (convo.title === 'New conversation') {
-        const retitled = { ...convo, title }
-        store.upsertConversation(retitled)
-        convo = retitled
-      }
+      // Append and, for placeholder conversations, retitle atomically. Doing
+      // this as two separate store calls with a stale snapshot in between
+      // silently dropped the first message of every new conversation.
+      store.appendMessage(
+        convo.id,
+        {
+          id: uid(),
+          role: 'user',
+          content: text,
+          attachments: attachments.length > 0 ? attachments : undefined,
+          createdAt: Date.now()
+        },
+        { retitle: title }
+      )
 
       // Routing: @mention wins, then the conversation's mode decides.
       const routed = routeTargets(settings, convo, text)
