@@ -2,25 +2,29 @@
  * Separating a reasoning model's chain-of-thought from its answer, as the
  * tokens arrive.
  *
- * Most of the models people actually run in LM Studio now — Qwen3, the
- * DeepSeek-R1 distills, gpt-oss, Magistral, EXAONE-Deep — emit their thinking
- * inline, wrapped in `<think>…</think>`, in the same `delta.content` stream as
- * the answer. Appending that straight into the message bubble is how v0.8.1
- * behaved, and it was wrong three ways at once: the thinking rendered as
- * unlabeled prose (markdown sanitization drops the unknown tag but keeps its
- * text), voice mode read it aloud, and it was replayed to the model on every
- * following turn.
+ * Reasoning arrives in two families of spellings:
+ *
+ *   - Qwen3, the DeepSeek-R1 distills, gpt-oss, Magistral and friends wrap it
+ *     in XML-style tags: <think>…</think> and close variants.
+ *   - Gemma 4 uses native control tokens instead: <|think|>, or the structured
+ *     channel <|channel>thought … <channel|>. LM Studio has no gemma4 parser
+ *     registered, and the 12B QAT GGUF mistypes these tokens as user-defined,
+ *     so on exactly the builds where they matter most they leak into
+ *     delta.content verbatim. Nothing upstream strips them; we do.
+ *
+ * Appending any of that straight into the message bubble is wrong three ways
+ * at once: the thinking renders as unlabeled prose, voice mode reads it aloud,
+ * and it is replayed to the model on every following turn.
  *
  * This module is deliberately free of React and the DOM so the parsing — which
  * is where all the edge cases live — can be tested directly.
  *
  * Note the sibling path: some LM Studio builds return thinking out-of-band in
  * `delta.reasoning_content` instead. That needs no parsing at all and is
- * handled in useLMStudio.ts; this splitter is only for the inline-tag case.
+ * handled in useLMStudio.ts; this splitter is only for the inline case.
+ * Gemma 4's native tool-call markup is a separate concern again: it is passed
+ * through here as answer text and collected by lib/nativeToolCall.ts.
  */
-
-/** Tag names treated as reasoning wrappers, lowercase, without brackets. */
-const REASONING_TAGS = ['think', 'thinking', 'reason', 'reasoning'] as const
 
 /** One chunk of stream, split into the two destinations. */
 export interface SplitDelta {
@@ -37,16 +41,47 @@ export interface ReasoningSplitter {
 
 const EMPTY: SplitDelta = { answer: '', reasoning: '' }
 
-const OPEN_TAGS = REASONING_TAGS.map((t) => `<${t}>`)
-const CLOSE_TAGS = REASONING_TAGS.map((t) => `</${t}>`)
+interface TagPair {
+  open: string
+  close: string
+}
+
+/** Reasoning wrappers, in every spelling observed in the wild. */
+const REASONING_PAIRS: TagPair[] = [
+  { open: '<think>', close: '</think>' },
+  { open: '<thinking>', close: '</thinking>' },
+  { open: '<reason>', close: '</reason>' },
+  { open: '<reasoning>', close: '</reasoning>' },
+  // Gemma 4 native control tokens.
+  { open: '<|think|>', close: '<|/think|>' },
+  { open: '<|thinking|>', close: '<|/thinking|>' },
+  { open: '<|reason|>', close: '<|/reason|>' },
+  { open: '<|reasoning|>', close: '<|/reasoning|>' },
+  // Gemma 4's structured thinking channel: <|channel>thought\n…<channel|>
+  { open: '<|channel>thought', close: '<channel|>' }
+]
+
+/**
+ * Native tool-call openers. A model that thinks and then calls a tool emits
+ * one of these right after its reasoning with no closing think tag at all
+ * (Gemma 4 never closes the block in that case), so they terminate a
+ * reasoning block as surely as a close tag. The token itself is passed on as
+ * answer text so the native tool-call extractor downstream can collect it.
+ */
+const TOOL_OPEN_TOKENS = ['<|tool_call>', '<|tool>']
+
+const OPEN_TAGS = REASONING_PAIRS.map((p) => p.open)
+const CLOSE_TAGS = REASONING_PAIRS.map((p) => p.close)
+/** Tokens that end a reasoning block: real closes and tool-call openers. */
+const REASONING_END_TOKENS = [...CLOSE_TAGS, ...TOOL_OPEN_TOKENS]
 
 /**
  * Length of the longest suffix of `text` that could still grow into one of
  * `tags`. This is what makes chunk boundaries safe: a delta ending in `<thi`
- * must not be emitted as answer text, because the next delta may complete it
- * into `<think>`. Returns 0 when no suffix is a viable tag prefix.
+ * or `<|to` must not be emitted yet, because the next delta may complete it
+ * into a tag. Returns 0 when no suffix is a viable tag prefix.
  */
-function heldBackSuffixLength(text: string, tags: readonly string[]): number {
+export function heldBackSuffixLength(text: string, tags: readonly string[]): number {
   if (tags.length === 0) return 0
   const maxTag = Math.max(...tags.map((t) => t.length))
   const start = Math.max(0, text.length - (maxTag - 1))
@@ -59,8 +94,11 @@ function heldBackSuffixLength(text: string, tags: readonly string[]): number {
   return 0
 }
 
-/** Case-insensitive index of the earliest tag from `tags`, or -1. */
-function findTag(
+/**
+ * Case-insensitive index of the earliest tag from `tags`, or null. Ties go to
+ * the longest tag, so a shorter tag that prefixes a longer one cannot win.
+ */
+export function findTag(
   haystack: string,
   tags: readonly string[]
 ): { index: number; tag: string } | null {
@@ -102,16 +140,23 @@ export function createReasoningSplitter(): ReasoningSplitter {
 
     for (;;) {
       if (inReasoning) {
-        const close = findTag(rest, CLOSE_TAGS)
-        if (!close) {
-          // Hold back a possible partial `</thin…` unless the stream is over.
-          const held = atEnd ? 0 : heldBackSuffixLength(rest, CLOSE_TAGS)
+        const end = findTag(rest, REASONING_END_TOKENS)
+        if (!end) {
+          // Hold back a possible partial close/tool tag unless the stream is over.
+          const held = atEnd ? 0 : heldBackSuffixLength(rest, REASONING_END_TOKENS)
           reasoning += rest.slice(0, rest.length - held)
           pending = rest.slice(rest.length - held)
           return { answer, reasoning }
         }
-        reasoning += rest.slice(0, close.index)
-        rest = rest.slice(close.index + close.tag.length)
+        reasoning += rest.slice(0, end.index)
+        if (TOOL_OPEN_TOKENS.includes(end.tag)) {
+          // Gemma 4 goes straight from thinking to calling: end the block but
+          // leave the tool token in the stream for the answer path.
+          inReasoning = false
+          rest = rest.slice(end.index)
+          continue
+        }
+        rest = rest.slice(end.index + end.tag.length)
         inReasoning = false
         continue
       }
@@ -140,6 +185,8 @@ export function createReasoningSplitter(): ReasoningSplitter {
       }
       answer += before
       rest = rest.slice(open.index + open.tag.length)
+      // The channel opener is followed by a newline before the actual thought.
+      if (rest.startsWith('\n')) rest = rest.slice(1)
       inReasoning = true
     }
   }

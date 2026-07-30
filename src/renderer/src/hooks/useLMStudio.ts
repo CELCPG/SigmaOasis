@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/voice'
 import { createReasoningSplitter } from '../lib/reasoning'
+import { createNativeToolExtractor, type NativeToolCall } from '../lib/nativeToolCall'
 import {
   estimateTokens,
   historyBudget,
@@ -299,12 +300,25 @@ async function streamChat(
   let buffer = ''
   const pending = new Map<number, ApiToolCall>()
   const splitter = createReasoningSplitter()
+  // Gemma 4's native tool-call markup arrives inside the content stream on
+  // servers without a gemma4 parser (LM Studio today). The extractor strips
+  // it from the visible answer and returns the calls in OpenAI shape, so they
+  // execute through the same loop as real tool_calls.
+  const nativeTools = createNativeToolExtractor()
+  const nativeCalls: NativeToolCall[] = []
   let usage: ApiUsage | null = null
   let ttftMs: number | null = null
 
+  const emitText = (text: string): void => {
+    if (!text) return
+    const out = nativeTools.push(text)
+    if (out.text) onContent(out.text)
+    nativeCalls.push(...out.calls)
+  }
+
   const emit = (delta: { answer: string; reasoning: string }): void => {
     if ((delta.answer || delta.reasoning) && ttftMs === null) ttftMs = Date.now() - startedAt
-    if (delta.answer) onContent(delta.answer)
+    emitText(delta.answer)
     if (delta.reasoning) onReasoning?.(delta.reasoning)
   }
 
@@ -361,8 +375,19 @@ async function streamChat(
   // A stream that ended mid-`<think>` (max_tokens, abort) still has text held
   // back by the splitter — surface it as reasoning rather than losing it.
   emit(splitter.flush())
+  const tail = nativeTools.flush()
+  if (tail.text) onContent(tail.text)
+  nativeCalls.push(...tail.calls)
 
-  return { toolCalls: [...pending.values()], usage, ttftMs }
+  const toolCalls = [...pending.values()]
+  for (const call of nativeCalls) {
+    toolCalls.push({
+      id: `call_native_${uid()}`,
+      type: 'function',
+      function: { name: call.name, arguments: call.arguments }
+    })
+  }
+  return { toolCalls, usage, ttftMs }
 }
 
 // ---- Orchestration: models-as-tools -------------------------------------------

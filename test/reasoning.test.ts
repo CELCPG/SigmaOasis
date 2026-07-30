@@ -122,3 +122,51 @@ describe('createReasoningSplitter — truncated streams', () => {
     assert.equal(out.answer, 'Straight to the point.')
   })
 })
+
+describe('createReasoningSplitter — Gemma 4 native control tokens', () => {
+  test('pipe-style think tags separate like the XML spellings', () => {
+    const out = run(['<|think|>hidden<|/think|>shown'])
+    assert.equal(out.reasoning, 'hidden')
+    assert.equal(out.answer, 'shown')
+  })
+
+  test('the structured thinking channel separates, leading newline stripped', () => {
+    const out = run(['<|channel>thought\nhidden<channel|>shown'])
+    assert.equal(out.reasoning, 'hidden')
+    assert.equal(out.answer, 'shown')
+  })
+
+  test('a tool-call token ends the thinking block with no close tag at all', () => {
+    // Gemma 4 goes straight from thinking to calling; observed verbatim on
+    // gemma-4-12b-qat through LM Studio.
+    const out = run(['<|think|>planning the call<|tool_call>call:x{a:1}<tool_call|>after'])
+    assert.equal(out.reasoning, 'planning the call')
+    assert.equal(out.answer, '<|tool_call>call:x{a:1}<tool_call|>after')
+  })
+
+  test('the sloppy <|tool> opener also terminates thinking', () => {
+    const out = run(['<|think|>plan<|tool>call:x{a:1}<tool_call|>'])
+    assert.equal(out.reasoning, 'plan')
+    assert.equal(out.answer, '<|tool>call:x{a:1}<tool_call|>')
+  })
+
+  test('pipe tokens split across chunks are still recognized', () => {
+    const out = run(['<|th', 'ink|>hidden<|/th', 'ink|>shown'])
+    assert.equal(out.reasoning, 'hidden')
+    assert.equal(out.answer, 'shown')
+  })
+
+  test('the exact reply a user reported renders clean after both stages', () => {
+    // Verbatim from a gemma-4-12b-qat session: thinking, then an inline tool
+    // call the server never executed, and no answer text at all.
+    const sample =
+      '<|think|>The user has asked me to generate another story, following up on ' +
+      'the previous request.<|tool>call:text_generation{prompt:<|"|>a short story about cats<|"|>}<tool_call|>'
+    const out = run([sample])
+    assert.equal(out.reasoning, 'The user has asked me to generate another story, following up on the previous request.')
+    assert.equal(
+      out.answer,
+      '<|tool>call:text_generation{prompt:<|"|>a short story about cats<|"|>}<tool_call|>'
+    )
+  })
+})
