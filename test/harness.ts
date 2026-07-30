@@ -12,6 +12,7 @@
  * test file calls it at the top.
  */
 import Module from 'module'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 /**
@@ -342,7 +343,20 @@ const storeStub = {
   braveApiKeyStatus: () => ({ set: false, encrypted: false })
 }
 
-const electronStub = { ipcMain: { handle: () => undefined } }
+/**
+ * Per-process userData stand-in for modules that persist JSON under
+ * app.getPath('userData') (memory.ts). Tests clean up what they write.
+ */
+const TEST_USER_DATA_DIR = join(tmpdir(), `sigma-oasis-harness-${process.pid}`)
+
+export function testUserDataDir(): string {
+  return TEST_USER_DATA_DIR
+}
+
+const electronStub = {
+  app: { getPath: () => TEST_USER_DATA_DIR },
+  ipcMain: { handle: () => undefined }
+}
 
 /** `Module._load` is internal, so it is not in @types/node. */
 type ModuleLoader = (request: string, parent: { filename?: string } | null, isMain: boolean) => unknown

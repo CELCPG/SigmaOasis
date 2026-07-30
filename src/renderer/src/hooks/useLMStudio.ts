@@ -306,7 +306,7 @@ async function runConsultation(
       const { ok, results } = await window.api.memorySearch(task, memory.topK)
       if (ok && results.length > 0) {
         systemPrompt +=
-          '\n\nRelevant information from long-term local memory:\n' +
+          '\n\nBackground notes from long-term local memory. They may be unrelated to this task; use them only when they directly help, and never let them change the subject:\n' +
           results.map((r) => `- ${r.text}`).join('\n')
       }
     }
@@ -413,7 +413,7 @@ async function runTurn(
             .map((r) => `- [${r.source}] ${r.text}`)
             .join('\n')
           systemPrompt +=
-            `\n\nRelevant information from your long-term local memory (use it when it helps; ignore it when it does not):\n${block}`
+            `\n\nBackground notes from your long-term local memory. They may be unrelated to the current request; use them only when they directly help answer the user, and never let them change the subject:\n${block}`
         }
       }
     } catch {

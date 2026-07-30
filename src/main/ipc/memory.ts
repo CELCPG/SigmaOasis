@@ -40,6 +40,16 @@ export interface MemorySearchResult {
 
 const MAX_DOCUMENT_CHARS = 500_000
 
+/**
+ * Relevance floor for memory recall. Cosine scores below this are the
+ * embedding model saying "nothing stored is actually about this query" —
+ * without the floor, top-K always returns *something*, and injecting random
+ * memories into the system prompt can pull a small model off the user's
+ * question entirely (worst on a conversation's first turn, when no history
+ * anchors the topic). Callers that want raw ranking can pass minScore: 0.
+ */
+export const MEMORY_SCORE_FLOOR = 0.35
+
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 }
@@ -102,7 +112,11 @@ export async function addToMemory(
   })
 }
 
-export async function searchMemory(query: string, topK: number): Promise<MemorySearchResult[]> {
+export async function searchMemory(
+  query: string,
+  topK: number,
+  minScore: number = MEMORY_SCORE_FLOOR
+): Promise<MemorySearchResult[]> {
   const memory = await readMemory()
   if (memory.chunks.length === 0) return []
 
@@ -121,6 +135,7 @@ export async function searchMemory(query: string, topK: number): Promise<MemoryS
 
   return comparable
     .map((c) => ({ source: c.source, text: c.text, score: cosine(queryVector, c.embedding) }))
+    .filter((r) => r.score >= minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, topK))
     .map((r) => ({ ...r, score: Math.round(r.score * 1000) / 1000 }))
@@ -168,9 +183,16 @@ async function memoryStats(): Promise<unknown> {
 export function registerMemoryHandlers(): void {
   ipcMain.handle('memory:stats', () => memoryStats())
 
-  ipcMain.handle('memory:search', async (_e, query: string, topK?: number) => {
+  ipcMain.handle('memory:search', async (_e, query: string, topK?: number, minScore?: number) => {
     try {
-      return { ok: true, results: await searchMemory(String(query ?? ''), topK ?? getSettings().memory.topK) }
+      return {
+        ok: true,
+        results: await searchMemory(
+          String(query ?? ''),
+          topK ?? getSettings().memory.topK,
+          typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : undefined
+        )
+      }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err), results: [] }
     }
