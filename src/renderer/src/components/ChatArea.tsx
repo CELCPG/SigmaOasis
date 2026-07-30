@@ -8,6 +8,7 @@ import { Logo } from './Logo'
 /** Scrollable message list for the active conversation, with auto-scroll. */
 export function ChatArea({ conversation }: { conversation: Conversation }): JSX.Element {
   const streaming = useAppStore((s) => s.streaming)
+  const researchProgress = useAppStore((s) => s.researchProgress)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const lastMessage = conversation.messages[conversation.messages.length - 1]
@@ -68,6 +69,13 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
           isLast={idx === conversation.messages.length - 1 && m.role === 'assistant'}
         />
       ))}
+      {streaming && researchProgress && (
+        <div className="mx-auto flex max-w-3xl items-center gap-2.5 px-4 py-2 text-xs text-neutral-500">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          <span className="font-medium capitalize">{researchProgress.phase}</span>
+          <span className="min-w-0 truncate">{researchProgress.detail}</span>
+        </div>
+      )}
       <div ref={bottomRef} />
     </div>
   )

@@ -28,6 +28,7 @@ export interface ToolToggles {
   memory_save: boolean
   memory_search: boolean
   memory_forget: boolean
+  deep_research: boolean
 }
 
 export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
@@ -43,6 +44,13 @@ export interface SearchSettings {
   confirmBeforeSearch: boolean
   /** Re-read JavaScript-dependent pages in an offscreen browser. Off by default. */
   useHeadlessRenderer: boolean
+}
+
+export interface ResearchSettings {
+  /** Budget preset for a single deep_research call. */
+  depth: 'quick' | 'standard' | 'thorough'
+  /** Approve the whole research plan before any query is sent. */
+  confirmPlan: boolean
 }
 
 export interface UpdateSettings {
@@ -146,6 +154,7 @@ export interface AppSettings {
   stt: SttSettings
   memory: MemorySettings
   search: SearchSettings
+  research: ResearchSettings
   updates: UpdateSettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean

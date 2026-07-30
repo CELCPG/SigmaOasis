@@ -42,6 +42,13 @@ interface AppState {
   streaming: boolean
   setStreaming: (streaming: boolean) => void
 
+  /**
+   * Live phase of a running deep_research call. Research takes a minute or more,
+   * so without this the UI is an unexplained spinner for the whole run.
+   */
+  researchProgress: { phase: string; detail: string } | null
+  setResearchProgress: (progress: { phase: string; detail: string } | null) => void
+
   /** One-shot text a component wants dropped into the composer (e.g. a prompt chip). */
   composerPrefill: string | null
   setComposerPrefill: (text: string | null) => void
@@ -90,7 +97,13 @@ export const useAppStore = create<AppState>((set) => ({
   setActiveConversationId: (activeConversationId) => set({ activeConversationId }),
 
   streaming: false,
-  setStreaming: (streaming) => set({ streaming }),
+  // Clearing progress whenever streaming stops keeps a stale phase from
+  // lingering after the turn ends, however it ended.
+  setStreaming: (streaming) =>
+    set(streaming ? { streaming } : { streaming, researchProgress: null }),
+
+  researchProgress: null,
+  setResearchProgress: (researchProgress) => set({ researchProgress }),
 
   composerPrefill: null,
   setComposerPrefill: (composerPrefill) => set({ composerPrefill }),

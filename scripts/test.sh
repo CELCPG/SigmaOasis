@@ -51,6 +51,8 @@ rm -rf "$OUT"
   src/main/ipc/pageScript.ts \
   src/main/ipc/render.ts \
   src/main/ipc/search.ts \
+  src/main/ipc/llm.ts \
+  src/main/ipc/deepResearch.ts \
   test/harness.ts \
   test/*.test.ts
 

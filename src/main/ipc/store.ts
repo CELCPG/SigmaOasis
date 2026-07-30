@@ -32,6 +32,7 @@ export interface ToolToggles {
   memory_save: boolean
   memory_search: boolean
   memory_forget: boolean
+  deep_research: boolean
 }
 
 export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
@@ -51,6 +52,20 @@ export interface SearchSettings {
    * static path never does, so it is the user's call.
    */
   useHeadlessRenderer: boolean
+}
+
+export interface ResearchSettings {
+  /**
+   * How much a single deep_research call may spend: searches, fetches, distinct
+   * hosts and wall clock. See budgetFor() in deepResearch.ts.
+   */
+  depth: 'quick' | 'standard' | 'thorough'
+  /**
+   * Show the full plan — every sub-question and every outgoing query — for
+   * approval before anything is sent. Independent of confirmBeforeSearch, since
+   * one plan-level gate is more informative than N per-query dialogs.
+   */
+  confirmPlan: boolean
 }
 
 export interface UpdateSettings {
@@ -88,6 +103,7 @@ export interface AppSettings {
   stt: SttSettings
   memory: MemorySettings
   search: SearchSettings
+  research: ResearchSettings
   updates: UpdateSettings
   /** First-run setup checklist has been dismissed. */
   onboardingCompleted: boolean
@@ -144,7 +160,8 @@ function defaultSettings(): AppSettings {
       read_note: true,
       memory_save: true,
       memory_search: true,
-      memory_forget: true
+      memory_forget: true,
+      deep_research: true
     },
     workingDirectory: '',
     pipeline: ['model-1'],
@@ -168,6 +185,10 @@ function defaultSettings(): AppSettings {
       maxResults: 8,
       confirmBeforeSearch: false,
       useHeadlessRenderer: false
+    },
+    research: {
+      depth: 'standard',
+      confirmPlan: false
     },
     updates: {
       autoCheck: false
@@ -259,6 +280,14 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       confirmBeforeSearch: Boolean(settings.search?.confirmBeforeSearch),
       useHeadlessRenderer: Boolean(settings.search?.useHeadlessRenderer)
     },
+    research: {
+      depth: (['quick', 'standard', 'thorough'] as const).includes(
+        settings.research?.depth as ResearchSettings['depth']
+      )
+        ? settings.research!.depth
+        : defaults.research.depth,
+      confirmPlan: Boolean(settings.research?.confirmPlan)
+    },
     updates: {
       autoCheck: Boolean(settings.updates?.autoCheck)
     },
@@ -282,6 +311,7 @@ export function migrateSettings(): void {
     stt: { ...defaults.stt, ...current.stt },
     memory: { ...defaults.memory, ...current.memory },
     search: { ...defaults.search, ...current.search },
+    research: { ...defaults.research, ...current.research },
     updates: { ...defaults.updates, ...current.updates }
   } as AppSettings
   store.set('settings', normalizeSettings(merged))

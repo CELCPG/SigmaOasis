@@ -22,6 +22,7 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   run_terminal_command: 'Run terminal command (asks to confirm)',
   web_search: 'Web search (provider chosen in Settings → Search)',
   fetch_webpage: 'Fetch webpage (HTTPS only, private addresses refused)',
+  deep_research: 'Deep research (multi-step: plans, searches, reads and cites sources)',
   get_current_datetime: 'Get current date/time',
   create_note: 'Create note',
   list_notes: 'List notes',
@@ -666,6 +667,51 @@ export function SettingsModal(): JSX.Element | null {
                       Confirm every query
                       <span className="block text-xs text-neutral-500">
                         Show the exact outgoing query for approval before each search.
+                      </span>
+                    </span>
+                  </label>
+                  <div>
+                    <label className="mb-1 block text-xs text-neutral-500">
+                      Deep research budget
+                    </label>
+                    <select
+                      value={draft.research.depth}
+                      onChange={(e) =>
+                        update({
+                          research: {
+                            ...draft.research,
+                            depth: e.target.value as AppSettings['research']['depth']
+                          }
+                        })
+                      }
+                      className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm"
+                    >
+                      <option value="quick">Quick — up to 3 searches, 4 pages, 4 domains</option>
+                      <option value="standard">Standard — up to 6 searches, 10 pages, 8 domains</option>
+                      <option value="thorough">Thorough — up to 10 searches, 16 pages, 12 domains</option>
+                    </select>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Hard ceiling on what one <code>deep_research</code> call may spend. The
+                      distinct-domain cap is the privacy-relevant one — it limits how many separate
+                      sites learn anything at all.
+                    </p>
+                  </div>
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.research.confirmPlan}
+                      onChange={(e) =>
+                        update({
+                          research: { ...draft.research, confirmPlan: e.target.checked }
+                        })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Approve research plans
+                      <span className="block text-xs text-neutral-500">
+                        Before a deep research run sends anything, show every sub-question and every
+                        outgoing query for approval — one dialog for the whole plan.
                       </span>
                     </span>
                   </label>

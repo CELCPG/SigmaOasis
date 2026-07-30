@@ -123,6 +123,7 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | `run_terminal_command` | Run a shell command — **off by default**; shows a confirmation dialog before every run, with destructive patterns (e.g. `rm -rf`, `dd`, `curl \| sh`) flagged as dangerous. |
 | `web_search` | Web search via your chosen privacy-preserving provider — self-hosted **SearXNG**, **Brave Search API**, or **DuckDuckGo** (Settings → Search). Queries are sanitized (emails, tokens, paths, etc. redacted) before they leave the machine. |
 | `fetch_webpage` | Fetch and read a public web page or **PDF** (HTTPS only, scripts/ads/site chrome stripped). Private/internal addresses are refused (SSRF guard). Pass a `query` and the page is split into passages and **ranked** — the model gets the parts that answer the query instead of the first few thousand characters. Outbound links are returned so a citation can be followed directly. Re-reading a page already fetched makes no new network request. |
+| `deep_research` | Research a question across many sources in **one call** — plans sub-questions, searches, reads and ranks the best pages, checks what is still unanswered, and returns a brief with numbered citations. See below. |
 | `get_current_datetime` | Return the current local date/time. |
 | `create_note` | Save a note to the local notes store. |
 | `list_notes` | List saved note titles. |
@@ -197,6 +198,47 @@ impractical:
 - **Repeated searches are served locally.** Identical queries within ten minutes are answered from
   RAM, so the provider sees one query instead of five. This also keeps bursts inside the rate limits
   DuckDuckGo and Brave's free tier enforce.
+
+### Deep research: many sources, one tool call
+
+`web_search` and `fetch_webpage` are enough for a quick lookup. For a real question, chaining them by
+hand runs into two walls: the agentic loop stops after 8 consecutive tool rounds, and every page a
+model reads stays in the conversation. A search plus a fetch costs two rounds, so an improvising model
+gets about **four sources per turn** — and the pages it read have already crowded out the room it needed
+to reason about them.
+
+`deep_research` moves the whole crawl into the main process, inside a single tool call:
+
+```
+plan → search → select → read → reflect → (one more round) → synthesize
+```
+
+Twenty pages can be searched, fetched, ranked and discarded without any of it touching the
+conversation. Only the synthesized brief and its citations come back. The orchestration is code, not
+model improvisation, so it is bounded and repeatable rather than a matter of how well the model
+happened to plan.
+
+- **Planned, then checked.** A local model decomposes the question into sub-questions and keyword
+  queries. After reading, coverage is assessed **mechanically** — enough high-scoring text per
+  sub-question — and a second round targets only what is still open. Asking a model to grade its own
+  work would return "yes" nearly always, and the second round would never happen.
+- **Every phase has a budget.** Rounds, searches, pages, distinct domains and wall clock, chosen by
+  **Settings → Search → Deep research budget** (quick / standard / thorough). Limits are checked before
+  each action, not reported after, and any limit that stopped the run is disclosed in the result.
+- **Sources are ranked before they are fetched.** Snippets are scored against the sub-questions first,
+  so a page that will not help is a host never contacted. A per-domain cap keeps one prolific site from
+  filling the evidence base.
+- **The brief is cited or it says so.** Every claim carries a `[n]` pointing at a real URL, and
+  sub-questions the sources did not answer are listed as gaps rather than filled in from the model's
+  own knowledge.
+
+#### What leaves your machine
+
+Your question does not. Only the planner's keyword queries go out, each through the same redaction as
+any other search. Turn on **Settings → Search → Approve research plans** and you get one dialog showing
+every sub-question and every outgoing query before anything is sent — more informative than six
+separate prompts, and the moment to catch a query carrying context it should not. The result reports
+every domain contacted, the number of searches and pages, and any redactions applied.
 
 ### JavaScript-dependent pages (opt-in)
 
@@ -281,6 +323,8 @@ sigma-oasis/
 │   │       ├── embeddings.ts # Chunking + local embedding via LM Studio (shared)
 │   │       ├── retrieval.ts  # BM25, rank fusion, MMR — pure ranking primitives
 │   │       ├── researchIndex.ts # Ephemeral RAM index over fetched pages
+│   │       ├── deepResearch.ts  # Plan → search → read → reflect → synthesize
+│   │       ├── llm.ts        # Main-process model calls + tolerant JSON parsing
 │   │       └── memory.ts     # Durable long-term memory (RAG) on disk
 │   ├── preload/
 │   │   ├── index.ts          # Secure context bridge (window.api)

@@ -397,3 +397,118 @@ describe('research index', () => {
     })
   })
 })
+
+describe('SSRF guard (fetchWebpage)', () => {
+  const page = '<html><body><p>' + 'text '.repeat(200) + '</p></body></html>'
+
+  test('refuses a host resolving to a private address', async () => {
+    state.dnsOverrides['internal.example'] = [{ address: '10.0.0.5', family: 4 }]
+    state.responses = [{ match: 'internal.example', contentType: 'text/html', body: page }]
+    const out = await search.readWebpage('https://internal.example/secret', '', 5)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /private or reserved/i)
+  })
+
+  test('refuses the cloud metadata endpoint', async () => {
+    // 169.254.169.254 is the single most valuable SSRF target on a cloud host.
+    state.dnsOverrides['metadata.example'] = [{ address: '169.254.169.254', family: 4 }]
+    const out = await search.readWebpage('https://metadata.example/latest/meta-data', '', 5)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /private or reserved/i)
+  })
+
+  test('refuses a loopback-resolving host, including the LM Studio server', async () => {
+    state.dnsOverrides['local.example'] = [{ address: '127.0.0.1', family: 4 }]
+    const out = await search.readWebpage('https://local.example/v1/models', '', 5)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /private or reserved/i)
+  })
+
+  test('refuses a host that resolves to a private IPv6 address', async () => {
+    state.dnsOverrides['v6.example'] = [{ address: 'fd00::1', family: 6 }]
+    const out = await search.readWebpage('https://v6.example/x', '', 5)
+    assert.equal(out.ok, false)
+  })
+
+  test('refuses when any answer is private, not just the first', async () => {
+    // A split-horizon answer must not be admitted because one record is public.
+    state.dnsOverrides['mixed.example'] = [
+      { address: '93.184.216.34', family: 4 },
+      { address: '192.168.1.10', family: 4 }
+    ]
+    const out = await search.readWebpage('https://mixed.example/x', '', 5)
+    assert.equal(out.ok, false)
+  })
+
+  test('reports an unresolvable host', async () => {
+    state.dnsFailures = ['nowhere.example']
+    const out = await search.readWebpage('https://nowhere.example/x', '', 5)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /could not resolve/i)
+  })
+
+  test('re-checks the guard on a redirect, refusing a hop to an internal host', async () => {
+    // The reason redirects are followed manually: a public URL may redirect
+    // inward, and the check has to run again on every hop.
+    state.dnsOverrides['inside.example'] = [{ address: '10.1.2.3', family: 4 }]
+    state.responses = [
+      {
+        match: 'public.example',
+        contentType: 'text/html',
+        body: '',
+        status: 302,
+        headers: { location: 'https://inside.example/admin' }
+      },
+      { match: 'inside.example', contentType: 'text/html', body: page }
+    ]
+    const out = await search.readWebpage('https://public.example/start', '', 5)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /private or reserved/i)
+  })
+
+  test('follows a redirect to another public host', async () => {
+    state.responses = [
+      {
+        match: 'first.example',
+        contentType: 'text/html',
+        body: '',
+        status: 302,
+        headers: { location: 'https://second.example/final' }
+      },
+      { match: 'second.example', contentType: 'text/html', body: page }
+    ]
+    const out = await search.readWebpage('https://first.example/start', '', 5)
+    assert.equal(out.ok, true, out.error)
+    assert.equal(out.url, 'https://second.example/final')
+  })
+
+  test('refuses a redirect to a non-HTTPS URL', async () => {
+    state.responses = [
+      {
+        match: 'downgrade.example',
+        contentType: 'text/html',
+        body: '',
+        status: 302,
+        headers: { location: 'http://plain.example/x' }
+      }
+    ]
+    const out = await search.readWebpage('https://downgrade.example/start', '', 5)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /non-HTTPS/i)
+  })
+
+  test('stops a redirect loop rather than following it forever', async () => {
+    state.responses = [
+      {
+        match: 'loop.example',
+        contentType: 'text/html',
+        body: '',
+        status: 302,
+        headers: { location: 'https://loop.example/again' }
+      }
+    ]
+    const out = await search.readWebpage('https://loop.example/start', '', 5)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /too many redirects/i)
+  })
+})

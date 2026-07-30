@@ -339,7 +339,9 @@ async function runConsultation(
       } catch {
         // Malformed arguments — execute with what we have.
       }
-      const result = await window.api.executeTool(tc.function.name, args)
+      const result = await window.api.executeTool(tc.function.name, args, {
+        modelId: specialist.modelId
+      })
       apiMessages.push({
         role: 'tool',
         tool_call_id: tc.id,
@@ -512,7 +514,11 @@ async function runTurn(
           }
         }
       } else {
-        result = await window.api.executeTool(tc.function.name, args)
+        // The caller's model id goes along so main-process tools that need to
+        // reason (deep_research) plan with the model the user is talking to.
+        result = await window.api.executeTool(tc.function.name, args, {
+          modelId: slot.modelId
+        })
       }
 
       if (result.ok) {

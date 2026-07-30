@@ -43,8 +43,25 @@ const api = {
 
   // Agentic tool execution (main/ipc/tools.ts)
   listTools: (): Promise<ToolSchema[]> => ipcRenderer.invoke('tools:list'),
-  executeTool: (name: string, args: Record<string, unknown>): Promise<ToolResult> =>
-    ipcRenderer.invoke('tools:execute', name, args),
+  executeTool: (
+    name: string,
+    args: Record<string, unknown>,
+    context?: { modelId?: string }
+  ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
+
+  /** Live phase updates from a running deep_research call. */
+  onResearchProgress: (
+    cb: (update: { phase: string; detail: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      update: { phase: string; detail: string }
+    ): void => cb(update)
+    ipcRenderer.on('research:progress', listener)
+    return () => {
+      ipcRenderer.removeListener('research:progress', listener)
+    }
+  },
 
   // Private web search (main/ipc/search.ts)
   testSearchProvider: (): Promise<{ ok: boolean; detail: string }> =>

@@ -52,6 +52,11 @@ The outbound paths are:
   by the allowlist, so it is guarded separately: HTTPS only, DNS-resolved private/loopback/link-local
   addresses refused, redirects followed manually with the check re-run on every hop, and hard size
   and time caps. HTML, plain text and PDF are accepted; every other content type is refused.
+- **`deep_research`** — several `web_search` queries plus several `fetch_webpage` reads per call, all
+  subject to the limits above and to a per-call budget capping searches, pages, **distinct domains** and
+  wall clock. The user's question is never sent: only the planner's keyword queries, each redacted like
+  any other search. Enable "Approve research plans" to see and approve the entire plan before any query
+  leaves the machine. Every domain contacted is reported back with the results.
 - **The JavaScript page renderer** — opt-in and off by default (Settings → Search). See below.
 - **Update checks** — GitHub Releases, opt-in and off by default.
 

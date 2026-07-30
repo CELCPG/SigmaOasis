@@ -28,6 +28,13 @@ export default function App(): JSX.Element {
     })
   }, [setSettings])
 
+  // Live phase updates from a running deep_research call.
+  useEffect(() => {
+    return window.api.onResearchProgress((update) =>
+      useAppStore.getState().setResearchProgress(update)
+    )
+  }, [])
+
   // Global shortcuts: ⌘N new conversation, ⌘, settings.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
