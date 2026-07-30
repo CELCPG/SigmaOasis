@@ -371,17 +371,32 @@ const PLAN_JSON = JSON.stringify({
   ]
 })
 
-describe('runDeepResearch', () => {
-  const hosts = ['alpha.example', 'beta.example', 'gamma.example']
+/**
+ * Full happy-path fixture. Each planned query routes to its own pair of hosts,
+ * the way a real search provider would answer different queries with different
+ * results. Without that, both sub-questions compete for the same URLs and the
+ * per-URL dedupe in selectSources hands every source to one sub-question, so
+ * coverage can never pass in round one.
+ */
+function fullFixture(): void {
+  const retryHosts = ['alpha.example', 'beta.example']
+  const cacheHosts = ['gamma.example', 'delta.example']
+  state.searchHtml = searchHtmlFor(['alpha.example', 'beta.example', 'gamma.example'])
+  state.searchRoutes = [
+    { match: 'retry', html: searchHtmlFor(retryHosts) },
+    { match: 'invalidation', html: searchHtmlFor(cacheHosts) }
+  ]
+  state.responses = [...retryHosts, ...cacheHosts].map((h) => ({
+    match: h,
+    contentType: 'text/html',
+    body: ARTICLE(h)
+  }))
+  state.completions = [PLAN_JSON, 'The retry timeout defaults to thirty seconds [1].']
+}
 
+describe('runDeepResearch', () => {
   beforeEach(() => {
-    state.searchHtml = searchHtmlFor(hosts)
-    state.responses = hosts.map((h) => ({
-      match: h,
-      contentType: 'text/html',
-      body: ARTICLE(h)
-    }))
-    state.completions = [PLAN_JSON, 'The retry timeout defaults to thirty seconds [1].']
+    fullFixture()
   })
 
   test('returns a brief with sources and a ledger', async () => {
@@ -494,7 +509,7 @@ describe('runDeepResearch', () => {
   })
 
   test('fails clearly when no source yields text', async () => {
-    state.responses = hosts.map((h) => ({
+    state.responses = ['alpha.example', 'beta.example', 'gamma.example', 'delta.example'].map((h) => ({
       match: h,
       contentType: 'text/html',
       body: '<html><body></body></html>'
@@ -507,6 +522,7 @@ describe('runDeepResearch', () => {
 
   test('fails clearly when search returns nothing', async () => {
     state.searchHtml = '<html></html>'
+    state.searchRoutes = []
     const outcome = await runDeepResearch({ question: 'q', modelId: 'fake-chat' })
     assert.equal(outcome.ok, false)
     assert.match(outcome.error!, /No usable sources/i)
@@ -579,3 +595,100 @@ function outgoingQueries(): string[] {
       }
     })
 }
+
+// ---- structured planning + adaptive rounds ------------------------------------
+
+describe('structured planning and adaptive rounds', () => {
+  beforeEach(() => {
+    fullFixture()
+  })
+
+  test('the planner request is grammar-constrained with the plan schema', async () => {
+    await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    const plannerBody = state.completionBodies[0]!
+    const format = plannerBody.response_format as {
+      type?: string
+      json_schema?: { name?: string; strict?: boolean; schema?: { required?: string[] } }
+    }
+    assert.equal(format.type, 'json_schema')
+    assert.equal(format.json_schema?.name, 'research_plan')
+    assert.equal(format.json_schema?.strict, true)
+    assert.deepEqual(format.json_schema?.schema?.required, ['subQuestions'])
+  })
+
+  test('the synthesizer request is free-form, not schema-constrained', async () => {
+    await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    const synthBody = state.completionBodies.at(-1)!
+    const format = synthBody.response_format as { type?: string } | undefined
+    assert.notEqual(format?.type, 'json_schema')
+  })
+
+  test('a server that rejects json_schema gets a plain retry and research still plans', async () => {
+    state.completionOnce400 = true
+    const outcome = await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    assert.equal(outcome.ok, true, outcome.error)
+    assert.equal(outcome.planned, true)
+    // The retry went out without the schema constraint.
+    const retryBody = state.completionBodies[0]!
+    const format = retryBody.response_format as { type?: string } | undefined
+    assert.equal(format?.type, 'json_object')
+  })
+
+  test('uncovered sub-questions are attacked with reformulated queries in later rounds', async () => {
+    // Every page read fails, so coverage never passes and the run adapts until
+    // the round ceiling stops it.
+    state.responses = []
+    state.completions = [
+      PLAN_JSON,
+      JSON.stringify({
+        queries: [
+          { queries: ['retry backoff strategy'] },
+          { queries: ['cache eviction policy'] }
+        ]
+      })
+    ]
+    const outcome = await runDeepResearch({
+      question: 'How do retries work?',
+      modelId: 'fake-chat'
+    })
+    assert.equal(outcome.ok, false)
+    assert.match(outcome.error!, /No usable sources/i)
+    // Standard depth now allows three coverage-driven rounds, and all three ran.
+    assert.equal(outcome.ledger!.rounds, 3)
+    // Round two searched the reformulated angle, not just the failed query again.
+    assert.ok(outgoingQueries().includes('retry backoff strategy'))
+    assert.ok(outgoingQueries().includes('cache eviction policy'))
+  })
+
+  test('reformulateQueries falls back to the original queries when the model is useless', async () => {
+    state.completions = ['not json at all']
+    const queries = await research.reformulateQueries(
+      [
+        { question: 'q1', queries: ['original one'] },
+        { question: 'q2', queries: ['original two'] }
+      ],
+      'fake-chat'
+    )
+    assert.deepEqual(queries, [['original one'], ['original two']])
+  })
+
+  test('reformulateQueries maps by order and caps queries per sub-question', async () => {
+    state.completions = [
+      JSON.stringify({
+        queries: [
+          { queries: ['new a', 'new b', 'new c'] },
+          { queries: [] }
+        ]
+      })
+    ]
+    const queries = await research.reformulateQueries(
+      [
+        { question: 'q1', queries: ['old one'] },
+        { question: 'q2', queries: ['old two'] }
+      ],
+      'fake-chat'
+    )
+    // Capped at MAX_QUERIES_PER_SUB, and an empty set falls back per sub-question.
+    assert.deepEqual(queries, [['new a', 'new b'], ['old two']])
+  })
+})

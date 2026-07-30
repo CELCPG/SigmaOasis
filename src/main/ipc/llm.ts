@@ -29,6 +29,14 @@ export interface CompleteOptions {
   signal?: AbortSignal
   /** Ask the server for JSON. Honored by LM Studio; harmless when ignored. */
   json?: boolean
+  /**
+   * Constrain the output to a JSON schema (llama.cpp grammar enforcement via
+   * LM Studio's structured output). Far stronger than asking nicely: the
+   * model literally cannot emit malformed JSON or missing keys. Servers that
+   * do not support it reject the request with HTTP 400, which chatCompleteJson
+   * turns into a retry without the constraint.
+   */
+  jsonSchema?: { name: string; schema: Record<string, unknown> }
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -52,7 +60,20 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
           stream: false,
           temperature: options.temperature ?? 0.2,
           ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
-          ...(options.json ? { response_format: { type: 'json_object' } } : {})
+          ...(options.jsonSchema
+            ? {
+                response_format: {
+                  type: 'json_schema',
+                  json_schema: {
+                    name: options.jsonSchema.name,
+                    strict: true,
+                    schema: options.jsonSchema.schema
+                  }
+                }
+              }
+            : options.json
+              ? { response_format: { type: 'json_object' } }
+              : {})
         }),
         signal: options.signal,
         timeoutMs: DEFAULT_TIMEOUT_MS
@@ -145,8 +166,20 @@ export function extractJson(text: string): unknown | null {
 
 /** A completion parsed as JSON, or null when the model produced nothing usable. */
 export async function chatCompleteJson<T>(options: CompleteOptions): Promise<T | null> {
-  const text = await chatComplete({ ...options, json: true })
-  return extractJson(text) as T | null
+  try {
+    const text = await chatComplete({ ...options, json: true })
+    return extractJson(text) as T | null
+  } catch (err) {
+    // A schema-constrained request a server cannot honor fails with HTTP 400.
+    // Retry once without the constraint: grammar enforcement is a bonus, not
+    // a requirement, and the tolerant parser below is the safety net either way.
+    if (options.jsonSchema && err instanceof Error && err.message.includes('HTTP 400')) {
+      const { jsonSchema: _dropped, ...rest } = options
+      const text = await chatComplete({ ...rest, json: true })
+      return extractJson(text) as T | null
+    }
+    throw err
+  }
 }
 
 /**

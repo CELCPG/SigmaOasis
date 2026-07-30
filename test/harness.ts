@@ -27,6 +27,13 @@ export interface HarnessState {
   settings: Record<string, unknown>
   /** Body returned for a search-provider request. */
   searchHtml: string
+  /**
+   * Per-query search results, checked before `searchHtml`: the first route whose
+   * `match` appears in the request URL wins. Real search providers answer
+   * different queries with different results, and a fixture that cannot express
+   * that forces every sub-question onto the same candidates.
+   */
+  searchRoutes: { match: string; html: string }[]
   /** Body returned for a SearXNG JSON request. */
   searxngJson: unknown
   /** Bytes returned for a webpage/PDF fetch, keyed by URL substring. */
@@ -53,8 +60,12 @@ export interface HarnessState {
   completions: string[]
   /** Every prompt sent to /chat/completions, for asserting what the model saw. */
   completionPrompts: string[]
+  /** Full parsed bodies of /chat/completions requests, for asserting request shaping. */
+  completionBodies: Record<string, unknown>[]
   /** Make every /chat/completions call throw. */
   failCompletions: boolean
+  /** Make the FIRST /chat/completions call return HTTP 400, then recover. */
+  completionOnce400: boolean
   /** Bodies received by /api/v0/models/load, in order. */
   pinCalls: { model?: string; ttl?: number }[]
   /** Bodies received by the legacy /api/v1/models/load, in order. */
@@ -85,6 +96,7 @@ export interface HarnessState {
 export const state: HarnessState = {
   settings: {},
   searchHtml: '',
+  searchRoutes: [],
   searxngJson: { results: [] },
   responses: [],
   failEmbeddings: false,
@@ -93,7 +105,9 @@ export const state: HarnessState = {
   externalRequests: [],
   completions: [],
   completionPrompts: [],
+  completionBodies: [],
   failCompletions: false,
+  completionOnce400: false,
   pinCalls: [],
   legacyPinCalls: [],
   unloadCalls: [],
@@ -108,6 +122,7 @@ export const state: HarnessState = {
 export function resetState(): void {
   state.settings = defaultSettings()
   state.searchHtml = ''
+  state.searchRoutes = []
   state.searxngJson = { results: [] }
   state.responses = []
   state.failEmbeddings = false
@@ -116,7 +131,9 @@ export function resetState(): void {
   state.externalRequests = []
   state.completions = []
   state.completionPrompts = []
+  state.completionBodies = []
   state.failCompletions = false
+  state.completionOnce400 = false
   state.pinCalls = []
   state.legacyPinCalls = []
   state.unloadCalls = []
@@ -255,8 +272,17 @@ const netStub = {
     }
     if (url.endsWith('/chat/completions')) {
       if (state.failCompletions) throw new Error('simulated completion failure')
+      if (state.completionOnce400) {
+        state.completionOnce400 = false
+        return makeResponse(
+          '{"error":"response_format json_schema is not supported by this server"}',
+          'application/json',
+          400
+        )
+      }
       const body = JSON.parse(init!.body!) as { messages: { content: string }[] }
       state.completionPrompts.push(body.messages.map((m) => m.content).join('\n'))
+      state.completionBodies.push(body as unknown as Record<string, unknown>)
       const reply = state.completions.shift() ?? ''
       return makeResponse(
         JSON.stringify({ choices: [{ message: { content: reply } }] }),
@@ -270,7 +296,8 @@ const netStub = {
       )
     }
     if (url.includes('duckduckgo')) {
-      return makeResponse(state.searchHtml, 'text/html')
+      const route = state.searchRoutes.find((r) => url.includes(r.match))
+      return makeResponse(route ? route.html : state.searchHtml, 'text/html')
     }
     if (url.includes('search?q=') || url.includes('8888')) {
       return makeResponse(JSON.stringify(state.searxngJson), 'application/json')
