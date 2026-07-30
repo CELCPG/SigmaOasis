@@ -23,6 +23,7 @@ export type NetworkPurpose =
   | 'lmstudio' // loopback model server: chat, models, embeddings
   | 'search' // the configured search provider
   | 'webpage' // fetch_webpage tool (SSRF-guarded in search.ts)
+  | 'render' // headless page rendering (filtered in render.ts)
   | 'update' // opt-in update checks
 
 export interface NetworkActivityEntry {
@@ -48,6 +49,26 @@ function record(entry: NetworkActivityEntry): void {
   if (activity.length > MAX_ACTIVITY_ENTRIES) {
     activity.splice(0, activity.length - MAX_ACTIVITY_ENTRIES)
   }
+}
+
+/**
+ * Record a request that Chromium made on our behalf rather than one we issued
+ * through `auditedFetch`.
+ *
+ * This exists because the headless renderer is the one component that can reach
+ * the network without passing through this module: Chromium's network stack
+ * issues its own subresource requests. Without this, the activity log would
+ * quietly stop being a complete account of what left the machine — which is the
+ * whole basis of the privacy claim. render.ts routes every request its session
+ * sees through here, allowed or blocked.
+ */
+export function recordExternalRequest(entry: Omit<NetworkActivityEntry, 'at'>): void {
+  record({ ...entry, at: Date.now() })
+}
+
+/** Origin of a URL, for callers outside this module. */
+export function originOfUrl(url: string): string {
+  return originOf(url)
 }
 
 export function getNetworkActivity(): NetworkActivityEntry[] {
@@ -106,6 +127,11 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
       return ['github.com', 'objects.githubusercontent.com']
     case 'webpage':
       // Arbitrary by design — guarded by the SSRF checks in search.ts.
+      return ['*']
+    case 'render':
+      // Arbitrary by design, but far more tightly constrained than 'webpage':
+      // render.ts permits only the target page's own origin and refuses every
+      // third-party request outright. See the filter in that module.
       return ['*']
   }
 }

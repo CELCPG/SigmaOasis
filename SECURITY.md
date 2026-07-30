@@ -52,6 +52,7 @@ The outbound paths are:
   by the allowlist, so it is guarded separately: HTTPS only, DNS-resolved private/loopback/link-local
   addresses refused, redirects followed manually with the check re-run on every hop, and hard size
   and time caps. HTML, plain text and PDF are accepted; every other content type is refused.
+- **The JavaScript page renderer** — opt-in and off by default (Settings → Search). See below.
 - **Update checks** — GitHub Releases, opt-in and off by default.
 
 Requests carry a common browser User-Agent rather than an app-specific one, so an install does not
@@ -62,6 +63,43 @@ recent search responses are cached the same way. Embedding happens against your 
 server; both caches are size-capped, expire, are never written to disk, and never enter long-term
 memory unless you explicitly save something. Settings → Privacy reports their size and clears them on
 demand.
+
+### The JavaScript page renderer
+
+Off by default. When enabled, a page that returns no readable text to a plain fetch is re-read in an
+offscreen Chromium window, which **runs that page's scripts** — the one place in the app where code
+from the public web executes. It is worth being precise about what contains it.
+
+A browser normally reaches the network on its own, entirely outside `auditedFetch`. That would make the
+activity log an incomplete account of what left the machine, so instead every request the render
+session attempts passes through a single `webRequest.onBeforeRequest` filter, which allows only the
+target page's own origin and only resource types that can carry text, and reports every request —
+allowed or blocked — into the same activity log under the `render` purpose. Third-party requests are
+refused outright, so ad, analytics and tracker domains are unreachable by construction rather than by
+blocklist.
+
+Around that: a fresh ephemeral session per page (no cookies, cache or storage, cleared and destroyed
+afterwards), **no preload script**, so `window.api` and every agentic tool behind it are unreachable
+from the document; `nodeIntegration` off and `contextIsolation` and `sandbox` on; all permission
+requests denied; `window.open` denied; navigation and cross-origin redirects blocked; and caps on load
+time and extracted size. Extraction runs in an isolated world, so our own code is not exposed to the
+page's JavaScript context.
+
+Two honest caveats:
+
+- **DNS rebinding.** The static path resolves a host and refuses private addresses *before*
+  connecting. Chromium resolves DNS internally, so the renderer cannot pin resolution the same way.
+  Same-origin-only filtering and the cookieless ephemeral session reduce the payoff to near zero, but
+  it is not the identical guarantee. `assertPublicHost` still runs on the URL before rendering.
+- **Script execution is inherent.** Enabling this means accepting that a fetched page's JavaScript
+  runs, sandboxed, on your machine. That is why it ships off and why the static fetch is always tried
+  first.
+
+On the other hand, rendering **improves** prompt-injection resistance. With a real DOM,
+`getComputedStyle` identifies text hidden from human readers — `display:none`, `opacity:0`, zero font
+size, screen-reader clipping, off-canvas positioning — which is exactly where injected instructions
+hide. That text is removed before a model sees it, and the amount removed is reported. The static path
+cannot detect any of it, because the styling may come from an external stylesheet.
 
 ### Parsing untrusted input
 

@@ -41,6 +41,8 @@ export interface SearchSettings {
   maxResults: number
   /** Show a confirmation dialog with the exact outgoing query before every search. */
   confirmBeforeSearch: boolean
+  /** Re-read JavaScript-dependent pages in an offscreen browser. Off by default. */
+  useHeadlessRenderer: boolean
 }
 
 export interface UpdateSettings {
@@ -51,7 +53,7 @@ export interface UpdateSettings {
 /** One entry in the main-process network activity log (Settings → Privacy). */
 export interface NetworkActivityEntry {
   at: number
-  purpose: 'lmstudio' | 'search' | 'webpage' | 'update'
+  purpose: 'lmstudio' | 'search' | 'webpage' | 'render' | 'update'
   /** Origin only — full URLs (and queries) are never logged. */
   origin: string
   method: string

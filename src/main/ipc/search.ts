@@ -16,6 +16,8 @@ import type { PassageOutcome } from './researchIndex'
 import { decodeEntities, extractFromHtml, stripTags } from './extract'
 import type { ExtractedLink } from './extract'
 import { extractPdfText } from './pdf'
+import { GENERIC_USER_AGENT } from './userAgent'
+import { renderPage } from './render'
 
 /**
  * Privacy-preserving web search and webpage fetching.
@@ -125,19 +127,8 @@ function sanitizeQuery(query: string): { query: string; redactions: string[] } {
 
 // ---- HTTP helpers ------------------------------------------------------------
 
-/**
- * A common, unremarkable browser UA — deliberately not an app-specific one.
- *
- * The previous value ("Sigma Oasis/0.5 …") announced the app, its version, and
- * by extension its user population to every host contacted, which is a
- * fingerprint no privacy-first client should hand out. Following the Tor
- * Browser approach, every install sends the *same* common string rather than
- * anything derived from the local platform or Electron build, so one user looks
- * like the next. Windows is used regardless of host OS because it is the
- * largest population to blend into.
- */
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+/** Shared with the headless renderer so the two paths are indistinguishable. */
+const USER_AGENT = GENERIC_USER_AGENT
 
 async function fetchWithTimeout(
   url: string,
@@ -529,6 +520,11 @@ export interface WebpageOutcome {
   mainContentFound: boolean
   /** What the page was: 'html', 'text' or 'pdf'. */
   kind: 'html' | 'text' | 'pdf'
+  /**
+   * Raw response body for HTML pages, used only to decide whether the page is a
+   * client-rendered shell worth escalating to the renderer. Never indexed.
+   */
+  rawHtml?: string
   error?: string
 }
 
@@ -640,7 +636,8 @@ export async function fetchWebpage(rawUrl: string): Promise<WebpageOutcome> {
         truncated,
         links: extracted.links,
         mainContentFound: extracted.mainContentFound,
-        kind: 'html'
+        kind: 'html',
+        rawHtml: raw
       }
     }
   } catch (err) {
@@ -651,6 +648,56 @@ export async function fetchWebpage(rawUrl: string): Promise<WebpageOutcome> {
           ? err.message
           : String(err)
     return failedPage(url.toString(), message)
+  }
+}
+
+// ---- Static-first, render-on-failure ----------------------------------------
+
+/** Below this much extracted text, a page probably did not render server-side. */
+const THIN_TEXT_CHARS = 500
+
+/**
+ * Markers of a page whose content arrives only after scripts run. Matched
+ * against the *raw HTML*, since by definition the extracted text is empty.
+ */
+const JS_SHELL_MARKERS = [
+  /<div[^>]+id=["'](?:root|app|__next|__nuxt|application)["']/i,
+  /<noscript>[^<]*(?:enable|requires?)\s+JavaScript/i,
+  /window\.__(?:NUXT|NEXT_DATA|INITIAL_STATE)__/i,
+  /\bng-app\b|\bdata-reactroot\b|\bv-cloak\b/i
+]
+
+/**
+ * Should this page be re-read with the headless renderer?
+ *
+ * Static-first is deliberate and is as much a privacy decision as a performance
+ * one: a plain fetch executes nothing and contacts exactly one host, so it is
+ * the cheaper and safer path and should handle the majority of pages. The
+ * renderer is escalated to only when the static result is visibly inadequate.
+ *
+ * Exported for tests — the decision is worth asserting directly.
+ */
+export function shouldRender(
+  kind: 'html' | 'text' | 'pdf',
+  extractedText: string,
+  rawHtml: string
+): { render: boolean; reason?: string } {
+  // A PDF or plain-text response has no scripts to run; rendering cannot help.
+  if (kind !== 'html') return { render: false }
+
+  const length = extractedText.trim().length
+  if (length >= THIN_TEXT_CHARS) return { render: false }
+
+  const marker = JS_SHELL_MARKERS.find((re) => re.test(rawHtml))
+  if (marker) {
+    return { render: true, reason: 'the page looks like a client-rendered app shell' }
+  }
+  if (length === 0) {
+    return { render: true, reason: 'the static fetch produced no text at all' }
+  }
+  return {
+    render: true,
+    reason: `the static fetch produced only ${length} characters of text`
   }
 }
 
@@ -671,6 +718,14 @@ export interface WebpageReadOutcome {
   mainContentFound: boolean
   /** Outbound links, so a citation can be followed without a new search. */
   links: ExtractedLink[]
+  /** Which path produced the text. */
+  source: 'static' | 'rendered'
+  /** Characters of visually-hidden text dropped (rendered path only). */
+  hiddenTextRemoved: number
+  /** Third-party origins the renderer refused to contact. */
+  blockedOrigins: string[]
+  /** Why rendering was or was not used, when it was considered. */
+  renderNote?: string
   /** Ranked passages — present when a `query` was supplied. */
   retrieval?: PassageOutcome
   /** Whole-page text — present when no `query` was supplied. */
@@ -709,18 +764,59 @@ export async function readWebpage(
         kind: fetched.kind,
         mainContentFound: false,
         links: [],
+        source: 'static',
+        hiddenTextRemoved: 0,
+        blockedOrigins: [],
         error: fetched.error
       }
     }
+
+    let title = fetched.title
+    let text = fetched.text
+    let links = fetched.links
+    let mainContentFound = fetched.mainContentFound
+    let source: 'static' | 'rendered' = 'static'
+    let hiddenTextRemoved = 0
+    let blockedOrigins: string[] = []
+    let renderNote: string | undefined
+
+    // Escalate to the headless renderer only when the cheap path came back
+    // visibly inadequate, and only if the user enabled it.
+    if (getSettings().search.useHeadlessRenderer) {
+      const decision = shouldRender(fetched.kind, fetched.text, fetched.rawHtml ?? '')
+      if (decision.render) {
+        const rendered = await renderPage(fetched.url)
+        if (rendered.ok && rendered.text.trim().length > fetched.text.trim().length) {
+          title = rendered.title || title
+          text = rendered.text
+          links = rendered.links.length > 0 ? rendered.links : links
+          mainContentFound = true
+          source = 'rendered'
+          hiddenTextRemoved = rendered.hiddenTextRemoved
+          blockedOrigins = rendered.blockedOrigins
+          renderNote = `Rendered with JavaScript because ${decision.reason}.`
+        } else {
+          // Keep the static result rather than losing content to a failed render.
+          renderNote = rendered.ok
+            ? 'JavaScript rendering produced no additional text; showing the static result.'
+            : `JavaScript rendering failed (${rendered.error}); showing the static result.`
+        }
+      }
+    }
+
     page = indexPage({
       key,
       url: fetched.url,
-      title: fetched.title,
-      text: fetched.text,
+      title,
+      text,
       truncated: fetched.truncated,
       kind: fetched.kind,
-      mainContentFound: fetched.mainContentFound,
-      links: fetched.links
+      mainContentFound,
+      links,
+      source,
+      hiddenTextRemoved,
+      blockedOrigins,
+      renderNote
     })
   }
 
@@ -733,7 +829,11 @@ export async function readWebpage(
     totalChunks: page.chunks.length,
     kind: page.kind,
     mainContentFound: page.mainContentFound,
-    links: page.links
+    links: page.links,
+    source: page.source,
+    hiddenTextRemoved: page.hiddenTextRemoved,
+    blockedOrigins: page.blockedOrigins,
+    renderNote: page.renderNote
   }
 
   if (!query.trim()) return { ...base, text: page.text }

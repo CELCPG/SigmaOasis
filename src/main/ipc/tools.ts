@@ -447,6 +447,14 @@ async function executeTool(
           outcome.truncated ? '(page exceeded the size cap and was truncated)' : '',
           outcome.kind === 'html' && !outcome.mainContentFound
             ? '(no distinct article container was found, so the whole page is included — some site navigation may remain)'
+            : '',
+          outcome.renderNote ? `(${outcome.renderNote})` : '',
+          outcome.hiddenTextRemoved > 0
+            ? `(${outcome.hiddenTextRemoved} characters of text hidden from human readers were removed — ` +
+              'hidden text is a common place to conceal instructions, so it is never shown to you)'
+            : '',
+          outcome.blockedOrigins.length > 0
+            ? `(${outcome.blockedOrigins.length} third-party origin(s) were blocked while rendering)`
             : ''
         ].filter(Boolean)
 

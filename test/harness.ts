@@ -37,6 +37,8 @@ export interface HarnessState {
   fetchLog: { url: string; purpose: string }[]
   /** How many /embeddings round-trips have been made. */
   embedCalls: number
+  /** Requests reported by the renderer's webRequest filter. */
+  externalRequests: Record<string, unknown>[]
 }
 
 export const state: HarnessState = {
@@ -46,7 +48,8 @@ export const state: HarnessState = {
   responses: [],
   failEmbeddings: false,
   fetchLog: [],
-  embedCalls: 0
+  embedCalls: 0,
+  externalRequests: []
 }
 
 export function resetState(): void {
@@ -57,6 +60,7 @@ export function resetState(): void {
   state.failEmbeddings = false
   state.fetchLog = []
   state.embedCalls = 0
+  state.externalRequests = []
 }
 
 function defaultSettings(): Record<string, unknown> {
@@ -68,7 +72,8 @@ function defaultSettings(): Record<string, unknown> {
       provider: 'duckduckgo',
       searxngUrl: 'http://127.0.0.1:8888',
       maxResults: 8,
-      confirmBeforeSearch: false
+      confirmBeforeSearch: false,
+      useHeadlessRenderer: false
     }
   }
 }
@@ -144,7 +149,17 @@ const netStub = {
     throw new Error(`harness: unexpected fetch ${url}`)
   },
   isLoopbackHostname: (h: string) => ['localhost', '127.0.0.1', '::1'].includes(h),
-  EgressBlockedError: class EgressBlockedError extends Error {}
+  EgressBlockedError: class EgressBlockedError extends Error {},
+  recordExternalRequest: (entry: Record<string, unknown>) => {
+    state.externalRequests.push(entry)
+  },
+  originOfUrl: (url: string) => {
+    try {
+      return new URL(url).origin
+    } catch {
+      return '(unparseable URL)'
+    }
+  }
 }
 
 const storeStub = {

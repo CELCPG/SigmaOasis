@@ -45,6 +45,12 @@ export interface SearchSettings {
   maxResults: number
   /** Show a confirmation dialog with the exact outgoing query before every search. */
   confirmBeforeSearch: boolean
+  /**
+   * Re-read JavaScript-dependent pages in an offscreen browser when the plain
+   * fetch comes back empty. Off by default: it runs a page's scripts, which the
+   * static path never does, so it is the user's call.
+   */
+  useHeadlessRenderer: boolean
 }
 
 export interface UpdateSettings {
@@ -160,7 +166,8 @@ function defaultSettings(): AppSettings {
       provider: 'duckduckgo',
       searxngUrl: 'http://127.0.0.1:8888',
       maxResults: 8,
-      confirmBeforeSearch: false
+      confirmBeforeSearch: false,
+      useHeadlessRenderer: false
     },
     updates: {
       autoCheck: false
@@ -249,7 +256,8 @@ function normalizeSettings(settings: AppSettings): AppSettings {
         : defaults.search.provider,
       searxngUrl: str(settings.search?.searxngUrl, defaults.search.searxngUrl),
       maxResults: clamp(settings.search?.maxResults, 1, 10, defaults.search.maxResults),
-      confirmBeforeSearch: Boolean(settings.search?.confirmBeforeSearch)
+      confirmBeforeSearch: Boolean(settings.search?.confirmBeforeSearch),
+      useHeadlessRenderer: Boolean(settings.search?.useHeadlessRenderer)
     },
     updates: {
       autoCheck: Boolean(settings.updates?.autoCheck)

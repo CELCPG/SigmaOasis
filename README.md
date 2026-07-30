@@ -12,14 +12,14 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode 
 
 ## ✨ Features
 
-- **Local & private** — connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `fetch_webpage` tools (provider of your choice) and update checks (opt-in, off by default) — all enforced by a built-in egress allowlist and visible in a network activity log.
+- **Local & private** — connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `fetch_webpage` tools (provider of your choice), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default) — all enforced by a built-in egress allowlist and visible in a network activity log.
 - **Multi-model roles (up to 3)** — each slot has its own model, role name, system prompt, and color accent.
 - **Three ways to use your models**
   - **Independent mode** — pick the active model from the top bar; each conversation keeps its thread.
   - **@mention routing** — type `@Coder write a sort function` to route a single message to a specific role.
   - **Collaborative pipeline** — your message flows through an ordered chain of models, each building on the previous one's output.
   - **Orchestrated mode** — an orchestrator model reasons about your request and **delegates to the other roles as tools** (`consult_model`), reads their answers, consults again if needed, then synthesizes the final reply. Specialists run with their own persona, tools, and memory; delegation loops are structurally impossible and consultations are capped per turn. Every delegation appears as an expandable "🤝 Consulted …" block.
-- **File & image attachments** — drag & drop or use the 📎 button. Images are sent to vision-capable models (multimodal `image_url` parts); text files are inlined into context (truncated at 20 K chars). PDF support is planned.
+- **File & image attachments** — drag & drop or use the 📎 button. Images are sent to vision-capable models (multimodal `image_url` parts); text files are inlined into context (truncated at 20 K chars). Attaching a PDF from disk is not supported yet — but a model can read a PDF on the web with `fetch_webpage`.
 - **Voice chat, fully local** — 🔊 any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model — `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG)** — a built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON.
 Vectors are tied to the model that produced them — if you switch embedding models, **Settings →
@@ -198,6 +198,38 @@ impractical:
   RAM, so the provider sees one query instead of five. This also keeps bursts inside the rate limits
   DuckDuckGo and Brave's free tier enforce.
 
+### JavaScript-dependent pages (opt-in)
+
+Documentation sites and single-page apps return an empty shell to a plain HTTP fetch — their content
+arrives only once scripts run. Enable **Settings → Search → Read JavaScript-dependent pages** and
+Sigma Oasis will re-read such a page in an offscreen browser window.
+
+It is **off by default**, and static-first when on: the plain fetch is always tried first, and the
+browser is used only when that comes back empty or the page is recognizably an app shell. A plain
+fetch executes nothing and contacts exactly one host, so it stays the preferred path.
+
+A browser normally reaches the network on its own, outside any allowlist. That is not acceptable here,
+so every request the render session makes passes through a single filter that:
+
+- **blocks every third-party request** — only the page's own origin is allowed, which makes ad,
+  analytics and tracker domains structurally unreachable. This is stricter than a normal browser, not
+  a relaxation;
+- **blocks anything that cannot carry text** — images, media, fonts, websockets, beacons;
+- **records every request, allowed or blocked**, in the same network activity log as everything else,
+  under the `render` purpose. The count of blocked origins is reported back with the page.
+
+The session itself is ephemeral and per-page: no cookies, no cache, no storage, a fresh partition each
+time and destroyed afterwards. No preload script is attached, so nothing in a fetched page can reach
+`window.api`. All permission requests are denied, navigation away from the target is blocked, and load
+time and extracted size are capped.
+
+**Rendering also makes prompt injection harder, not easier.** With a real DOM, `getComputedStyle`
+reveals text that is invisible to a human reader — `display:none`, `opacity:0`, zero font size,
+screen-reader clipping, positioned off-canvas — which is exactly where injected instructions hide,
+because a person reviewing the page never sees them. That text is dropped before the model sees it and
+the amount removed is reported. The static regex path cannot do this at all, since the styling may
+live in an external stylesheet.
+
 ### Choosing a search provider (Settings → Search)
 
 | Provider | Privacy profile | Setup |
@@ -242,6 +274,9 @@ sigma-oasis/
 │   │       ├── net.ts        # Egress allowlist + network activity log
 │   │       ├── search.ts     # Search providers + SSRF-guarded webpage fetch
 │   │       ├── extract.ts    # HTML → main content, text and outbound links
+│   │       ├── render.ts     # Offscreen renderer + third-party egress filter
+│   │       ├── pageScript.ts # DOM extraction injected into an isolated world
+│   │       ├── userAgent.ts  # The one shared, non-identifying User-Agent
 │   │       ├── pdf.ts        # PDF text extraction (zlib only, no dependencies)
 │   │       ├── embeddings.ts # Chunking + local embedding via LM Studio (shared)
 │   │       ├── retrieval.ts  # BM25, rank fusion, MMR — pure ranking primitives
@@ -274,8 +309,10 @@ sigma-oasis/
 │               └── CollaborativeMode.tsx
 ├── test/                     # node:test suite (see Tests below)
 │   ├── harness.ts            # Stubs the electron/net/store seams
+│   ├── renderCheck.ts        # Browser checks in a real offscreen window
 │   └── fixtures/
 ├── scripts/test.sh
+├── scripts/test-render.sh
 ├── electron.vite.config.ts
 ├── electron-builder.yml
 ├── tailwind.config.js
@@ -301,6 +338,12 @@ network layer, and settings), so what is verified is the code that ships rather 
 re-implementation of it. The embedding stub is deterministic and folds a few synonyms onto shared
 dimensions, which is what makes it possible to assert that semantic retrieval finds a passage keyword
 retrieval provably cannot.
+
+The run finishes with a second pass in a **real offscreen Chromium window**
+(`scripts/test-render.sh`), because the page-extraction script's whole job depends on
+`getComputedStyle` and a real layout — mocking a DOM would only test the mock. It serves a fixture
+over loopback and asserts that nine different ways of hiding text from a human reader are all stripped
+before a model can see them. It skips itself, rather than failing, where no display is available.
 
 ---
 

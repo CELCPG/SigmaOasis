@@ -669,6 +669,28 @@ export function SettingsModal(): JSX.Element | null {
                       </span>
                     </span>
                   </label>
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.search.useHeadlessRenderer}
+                      onChange={(e) =>
+                        update({
+                          search: { ...draft.search, useHeadlessRenderer: e.target.checked }
+                        })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Read JavaScript-dependent pages
+                      <span className="block text-xs text-neutral-500">
+                        When a page returns no readable text (documentation sites, single-page apps),
+                        re-read it in an offscreen browser. Only the page&apos;s own origin is
+                        contacted — every third-party request is blocked and logged — and the session
+                        keeps no cookies, cache or storage. Off by default, because unlike a plain
+                        fetch this runs the page&apos;s scripts.
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 <div className="flex items-center gap-3 border-t border-black/10 dark:border-white/10 pt-4">

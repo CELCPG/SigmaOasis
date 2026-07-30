@@ -47,9 +47,16 @@ rm -rf "$OUT"
   src/main/ipc/researchIndex.ts \
   src/main/ipc/extract.ts \
   src/main/ipc/pdf.ts \
+  src/main/ipc/userAgent.ts \
+  src/main/ipc/pageScript.ts \
+  src/main/ipc/render.ts \
   src/main/ipc/search.ts \
   test/harness.ts \
   test/*.test.ts
 
 # node:test discovers by filename; point it at the compiled tests.
-exec "${RUN[@]}" --test "$OUT"/test/*.test.js
+"${RUN[@]}" --test "$OUT"/test/*.test.js
+
+# The page-extraction script runs in a browser, so it is verified against a real
+# offscreen window rather than mocked. Needs Electron proper, not node.
+exec bash scripts/test-render.sh

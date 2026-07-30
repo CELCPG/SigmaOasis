@@ -85,6 +85,14 @@ export interface IndexedPage {
   mainContentFound: boolean
   /** Outbound links found on the page. */
   links: PageLink[]
+  /** Which path produced the text. */
+  source: 'static' | 'rendered'
+  /** Characters of visually-hidden text dropped (rendered path only). */
+  hiddenTextRemoved: number
+  /** Third-party origins the renderer refused to contact. */
+  blockedOrigins: string[]
+  /** Why rendering was or was not used, when it was considered. */
+  renderNote?: string
   chunks: IndexedChunk[]
   bm25: Bm25Index
   /** Embedding model the cached vectors belong to; null until anything is embedded. */
@@ -182,6 +190,10 @@ export function indexPage(input: {
   kind?: 'html' | 'text' | 'pdf'
   mainContentFound?: boolean
   links?: PageLink[]
+  source?: 'static' | 'rendered'
+  hiddenTextRemoved?: number
+  blockedOrigins?: string[]
+  renderNote?: string
 }): IndexedPage {
   const text = normalizeForChunking(input.text)
   const chunks: IndexedChunk[] = chunkTextWithOffsets(text).map((c) => {
@@ -198,6 +210,10 @@ export function indexPage(input: {
     kind: input.kind ?? 'html',
     mainContentFound: input.mainContentFound ?? false,
     links: input.links ?? [],
+    source: input.source ?? 'static',
+    hiddenTextRemoved: input.hiddenTextRemoved ?? 0,
+    blockedOrigins: input.blockedOrigins ?? [],
+    renderNote: input.renderNote,
     chunks,
     bm25: new Bm25Index(chunks.map((c) => ({ id: c.id, terms: c.terms }))),
     embeddingModel: null,
