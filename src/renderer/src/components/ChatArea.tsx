@@ -48,7 +48,7 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
                 key={s}
                 type="button"
                 onClick={() => useAppStore.getState().setComposerPrefill(s)}
-                className="rounded-xl border border-black/10 dark:border-white/15 px-3 py-2.5 text-left text-xs text-neutral-500 hover:border-accent hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+                className="glass-panel glass-panel--hover rounded-2xl px-3 py-2.5 text-left text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
               >
                 {s}
               </button>
@@ -70,10 +70,10 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
         />
       ))}
       {streaming && researchProgress && (
-        <div className="mx-auto flex max-w-3xl items-center gap-2.5 px-4 py-2 text-xs text-neutral-500">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-          <span className="font-medium capitalize">{researchProgress.phase}</span>
-          <span className="min-w-0 truncate">{researchProgress.detail}</span>
+        <div className="mx-auto flex max-w-3xl items-center gap-2.5 px-4 py-2 text-xs" style={{ color: 'var(--accent-teal-glow)' }}>
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(0,212,170,0.8)]" />
+          <span className="font-medium capitalize tracking-[0.08em]">{researchProgress.phase}</span>
+          <span className="min-w-0 truncate text-neutral-400">{researchProgress.detail}</span>
         </div>
       )}
       <div ref={bottomRef} />

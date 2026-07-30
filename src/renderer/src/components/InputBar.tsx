@@ -234,7 +234,7 @@ export function InputBar(): JSX.Element {
   }
 
   return (
-    <div className="border-t border-black/10 dark:border-white/10 p-4">
+    <div className="p-4 pt-1">
       <div className="mx-auto max-w-3xl">
         <div
           onDragOver={(e) => {
@@ -243,10 +243,8 @@ export function InputBar(): JSX.Element {
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => void onDrop(e)}
-          className={`rounded-2xl border bg-panel-light dark:bg-panel-dark p-2 shadow-sm transition-colors ${
-            dragOver
-              ? 'border-accent border-dashed'
-              : 'border-black/10 dark:border-white/15'
+          className={`glass-panel rounded-3xl p-2 transition-colors ${
+            dragOver ? 'border-accent border-dashed' : ''
           }`}
         >
           {attachments.length > 0 && (
@@ -296,7 +294,7 @@ export function InputBar(): JSX.Element {
               type="button"
               onClick={() => void pick()}
               disabled={streaming}
-              className="shrink-0 rounded-xl px-2.5 py-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-neutral-500 transition-colors hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-40"
               title="Attach images or text files (or drop them here)"
             >
               📎
@@ -305,10 +303,10 @@ export function InputBar(): JSX.Element {
               type="button"
               onClick={() => void toggleMic()}
               disabled={streaming || micState === 'transcribing'}
-              className={`shrink-0 rounded-xl px-2.5 py-1.5 disabled:opacity-40 ${
+              className={`flex h-10 shrink-0 items-center justify-center rounded-full border border-black/10 dark:border-white/10 text-sm transition-colors disabled:opacity-40 ${
                 micState === 'recording'
-                  ? 'animate-pulse bg-red-500/15 text-red-500'
-                  : 'text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10'
+                  ? 'animate-pulse border-red-500/40 bg-red-500/15 px-3 text-red-500'
+                  : 'w-10 bg-black/5 dark:bg-white/5 text-neutral-500 hover:bg-black/10 dark:hover:bg-white/10'
               }`}
               title={
                 micState === 'recording'
@@ -340,7 +338,7 @@ export function InputBar(): JSX.Element {
               <button
                 type="button"
                 onClick={stopStreaming}
-                className="shrink-0 rounded-xl bg-red-500/90 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-500"
+                className="shrink-0 rounded-2xl border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/25"
               >
                 Stop
               </button>
@@ -349,7 +347,7 @@ export function InputBar(): JSX.Element {
                 type="button"
                 onClick={submit}
                 disabled={!text.trim() && attachments.length === 0}
-                className="shrink-0 rounded-xl bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+                className="shrink-0 rounded-2xl border border-[rgba(0,212,170,0.4)] bg-gradient-to-br from-[rgba(0,212,170,0.25)] to-[rgba(0,143,107,0.25)] px-4 py-1.5 text-sm font-medium text-accent-glow shadow-[0_0_16px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_24px_rgba(0,212,170,0.35)] disabled:opacity-40 disabled:shadow-none"
               >
                 Send
               </button>

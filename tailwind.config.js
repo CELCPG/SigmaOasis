@@ -6,16 +6,17 @@ module.exports = {
     extend: {
       colors: {
         accent: {
-          DEFAULT: '#0d9488',
-          hover: '#0f766e'
+          DEFAULT: '#00d4aa',
+          hover: '#00b895',
+          glow: '#4fffd1'
         },
         panel: {
           light: '#ffffff',
-          dark: '#16181d'
+          dark: '#0a0a0c'
         },
         base: {
           light: '#f4f4f5',
-          dark: '#0f1115'
+          dark: '#000000'
         }
       }
     }

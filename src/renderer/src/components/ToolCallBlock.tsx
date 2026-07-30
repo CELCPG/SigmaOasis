@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ToolCallRecord } from '../types'
+import { toolVisualForName } from '../lib/oasisRipple'
 
 const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
   running: '⏳',
@@ -12,18 +13,20 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
   const [open, setOpen] = useState(false)
 
   const isConsult = record.name === 'consult_model'
+  const visual = toolVisualForName(record.name)
   const label = isConsult
     ? `🤝 Consulted ${String(record.args.role ?? 'specialist')}`
-    : `Tool Used: ${record.name}`
+    : `${visual.icon} ${record.name}`
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-black/10 dark:border-white/10 text-xs">
+    <div
+      className="my-2 overflow-hidden rounded-2xl border text-xs"
+      style={{ borderColor: `${visual.color}30`, background: `${visual.color}08` }}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-black/10 dark:hover:bg-white/10 ${
-          isConsult ? 'bg-accent/10' : 'bg-black/5 dark:bg-white/5'
-        }`}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-black/10 dark:hover:bg-white/5"
       >
         <span
           className={
@@ -36,7 +39,9 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         >
           {STATUS_ICON[record.status]}
         </span>
-        <span className="font-medium">{label}</span>
+        <span className="font-medium" style={{ color: record.status === 'running' ? visual.color : undefined }}>
+          {label}
+        </span>
         <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
       </button>
       {open && (

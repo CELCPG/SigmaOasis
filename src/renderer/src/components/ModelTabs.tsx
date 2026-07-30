@@ -38,7 +38,7 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
     }
   }
 
-  if (!settings) return <div className="h-12 border-b border-black/10 dark:border-white/10" />
+  if (!settings) return <div className="m-3 mb-0 h-12 glass-panel" />
 
   const enabledModels = settings.models.filter((m) => m.enabled)
 
@@ -75,18 +75,18 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
   )
 
   return (
-    <div className="flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 py-2">
+    <div className="glass-panel m-3 mb-0 flex items-center gap-2 rounded-[20px] px-4 py-2">
       {/* Strategy toggle */}
-      <div className="flex rounded-lg bg-black/5 dark:bg-white/10 p-0.5 text-xs">
+      <div className="flex rounded-full bg-black/5 dark:bg-white/5 p-0.5 text-xs">
         {(Object.keys(MODE_LABELS) as ChatMode[]).map((mode) => (
           <button
             key={mode}
             type="button"
             onClick={() => setMode(mode)}
             disabled={streaming}
-            className={`rounded-md px-3 py-1 ${
+            className={`rounded-full px-3 py-1 transition-colors ${
               conversation.mode === mode
-                ? 'bg-white dark:bg-neutral-700 shadow-sm font-medium'
+                ? 'bg-black/10 dark:bg-white/10 shadow-sm font-medium'
                 : 'text-neutral-500'
             } disabled:opacity-50`}
           >

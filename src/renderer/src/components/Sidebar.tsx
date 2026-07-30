@@ -41,15 +41,18 @@ export function Sidebar(): JSX.Element {
   }
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-black/10 dark:border-white/10 bg-panel-light dark:bg-panel-dark">
-      <div className="flex items-center gap-2 p-3 pb-2">
+    <aside className="relative z-10 m-3 mr-0 flex w-[280px] shrink-0 flex-col glass-panel">
+      <div className="flex items-center gap-2 p-4 pb-2">
         <Logo size={22} />
-        <span className="text-sm font-semibold">Sigma Oasis</span>
+        <div className="flex flex-col">
+          <span className="text-[15px] font-semibold tracking-[-0.3px]">Sigma Oasis</span>
+          <span className="text-[10px] text-neutral-400 dark:text-white/35">Private AI — you own your data</span>
+        </div>
         <button
           type="button"
           onClick={createConversation}
           disabled={streaming}
-          className="ml-auto rounded-lg border border-black/10 dark:border-white/15 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50"
+          className="ml-auto rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-xs text-accent-glow shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
           title="New conversation (⌘N)"
         >
           + New
@@ -57,18 +60,18 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {conversations.length > 0 && (
-        <div className="px-3 pb-2">
+        <div className="px-4 pb-2">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search conversations…"
-            className="w-full rounded-lg border border-black/10 dark:border-white/15 bg-transparent px-2.5 py-1.5 text-xs outline-none placeholder:text-neutral-400 focus:border-accent"
+            className="w-full rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-1.5 text-xs outline-none placeholder:text-neutral-400 focus:border-accent"
           />
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
+      <div className="flex-1 overflow-y-auto px-3 pb-2">
         {sorted.length === 0 ? (
           <p className="px-2 py-4 text-center text-xs text-neutral-400">
             No conversations yet
@@ -81,10 +84,10 @@ export function Sidebar(): JSX.Element {
           filtered.map((c) => (
             <div
               key={c.id}
-              className={`group mb-0.5 flex items-center rounded-lg px-2.5 py-2 text-sm ${
+              className={`group mb-1 flex items-center rounded-2xl px-2.5 py-2 text-sm transition-colors ${
                 c.id === activeId
-                  ? 'bg-accent/15 font-medium'
-                  : 'hover:bg-black/5 dark:hover:bg-white/5'
+                  ? 'border border-[rgba(0,212,170,0.35)] bg-[rgba(0,212,170,0.1)] font-medium shadow-[inset_0_1px_0_rgba(0,212,170,0.25)]'
+                  : 'border border-transparent hover:bg-black/5 dark:hover:bg-white/5'
               }`}
             >
               {editingId === c.id ? (
@@ -146,12 +149,12 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {(updateStatus?.state === 'downloaded' || updateStatus?.state === 'downloading') && (
-        <div className="border-t border-black/10 dark:border-white/10 px-3 py-2">
+        <div className="border-t border-black/10 dark:border-white/10 px-4 py-2">
           {updateStatus.state === 'downloaded' ? (
             <button
               type="button"
               onClick={installUpdate}
-              className="w-full rounded-lg bg-green-500/15 px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-500/25"
+              className="w-full rounded-2xl bg-green-500/15 px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-500/25"
               title={`Sigma Oasis ${updateStatus.version} is ready to install`}
             >
               ⬇ Restart to update to {updateStatus.version}
@@ -164,11 +167,11 @@ export function Sidebar(): JSX.Element {
         </div>
       )}
 
-      <div className="flex items-center gap-2 border-t border-black/10 dark:border-white/10 p-3">
+      <div className="flex items-center gap-2 border-t border-black/10 dark:border-white/10 p-4">
         <span
           className={`h-2 w-2 rounded-full ${
             connection === 'online'
-              ? 'bg-green-500'
+              ? 'bg-green-500 shadow-[0_0_8px_rgba(74,222,128,0.8)] animate-pulse'
               : connection === 'connecting'
                 ? 'bg-amber-500'
                 : 'bg-red-500'

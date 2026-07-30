@@ -66,10 +66,11 @@ export default function App(): JSX.Element {
   }, [settings])
 
   return (
-    <div className="flex h-screen bg-base-light text-neutral-900 dark:bg-base-dark dark:text-neutral-100">
+    <div className="relative flex h-screen bg-base-light text-neutral-900 dark:bg-base-dark dark:text-neutral-100">
+      <div className="ambient-orbs" aria-hidden="true" />
       <Sidebar />
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="relative z-10 flex min-w-0 flex-1 flex-col">
         {conversation && activeConversationId ? (
           <>
             <ModelTabs conversation={conversation} />

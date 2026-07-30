@@ -3,9 +3,12 @@ import type { ChatMessage } from '../types'
 import { ACCENT } from '../lib/colors'
 import { renderMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
+import { describeOasisState } from '../lib/oasisRipple'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
+import { OasisRipple } from './OasisRipple'
+import { SigmaAvatar } from './SigmaAvatar'
 
 interface Props {
   message: ChatMessage
@@ -79,7 +82,7 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
           </span>
         ))}
         {message.content && (
-          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-accent/15 px-4 py-2.5 text-sm">
+          <div className="oasis-enter max-w-[80%] whitespace-pre-wrap rounded-3xl rounded-br-md px-4 py-2.5 text-sm border border-[rgba(0,212,170,0.18)] bg-[rgba(0,212,170,0.12)] backdrop-blur-xl">
             {message.content}
           </div>
         )}
@@ -96,13 +99,10 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
   const accent = message.color ? ACCENT[message.color] : null
   const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
   const toolCalls = message.toolCalls ?? []
-  const showTyping = isStreaming && message.content === '' && toolCalls.length === 0
-  // Hidden tool calls: a spinner stands in while tools run with nothing said yet.
-  const showThinking =
-    hideToolCalls &&
-    isStreaming &&
-    message.content === '' &&
-    toolCalls.some((t) => t.status === 'running')
+  // The Oasis Ripple is the single thinking indicator: ambient pool while the
+  // model composes, droplet + colored wave when a tool fires — regardless of
+  // the hideToolCalls setting, since the ripple *is* the disclosure.
+  const oasisState = describeOasisState(isStreaming, message.content, toolCalls)
 
   const toggleSpeak = (): void => {
     if (speaking) {
@@ -118,7 +118,9 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
   return (
     <div className="px-4 py-2">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto flex max-w-3xl items-start gap-3">
+        <SigmaAvatar size={32} />
+        <div className="glass-panel min-w-0 flex-1 rounded-3xl rounded-tl-md px-4 py-3">
         {message.roleName && (
           <div className="mb-1.5 flex items-center gap-2">
             <span
@@ -170,30 +172,20 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
           </div>
         )}
 
-        {showTyping ? (
-          <div className="typing-indicator flex gap-1 py-2">
-            <span />
-            <span />
-            <span />
-          </div>
-        ) : (
+        {oasisState.mode !== 'hidden' && <OasisRipple state={oasisState} />}
+
+        {message.content !== '' && (
           <div
-            className="markdown-body text-sm leading-relaxed"
+            className="markdown-body oasis-enter text-sm leading-relaxed"
             onClick={handleCopyClick}
             // Sanitized by DOMPurify in renderMarkdown.
             dangerouslySetInnerHTML={{ __html: html }}
           />
         )}
 
-        {showThinking && (
-          <div className="flex items-center gap-2 py-1 text-xs text-neutral-400">
-            <span className="thinking-spinner" />
-            Thinking…
-          </div>
-        )}
-
         {!hideToolCalls &&
           toolCalls.map((record) => <ToolCallBlock key={record.id} record={record} />)}
+        </div>
       </div>
     </div>
   )
