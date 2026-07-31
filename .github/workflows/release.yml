@@ -83,8 +83,8 @@ jobs:
       - run: npm run typecheck
 
       # Gates the release: a failing suite stops the signed build here, before
-      # any installer is produced. (Windows job stays build-only — the suite's
-      # Electron checks are bash + macOS/Linux.)
+      # any installer is produced. (Windows and Linux jobs stay build-only —
+      # the suite's Electron checks need bash and, for some, a display.)
       - run: npm test
 
       - name: Bundle main, preload & renderer
@@ -125,5 +125,30 @@ jobs:
 
       - name: Build & publish
         run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Bundle main, preload & renderer
+        run: npx electron-vite build
+
+      # Build-only, like Windows: the macOS job is the test gate for the
+      # release, and the suite's Electron checks need a display anyway.
+      - name: Build & publish
+        run: npx electron-builder --linux --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
