@@ -2,6 +2,8 @@ import { marked } from 'marked'
 import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 
+import { latexToPlainText } from './mathPlaintext'
+
 // Register only common languages — the full highlight.js bundle is ~1 MB.
 import bash from 'highlight.js/lib/languages/bash'
 import c from 'highlight.js/lib/languages/c'
@@ -74,6 +76,8 @@ marked.use({
 })
 
 export function renderMarkdown(markdown: string): string {
-  const html = marked.parse(markdown, { async: false }) as string
+  // Models often wrap numbers and units in TeX ($374^\circ\text{C}$); the
+  // renderer has no math engine, so rewrite it to plain text first.
+  const html = marked.parse(latexToPlainText(markdown), { async: false }) as string
   return DOMPurify.sanitize(html)
 }

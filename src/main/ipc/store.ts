@@ -161,7 +161,9 @@ function defaultSettings(): AppSettings {
         modelId: 'google/gemma-4-12b-qat',
         roleName: 'Assistant',
         systemPrompt:
-          'You are a helpful, harmless, and honest AI assistant. Answer questions clearly and concisely.',
+          'You are a helpful, harmless, and honest AI assistant. Answer questions clearly and concisely. ' +
+          'The chat UI renders Markdown but not LaTeX math notation, so write formulas, units, and ' +
+          'symbols as plain text (for example, 374 °C or E = mc^2) instead of $...$ markup.',
         color: 'blue',
         enabled: true,
         sampling: defaultSampling()

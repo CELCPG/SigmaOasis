@@ -297,7 +297,9 @@ const TOOL_SCHEMAS: ToolSchema[] = [
         'Search the web for a query using the user\'s configured privacy-preserving provider ' +
         '(self-hosted SearXNG, Brave Search, or DuckDuckGo). Returns titled results with URLs and ' +
         'snippets. Send only the search terms — never personal data, file contents, or secrets. ' +
-        'Use fetch_webpage on a result URL to read the full page.',
+        'Use fetch_webpage on a result URL to read the full page. ' +
+        'Reach for this tool whenever the answer depends on current or changing facts, such as ' +
+        'exchange rates, prices, schedules, scores, or news, instead of estimating from memory.',
       parameters: {
         type: 'object',
         properties: { query: { type: 'string', description: 'Search query — terms only, no personal data' } },

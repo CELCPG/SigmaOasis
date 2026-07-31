@@ -61,6 +61,7 @@ rm -rf "$OUT"
   src/renderer/src/lib/oasisRipple.ts \
   src/renderer/src/lib/reasoning.ts \
   src/renderer/src/lib/nativeToolCall.ts \
+  src/renderer/src/lib/mathPlaintext.ts \
   src/renderer/src/lib/contextBudget.ts \
   src/renderer/src/lib/modelInfo.ts \
   src/renderer/src/stores/appStore.ts \
