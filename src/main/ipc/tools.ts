@@ -6,6 +6,7 @@ import { dirname, isAbsolute, resolve, sep } from 'path'
 import { getSettings, readNotes, writeNotes } from './store'
 import type { ToolToggles } from './store'
 import { addToMemory, deleteFromMemory, searchMemory } from './memory'
+import { runFinanceCalculation } from './finance'
 import { readWebpage, runWebSearch } from './search'
 import { runDeepResearch } from './deepResearch'
 import type { ResearchDepth, ResearchOutcome, ResearchPlan } from './deepResearch'
@@ -374,6 +375,66 @@ const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: 'function',
     function: {
+      name: 'finance_calculator',
+      description:
+        'Compute exact personal-finance figures locally: compound interest and investment ' +
+        'growth, loan and mortgage amortization (including the effect of extra payments), ' +
+        'savings-goal planning, and inflation adjustment. Use this for ANY question involving ' +
+        'these numbers instead of estimating or doing mental arithmetic — your explanations are ' +
+        'only trustworthy when the math is. Rates are percentages (7 means 7%). Runs entirely ' +
+        'on this machine; nothing is sent anywhere.',
+      parameters: {
+        type: 'object',
+        properties: {
+          operation: {
+            type: 'string',
+            enum: ['compound_interest', 'loan_amortization', 'savings_goal', 'inflation_adjust'],
+            description: 'Which calculation to run'
+          },
+          principal: {
+            type: 'number',
+            description:
+              'Starting amount in dollars: initial investment, loan amount, or current savings. ' +
+              'For inflation_adjust, the amount to convert.'
+          },
+          annual_rate: {
+            type: 'number',
+            description: 'Annual rate as a percentage: return rate, loan APR, or inflation rate.'
+          },
+          years: { type: 'number', description: 'Time span in years.' },
+          compounds_per_year: {
+            type: 'number',
+            description: 'compound_interest only: compounding frequency (default 12, monthly).'
+          },
+          monthly_contribution: {
+            type: 'number',
+            description:
+              'compound_interest: amount added monthly. savings_goal: fixed monthly amount, ' +
+              'to solve the time needed to reach the goal.'
+          },
+          target_amount: {
+            type: 'number',
+            description: 'savings_goal: the amount to reach.'
+          },
+          extra_monthly_payment: {
+            type: 'number',
+            description: 'loan_amortization: extra paid monthly, to show interest and time saved.'
+          },
+          direction: {
+            type: 'string',
+            enum: ['future_cost', 'present_value'],
+            description:
+              'inflation_adjust only: what today\'s money will cost later (default), or what a ' +
+              'future amount is worth today.'
+          }
+        },
+        required: ['operation']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_current_datetime',
       description: 'Get the current local date and time.',
       parameters: { type: 'object', properties: {} }
@@ -689,6 +750,10 @@ async function executeTool(
         })
 
         return formatResearch(outcome)
+      }
+
+      case 'finance_calculator': {
+        return runFinanceCalculation(args)
       }
 
       case 'get_current_datetime': {

@@ -58,6 +58,7 @@ rm -rf "$OUT"
   src/main/ipc/modelCatalog.ts \
   src/main/ipc/attachments.ts \
   src/main/ipc/deepResearch.ts \
+  src/main/ipc/finance.ts \
   src/renderer/src/lib/oasisRipple.ts \
   src/renderer/src/lib/reasoning.ts \
   src/renderer/src/lib/nativeToolCall.ts \

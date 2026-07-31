@@ -57,6 +57,7 @@ export interface ToolToggles {
   memory_search: boolean
   memory_forget: boolean
   deep_research: boolean
+  finance_calculator: boolean
 }
 
 export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
@@ -202,6 +203,24 @@ function defaultSettings(): AppSettings {
         enabled: false,
         sampling: defaultSampling(),
         contextWindow: null
+      },
+      {
+        id: 'model-4',
+        modelId: '',
+        roleName: 'Finance Coach',
+        systemPrompt:
+          'You are a patient financial literacy coach. Teach concepts clearly with everyday ' +
+          'examples, and build understanding rather than lecturing about risk. For any numbers, ' +
+          'such as loan payments, compound growth, savings goals, or inflation, always use the ' +
+          'finance_calculator tool instead of mental arithmetic, and state the assumptions you ' +
+          'used. For current rates, prices, or market figures, use web_search rather than ' +
+          'guessing. Help users evaluate options themselves: compare scenarios factually, ' +
+          'explain tradeoffs, and never tell them what to buy or sell. End finance answers with ' +
+          'one short line noting this is education, not personalized financial advice.',
+        color: 'green',
+        enabled: false,
+        sampling: defaultSampling(),
+        contextWindow: null
       }
     ],
     theme: 'dark',
@@ -222,7 +241,8 @@ function defaultSettings(): AppSettings {
       memory_save: true,
       memory_search: true,
       memory_forget: true,
-      deep_research: true
+      deep_research: true,
+      finance_calculator: true
     },
     workingDirectory: '',
     pipeline: ['model-1'],

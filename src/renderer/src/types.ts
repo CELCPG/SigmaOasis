@@ -44,6 +44,7 @@ export interface ToolToggles {
   memory_search: boolean
   memory_forget: boolean
   deep_research: boolean
+  finance_calculator: boolean
 }
 
 export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'

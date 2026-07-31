@@ -31,7 +31,8 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   read_note: 'Read note',
   memory_save: 'Save to long-term memory',
   memory_search: 'Search long-term memory',
-  memory_forget: 'Delete a memory'
+  memory_forget: 'Delete a memory',
+  finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)'
 }
 
 type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory'
