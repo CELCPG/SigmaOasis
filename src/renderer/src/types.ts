@@ -25,6 +25,8 @@ export interface ModelConfig {
   color: AccentColor
   enabled: boolean
   sampling: SamplingSettings
+  /** Context window override for budgeting; null = trust what LM Studio reports. */
+  contextWindow: number | null
 }
 
 export interface ToolToggles {
@@ -181,6 +183,8 @@ export interface AppSettings {
   onboardingCompleted: boolean
   /** Hide tool-call blocks in chat; show a thinking animation instead. */
   hideToolCalls: boolean
+  /** Chain-of-thought block: collapsed (default), always expanded, or hidden. */
+  reasoningDisplay: 'collapsed' | 'expanded' | 'hidden'
   /** Show tokens/sec and time-to-first-token under each reply. */
   showResponseStats: boolean
   /**

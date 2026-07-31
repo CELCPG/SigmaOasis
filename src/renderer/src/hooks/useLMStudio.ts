@@ -9,7 +9,7 @@ import {
   planHistory,
   planHistoryFallback
 } from '../lib/contextBudget'
-import { effectiveContextLength } from '../lib/modelInfo'
+import { budgetContextLength } from '../lib/modelInfo'
 import type {
   AppSettings,
   Attachment,
@@ -133,7 +133,7 @@ async function planAndCompact(
   const store = useAppStore.getState()
   const catalogEntry = store.availableModels.find((m) => m.id === slot.modelId)
   const budget = historyBudget({
-    contextLength: effectiveContextLength(catalogEntry),
+    contextLength: budgetContextLength(slot, catalogEntry),
     systemPromptTokens,
     toolSchemaTokens,
     maxTokens: slot.sampling.maxTokens

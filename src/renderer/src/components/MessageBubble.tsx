@@ -113,6 +113,7 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
   const accent = message.color ? ACCENT[message.color] : null
   const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
+  const reasoningDisplay = useAppStore((s) => s.settings?.reasoningDisplay) ?? 'collapsed'
   const showStats = useAppStore((s) => s.settings?.showResponseStats) ?? true
   const toolCalls = message.toolCalls ?? []
   // The Oasis Ripple is the single thinking indicator: ambient pool while the
@@ -190,11 +191,12 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
         {oasisState.mode !== 'hidden' && <OasisRipple state={oasisState} />}
 
-        {message.reasoning && (
+        {message.reasoning && reasoningDisplay !== 'hidden' && (
           <ReasoningBlock
             reasoning={message.reasoning}
             reasoningMs={message.reasoningMs}
             isStreaming={isStreaming && message.content === ''}
+            defaultOpen={reasoningDisplay === 'expanded'}
           />
         )}
 

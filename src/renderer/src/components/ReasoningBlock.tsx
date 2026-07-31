@@ -7,6 +7,8 @@ interface Props {
   reasoningMs?: number
   /** True while this message is still streaming. */
   isStreaming: boolean
+  /** Start expanded (Settings → General → Reasoning display). */
+  defaultOpen?: boolean
 }
 
 function formatDuration(ms: number): string {
@@ -23,8 +25,8 @@ function formatDuration(ms: number): string {
  * Mirrors ToolCallBlock's shape so the two disclosures in a message read as
  * one system.
  */
-export function ReasoningBlock({ reasoning, reasoningMs, isStreaming }: Props): JSX.Element {
-  const [open, setOpen] = useState(false)
+export function ReasoningBlock({ reasoning, reasoningMs, isStreaming, defaultOpen }: Props): JSX.Element {
+  const [open, setOpen] = useState(defaultOpen ?? false)
 
   const label = isStreaming
     ? 'Thinking…'

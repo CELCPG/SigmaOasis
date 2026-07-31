@@ -76,10 +76,37 @@ export function SettingsModal(): JSX.Element | null {
   const [braveKeyInfo, setBraveKeyInfo] = useState<{ set: boolean; encrypted: boolean } | null>(null)
   const [braveKeyNotice, setBraveKeyNotice] = useState<string | null>(null)
   const [netActivity, setNetActivity] = useState<NetworkActivityEntry[]>([])
+  const [confirmingReset, setConfirmingReset] = useState(false)
 
   useEffect(() => {
     if (open) setDraft(settings)
   }, [open, settings])
+
+  // Live appearance preview: theme and font size follow the draft while the
+  // modal is open, so Save is never a leap of faith. Closing without saving
+  // reverts to the saved values (see attemptClose).
+  useEffect(() => {
+    if (!open || !draft) return
+    document.documentElement.classList.toggle('dark', draft.theme === 'dark')
+    document.documentElement.style.fontSize = `${draft.fontSize}px`
+  }, [open, draft, draft?.theme, draft?.fontSize])
+
+  const dirty = Boolean(draft && settings && JSON.stringify(draft) !== JSON.stringify(settings))
+
+  /** Restore the saved appearance after a preview that was not saved. */
+  const revertAppearance = (): void => {
+    if (!settings) return
+    document.documentElement.classList.toggle('dark', settings.theme === 'dark')
+    document.documentElement.style.fontSize = `${settings.fontSize}px`
+  }
+
+  /** Closing discards the draft; guard that when there is something to lose. */
+  const attemptClose = (): void => {
+    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return
+    revertAppearance()
+    setConfirmingReset(false)
+    setOpen(false)
+  }
 
   // Load available TTS voices and STT status when the Voice tab opens.
   useEffect(() => {
@@ -146,6 +173,14 @@ export function SettingsModal(): JSX.Element | null {
   }
 
   const reset = async (): Promise<void> => {
+    // Two-step: the first click arms, the second wipes. A stray click used to
+    // erase every model slot, prompt and provider config with no recourse.
+    if (!confirmingReset) {
+      setConfirmingReset(true)
+      window.setTimeout(() => setConfirmingReset(false), 4000)
+      return
+    }
+    setConfirmingReset(false)
     const fresh = (await window.api.resetSettings()) as AppSettings
     setDraft(fresh)
     setSettings(fresh)
@@ -171,7 +206,7 @@ export function SettingsModal(): JSX.Element | null {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => setOpen(false)}
+      onClick={attemptClose}
     >
       <div
         className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-panel-light dark:bg-panel-dark shadow-2xl"
@@ -182,7 +217,7 @@ export function SettingsModal(): JSX.Element | null {
           <h2 className="text-lg font-semibold">Settings</h2>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={attemptClose}
             className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
           >
             ✕
@@ -330,6 +365,30 @@ export function SettingsModal(): JSX.Element | null {
                           className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
                         />
                       </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="mb-1 block text-xs font-medium text-neutral-500">
+                        Context window override (tokens)
+                      </label>
+                      <input
+                        type="number"
+                        min={512}
+                        step={1024}
+                        value={m.contextWindow ?? ''}
+                        placeholder="auto — use what LM Studio reports"
+                        onChange={(e) =>
+                          updateModel(m.id, {
+                            contextWindow: e.target.value === '' ? null : Number(e.target.value)
+                          })
+                        }
+                        className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                      />
+                      <p className="mt-1 text-xs text-neutral-400">
+                        History compaction and the context meter budget against this number. Leave
+                        empty to trust LM Studio; set it when the server under-reports the window
+                        or you loaded the model with a larger one.
+                      </p>
                     </div>
 
                     <div className="mt-3">
@@ -512,6 +571,26 @@ export function SettingsModal(): JSX.Element | null {
                     Tokens/sec and time to first token under each reply. Token counts come from LM
                     Studio; when a server does not report them, only timing is shown.
                   </p>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-sm">Reasoning display</label>
+                    <select
+                      value={draft.reasoningDisplay}
+                      onChange={(e) =>
+                        update({
+                          reasoningDisplay: e.target.value as AppSettings['reasoningDisplay']
+                        })
+                      }
+                      className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                    >
+                      <option value="collapsed">Collapsed behind a &quot;Thought&quot; header</option>
+                      <option value="expanded">Always expanded</option>
+                      <option value="hidden">Hidden</option>
+                    </select>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      How a model&apos;s chain-of-thought appears above its reply. Applies to new
+                      views of a message; the reasoning itself is always kept.
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -1445,14 +1524,16 @@ export function SettingsModal(): JSX.Element | null {
           <button
             type="button"
             onClick={reset}
-            className="text-sm text-neutral-500 hover:text-red-500"
+            className={`text-sm ${
+              confirmingReset ? 'font-medium text-red-500' : 'text-neutral-500 hover:text-red-500'
+            }`}
           >
-            Reset to defaults
+            {confirmingReset ? 'Really reset everything? Click again to confirm' : 'Reset to defaults'}
           </button>
           <div className="ml-auto flex gap-2">
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={attemptClose}
               className="rounded-lg border border-black/10 dark:border-white/10 px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
             >
               Cancel
@@ -1460,9 +1541,10 @@ export function SettingsModal(): JSX.Element | null {
             <button
               type="button"
               onClick={save}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+              disabled={!dirty}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent"
             >
-              Save
+              {dirty ? 'Save' : 'No changes'}
             </button>
           </div>
         </div>

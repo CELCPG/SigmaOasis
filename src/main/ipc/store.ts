@@ -33,6 +33,13 @@ export interface ModelConfig {
   color: string // 'blue' | 'purple' | 'green' (accent key)
   enabled: boolean
   sampling: SamplingSettings
+  /**
+   * Context window to budget against, overriding what LM Studio reports.
+   * Null means auto (trust the server). Set this when the server under-reports
+   * or the model is loaded with a window LM Studio does not advertise, because
+   * history compaction triggers off this number.
+   */
+  contextWindow: number | null
 }
 
 export interface ToolToggles {
@@ -138,6 +145,11 @@ export interface AppSettings {
   onboardingCompleted: boolean
   /** Hide tool-call blocks in chat; show a thinking animation instead. */
   hideToolCalls: boolean
+  /**
+   * How the chain-of-thought block appears in chat: collapsed behind a
+   * "Thought for Xs" header (default), always expanded, or hidden entirely.
+   */
+  reasoningDisplay: 'collapsed' | 'expanded' | 'hidden'
   /** Show tokens/sec and time-to-first-token under each reply. */
   showResponseStats: boolean
   /**
@@ -166,7 +178,8 @@ function defaultSettings(): AppSettings {
           'symbols as plain text (for example, 374 °C or E = mc^2) instead of $...$ markup.',
         color: 'blue',
         enabled: true,
-        sampling: defaultSampling()
+        sampling: defaultSampling(),
+        contextWindow: null
       },
       {
         id: 'model-2',
@@ -176,7 +189,8 @@ function defaultSettings(): AppSettings {
           'You are a meticulous researcher. Use available tools to gather facts, cite sources, and summarize findings.',
         color: 'purple',
         enabled: false,
-        sampling: defaultSampling()
+        sampling: defaultSampling(),
+        contextWindow: null
       },
       {
         id: 'model-3',
@@ -186,7 +200,8 @@ function defaultSettings(): AppSettings {
           'You are an expert software engineer. Write clean, correct code and explain your reasoning briefly.',
         color: 'green',
         enabled: false,
-        sampling: defaultSampling()
+        sampling: defaultSampling(),
+        contextWindow: null
       }
     ],
     theme: 'dark',
@@ -247,6 +262,7 @@ function defaultSettings(): AppSettings {
     },
     onboardingCompleted: false,
     hideToolCalls: false,
+    reasoningDisplay: 'collapsed',
     showResponseStats: true,
     contextManagement: 'compact'
   }
@@ -312,7 +328,11 @@ function normalizeSettings(settings: AppSettings): AppSettings {
           systemPrompt: str(m?.systemPrompt, base.systemPrompt),
           color: ['blue', 'purple', 'green'].includes(m?.color) ? m.color : base.color,
           enabled: Boolean(m?.enabled),
-          sampling: normalizeSampling(m?.sampling)
+          sampling: normalizeSampling(m?.sampling),
+          contextWindow:
+            typeof m?.contextWindow === 'number' && m.contextWindow >= 512
+              ? Math.round(m.contextWindow)
+              : null
         }
       })
     : defaults.models
@@ -385,6 +405,11 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     },
     onboardingCompleted: Boolean(settings.onboardingCompleted),
     hideToolCalls: Boolean(settings.hideToolCalls),
+    reasoningDisplay: (['collapsed', 'expanded', 'hidden'] as const).includes(
+      settings.reasoningDisplay as AppSettings['reasoningDisplay']
+    )
+      ? (settings.reasoningDisplay as AppSettings['reasoningDisplay'])
+      : 'collapsed',
     showResponseStats: settings.showResponseStats !== false,
     contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact'
   }

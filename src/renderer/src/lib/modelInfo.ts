@@ -27,6 +27,20 @@ export function effectiveContextLength(model: ModelInfo | undefined): number | u
 }
 
 /**
+ * The context window to actually budget against for a model slot: the user's
+ * per-slot override when set, otherwise what the server reports. The override
+ * exists for the two cases where the reported number is wrong — a server too
+ * old to report at all, and a model loaded with a larger window than the
+ * catalog advertises — and both make compaction fire at the wrong point.
+ */
+export function budgetContextLength(
+  slot: { contextWindow: number | null } | undefined,
+  catalogEntry: ModelInfo | undefined
+): number | undefined {
+  return slot?.contextWindow ?? effectiveContextLength(catalogEntry)
+}
+
+/**
  * Short capability suffix for a model row: quantization, context, loaded state.
  *
  * Deliberately silent about tool support. LM Studio reports no tool-use

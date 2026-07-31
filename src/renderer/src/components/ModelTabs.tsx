@@ -3,7 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import type { ChatMode, Conversation, ModelConfig } from '../types'
 import { ACCENT } from '../lib/colors'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
-import { effectiveContextLength, formatContextLength } from '../lib/modelInfo'
+import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
 import { estimateMessageTokens, estimateTokens } from '../lib/contextBudget'
 
 interface Props {
@@ -53,7 +53,8 @@ export function ModelTabs({ conversation }: Props): JSX.Element {
   const activeSlot =
     settings.models.find((m) => m.id === conversation.activeModelSlotId && m.enabled) ??
     settings.models.find((m) => m.enabled)
-  const total = effectiveContextLength(
+  const total = budgetContextLength(
+    activeSlot,
     availableModels.find((m) => m.id === activeSlot?.modelId)
   )
   const contextMeter = total
