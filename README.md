@@ -15,7 +15,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Local & private.** Connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `fetch_webpage` tools (provider of your choice), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default). All of it is enforced by a built-in egress allowlist, visible in a network activity log, and can optionally be routed through **Tor or a VPN** while your LM Studio server stays on a direct loopback connection.
 - **Multi-model roles (up to 3).** Each slot has its own model, role name, system prompt, and color accent.
 - **Three ways to use your models**
-  - **Independent mode.** Pick the active model from the top bar; each conversation keeps its thread.
+  - **Independent mode.** Pick the active model in the sidebar's *This chat* section; each conversation keeps its thread.
   - **@mention routing.** Type `@Coder write a sort function` to route a single message to a specific role.
   - **Collaborative pipeline.** Your message flows through an ordered chain of models, each building on the previous one's output.
   - **Orchestrated mode.** An orchestrator model reasons about your request and **delegates to the other roles as tools** (`consult_model`), reads their answers, consults again if needed, then synthesizes the final reply. Specialists run with their own persona, tools, and memory; delegation loops are structurally impossible and consultations are capped per turn. Every delegation appears as an expandable "🤝 Consulted …" block.
@@ -23,7 +23,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **File, image & PDF attachments.** Drag & drop or use the 📎 button. Images are sent to vision-capable models (multimodal `image_url` parts); text files and **PDFs** are extracted and inlined into context (truncated at 20 K chars). An encrypted PDF, a scan with no text layer, or an encoding that cannot be decoded is refused by name rather than handed to a model as garbled text.
 - **Per-role sampling, with an honest performance readout.** Each slot has its own temperature, top-p, max tokens and seed; set temperature to 0 with a fixed seed and a role becomes reproducible. Under each reply: tokens/sec and time to first token. Token counts come from LM Studio's own accounting; when a server does not report them, only timing is shown rather than an estimate dressed up as a measurement.
 - **Knows what your models can do.** Model discovery reads LM Studio's REST API, so the picker shows quantization, context length and whether a model is currently loaded, and the composer warns before you send an image to a model LM Studio reports as text-only.
-- **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter in the top bar shows how full the window is. Switch to plain trimming under Settings → General.
+- **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter beneath the composer shows how full the window is. Switch to plain trimming under Settings → General.
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches. New in 0.9: recall is **visible** (each reply shows which memory chunks it used) and **scoped** (a conversation can restrict which sources it recalls from).
 - **Second opinions (0.9).** A "🔍 2nd opinion" action under any reply has a **different role** review it and name the factual claims it could not verify, plus the check that would settle each. Never a confidence score — a model grading its own answer says "yes" nearly always.
@@ -182,8 +182,8 @@ Two changes:
   compaction folds the previous note in with the newly dropped messages, so it stays one bounded
   block however long the conversation runs.
 
-The top bar shows a context meter (`~12.4K / 32K`, amber near the limit), and `· compacted` once a
-conversation has been summarized. **Settings → General** switches back to plain trimming.
+A context meter beneath the composer shows how full the window is (`~12.4K / 32K`, amber near the
+limit), and `· compacted` once a conversation has been summarized. **Settings → General** switches back to plain trimming.
 
 Two honest caveats, both stated in the UI as well:
 
@@ -246,7 +246,7 @@ origins, never content).
 
 A conversation accumulates two kinds of invisible context: the compaction summary of messages that
 scrolled off, and the RAM index of fetched web pages. Both can drift or go stale. "⏪ Rollback" in
-the top bar drops exactly those two, after a confirmation that names them, and posts an in-chat
+the sidebar's *This chat* section drops exactly those two, after a confirmation that names them, and posts an in-chat
 marker recording what happened. Visible messages are untouched; notes and `memory.json` are
 untouched. The next turn rebuilds context from what you can actually see.
 
@@ -258,7 +258,7 @@ memory-informed answer from a hallucinated one. Now every reply that used memory
 The display is mechanical — the app shows what it actually injected, it does not ask the model to
 footnote itself.
 
-The 📚 picker in the top bar scopes a conversation to specific memory sources (or none): one chat
+The 📚 picker in the sidebar's *This chat* section scopes a conversation to specific memory sources (or none): one chat
 can know only the company handbook while another knows only personal notes, with neither bleeding
 into the other. Unscoped conversations behave exactly as before.
 
@@ -514,7 +514,8 @@ sigma-oasis/
 │               ├── ChatArea.tsx
 │               ├── MessageBubble.tsx
 │               ├── InputBar.tsx
-│               ├── ModelTabs.tsx
+│               ├── EmptyState.tsx          # Starter cards before the first message
+│               ├── SessionControls.tsx     # "This chat": mode, roles, memory scope, rollback, export
 │               ├── ToolCallBlock.tsx
 │               ├── ReasoningBlock.tsx
 │               ├── SecondOpinionBlock.tsx  # v0.9 critic-pass review

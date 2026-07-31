@@ -17,7 +17,7 @@ const STATUS_ICON: Record<PlanStepStatus, string> = {
 
 const STATUS_CLASS: Record<PlanStepStatus, string> = {
   pending: 'text-neutral-400',
-  running: 'text-accent-glow animate-pulse',
+  running: 'text-accent-ink animate-pulse',
   done: 'text-green-600 dark:text-green-400',
   failed: 'text-red-500'
 }
@@ -92,7 +92,7 @@ export function PlanBlock({ messageId, plan }: Props): JSX.Element {
           <button
             type="button"
             onClick={() => resolvePlan(messageId, true)}
-            className="rounded-xl border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 py-1 font-medium text-accent-glow hover:bg-[rgba(0,212,170,0.25)]"
+            className="rounded-xl border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 py-1 font-medium text-accent-ink hover:bg-[rgba(0,212,170,0.25)]"
           >
             ▶ Run this plan
           </button>

@@ -25,6 +25,7 @@ export function useConversations(): {
   selectConversation: (id: string) => void
   removeConversation: (id: string) => Promise<void>
   renameConversation: (id: string, title: string) => Promise<void>
+  patchConversation: (id: string, partial: Partial<Conversation>) => void
   rollbackContext: (id: string) => Promise<void>
 } {
   const load = useCallback(async (): Promise<void> => {
@@ -87,6 +88,20 @@ export function useConversations(): {
   }, [])
 
   /**
+   * Merge a partial into one conversation and persist it. Used by the session
+   * controls in the sidebar for mode, active slot, orchestrator and memory
+   * scope. Ephemeral conversations are never written to disk, by design.
+   */
+  const patchConversation = useCallback((id: string, partial: Partial<Conversation>): void => {
+    const store = useAppStore.getState()
+    const convo = store.conversations.find((c) => c.id === id)
+    if (!convo) return
+    const next = { ...convo, ...partial }
+    store.upsertConversation(next)
+    if (!next.ephemeral) void window.api.saveConversation(next)
+  }, [])
+
+  /**
    * v0.9 context rollback: forget everything the model remembers that the user
    * cannot see — the compaction summary and the RAM research index — while
    * leaving the visible messages, notes and long-term memory untouched. A
@@ -126,5 +141,13 @@ export function useConversations(): {
     if (final && !final.ephemeral) void window.api.saveConversation(final)
   }, [])
 
-  return { load, createConversation, selectConversation, removeConversation, renameConversation, rollbackContext }
+  return {
+    load,
+    createConversation,
+    selectConversation,
+    removeConversation,
+    renameConversation,
+    patchConversation,
+    rollbackContext
+  }
 }

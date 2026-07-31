@@ -22,6 +22,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # The node:test suite plus the real-Electron transport/render checks.
+      # Runs before the build so a failing test never produces an artifact.
+      - name: Test
+        run: npm test
+
       # Unpacked build only — verifies the bundle compiles without needing
       # signing credentials, which pull requests must never have access to.
       - name: Build (unpacked)

@@ -153,9 +153,9 @@ xcrun notarytool log <submission-id> \
 
 ## Known non-blockers
 
-- The repo has **no tests** — CI typechecks and does an unpacked build only.
-- **PDF attachment support** is documented as planned, not implemented — keep
-  release notes from implying otherwise.
+- The repo has a `node:test` suite (`npm test`) which CI runs on every push and
+  release; a failure there blocks the build. What CI does *not* do is package a
+  signed app on pull requests — signing credentials stay release-only.
 
 ## Troubleshooting: macOS "malware" dialog deletes Electron on `npm run dev`
 

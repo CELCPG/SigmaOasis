@@ -2,16 +2,32 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
-import { knownToLackVision } from '../lib/modelInfo'
+import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
+import { conversationContextUsage } from '../lib/contextBudget'
 import type { Attachment } from '../types'
 
 type MicState = 'idle' | 'recording' | 'transcribing'
 
 /**
+ * Attach / mic / plan at rest. Borderless so the composer reads as one surface
+ * and Send is the only emphasized control; each button keeps its own loud fill
+ * for its active state (recording red, plan-mode teal).
+ */
+const GHOST_BUTTON =
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm text-ink-tertiary ' +
+  'transition-colors hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary ' +
+  'disabled:opacity-40 disabled:hover:bg-transparent'
+
+/**
  * Message composer with attachments. Enter sends, Shift+Enter inserts a
  * newline. Files can be attached via the 📎 button or by dragging them onto
  * the composer; images, text files and PDFs are supported. While a reply streams,
- * Send becomes Stop. The hint row lists the available @mention handles.
+ * Send becomes Stop.
+ *
+ * The row beneath the box is for live state only — context usage at rest, and
+ * recording / errors / capability warnings when there are any. Static "Enter to
+ * send" style instructions live on the controls' tooltips instead; they are read
+ * once and then are noise on every screen after.
  */
 export function InputBar(): JSX.Element {
   const [text, setText] = useState('')
@@ -96,9 +112,15 @@ export function InputBar(): JSX.Element {
     }
   }, [])
 
-  const handles = (settings?.models ?? [])
-    .filter((m) => m.enabled && m.roleName.trim())
-    .map((m) => `@${m.roleName.replace(/\s+/g, '')}`)
+  // How full the active model's window is — null when LM Studio never told us
+  // the window size, since a meter against a guessed denominator misleads.
+  const contextMeter = activeConvo
+    ? conversationContextUsage(
+        activeConvo,
+        activeSlot,
+        availableModels.find((m) => m.id === activeSlot?.modelId)
+      )
+    : null
 
   // Models can be steered by anything they read (search results, documents,
   // files), so make it visible when they can also change the machine.
@@ -264,7 +286,7 @@ export function InputBar(): JSX.Element {
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => void onDrop(e)}
-          className={`glass-panel rounded-3xl p-2 transition-colors ${
+          className={`glass-panel rounded-3xl p-2 transition-all focus-within:border-[rgba(0,212,170,0.35)] focus-within:shadow-[inset_0_1px_0_var(--glass-inset),0_0_24px_rgba(0,212,170,0.12)] ${
             dragOver ? 'border-accent border-dashed' : ''
           }`}
         >
@@ -310,12 +332,12 @@ export function InputBar(): JSX.Element {
             </div>
           )}
 
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-1">
             <button
               type="button"
               onClick={() => void pick()}
               disabled={streaming}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-neutral-500 transition-colors hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-40"
+              className={GHOST_BUTTON}
               title="Attach images, text files or PDFs (or drop them here)"
             >
               📎
@@ -324,11 +346,11 @@ export function InputBar(): JSX.Element {
               type="button"
               onClick={() => void toggleMic()}
               disabled={streaming || micState === 'transcribing'}
-              className={`flex h-10 shrink-0 items-center justify-center rounded-full border border-black/10 dark:border-white/10 text-sm transition-colors disabled:opacity-40 ${
+              className={
                 micState === 'recording'
-                  ? 'animate-pulse border-red-500/40 bg-red-500/15 px-3 text-red-500'
-                  : 'w-10 bg-black/5 dark:bg-white/5 text-neutral-500 hover:bg-black/10 dark:hover:bg-white/10'
-              }`}
+                  ? 'flex h-9 shrink-0 animate-pulse items-center justify-center rounded-full border border-red-500/40 bg-red-500/15 px-3 text-sm text-red-500 transition-colors disabled:opacity-40'
+                  : GHOST_BUTTON
+              }
               title={
                 micState === 'recording'
                   ? `Recording ${recSeconds}s — click to stop and transcribe, Esc to cancel`
@@ -347,11 +369,11 @@ export function InputBar(): JSX.Element {
               type="button"
               onClick={() => setPlanned((p) => !p)}
               disabled={streaming}
-              className={`flex h-10 shrink-0 items-center justify-center rounded-full border text-sm transition-colors disabled:opacity-40 ${
+              className={
                 planned
-                  ? 'border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-accent-glow'
-                  : 'w-10 border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-neutral-500 hover:bg-black/10 dark:hover:bg-white/10'
-              }`}
+                  ? 'flex h-9 shrink-0 items-center justify-center rounded-full border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-sm text-accent-ink transition-colors disabled:opacity-40'
+                  : GHOST_BUTTON
+              }
               title={
                 planned
                   ? 'Plan mode on — your message becomes a step-by-step plan you approve before it runs'
@@ -369,8 +391,8 @@ export function InputBar(): JSX.Element {
               }}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder="Message Sigma Oasis… (@RoleName to route, drop files to attach)"
-              className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-neutral-400"
+              placeholder="Message Sigma Oasis…"
+              className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-muted"
             />
             {streaming ? (
               <button
@@ -385,7 +407,8 @@ export function InputBar(): JSX.Element {
                 type="button"
                 onClick={submit}
                 disabled={!text.trim() && attachments.length === 0}
-                className="shrink-0 rounded-2xl border border-[rgba(0,212,170,0.4)] bg-gradient-to-br from-[rgba(0,212,170,0.25)] to-[rgba(0,143,107,0.25)] px-4 py-1.5 text-sm font-medium text-accent-glow shadow-[0_0_16px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_24px_rgba(0,212,170,0.35)] disabled:opacity-40 disabled:shadow-none"
+                title="Send (Enter) · Shift+Enter for a new line"
+                className="shrink-0 rounded-2xl border border-[rgba(0,212,170,0.4)] bg-gradient-to-br from-[rgba(0,212,170,0.25)] to-[rgba(0,143,107,0.25)] px-4 py-1.5 text-sm font-medium text-accent-ink shadow-[0_0_16px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_24px_rgba(0,212,170,0.35)] disabled:opacity-40 disabled:shadow-none"
               >
                 Send
               </button>
@@ -414,9 +437,7 @@ export function InputBar(): JSX.Element {
               ⚠ {activeSlot?.roleName} cannot see images — pick a vision model
             </span>
           ) : (
-            <span className="text-neutral-400">
-              Enter to send · Shift+Enter for a new line · 📎 or drop images, text or PDF
-            </span>
+            <span />
           )}
           <span className="flex items-center gap-3">
             {armed.length > 0 && (
@@ -427,8 +448,19 @@ export function InputBar(): JSX.Element {
                 ⚠ can {armed.join(' + ')}
               </span>
             )}
-            {handles.length > 0 && (
-              <span className="text-neutral-400">Route: {handles.join('  ')}</span>
+            {contextMeter && (
+              <span
+                className={
+                  contextMeter.ratio > 0.9 ? 'text-amber-600 dark:text-amber-500' : 'text-ink-muted'
+                }
+                title={`Estimated ${contextMeter.used.toLocaleString()} of ${contextMeter.total.toLocaleString()} tokens used. Token counts here are estimated from text length, not tokenized${
+                  activeConvo?.summary ? '. Earlier messages have been summarized to fit' : ''
+                }.`}
+              >
+                ~{formatContextLength(contextMeter.used)} /{' '}
+                {formatContextLength(contextMeter.total)}
+                {activeConvo?.summary && ' · compacted'}
+              </span>
             )}
           </span>
         </div>

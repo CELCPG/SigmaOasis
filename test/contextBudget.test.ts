@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import {
   FALLBACK_MAX_CHARS,
   FALLBACK_MAX_MESSAGES,
+  conversationContextUsage,
   estimateMessageTokens,
   estimateTokens,
   historyBudget,
   planHistory,
   planHistoryFallback
 } from '../src/renderer/src/lib/contextBudget'
-import type { ChatMessage } from '../src/renderer/src/types'
+import type { ChatMessage, Conversation, ModelConfig } from '../src/renderer/src/types'
 
 /**
  * Budget arithmetic. Every failure mode here is silent: the conversation
@@ -178,5 +179,59 @@ describe('historyBudget', () => {
       maxTokens: -1
     })
     assert.equal(budget, 0)
+  })
+})
+
+describe('conversationContextUsage', () => {
+  function convo(extra: Partial<Conversation> = {}): Conversation {
+    return {
+      id: 'c1',
+      title: 'test',
+      mode: 'independent',
+      messages: [],
+      createdAt: 0,
+      updatedAt: 0,
+      ...extra
+    }
+  }
+
+  function slot(extra: Partial<ModelConfig> = {}): ModelConfig {
+    return {
+      id: 'model-1',
+      modelId: 'm',
+      roleName: 'Assistant',
+      systemPrompt: '',
+      color: 'blue',
+      enabled: true,
+      sampling: { temperature: 0.7, topP: 1, maxTokens: -1, seed: null },
+      contextWindow: null,
+      ...extra
+    }
+  }
+
+  test('is null when no context length is known, so no meter is drawn', () => {
+    // A meter against a guessed denominator is worse than no meter at all.
+    assert.equal(conversationContextUsage(convo(), slot(), undefined), null)
+  })
+
+  test('counts messages, the system prompt and the summary', () => {
+    const usage = conversationContextUsage(
+      convo({
+        messages: [msg('a'.repeat(400))],
+        summary: { text: 'b'.repeat(400), throughMessageId: 'x', updatedAt: 0 }
+      }),
+      slot({ contextWindow: 8000, systemPrompt: 'c'.repeat(400) }),
+      undefined
+    )
+    // 100 (message) + 4 (wire overhead) + 100 (prompt) + 100 (summary)
+    assert.deepEqual(usage, { used: 304, total: 8000, ratio: 304 / 8000 })
+  })
+
+  test('an explicit slot override wins over the catalog', () => {
+    const usage = conversationContextUsage(convo(), slot({ contextWindow: 4096 }), {
+      id: 'm',
+      contextLength: 32_000
+    } as never)
+    assert.equal(usage?.total, 4096)
   })
 })

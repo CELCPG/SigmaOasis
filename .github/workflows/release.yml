@@ -82,6 +82,11 @@ jobs:
 
       - run: npm run typecheck
 
+      # Gates the release: a failing suite stops the signed build here, before
+      # any installer is produced. (Windows job stays build-only — the suite's
+      # Electron checks are bash + macOS/Linux.)
+      - run: npm test
+
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
 

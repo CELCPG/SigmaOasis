@@ -3,12 +3,11 @@ import { useAppStore } from './stores/appStore'
 import { useModels } from './hooks/useModels'
 import { useConversations } from './hooks/useConversations'
 import { Sidebar } from './components/Sidebar'
-import { ModelTabs } from './components/ModelTabs'
 import { ChatArea } from './components/ChatArea'
 import { InputBar } from './components/InputBar'
+import { EmptyState } from './components/EmptyState'
 import { SettingsModal } from './components/SettingsModal'
 import { OnboardingModal } from './components/OnboardingModal'
-import { Logo } from './components/Logo'
 
 export default function App(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
@@ -72,23 +71,16 @@ export default function App(): JSX.Element {
 
       <main className="relative z-10 flex min-w-0 flex-1 flex-col">
         {conversation && activeConversationId ? (
-          <>
-            <ModelTabs conversation={conversation} />
-            <ChatArea conversation={conversation} />
-          </>
+          <ChatArea conversation={conversation} />
         ) : (
-          <div className="flex flex-1 items-center justify-center p-8">
-            <div className="max-w-md text-center text-sm text-neutral-500">
-              <p className="mb-2 flex justify-center"><Logo size={44} /></p>
-              <p className="font-medium text-neutral-700 dark:text-neutral-300">
-                Welcome to Sigma Oasis
-              </p>
-              <p className="mt-2">
-                A private, local-first AI chat powered by LM Studio. Click{' '}
-                <span className="font-medium">+ New</span> to start a conversation.
-              </p>
-            </div>
-          </div>
+          // No conversation yet — a starter opens one, then fills the composer.
+          <EmptyState
+            heading="Welcome to Sigma Oasis"
+            onPick={(prompt) => {
+              createConversation()
+              useAppStore.getState().setComposerPrefill(prompt)
+            }}
+          />
         )}
         <InputBar />
       </main>

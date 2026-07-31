@@ -1,4 +1,5 @@
-import type { ChatMessage } from '../types'
+import type { ChatMessage, Conversation, ModelConfig, ModelInfo } from '../types'
+import { budgetContextLength } from './modelInfo'
 
 /**
  * Deciding how much of a conversation fits in the model's context window.
@@ -56,6 +57,33 @@ export function estimateMessageTokens(message: ChatMessage): number {
   }
   // Per-message wire overhead (role, delimiters) — small but not zero.
   return tokens + 4
+}
+
+export interface ContextUsage {
+  used: number
+  total: number
+  ratio: number
+}
+
+/**
+ * How full the active model's context window is, for the meter on the composer.
+ *
+ * Returns null when LM Studio never reported a window size: a meter drawn
+ * against a guessed denominator would be worse than no meter at all. The
+ * numerator is an estimate either way, which the meter's tooltip says out loud.
+ */
+export function conversationContextUsage(
+  conversation: Conversation,
+  slot: ModelConfig | undefined,
+  catalogEntry: ModelInfo | undefined
+): ContextUsage | null {
+  const total = budgetContextLength(slot, catalogEntry)
+  if (!total) return null
+  const used =
+    conversation.messages.reduce((n, m) => n + estimateMessageTokens(m), 0) +
+    estimateTokens(slot?.systemPrompt ?? '') +
+    estimateTokens(conversation.summary?.text ?? '')
+  return { used, total, ratio: used / total }
 }
 
 export interface HistoryPlan {
