@@ -1,6 +1,6 @@
 {
   "name": "sigma-oasis",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Sigma Oasis — a private, local-first desktop AI chat powered by LM Studio. Your safe oasis of data protection.",
   "author": "Colin Long",
   "license": "MIT",
