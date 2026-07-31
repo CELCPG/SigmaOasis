@@ -8,6 +8,12 @@ API. It supports **up to 3 model "roles"** simultaneously, **agentic tools** (fi
 web search, notes), **@mention routing**, and a **collaborative pipeline** mode, all while keeping
 **every byte of data on your machine**. No cloud, no telemetry.
 
+![A fresh conversation: starter cards, the conversation rail, and per-chat controls](docs/screenshots/welcome-light.png)
+
+| Light theme | Dark theme |
+| --- | --- |
+| ![A reply with a tool call, visible memory recall, a second opinion, and a running plan — light](docs/screenshots/chat-light.png) | ![The same conversation in the dark theme](docs/screenshots/chat-dark.png) |
+
 ---
 
 ## ✨ Features
