@@ -250,7 +250,8 @@ function defaultSettings(): AppSettings {
         contextWindow: null
       }
     ],
-    theme: 'dark',
+    // Light is the flagship look since 1.0; existing installs keep their saved choice.
+    theme: 'light',
     fontSize: 15,
     historyLimit: 100,
     tools: {
