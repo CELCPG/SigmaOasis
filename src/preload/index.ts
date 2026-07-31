@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppSettings,
   AttachmentLoadResult,
+  AuditEntryInput,
+  AuditStatus,
   Conversation,
   MemorySearchResult,
   MemoryStats,
@@ -129,9 +131,11 @@ const api = {
   memoryStats: (): Promise<MemoryStats> => ipcRenderer.invoke('memory:stats'),
   memorySearch: (
     query: string,
-    topK?: number
+    topK?: number,
+    minScore?: number,
+    sources?: string[] | null
   ): Promise<{ ok: boolean; results: MemorySearchResult[]; error?: string }> =>
-    ipcRenderer.invoke('memory:search', query, topK),
+    ipcRenderer.invoke('memory:search', query, topK, minScore, sources ?? null),
   memoryAddDocument: (
     source: string,
     text: string
@@ -143,6 +147,26 @@ const api = {
     ipcRenderer.invoke('memory:addDocumentFromPath', path),
   memoryDeleteSource: (source: string): Promise<{ ok: boolean; removed?: number; error?: string }> =>
     ipcRenderer.invoke('memory:delete', source),
+
+  // Session audit log (main/ipc/audit.ts) — opt-in, encrypted, tamper-evident.
+  auditStatus: (): Promise<AuditStatus> => ipcRenderer.invoke('audit:status'),
+  auditRecord: (input: AuditEntryInput): Promise<boolean> =>
+    ipcRenderer.invoke('audit:record', input),
+  auditExport: (
+    sessionId?: string
+  ): Promise<
+    | { ok: true; path: string; entries: number; chainValid: boolean }
+    | { ok: false; canceled?: boolean; error?: string }
+  > => ipcRenderer.invoke('audit:export', sessionId),
+  auditPurge: (): Promise<{ removed: number }> => ipcRenderer.invoke('audit:purge'),
+
+  // Plan mode (main/ipc/plan.ts) — structured plan generation; execution is renderer-side.
+  planGenerate: (
+    task: string,
+    modelId?: string,
+    maxSteps?: number
+  ): Promise<{ ok: boolean; steps?: { title: string; detail: string }[]; error?: string }> =>
+    ipcRenderer.invoke('plan:generate', task, modelId, maxSteps),
 
   // Auto-update (main/updates.ts)
   getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:getStatus'),

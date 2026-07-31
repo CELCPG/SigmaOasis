@@ -115,7 +115,8 @@ export async function addToMemory(
 export async function searchMemory(
   query: string,
   topK: number,
-  minScore: number = MEMORY_SCORE_FLOOR
+  minScore: number = MEMORY_SCORE_FLOOR,
+  sources?: string[] | null
 ): Promise<MemorySearchResult[]> {
   const memory = await readMemory()
   if (memory.chunks.length === 0) return []
@@ -125,12 +126,22 @@ export async function searchMemory(
 
   // Chunks embedded by a different model live in a different vector space —
   // scoring them against this query is meaningless, so they are excluded.
-  const comparable = memory.chunks.filter((c) => c.embedding.length === queryVector.length)
+  let comparable = memory.chunks.filter((c) => c.embedding.length === queryVector.length)
   if (comparable.length === 0) {
     throw new Error(
       `All ${memory.chunks.length} stored memories were embedded with a different model than "${model}". ` +
         'Switch back to the original model, or remove and re-add these sources under Settings → Memory.'
     )
+  }
+
+  // Per-conversation scoping (v0.9): when a conversation restricts its sources,
+  // everything else simply does not exist for it. `null`/undefined = all
+  // sources; `[]` = none, which is a legitimate "no memory for this chat" and
+  // returns empty rather than throwing.
+  if (sources != null) {
+    const allowed = new Set(sources)
+    comparable = comparable.filter((c) => allowed.has(c.source))
+    if (comparable.length === 0) return []
   }
 
   return comparable
@@ -183,20 +194,24 @@ async function memoryStats(): Promise<unknown> {
 export function registerMemoryHandlers(): void {
   ipcMain.handle('memory:stats', () => memoryStats())
 
-  ipcMain.handle('memory:search', async (_e, query: string, topK?: number, minScore?: number) => {
-    try {
-      return {
-        ok: true,
-        results: await searchMemory(
-          String(query ?? ''),
-          topK ?? getSettings().memory.topK,
-          typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : undefined
-        )
+  ipcMain.handle(
+    'memory:search',
+    async (_e, query: string, topK?: number, minScore?: number, sources?: string[] | null) => {
+      try {
+        return {
+          ok: true,
+          results: await searchMemory(
+            String(query ?? ''),
+            topK ?? getSettings().memory.topK,
+            typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : undefined,
+            Array.isArray(sources) ? sources.map(String) : null
+          )
+        }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err), results: [] }
       }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err), results: [] }
     }
-  })
+  )
 
   ipcMain.handle('memory:addDocument', async (_e, source: string, text: string) => {
     try {

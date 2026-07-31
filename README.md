@@ -25,7 +25,12 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Knows what your models can do.** Model discovery reads LM Studio's REST API, so the picker shows quantization, context length and whether a model is currently loaded, and the composer warns before you send an image to a model LM Studio reports as text-only.
 - **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter in the top bar shows how full the window is. Switch to plain trimming under Settings → General.
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
-- **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches.
+- **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches. New in 0.9: recall is **visible** (each reply shows which memory chunks it used) and **scoped** (a conversation can restrict which sources it recalls from).
+- **Second opinions (0.9).** A "🔍 2nd opinion" action under any reply has a **different role** review it and name the factual claims it could not verify, plus the check that would settle each. Never a confidence score — a model grading its own answer says "yes" nearly always.
+- **Plan mode (0.9).** The 📋 toggle in the composer turns a task into a visible step-by-step plan: decomposed by the model, shown for your **approval**, executed step by step with live progress, then synthesized into a final answer. A failed step is marked failed and disclosed, never silently retried.
+- **Ephemeral chats (0.9).** The ◌ button starts a conversation that lives only in RAM: never written to disk, gone when you close it or quit. The main process refuses to persist it — the no-trace guarantee is structural, not a habit of the UI.
+- **Context rollback (0.9).** One click forgets what the model remembers that you can't see — the compacted summary and any fetched pages held in memory — while visible messages, notes and long-term memory stay untouched.
+- **Session audit log (0.9, opt-in).** An append-only transcript of what was actually said (inputs, answers, tool calls — no hidden layers), encrypted with your OS keychain and hash-chained so tampering is detectable. Off by default; ephemeral chats are never logged.
 - **Agentic tools** via OpenAI tool-calling: file read/write, directory listing, terminal (with a confirmation dialog), web search, date/time, and a local notes store.
 - **Polished chat UI.** Streaming tokens, markdown rendering, syntax-highlighted code blocks with a Copy button, collapsible tool-call blocks, and per-message role badges.
 - **Local persistence.** Settings via `electron-store`; conversations and notes as JSON in your OS app-data directory.
@@ -191,6 +196,83 @@ Two honest caveats, both stated in the UI as well:
 
 When LM Studio reports no context length at all, the pre-0.8.2 message/character rule applies
 unchanged, so an older server behaves exactly as it did before.
+
+---
+
+## 🆕 v0.9: verification, privacy controls and plans
+
+Six additions, all built on the same two rules the rest of the app follows: a model never grades
+itself, and privacy promises are enforced in code rather than stated in prose.
+
+### Second opinions — a different model, never a self-grade
+
+A "🔍 2nd opinion" button under any reply hands the question and answer to **another role** (auto:
+the first enabled slot that did not answer; choose one under Settings → Models). The reviewer lists
+the specific factual claims it cannot verify from the conversation — names, dates, numbers,
+versions — and the one check that would settle each. That is the whole output. There is deliberately
+no confidence score or percentage: asking a model how sure it is returns "sure" nearly always, which
+is the same reason deep research checks its coverage mechanically.
+
+Two honest limits, stated in the UI as well: the reviewer is another local model with the same blind
+spots (a clean review is a second guess from a different angle, not verification — run the checks it
+names), and with only one role enabled the feature says no independent review is possible instead of
+quietly asking the answerer to review itself.
+
+### Plan mode — multi-step tasks with an approval gate
+
+Toggle 📋 in the composer and your message becomes a plan instead of a direct answer. The model
+decomposes the task into a short ordered checklist (structured JSON with grammar enforcement where
+the server supports it, capped under Settings → General), the checklist renders in chat and — by
+default — **waits for your approval** before anything runs. Each step then executes as a bounded
+sub-turn with the enabled tools, its result feeding the next step and ticking off live in the list.
+A final synthesis answers from all step results.
+
+Failure behavior matches deep research: a planning failure falls back to answering directly and says
+so; a failed step is marked ✗, halts the plan, and the synthesis states plainly what that leaves
+unanswered. Nothing is retried silently, and every tool call a step makes goes through the same
+confirmations and the audit log as any chat turn.
+
+### Ephemeral chats — the no-trace conversation
+
+The ◌ button next to "+ New" starts a chat that is never written to `conversations/`. It lives in
+RAM, shows a banner saying exactly that, and is gone when you close it or quit. The guarantee is
+structural: the main-process save handler refuses any conversation flagged ephemeral, so the
+no-trace promise holds even if the renderer regresses. Two deliberate exceptions, both stated in the
+banner: notes or memories you *explicitly* save are still saved (that was you choosing to keep
+something), and the network activity log still records that a loopback model call happened (it logs
+origins, never content).
+
+### Context rollback — forget what you can't see
+
+A conversation accumulates two kinds of invisible context: the compaction summary of messages that
+scrolled off, and the RAM index of fetched web pages. Both can drift or go stale. "⏪ Rollback" in
+the top bar drops exactly those two, after a confirmation that names them, and posts an in-chat
+marker recording what happened. Visible messages are untouched; notes and `memory.json` are
+untouched. The next turn rebuilds context from what you can actually see.
+
+### Memory you can see and scope
+
+Recall used to be invisible: chunks were injected into the system prompt and you could not tell a
+memory-informed answer from a hallucinated one. Now every reply that used memory shows a
+"📚 From memory: …" line listing the sources and relevance scores, expandable to the exact chunks.
+The display is mechanical — the app shows what it actually injected, it does not ask the model to
+footnote itself.
+
+The 📚 picker in the top bar scopes a conversation to specific memory sources (or none): one chat
+can know only the company handbook while another knows only personal notes, with neither bleeding
+into the other. Unscoped conversations behave exactly as before.
+
+### Session audit log — the verifiable transcript
+
+Settings → Privacy can enable an append-only log of what was actually said: your inputs, the model's
+answers, and each tool call with its arguments and outcome. No system prompts, no recalled memory,
+no compaction notes — the layers you *can't* see stay out, so the log answers "what was said", not
+"what the model was told". Every line is encrypted with your OS keychain (the log refuses to run
+where that is unavailable — a plaintext audit trail is a worse privacy story than none) and carries
+the hash of the line before it, so an edited or deleted entry breaks the chain and export says so.
+
+Off by default, because a privacy app does not log by default. Ephemeral chats produce no entries —
+no-trace includes the log. Optional auto-purge on quit keeps verification session-scoped.
 
 ---
 
@@ -408,6 +490,8 @@ sigma-oasis/
 │   │       ├── modelCatalog.ts # Model list + capabilities (context, vision, loaded)
 │   │       ├── summarize.ts  # Rolling compaction of history that no longer fits
 │   │       ├── attachments.ts # Images, text files and PDFs from disk
+│   │       ├── audit.ts      # Opt-in encrypted, hash-chained session transcript (v0.9)
+│   │       ├── plan.ts       # Plan mode: structured task decomposition (v0.9)
 │   │       └── memory.ts     # Durable long-term memory (RAG) on disk
 │   ├── preload/
 │   │   ├── index.ts          # Secure context bridge (window.api)
@@ -433,6 +517,8 @@ sigma-oasis/
 │               ├── ModelTabs.tsx
 │               ├── ToolCallBlock.tsx
 │               ├── ReasoningBlock.tsx
+│               ├── SecondOpinionBlock.tsx  # v0.9 critic-pass review
+│               ├── PlanBlock.tsx           # v0.9 plan checklist + approval gate
 │               ├── SettingsModal.tsx
 │               └── CollaborativeMode.tsx
 ├── test/                     # node:test suite (see Tests below)

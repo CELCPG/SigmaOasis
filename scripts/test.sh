@@ -54,6 +54,8 @@ rm -rf "$OUT"
   src/main/ipc/proxy.ts \
   src/main/ipc/search.ts \
   src/main/ipc/llm.ts \
+  src/main/ipc/audit.ts \
+  src/main/ipc/plan.ts \
   src/main/ipc/modelPin.ts \
   src/main/ipc/modelCatalog.ts \
   src/main/ipc/attachments.ts \
@@ -65,6 +67,7 @@ rm -rf "$OUT"
   src/renderer/src/lib/mathPlaintext.ts \
   src/renderer/src/lib/contextBudget.ts \
   src/renderer/src/lib/modelInfo.ts \
+  src/renderer/src/lib/secondOpinion.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts

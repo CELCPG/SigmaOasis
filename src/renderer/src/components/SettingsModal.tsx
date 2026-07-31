@@ -8,6 +8,7 @@ import { describeModel, modelLabel } from '../lib/modelInfo'
 import type {
   AppSettings,
   AccentColor,
+  AuditStatus,
   ToolToggles,
   SttStatus,
   MemoryStats,
@@ -77,6 +78,8 @@ export function SettingsModal(): JSX.Element | null {
   const [braveKeyInfo, setBraveKeyInfo] = useState<{ set: boolean; encrypted: boolean } | null>(null)
   const [braveKeyNotice, setBraveKeyNotice] = useState<string | null>(null)
   const [netActivity, setNetActivity] = useState<NetworkActivityEntry[]>([])
+  const [auditInfo, setAuditInfo] = useState<AuditStatus | null>(null)
+  const [auditNotice, setAuditNotice] = useState<string | null>(null)
   const [confirmingReset, setConfirmingReset] = useState(false)
 
   useEffect(() => {
@@ -133,11 +136,13 @@ export function SettingsModal(): JSX.Element | null {
     setBraveKeyInput('')
   }, [tab])
 
-  // Load the network activity log when the Privacy tab opens.
+  // Load the network activity log and audit-log status when the Privacy tab opens.
   useEffect(() => {
     if (tab === 'privacy') {
       void window.api.getNetworkActivity().then(setNetActivity)
       void window.api.researchIndexStats().then(setResearchStats)
+      void window.api.auditStatus().then(setAuditInfo)
+      setAuditNotice(null)
     }
   }, [tab])
 
@@ -489,6 +494,59 @@ export function SettingsModal(): JSX.Element | null {
                     </details>
                   </div>
                 ))}
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="text-sm font-medium">Second opinion</div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Adds a &quot;🔍 2nd opinion&quot; action under replies: a <em>different</em> role
+                    reviews the answer and names the factual claims it could not verify, plus the
+                    check that would settle each. Never a confidence score — a model grading its
+                    own answer says &quot;yes&quot; nearly always, so the reviewer is always another
+                    slot.
+                  </p>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.secondOpinion.enabled}
+                      onChange={(e) =>
+                        update({ secondOpinion: { ...draft.secondOpinion, enabled: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>Enable second opinions</span>
+                  </label>
+                  {draft.secondOpinion.enabled && (
+                    <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-2">
+                      <label className="text-xs text-neutral-500">Reviewing role</label>
+                      <select
+                        value={draft.secondOpinion.criticSlotId ?? ''}
+                        onChange={(e) =>
+                          update({
+                            secondOpinion: {
+                              ...draft.secondOpinion,
+                              criticSlotId: e.target.value || null
+                            }
+                          })
+                        }
+                        className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm"
+                      >
+                        <option value="">Auto — first enabled role that did not answer</option>
+                        {draft.models
+                          .filter((m) => m.enabled)
+                          .map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.roleName || m.id}
+                            </option>
+                          ))}
+                      </select>
+                      <p className="col-span-2 text-xs text-neutral-400">
+                        Needs at least two enabled roles; with one, the action explains that no
+                        independent review is possible instead of asking the answerer to grade
+                        itself.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -612,6 +670,38 @@ export function SettingsModal(): JSX.Element | null {
                     and keeps the model aware of how the conversation began. Dropping is what
                     versions before 0.8.2 did.
                   </p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Plan mode (📋 in the composer)</label>
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.plan.confirmPlan}
+                      onChange={(e) => update({ plan: { ...draft.plan, confirmPlan: e.target.checked } })}
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Show the plan for approval before executing
+                      <span className="block text-xs text-neutral-500">
+                        One dialog with every step before anything runs — the moment to catch a plan
+                        that misread the task. Off means generated plans run immediately.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="mt-2 flex items-center gap-2">
+                    <label className="text-xs text-neutral-500">Max steps per plan</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={draft.plan.maxSteps}
+                      onChange={(e) => update({ plan: { ...draft.plan, maxSteps: Number(e.target.value) } })}
+                      className="w-20 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                    />
+                    <span className="text-xs text-neutral-400">
+                      Each step is a bounded sub-turn with the enabled tools.
+                    </span>
+                  </div>
                 </div>
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <label className="mb-1 block text-sm font-medium">About</label>
@@ -1140,6 +1230,121 @@ export function SettingsModal(): JSX.Element | null {
                       </strong>{' '}
                       cached search{researchStats.searchQueries === 1 ? '' : 'es'}. In RAM only.
                     </p>
+                  )}
+                </div>
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="text-sm font-medium">Session audit log</div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    An append-only transcript of what was actually said: your inputs, the
+                    model&apos;s answers, and each tool call — no system prompts or other hidden
+                    layers. Every line is encrypted with your OS keychain and hash-chained, so an
+                    edited or deleted line is detectable on export. Ephemeral chats are never
+                    logged. Off by default.
+                  </p>
+
+                  {auditInfo && !auditInfo.available && (
+                    <p className="mt-3 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                      Unavailable: your OS keychain is not accessible, and this log is never
+                      written unencrypted.
+                    </p>
+                  )}
+
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.audit.enabled}
+                      disabled={auditInfo !== null && !auditInfo.available}
+                      onChange={(e) => update({ audit: { ...draft.audit, enabled: e.target.checked } })}
+                      className="mt-0.5 h-4 w-4 accent-accent disabled:opacity-40"
+                    />
+                    <span>
+                      Record a session audit log
+                      <span className="block text-xs text-neutral-500">
+                        Takes effect after Save. Entries from before enabling are not recovered —
+                        the log starts when you turn it on.
+                      </span>
+                    </span>
+                  </label>
+
+                  {draft.audit.enabled && (
+                    <label className="mt-2 flex cursor-pointer items-start gap-2.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={draft.audit.autoPurgeOnQuit}
+                        onChange={(e) =>
+                          update({ audit: { ...draft.audit, autoPurgeOnQuit: e.target.checked } })
+                        }
+                        className="mt-0.5 h-4 w-4 accent-accent"
+                      />
+                      <span>
+                        Purge the log automatically when the app quits
+                        <span className="block text-xs text-neutral-500">
+                          Verification for the current session only; nothing accumulates.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+
+                  {auditInfo && (
+                    <div className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                      {auditInfo.sessions.length === 0 ? (
+                        <span>No audit logs on disk.</span>
+                      ) : (
+                        <span>
+                          <strong className="text-neutral-700 dark:text-neutral-300">
+                            {auditInfo.sessions.length}
+                          </strong>{' '}
+                          session log{auditInfo.sessions.length === 1 ? '' : 's'} on disk · latest:{' '}
+                          {auditInfo.sessions[0]!.entries} entries,{' '}
+                          {Math.max(1, Math.round(auditInfo.sessions[0]!.sizeBytes / 1024))} KB
+                          {auditInfo.sessions[0]!.sessionId === auditInfo.currentSessionId
+                            ? ' (this session)'
+                            : ''}
+                          . The key is machine-bound, so logs do not survive an OS reinstall.
+                        </span>
+                      )}
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={!auditInfo.available || auditInfo.sessions.length === 0}
+                          onClick={() =>
+                            void window.api.auditExport().then((r) => {
+                              if (r.ok) {
+                                setAuditNotice(
+                                  `Exported ${r.entries} entries to ${r.path}` +
+                                    (r.chainValid
+                                      ? ' — hash chain verified.'
+                                      : ' — ⚠ hash chain BROKEN: the log was modified.')
+                                )
+                              } else if (!r.canceled) {
+                                setAuditNotice(`Export failed: ${r.error ?? 'unknown error'}`)
+                              }
+                            })
+                          }
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                          title="Decrypt the latest session log to a file you choose. The export is plaintext — anyone with the file can read it."
+                        >
+                          Export latest (decrypted)
+                        </button>
+                        <button
+                          type="button"
+                          disabled={auditInfo.sessions.length === 0}
+                          onClick={() => {
+                            if (!window.confirm('Delete every audit log on disk? This cannot be undone.'))
+                              return
+                            void window.api.auditPurge().then((r) => {
+                              setAuditNotice(`Purged ${r.removed} session log${r.removed === 1 ? '' : 's'}.`)
+                              void window.api.auditStatus().then(setAuditInfo)
+                            })
+                          }}
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-red-500 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                        >
+                          Purge all
+                        </button>
+                      </div>
+                      {auditNotice && <p className="mt-2 break-all text-neutral-400">{auditNotice}</p>}
+                    </div>
                   )}
                 </div>
 

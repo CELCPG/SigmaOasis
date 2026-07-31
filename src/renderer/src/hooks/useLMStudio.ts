@@ -10,12 +10,15 @@ import {
   planHistoryFallback
 } from '../lib/contextBudget'
 import { budgetContextLength } from '../lib/modelInfo'
+import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
 import type {
   AppSettings,
   Attachment,
   ChatMessage,
+  ChatPlan,
   Conversation,
   ModelConfig,
+  PlanStep,
   ResponseStats,
   SamplingSettings,
   ToolCallRecord,
@@ -35,6 +38,28 @@ const MAX_TOOL_ITERATIONS = 8
 const MAX_DELEGATIONS_PER_TURN = 5
 /** Specialist replies fed back to the orchestrator are capped to protect context. */
 const MAX_CONSULT_REPLY_CHARS = 3000
+
+/**
+ * Fire-and-forget audit log entry (v0.9). Checked here AND in the main
+ * process: skipped when the log is disabled, and ephemeral conversations
+ * never produce entries. Audit failures must never break a chat turn.
+ */
+function audit(
+  convo: Conversation,
+  input: {
+    kind: 'user_input' | 'assistant_output' | 'tool_call'
+    roleName?: string
+    modelId?: string
+    toolName?: string
+    ok?: boolean
+    text: string
+  }
+): void {
+  if (!useAppStore.getState().settings?.audit.enabled) return
+  void window.api
+    .auditRecord({ ...input, conversationId: convo.id, ephemeral: convo.ephemeral === true })
+    .catch(() => undefined)
+}
 
 // ---- OpenAI wire types --------------------------------------------------------
 
@@ -182,7 +207,8 @@ async function planAndCompact(
     if (current) {
       const next = { ...current, summary }
       useAppStore.getState().upsertConversation(next)
-      void window.api.saveConversation(next)
+      // Ephemeral conversations are never persisted — RAM only, by design.
+      if (!next.ephemeral) void window.api.saveConversation(next)
     }
     return { history: plan.keep, summaryText: summary.text }
   } catch {
@@ -554,15 +580,22 @@ async function runTurn(
   await window.api.pinModel(slot.modelId).catch(() => false)
 
   // RAG: pull relevant long-term memory into the system prompt (best effort).
+  // v0.9: the injected chunks are recorded on the reply (memoryContext) so the
+  // user can see exactly what the model was reminded of — and the conversation
+  // can restrict which sources it recalls from (memorySources).
   let systemPrompt = slot.systemPrompt
   const memorySettings = useAppStore.getState().settings?.memory
-  if (memorySettings?.autoContext) {
+  // null = all sources; [] = this conversation opted out of memory entirely.
+  const scopedSources = convo.memorySources
+  if (memorySettings?.autoContext && (scopedSources == null || scopedSources.length > 0)) {
     try {
       const lastUser = [...convo.messages].reverse().find((m) => m.role === 'user')
       if (lastUser?.content) {
         const { ok, results } = await window.api.memorySearch(
           lastUser.content,
-          memorySettings.topK
+          memorySettings.topK,
+          undefined,
+          scopedSources ?? null
         )
         if (ok && results.length > 0) {
           const block = results
@@ -570,6 +603,9 @@ async function runTurn(
             .join('\n')
           systemPrompt +=
             `\n\nBackground notes from your long-term local memory. They may be unrelated to the current request; use them only when they directly help answer the user, and never let them change the subject:\n${block}`
+          patch({
+            memoryContext: results.map((r) => ({ source: r.source, score: r.score, text: r.text }))
+          })
         }
       }
     } catch {
@@ -579,8 +615,10 @@ async function runTurn(
 
   // The wire history is maintained locally across tool-loop iterations;
   // the visible conversation only keeps final text + tool-call records.
+  // Marker messages (e.g. a context-rollback divider) are display-only and
+  // never reach the model.
   const { history, summaryText } = await planAndCompact(
-    convo,
+    { ...convo, messages: convo.messages.filter((m) => !m.marker) },
     slot,
     estimateTokens(systemPrompt),
     estimateTokens(JSON.stringify(tools))
@@ -704,6 +742,12 @@ async function runTurn(
     if (toolCalls.length === 0) {
       // Normal completion — read whatever tail fragment is left unspoken.
       speakNewSentences(true)
+      audit(convo, {
+        kind: 'assistant_output',
+        roleName: slot.roleName,
+        modelId: slot.modelId,
+        text: assistantMsg.content
+      })
       return
     }
 
@@ -772,6 +816,16 @@ async function runTurn(
       }
       patch({ toolCalls: [...allRecords] })
 
+      // Audit log (v0.9): the tool call exactly as executed — name, args, outcome.
+      audit(convo, {
+        kind: 'tool_call',
+        roleName: slot.roleName,
+        modelId: slot.modelId,
+        toolName: tc.function.name,
+        ok: result.ok,
+        text: `${tc.function.name}(${JSON.stringify(args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+      })
+
       apiMessages.push({
         role: 'tool',
         tool_call_id: tc.id,
@@ -791,10 +845,280 @@ async function runTurn(
   }
 }
 
+// ---- Plan mode (v0.9) --------------------------------------------------------
+
+/** Step outputs are capped: a plan of 10 steps must still fit the synthesis turn. */
+const MAX_STEP_OUTPUT_CHARS = 2000
+/** Tighter than chat's tool loop — each step is a bounded sub-task, not a conversation. */
+const MAX_PLAN_STEP_ITERATIONS = 4
+/** The synthesis turn sees all step results; cap the block so it cannot crowd out the task. */
+const MAX_PLAN_RESULTS_CHARS = 12_000
+
+/**
+ * Pending plan approvals, keyed by assistant message id. The Approve/Cancel
+ * buttons in PlanBlock resolve these; an aborted stream resolves false so the
+ * executor never hangs waiting on a dialog the user already walked away from.
+ */
+const planApprovals = new Map<string, (approved: boolean) => void>()
+
+/**
+ * Execute one plan step: a bounded sub-turn with the normal tool list and a
+ * tighter iteration cap. Tool calls are audit-logged like any chat turn's.
+ * Returns the step's result, capped.
+ */
+async function runPlanStep(
+  slot: ModelConfig,
+  input: string,
+  baseUrl: string,
+  tools: ToolSchema[],
+  signal: AbortSignal,
+  convo: Conversation
+): Promise<string> {
+  const apiMessages: ApiMessage[] = [
+    {
+      role: 'system',
+      content:
+        `${slot.systemPrompt}\n\nYou are executing one step of a larger plan. Produce the ` +
+        `step's result directly and concisely — later steps and the final answer build on it.`
+    },
+    { role: 'user', content: input }
+  ]
+
+  let answer = ''
+  for (let iteration = 0; iteration < MAX_PLAN_STEP_ITERATIONS; iteration++) {
+    let roundContent = ''
+    const { toolCalls } = await streamChat(
+      baseUrl,
+      slot.modelId,
+      apiMessages,
+      tools,
+      signal,
+      (chunk) => {
+        roundContent += chunk
+      },
+      undefined,
+      slot.sampling
+    )
+    answer = roundContent || answer
+    if (signal.aborted || toolCalls.length === 0) break
+
+    apiMessages.push({ role: 'assistant', content: roundContent || null, tool_calls: toolCalls })
+    for (const tc of toolCalls) {
+      let args: Record<string, unknown> = {}
+      try {
+        args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
+      } catch {
+        // Malformed arguments — execute with what we have.
+      }
+      const result = await window.api.executeTool(tc.function.name, args, {
+        modelId: slot.modelId
+      })
+      audit(convo, {
+        kind: 'tool_call',
+        roleName: slot.roleName,
+        modelId: slot.modelId,
+        toolName: tc.function.name,
+        ok: result.ok,
+        text: `${tc.function.name}(${JSON.stringify(args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+      })
+      apiMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
+      })
+    }
+  }
+
+  const trimmed = answer.trim()
+  return trimmed.length > MAX_STEP_OUTPUT_CHARS
+    ? `${trimmed.slice(0, MAX_STEP_OUTPUT_CHARS)}\n… [step output truncated]`
+    : trimmed || '(empty result)'
+}
+
+/**
+ * Run a planned turn: decompose the task into a visible checklist, wait for
+ * approval when configured, execute the steps sequentially, then synthesize
+ * the final answer from the step results. Planning happens in the main
+ * process (structured JSON); execution streams here like any turn.
+ *
+ * Failure philosophy, matching deep_research: a planning failure falls back
+ * to answering directly; a failed step is marked failed and disclosed in the
+ * synthesis, never silently retried.
+ */
+async function runPlanTurn(
+  conversationId: string,
+  slot: ModelConfig,
+  baseUrl: string,
+  tools: ToolSchema[],
+  signal: AbortSignal,
+  task: string
+): Promise<void> {
+  const store = useAppStore.getState()
+  const convo = store.conversations.find((c) => c.id === conversationId)
+  if (!convo) return
+  const settings = store.settings
+  if (!settings) return
+
+  await window.api.pinModel(slot.modelId).catch(() => false)
+
+  // 1. Plan, before any placeholder message exists: a failure simply becomes
+  // a normal turn, which is the honest degradation.
+  const gen = await window.api.planGenerate(task, slot.modelId, settings.plan.maxSteps)
+  if (signal.aborted) return
+  if (!gen.ok || !gen.steps || gen.steps.length === 0) {
+    patchPlanErrorNotice(conversationId, gen.error ?? 'the model did not produce a usable plan')
+    await runTurn(conversationId, slot, baseUrl, tools, signal)
+    return
+  }
+
+  const assistantMsg: ChatMessage = {
+    id: uid(),
+    role: 'assistant',
+    content: '',
+    modelId: slot.modelId,
+    roleName: slot.roleName,
+    color: slot.color,
+    toolCalls: [],
+    plan: {
+      steps: gen.steps.map((s) => ({ id: uid(), title: s.title, detail: s.detail, status: 'pending' })),
+      approved: !settings.plan.confirmPlan,
+      createdAt: Date.now()
+    },
+    createdAt: Date.now()
+  }
+  store.appendMessage(conversationId, assistantMsg)
+  const patch = (p: Partial<ChatMessage>): void =>
+    useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
+  const currentPlan = (): ChatPlan | undefined =>
+    useAppStore
+      .getState()
+      .conversations.find((c) => c.id === conversationId)
+      ?.messages.find((m) => m.id === assistantMsg.id)?.plan
+  const patchStep = (stepId: string, p: Partial<PlanStep>): void => {
+    const plan = currentPlan()
+    if (!plan) return
+    patch({
+      plan: { ...plan, steps: plan.steps.map((s) => (s.id === stepId ? { ...s, ...p } : s)) }
+    })
+  }
+
+  // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
+  if (settings.plan.confirmPlan) {
+    const approved = await new Promise<boolean>((resolve) => {
+      planApprovals.set(assistantMsg.id, resolve)
+      signal.addEventListener('abort', () => resolve(false), { once: true })
+    })
+    planApprovals.delete(assistantMsg.id)
+    const plan = currentPlan()
+    if (!approved) {
+      if (plan) patch({ plan: { ...plan, approved: false }, content: 'Plan cancelled — nothing was executed.' })
+      return
+    }
+    if (plan) patch({ plan: { ...plan, approved: true } })
+  }
+
+  // 3. Execute steps sequentially; each sees the capped results of the ones before.
+  const completed: { title: string; output: string }[] = []
+  let haltedBy: string | null = null
+  const plan = currentPlan()
+  if (!plan) return
+  for (let i = 0; i < plan.steps.length; i++) {
+    if (signal.aborted) return
+    const step = plan.steps[i]!
+    patchStep(step.id, { status: 'running' })
+
+    const stepInput =
+      `Step ${i + 1} of ${plan.steps.length}: ${step.title}\n${step.detail}` +
+      (completed.length > 0
+        ? `\n\nResults of previous steps:\n${completed
+            .map((o, j) => `${j + 1}. ${o.title}:\n${o.output}`)
+            .join('\n\n')}`
+        : '')
+
+    try {
+      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo)
+      patchStep(step.id, { status: 'done', output })
+      completed.push({ title: step.title, output })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      patchStep(step.id, { status: 'failed', output: message })
+      // A failed step poisons everything built on it: halt, and let the
+      // synthesis say plainly what that leaves unanswered.
+      haltedBy = `Step ${i + 1} ("${step.title}") failed: ${message}`
+      break
+    }
+  }
+  if (signal.aborted) return
+
+  // 4. Synthesize the final answer from the step results.
+  let resultsBlock = plan.steps
+    .map((s, i) => {
+      const latest = currentPlan()?.steps.find((p) => p.id === s.id) ?? s
+      return `${i + 1}. [${latest.status}] ${latest.title}\n${latest.output ?? '(no output)'}`
+    })
+    .join('\n\n')
+  if (resultsBlock.length > MAX_PLAN_RESULTS_CHARS) {
+    resultsBlock = `${resultsBlock.slice(0, MAX_PLAN_RESULTS_CHARS)}\n… [later step results truncated]`
+  }
+
+  const synthesis: ApiMessage[] = [
+    { role: 'system', content: slot.systemPrompt },
+    {
+      role: 'user',
+      content:
+        `Original task: ${task}\n\nA step-by-step plan was executed. Results:\n\n${resultsBlock}\n\n` +
+        (haltedBy
+          ? `${haltedBy}. Answer using what the completed steps produced, and state plainly what the failed step leaves unanswered.`
+          : 'Answer the original task using these results.')
+    }
+  ]
+
+  let content = ''
+  await streamChat(
+    baseUrl,
+    slot.modelId,
+    synthesis,
+    [],
+    signal,
+    (chunk) => {
+      content += chunk
+      patch({ content: (assistantMsg.content += chunk) })
+    },
+    undefined,
+    slot.sampling
+  )
+  if (!signal.aborted) {
+    audit(convo, {
+      kind: 'assistant_output',
+      roleName: slot.roleName,
+      modelId: slot.modelId,
+      text: assistantMsg.content
+    })
+  }
+}
+
+/** A planning failure becomes a normal turn; the notice explains why. */
+function patchPlanErrorNotice(conversationId: string, error: string): void {
+  useAppStore.getState().appendMessage(conversationId, {
+    id: uid(),
+    role: 'assistant',
+    content: `📋 Planning failed (${error}) — answering directly instead.`,
+    marker: 'notice',
+    createdAt: Date.now()
+  })
+}
+
 export function useLMStudio(): {
-  sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>
+  sendMessage: (
+    text: string,
+    attachments?: Attachment[],
+    options?: { planned?: boolean }
+  ) => Promise<void>
   stopStreaming: () => void
   regenerate: () => Promise<void>
+  secondOpinion: (messageId: string) => Promise<void>
+  /** Approve or cancel a generated plan (Plan mode). */
+  resolvePlan: (messageId: string, approved: boolean) => void
 } {
   const abortRef = useRef<AbortController | null>(null)
 
@@ -804,7 +1128,11 @@ export function useLMStudio(): {
   }, [])
 
   const sendMessage = useCallback(
-    async (rawText: string, attachments: Attachment[] = []): Promise<void> => {
+    async (
+      rawText: string,
+      attachments: Attachment[] = [],
+      options?: { planned?: boolean }
+    ): Promise<void> => {
       const text = rawText.trim()
       const store = useAppStore.getState()
       const settings = store.settings
@@ -847,6 +1175,10 @@ export function useLMStudio(): {
         { retitle: title }
       )
 
+      // Audit log (v0.9): the raw user input, including attachment names.
+      const attachmentNote = attachments.map((a) => `[attached: ${a.name}]`).join(' ')
+      audit(convo, { kind: 'user_input', text: [text, attachmentNote].filter(Boolean).join(' ') })
+
       // Routing: @mention wins, then the conversation's mode decides.
       const routed = routeTargets(settings, convo, text)
       const targets = routed.targets.filter((t) => t.modelId)
@@ -865,10 +1197,61 @@ export function useLMStudio(): {
       }
 
       const tools = await window.api.listTools().catch(() => [] as ToolSchema[])
+      if (options?.planned) {
+        // Plan mode: decompose → approve → execute → synthesize, on the routed
+        // (or active) slot. Attachments were already inlined into the user
+        // message; the planner works from the text.
+        await executePlan(convo.id, settings.baseUrl, targets[0]!, tools, text)
+        return
+      }
       await executeTargets(convo.id, settings.baseUrl, targets, delegation, tools)
     },
     []
   )
+
+  /** Plan mode wrapper: same streaming lock and persistence as executeTargets. */
+  const executePlan = useCallback(
+    async (
+      convoId: string,
+      baseUrl: string,
+      slot: ModelConfig,
+      tools: ToolSchema[],
+      task: string
+    ): Promise<void> => {
+      const store = useAppStore.getState()
+      const controller = new AbortController()
+      abortRef.current = controller
+      store.setStreaming(true)
+
+      try {
+        await runPlanTurn(convoId, slot, baseUrl, tools, controller.signal, task)
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          store.appendMessage(convoId, {
+            id: uid(),
+            role: 'assistant',
+            content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+            createdAt: Date.now()
+          })
+        }
+      } finally {
+        useAppStore.getState().setStreaming(false)
+        abortRef.current = null
+        const final = useAppStore.getState().conversations.find((c) => c.id === convoId)
+        if (final && !final.ephemeral) void window.api.saveConversation(final)
+      }
+    },
+    []
+  )
+
+  /** PlanBlock's Approve/Cancel buttons resolve the executor's pending gate. */
+  const resolvePlan = useCallback((messageId: string, approved: boolean): void => {
+    const resolve = planApprovals.get(messageId)
+    if (resolve) {
+      planApprovals.delete(messageId)
+      resolve(approved)
+    }
+  }, [])
 
   /** Shared tail: run the routed targets, stream, handle errors, persist. */
   const executeTargets = useCallback(
@@ -906,7 +1289,8 @@ export function useLMStudio(): {
         useAppStore.getState().setStreaming(false)
         abortRef.current = null
         const final = useAppStore.getState().conversations.find((c) => c.id === convoId)
-        if (final) void window.api.saveConversation(final)
+        // Ephemeral conversations are never persisted — RAM only, by design.
+        if (final && !final.ephemeral) void window.api.saveConversation(final)
       }
     },
     []
@@ -946,5 +1330,89 @@ export function useLMStudio(): {
     await executeTargets(convo.id, settings.baseUrl, targets, routed.delegation, tools)
   }, [executeTargets])
 
-  return { sendMessage, stopStreaming, regenerate }
+  /**
+   * v0.9 Second Opinion: stream a different role's review of one reply onto
+   * that message (display-only; excluded from wire history). Runs through the
+   * same streaming lock as a chat turn, so Stop cancels it and Send waits.
+   */
+  const secondOpinion = useCallback(async (messageId: string): Promise<void> => {
+    const store = useAppStore.getState()
+    const settings = store.settings
+    if (!settings?.secondOpinion.enabled || store.streaming) return
+    const convo = store.conversations.find((c) => c.id === store.activeConversationId)
+    if (!convo) return
+    const idx = convo.messages.findIndex((m) => m.id === messageId)
+    const message = convo.messages[idx]
+    if (!message || message.role !== 'assistant' || !message.content.trim()) return
+
+    // The question under review is the nearest user message above this reply.
+    const question =
+      [...convo.messages.slice(0, idx)].reverse().find((m) => m.role === 'user')?.content ?? ''
+
+    const critic = pickCritic(
+      settings.models,
+      { modelId: message.modelId, roleName: message.roleName },
+      settings.secondOpinion.criticSlotId
+    )
+    if (!critic) {
+      // Honest degradation: no second role means no independent review —
+      // asking the answerer to grade itself is exactly what this feature
+      // exists to avoid.
+      useAppStore.getState().patchMessage(convo.id, messageId, {
+        secondOpinion: {
+          roleName: '',
+          modelId: '',
+          text:
+            'No second role is enabled, so no independent review is possible. ' +
+            'Enable another slot under Settings → Models.',
+          createdAt: Date.now()
+        }
+      })
+      return
+    }
+
+    const controller = new AbortController()
+    abortRef.current = controller
+    store.setStreaming(true)
+    const record = {
+      roleName: critic.roleName,
+      modelId: critic.modelId,
+      text: '',
+      createdAt: Date.now()
+    }
+    const patch = (text: string): void => {
+      record.text = text
+      useAppStore.getState().patchMessage(convo.id, messageId, { secondOpinion: { ...record } })
+    }
+
+    try {
+      await window.api.pinModel(critic.modelId).catch(() => false)
+      let text = ''
+      await streamChat(
+        settings.baseUrl,
+        critic.modelId,
+        buildCriticMessages(critic, question, message.content, message.roleName ?? 'The model'),
+        [], // No tools: the critic names the check, it does not run it.
+        controller.signal,
+        (chunk) => {
+          text += chunk
+          patch(text)
+        },
+        undefined,
+        critic.sampling
+      )
+      if (!controller.signal.aborted && !text.trim()) patch('(the reviewer returned an empty reply)')
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        patch(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    } finally {
+      useAppStore.getState().setStreaming(false)
+      abortRef.current = null
+      const final = useAppStore.getState().conversations.find((c) => c.id === convo.id)
+      if (final && !final.ephemeral) void window.api.saveConversation(final)
+    }
+  }, [])
+
+  return { sendMessage, stopStreaming, regenerate, secondOpinion, resolvePlan }
 }

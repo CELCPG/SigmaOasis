@@ -62,15 +62,26 @@ export function Sidebar(): JSX.Element {
           <span className="text-[15px] font-semibold tracking-[-0.3px]">Sigma Oasis</span>
           <span className="text-[10px] text-neutral-400 dark:text-white/35">Private AI — you own your data</span>
         </div>
-        <button
-          type="button"
-          onClick={createConversation}
-          disabled={streaming}
-          className="ml-auto rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-xs text-accent-glow shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
-          title="New conversation (⌘N)"
-        >
-          + New
-        </button>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => createConversation({ ephemeral: true })}
+            disabled={streaming}
+            className="rounded-2xl border border-violet-400/30 bg-violet-400/10 px-2 py-1 text-xs text-violet-500 dark:text-violet-400 hover:bg-violet-400/20 disabled:opacity-50"
+            title="New ephemeral chat — nothing is written to disk; gone when you close it or quit"
+          >
+            ◌
+          </button>
+          <button
+            type="button"
+            onClick={() => createConversation()}
+            disabled={streaming}
+            className="rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-xs text-accent-glow shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
+            title="New conversation (⌘N)"
+          >
+            + New
+          </button>
+        </div>
       </div>
 
       {conversations.length > 0 && (
@@ -131,6 +142,14 @@ export function Sidebar(): JSX.Element {
                   {c.title}
                   {c.mode === 'collaborative' && (
                     <span className="ml-1.5 text-xs text-neutral-400">⛓</span>
+                  )}
+                  {c.ephemeral && (
+                    <span
+                      className="ml-1.5 text-xs text-violet-500 dark:text-violet-400"
+                      title="Ephemeral — never written to disk"
+                    >
+                      ◌
+                    </span>
                   )}
                 </button>
               )}

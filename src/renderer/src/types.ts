@@ -150,6 +150,96 @@ export interface MemorySearchResult {
   score: number
 }
 
+// ---- v0.9: Second opinion (critic pass) -------------------------------------
+
+/** A different role's review of an assistant reply. Display-only. */
+export interface SecondOpinionRecord {
+  roleName: string
+  modelId: string
+  text: string
+  createdAt: number
+}
+
+export interface SecondOpinionSettings {
+  /** Master switch for the critic pass. Off by default. */
+  enabled: boolean
+  /** Reviewing slot; null = auto (first enabled slot that is not the answerer). */
+  criticSlotId: string | null
+}
+
+// ---- v0.9: visible memory recall ---------------------------------------------
+
+/** A long-term memory chunk injected into the system prompt for one turn. */
+export interface MemoryContextItem {
+  source: string
+  score: number
+  text: string
+}
+
+// ---- v0.9: session audit log ---------------------------------------------------
+
+export interface AuditSettings {
+  /** Append-only session transcript. Off by default — a privacy app does not log by default. */
+  enabled: boolean
+  /** Delete every audit log when the app quits. */
+  autoPurgeOnQuit: boolean
+}
+
+export interface AuditSessionInfo {
+  sessionId: string
+  entries: number
+  sizeBytes: number
+}
+
+export interface AuditStatus {
+  /** safeStorage encryption is available; the log cannot run without it. */
+  available: boolean
+  enabled: boolean
+  currentSessionId: string
+  sessions: AuditSessionInfo[]
+}
+
+export type AuditEntryKind = 'session_start' | 'user_input' | 'assistant_output' | 'tool_call'
+
+export interface AuditEntryInput {
+  conversationId: string
+  kind: AuditEntryKind
+  roleName?: string
+  modelId?: string
+  toolName?: string
+  ok?: boolean
+  text: string
+  /** Entries for ephemeral conversations are refused — no-trace includes the log. */
+  ephemeral?: boolean
+}
+
+// ---- v0.9: Plan mode ------------------------------------------------------------
+
+export type PlanStepStatus = 'pending' | 'running' | 'done' | 'failed'
+
+export interface PlanStep {
+  id: string
+  title: string
+  detail: string
+  status: PlanStepStatus
+  /** Capped result of the step's sub-turn, shown expandable in the checklist. */
+  output?: string
+}
+
+export interface ChatPlan {
+  steps: PlanStep[]
+  /** Execution starts only after the user approves (Settings → General → Plan mode). */
+  approved: boolean
+  createdAt: number
+}
+
+export interface PlanSettings {
+  /** Max steps a generated plan may contain (1–10). */
+  maxSteps: number
+  /** Show the plan for approval before executing. On by default. */
+  confirmPlan: boolean
+}
+
 /**
  * Live size of the ephemeral research index — web pages fetched this session,
  * chunked and embedded in RAM for relevance ranking. Never written to disk and
@@ -194,6 +284,12 @@ export interface AppSettings {
    * silently drops it, which is what every version before 0.8.2 did.
    */
   contextManagement: 'compact' | 'trim'
+  /** v0.9: a second role reviews replies on request (Settings → Models). */
+  secondOpinion: SecondOpinionSettings
+  /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
+  audit: AuditSettings
+  /** v0.9: multi-step plan generation and execution. */
+  plan: PlanSettings
 }
 
 // ---- LM Studio / OpenAI-compatible API --------------------------------------
@@ -292,6 +388,23 @@ export interface ChatMessage {
   reasoningMs?: number
   /** Measured generation performance. Token counts only when the server reported them. */
   stats?: ResponseStats
+  /**
+   * A different role's review of this reply (v0.9 Second Opinion). Display-only —
+   * never replayed to a model as part of the conversation.
+   */
+  secondOpinion?: SecondOpinionRecord
+  /**
+   * The long-term memory chunks injected into the system prompt for this turn
+   * (v0.9 visible recall). Display-only — never replayed to a model.
+   */
+  memoryContext?: MemoryContextItem[]
+  /**
+   * An in-chat divider rather than a model-visible message (v0.9: context
+   * rollback, plan-mode notices). Filtered out of the wire history.
+   */
+  marker?: 'rollback' | 'notice'
+  /** A multi-step plan executed on this message (v0.9 Plan mode). */
+  plan?: ChatPlan
   createdAt: number
 }
 
@@ -327,6 +440,17 @@ export interface Conversation {
    * whose opening it can no longer see.
    */
   summary?: ConversationSummary
+  /**
+   * v0.9: an ephemeral conversation lives only in RAM — never written to
+   * `conversations/<id>.json`, gone on quit. The main process refuses to
+   * persist it (structural, not just renderer habit).
+   */
+  ephemeral?: boolean
+  /**
+   * v0.9: which long-term memory sources this conversation may recall from.
+   * `null`/absent = all sources (the pre-0.9 behavior); `[]` = none.
+   */
+  memorySources?: string[] | null
   createdAt: number
   updatedAt: number
 }

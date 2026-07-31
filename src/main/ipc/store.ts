@@ -126,6 +126,27 @@ export interface MemorySettings {
   embeddingModel: string
 }
 
+export interface SecondOpinionSettings {
+  /** Master switch for the critic pass. Off by default. */
+  enabled: boolean
+  /** Reviewing slot; null = auto (first enabled slot that is not the answerer). */
+  criticSlotId: string | null
+}
+
+export interface AuditSettings {
+  /** Append-only session transcript. Off by default — a privacy app does not log by default. */
+  enabled: boolean
+  /** Delete every audit log when the app quits. */
+  autoPurgeOnQuit: boolean
+}
+
+export interface PlanSettings {
+  /** Max steps a generated plan may contain (1–10). */
+  maxSteps: number
+  /** Show the plan for approval before executing. On by default. */
+  confirmPlan: boolean
+}
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -159,6 +180,12 @@ export interface AppSettings {
    * silently drops it, which is what every version before 0.8.2 did.
    */
   contextManagement: 'compact' | 'trim'
+  /** v0.9: a second role reviews replies on request (Settings → Models). */
+  secondOpinion: SecondOpinionSettings
+  /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
+  audit: AuditSettings
+  /** v0.9: multi-step plan generation and execution. */
+  plan: PlanSettings
 }
 
 export function defaultSampling(): SamplingSettings {
@@ -284,7 +311,19 @@ function defaultSettings(): AppSettings {
     hideToolCalls: false,
     reasoningDisplay: 'collapsed',
     showResponseStats: true,
-    contextManagement: 'compact'
+    contextManagement: 'compact',
+    secondOpinion: {
+      enabled: false,
+      criticSlotId: null
+    },
+    audit: {
+      enabled: false,
+      autoPurgeOnQuit: false
+    },
+    plan: {
+      maxSteps: 6,
+      confirmPlan: true
+    }
   }
 }
 
@@ -431,7 +470,23 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       ? (settings.reasoningDisplay as AppSettings['reasoningDisplay'])
       : 'collapsed',
     showResponseStats: settings.showResponseStats !== false,
-    contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact'
+    contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact',
+    secondOpinion: {
+      enabled: Boolean(settings.secondOpinion?.enabled),
+      criticSlotId:
+        typeof settings.secondOpinion?.criticSlotId === 'string' &&
+        models.some((m) => m.id === settings.secondOpinion?.criticSlotId)
+          ? settings.secondOpinion.criticSlotId
+          : null
+    },
+    audit: {
+      enabled: Boolean(settings.audit?.enabled),
+      autoPurgeOnQuit: Boolean(settings.audit?.autoPurgeOnQuit)
+    },
+    plan: {
+      maxSteps: clamp(settings.plan?.maxSteps, 1, 10, defaults.plan.maxSteps),
+      confirmPlan: settings.plan?.confirmPlan !== false
+    }
   }
 }
 
@@ -452,7 +507,10 @@ export function migrateSettings(): void {
     search: { ...defaults.search, ...current.search },
     research: { ...defaults.research, ...current.research },
     proxy: { ...defaults.proxy, ...current.proxy },
-    updates: { ...defaults.updates, ...current.updates }
+    updates: { ...defaults.updates, ...current.updates },
+    secondOpinion: { ...defaults.secondOpinion, ...current.secondOpinion },
+    audit: { ...defaults.audit, ...current.audit },
+    plan: { ...defaults.plan, ...current.plan }
   } as AppSettings
   store.set('settings', normalizeSettings(merged))
 }
@@ -626,10 +684,17 @@ export function registerStoreHandlers(): void {
         // ignore corrupt file
       }
     }
-    return convos
+    // An ephemeral conversation must never come back from disk. If one somehow
+    // landed there (a pre-guard build, a hand-copied file), it is dropped from
+    // the list rather than resurrected as a normal conversation.
+    return convos.filter((c) => !(c as { ephemeral?: boolean })?.ephemeral)
   })
 
-  ipcMain.handle('conversations:save', async (_e, convo: { id: string }) => {
+  ipcMain.handle('conversations:save', async (_e, convo: { id: string; ephemeral?: boolean }) => {
+    // Structural no-trace guarantee: an ephemeral conversation is never
+    // written, regardless of what the renderer asks. This is the boundary
+    // that must hold even if the renderer regresses.
+    if (convo?.ephemeral) return false
     const file = conversationFile(String(convo?.id ?? ''))
     if (!file) return false
     await ensureDir(conversationsDir())

@@ -19,6 +19,7 @@ export function InputBar(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [micState, setMicState] = useState<MicState>('idle')
+  const [planned, setPlanned] = useState(false)
   const [recSeconds, setRecSeconds] = useState(0)
   const [recLevel, setRecLevel] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -236,7 +237,7 @@ export function InputBar(): JSX.Element {
     setAttachments([])
     setNotice(null)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    void sendMessage(value, attachments)
+    void sendMessage(value, attachments, planned ? { planned: true } : undefined)
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -341,6 +342,23 @@ export function InputBar(): JSX.Element {
                 : micState === 'transcribing'
                   ? '⏳'
                   : '🎙️'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPlanned((p) => !p)}
+              disabled={streaming}
+              className={`flex h-10 shrink-0 items-center justify-center rounded-full border text-sm transition-colors disabled:opacity-40 ${
+                planned
+                  ? 'border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-accent-glow'
+                  : 'w-10 border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-neutral-500 hover:bg-black/10 dark:hover:bg-white/10'
+              }`}
+              title={
+                planned
+                  ? 'Plan mode on — your message becomes a step-by-step plan you approve before it runs'
+                  : 'Plan mode — break the task into steps, approve, then execute (Settings → General)'
+              }
+            >
+              {planned ? '📋 Plan' : '📋'}
             </button>
             <textarea
               ref={textareaRef}

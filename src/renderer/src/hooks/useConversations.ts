@@ -6,17 +6,26 @@ function byUpdatedAtDesc(a: Conversation, b: Conversation): number {
   return b.updatedAt - a.updatedAt
 }
 
+function uid(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
 /**
  * Conversation persistence: loads saved conversations from disk on startup,
  * and creates / selects / deletes them. Saving after a chat turn is handled
  * by useLMStudio; this hook also enforces settings.historyLimit on load.
+ *
+ * v0.9: conversations can be ephemeral (RAM-only). The main process refuses
+ * to persist them, so every save/delete call here skips them too — two
+ * layers, because the no-trace promise should survive a renderer regression.
  */
 export function useConversations(): {
   load: () => Promise<void>
-  createConversation: () => void
+  createConversation: (options?: { ephemeral?: boolean }) => void
   selectConversation: (id: string) => void
   removeConversation: (id: string) => Promise<void>
   renameConversation: (id: string, title: string) => Promise<void>
+  rollbackContext: (id: string) => Promise<void>
 } {
   const load = useCallback(async (): Promise<void> => {
     const store = useAppStore.getState()
@@ -39,14 +48,15 @@ export function useConversations(): {
     }
   }, [])
 
-  const createConversation = useCallback((): void => {
+  const createConversation = useCallback((options?: { ephemeral?: boolean }): void => {
     const store = useAppStore.getState()
     const convo: Conversation = {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
-      title: 'New conversation',
+      title: options?.ephemeral ? 'Ephemeral chat' : 'New conversation',
       mode: 'independent',
       activeModelSlotId: store.settings?.models.find((m) => m.enabled)?.id,
       messages: [],
+      ...(options?.ephemeral ? { ephemeral: true } : {}),
       createdAt: Date.now(),
       updatedAt: Date.now()
     }
@@ -59,8 +69,10 @@ export function useConversations(): {
   }, [])
 
   const removeConversation = useCallback(async (id: string): Promise<void> => {
+    const convo = useAppStore.getState().conversations.find((c) => c.id === id)
     useAppStore.getState().removeConversation(id)
-    await window.api.deleteConversation(id).catch(() => undefined)
+    // Ephemeral conversations never touched disk — there is no file to delete.
+    if (!convo?.ephemeral) await window.api.deleteConversation(id).catch(() => undefined)
   }, [])
 
   const renameConversation = useCallback(async (id: string, title: string): Promise<void> => {
@@ -71,8 +83,48 @@ export function useConversations(): {
     if (!convo || convo.title === trimmed) return
     const updated = { ...convo, title: trimmed }
     store.upsertConversation(updated)
-    await window.api.saveConversation(updated).catch(() => undefined)
+    if (!convo.ephemeral) await window.api.saveConversation(updated).catch(() => undefined)
   }, [])
 
-  return { load, createConversation, selectConversation, removeConversation, renameConversation }
+  /**
+   * v0.9 context rollback: forget everything the model remembers that the user
+   * cannot see — the compaction summary and the RAM research index — while
+   * leaving the visible messages, notes and long-term memory untouched. A
+   * marker message records the rollback in chat (it is display-only and never
+   * reaches the wire history).
+   */
+  const rollbackContext = useCallback(async (id: string): Promise<void> => {
+    const store = useAppStore.getState()
+    const convo = store.conversations.find((c) => c.id === id)
+    if (!convo) return
+
+    const dropped: string[] = []
+    if (convo.summary) dropped.push('the summary of earlier messages')
+    let cleared = { pages: 0 }
+    try {
+      cleared = await window.api.clearResearchIndex()
+    } catch {
+      // A failed clear still rolls back the summary; say what happened.
+    }
+    if (cleared.pages > 0) {
+      dropped.push(`${cleared.pages} fetched page${cleared.pages === 1 ? '' : 's'} held in memory`)
+    }
+
+    const next: Conversation = { ...convo, summary: undefined }
+    store.upsertConversation(next)
+    store.appendMessage(id, {
+      id: uid(),
+      role: 'assistant',
+      content:
+        dropped.length > 0
+          ? `⏪ Context rolled back — the model no longer sees ${dropped.join(' or ')}. Visible messages above are unchanged; notes and long-term memory were not touched.`
+          : '⏪ Context rolled back — there was no summary or fetched page in memory to drop. Visible messages are unchanged.',
+      marker: 'rollback',
+      createdAt: Date.now()
+    })
+    const final = useAppStore.getState().conversations.find((c) => c.id === id)
+    if (final && !final.ephemeral) void window.api.saveConversation(final)
+  }, [])
+
+  return { load, createConversation, selectConversation, removeConversation, renameConversation, rollbackContext }
 }

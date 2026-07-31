@@ -62,6 +62,15 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
 
   return (
     <div className="flex-1 overflow-y-auto py-4">
+      {conversation.ephemeral && (
+        <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-2xl border border-violet-400/25 bg-violet-400/10 px-4 py-2 text-[11px] text-violet-600 dark:text-violet-300">
+          <span>◌</span>
+          <span>
+            Ephemeral chat — nothing here is written to disk, and it disappears when you close it or
+            quit. Notes or memories you explicitly save are still saved.
+          </span>
+        </div>
+      )}
       {conversation.messages.map((m, idx) => (
         <MessageBubble
           key={m.id}

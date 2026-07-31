@@ -96,6 +96,8 @@ export interface HarnessState {
   dnsOverrides: Record<string, { address: string; family: number }[]>
   /** Hostnames that fail to resolve at all. */
   dnsFailures: string[]
+  /** Whether the safeStorage stub reports an OS keychain (audit log gating). */
+  encryptionAvailable: boolean
 }
 
 export const state: HarnessState = {
@@ -123,7 +125,8 @@ export const state: HarnessState = {
   catalogUnavailable: false,
   catalogModels: null,
   dnsOverrides: {},
-  dnsFailures: []
+  dnsFailures: [],
+  encryptionAvailable: true
 }
 
 export function resetState(): void {
@@ -152,6 +155,7 @@ export function resetState(): void {
   state.catalogModels = null
   state.dnsOverrides = {}
   state.dnsFailures = []
+  state.encryptionAvailable = true
 }
 
 function defaultSettings(): Record<string, unknown> {
@@ -167,7 +171,10 @@ function defaultSettings(): Record<string, unknown> {
       useHeadlessRenderer: false
     },
     research: { depth: 'standard', confirmPlan: false },
-    proxy: { mode: 'none', host: '127.0.0.1', port: 9050 }
+    proxy: { mode: 'none', host: '127.0.0.1', port: 9050 },
+    audit: { enabled: false, autoPurgeOnQuit: false },
+    plan: { maxSteps: 6, confirmPlan: true },
+    secondOpinion: { enabled: false, criticSlotId: null }
   }
 }
 
@@ -368,8 +375,26 @@ export function testUserDataDir(): string {
 }
 
 const electronStub = {
-  app: { getPath: () => TEST_USER_DATA_DIR },
-  ipcMain: { handle: () => undefined }
+  app: {
+    getPath: () => TEST_USER_DATA_DIR,
+    getVersion: () => '0.9.0-test'
+  },
+  ipcMain: { handle: () => undefined },
+  // Deterministic stand-in for the OS keychain: a reversible, prefixed encoding,
+  // so tests can assert that what lands on disk is not plaintext and that
+  // decrypt rejects anything not written by the stub.
+  safeStorage: {
+    isEncryptionAvailable: () => state.encryptionAvailable,
+    encryptString: (s: string) => Buffer.from(`enc:${Buffer.from(s, 'utf-8').toString('base64')}`),
+    decryptString: (b: Buffer) => {
+      const s = b.toString('utf-8')
+      if (!s.startsWith('enc:')) throw new Error('safeStorage stub: cannot decrypt')
+      return Buffer.from(s.slice(4), 'base64').toString('utf-8')
+    }
+  },
+  // Only reached by the audit export handler, which tests do not invoke.
+  dialog: {},
+  BrowserWindow: { fromWebContents: () => null }
 }
 
 /** `Module._load` is internal, so it is not in @types/node. */

@@ -133,7 +133,7 @@ export const useAppStore = create<AppState>((set) => ({
         // message — that interleaving was the first-turn ghost bug, where a
         // new conversation's opening message never reached the model.
         const retitle =
-          options?.retitle && c.title === 'New conversation'
+          options?.retitle && (c.title === 'New conversation' || c.title === 'Ephemeral chat')
             ? { title: options.retitle }
             : {}
         return { ...c, ...retitle, updatedAt: Date.now(), messages: [...c.messages, message] }
