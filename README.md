@@ -40,7 +40,25 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Agentic tools** via OpenAI tool-calling: file read/write, directory listing, terminal (with a confirmation dialog), web search, date/time, and a local notes store.
 - **Polished chat UI.** Streaming tokens, markdown rendering, syntax-highlighted code blocks with a Copy button, collapsible tool-call blocks, and per-message role badges.
 - **Local persistence.** Settings via `electron-store`; conversations and notes as JSON in your OS app-data directory.
-- **Dark mode by default**, with a light theme, adjustable font size, and configurable history limit.
+- **Light and dark themes** — light is the default since 1.0 — with adjustable font size and configurable history limit.
+
+---
+
+## 📥 Install
+
+**macOS (Homebrew — easiest):**
+
+```bash
+brew tap CELCPG/tap
+brew trust celcpg/tap   # Homebrew 6+ asks once before running third-party casks
+brew install --cask sigma-oasis
+```
+
+Signed and notarized for both Apple Silicon and Intel; the app updates itself from then on.
+
+**Direct download:** grab the installer for your platform from
+[Releases](https://github.com/CELCPG/SigmaOasis/releases) — macOS `.dmg` (arm64 + x64), Windows `.exe`
+installer (unsigned, so expect a SmartScreen prompt: *More info → Run anyway*), or Linux `.AppImage`.
 
 ---
 
