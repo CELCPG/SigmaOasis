@@ -152,3 +152,53 @@ jobs:
         run: npx electron-builder --linux --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  homebrew:
+    name: Homebrew cask bump
+    # After the signed DMGs land on the release: refresh the tap's version and
+    # checksums so `brew install --cask sigma-oasis` tracks every tag.
+    needs: macos
+    runs-on: ubuntu-latest
+    steps:
+      # GITHUB_TOKEN cannot push outside this repo; HOMEBREW_TAP_TOKEN is a PAT
+      # with write access to CELCPG/homebrew-tap (see RELEASING.md).
+      - uses: actions/checkout@v4
+        with:
+          repository: CELCPG/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update cask version and checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          CASK=Casks/sigma-oasis.rb
+          # Auth header: at this point the release is still a draft, and draft
+          # asset URLs 404 without it. The checksums match the exact DMGs
+          # users later download once the release is published.
+          for pair in "arm arm64" "intel x64"; do
+            read -r key arch <<< "$pair"
+            sha=$(curl -sfL -H "Authorization: Bearer $GH_TOKEN" \
+              "https://github.com/CELCPG/SigmaOasis/releases/download/${GITHUB_REF_NAME}/Sigma-Oasis-${VERSION}-mac-${arch}.dmg" \
+              | shasum -a 256 | cut -d' ' -f1)
+            if ! [[ "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::Could not checksum the $arch DMG for $VERSION"
+              exit 1
+            fi
+            sed -i -E "s|(${key}: +)\"[0-9a-f]{64}\"|\1\"${sha}\"|" "$CASK"
+          done
+          sed -i -E "s|^  version \".*\"|  version \"${VERSION}\"|" "$CASK"
+          grep -E "version |arm:|intel:" "$CASK"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/sigma-oasis.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date — nothing to push."
+          else
+            git commit -m "sigma-oasis ${GITHUB_REF_NAME#v}"
+            git push
+          fi

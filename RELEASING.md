@@ -81,6 +81,7 @@ Go to https://github.com/CELCPG/SigmaOasis/settings/secrets/actions and add
 | `APPLE_ID` | The Apple ID email enrolled in the Developer Program |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Generate at https://appleid.apple.com → Sign-In and Security → App-Specific Passwords |
 | `APPLE_TEAM_ID` | Your 10-character Team ID, from https://developer.apple.com/account → Membership details |
+| `HOMEBREW_TAP_TOKEN` | A PAT with write access to `CELCPG/homebrew-tap`, so the release workflow can bump the cask (`GITHUB_TOKEN` cannot push outside this repo) |
 
 These names are exactly what `.github/workflows/release.yml` reads. Without
 them the macOS job fails at signing on purpose — an unsigned build is never
@@ -103,19 +104,27 @@ Then watch the run:
 gh run watch
 ```
 
-The `Release` workflow runs two jobs:
+The `Release` workflow runs four jobs:
 
-- **macOS (signed & notarized)** — typecheck → bundle → build both DMGs →
-  sign → notarize → staple → attach to the GitHub Release. Notarization is
-  the slow part; expect 5–15 minutes.
+- **macOS (signed & notarized)** — typecheck → test suite → bundle → build both
+  DMGs → sign → notarize → staple → attach to the GitHub Release. Notarization
+  is the slow part; expect 5–15 minutes.
 - **Windows** — builds the unsigned NSIS installer and attaches it.
+- **Linux** — builds the AppImage and attaches it.
+- **Homebrew cask bump** — after the DMGs upload, updates version + SHA-256s in
+  `CELCPG/homebrew-tap` and pushes, so `brew install --cask sigma-oasis` tracks
+  every tag. Needs the `HOMEBREW_TAP_TOKEN` secret.
 
-When it finishes, verify the release page shows:
+When it finishes, publish the draft release and verify the page shows:
 
-- `Sigma Oasis-0.5.0-mac-arm64.dmg`
-- `Sigma Oasis-0.5.0-mac-x64.dmg`
-- `Sigma Oasis-0.5.0-setup.exe`
-- `latest-mac.yml` / `latest.yml` (auto-update metadata)
+- `Sigma Oasis-1.0.0-mac-arm64.dmg`
+- `Sigma Oasis-1.0.0-mac-x64.dmg`
+- `Sigma Oasis-1.0.0-setup.exe`
+- `Sigma Oasis-1.0.0-linux.AppImage`
+- `latest-mac.yml` / `latest.yml` / `latest-linux.yml` (auto-update metadata)
+
+The cask bump happens while the release is still a draft, so publish promptly —
+until you do, the tap points at a version whose downloads 404.
 
 ## 7. Spot-check the signed DMG (recommended, first release only)
 
