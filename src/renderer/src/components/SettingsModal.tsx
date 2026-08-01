@@ -502,7 +502,8 @@ export function SettingsModal(): JSX.Element | null {
                     reviews the answer and names the factual claims it could not verify, plus the
                     check that would settle each. Never a confidence score — a model grading its
                     own answer says &quot;yes&quot; nearly always, so the reviewer is always another
-                    slot.
+                    slot. When enabled, the review also runs automatically on factual-looking
+                    answers that consulted no web source (marked ⚠️ unverified).
                   </p>
                   <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
                     <input

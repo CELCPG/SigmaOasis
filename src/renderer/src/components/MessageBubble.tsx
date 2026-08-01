@@ -281,6 +281,16 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
           <MemoryContextLine items={message.memoryContext} />
         )}
 
+        {!isStreaming && message.unverified && (
+          <div
+            className="mt-2 text-[11px] text-amber-600 dark:text-amber-400"
+            title="This looked like a factual question, but no web source was consulted — the answer comes entirely from the model's memory, which can invent plausible-sounding names, dates, and numbers."
+          >
+            ⚠️ Answered from model memory — no sources consulted. Treat names, dates, and
+            numbers as unverified.
+          </div>
+        )}
+
         {message.secondOpinion && (
           <SecondOpinionBlock opinion={message.secondOpinion} isStreaming={streaming && isLast} />
         )}

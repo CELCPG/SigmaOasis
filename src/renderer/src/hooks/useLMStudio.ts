@@ -11,6 +11,13 @@ import {
 } from '../lib/contextBudget'
 import { budgetContextLength } from '../lib/modelInfo'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
+import {
+  buildSearchContext,
+  buildSearchQuery,
+  consultedSources,
+  looksFactual,
+  withGrounding
+} from '../lib/grounding'
 import type {
   AppSettings,
   Attachment,
@@ -21,6 +28,7 @@ import type {
   PlanStep,
   ResponseStats,
   SamplingSettings,
+  SecondOpinionRecord,
   ToolCallRecord,
   ToolSchema
 } from '../types'
@@ -476,7 +484,7 @@ async function runConsultation(
   // would otherwise let LM Studio's auto-evict unload this model mid-turn.
   await window.api.pinModel(specialist.modelId).catch(() => false)
 
-  let systemPrompt = specialist.systemPrompt
+  let systemPrompt = withGrounding(specialist.systemPrompt)
   try {
     const memory = useAppStore.getState().settings?.memory
     if (memory?.autoContext) {
@@ -540,6 +548,68 @@ async function runConsultation(
   return trimmed.length > MAX_CONSULT_REPLY_CHARS
     ? `${trimmed.slice(0, MAX_CONSULT_REPLY_CHARS)}\n… [specialist reply truncated]`
     : trimmed || '(the specialist returned an empty reply)'
+}
+
+/**
+ * v1.1: run the Second Opinion critic automatically when a turn ends flagged
+ * `unverified` — the confabulation signature. Uses the turn's own streaming
+ * context (the streaming lock is already held, Stop already cancels), so this
+ * cannot go through the manual `secondOpinion` action, which would bail on
+ * `store.streaming`.
+ *
+ * Degrades silently: the master switch (Settings → second opinion) off, or no
+ * second slot available, means no review — the unverified badge already warns,
+ * and a critic-less turn must not ask the answerer to grade itself.
+ */
+async function runAutoCritic(
+  convo: Conversation,
+  messageId: string,
+  question: string,
+  answer: string,
+  answerer: { modelId?: string; roleName?: string },
+  baseUrl: string,
+  signal: AbortSignal
+): Promise<void> {
+  const settings = useAppStore.getState().settings
+  if (!settings?.secondOpinion.enabled || !answer.trim()) return
+  const critic = pickCritic(settings.models, answerer, settings.secondOpinion.criticSlotId)
+  if (!critic) return
+  if (signal.aborted) return
+
+  await window.api.pinModel(critic.modelId).catch(() => false)
+  const record: SecondOpinionRecord = {
+    roleName: critic.roleName,
+    modelId: critic.modelId,
+    text: '',
+    automatic: true,
+    createdAt: Date.now()
+  }
+  const patchRecord = (text: string): void => {
+    record.text = text
+    useAppStore.getState().patchMessage(convo.id, messageId, { secondOpinion: { ...record } })
+  }
+
+  try {
+    let text = ''
+    await streamChat(
+      baseUrl,
+      critic.modelId,
+      buildCriticMessages(critic, question, answer, answerer.roleName ?? 'The model'),
+      [], // No tools: the critic names the check, it does not run it.
+      signal,
+      (chunk) => {
+        text += chunk
+        patchRecord(text)
+      },
+      undefined,
+      critic.sampling
+    )
+    if (!signal.aborted && !text.trim()) patchRecord('(the reviewer returned an empty reply)')
+  } catch (err) {
+    if (!signal.aborted) {
+      patchRecord(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
 }
 
 /**
@@ -613,6 +683,49 @@ async function runTurn(
     }
   }
 
+  // v1.1 grounding: the honesty rules (verify-or-say-unknown, flag false
+  // premises, today's date) ride every turn.
+  systemPrompt = withGrounding(systemPrompt)
+
+  // Tool-call records for the whole turn, including the app-initiated
+  // auto-search below — declared here so it can be recorded like any other call.
+  const allRecords: ToolCallRecord[] = []
+
+  // v1.1 auto-verify: small models almost never volunteer a web_search on a
+  // factual question, so the app runs one itself and injects the results as
+  // reference context. The option to confabulate is removed, not discouraged.
+  // Only when web_search is enabled (listTools returns enabled tools only),
+  // and a failure here never blocks the turn.
+  const lastUserContent = [...convo.messages].reverse().find((m) => m.role === 'user')?.content
+  const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
+  if (factualTurn && lastUserContent && tools.some((t) => t.function.name === 'web_search')) {
+    const query = buildSearchQuery(lastUserContent)
+    const record: ToolCallRecord = { id: uid(), name: 'web_search', args: { query }, status: 'running' }
+    allRecords.push(record)
+    patch({ toolCalls: [...allRecords] })
+    const result: { ok: boolean; output?: string; error?: string } = await window.api
+      .executeTool('web_search', { query }, { modelId: slot.modelId })
+      .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+    if (result.ok) {
+      record.status = 'done'
+      record.result = result.output ?? ''
+      systemPrompt += `\n\n${buildSearchContext(query, result.output ?? '')}`
+    } else {
+      record.status = 'error'
+      record.result = result.error ?? 'Unknown tool error'
+    }
+    patch({ toolCalls: [...allRecords] })
+    audit(convo, {
+      kind: 'tool_call',
+      roleName: slot.roleName,
+      modelId: slot.modelId,
+      toolName: 'web_search',
+      ok: result.ok,
+      text: `web_search(${JSON.stringify({ query })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+    })
+    if (signal.aborted) return
+  }
+
   // The wire history is maintained locally across tool-loop iterations;
   // the visible conversation only keeps final text + tool-call records.
   // Marker messages (e.g. a context-rollback divider) are display-only and
@@ -650,7 +763,6 @@ async function runTurn(
       ? [...tools, consultModelSchema(delegation.specialists)]
       : tools
 
-  const allRecords: ToolCallRecord[] = []
   let delegationCount = 0
 
   // Voice mode: read the reply aloud sentence-by-sentence as it streams.
@@ -742,6 +854,21 @@ async function runTurn(
     if (toolCalls.length === 0) {
       // Normal completion — read whatever tail fragment is left unspoken.
       speakNewSentences(true)
+      // v1.1: a factual question answered without consulting any web source is
+      // exactly the confabulation signature — flag it so the UI can say so,
+      // then have a different role name the claims it could not verify.
+      if (factualTurn && !consultedSources(allRecords)) {
+        patch({ unverified: true })
+        await runAutoCritic(
+          convo,
+          assistantMsg.id,
+          lastUserContent ?? '',
+          assistantMsg.content,
+          { modelId: slot.modelId, roleName: slot.roleName },
+          baseUrl,
+          signal
+        )
+      }
       audit(convo, {
         kind: 'assistant_output',
         roleName: slot.roleName,
@@ -840,6 +967,18 @@ async function runTurn(
         (assistantMsg.content ? `${assistantMsg.content}\n\n` : '') +
         `⚠️ Stopped after ${MAX_TOOL_ITERATIONS} consecutive tool-call rounds.`
     })
+    if (factualTurn && !consultedSources(allRecords)) {
+      patch({ unverified: true })
+      await runAutoCritic(
+        convo,
+        assistantMsg.id,
+        lastUserContent ?? '',
+        assistantMsg.content,
+        { modelId: slot.modelId, roleName: slot.roleName },
+        baseUrl,
+        signal
+      )
+    }
     // Read whatever is left unspoken (including the warning above).
     speakNewSentences(true)
   }
@@ -878,7 +1017,7 @@ async function runPlanStep(
     {
       role: 'system',
       content:
-        `${slot.systemPrompt}\n\nYou are executing one step of a larger plan. Produce the ` +
+        `${withGrounding(slot.systemPrompt)}\n\nYou are executing one step of a larger plan. Produce the ` +
         `step's result directly and concisely — later steps and the final answer build on it.`
     },
     { role: 'user', content: input }
@@ -1062,7 +1201,7 @@ async function runPlanTurn(
   }
 
   const synthesis: ApiMessage[] = [
-    { role: 'system', content: slot.systemPrompt },
+    { role: 'system', content: withGrounding(slot.systemPrompt) },
     {
       role: 'user',
       content:

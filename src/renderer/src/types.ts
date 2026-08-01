@@ -157,6 +157,11 @@ export interface SecondOpinionRecord {
   roleName: string
   modelId: string
   text: string
+  /**
+   * v1.1 grounding: true when the review was triggered automatically because
+   * the reply was flagged unverified, rather than requested by the user.
+   */
+  automatic?: boolean
   createdAt: number
 }
 
@@ -398,6 +403,13 @@ export interface ChatMessage {
    * (v0.9 visible recall). Display-only — never replayed to a model.
    */
   memoryContext?: MemoryContextItem[]
+  /**
+   * v1.1 grounding: a factual-looking question was answered without any web
+   * source being consulted (auto-search disabled/failed and the model never
+   * called one itself) — the confabulation signature. Display-only warning;
+   * never replayed to a model.
+   */
+  unverified?: boolean
   /**
    * An in-chat divider rather than a model-visible message (v0.9: context
    * rollback, plan-mode notices). Filtered out of the wire history.

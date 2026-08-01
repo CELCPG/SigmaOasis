@@ -188,8 +188,14 @@ export interface AppSettings {
   plan: PlanSettings
 }
 
-export function defaultSampling(): SamplingSettings {
-  return { temperature: 0.7, topP: 1, maxTokens: -1, seed: null }
+/**
+ * Default sampling for a new slot. Factual roles default to 0.3: pure recall
+ * at 0.7 measurably increases confabulation on small local models (v1.1
+ * grounding). Creative-leaning roles keep 0.7. Saved per-slot values are never
+ * rewritten — normalizeSampling preserves them.
+ */
+export function defaultSampling(temperature = 0.7): SamplingSettings {
+  return { temperature, topP: 1, maxTokens: -1, seed: null }
 }
 
 function defaultSettings(): AppSettings {
@@ -206,7 +212,7 @@ function defaultSettings(): AppSettings {
           'symbols as plain text (for example, 374 °C or E = mc^2) instead of $...$ markup.',
         color: 'blue',
         enabled: true,
-        sampling: defaultSampling(),
+        sampling: defaultSampling(0.3),
         contextWindow: null
       },
       {
@@ -217,7 +223,7 @@ function defaultSettings(): AppSettings {
           'You are a meticulous researcher. Use available tools to gather facts, cite sources, and summarize findings.',
         color: 'purple',
         enabled: false,
-        sampling: defaultSampling(),
+        sampling: defaultSampling(0.3),
         contextWindow: null
       },
       {
