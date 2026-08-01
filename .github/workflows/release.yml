@@ -171,7 +171,9 @@ jobs:
 
       - name: Update cask version and checksums
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The PAT, not GITHUB_TOKEN: it is verified to list draft releases,
+          # which the download below depends on (the release is a draft here).
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -190,6 +192,7 @@ jobs:
               '[.[] | select(.tag_name == $tag)][0].assets[] | select(.name == $name) | .id')
             if [[ -z "$id" ]]; then
               echo "::error::No asset named $ASSET_NAME on the $TAG release"
+              printf '%s' "$RELEASES_JSON" | jq -r '.[].tag_name' | sed 's/^/visible release: /'
               exit 1
             fi
             sha=$(curl -sfL -H "$AUTH" -H "Accept: application/octet-stream" \
