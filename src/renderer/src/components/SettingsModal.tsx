@@ -545,6 +545,42 @@ export function SettingsModal(): JSX.Element | null {
                         independent review is possible instead of asking the answerer to grade
                         itself.
                       </p>
+                      <label className="col-span-2 mt-1 flex cursor-pointer items-start gap-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={draft.claimCheck.enabled}
+                          onChange={(e) =>
+                            update({ claimCheck: { ...draft.claimCheck, enabled: e.target.checked } })
+                          }
+                          className="mt-0.5 h-4 w-4 accent-accent"
+                        />
+                        <span>
+                          Check claims automatically
+                          <span className="mt-0.5 block text-xs text-neutral-500">
+                            On ⚠️ unverified answers, the reviewing role extracts the factual
+                            claims and the app checks each against web sources — confirmed,
+                            contradicted, or unverifiable, with the source shown. Runs one search
+                            per claim (max{' '}
+                            <input
+                              type="number"
+                              min={1}
+                              max={10}
+                              value={draft.claimCheck.maxClaims}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                update({
+                                  claimCheck: {
+                                    ...draft.claimCheck,
+                                    maxClaims: Math.max(1, Math.min(10, Number(e.target.value) || 5))
+                                  }
+                                })
+                              }
+                              className="mx-0.5 w-12 rounded border border-black/10 dark:border-white/10 bg-transparent px-1 py-0.5 text-center text-xs"
+                            />
+                            ) — respects &quot;confirm before search&quot;.
+                          </span>
+                        </span>
+                      </label>
                     </div>
                   )}
                 </div>

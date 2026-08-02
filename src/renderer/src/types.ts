@@ -172,6 +172,42 @@ export interface SecondOpinionSettings {
   criticSlotId: string | null
 }
 
+// ---- v1.2: claim check (settle the critic's list) -----------------------------
+
+/** How one extracted claim fared against sources. Never model self-graded. */
+export type ClaimVerdict = 'confirmed' | 'contradicted' | 'unverifiable'
+
+export interface CheckedClaim {
+  /** The bare factual claim as extracted by the critic. */
+  text: string
+  verdict: ClaimVerdict
+  /** The source that settled the claim, when one did. */
+  source?: string
+  /** The one-line basis the judge gave for the verdict. */
+  basis?: string
+}
+
+/** A mechanical per-claim verification of an assistant reply. Display-only. */
+export interface ClaimCheckRecord {
+  roleName: string
+  modelId: string
+  claims: CheckedClaim[]
+  /** Set when the pass stopped early (claim cap, declined search, failures). */
+  budgetNote?: string
+  createdAt: number
+}
+
+export interface ClaimCheckSettings {
+  /**
+   * Master switch for the automatic claim-check pass on unverified answers.
+   * Requires secondOpinion.enabled — the critic slot does the extraction and
+   * judging, never the answerer.
+   */
+  enabled: boolean
+  /** Cap on extracted claims checked per reply; keeps the pass cheap. */
+  maxClaims: number
+}
+
 // ---- v0.9: visible memory recall ---------------------------------------------
 
 /** A long-term memory chunk injected into the system prompt for one turn. */
@@ -291,6 +327,8 @@ export interface AppSettings {
   contextManagement: 'compact' | 'trim'
   /** v0.9: a second role reviews replies on request (Settings → Models). */
   secondOpinion: SecondOpinionSettings
+  /** v1.2: mechanical per-claim verification of unverified answers. */
+  claimCheck: ClaimCheckSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
   audit: AuditSettings
   /** v0.9: multi-step plan generation and execution. */
@@ -410,6 +448,12 @@ export interface ChatMessage {
    * never replayed to a model.
    */
   unverified?: boolean
+  /**
+   * v1.2 claim check: the mechanical per-claim verification of this reply
+   * (confirmed / contradicted / unverifiable, each with its source).
+   * Display-only — never replayed to a model.
+   */
+  claimCheck?: ClaimCheckRecord
   /**
    * An in-chat divider rather than a model-visible message (v0.9: context
    * rollback, plan-mode notices). Filtered out of the wire history.

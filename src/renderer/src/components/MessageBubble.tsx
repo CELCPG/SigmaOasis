@@ -9,6 +9,7 @@ import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
+import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { OasisRipple } from './OasisRipple'
 import { SigmaAvatar } from './SigmaAvatar'
@@ -293,6 +294,10 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
         {message.secondOpinion && (
           <SecondOpinionBlock opinion={message.secondOpinion} isStreaming={streaming && isLast} />
+        )}
+
+        {message.claimCheck && (
+          <ClaimCheckBlock check={message.claimCheck} isStreaming={streaming && isLast} />
         )}
 
         {showStats && !isStreaming && message.stats && (

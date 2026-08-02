@@ -18,11 +18,20 @@ import {
   looksFactual,
   withGrounding
 } from '../lib/grounding'
+import {
+  buildExtractionMessages,
+  buildJudgeMessages,
+  firstResultUrl,
+  parseClaims,
+  parseVerdict
+} from '../lib/claimCheck'
 import type {
   AppSettings,
   Attachment,
   ChatMessage,
   ChatPlan,
+  CheckedClaim,
+  ClaimCheckRecord,
   Conversation,
   ModelConfig,
   PlanStep,
@@ -613,6 +622,155 @@ async function runAutoCritic(
 }
 
 /**
+ * v1.2 Claim Check: settle what the v1.1 auto-critic could only name.
+ *
+ * Runs when a turn ends flagged `unverified` and claim checking is enabled:
+ * the critic slot (never the answerer) extracts the bare factual claims as
+ * JSON; the app then checks each mechanically — one web_search plus at most
+ * one fetch_webpage per claim, then a single-claim judgment against the
+ * retrieved passage. No source within budget means "unverifiable", never a
+ * verdict from model intuition.
+ *
+ * Searches the app runs here are audit-logged, appear as tool calls in the
+ * bubble, and respect confirmBeforeSearch like any other search.
+ */
+async function runClaimCheck(
+  convo: Conversation,
+  messageId: string,
+  question: string,
+  answer: string,
+  answerer: { modelId?: string; roleName?: string },
+  baseUrl: string,
+  signal: AbortSignal,
+  allRecords: ToolCallRecord[],
+  patch: (p: Partial<ChatMessage>) => void
+): Promise<void> {
+  const settings = useAppStore.getState().settings
+  if (!settings?.secondOpinion.enabled || !settings.claimCheck.enabled || !answer.trim()) return
+  const critic = pickCritic(settings.models, answerer, settings.secondOpinion.criticSlotId)
+  if (!critic || signal.aborted) return
+
+  const record: ClaimCheckRecord = {
+    roleName: critic.roleName,
+    modelId: critic.modelId,
+    claims: [],
+    createdAt: Date.now()
+  }
+  const patchRecord = (): void =>
+    useAppStore
+      .getState()
+      .patchMessage(convo.id, messageId, { claimCheck: { ...record, claims: [...record.claims] } })
+
+  /** A tool call by the checker: recorded, displayed, and audited like any other. */
+  const runTool = async (
+    name: string,
+    args: Record<string, unknown>
+  ): Promise<{ ok: boolean; output?: string; error?: string }> => {
+    const rec: ToolCallRecord = { id: uid(), name, args, status: 'running' }
+    allRecords.push(rec)
+    patch({ toolCalls: [...allRecords] })
+    const result: { ok: boolean; output?: string; error?: string } = await window.api
+      .executeTool(name, args, { modelId: critic.modelId })
+      .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+    rec.status = result.ok ? 'done' : 'error'
+    rec.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+    patch({ toolCalls: [...allRecords] })
+    audit(convo, {
+      kind: 'tool_call',
+      roleName: critic.roleName,
+      modelId: critic.modelId,
+      toolName: name,
+      ok: result.ok,
+      text: `${name}(${JSON.stringify(args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+    })
+    return result
+  }
+
+  /** One non-streaming completion from the critic (its text arrives whole). */
+  const complete = async (
+    messages: { role: 'system' | 'user'; content: string }[]
+  ): Promise<string> => {
+    let text = ''
+    await streamChat(
+      baseUrl,
+      critic.modelId,
+      messages,
+      [], // Extraction and judgment get no tools; the app runs the tools.
+      signal,
+      (chunk) => {
+        text += chunk
+      },
+      undefined,
+      critic.sampling
+    )
+    return text
+  }
+
+  try {
+    await window.api.pinModel(critic.modelId).catch(() => false)
+    patchRecord() // Show the block immediately so the pass is visible while it works.
+
+    // 1. Extraction — the critic, not the answerer, names the checkable claims.
+    const extracted = await complete(
+      buildExtractionMessages(critic, question, answer, answerer.roleName ?? 'The model')
+    )
+    if (signal.aborted) return
+    const { claims, truncated } = parseClaims(extracted, settings.claimCheck.maxClaims)
+    if (truncated) {
+      record.budgetNote = `Only the first ${settings.claimCheck.maxClaims} extracted claims were checked (per-reply cap).`
+    }
+    if (claims.length === 0) {
+      record.budgetNote =
+        record.budgetNote ?? 'The critic found no checkable factual claims in this answer.'
+      patchRecord()
+      return
+    }
+
+    if (!settings.tools.web_search) {
+      record.claims = claims.map((text) => ({ text, verdict: 'unverifiable' as const }))
+      record.budgetNote = 'web_search is disabled, so no claim could be checked against a source.'
+      patchRecord()
+      return
+    }
+
+    // 2. Settlement — budget enforced in code: one search, at most one fetch,
+    //    one judgment per claim.
+    for (const claim of claims) {
+      if (signal.aborted) return
+      const checked: CheckedClaim = { text: claim, verdict: 'unverifiable' }
+      const search = await runTool('web_search', { query: claim })
+      const url = search.ok && search.output ? firstResultUrl(search.output) : null
+      let passage = ''
+      if (url && settings.tools.fetch_webpage) {
+        const page = await runTool('fetch_webpage', { url, query: claim })
+        if (page.ok && page.output) {
+          passage = page.output
+          checked.source = url
+        }
+      }
+      if (passage) {
+        if (signal.aborted) return
+        const judged = await complete(buildJudgeMessages(critic, claim, passage))
+        if (signal.aborted) return
+        const { verdict, basis } = parseVerdict(judged)
+        checked.verdict = verdict
+        if (basis) checked.basis = basis
+      } else if (!search.ok) {
+        // Declined (confirmBeforeSearch) or failed — disclosed, never guessed.
+        checked.basis = 'Search was declined or failed.'
+      }
+      record.claims.push(checked)
+      patchRecord()
+    }
+  } catch (err) {
+    if (!signal.aborted) {
+      record.budgetNote = `Claim check failed: ${err instanceof Error ? err.message : String(err)}`
+      patchRecord()
+    }
+  }
+}
+
+/**
  * Run one model's turn: stream a reply, execute any requested tools, feed the
  * results back, and repeat until the model stops calling tools.
  */
@@ -859,15 +1017,32 @@ async function runTurn(
       // then have a different role name the claims it could not verify.
       if (factualTurn && !consultedSources(allRecords)) {
         patch({ unverified: true })
-        await runAutoCritic(
-          convo,
-          assistantMsg.id,
-          lastUserContent ?? '',
-          assistantMsg.content,
-          { modelId: slot.modelId, roleName: slot.roleName },
-          baseUrl,
-          signal
-        )
+        // v1.2: the claim check settles the critic's list when enabled;
+        // otherwise the v1.1 auto-critic names the checks for the user.
+        const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
+        if (claimCheckOn) {
+          await runClaimCheck(
+            convo,
+            assistantMsg.id,
+            lastUserContent ?? '',
+            assistantMsg.content,
+            { modelId: slot.modelId, roleName: slot.roleName },
+            baseUrl,
+            signal,
+            allRecords,
+            patch
+          )
+        } else {
+          await runAutoCritic(
+            convo,
+            assistantMsg.id,
+            lastUserContent ?? '',
+            assistantMsg.content,
+            { modelId: slot.modelId, roleName: slot.roleName },
+            baseUrl,
+            signal
+          )
+        }
       }
       audit(convo, {
         kind: 'assistant_output',
@@ -969,15 +1144,30 @@ async function runTurn(
     })
     if (factualTurn && !consultedSources(allRecords)) {
       patch({ unverified: true })
-      await runAutoCritic(
-        convo,
-        assistantMsg.id,
-        lastUserContent ?? '',
-        assistantMsg.content,
-        { modelId: slot.modelId, roleName: slot.roleName },
-        baseUrl,
-        signal
-      )
+      const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
+      if (claimCheckOn) {
+        await runClaimCheck(
+          convo,
+          assistantMsg.id,
+          lastUserContent ?? '',
+          assistantMsg.content,
+          { modelId: slot.modelId, roleName: slot.roleName },
+          baseUrl,
+          signal,
+          allRecords,
+          patch
+        )
+      } else {
+        await runAutoCritic(
+          convo,
+          assistantMsg.id,
+          lastUserContent ?? '',
+          assistantMsg.content,
+          { modelId: slot.modelId, roleName: slot.roleName },
+          baseUrl,
+          signal
+        )
+      }
     }
     // Read whatever is left unspoken (including the warning above).
     speakNewSentences(true)

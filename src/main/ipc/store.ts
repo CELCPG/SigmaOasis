@@ -133,6 +133,17 @@ export interface SecondOpinionSettings {
   criticSlotId: string | null
 }
 
+export interface ClaimCheckSettings {
+  /**
+   * v1.2: mechanical per-claim verification of unverified answers. Requires
+   * secondOpinion.enabled — the critic slot extracts and judges, never the
+   * answerer.
+   */
+  enabled: boolean
+  /** Cap on extracted claims checked per reply; keeps the pass cheap. */
+  maxClaims: number
+}
+
 export interface AuditSettings {
   /** Append-only session transcript. Off by default — a privacy app does not log by default. */
   enabled: boolean
@@ -182,6 +193,8 @@ export interface AppSettings {
   contextManagement: 'compact' | 'trim'
   /** v0.9: a second role reviews replies on request (Settings → Models). */
   secondOpinion: SecondOpinionSettings
+  /** v1.2: mechanical per-claim verification of unverified answers. */
+  claimCheck: ClaimCheckSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
   audit: AuditSettings
   /** v0.9: multi-step plan generation and execution. */
@@ -322,6 +335,12 @@ function defaultSettings(): AppSettings {
     secondOpinion: {
       enabled: false,
       criticSlotId: null
+    },
+    claimCheck: {
+      // On by default, but only fires when second opinions are also enabled —
+      // the critic slot does the extraction and judging.
+      enabled: true,
+      maxClaims: 5
     },
     audit: {
       enabled: false,
@@ -486,6 +505,10 @@ function normalizeSettings(settings: AppSettings): AppSettings {
           ? settings.secondOpinion.criticSlotId
           : null
     },
+    claimCheck: {
+      enabled: settings.claimCheck?.enabled !== false,
+      maxClaims: clamp(settings.claimCheck?.maxClaims, 1, 10, defaults.claimCheck.maxClaims)
+    },
     audit: {
       enabled: Boolean(settings.audit?.enabled),
       autoPurgeOnQuit: Boolean(settings.audit?.autoPurgeOnQuit)
@@ -516,6 +539,7 @@ export function migrateSettings(): void {
     proxy: { ...defaults.proxy, ...current.proxy },
     updates: { ...defaults.updates, ...current.updates },
     secondOpinion: { ...defaults.secondOpinion, ...current.secondOpinion },
+    claimCheck: { ...defaults.claimCheck, ...current.claimCheck },
     audit: { ...defaults.audit, ...current.audit },
     plan: { ...defaults.plan, ...current.plan }
   } as AppSettings

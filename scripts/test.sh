@@ -69,6 +69,7 @@ rm -rf "$OUT"
   src/renderer/src/lib/modelInfo.ts \
   src/renderer/src/lib/secondOpinion.ts \
   src/renderer/src/lib/grounding.ts \
+  src/renderer/src/lib/claimCheck.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts
