@@ -202,10 +202,11 @@ export interface AppSettings {
 }
 
 /**
- * Default sampling for a new slot. Factual roles default to 0.3: pure recall
- * at 0.7 measurably increases confabulation on small local models (v1.1
- * grounding). Creative-leaning roles keep 0.7. Saved per-slot values are never
- * rewritten — normalizeSampling preserves them.
+ * Default sampling for a new slot. All four built-in roles default to 0.3:
+ * pure recall at 0.7 measurably increases confabulation on small local
+ * models (v1.1 grounding), and Coder/Finance Coach do factual work too
+ * (v1.2). Creative use is a preset click away. Saved per-slot values are
+ * never rewritten — normalizeSampling preserves them.
  */
 export function defaultSampling(temperature = 0.7): SamplingSettings {
   return { temperature, topP: 1, maxTokens: -1, seed: null }
@@ -247,7 +248,7 @@ function defaultSettings(): AppSettings {
           'You are an expert software engineer. Write clean, correct code and explain your reasoning briefly.',
         color: 'green',
         enabled: false,
-        sampling: defaultSampling(),
+        sampling: defaultSampling(0.3),
         contextWindow: null
       },
       {
@@ -265,7 +266,7 @@ function defaultSettings(): AppSettings {
           'one short line noting this is education, not personalized financial advice.',
         color: 'green',
         enabled: false,
-        sampling: defaultSampling(),
+        sampling: defaultSampling(0.3),
         contextWindow: null
       }
     ],

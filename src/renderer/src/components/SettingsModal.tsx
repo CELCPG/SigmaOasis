@@ -5,6 +5,7 @@ import { useUpdates } from '../hooks/useUpdates'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
 import { describeModel, modelLabel } from '../lib/modelInfo'
+import { TEMPERATURE_PRESETS, activePreset } from '../lib/sampling'
 import type {
   AppSettings,
   AccentColor,
@@ -432,6 +433,25 @@ export function SettingsModal(): JSX.Element | null {
                         Sampling
                       </summary>
                       <div className="mt-2 grid grid-cols-4 gap-3">
+                        <div className="col-span-4">
+                          <div className="flex gap-1.5">
+                            {TEMPERATURE_PRESETS.map((p) => (
+                              <button
+                                key={p.label}
+                                type="button"
+                                title={p.hint}
+                                onClick={() => updateSampling(m.id, { temperature: p.value })}
+                                className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                                  activePreset(m.sampling.temperature)?.value === p.value
+                                    ? 'bg-accent/20 font-medium text-accent-ink'
+                                    : 'bg-black/5 dark:bg-white/10 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                                }`}
+                              >
+                                {p.label} {p.value}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                         <div>
                           <label className="mb-1 block text-xs text-neutral-500">Temperature</label>
                           <input
@@ -487,6 +507,7 @@ export function SettingsModal(): JSX.Element | null {
                         </div>
                       </div>
                       <p className="mt-2 text-xs text-neutral-400">
+                        Lower temperature = fewer invented facts; higher = more varied prose.
                         Temperature 0 with a fixed seed makes this role reproducible: the same
                         prompt returns the same answer. Max tokens <code>-1</code> leaves the reply
                         length to LM Studio.
