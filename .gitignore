@@ -11,3 +11,4 @@ scripts/signing.env
 .export-build/
 .live-build/
 .traces/
+homebrew-tap/

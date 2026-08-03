@@ -13,8 +13,10 @@ import type {
   SttStatus,
   ToolResult,
   ToolSchema,
-  UpdateStatus
+  UpdateStatus,
+  EvalScoreSummary
 } from '../renderer/src/types'
+import type { EvalFixture } from '../renderer/src/lib/evalRunner'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -51,6 +53,32 @@ const api = {
     args: Record<string, unknown>,
     context?: { modelId?: string }
   ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
+  /**
+   * Rank candidate tools against the user's message by embedding cosine
+   * (main/ipc/toolRank.ts). { ok: false } means "no ranking available" — the
+   * caller falls back to its full list; it is never a turn failure.
+   */
+  rankTools: (
+    query: string,
+    tools: { name: string; description: string }[]
+  ): Promise<{ ok: boolean; scores?: Record<string, number>; error?: string }> =>
+    ipcRenderer.invoke('tools:rank', query, tools),
+
+  /**
+   * Measured tool-choice scores per evaluated model (main/ipc/evalResults.ts,
+   * Layer 0c). Empty list when no eval has been run.
+   */
+  evalScores: (): Promise<EvalScoreSummary[]> => ipcRenderer.invoke('eval:scores'),
+
+  /**
+   * In-app "Run eval" support (Settings → Models): the fixtures plus the full
+   * unfiltered toolbox, and persistence for each model's result. An empty
+   * fixture list means the test tree is unavailable (packaged app).
+   */
+  evalFixtures: (): Promise<{ fixtures: EvalFixture[]; tools: ToolSchema[] }> =>
+    ipcRenderer.invoke('eval:fixtures'),
+  saveEvalResult: (payload: unknown): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('eval:saveResult', payload),
 
   // Keep a chat model resident in LM Studio (main/ipc/modelPin.ts)
   pinModel: (modelId: string): Promise<boolean> => ipcRenderer.invoke('models:pin', modelId),
@@ -159,6 +187,29 @@ const api = {
     | { ok: false; canceled?: boolean; error?: string }
   > => ipcRenderer.invoke('audit:export', sessionId),
   auditPurge: (): Promise<{ removed: number }> => ipcRenderer.invoke('audit:purge'),
+
+  // Layer 4 trace export (main/ipc/traces.ts) — OpenAI JSONL for out-of-band
+  // fine-tuning, labeled from outcomes, redacted, schema-stamped. Opt-in per
+  // export via the save dialog; writes to local disk only.
+  tracesExport: (
+    sessionId?: string
+  ): Promise<
+    | {
+        ok: true
+        paths: { positive: string; rejected: string; manifest: string; tools: string }
+        counts: {
+          turns: number
+          positive: number
+          rejected: number
+          unlabeled: number
+          skippedEntries: number
+        }
+        outcomesMatched: number
+        schemaVersion: string | null
+        chainValid: boolean
+      }
+    | { ok: false; canceled?: boolean; error?: string }
+  > => ipcRenderer.invoke('traces:export', sessionId),
 
   // Plan mode (main/ipc/plan.ts) — structured plan generation; execution is renderer-side.
   planGenerate: (

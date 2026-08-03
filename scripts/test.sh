@@ -61,6 +61,16 @@ rm -rf "$OUT"
   src/main/ipc/attachments.ts \
   src/main/ipc/deepResearch.ts \
   src/main/ipc/finance.ts \
+  src/main/ipc/urlHygiene.ts \
+  src/main/ipc/sourceTiers.ts \
+  src/main/ipc/productExtract.ts \
+  src/main/ipc/rubrics.ts \
+  src/main/ipc/shopping.ts \
+  src/main/ipc/watchlist.ts \
+  src/main/ipc/toolSchemas.ts \
+  src/main/ipc/toolRank.ts \
+  src/main/ipc/evalResults.ts \
+  src/main/ipc/traceExport.ts \
   src/renderer/src/lib/oasisRipple.ts \
   src/renderer/src/lib/reasoning.ts \
   src/renderer/src/lib/nativeToolCall.ts \
@@ -70,6 +80,11 @@ rm -rf "$OUT"
   src/renderer/src/lib/secondOpinion.ts \
   src/renderer/src/lib/grounding.ts \
   src/renderer/src/lib/claimCheck.ts \
+  src/renderer/src/lib/agentLoop.ts \
+  src/renderer/src/lib/evalRunner.ts \
+  src/renderer/src/lib/toolArgs.ts \
+  src/renderer/src/lib/toolSelection.ts \
+  src/renderer/src/lib/routing.ts \
   src/renderer/src/lib/sampling.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \

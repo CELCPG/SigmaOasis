@@ -1,4 +1,4 @@
-import type { ModelInfo } from '../types'
+import type { EvalScoreSummary, ModelInfo } from '../types'
 
 /**
  * Presentation helpers for what LM Studio tells us about a model. Kept free of
@@ -61,6 +61,33 @@ export function describeModel(model: ModelInfo): string {
 export function modelLabel(model: ModelInfo): string {
   const detail = describeModel(model)
   return detail ? `${model.id} — ${detail}` : model.id
+}
+
+/**
+ * Measured tool-choice scores as one line (Layer 0c):
+ * `tool-choice 15/15 · args 100% · no spurious calls · no loops`.
+ * Only the rates that say something are included; a rate with no fixtures
+ * behind it (of: 0) is omitted rather than shown as a misleading 100%.
+ */
+export function describeEvalScore(score: EvalScoreSummary): string {
+  const parts: string[] = []
+  if (score.correctTool.of > 0) {
+    parts.push(`tool-choice ${score.correctTool.hit}/${score.correctTool.of}`)
+  }
+  if (score.argValidity.of > 0) {
+    parts.push(`args ${Math.round((score.argValidity.hit / score.argValidity.of) * 100)}%`)
+  }
+  if (score.spuriousCall.of > 0) {
+    parts.push(
+      score.spuriousCall.hit === 0
+        ? 'no spurious calls'
+        : `spurious calls ${score.spuriousCall.hit}/${score.spuriousCall.of}`
+    )
+  }
+  if (score.loop.of > 0) {
+    parts.push(score.loop.hit === 0 ? 'no loops' : `looped ${score.loop.hit}/${score.loop.of}`)
+  }
+  return parts.join(' · ')
 }
 
 /**

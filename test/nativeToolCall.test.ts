@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { createNativeToolExtractor, parseNativeToolCall } from '../src/renderer/src/lib/nativeToolCall'
+import { createNativeToolExtractor, parseJsonCallBlob, parseNativeToolCall } from '../src/renderer/src/lib/nativeToolCall'
 import { createReasoningSplitter } from '../src/renderer/src/lib/reasoning'
 
 /**
@@ -132,5 +132,147 @@ describe('reasoning splitter + tool extractor — the reported bug, end to end',
     assert.equal(calls.length, 1)
     assert.equal(calls[0]!.name, 'text_generation')
     assert.deepEqual(JSON.parse(calls[0]!.arguments), { prompt: 'a short story about cats' })
+  })
+})
+
+describe('the <call>name{json}</call> variant (agentic fine-tunes, measured 2026-08-03)', () => {
+  test('plain JSON arguments parse into the OpenAI shape', () => {
+    const call = parseNativeToolCall('web_search{"query":"paris weather","freshness":"week"}')
+    assert.equal(call!.name, 'web_search')
+    assert.deepEqual(JSON.parse(call!.arguments), { query: 'paris weather', freshness: 'week' })
+  })
+
+  test('an empty argument object is a valid call', () => {
+    const call = parseNativeToolCall('get_current_datetime{}')
+    assert.equal(call!.name, 'get_current_datetime')
+    assert.deepEqual(JSON.parse(call!.arguments), {})
+  })
+
+  test('broken JSON, arrays, and scalars return null rather than execute', () => {
+    assert.equal(parseNativeToolCall('web_search{query: paris}'), null)
+    assert.equal(parseNativeToolCall('web_search[1,2]'), null)
+    assert.equal(parseNativeToolCall('web_search{"query"'), null)
+    assert.equal(parseNativeToolCall('no braces at all'), null)
+  })
+
+  test('the exact reply observed from gemma-4-e4b-agentic extracts one real call', () => {
+    const out = run(['<call>get_current_datetime{}</call>'])
+    assert.equal(out.text, '')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.calls[0]!.name, 'get_current_datetime')
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), {})
+  })
+
+  test('a <call> between prose is removed and parsed, the prose kept', () => {
+    const out = run(['Let me check. <call>web_search{"query":"tokyo weather"}</call> Here you go.'])
+    assert.equal(out.text, 'Let me check.  Here you go.')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.calls[0]!.name, 'web_search')
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), { query: 'tokyo weather' })
+  })
+
+  test('a <call> split across chunks still parses', () => {
+    const out = run(['<call>finance_calculator{"expre', 'ssion":"86.40*0.18"}</call>'])
+    assert.equal(out.calls.length, 1)
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), { expression: '86.40*0.18' })
+  })
+
+  test('an unclosed <call> at end of stream is dropped, not executed or shown', () => {
+    const out = run(['answer text <call>web_search{"query":"x"}'])
+    assert.equal(out.text, 'answer text ')
+    assert.equal(out.calls.length, 0)
+  })
+})
+
+describe('JSON call blobs in content (measured on the 4B, 2026-08-03)', () => {
+  test('the plural blob: function as a string name plus args', () => {
+    const calls = parseJsonCallBlob(
+      '{\n  "tool_calls": [\n    {\n      "function": "list_directory",\n      "args": {\n        "path": "~/Downloads"\n      }\n    }\n  ]\n}'
+    )
+    assert.equal(calls!.length, 1)
+    assert.equal(calls![0]!.name, 'list_directory')
+    assert.deepEqual(JSON.parse(calls![0]!.arguments), { path: '~/Downloads' })
+  })
+
+  test('the singular blob: tool_call as a string plus args', () => {
+    const calls = parseJsonCallBlob('{"tool_call": "memory_save", "args": {"title": "favorite band", "text": "Phish"}}')
+    assert.equal(calls!.length, 1)
+    assert.equal(calls![0]!.name, 'memory_save')
+    assert.deepEqual(JSON.parse(calls![0]!.arguments), { title: 'favorite band', text: 'Phish' })
+  })
+
+  test('OpenAI-ish entries are accepted: function object, arguments key, stringified args', () => {
+    const calls = parseJsonCallBlob(
+      '{"tool_calls": [{"function": {"name": "web_search", "arguments": "{\\"query\\":\\"x\\"}"}}]}'
+    )
+    assert.equal(calls!.length, 1)
+    assert.equal(calls![0]!.name, 'web_search')
+    assert.deepEqual(JSON.parse(calls![0]!.arguments), { query: 'x' })
+  })
+
+  test('multiple calls in one blob all extract', () => {
+    const calls = parseJsonCallBlob(
+      '{"tool_calls": [{"function": "list_notes", "args": {}}, {"function": "memory_search", "args": {"query": "band"}}]}'
+    )
+    assert.deepEqual(calls!.map((c) => c.name), ['list_notes', 'memory_search'])
+  })
+
+  test('a bare argument object is not a call — guessing the tool is how the wrong thing runs', () => {
+    assert.equal(parseJsonCallBlob('{"path":"groceries.txt","content":"milk"}'), null)
+  })
+
+  test('broken JSON, arrays, scalars, and missing names return null', () => {
+    assert.equal(parseJsonCallBlob('{"tool_calls": [{"function": "x", "args":'), null)
+    assert.equal(parseJsonCallBlob('[{"tool_call": "x"}]'), null)
+    assert.equal(parseJsonCallBlob('"tool_call"'), null)
+    assert.equal(parseJsonCallBlob('{"tool_calls": [{"args": {}}]}'), null)
+    assert.equal(parseJsonCallBlob('{"tool_calls": []}'), null)
+    assert.equal(parseJsonCallBlob('{"unrelated": true}'), null)
+  })
+
+  test('a whole-content blob extracts with no visible text', () => {
+    const out = run(['{"tool_calls": [{"function": "list_directory", "args": {"path": "~/Downloads"}}]}'])
+    assert.equal(out.text, '')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.calls[0]!.name, 'list_directory')
+  })
+
+  test('a blob split across chunks still parses, prose before it kept', () => {
+    const out = run(['One moment. {"tool_call"', ': "finance_calculator", "args": {"expression": "86.40*0.18"}}'])
+    assert.equal(out.text, 'One moment. ')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.calls[0]!.name, 'finance_calculator')
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), { expression: '86.40*0.18' })
+  })
+
+  test('a signature cut at the chunk boundary holds, then resolves on the next chunk', () => {
+    const out = run(['checking {"tool_ca', 'll": "list_notes", "args": {}}'])
+    assert.equal(out.text, 'checking ')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.calls[0]!.name, 'list_notes')
+  })
+
+  test('braces inside JSON strings do not end the span early', () => {
+    const out = run(['{"tool_call": "write_file", "args": {"path": "a.txt", "content": "use {curly} braces"}}'])
+    assert.equal(out.calls.length, 1)
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), { path: 'a.txt', content: 'use {curly} braces' })
+  })
+
+  test('ordinary JSON in the answer is visible text, never executed', () => {
+    const out = run(['Here is the config: {"path": "a.txt", "content": "milk"} — done.'])
+    assert.equal(out.text, 'Here is the config: {"path": "a.txt", "content": "milk"} — done.')
+    assert.equal(out.calls.length, 0)
+  })
+
+  test('a blob-shaped span that fails to parse becomes visible text, not a call', () => {
+    const out = run(['{"tool_calls": [{"function": "x", "args": broken}]}'])
+    assert.equal(out.text, '{"tool_calls": [{"function": "x", "args": broken}]}')
+    assert.equal(out.calls.length, 0)
+  })
+
+  test('an unclosed blob at end of stream is dropped, not executed or shown', () => {
+    const out = run(['let me look {"tool_calls": [{"function": "list_directory", "args": {"path": "~'])
+    assert.equal(out.text, 'let me look ')
+    assert.equal(out.calls.length, 0)
   })
 })

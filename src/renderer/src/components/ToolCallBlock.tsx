@@ -44,6 +44,11 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         </span>
         <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
       </button>
+      {record.preamble && (
+        <div className="px-3 pb-1.5 italic text-neutral-500">
+          “{record.preamble}”
+        </div>
+      )}
       {open && (
         <div className="space-y-2 p-3">
           <div>

@@ -1,15 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
 import { useUpdates } from '../hooks/useUpdates'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
-import { describeModel, modelLabel } from '../lib/modelInfo'
+import { describeModel, describeEvalScore, modelLabel } from '../lib/modelInfo'
+import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
+import { withGrounding, withToolCallPreamble } from '../lib/grounding'
+import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
+import type { ToolSchema } from '../types'
 import { TEMPERATURE_PRESETS, activePreset } from '../lib/sampling'
 import type {
   AppSettings,
   AccentColor,
   AuditStatus,
+  EvalScoreSummary,
+  ModelConfig,
   ToolToggles,
   SttStatus,
   MemoryStats,
@@ -34,7 +40,10 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   memory_save: 'Save to long-term memory',
   memory_search: 'Search long-term memory',
   memory_forget: 'Delete a memory',
-  finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)'
+  finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)',
+  shop_requirements: 'Shopping requirements (works out what you need — fully local, sends nothing)',
+  shop_compare: 'Shopping comparison (contacts retailers; prices carry a source and a timestamp)',
+  price_watch: 'Price watch (local watchlist — no service is told what is on it)'
 }
 
 type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory'
@@ -54,6 +63,32 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
+/**
+ * Layer 0c: the model's measured tool-choice scores, shown under its picker.
+ * Absent entirely for models never evaluated — no "untested" badge, because
+ * the absence of a number is not a claim about the model.
+ */
+function EvalScoreLine({
+  scores,
+  modelId
+}: {
+  scores: EvalScoreSummary[]
+  modelId: string
+}): JSX.Element | null {
+  const score = scores.find((s) => s.model === modelId)
+  if (!score) return null
+  const text = describeEvalScore(score)
+  if (!text) return null
+  return (
+    <p
+      className="mt-1 text-xs text-neutral-400"
+      title={`Measured by the local tool-choice eval (npm run eval:tools) against canned tool results; newest run ${new Date(score.ranAt).toLocaleString()}.`}
+    >
+      Eval: {text} · {new Date(score.ranAt).toLocaleDateString()}
+    </p>
+  )
+}
+
 export function SettingsModal(): JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const setOpen = useAppStore((s) => s.setSettingsOpen)
@@ -69,6 +104,17 @@ export function SettingsModal(): JSX.Element | null {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
+  const [evalScores, setEvalScores] = useState<EvalScoreSummary[]>([])
+  const [evalRun, setEvalRun] = useState<{
+    model: string
+    modelIndex: number
+    modelCount: number
+    fixtureIndex: number
+    fixtureCount: number
+    last: string
+  } | null>(null)
+  const [evalNotice, setEvalNotice] = useState<string | null>(null)
+  const evalCancelRef = useRef(false)
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null)
   const [researchStats, setResearchStats] = useState<ResearchIndexStats | null>(null)
   const [searchTest, setSearchTest] = useState<{ ok: boolean; detail: string } | null>(null)
@@ -128,6 +174,11 @@ export function SettingsModal(): JSX.Element | null {
     if (tab === 'memory') void window.api.memoryStats().then(setMemoryStats)
   }, [tab])
 
+  // Load measured tool-choice scores when the Models tab opens (Layer 0c).
+  useEffect(() => {
+    if (tab === 'models') void window.api.evalScores().then(setEvalScores).catch(() => {})
+  }, [tab])
+
   // Load Brave key status when the Search tab opens; reset transient UI state.
   useEffect(() => {
     if (tab !== 'search') return
@@ -151,6 +202,115 @@ export function SettingsModal(): JSX.Element | null {
 
   const update = (partial: Partial<AppSettings>): void =>
     setDraft((d) => (d ? { ...d, ...partial } : d))
+
+  /**
+   * Layer 0c: run the tool-choice eval against every loaded model, from the
+   * Models tab. The shared runner (lib/evalRunner.ts) is the same code the
+   * CLI shells; here the transport is a loopback fetch and progress renders
+   * under the button. A cancelled run still saves what it measured.
+   */
+  const runEval = async (): Promise<void> => {
+    if (!draft || evalRun) return
+    const models = availableModels.filter((m) => m.loaded).map((m) => m.id)
+    if (models.length === 0) {
+      setEvalNotice('No loaded models to evaluate — load one in LM Studio first.')
+      return
+    }
+    setEvalNotice(null)
+    evalCancelRef.current = false
+
+    let fixtures, tools
+    try {
+      ;({ fixtures, tools } = await window.api.evalFixtures())
+    } catch (err) {
+      setEvalNotice(`Could not load eval fixtures: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    if (fixtures.length === 0) {
+      setEvalNotice('Eval fixtures are unavailable in this build (they live in the dev checkout).')
+      return
+    }
+
+    const baseUrl = draft.baseUrl
+    const complete = async (
+      model: string,
+      messages: ApiMessage[],
+      wireTools: ToolSchema[]
+    ): Promise<{ content: string; toolCalls: ApiToolCall[] }> => {
+      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(240_000),
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: false,
+          temperature: 0,
+          ...(wireTools.length > 0 ? { tools: wireTools, tool_choice: 'auto' } : {})
+        })
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as {
+        choices?: {
+          message?: {
+            content?: string | null
+            tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[]
+          }
+        }[]
+      }
+      return parseCompletionMessage(json.choices?.[0]?.message ?? {})
+    }
+
+    try {
+      const results = await runToolChoiceEval({
+        models,
+        fixtures,
+        tools,
+        systemPromptFor: (model) =>
+          withToolCallPreamble(withGrounding('You are a helpful local assistant.'), model),
+        complete,
+        onFixture: (model, index, total, run) => {
+          const mark = run.error ? '!' : run.correct === false || run.spurious === true || run.looped ? '✗' : '✓'
+          setEvalRun({
+            model,
+            modelIndex: models.indexOf(model) + 1,
+            modelCount: models.length,
+            fixtureIndex: index,
+            fixtureCount: total,
+            last: `${mark} ${run.file}`
+          })
+        },
+        shouldStop: () => evalCancelRef.current
+      })
+
+      for (const { model, runs, rates } of results) {
+        await window.api.saveEvalResult({
+          model,
+          baseUrl,
+          ranAt: new Date().toISOString(),
+          caveats: ['tool results canned stubs', 'temperature 0', 'run in-app'],
+          scores: {
+            correctTool: rates.correctTool,
+            spuriousCall: rates.spuriousCall,
+            argValidity: rates.argValidity,
+            loop: rates.loop
+          },
+          runs
+        })
+      }
+      const summary = results
+        .map((r) => `${r.model}: ${r.rates.correctTool.hit}/${r.rates.correctTool.of}`)
+        .join(' · ')
+      setEvalNotice(
+        (evalCancelRef.current ? 'Cancelled — partial results saved. ' : 'Done. ') + summary
+      )
+      void window.api.evalScores().then(setEvalScores).catch(() => {})
+    } catch (err) {
+      setEvalNotice(`Eval failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setEvalRun(null)
+    }
+  }
 
   const updateModel = (id: string, partial: Partial<AppSettings['models'][number]>): void =>
     setDraft((d) =>
@@ -321,6 +481,48 @@ export function SettingsModal(): JSX.Element | null {
 
             {tab === 'models' && (
               <div className="space-y-5">
+                <div className="rounded-xl border border-black/10 dark:border-white/10 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">Tool-choice eval</div>
+                      <p className="mt-0.5 text-xs text-neutral-400">
+                        Measures whether each loaded model calls the right tool, against canned
+                        results (the same harness as <code>npm run eval:tools</code>). Scores appear
+                        under each model picker. A big model can take minutes per fixture.
+                      </p>
+                    </div>
+                    {evalRun ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          evalCancelRef.current = true
+                        }}
+                        className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                      >
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void runEval()}
+                        className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                      >
+                        Run eval
+                      </button>
+                    )}
+                  </div>
+                  {evalRun && (
+                    <p className="mt-2 text-xs text-neutral-500">
+                      Model {evalRun.modelIndex}/{evalRun.modelCount} ({evalRun.model}) — fixture{' '}
+                      {evalRun.fixtureIndex}/{evalRun.fixtureCount}{' '}
+                      <span className="font-mono">{evalRun.last}</span>
+                    </p>
+                  )}
+                  {evalNotice && !evalRun && (
+                    <p className="mt-2 text-xs text-neutral-500">{evalNotice}</p>
+                  )}
+                </div>
+
                 {draft.models.map((m, idx) => (
                   <div
                     key={m.id}
@@ -361,6 +563,7 @@ export function SettingsModal(): JSX.Element | null {
                             <option value={m.modelId}>{m.modelId} (not loaded)</option>
                           )}
                         </select>
+                        <EvalScoreLine scores={evalScores} modelId={m.modelId} />
                       </div>
                       <div>
                         <label className="mb-1 block text-xs font-medium text-neutral-500">
@@ -410,6 +613,49 @@ export function SettingsModal(): JSX.Element | null {
                       />
                     </div>
 
+                    <div className="mt-3 flex flex-wrap items-end gap-4">
+                      <div className="min-w-64 flex-1">
+                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                          Capability
+                        </label>
+                        <input
+                          type="text"
+                          value={m.capability ?? ''}
+                          placeholder="send me: …; don't send me: …"
+                          onChange={(e) =>
+                            updateModel(m.id, { capability: e.target.value || undefined })
+                          }
+                          className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                          Specialty
+                        </label>
+                        <select
+                          value={m.specialty ?? ''}
+                          onChange={(e) =>
+                            updateModel(m.id, {
+                              specialty: (e.target.value || undefined) as ModelConfig['specialty']
+                            })
+                          }
+                          className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                        >
+                          <option value="">General</option>
+                          <option value="coding">Coding</option>
+                          <option value="research">Research</option>
+                          <option value="finance">Finance</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-neutral-400">
+                      How other models and the pre-flight router decide what to send this role.
+                      Capability is the one-line declaration shown in the consult roster; Specialty
+                      is what the router matches on (code → Coding, finance questions → Finance,
+                      factual questions → Research). Leave Specialty at General to opt out of
+                      auto-routing.
+                    </p>
+
                     <div className="mt-3 flex items-center gap-2">
                       <span className="text-xs font-medium text-neutral-500">Accent:</span>
                       {ACCENT_KEYS.map((c) => (
@@ -427,6 +673,82 @@ export function SettingsModal(): JSX.Element | null {
                         Route with <code>@{m.roleName.replace(/\s+/g, '')}</code>
                       </span>
                     </div>
+
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                        Tools
+                        <span className="ml-1 font-normal text-neutral-400">
+                          {m.tools
+                            ? `${m.tools.filter((t) => draft.tools[t as keyof ToolToggles]).length} of ${(Object.keys(TOOL_LABELS) as (keyof ToolToggles)[]).filter((k) => draft.tools[k]).length} enabled`
+                            : 'all enabled tools'}
+                        </span>
+                      </summary>
+                      <div className="mt-2">
+                        {m.tools === undefined ? (
+                          <div className="flex items-center gap-3">
+                            <p className="flex-1 text-xs text-neutral-400">
+                              This role holds every tool enabled under Settings → Tools. Restrict
+                              it when a smaller, focused list would help the model choose — or keep
+                              a powerful tool out of the wrong hands.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateModel(m.id, {
+                                  tools: (Object.keys(TOOL_LABELS) as (keyof ToolToggles)[]).filter(
+                                    (k) => draft.tools[k]
+                                  )
+                                })
+                              }
+                              className="shrink-0 rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                            >
+                              Restrict…
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-2 gap-x-3">
+                              {(Object.keys(TOOL_LABELS) as (keyof ToolToggles)[])
+                                .filter((k) => draft.tools[k])
+                                .map((key) => (
+                                  <label
+                                    key={key}
+                                    className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={(m.tools ?? []).includes(key)}
+                                      onChange={(e) =>
+                                        updateModel(m.id, {
+                                          tools: e.target.checked
+                                            ? [...(m.tools ?? []), key]
+                                            : (m.tools ?? []).filter((t) => t !== key)
+                                        })
+                                      }
+                                      className="accent-accent"
+                                    />
+                                    <code className="text-xs">{key}</code>
+                                  </label>
+                                ))}
+                            </div>
+                            <div className="mt-1.5 flex items-center gap-3">
+                              <p className="flex-1 text-xs text-neutral-400">
+                                {(m.tools.filter((t) => draft.tools[t as keyof ToolToggles])).length === 0
+                                  ? 'This role holds no tools — it answers from its own knowledge only.'
+                                  : 'Only checked tools reach this role. Tools disabled globally never do.'}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => updateModel(m.id, { tools: undefined })}
+                                className="shrink-0 rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                              >
+                                Allow all
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </details>
 
                     <details className="mt-3">
                       <summary className="cursor-pointer text-xs font-medium text-neutral-500">
@@ -1238,6 +1560,71 @@ export function SettingsModal(): JSX.Element | null {
                 </div>
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="text-sm font-medium">Shopping</div>
+                  <p className="mt-1 mb-3 text-xs text-neutral-500">
+                    Shopping tools contact retailers, who log the visit. Sigma Oasis never logs in,
+                    never fills a cart and never checks out — you finish the purchase in your own
+                    browser. The watchlist stays on this machine.
+                  </p>
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.shopping.requireProxy}
+                      onChange={(e) =>
+                        update({ shopping: { ...draft.shopping, requireProxy: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Require a proxy for shopping fetches
+                      <span className="block text-xs text-neutral-500">
+                        Refuses rather than going out direct. Big retailers block Tor exits, so this
+                        trades success rate for not handing them your IP — deliberately, and in that
+                        order.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.shopping.excludeTierX}
+                      onChange={(e) =>
+                        update({ shopping: { ...draft.shopping, excludeTierX: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Exclude affiliate listicles and content farms
+                      <span className="block text-xs text-neutral-500">
+                        &quot;Top 10 best…&quot; pages are written to rank, not to inform. The domain
+                        list is in <code>src/main/ipc/sourceTiers.ts</code> — a ranking you can read.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs text-neutral-500">
+                      Sellers checked per comparison: {draft.shopping.maxSellers}
+                    </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={5}
+                      value={draft.shopping.maxSellers}
+                      onChange={(e) =>
+                        update({
+                          shopping: { ...draft.shopping, maxSellers: Number(e.target.value) }
+                        })
+                      }
+                      className="w-full accent-accent"
+                    />
+                    <p className="text-xs text-neutral-500">
+                      Each seller is one page fetch. The budget is checked before each fetch and the
+                      stop is stated in the result.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-medium">Pages read this session</div>
                     <button
@@ -1384,6 +1771,30 @@ export function SettingsModal(): JSX.Element | null {
                           title="Decrypt the latest session log to a file you choose. The export is plaintext — anyone with the file can read it."
                         >
                           Export latest (decrypted)
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!auditInfo.available || auditInfo.sessions.length === 0}
+                          onClick={() =>
+                            void window.api.tracesExport().then((r) => {
+                              if (r.ok) {
+                                setAuditNotice(
+                                  `Traces: ${r.counts.positive} positive, ${r.counts.rejected} rejected, ` +
+                                    `${r.counts.unlabeled} unlabeled (excluded) — schema ${r.schemaVersion ?? 'n/a'}. ` +
+                                    `Wrote ${r.paths.positive} and siblings.` +
+                                    (r.chainValid
+                                      ? ''
+                                      : ' ⚠ Hash chain BROKEN: the log was modified.')
+                                )
+                              } else if (!r.canceled) {
+                                setAuditNotice(`Trace export failed: ${r.error ?? 'unknown error'}`)
+                              }
+                            })
+                          }
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                          title="Export the latest session as OpenAI-format fine-tuning traces: positive and rejected JSONL, a manifest, and the tool schemas. Redacted; writes to a location you choose."
+                        >
+                          Export traces (SFT)
                         </button>
                         <button
                           type="button"

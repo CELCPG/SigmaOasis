@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { createReasoningSplitter } from '../src/renderer/src/lib/reasoning'
+import { createReasoningSplitter, isLikelyReasoningModel } from '../src/renderer/src/lib/reasoning'
 
 /**
  * The reasoning splitter is pure logic over a token stream, so it is tested
@@ -168,5 +168,23 @@ describe('createReasoningSplitter — Gemma 4 native control tokens', () => {
       out.answer,
       '<|tool>call:text_generation{prompt:<|"|>a short story about cats<|"|>}<tool_call|>'
     )
+  })
+})
+
+describe('isLikelyReasoningModel (the Layer 1d gate)', () => {
+  test('the families whose CoT the splitter strips read as reasoning models', () => {
+    assert.equal(isLikelyReasoningModel('qwen3-8b-instruct'), true)
+    assert.equal(isLikelyReasoningModel('deepseek-r1-distill-qwen-7b'), true)
+    assert.equal(isLikelyReasoningModel('openai/gpt-oss-20b'), true)
+    assert.equal(isLikelyReasoningModel('mistralai/magistral-small'), true)
+    // Gemma 4 reasons in native control tokens the splitter strips.
+    assert.equal(isLikelyReasoningModel('google/gemma-4-12b-qat'), true)
+    assert.equal(isLikelyReasoningModel('gemma-4-e4b-agentic-sol-fable-reasoning-geminicli'), true)
+  })
+
+  test('plain instruct models get the preamble instead', () => {
+    assert.equal(isLikelyReasoningModel('llama-3.1-8b-instruct'), false)
+    assert.equal(isLikelyReasoningModel('mistral-7b-instruct-v0.3'), false)
+    assert.equal(isLikelyReasoningModel('qwen2.5-7b-instruct'), false)
   })
 })

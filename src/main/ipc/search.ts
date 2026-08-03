@@ -137,7 +137,7 @@ const USER_AGENT = GENERIC_USER_AGENT
 async function fetchWithTimeout(
   url: string,
   init: AuditedFetchInit | undefined,
-  purpose: 'search' | 'webpage',
+  purpose: 'search' | 'webpage' | 'shop',
   timeoutMs: number
 ): Promise<HttpResponseLike> {
   return auditedFetch(url, { ...init, timeoutMs }, purpose)
@@ -567,7 +567,16 @@ function failedPage(url: string, error: string): WebpageOutcome {
   }
 }
 
-export async function fetchWebpage(rawUrl: string): Promise<WebpageOutcome> {
+/**
+ * `purpose` selects the activity-log label only — the SSRF guard, the HTTPS
+ * requirement and the redirect handling are identical either way. Shopping
+ * fetches pass 'shop' so the user can tell a page they asked to read from a
+ * retailer the app contacted on their behalf.
+ */
+export async function fetchWebpage(
+  rawUrl: string,
+  purpose: 'webpage' | 'shop' = 'webpage'
+): Promise<WebpageOutcome> {
   let url: URL
   try {
     url = new URL(String(rawUrl ?? ''))
@@ -596,7 +605,7 @@ export async function fetchWebpage(rawUrl: string): Promise<WebpageOutcome> {
           },
           maxBytes: MAX_PAGE_BYTES
         },
-        'webpage',
+        purpose,
         FETCH_TIMEOUT_MS
       )
 

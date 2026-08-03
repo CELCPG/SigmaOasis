@@ -13,6 +13,19 @@ import { findTag, heldBackSuffixLength } from './reasoning'
  * arrives inside delta.content as literal text. Models quantize imperfectly,
  * so the sloppy variant <|tool>call:… is accepted too.
  *
+ * A second surface form appears in some agentic fine-tunes (measured on
+ * gemma-4-e4b-agentic 2026-08-03): literal XML-ish markup with plain JSON
+ * arguments instead of the control-token grammar —
+ *
+ *   <call>web_search{"query":"paris weather"}</call>
+ *
+ * And a third, same model: the call as a bare JSON object in content —
+ * {"tool_calls": [{"function": name, "args": {...}}]} or the singular
+ * {"tool_call": name, "args": {...}}. All three parse to the same
+ * NativeToolCall. A JSON-looking span that is not one of the two blob
+ * signatures is emitted as visible text untouched, and a bare argument
+ * object with no tool name ({"path": …}) is never treated as a call.
+ *
  * This extractor removes the markup from the visible answer and returns the
  * calls parsed into the same shape the OpenAI channel would have produced, so
  * they execute through the normal tool loop. A hallucinated name simply
@@ -42,8 +55,8 @@ export interface NativeToolExtractor {
   flush(): ToolExtraction
 }
 
-const OPEN_TOKENS = ['<|tool_call>', '<|tool>']
-const CLOSE_TOKENS = ['<tool_call|>', '<tool|>']
+const OPEN_TOKENS = ['<|tool_call>', '<|tool>', '<call>']
+const CLOSE_TOKENS = ['<tool_call|>', '<tool|>', '</call>']
 const QUOTE = '<|"|>'
 
 /**
@@ -113,11 +126,35 @@ function parseValue(text: string, i: number): [unknown, number] | typeof PARSE_F
 }
 
 /**
- * Parse the inside of a `call:name{…}` span into the OpenAI shape. Returns
- * null on anything malformed — the caller drops malformed calls silently,
- * because half-parsed arguments must never execute.
+ * The `<call>name{json}</call>` variant: the name runs up to the first brace
+ * and everything between the outermost braces is one JSON object. Anything
+ * that is not a JSON object (arrays, scalars, broken JSON) returns null —
+ * malformed arguments must never execute, in this grammar exactly as in the
+ * control-token one.
+ */
+function parseJsonToolCall(span: string): NativeToolCall | null {
+  const head = /^([\w.-]+)\s*(\{[\s\S]*\})\s*$/.exec(span)
+  if (!head) return null
+  try {
+    const args: unknown = JSON.parse(head[2])
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) return null
+    return { name: head[1], arguments: JSON.stringify(args) }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Parse the inside of a call span into the OpenAI shape. Returns null on
+ * anything malformed — the caller drops malformed calls silently, because
+ * half-parsed arguments must never execute.
+ *
+ * Two accepted grammars: the Gemma control-token form (`call:name{key:
+ * <|"|>value<|"|>}`) and the `<call>name{json}</call>` fine-tune variant,
+ * whose arguments are a plain JSON object.
  */
 export function parseNativeToolCall(span: string): NativeToolCall | null {
+  if (!span.startsWith('call:')) return parseJsonToolCall(span)
   const head = /^call:\s*([\w.-]+)\s*\{/.exec(span)
   if (!head) return null
   const name = head[1]
@@ -150,6 +187,119 @@ export function parseNativeToolCall(span: string): NativeToolCall | null {
   return { name, arguments: JSON.stringify(args) }
 }
 
+// ---- JSON blobs (fine-tune content-formats, measured 2026-08-03) ----------------
+
+/**
+ * Some agentic fine-tunes emit their call as a JSON object *in content*
+ * rather than in any markup. Two shapes measured on gemma-4-e4b-agentic:
+ *
+ *   {"tool_calls": [{"function": "list_directory", "args": {"path": "~/Downloads"}}]}
+ *   {"tool_call": "memory_save", "args": {"title": "favorite band", "text": "Phish"}}
+ *
+ * OpenAI-ish entries (`function: {name, arguments}`, an `arguments` key, or
+ * arguments as a JSON string) are accepted too — the formats collapse into
+ * one another across fine-tunes, and everything still lands in the same
+ * NativeToolCall shape. Anything that does not parse to a call returns null,
+ * and a bare argument object with no tool name ({"path": …}) never even
+ * reaches this function: guessing a tool from argument shape is how the wrong
+ * thing executes.
+ */
+export function parseJsonCallBlob(json: string): NativeToolCall[] | null {
+  let value: unknown
+  try {
+    value = JSON.parse(json)
+  } catch {
+    return null
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const obj = value as Record<string, unknown>
+
+  const argsOf = (raw: unknown): string | null => {
+    let args: unknown = raw ?? {}
+    if (typeof args === 'string') {
+      try {
+        args = JSON.parse(args)
+      } catch {
+        return null
+      }
+    }
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) return null
+    return JSON.stringify(args)
+  }
+
+  if (typeof obj.tool_call === 'string') {
+    const args = argsOf(obj.args ?? obj.arguments)
+    return args === null ? null : [{ name: obj.tool_call, arguments: args }]
+  }
+
+  if (Array.isArray(obj.tool_calls)) {
+    const calls: NativeToolCall[] = []
+    for (const entry of obj.tool_calls) {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return null
+      const e = entry as Record<string, unknown>
+      let name: string | undefined
+      let rawArgs: unknown = e.args ?? e.arguments
+      const fn = e.function
+      if (typeof fn === 'string') {
+        name = fn
+      } else if (fn !== null && typeof fn === 'object' && !Array.isArray(fn)) {
+        const f = fn as Record<string, unknown>
+        if (typeof f.name === 'string') name = f.name
+        if (rawArgs === undefined) rawArgs = f.arguments
+      }
+      if (!name && typeof e.name === 'string') name = e.name
+      if (!name) return null
+      const args = argsOf(rawArgs)
+      if (args === null) return null
+      calls.push({ name, arguments: args })
+    }
+    return calls.length > 0 ? calls : null
+  }
+
+  return null
+}
+
+/**
+ * Does `s` (from a `{`) begin one of the two blob signatures? 'maybe' means
+ * the chunk ended before the signature could be proven — the same
+ * chunk-boundary discipline as heldBackSuffixLength for control tokens.
+ */
+function jsonHeadState(s: string): 'no' | 'maybe' | 'yes' {
+  const compact = s.replace(/\s+/g, '')
+  const SINGULAR = '{"tool_call":'
+  const PLURAL = '{"tool_calls":'
+  if (compact.startsWith(PLURAL) || compact.startsWith(SINGULAR)) return 'yes'
+  if (SINGULAR.startsWith(compact) || PLURAL.startsWith(compact)) return 'maybe'
+  return 'no'
+}
+
+/**
+ * Consume one balanced JSON span from text starting at `{`, strings and
+ * escapes respected. Returns [span, nextIndex], or null when the text ends
+ * before the span closes.
+ */
+function takeJsonSpan(text: string): [string, number] | null {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return [text.slice(0, i + 1), i + 1]
+    }
+  }
+  return null
+}
+
 // ---- the stream extractor -------------------------------------------------------
 
 /**
@@ -162,6 +312,9 @@ export function createNativeToolExtractor(): NativeToolExtractor {
   let inCall = false
   /** Raw span text of the call in progress (without its open/close tokens). */
   let span = ''
+  /** JSON blob in progress (the {"tool_call… content-formats). */
+  let inJson = false
+  let jsonSpan = ''
 
   function consume(text: string, atEnd: boolean): ToolExtraction {
     let out = ''
@@ -186,7 +339,54 @@ export function createNativeToolExtractor(): NativeToolExtractor {
         continue
       }
 
+      if (inJson) {
+        const taken = takeJsonSpan(rest)
+        if (!taken) {
+          // A truncated blob at end of stream is dropped like a truncated
+          // markup span: half an argument set is not a call.
+          if (atEnd) {
+            inJson = false
+            jsonSpan = ''
+            return { text: out, calls }
+          }
+          jsonSpan += rest
+          return { text: out, calls }
+        }
+        jsonSpan += taken[0]
+        const blob = parseJsonCallBlob(jsonSpan)
+        if (blob) calls.push(...blob)
+        else out += jsonSpan // not a call blob after all — visible text, no execution
+        jsonSpan = ''
+        inJson = false
+        rest = rest.slice(taken[1])
+        continue
+      }
+
       const token = findTag(rest, OUTSIDE_TOKENS)
+      const brace = rest.indexOf('{')
+      if (brace !== -1 && (!token || brace < token.index)) {
+        const head = jsonHeadState(rest.slice(brace))
+        if (head === 'yes') {
+          out += rest.slice(0, brace)
+          inJson = true
+          jsonSpan = ''
+          rest = rest.slice(brace)
+          continue
+        }
+        if (head === 'maybe' && !atEnd) {
+          // The blob signature is cut by the chunk boundary: hold from the
+          // brace until the next delta proves or disproves it.
+          out += rest.slice(0, brace)
+          pending = rest.slice(brace)
+          return { text: out, calls }
+        }
+        // An ordinary brace — prose, a code block, a bare argument object.
+        // Emit it and keep scanning.
+        out += rest.slice(0, brace + 1)
+        rest = rest.slice(brace + 1)
+        continue
+      }
+
       if (!token) {
         const held = atEnd ? 0 : heldBackSuffixLength(rest, OUTSIDE_TOKENS)
         out += rest.slice(0, rest.length - held)
@@ -217,6 +417,8 @@ export function createNativeToolExtractor(): NativeToolExtractor {
       // set is not a call, and showing the markup is the bug being fixed.
       span = ''
       inCall = false
+      inJson = false
+      jsonSpan = ''
       if (!pending) return { text: '', calls: [] }
       const text = pending
       pending = ''

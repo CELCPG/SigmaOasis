@@ -40,6 +40,23 @@ export interface ModelConfig {
    * history compaction triggers off this number.
    */
   contextWindow: number | null
+  /**
+   * Per-role tool allowlist (v1.3). Absent = all globally-enabled tools; an
+   * array — even empty — restricts the slot to the named tools that are also
+   * globally enabled.
+   */
+  tools?: string[]
+  /**
+   * One-line routing declaration (v1.4): "send me X; don't send me Y". Shown
+   * to other models in the consult_model roster and used by the pre-flight
+   * router. Absent = the router falls back to the system prompt.
+   */
+  capability?: string
+  /**
+   * Structured routing tag (v1.4) the pre-flight classifier matches on.
+   * Absent = generalist; the slot is never auto-routed a specialty signal.
+   */
+  specialty?: 'coding' | 'research' | 'finance'
 }
 
 export interface ToolToggles {
@@ -58,6 +75,22 @@ export interface ToolToggles {
   memory_forget: boolean
   deep_research: boolean
   finance_calculator: boolean
+  shop_requirements: boolean
+  shop_compare: boolean
+  price_watch: boolean
+}
+
+export interface ShoppingSettings {
+  /**
+   * Refuse shopping fetches when no proxy is active. On by default: these
+   * requests contact commercial sites that log them, and a privacy setting
+   * that silently does not cover the case that matters is worse than none.
+   */
+  requireProxy: boolean
+  /** Sellers fetched per comparison (1–5). */
+  maxSellers: number
+  /** Drop affiliate listicles and content farms from candidate discovery. */
+  excludeTierX: boolean
 }
 
 export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
@@ -195,6 +228,8 @@ export interface AppSettings {
   secondOpinion: SecondOpinionSettings
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
+  /** v1.4: private shopping research. Tools ship off; this governs how they behave. */
+  shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
   audit: AuditSettings
   /** v0.9: multi-step plan generation and execution. */
@@ -290,7 +325,12 @@ function defaultSettings(): AppSettings {
       memory_search: true,
       memory_forget: true,
       deep_research: true,
-      finance_calculator: true
+      finance_calculator: true,
+      // Off by default: these initiate outbound requests to commercial sites
+      // that log them. That should be a choice the user makes on purpose.
+      shop_requirements: false,
+      shop_compare: false,
+      price_watch: false
     },
     workingDirectory: '',
     pipeline: ['model-1'],
@@ -342,6 +382,11 @@ function defaultSettings(): AppSettings {
       // the critic slot does the extraction and judging.
       enabled: true,
       maxClaims: 5
+    },
+    shopping: {
+      requireProxy: true,
+      maxSellers: 4,
+      excludeTierX: true
     },
     audit: {
       enabled: false,
@@ -418,7 +463,21 @@ function normalizeSettings(settings: AppSettings): AppSettings {
           contextWindow:
             typeof m?.contextWindow === 'number' && m.contextWindow >= 512
               ? Math.round(m.contextWindow)
-              : null
+              : null,
+          // Absent stays absent (= all globally-enabled tools); a stored array
+          // is an allowlist, sanitized to plain strings.
+          tools: Array.isArray(m?.tools)
+            ? m.tools.filter((t): t is string => typeof t === 'string')
+            : undefined,
+          // Routing declarations (v1.4): a trimmed non-empty string, else absent.
+          capability:
+            typeof m?.capability === 'string' && m.capability.trim()
+              ? m.capability.trim()
+              : undefined,
+          specialty:
+            m?.specialty === 'coding' || m?.specialty === 'research' || m?.specialty === 'finance'
+              ? m.specialty
+              : undefined
         }
       })
     : defaults.models
@@ -510,6 +569,13 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       enabled: settings.claimCheck?.enabled !== false,
       maxClaims: clamp(settings.claimCheck?.maxClaims, 1, 10, defaults.claimCheck.maxClaims)
     },
+    shopping: {
+      // Defaults to on: an absent or malformed value must not silently disable
+      // the proxy requirement, which is the setting most costly to get wrong.
+      requireProxy: settings.shopping?.requireProxy !== false,
+      maxSellers: clamp(settings.shopping?.maxSellers, 1, 5, defaults.shopping.maxSellers),
+      excludeTierX: settings.shopping?.excludeTierX !== false
+    },
     audit: {
       enabled: Boolean(settings.audit?.enabled),
       autoPurgeOnQuit: Boolean(settings.audit?.autoPurgeOnQuit)
@@ -541,6 +607,7 @@ export function migrateSettings(): void {
     updates: { ...defaults.updates, ...current.updates },
     secondOpinion: { ...defaults.secondOpinion, ...current.secondOpinion },
     claimCheck: { ...defaults.claimCheck, ...current.claimCheck },
+    shopping: { ...defaults.shopping, ...current.shopping },
     audit: { ...defaults.audit, ...current.audit },
     plan: { ...defaults.plan, ...current.plan }
   } as AppSettings

@@ -76,6 +76,33 @@ const CLOSE_TAGS = REASONING_PAIRS.map((p) => p.close)
 const REASONING_END_TOKENS = [...CLOSE_TAGS, ...TOOL_OPEN_TOKENS]
 
 /**
+ * Model families whose chain-of-thought this splitter already handles: the
+ * XML think-tag family (Qwen3, DeepSeek-R1 distills, gpt-oss, Magistral) and
+ * Gemma 4's native control tokens. Used to gate features that would produce
+ * *doubled* thinking on these models — e.g. the tool-call preamble (strategy
+ * Layer 1d) asks a model to state its reason in the answer body, which is
+ * redundant noise when the model already emits CoT that lands here.
+ *
+ * It is a name heuristic, not a guarantee: an unknown new reasoning model
+ * reads as false. That failure direction is safe — the preamble is additive,
+ * never load-bearing.
+ */
+const REASONING_MODEL_PATTERNS = [
+  /qwen3/i,
+  /deepseek[-_]?r1/i,
+  /r1[-_]?distill/i,
+  /gpt[-_]?oss/i,
+  /magistral/i,
+  /gemma[-_]?4/i,
+  /reasoning/i
+]
+
+/** True when the model id names a family whose CoT the splitter strips. */
+export function isLikelyReasoningModel(modelId: string): boolean {
+  return REASONING_MODEL_PATTERNS.some((p) => p.test(modelId))
+}
+
+/**
  * Length of the longest suffix of `text` that could still grow into one of
  * `tags`. This is what makes chunk boundaries safe: a delta ending in `<thi`
  * or `<|to` must not be emitted yet, because the next delta may complete it

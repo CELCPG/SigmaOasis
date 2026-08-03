@@ -4,6 +4,7 @@ import { ACCENT } from '../lib/colors'
 import { renderMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
+import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
@@ -97,7 +98,7 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
   // order on every render, and an early return would skip this one.
   const [speaking, setSpeaking] = useState(false)
   const [copied, setCopied] = useState(false)
-  const { regenerate, secondOpinion } = useLMStudio()
+  const { regenerate, secondOpinion, escalate } = useLMStudio()
   const streaming = useAppStore((s) => s.streaming)
   const secondOpinionEnabled = useAppStore((s) => s.settings?.secondOpinion.enabled) ?? false
 
@@ -278,6 +279,15 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
         {!hideToolCalls &&
           toolCalls.map((record) => <ToolCallBlock key={record.id} record={record} />)}
 
+        {message.routingNote && (
+          <div
+            className="mt-2 text-[11px] text-gray-500 dark:text-gray-400"
+            title="The pre-flight router sent this message to a specialty slot based on its content. @mention a role name to override routing."
+          >
+            🔀 {message.routingNote} — override with @RoleName
+          </div>
+        )}
+
         {!isStreaming && message.memoryContext && message.memoryContext.length > 0 && (
           <MemoryContextLine items={message.memoryContext} />
         )}
@@ -298,6 +308,19 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
         {message.claimCheck && (
           <ClaimCheckBlock check={message.claimCheck} isStreaming={streaming && isLast} />
+        )}
+
+        {!isStreaming && message.escalation && (
+          <button
+            type="button"
+            disabled={streaming}
+            onClick={() => void escalate(message.id)}
+            title="Re-run this turn on a bigger slot. The original reply stays; the new answer is appended."
+            className="mt-2 rounded-lg border border-black/10 px-2.5 py-1 text-[11px] text-neutral-600 transition-colors hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/5"
+          >
+            ↗ Try again on {message.escalation.roleName} —{' '}
+            {ESCALATION_REASON_TEXT[message.escalation.reason]}
+          </button>
         )}
 
         {showStats && !isStreaming && message.stats && (

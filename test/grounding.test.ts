@@ -6,7 +6,9 @@ import {
   buildSearchQuery,
   consultedSources,
   looksFactual,
-  withGrounding
+  withGrounding,
+  withToolCallPreamble,
+  TOOL_PREAMBLE_INSTRUCTION
 } from '../src/renderer/src/lib/grounding'
 import type { ToolCallRecord } from '../src/renderer/src/types'
 
@@ -98,5 +100,27 @@ describe('consultedSources', () => {
     assert.equal(consultedSources([rec('memory_search', 'done')]), false)
     assert.equal(consultedSources([rec('read_file', 'done')]), false)
     assert.equal(consultedSources([]), false)
+  })
+})
+
+describe('withToolCallPreamble (Layer 1d)', () => {
+  test('non-reasoning models get the one-sentence instruction', () => {
+    const out = withToolCallPreamble('You are helpful.', 'llama-3.1-8b-instruct')
+    assert.ok(out.endsWith(TOOL_PREAMBLE_INSTRUCTION))
+    assert.equal(out.startsWith('You are helpful.'), true)
+  })
+
+  test('reasoning models do not — their CoT already covers it', () => {
+    assert.equal(withToolCallPreamble('You are helpful.', 'qwen3-8b'), 'You are helpful.')
+    assert.equal(
+      withToolCallPreamble('You are helpful.', 'google/gemma-4-12b-qat'),
+      'You are helpful.'
+    )
+  })
+
+  test('the instruction asks for the reason and the expectation, in one sentence', () => {
+    assert.match(TOOL_PREAMBLE_INSTRUCTION, /one sentence/)
+    assert.match(TOOL_PREAMBLE_INSTRUCTION, /why it is needed/)
+    assert.match(TOOL_PREAMBLE_INSTRUCTION, /expect back/)
   })
 })

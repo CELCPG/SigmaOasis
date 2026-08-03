@@ -41,6 +41,7 @@ export type NetworkPurpose =
   | 'lmstudio' // loopback model server: chat, models, embeddings
   | 'search' // the configured search provider
   | 'webpage' // fetch_webpage tool (SSRF-guarded in search.ts)
+  | 'shop' // shopping research: retailer/manufacturer product pages
   | 'render' // headless page rendering (filtered in render.ts)
   | 'proxytest' // user-initiated "Test proxy" check only
   | 'update' // opt-in update checks
@@ -151,6 +152,11 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
       return ['github.com', 'objects.githubusercontent.com']
     case 'webpage':
       // Arbitrary by design — guarded by the SSRF checks in search.ts.
+      return ['*']
+    case 'shop':
+      // Same guard as 'webpage' — this purpose exists so the activity log
+      // distinguishes "a page you asked to read" from "a retailer we contacted
+      // on your behalf." Those are different disclosures to the same user.
       return ['*']
     case 'render':
       // Arbitrary by design, but far more tightly constrained than 'webpage':

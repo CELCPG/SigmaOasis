@@ -27,6 +27,23 @@ export interface ModelConfig {
   sampling: SamplingSettings
   /** Context window override for budgeting; null = trust what LM Studio reports. */
   contextWindow: number | null
+  /**
+   * Per-role tool allowlist (v1.3). Absent/undefined = all globally-enabled
+   * tools; an array — even empty — restricts the slot to the named tools that
+   * are also globally enabled.
+   */
+  tools?: string[]
+  /**
+   * One-line routing declaration (v1.4): "send me X; don't send me Y". Shown
+   * to other models in the consult_model roster and used by the pre-flight
+   * router. Absent = the router falls back to the system prompt.
+   */
+  capability?: string
+  /**
+   * Structured routing tag (v1.4) the pre-flight classifier matches on.
+   * Absent = generalist; the slot is never auto-routed a specialty signal.
+   */
+  specialty?: 'coding' | 'research' | 'finance'
 }
 
 export interface ToolToggles {
@@ -45,6 +62,18 @@ export interface ToolToggles {
   memory_forget: boolean
   deep_research: boolean
   finance_calculator: boolean
+  shop_requirements: boolean
+  shop_compare: boolean
+  price_watch: boolean
+}
+
+export interface ShoppingSettings {
+  /** Refuse shopping fetches when no proxy is active. On by default. */
+  requireProxy: boolean
+  /** Sellers fetched per comparison (1–5). */
+  maxSellers: number
+  /** Drop affiliate listicles and content farms from candidate discovery. */
+  excludeTierX: boolean
 }
 
 export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
@@ -197,6 +226,42 @@ export interface ClaimCheckRecord {
   createdAt: number
 }
 
+/** Why an escalation is on the table, strongest signal first. */
+export type EscalationReason = 'iteration_cap' | 'contradicted' | 'unverified'
+
+/**
+ * v1.4 escalation (Layer 2d): an offer to re-run the turn that produced this
+ * reply on a bigger slot. `slotId` is re-validated against current settings
+ * when clicked — the offer is a snapshot, never a command.
+ */
+export interface EscalationOffer {
+  slotId: string
+  roleName: string
+  reason: EscalationReason
+}
+
+// ---- v1.4: measured tool-choice scores (Layer 0c) -----------------------------
+
+export interface EvalRate {
+  hit: number
+  of: number
+}
+
+/**
+ * One model's folded tool-choice eval scores, aggregated main-side from
+ * .eval-results/ (main/ipc/evalResults.ts, duplicated there so the module
+ * stays self-contained for node:test). Absent for models never evaluated.
+ */
+export interface EvalScoreSummary {
+  model: string
+  /** ISO timestamp of the newest run folded into this summary. */
+  ranAt: string
+  correctTool: EvalRate
+  spuriousCall: EvalRate
+  argValidity: EvalRate
+  loop: EvalRate
+}
+
 export interface ClaimCheckSettings {
   /**
    * Master switch for the automatic claim-check pass on unverified answers.
@@ -329,6 +394,8 @@ export interface AppSettings {
   secondOpinion: SecondOpinionSettings
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
+  /** v1.4: private shopping research. Tools ship off; this governs behavior. */
+  shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
   audit: AuditSettings
   /** v0.9: multi-step plan generation and execution. */
@@ -410,6 +477,13 @@ export interface ToolCallRecord {
   args: Record<string, unknown>
   result?: string
   status: 'running' | 'done' | 'error'
+  /**
+   * The model's one-sentence reason for the call (v1.3, Layer 1d), captured
+   * from the round that produced it and rendered in the tool-call block.
+   * Display-only — the wire history carries it as the assistant message's own
+   * content, where the model expects its words to live.
+   */
+  preamble?: string
 }
 
 export interface ChatMessage {
@@ -448,6 +522,18 @@ export interface ChatMessage {
    * never replayed to a model.
    */
   unverified?: boolean
+  /**
+   * v1.4 routing: how the pre-flight router chose this reply's model slot
+   * (e.g. "routed to Coder — fenced code detected"). Display-only — never
+   * replayed to a model. Absent when the message went to the default slot.
+   */
+  routingNote?: string
+  /**
+   * v1.4 escalation (Layer 2d): the turn ended weak — unverified, a claim
+   * contradicted, or the tool loop hit its cap — and a bigger slot is
+   * available to re-run it on. Display-only — never replayed to a model.
+   */
+  escalation?: EscalationOffer
   /**
    * v1.2 claim check: the mechanical per-claim verification of this reply
    * (confirmed / contradicted / unverifiable, each with its source).

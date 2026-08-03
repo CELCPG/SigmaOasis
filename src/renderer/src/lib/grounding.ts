@@ -1,4 +1,5 @@
 import type { ToolCallRecord } from '../types'
+import { isLikelyReasoningModel } from './reasoning'
 
 /**
  * v1.1 Grounding: the anti-confabulation layer.
@@ -48,6 +49,27 @@ export function buildGroundingBlock(now: Date = new Date()): string {
 /** Append the grounding block to a slot's system prompt. */
 export function withGrounding(systemPrompt: string, now: Date = new Date()): string {
   return `${systemPrompt}\n\n${buildGroundingBlock(now)}`
+}
+
+/**
+ * v1.3 (Layer 1d): ask the model to say, in one sentence, why it is reaching
+ * for a tool and what it expects back. The sentence renders in the tool-call
+ * block, so the user sees the stated reason next to what the model actually
+ * did — the disclosure philosophy of memory recall and auto-search, applied
+ * one level down.
+ */
+export const TOOL_PREAMBLE_INSTRUCTION =
+  'Before calling a tool, state in one sentence why it is needed and what you expect back.'
+
+/**
+ * Append the tool-call preamble instruction — but never for reasoning models.
+ * Qwen3, R1 distills, gpt-oss and Gemma 4 already emit chain-of-thought that
+ * lib/reasoning.ts splits out; a second mechanism produces doubled thinking
+ * in the answer body, so the gate is the same family signal the splitter uses.
+ */
+export function withToolCallPreamble(systemPrompt: string, modelId: string): string {
+  if (isLikelyReasoningModel(modelId)) return systemPrompt
+  return `${systemPrompt}\n\n${TOOL_PREAMBLE_INSTRUCTION}`
 }
 
 // ---- Factual-turn heuristic ---------------------------------------------------

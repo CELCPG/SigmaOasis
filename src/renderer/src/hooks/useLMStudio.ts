@@ -9,14 +9,16 @@ import {
   planHistory,
   planHistoryFallback
 } from '../lib/contextBudget'
-import { budgetContextLength } from '../lib/modelInfo'
+import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
+import { toolsForSlot, selectTurnTools, TURN_TOOL_CAP } from '../lib/toolSelection'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
 import {
   buildSearchContext,
   buildSearchQuery,
   consultedSources,
   looksFactual,
-  withGrounding
+  withGrounding,
+  withToolCallPreamble
 } from '../lib/grounding'
 import {
   buildExtractionMessages,
@@ -25,6 +27,23 @@ import {
   parseClaims,
   parseVerdict
 } from '../lib/claimCheck'
+import {
+  consultModelSchema,
+  runAgentLoop,
+  toolCallPreamble,
+  MAX_TOOL_ITERATIONS,
+  type ApiContentPart,
+  type ApiMessage,
+  type ApiToolCall,
+  type ApiUsage,
+  type SpecialistProfile
+} from '../lib/agentLoop'
+import {
+  routeTargets,
+  escalationCandidate,
+  escalationReason,
+  ESCALATION_REASON_TEXT
+} from '../lib/routing'
 import type {
   AppSettings,
   Attachment,
@@ -39,6 +58,7 @@ import type {
   SamplingSettings,
   SecondOpinionRecord,
   ToolCallRecord,
+  ToolResult,
   ToolSchema
 } from '../types'
 
@@ -50,9 +70,6 @@ import type {
  * attachments, sent as multimodal content parts.
  */
 
-const MAX_TOOL_ITERATIONS = 8
-/** Hard cap on consult_model calls in a single orchestrator turn. */
-const MAX_DELEGATIONS_PER_TURN = 5
 /** Specialist replies fed back to the orchestrator are capped to protect context. */
 const MAX_CONSULT_REPLY_CHARS = 3000
 
@@ -79,29 +96,8 @@ function audit(
 }
 
 // ---- OpenAI wire types --------------------------------------------------------
-
-interface ApiToolCall {
-  id: string
-  type: 'function'
-  function: { name: string; arguments: string }
-}
-
-type ApiContentPart =
-  | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } }
-
-interface ApiMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string | ApiContentPart[] | null
-  tool_calls?: ApiToolCall[]
-  tool_call_id?: string
-}
-
-/** The server's own token accounting. Absent on servers that do not report it. */
-interface ApiUsage {
-  prompt_tokens?: number
-  completion_tokens?: number
-}
+// ApiMessage / ApiToolCall / ApiContentPart / ApiUsage live in lib/agentLoop.ts,
+// which owns the wire history across tool-loop iterations.
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
@@ -233,58 +229,6 @@ async function planAndCompact(
   } finally {
     useAppStore.getState().setCompacting(false)
   }
-}
-
-/** `@RoleName` (spaces removed, case-insensitive) anywhere in the text routes the message. */
-function mentionTarget(settings: AppSettings, text: string): ModelConfig | null {
-  const lower = text.toLowerCase()
-  for (const m of settings.models) {
-    if (!m.enabled || !m.roleName.trim()) continue
-    const handle = `@${m.roleName.replace(/\s+/g, '').toLowerCase()}`
-    if (lower.includes(handle)) return m
-  }
-  return null
-}
-
-/**
- * Decide which model slots answer a user message: @mention wins, then the
- * conversation's mode decides (active slot / pipeline chain / orchestrator).
- */
-function routeTargets(
-  settings: AppSettings,
-  convo: Conversation,
-  text: string
-): { targets: ModelConfig[]; delegation?: DelegationContext } {
-  const mention = mentionTarget(settings, text)
-  if (mention) return { targets: [mention] }
-
-  if (convo.mode === 'collaborative') {
-    return {
-      targets: settings.pipeline
-        .map((id) => settings.models.find((m) => m.id === id))
-        .filter((m): m is ModelConfig => Boolean(m?.enabled && m.modelId))
-    }
-  }
-
-  if (convo.mode === 'orchestrated') {
-    const orchestrator =
-      settings.models.find((m) => m.id === convo.orchestratorSlotId && m.enabled) ??
-      settings.models.find((m) => m.enabled)
-    if (!orchestrator) return { targets: [] }
-    return {
-      targets: [orchestrator],
-      delegation: {
-        specialists: settings.models.filter(
-          (m) => m.enabled && m.modelId && m.id !== orchestrator.id
-        )
-      }
-    }
-  }
-
-  const active =
-    settings.models.find((m) => m.id === convo.activeModelSlotId && m.enabled) ??
-    settings.models.find((m) => m.enabled)
-  return { targets: active ? [active] : [] }
 }
 
 /**
@@ -440,39 +384,35 @@ interface DelegationContext {
 }
 
 /**
- * The consult_model pseudo-tool schema. Only the orchestrator sees it — it is
- * never sent to LM Studio's tool list or to specialists. The enum of role
- * names plus per-specialist descriptions lets the orchestrator pick who to
- * call based on the task.
+ * Vision check for the pre-flight router (Layer 2b), answered from the model
+ * catalog LM Studio reported — never guessed from the model id.
  */
-function consultModelSchema(specialists: ModelConfig[]): ToolSchema {
-  const roster = specialists
-    .map((s) => `${s.roleName}: ${s.systemPrompt.slice(0, 140)}`)
-    .join('\n')
-  return {
-    type: 'function',
-    function: {
-      name: 'consult_model',
-      description:
-        'Consult another local specialist model. It receives your task with its own persona and tools, works independently, and returns its answer. Available specialists:\n' +
-        roster,
-      parameters: {
-        type: 'object',
-        properties: {
-          role: {
-            type: 'string',
-            enum: specialists.map((s) => s.roleName),
-            description: 'The specialist to consult'
-          },
-          task: {
-            type: 'string',
-            description:
-              'Complete, self-contained instructions for the specialist — it does not see this conversation.'
-          }
-        },
-        required: ['role', 'task']
-      }
-    }
+function visionCapable(modelId: string): boolean {
+  return useAppStore
+    .getState()
+    .availableModels.some((m) => m.id === modelId && m.vision === true)
+}
+
+/**
+ * v1.3: per-turn tool subsetting (Layer 1b). Always-on tools plus the top
+ * embedding matches against the user's text, capped at TURN_TOOL_CAP. Any
+ * ranking failure — no embedding model, an endpoint error — falls back to
+ * the full per-role allowlist: an optimization, never a gate.
+ */
+async function subsetForTurn(
+  tools: ToolSchema[],
+  query: string | undefined
+): Promise<ToolSchema[]> {
+  if (!query?.trim() || tools.length <= TURN_TOOL_CAP) return tools
+  try {
+    const res = await window.api.rankTools(
+      query,
+      tools.map((t) => ({ name: t.function.name, description: t.function.description }))
+    )
+    if (!res.ok || !res.scores) return tools
+    return selectTurnTools(tools, res.scores)
+  } catch {
+    return tools
   }
 }
 
@@ -493,7 +433,7 @@ async function runConsultation(
   // would otherwise let LM Studio's auto-evict unload this model mid-turn.
   await window.api.pinModel(specialist.modelId).catch(() => false)
 
-  let systemPrompt = withGrounding(specialist.systemPrompt)
+  let systemPrompt = withToolCallPreamble(withGrounding(specialist.systemPrompt), specialist.modelId)
   try {
     const memory = useAppStore.getState().settings?.memory
     if (memory?.autoContext) {
@@ -514,44 +454,42 @@ async function runConsultation(
   ]
 
   let answer = ''
-  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    let roundContent = ''
-    // No onReasoning handler: a specialist's thinking is discarded rather than
-    // returned to the orchestrator, which asked for an answer and pays context
-    // for everything it gets back.
-    const { toolCalls } = await streamChat(
-      baseUrl,
-      specialist.modelId,
-      apiMessages,
-      tools,
-      signal,
-      (chunk) => {
-        roundContent += chunk
+  await runAgentLoop({
+    messages: apiMessages,
+    // The specialist's own allowlist — not the orchestrator's — decides what
+    // it holds (v1.3). This is also the security boundary: a Finance Coach
+    // without run_terminal_command in its allowlist cannot be talked into a
+    // shell by an orchestrator's task text. Subset to the task at hand.
+    tools: await subsetForTurn(toolsForSlot(specialist, tools), task),
+    // A specialist's tool calls are not visible to the user; the orchestrator
+    // sees only the final reply, so the records list is discarded.
+    records: [],
+    signal,
+    deps: {
+      streamRound: async (messages, roundTools) => {
+        let roundContent = ''
+        // No onReasoning handler: a specialist's thinking is discarded rather than
+        // returned to the orchestrator, which asked for an answer and pays context
+        // for everything it gets back.
+        const { toolCalls } = await streamChat(
+          baseUrl,
+          specialist.modelId,
+          messages,
+          roundTools,
+          signal,
+          (chunk) => {
+            roundContent += chunk
+          },
+          undefined,
+          specialist.sampling
+        )
+        answer = roundContent || answer
+        return { content: roundContent, toolCalls }
       },
-      undefined,
-      specialist.sampling
-    )
-    answer = roundContent || answer
-    if (signal.aborted || toolCalls.length === 0) break
-
-    apiMessages.push({ role: 'assistant', content: roundContent || null, tool_calls: toolCalls })
-    for (const tc of toolCalls) {
-      let args: Record<string, unknown> = {}
-      try {
-        args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
-      } catch {
-        // Malformed arguments — execute with what we have.
-      }
-      const result = await window.api.executeTool(tc.function.name, args, {
-        modelId: specialist.modelId
-      })
-      apiMessages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
-      })
+      executeTool: (name, args) =>
+        window.api.executeTool(name, args, { modelId: specialist.modelId })
     }
-  }
+  })
 
   const trimmed = answer.trim()
   return trimmed.length > MAX_CONSULT_REPLY_CHARS
@@ -780,11 +718,17 @@ async function runTurn(
   baseUrl: string,
   tools: ToolSchema[],
   signal: AbortSignal,
-  delegation?: DelegationContext
+  delegation?: DelegationContext,
+  routingNote?: string
 ): Promise<void> {
   const store = useAppStore.getState()
   const convo = store.conversations.find((c) => c.id === conversationId)
   if (!convo) return
+
+  // v1.3: the slot's per-role allowlist intersected with the globally-enabled
+  // list. Everything this turn offers the model — tools, the auto-search
+  // check, the context budget — works from this set, never the global one.
+  const slotTools = toolsForSlot(slot, tools)
 
   const assistantMsg: ChatMessage = {
     id: uid(),
@@ -794,6 +738,7 @@ async function runTurn(
     roleName: slot.roleName,
     color: slot.color,
     toolCalls: [],
+    routingNote,
     createdAt: Date.now()
   }
   store.appendMessage(conversationId, assistantMsg)
@@ -842,8 +787,10 @@ async function runTurn(
   }
 
   // v1.1 grounding: the honesty rules (verify-or-say-unknown, flag false
-  // premises, today's date) ride every turn.
-  systemPrompt = withGrounding(systemPrompt)
+  // premises, today's date) ride every turn. v1.3 (Layer 1d): non-reasoning
+  // models also get the one-sentence tool-call preamble; reasoning models
+  // already emit CoT, so the instruction is suppressed for them.
+  systemPrompt = withToolCallPreamble(withGrounding(systemPrompt), slot.modelId)
 
   // Tool-call records for the whole turn, including the app-initiated
   // auto-search below — declared here so it can be recorded like any other call.
@@ -856,7 +803,7 @@ async function runTurn(
   // and a failure here never blocks the turn.
   const lastUserContent = [...convo.messages].reverse().find((m) => m.role === 'user')?.content
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
-  if (factualTurn && lastUserContent && tools.some((t) => t.function.name === 'web_search')) {
+  if (factualTurn && lastUserContent && slotTools.some((t) => t.function.name === 'web_search')) {
     const query = buildSearchQuery(lastUserContent)
     const record: ToolCallRecord = { id: uid(), name: 'web_search', args: { query }, status: 'running' }
     allRecords.push(record)
@@ -888,11 +835,16 @@ async function runTurn(
   // the visible conversation only keeps final text + tool-call records.
   // Marker messages (e.g. a context-rollback divider) are display-only and
   // never reach the model.
+  //
+  // v1.3: subset the slot's tools to this turn by embedding rank (Layer 1b).
+  // The auto-search above deliberately checks the full allowlist, not this
+  // subset — an app-run search must not depend on the embedder's opinion.
+  const turnTools = await subsetForTurn(slotTools, lastUserContent)
   const { history, summaryText } = await planAndCompact(
     { ...convo, messages: convo.messages.filter((m) => !m.marker) },
     slot,
     estimateTokens(systemPrompt),
-    estimateTokens(JSON.stringify(tools))
+    estimateTokens(JSON.stringify(turnTools))
   )
   if (signal.aborted) return
   if (summaryText) {
@@ -915,13 +867,28 @@ async function runTurn(
     ...history.map((m, i) => ({ role: m.role, content: toApiContent(m, i === currentTurn) }))
   ]
 
-  // Orchestrated mode: expose the specialists as a pseudo-tool.
-  const wireTools: ToolSchema[] =
-    delegation && delegation.specialists.length > 0
-      ? [...tools, consultModelSchema(delegation.specialists)]
-      : tools
-
-  let delegationCount = 0
+  // Orchestrated mode: expose the specialists as a pseudo-tool. consult_model
+  // is not a real tool, so it is exempt from the slot's allowlist and from
+  // per-turn subsetting. The roster line (Layer 2a) carries each specialist's
+  // routing declaration, its effective tools, context size, and vision so the
+  // orchestrator can pick deliberately rather than from a persona slice.
+  let wireTools: ToolSchema[] = turnTools
+  if (delegation && delegation.specialists.length > 0) {
+    const catalog = useAppStore.getState().availableModels
+    const profiles: SpecialistProfile[] = delegation.specialists.map((s) => {
+      const entry = catalog.find((m) => m.id === s.modelId)
+      const ctx = budgetContextLength(s, entry)
+      return {
+        roleName: s.roleName,
+        capability: s.capability,
+        systemPrompt: s.systemPrompt,
+        tools: toolsForSlot(s, tools).map((t) => t.function.name),
+        context: ctx ? formatContextLength(ctx) : 'unknown',
+        vision: entry?.vision === true
+      }
+    })
+    wireTools = [...turnTools, consultModelSchema(profiles)]
+  }
 
   // Voice mode: read the reply aloud sentence-by-sentence as it streams.
   const voice = useAppStore.getState().settings?.voice
@@ -990,160 +957,120 @@ async function runTurn(
     patch({ stats })
   }
 
-  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    let content = ''
-    const roundStartedAt = Date.now()
-    const { toolCalls, usage, ttftMs } = await streamChat(
-      baseUrl,
-      slot.modelId,
-      apiMessages,
-      wireTools,
-      signal,
-      (chunk) => {
-        content += chunk
-        patch({ content: (assistantMsg.content += chunk) })
-        speakNewSentences(false)
-      },
-      onReasoning,
-      slot.sampling
-    )
-    recordStats(usage, ttftMs, Date.now() - roundStartedAt)
-    if (signal.aborted) return
-    if (toolCalls.length === 0) {
-      // Normal completion — read whatever tail fragment is left unspoken.
-      speakNewSentences(true)
-      // v1.1: a factual question answered without consulting any web source is
-      // exactly the confabulation signature — flag it so the UI can say so,
-      // then have a different role name the claims it could not verify.
-      if (factualTurn && !consultedSources(allRecords)) {
-        patch({ unverified: true })
-        // v1.2: the claim check settles the critic's list when enabled;
-        // otherwise the v1.1 auto-critic names the checks for the user.
-        const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
-        if (claimCheckOn) {
-          await runClaimCheck(
-            convo,
-            assistantMsg.id,
-            lastUserContent ?? '',
-            assistantMsg.content,
-            { modelId: slot.modelId, roleName: slot.roleName },
-            baseUrl,
-            signal,
-            allRecords,
-            patch
+  // The tool-call loop itself lives in lib/agentLoop.ts — a pure state machine
+  // with injectable transport, reachable from node:test. The deps below carry
+  // this turn's React concerns (content patching, voice, stats, audit).
+  const outcome = await runAgentLoop({
+    messages: apiMessages,
+    tools: wireTools,
+    records: allRecords,
+    signal,
+    onRecordChange: () => patch({ toolCalls: [...allRecords] }),
+    deps: {
+      streamRound: async (messages, roundTools) => {
+        let content = ''
+        const roundStartedAt = Date.now()
+        const { toolCalls, usage, ttftMs } = await streamChat(
+          baseUrl,
+          slot.modelId,
+          messages,
+          roundTools,
+          signal,
+          (chunk) => {
+            content += chunk
+            patch({ content: (assistantMsg.content += chunk) })
+            speakNewSentences(false)
+          },
+          onReasoning,
+          slot.sampling
+        )
+        recordStats(usage, ttftMs, Date.now() - roundStartedAt)
+        // Layer 1d: a short text round that ends in tool calls is the model's
+        // stated reason for them — it moves from the answer into the
+        // tool-call block (the loop has already attached it to the records).
+        if (toolCalls.length > 0 && toolCallPreamble(content)) {
+          assistantMsg.content = assistantMsg.content.slice(
+            0,
+            assistantMsg.content.length - content.length
           )
-        } else {
-          await runAutoCritic(
-            convo,
-            assistantMsg.id,
-            lastUserContent ?? '',
-            assistantMsg.content,
-            { modelId: slot.modelId, roleName: slot.roleName },
-            baseUrl,
-            signal
-          )
+          patch({ content: assistantMsg.content })
         }
-      }
-      audit(convo, {
-        kind: 'assistant_output',
-        roleName: slot.roleName,
-        modelId: slot.modelId,
-        text: assistantMsg.content
-      })
-      return
-    }
-
-    // Record the calls on the visible message, then execute them in order.
-    apiMessages.push({ role: 'assistant', content: content || null, tool_calls: toolCalls })
-
-    for (const tc of toolCalls) {
-      let args: Record<string, unknown> = {}
-      try {
-        args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
-      } catch {
-        // Malformed arguments from the model — execute with what we have.
-      }
-      const record: ToolCallRecord = { id: tc.id, name: tc.function.name, args, status: 'running' }
-      allRecords.push(record)
-      patch({ toolCalls: [...allRecords] })
-
-      let result: { ok: boolean; output?: string; error?: string }
-
-      if (tc.function.name === 'consult_model' && delegation) {
-        // Pseudo-tool: run a nested specialist turn instead of an IPC tool.
-        delegationCount += 1
-        if (delegationCount > MAX_DELEGATIONS_PER_TURN) {
-          result = {
-            ok: false,
-            error: `Delegation limit reached (${MAX_DELEGATIONS_PER_TURN} consultations per turn) — synthesize an answer from what you have.`
-          }
-        } else {
-          const role = String(args.role ?? '')
-          const task = String(args.task ?? '')
-          const specialist =
-            delegation.specialists.find((s) => s.roleName === role) ??
-            delegation.specialists.find(
-              (s) => s.roleName.replace(/\s+/g, '').toLowerCase() === role.replace(/\s+/g, '').toLowerCase()
-            )
-          if (!specialist) {
-            result = {
-              ok: false,
-              error: `No specialist named "${role}". Available: ${delegation.specialists.map((s) => s.roleName).join(', ')}.`
+        return { content, toolCalls }
+      },
+      // The caller's model id goes along so main-process tools that need to
+      // reason (deep_research) plan with the model the user is talking to.
+      executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+      consult: delegation
+        ? async (role, task): Promise<ToolResult> => {
+            const specialist =
+              delegation.specialists.find((s) => s.roleName === role) ??
+              delegation.specialists.find(
+                (s) =>
+                  s.roleName.replace(/\s+/g, '').toLowerCase() ===
+                  role.replace(/\s+/g, '').toLowerCase()
+              )
+            if (!specialist) {
+              return {
+                ok: false,
+                error: `No specialist named "${role}". Available: ${delegation.specialists.map((s) => s.roleName).join(', ')}.`
+              }
             }
-          } else if (!task.trim()) {
-            result = { ok: false, error: 'The "task" argument is required and must be self-contained.' }
-          } else {
+            if (!task.trim()) {
+              return { ok: false, error: 'The "task" argument is required and must be self-contained.' }
+            }
             try {
               const reply = await runConsultation(specialist, task, baseUrl, tools, signal)
-              result = { ok: true, output: reply }
+              return { ok: true, output: reply }
             } catch (err) {
-              result = { ok: false, error: err instanceof Error ? err.message : String(err) }
+              return { ok: false, error: err instanceof Error ? err.message : String(err) }
             }
           }
-        }
-      } else {
-        // The caller's model id goes along so main-process tools that need to
-        // reason (deep_research) plan with the model the user is talking to.
-        result = await window.api.executeTool(tc.function.name, args, {
-          modelId: slot.modelId
+        : undefined,
+      onToolExecuted: (record, result) => {
+        // Audit log (v0.9): the tool call exactly as executed — name, args, outcome.
+        audit(convo, {
+          kind: 'tool_call',
+          roleName: slot.roleName,
+          modelId: slot.modelId,
+          toolName: record.name,
+          ok: result.ok,
+          text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
         })
       }
-
-      if (result.ok) {
-        record.status = 'done'
-        record.result = result.output ?? ''
-      } else {
-        record.status = 'error'
-        record.result = result.error ?? 'Unknown tool error'
-      }
-      patch({ toolCalls: [...allRecords] })
-
-      // Audit log (v0.9): the tool call exactly as executed — name, args, outcome.
-      audit(convo, {
-        kind: 'tool_call',
-        roleName: slot.roleName,
-        modelId: slot.modelId,
-        toolName: tc.function.name,
-        ok: result.ok,
-        text: `${tc.function.name}(${JSON.stringify(args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
-      })
-
-      apiMessages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
-      })
     }
+  })
+
+  if (outcome.stopReason === 'aborted') return
+
+  // Layer 2d: a weak ending — unverified, contradicted, or capped out of
+  // tool rounds — earns an offer to re-run on a bigger slot. An offer, never
+  // an automatic re-run: the user decides, and the click re-validates.
+  const offerEscalation = (): void => {
+    if (routingNote?.startsWith('escalated to')) return // no escalation chains
+    const state = useAppStore.getState()
+    if (!state.settings) return
+    const finalMsg = state.conversations
+      .find((c) => c.id === conversationId)
+      ?.messages.find((m) => m.id === assistantMsg.id)
+    const reason = escalationReason(finalMsg ?? {}, outcome.stopReason)
+    if (!reason) return
+    const candidate = escalationCandidate(slot, state.settings.models, (s) =>
+      budgetContextLength(s, state.availableModels.find((m) => m.id === s.modelId))
+    )
+    if (!candidate) return
+    patch({ escalation: { slotId: candidate.id, roleName: candidate.roleName, reason } })
   }
 
-  if (!signal.aborted) {
-    patch({
-      content:
-        (assistantMsg.content ? `${assistantMsg.content}\n\n` : '') +
-        `⚠️ Stopped after ${MAX_TOOL_ITERATIONS} consecutive tool-call rounds.`
-    })
+  if (outcome.stopReason === 'completed') {
+    // Normal completion — read whatever tail fragment is left unspoken.
+    speakNewSentences(true)
+    // v1.1: a factual question answered without consulting any web source is
+    // exactly the confabulation signature — flag it so the UI can say so,
+    // then have a different role name the claims it could not verify.
     if (factualTurn && !consultedSources(allRecords)) {
       patch({ unverified: true })
+      // v1.2: the claim check settles the critic's list when enabled;
+      // otherwise the v1.1 auto-critic names the checks for the user.
       const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
       if (claimCheckOn) {
         await runClaimCheck(
@@ -1169,9 +1096,52 @@ async function runTurn(
         )
       }
     }
-    // Read whatever is left unspoken (including the warning above).
-    speakNewSentences(true)
+    audit(convo, {
+      kind: 'assistant_output',
+      roleName: slot.roleName,
+      modelId: slot.modelId,
+      text: assistantMsg.content
+    })
+    offerEscalation()
+    return
   }
+
+  // Iteration cap: the model was still asking for tools when the rounds ran out.
+  patch({
+    content:
+      (assistantMsg.content ? `${assistantMsg.content}\n\n` : '') +
+      `⚠️ Stopped after ${MAX_TOOL_ITERATIONS} consecutive tool-call rounds.`
+  })
+  if (factualTurn && !consultedSources(allRecords)) {
+    patch({ unverified: true })
+    const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
+    if (claimCheckOn) {
+      await runClaimCheck(
+        convo,
+        assistantMsg.id,
+        lastUserContent ?? '',
+        assistantMsg.content,
+        { modelId: slot.modelId, roleName: slot.roleName },
+        baseUrl,
+        signal,
+        allRecords,
+        patch
+      )
+    } else {
+      await runAutoCritic(
+        convo,
+        assistantMsg.id,
+        lastUserContent ?? '',
+        assistantMsg.content,
+        { modelId: slot.modelId, roleName: slot.roleName },
+        baseUrl,
+        signal
+      )
+    }
+  }
+  // Read whatever is left unspoken (including the warning above).
+  speakNewSentences(true)
+  offerEscalation()
 }
 
 // ---- Plan mode (v0.9) --------------------------------------------------------
@@ -1207,56 +1177,51 @@ async function runPlanStep(
     {
       role: 'system',
       content:
-        `${withGrounding(slot.systemPrompt)}\n\nYou are executing one step of a larger plan. Produce the ` +
+        `${withToolCallPreamble(withGrounding(slot.systemPrompt), slot.modelId)}\n\nYou are executing one step of a larger plan. Produce the ` +
         `step's result directly and concisely — later steps and the final answer build on it.`
     },
     { role: 'user', content: input }
   ]
 
   let answer = ''
-  for (let iteration = 0; iteration < MAX_PLAN_STEP_ITERATIONS; iteration++) {
-    let roundContent = ''
-    const { toolCalls } = await streamChat(
-      baseUrl,
-      slot.modelId,
-      apiMessages,
-      tools,
-      signal,
-      (chunk) => {
-        roundContent += chunk
+  await runAgentLoop({
+    messages: apiMessages,
+    tools: await subsetForTurn(toolsForSlot(slot, tools), input),
+    // Step tool calls are audit-logged like any chat turn's, but not displayed.
+    records: [],
+    signal,
+    maxIterations: MAX_PLAN_STEP_ITERATIONS,
+    deps: {
+      streamRound: async (messages, roundTools) => {
+        let roundContent = ''
+        const { toolCalls } = await streamChat(
+          baseUrl,
+          slot.modelId,
+          messages,
+          roundTools,
+          signal,
+          (chunk) => {
+            roundContent += chunk
+          },
+          undefined,
+          slot.sampling
+        )
+        answer = roundContent || answer
+        return { content: roundContent, toolCalls }
       },
-      undefined,
-      slot.sampling
-    )
-    answer = roundContent || answer
-    if (signal.aborted || toolCalls.length === 0) break
-
-    apiMessages.push({ role: 'assistant', content: roundContent || null, tool_calls: toolCalls })
-    for (const tc of toolCalls) {
-      let args: Record<string, unknown> = {}
-      try {
-        args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
-      } catch {
-        // Malformed arguments — execute with what we have.
+      executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+      onToolExecuted: (record, result) => {
+        audit(convo, {
+          kind: 'tool_call',
+          roleName: slot.roleName,
+          modelId: slot.modelId,
+          toolName: record.name,
+          ok: result.ok,
+          text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+        })
       }
-      const result = await window.api.executeTool(tc.function.name, args, {
-        modelId: slot.modelId
-      })
-      audit(convo, {
-        kind: 'tool_call',
-        roleName: slot.roleName,
-        modelId: slot.modelId,
-        toolName: tc.function.name,
-        ok: result.ok,
-        text: `${tc.function.name}(${JSON.stringify(args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
-      })
-      apiMessages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
-      })
     }
-  }
+  })
 
   const trimmed = answer.trim()
   return trimmed.length > MAX_STEP_OUTPUT_CHARS
@@ -1448,6 +1413,8 @@ export function useLMStudio(): {
   secondOpinion: (messageId: string) => Promise<void>
   /** Approve or cancel a generated plan (Plan mode). */
   resolvePlan: (messageId: string, approved: boolean) => void
+  /** Re-run a weak reply's turn on the bigger slot its escalation offer names (Layer 2d). */
+  escalate: (messageId: string) => Promise<void>
 } {
   const abortRef = useRef<AbortController | null>(null)
 
@@ -1508,8 +1475,10 @@ export function useLMStudio(): {
       const attachmentNote = attachments.map((a) => `[attached: ${a.name}]`).join(' ')
       audit(convo, { kind: 'user_input', text: [text, attachmentNote].filter(Boolean).join(' ') })
 
-      // Routing: @mention wins, then the conversation's mode decides.
-      const routed = routeTargets(settings, convo, text)
+      // Routing: @mention wins, then the conversation's mode decides — the
+      // pre-flight classifier (Layer 2b) runs inside routeTargets for
+      // independent and orchestrated modes.
+      const routed = routeTargets(settings, convo, text, attachments, visionCapable)
       const targets = routed.targets.filter((t) => t.modelId)
       const delegation = routed.delegation
 
@@ -1533,7 +1502,7 @@ export function useLMStudio(): {
         await executePlan(convo.id, settings.baseUrl, targets[0]!, tools, text)
         return
       }
-      await executeTargets(convo.id, settings.baseUrl, targets, delegation, tools)
+      await executeTargets(convo.id, settings.baseUrl, targets, delegation, tools, routed.routingNote)
     },
     []
   )
@@ -1589,7 +1558,8 @@ export function useLMStudio(): {
       baseUrl: string,
       targets: ModelConfig[],
       delegation: DelegationContext | undefined,
-      tools: ToolSchema[]
+      tools: ToolSchema[],
+      routingNote?: string
     ): Promise<void> => {
       const store = useAppStore.getState()
       const controller = new AbortController()
@@ -1603,7 +1573,7 @@ export function useLMStudio(): {
           // every turn appends its assistant message to the conversation.
           // In orchestrated mode the single target is the orchestrator and
           // `delegation` carries its consultable specialists.
-          await runTurn(convoId, slot, baseUrl, tools, controller.signal, delegation)
+          await runTurn(convoId, slot, baseUrl, tools, controller.signal, delegation, routingNote)
         }
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -1643,7 +1613,7 @@ export function useLMStudio(): {
     const truncated: Conversation = { ...convo, messages: convo.messages.slice(0, lastUserIdx + 1) }
     store.upsertConversation(truncated)
 
-    const routed = routeTargets(settings, truncated, lastUser.content)
+    const routed = routeTargets(settings, truncated, lastUser.content, lastUser.attachments, visionCapable)
     const targets = routed.targets.filter((t) => t.modelId)
     if (targets.length === 0) {
       store.appendMessage(convo.id, {
@@ -1656,7 +1626,7 @@ export function useLMStudio(): {
     }
 
     const tools = await window.api.listTools().catch(() => [] as ToolSchema[])
-    await executeTargets(convo.id, settings.baseUrl, targets, routed.delegation, tools)
+    await executeTargets(convo.id, settings.baseUrl, targets, routed.delegation, tools, routed.routingNote)
   }, [executeTargets])
 
   /**
@@ -1743,5 +1713,54 @@ export function useLMStudio(): {
     }
   }, [])
 
-  return { sendMessage, stopStreaming, regenerate, secondOpinion, resolvePlan }
+  /**
+   * Layer 2d escalation: re-run the turn behind one weak reply on the bigger
+   * slot its escalation offer names. The offer is a snapshot — the slot is
+   * re-validated against current settings, and the re-run goes through the
+   * same streaming lock as a chat turn.
+   */
+  const escalate = useCallback(async (messageId: string): Promise<void> => {
+    const store = useAppStore.getState()
+    const settings = store.settings
+    if (!settings || store.streaming) return
+    const convo = store.conversations.find((c) => c.id === store.activeConversationId)
+    const offer = convo?.messages.find((m) => m.id === messageId)?.escalation
+    if (!convo || !offer) return
+    const slot = settings.models.find((m) => m.id === offer.slotId && m.enabled && m.modelId)
+    if (!slot) return
+
+    const tools = await window.api.listTools().catch(() => [] as ToolSchema[])
+    const controller = new AbortController()
+    abortRef.current = controller
+    store.setStreaming(true)
+    try {
+      // No delegation: the escalation is one slot answering directly, and the
+      // "escalated to" note both tells the user and suppresses re-escalation.
+      await runTurn(
+        convo.id,
+        slot,
+        settings.baseUrl,
+        tools,
+        controller.signal,
+        undefined,
+        `escalated to ${slot.roleName} — ${ESCALATION_REASON_TEXT[offer.reason]}`
+      )
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        store.appendMessage(convo.id, {
+          id: uid(),
+          role: 'assistant',
+          content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+          createdAt: Date.now()
+        })
+      }
+    } finally {
+      useAppStore.getState().setStreaming(false)
+      abortRef.current = null
+      const final = useAppStore.getState().conversations.find((c) => c.id === convo.id)
+      if (final && !final.ephemeral) void window.api.saveConversation(final)
+    }
+  }, [])
+
+  return { sendMessage, stopStreaming, regenerate, secondOpinion, resolvePlan, escalate }
 }
