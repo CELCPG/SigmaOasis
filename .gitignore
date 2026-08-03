@@ -6,3 +6,8 @@ dist/
 .DS_Store
 scripts/signing.env
 .test-build/
+.eval-build/
+.eval-results/
+.export-build/
+.live-build/
+.traces/
