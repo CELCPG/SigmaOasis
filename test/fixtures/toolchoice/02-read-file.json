@@ -1,0 +1,1 @@
+{ "prompt": "read the file notes/todo.md and summarize it", "expect": { "tool": "read_file" } }

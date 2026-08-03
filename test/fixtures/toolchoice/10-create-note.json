@@ -1,0 +1,1 @@
+{ "prompt": "save a note titled 'gift ideas' with: vinyl records, a good chef's knife", "expect": { "tool": "create_note" } }

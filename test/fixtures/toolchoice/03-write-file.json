@@ -1,0 +1,1 @@
+{ "prompt": "save this shopping list to a file called groceries.txt: milk, eggs, coffee", "expect": { "tool": "write_file" } }

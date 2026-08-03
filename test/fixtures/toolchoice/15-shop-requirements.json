@@ -1,0 +1,1 @@
+{ "prompt": "I need a new laptop for video editing, what should I look for?", "expect": { "tool": "shop_requirements" } }

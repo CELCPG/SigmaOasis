@@ -1,0 +1,1 @@
+{ "prompt": "remember that my favorite band is Phish", "expect": { "tool": "memory_save" } }

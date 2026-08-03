@@ -1,0 +1,1 @@
+{ "prompt": "research the pros and cons of heat pumps versus gas furnaces for a cold climate and give me a cited summary", "expect": { "tool": "deep_research" } }

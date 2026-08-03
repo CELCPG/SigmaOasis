@@ -1,0 +1,1 @@
+{ "prompt": "compare prices for a 32GB RAM laptop with a 1TB SSD under $2000", "expect": { "tool": "shop_compare" } }

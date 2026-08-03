@@ -1,0 +1,1 @@
+{ "prompt": "if I invest $500 a month at 7% for 20 years, what will I have?", "expect": { "tool": "finance_calculator" } }

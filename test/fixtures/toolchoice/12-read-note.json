@@ -1,0 +1,1 @@
+{ "prompt": "read my note called 'gift ideas'", "expect": { "tool": "read_note" } }
