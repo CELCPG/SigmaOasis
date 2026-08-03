@@ -174,7 +174,11 @@ function defaultSettings(): Record<string, unknown> {
     proxy: { mode: 'none', host: '127.0.0.1', port: 9050 },
     audit: { enabled: false, autoPurgeOnQuit: false },
     plan: { maxSteps: 6, confirmPlan: true },
-    secondOpinion: { enabled: false, criticSlotId: null }
+    secondOpinion: { enabled: false, criticSlotId: null },
+    // requireProxy defaults false here so the majority of shopping tests
+    // exercise the pipeline; the refusal path sets it true explicitly, which is
+    // the behavior that must never regress.
+    shopping: { requireProxy: false, maxSellers: 4, excludeTierX: true }
   }
 }
 
