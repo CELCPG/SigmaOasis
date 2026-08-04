@@ -258,7 +258,10 @@ export function SettingsModal(): JSX.Element | null {
           }
         }[]
       }
-      return parseCompletionMessage(json.choices?.[0]?.message ?? {})
+      return parseCompletionMessage(
+        json.choices?.[0]?.message ?? {},
+        wireTools.map((t) => t.function.name)
+      )
     }
 
     try {

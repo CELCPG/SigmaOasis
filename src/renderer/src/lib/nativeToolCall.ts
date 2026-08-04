@@ -35,6 +35,20 @@ import { findTag, heldBackSuffixLength } from './reasoning'
  * A truncated call (stream ended mid-block) is dropped rather than executed
  * or shown: half an argument set is not a call, and rendering raw markup is
  * the bug this module exists to fix.
+ *
+ * A fourth surface form, measured on gemma-4-e4b-agentic-sol-fable
+ * ("geminicli" fine-tune, 2026-08-03): the call with no wrapper at all — a
+ * tool name followed directly by its argument object, whose keys may be
+ * unquoted:
+ *
+ *   memory_search{query: "hardware recommendations for 35B LLMs"}
+ *
+ * Because that form is plain text plus a brace, it is only honored when the
+ * name is one of the tools actually offered this turn: the caller passes the
+ * enabled tool names to createNativeToolExtractor, and anything else stays
+ * prose. That gate is what keeps a model *explaining* its syntax ("I would
+ * call remember{...}") from executing, in the same spirit as the JSON blobs:
+ * only a real, offered tool name can open a bare call.
  */
 
 export interface NativeToolCall {
@@ -79,7 +93,14 @@ const STRAY_TOKENS = [
   '<|reason|>',
   '<|/reason|>',
   '<|reasoning|>',
-  '<|/reasoning|>'
+  '<|/reasoning|>',
+  // The e4b-agentic fine-tune's thought/response delimiters. The reasoning
+  // splitter consumes them at the start of a turn; if they show up mid-answer
+  // they still never render.
+  '<|thought>',
+  '</thought>',
+  '<|response>',
+  '<response>'
 ]
 
 /** Every token the scanner reacts to outside a tool block. */
@@ -300,14 +321,115 @@ function takeJsonSpan(text: string): [string, number] | null {
   return null
 }
 
+// ---- bare calls (gated by the offered tool list) -------------------------------
+
+/**
+ * Quote the bare object keys of lenient JSON — `{query: "x"}` → `{"query":
+ * "x"}` — without touching string literals. Only a key position (right after
+ * `{` or `,`, skipping whitespace) whose identifier is followed by `:` is
+ * rewritten, so array elements and already-quoted keys pass through.
+ */
+function quoteBareKeys(json: string): string {
+  let out = ''
+  let inString = false
+  let escaped = false
+  let expectKey = false
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i]
+    if (inString) {
+      out += ch
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      continue
+    }
+    if (ch === '{' || ch === ',') {
+      expectKey = true
+      out += ch
+      continue
+    }
+    if (expectKey && /\s/.test(ch)) {
+      out += ch
+      continue
+    }
+    if (expectKey) {
+      expectKey = false
+      const key = /^[A-Za-z_$][A-Za-z0-9_$-]*/.exec(json.slice(i))
+      if (key) {
+        let j = i + key[0].length
+        while (j < json.length && /\s/.test(json[j])) j++
+        if (json[j] === ':') {
+          out += `"${key[0]}"`
+          i += key[0].length - 1
+          continue
+        }
+      }
+    }
+    out += ch
+  }
+  return out
+}
+
+/**
+ * Parse a bare call's argument span (outer braces included), strict JSON
+ * first, then the lenient unquoted-key form this fine-tune family emits.
+ * Anything that does not parse to an object is not a call's arguments.
+ */
+export function parseBareArgs(span: string): Record<string, unknown> | null {
+  for (const candidate of [span, quoteBareKeys(span)]) {
+    try {
+      const value: unknown = JSON.parse(candidate)
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        return value as Record<string, unknown>
+      }
+    } catch {
+      // Try the next spelling.
+    }
+  }
+  return null
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Length of the longest suffix of `text` that could grow into one of the
+ * offered tool names. Same chunk-boundary discipline as heldBackSuffixLength:
+ * a delta ending in `memory_sea` must wait for the next chunk to prove or
+ * disprove `memory_search{`.
+ */
+function heldBackToolNameLength(text: string, names: readonly string[]): number {
+  if (names.length === 0) return 0
+  const maxName = Math.max(...names.map((n) => n.length))
+  const start = Math.max(0, text.length - (maxName - 1))
+  for (let i = start; i < text.length; i++) {
+    const suffix = text.slice(i)
+    if (names.some((n) => n.length > suffix.length && n.startsWith(suffix))) {
+      return text.length - i
+    }
+  }
+  return 0
+}
+
 // ---- the stream extractor -------------------------------------------------------
 
 /**
  * A stateful extractor over one assistant turn's answer text. Same
  * chunk-boundary discipline as the reasoning splitter: a trailing `<|to` is
  * held back until the next delta proves or disproves the token.
+ *
+ * `toolNames` is the list of tools offered this turn. It gates the bare
+ * `name{args}` call form: without it, that form cannot be told apart from
+ * prose, so bare calls are only recognized when the caller says which names
+ * are real.
  */
-export function createNativeToolExtractor(): NativeToolExtractor {
+export function createNativeToolExtractor(toolNames: readonly string[] = []): NativeToolExtractor {
   let pending = ''
   let inCall = false
   /** Raw span text of the call in progress (without its open/close tokens). */
@@ -315,6 +437,18 @@ export function createNativeToolExtractor(): NativeToolExtractor {
   /** JSON blob in progress (the {"tool_call… content-formats). */
   let inJson = false
   let jsonSpan = ''
+
+  /**
+   * Matches a bare call: an offered tool name, not preceded by a word
+   * character / `.` / `-` / `:` (so `call:web_search{` and `xweb_search{`
+   * cannot false-start one), followed by its argument brace. Null when no
+   * tool names were supplied — without the gate this form is indistinguishable
+   * from prose and must stay prose.
+   */
+  const bareCallRe =
+    toolNames.length > 0
+      ? new RegExp(`(?:^|[^\\w.:-])(${toolNames.map(escapeRegExp).join('|')})\\s*\\{`)
+      : null
 
   function consume(text: string, atEnd: boolean): ToolExtraction {
     let out = ''
@@ -364,6 +498,35 @@ export function createNativeToolExtractor(): NativeToolExtractor {
 
       const token = findTag(rest, OUTSIDE_TOKENS)
       const brace = rest.indexOf('{')
+      const bare = bareCallRe?.exec(rest) ?? null
+      // The name starts after the boundary character the regex may have eaten.
+      const bareStart = bare ? bare.index + (bare[0].startsWith(bare[1]) ? 0 : 1) : -1
+      const bareBrace = bare ? bare.index + bare[0].length - 1 : -1
+
+      if (bare && (!token || bareStart < token.index) && (brace === -1 || bareStart < brace)) {
+        // A gated bare call — memory_search{query: "…"} — is the earliest
+        // construct in the stream.
+        out += rest.slice(0, bareStart)
+        const taken = takeJsonSpan(rest.slice(bareBrace))
+        if (!taken) {
+          // Unterminated: hold it across chunks, drop it at end of stream —
+          // the same discipline as a truncated markup call.
+          if (atEnd) return { text: out, calls }
+          pending = rest.slice(bareStart)
+          return { text: out, calls }
+        }
+        const args = parseBareArgs(taken[0])
+        if (args) {
+          calls.push({ name: bare[1], arguments: JSON.stringify(args) })
+        } else {
+          // The name was a coincidence or the arguments are broken beyond
+          // both grammars: visible text, no execution.
+          out += rest.slice(bareStart, bareBrace + taken[1])
+        }
+        rest = rest.slice(bareBrace + taken[1])
+        continue
+      }
+
       if (brace !== -1 && (!token || brace < token.index)) {
         const head = jsonHeadState(rest.slice(brace))
         if (head === 'yes') {
@@ -388,7 +551,12 @@ export function createNativeToolExtractor(): NativeToolExtractor {
       }
 
       if (!token) {
-        const held = atEnd ? 0 : heldBackSuffixLength(rest, OUTSIDE_TOKENS)
+        const held = atEnd
+          ? 0
+          : Math.max(
+              heldBackSuffixLength(rest, OUTSIDE_TOKENS),
+              heldBackToolNameLength(rest, toolNames)
+            )
         out += rest.slice(0, rest.length - held)
         pending = rest.slice(rest.length - held)
         return { text: out, calls }

@@ -276,3 +276,122 @@ describe('JSON call blobs in content (measured on the 4B, 2026-08-03)', () => {
     assert.equal(out.calls.length, 0)
   })
 })
+
+describe('createNativeToolExtractor — bare name{args} calls, gated by the tool list', () => {
+  /** Same driver as run(), but with the offered tool names supplied. */
+  function runGated(
+    chunks: string[],
+    names: string[] = ['memory_search', 'web_search']
+  ): { text: string; calls: { name: string; arguments: string }[] } {
+    const extractor = createNativeToolExtractor(names)
+    let text = ''
+    const calls: { name: string; arguments: string }[] = []
+    for (const chunk of chunks) {
+      const out = extractor.push(chunk)
+      text += out.text
+      calls.push(...out.calls)
+    }
+    const tail = extractor.flush()
+    return { text: text + tail.text, calls: calls.concat(tail.calls) }
+  }
+
+  test('the observed e4b-agentic form: bare name, unquoted keys', () => {
+    // Verbatim from the gemma-4-e4b-agentic-sol-fable transcript, 2026-08-03.
+    const out = runGated(['memory_search{query: "hardware recommendations for 35B LLMs"}'])
+    assert.equal(out.text, '')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.calls[0]!.name, 'memory_search')
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), {
+      query: 'hardware recommendations for 35B LLMs'
+    })
+  })
+
+  test('strict JSON arguments parse too', () => {
+    const out = runGated(['web_search{"query": "paris weather"}'])
+    assert.equal(out.calls.length, 1)
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), { query: 'paris weather' })
+  })
+
+  test('prose around a bare call is kept', () => {
+    const out = runGated(['Let me check. memory_search{query: "35B LLMs"} Done.'])
+    assert.equal(out.text, 'Let me check.  Done.')
+    assert.equal(out.calls.length, 1)
+  })
+
+  test('an unlisted name stays prose — the gate is what makes this form safe', () => {
+    const out = runGated(['remember{query: "x"}'])
+    assert.equal(out.text, 'remember{query: "x"}')
+    assert.equal(out.calls.length, 0)
+  })
+
+  test('no tool names supplied: bare calls stay prose (backwards compatible)', () => {
+    const out = run(['memory_search{query: "x"}'])
+    assert.equal(out.text, 'memory_search{query: "x"}')
+    assert.equal(out.calls.length, 0)
+  })
+
+  test('a name glued to a word or a call: prefix is not a bare call', () => {
+    for (const s of ['xmemory_search{query: "x"}', 'call:memory_search{query: "x"}']) {
+      const out = runGated([s])
+      assert.equal(out.text, s, `input: ${s}`)
+      assert.equal(out.calls.length, 0, `input: ${s}`)
+    }
+  })
+
+  test('a bare call split across chunks is still collected', () => {
+    const out = runGated(['memory_sea', 'rch{query: "x"}'])
+    assert.equal(out.text, '')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.calls[0]!.name, 'memory_search')
+  })
+
+  test('a partial tool name at a chunk boundary is held back, not displayed', () => {
+    const extractor = createNativeToolExtractor(['memory_search'])
+    const first = extractor.push('checking memory_sea')
+    // "memory_sea" could still grow into memory_search{, so it waits.
+    assert.equal(first.text, 'checking ')
+    const second = extractor.push('rch{query: "x"}')
+    assert.equal(second.calls.length, 1)
+  })
+
+  test('a suffix that is only a word, not a call, flushes out at end of stream', () => {
+    const out = runGated(['I need to search'])
+    // "search" is a prefix of no offered name here... and even when it is,
+    // flush must emit it rather than swallow it.
+    assert.equal(out.text, 'I need to search')
+  })
+
+  test('arguments broken beyond both grammars render as text, never execute', () => {
+    const out = runGated(['memory_search{query: broken!}'])
+    assert.equal(out.text, 'memory_search{query: broken!}')
+    assert.equal(out.calls.length, 0)
+  })
+
+  test('a truncated bare call at end of stream is dropped, not executed or shown', () => {
+    const out = runGated(['let me look memory_search{query: "untermina'])
+    assert.equal(out.text, 'let me look ')
+    assert.equal(out.calls.length, 0)
+  })
+
+  test('nested objects and arrays in lenient arguments', () => {
+    const out = runGated(['web_search{query: "a } brace", options: {limit: 3, tags: ["x", "y"]}}'])
+    assert.equal(out.calls.length, 1)
+    assert.deepEqual(JSON.parse(out.calls[0]!.arguments), {
+      query: 'a } brace',
+      options: { limit: 3, tags: ['x', 'y'] }
+    })
+  })
+})
+
+describe('stray tokens — e4b-agentic thought/response delimiters', () => {
+  test('<|response>, <response> and </thought> never render mid-answer', () => {
+    const out = run(['The answer.</thought> More. <|response> Even more. <response> End.'])
+    assert.equal(out.text, 'The answer. More.  Even more.  End.')
+    assert.equal(out.calls.length, 0)
+  })
+
+  test('<|thought> mid-answer is stripped, not shown', () => {
+    const out = run(['Here you go. <|thought>late thought'])
+    assert.equal(out.text, 'Here you go. late thought')
+  })
+})

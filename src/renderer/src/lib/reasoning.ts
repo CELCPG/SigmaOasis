@@ -58,7 +58,16 @@ const REASONING_PAIRS: TagPair[] = [
   { open: '<|reason|>', close: '<|/reason|>' },
   { open: '<|reasoning|>', close: '<|/reasoning|>' },
   // Gemma 4's structured thinking channel: <|channel>thought\n…<channel|>
-  { open: '<|channel>thought', close: '<channel|>' }
+  { open: '<|channel>thought', close: '<channel|>' },
+  // The e4b-agentic ("geminicli") fine-tune family opens its thought with
+  // <|thought> and closes it with whichever delimiter its template happens to
+  // carry — observed: </thought>, <|response>, and <response> (measured on
+  // gemma-4-e4b-agentic-sol-fable and google/gemma-4-12b-qat, 2026-08-03).
+  // The closes all land in REASONING_END_TOKENS, so any of them ends the
+  // block; a lone close in the answer path is stripped as a stray token.
+  { open: '<|thought>', close: '</thought>' },
+  { open: '<|thought>', close: '<|response>' },
+  { open: '<|thought>', close: '<response>' }
 ]
 
 /**

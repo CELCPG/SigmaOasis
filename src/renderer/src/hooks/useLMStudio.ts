@@ -291,7 +291,7 @@ async function streamChat(
   // servers without a gemma4 parser (LM Studio today). The extractor strips
   // it from the visible answer and returns the calls in OpenAI shape, so they
   // execute through the same loop as real tool_calls.
-  const nativeTools = createNativeToolExtractor()
+  const nativeTools = createNativeToolExtractor(tools.map((t) => t.function.name))
   const nativeCalls: NativeToolCall[] = []
   let usage: ApiUsage | null = null
   let ttftMs: number | null = null

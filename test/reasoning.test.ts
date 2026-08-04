@@ -188,3 +188,38 @@ describe('isLikelyReasoningModel (the Layer 1d gate)', () => {
     assert.equal(isLikelyReasoningModel('qwen2.5-7b-instruct'), false)
   })
 })
+
+describe('createReasoningSplitter — e4b-agentic thought/response spellings', () => {
+  // Measured on gemma-4-e4b-agentic-sol-fable and google/gemma-4-12b-qat,
+  // 2026-08-03: the thought opens with <|thought> and closes with whichever
+  // delimiter the template carries — </thought>, <|response>, or <response>.
+  test('<|thought>…<|response> separates thought from answer', () => {
+    const out = run(['<|thought>working it out<|response>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('<|thought>…</thought> closes with the xml-ish spelling', () => {
+    const out = run(['<|thought>working it out</thought>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('<|thought>…<response> closes with the bare spelling', () => {
+    const out = run(['<|thought>working it out<response>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('the thought block split across chunks is still recognized', () => {
+    const out = run(['<|thou', 'ght>working it out<|resp', 'onse>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('a thought after the answer has started is not swallowed', () => {
+    const out = run(['The answer.<|thought>not a real thought'])
+    assert.equal(out.answer, 'The answer.<|thought>not a real thought')
+    assert.equal(out.reasoning, '')
+  })
+})

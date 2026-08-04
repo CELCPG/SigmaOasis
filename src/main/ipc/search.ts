@@ -297,7 +297,7 @@ interface CachedSearch {
 const searchCache = new Map<string, CachedSearch>()
 
 function searchCacheKey(provider: SearchProviderId, query: string, maxResults: number): string {
-  return `${provider} ${maxResults} ${query.toLowerCase()}`
+  return `${provider}\u001f${maxResults}\u001f${query.toLowerCase()}`
 }
 
 function readSearchCache(key: string): SearchResult[] | null {

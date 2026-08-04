@@ -177,6 +177,25 @@ export class EgressBlockedError extends Error {
 }
 
 /**
+ * Translate raw Chromium transport errors into something actionable. The
+ * common case by far: a proxy is configured (Tor on 127.0.0.1:9050, say) but
+ * nothing is listening, and Chromium's `net::ERR_PROXY_CONNECTION_FAILED`
+ * tells the user — and the model that receives it as a tool error — nothing
+ * about why or what to do. Say which proxy was tried and where the switch is.
+ */
+function friendlyTransportError(err: unknown): Error {
+  const original = err instanceof Error ? err : new Error(String(err))
+  if (!original.message.includes('ERR_PROXY_CONNECTION_FAILED')) return original
+  const config = currentProxyConfig()
+  if (!config.proxyRules) return original
+  return new Error(
+    `The configured proxy (${config.description}) refused the connection — nothing is ` +
+      `listening there. Start the proxy, or turn it off in Settings → Connection. ` +
+      `(${original.message})`
+  )
+}
+
+/**
  * Allowlist-enforcing, activity-logging replacement for global fetch. All
  * main-process HTTP must go through this (fetch_webpage calls it too, after
  * its own SSRF checks).
@@ -249,6 +268,7 @@ export async function auditedFetch(
     })
     return res
   } catch (err) {
+    const friendly = friendlyTransportError(err)
     record({
       at: Date.now(),
       purpose,
@@ -256,9 +276,9 @@ export async function auditedFetch(
       method: init?.method ?? 'GET',
       status: null,
       ok: false,
-      error: err instanceof Error ? err.message : String(err)
+      error: friendly.message
     })
-    throw err
+    throw friendly
   }
 }
 

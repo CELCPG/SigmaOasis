@@ -96,12 +96,15 @@ export function evalStubResult(name: string): ToolResult {
  * native-markup extractor (Gemma-style calls arrive in content on servers
  * without a parser). Tool calls arrive in OpenAI shape either way.
  */
-export function parseCompletionMessage(msg: {
-  content?: string | null
-  tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[]
-}): { content: string; toolCalls: ApiToolCall[] } {
+export function parseCompletionMessage(
+  msg: {
+    content?: string | null
+    tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[]
+  },
+  toolNames: readonly string[] = []
+): { content: string; toolCalls: ApiToolCall[] } {
   const splitter = createReasoningSplitter()
-  const native = createNativeToolExtractor()
+  const native = createNativeToolExtractor(toolNames)
   let content = ''
   const calls: ApiToolCall[] = []
   const feed = (text: string): void => {
