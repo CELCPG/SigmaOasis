@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { ChatMessage, GroundingReport, ToolCallRecord } from '../types'
+import type { ChatMessage, Conversation, GroundingReport, ToolCallRecord } from '../types'
 import { ACCENT } from '../lib/colors'
 import { renderMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
@@ -14,6 +14,7 @@ import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { OasisRipple } from './OasisRipple'
 import { SigmaAvatar } from './SigmaAvatar'
+import { BranchMenu } from './BranchMenu'
 
 interface Props {
   message: ChatMessage
@@ -21,6 +22,8 @@ interface Props {
   isStreaming: boolean
   /** True for the final message in the conversation (enables Regenerate). */
   isLast: boolean
+  /** The conversation this message belongs to — enables v1.4 branching. */
+  conversation?: Conversation
 }
 
 function handleCopyClick(event: React.MouseEvent<HTMLDivElement>): void {
@@ -173,7 +176,12 @@ function formatStats(stats: NonNullable<ChatMessage['stats']>): string {
   return parts.join(' · ')
 }
 
-export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Element {
+export function MessageBubble({
+  message,
+  isStreaming,
+  isLast,
+  conversation
+}: Props): JSX.Element {
   const html = useMemo(
     () => (message.role === 'assistant' ? renderMarkdown(message.content) : ''),
     [message.role, message.content]
@@ -328,6 +336,9 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
               >
                 🔍 2nd opinion
               </button>
+            )}
+            {!isStreaming && conversation && (
+              <BranchMenu message={message} conversation={conversation} />
             )}
             <span
               className="ml-auto px-1.5 text-[10px]"

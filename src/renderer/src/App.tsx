@@ -8,6 +8,7 @@ import { InputBar } from './components/InputBar'
 import { EmptyState } from './components/EmptyState'
 import { SettingsModal } from './components/SettingsModal'
 import { OnboardingModal } from './components/OnboardingModal'
+import { CommandPalette } from './components/CommandPalette'
 
 export default function App(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
@@ -87,6 +88,7 @@ export default function App(): JSX.Element {
 
       <SettingsModal />
       <OnboardingModal />
+      <CommandPalette />
     </div>
   )
 }

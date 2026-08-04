@@ -9,6 +9,8 @@ import {
   planHistory,
   planHistoryFallback
 } from '../lib/contextBudget'
+import { foldLocalDigest } from '../lib/contextCompressor'
+import { getFromCache, setInCache } from '../lib/responseCache'
 import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
 import { toolsForSlot, selectTurnTools, TURN_TOOL_CAP } from '../lib/toolSelection'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
@@ -204,17 +206,10 @@ async function planAndCompact(
     return { history: plan.keep, summaryText: existing?.text ?? null }
   }
 
-  useAppStore.getState().setCompacting(true)
-  try {
-    const result = await window.api.summarizeConversation({
-      previousSummary: existing?.text,
-      droppedText: toSummaryText(fresh),
-      modelId: slot.modelId
-    })
-    if (!result.ok) return { history: plan.keep, summaryText: existing?.text ?? null }
-
+  // Persist a summary onto the conversation and hand it back for this turn.
+  const commit = (text: string): { history: ChatMessage[]; summaryText: string } => {
     const summary = {
-      text: result.summary,
+      text,
       throughMessageId: plan.drop[plan.drop.length - 1].id,
       updatedAt: Date.now()
     }
@@ -225,9 +220,33 @@ async function planAndCompact(
       // Ephemeral conversations are never persisted — RAM only, by design.
       if (!next.ephemeral) void window.api.saveConversation(next)
     }
-    return { history: plan.keep, summaryText: summary.text }
+    return { history: plan.keep, summaryText: text }
+  }
+
+  // v1.4: the summarizer is a model call, so it can fail — mid-swap, timed out,
+  // or refused. Before, every one of those paths dropped `fresh` with no record
+  // and the conversation quietly lost its middle. Fall back to a local, model-free
+  // digest instead: worse text than the model would write, but the span is
+  // accounted for. A digest of nothing keeps the old summary and leaves
+  // `throughMessageId` where it was, so the next attempt can still cover it.
+  const degrade = (): { history: ChatMessage[]; summaryText: string | null } => {
+    const folded = foldLocalDigest(existing?.text, fresh)
+    return folded === null
+      ? { history: plan.keep, summaryText: existing?.text ?? null }
+      : commit(folded)
+  }
+
+  useAppStore.getState().setCompacting(true)
+  try {
+    const result = await window.api.summarizeConversation({
+      previousSummary: existing?.text,
+      droppedText: toSummaryText(fresh),
+      modelId: slot.modelId
+    })
+    if (!result.ok) return degrade()
+    return commit(result.summary)
   } catch {
-    return { history: plan.keep, summaryText: existing?.text ?? null }
+    return degrade()
   } finally {
     useAppStore.getState().setCompacting(false)
   }
@@ -252,9 +271,32 @@ async function streamChat(
   signal: AbortSignal,
   onContent: (chunk: string) => void,
   onReasoning?: (chunk: string) => void,
-  sampling?: SamplingSettings
+  sampling?: SamplingSettings,
+  /**
+   * v1.4 response cache. Opt-in per call site and never on by default: the
+   * critic, claim-check, consultation and plan-step passes all route through
+   * here, and serving any of them a cached verdict would mean re-verifying
+   * nothing while still reporting that the check ran.
+   */
+  cacheable = false
 ): Promise<{ toolCalls: ApiToolCall[]; usage: ApiUsage | null; ttftMs: number | null }> {
   const startedAt = Date.now()
+
+  // Tool rounds are never cached in either direction: tool output is
+  // time-varying, so replaying one could restate stale figures as current.
+  const useCache = cacheable && tools.length === 0
+  if (useCache) {
+    const cached = getFromCache(messages, modelId)
+    if (cached.hit) {
+      if (cached.reasoning) onReasoning?.(cached.reasoning)
+      onContent(cached.response)
+      // usage/ttft stay null: nothing was generated, and recordStats already
+      // null-guards both. Reporting a fabricated token count here would put
+      // invented telemetry into the trace and SFT exports.
+      return { toolCalls: [], usage: null, ttftMs: null }
+    }
+  }
+
   const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -298,17 +340,29 @@ async function streamChat(
   let usage: ApiUsage | null = null
   let ttftMs: number | null = null
 
+  // What the caller actually saw, accumulated for the cache. Captured after the
+  // native-tool extractor so a replay reproduces the visible answer, not the raw
+  // stream with its markup still in it.
+  let cachedAnswer = ''
+  let cachedReasoning = ''
+
   const emitText = (text: string): void => {
     if (!text) return
     const out = nativeTools.push(text)
-    if (out.text) onContent(out.text)
+    if (out.text) {
+      onContent(out.text)
+      cachedAnswer += out.text
+    }
     nativeCalls.push(...out.calls)
   }
 
   const emit = (delta: { answer: string; reasoning: string }): void => {
     if ((delta.answer || delta.reasoning) && ttftMs === null) ttftMs = Date.now() - startedAt
     emitText(delta.answer)
-    if (delta.reasoning) onReasoning?.(delta.reasoning)
+    if (delta.reasoning) {
+      onReasoning?.(delta.reasoning)
+      cachedReasoning += delta.reasoning
+    }
   }
 
   for (;;) {
@@ -365,7 +419,10 @@ async function streamChat(
   // back by the splitter — surface it as reasoning rather than losing it.
   emit(splitter.flush())
   const tail = nativeTools.flush()
-  if (tail.text) onContent(tail.text)
+  if (tail.text) {
+    onContent(tail.text)
+    cachedAnswer += tail.text
+  }
   nativeCalls.push(...tail.calls)
 
   const toolCalls = [...pending.values()]
@@ -376,6 +433,14 @@ async function streamChat(
       function: { name: call.name, arguments: call.arguments }
     })
   }
+
+  // Only a clean text round is cacheable. A round that ended in tool calls is
+  // the model asking for live data, and an aborted round is a partial answer —
+  // storing either would serve back something that was never a finished reply.
+  if (useCache && toolCalls.length === 0 && !signal.aborted && cachedAnswer) {
+    setInCache(messages, modelId, cachedAnswer, cachedReasoning)
+  }
+
   return { toolCalls, usage, ttftMs }
 }
 
@@ -721,7 +786,14 @@ async function runTurn(
   tools: ToolSchema[],
   signal: AbortSignal,
   delegation?: DelegationContext,
-  routingNote?: string
+  routingNote?: string,
+  /**
+   * v1.4: false suppresses the response cache for this turn. Regenerate replays
+   * a byte-identical history, so a cache hit would hand back the same answer and
+   * make the button look broken — asking again is the one case where the user
+   * has explicitly said they want a different reply.
+   */
+  cacheable = true
 ): Promise<void> {
   const store = useAppStore.getState()
   const convo = store.conversations.find((c) => c.id === conversationId)
@@ -1044,7 +1116,11 @@ async function runTurn(
             speakNewSentences(false)
           },
           onReasoning,
-          slot.sampling
+          slot.sampling,
+          // The only cacheable call site: the user-facing answer. Every other
+          // streamChat caller is a verification or delegation pass that has to
+          // stay live.
+          cacheable
         )
         recordStats(usage, ttftMs, Date.now() - roundStartedAt)
         // Layer 1d: a short text round that ends in tool calls is the model's
@@ -1634,7 +1710,9 @@ export function useLMStudio(): {
       targets: ModelConfig[],
       delegation: DelegationContext | undefined,
       tools: ToolSchema[],
-      routingNote?: string
+      routingNote?: string,
+      /** v1.4: false on Regenerate, so asking again cannot return the cached reply. */
+      cacheable = true
     ): Promise<void> => {
       const store = useAppStore.getState()
       const controller = new AbortController()
@@ -1648,7 +1726,16 @@ export function useLMStudio(): {
           // every turn appends its assistant message to the conversation.
           // In orchestrated mode the single target is the orchestrator and
           // `delegation` carries its consultable specialists.
-          await runTurn(convoId, slot, baseUrl, tools, controller.signal, delegation, routingNote)
+          await runTurn(
+            convoId,
+            slot,
+            baseUrl,
+            tools,
+            controller.signal,
+            delegation,
+            routingNote,
+            cacheable
+          )
         }
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -1701,7 +1788,17 @@ export function useLMStudio(): {
     }
 
     const tools = await window.api.listTools().catch(() => [] as ToolSchema[])
-    await executeTargets(convo.id, settings.baseUrl, targets, routed.delegation, tools, routed.routingNote)
+    // cacheable: false — Regenerate replays an identical history, so the cache
+    // would hand back the very answer the user just rejected.
+    await executeTargets(
+      convo.id,
+      settings.baseUrl,
+      targets,
+      routed.delegation,
+      tools,
+      routed.routingNote,
+      false
+    )
   }, [executeTargets])
 
   /**
@@ -1818,7 +1915,9 @@ export function useLMStudio(): {
         tools,
         controller.signal,
         undefined,
-        `escalated to ${slot.roleName} — ${ESCALATION_REASON_TEXT[offer.reason]}`
+        `escalated to ${slot.roleName} — ${ESCALATION_REASON_TEXT[offer.reason]}`,
+        // Escalation is a retry of a turn that went badly; it must be fresh.
+        false
       )
     } catch (err) {
       if (!controller.signal.aborted) {

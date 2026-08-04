@@ -585,6 +585,10 @@ export interface ChatMessage {
   marker?: 'rollback' | 'notice'
   /** A multi-step plan executed on this message (v0.9 Plan mode). */
   plan?: ChatPlan
+  /** v1.4 branching: the message this one was branched from, if any. */
+  parentMessageId?: string
+  /** v1.4 branching: set on the message a branch was taken from. */
+  branchInfo?: { branchId: string; isBranch: boolean }
   createdAt: number
 }
 
@@ -631,8 +635,24 @@ export interface Conversation {
    * `null`/absent = all sources (the pre-0.9 behavior); `[]` = none.
    */
   memorySources?: string[] | null
+  /**
+   * v1.4 branching: alternative paths explored from a given message. Each entry
+   * points at the conversation holding that alternative — branches are separate
+   * conversations, so nothing about persistence or ephemerality changes.
+   */
+  branches?: ConversationBranch[]
+  /** The branch this conversation *is*, when it was created by branching. */
+  activeBranchId?: string | null
   createdAt: number
   updatedAt: number
+}
+
+export interface ConversationBranch {
+  /** The message the branch was taken from. */
+  messageId: string
+  /** Conversation id holding the alternative path. */
+  branchId: string
+  title: string
 }
 
 export interface ConversationSummary {

@@ -76,6 +76,8 @@ rm -rf "$OUT"
   src/renderer/src/lib/nativeToolCall.ts \
   src/renderer/src/lib/mathPlaintext.ts \
   src/renderer/src/lib/contextBudget.ts \
+  src/renderer/src/lib/contextCompressor.ts \
+  src/renderer/src/lib/responseCache.ts \
   src/renderer/src/lib/modelInfo.ts \
   src/renderer/src/lib/secondOpinion.ts \
   src/renderer/src/lib/grounding.ts \
