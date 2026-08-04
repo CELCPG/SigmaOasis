@@ -1,0 +1,1 @@
+{ "prompt": "what notes do I have saved?", "expect": { "tool": "list_notes" } }

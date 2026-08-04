@@ -1,0 +1,175 @@
+import { test, describe } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  buildGroundingBlock,
+  buildSearchContext,
+  buildSearchQuery,
+  consultedSources,
+  looksFactual,
+  withGrounding,
+  withToolCallPreamble,
+  TOOL_PREAMBLE_INSTRUCTION
+} from '../src/renderer/src/lib/grounding'
+import type { ToolCallRecord } from '../src/renderer/src/types'
+
+/**
+ * Grounding's one structural guarantee: the decision to verify is mechanical,
+ * not the model's. These tests pin the heuristic's shape — factual lookups
+ * trigger an app-run search, creative/coding work does not — and the rule
+ * that only a *successful* source-tool call clears the unverified flag.
+ */
+
+describe('looksFactual', () => {
+  test('the confabulation case: band/album questions are factual', () => {
+    assert.equal(looksFactual('tell me about the band Phish and their key albums'), true)
+    assert.equal(looksFactual("What are Radiohead's key albums and sound shifts?"), true)
+    assert.equal(looksFactual('How did their live shows change after the Billy Budd tour?'), true)
+  })
+
+  test('questions about named entities are factual', () => {
+    assert.equal(looksFactual('Who is the CEO of Tesla?'), true)
+    assert.equal(looksFactual('When was the first iPhone released?'), true)
+    assert.equal(looksFactual('Tell me about Ada Lovelace'), true)
+  })
+
+  test('current-events and market words are factual', () => {
+    assert.equal(looksFactual("what's the latest on the election"), true)
+    assert.equal(looksFactual('current price of bitcoin'), true)
+  })
+
+  test('creative and coding requests do not trigger a search', () => {
+    assert.equal(looksFactual('write a poem about Spring'), false)
+    assert.equal(looksFactual('write a short story about a band on tour'), false)
+    assert.equal(looksFactual('fix this bug in my parse function'), false)
+    assert.equal(looksFactual('refactor this code to use async await'), false)
+  })
+
+  test('casual chat and tiny messages do not trigger a search', () => {
+    assert.equal(looksFactual('hello'), false)
+    assert.equal(looksFactual('thanks, that helps a lot'), false)
+    assert.equal(looksFactual('how do I center a div'), false)
+  })
+})
+
+describe('grounding block', () => {
+  test('carries the date and the verify-or-say-unknown rule', () => {
+    const block = buildGroundingBlock(new Date('2026-07-31T12:00:00Z'))
+    assert.match(block, /Today's date is 2026-07-31/)
+    assert.match(block, /Never invent a plausible-sounding title/)
+    assert.match(block, /flag the premise/)
+  })
+
+  test('withGrounding appends rather than replaces the slot persona', () => {
+    const out = withGrounding('You are a helpful assistant.', new Date('2026-07-31T12:00:00Z'))
+    assert.ok(out.startsWith('You are a helpful assistant.'))
+    assert.match(out, /Grounding rules:/)
+  })
+})
+
+describe('search context', () => {
+  test('labels results as untrusted and says what to do when they fall short', () => {
+    const ctx = buildSearchContext('Phish albums', 'result one\nresult two')
+    assert.match(ctx, /"Phish albums"/)
+    assert.match(ctx, /untrusted external content/)
+    assert.match(ctx, /result one/)
+  })
+
+  test('buildSearchQuery flattens and caps the user message', () => {
+    assert.equal(buildSearchQuery('a\nb   c'), 'a b c')
+    assert.ok(buildSearchQuery('x'.repeat(500)).length <= 241 + 1)
+  })
+})
+
+describe('buildSearchQuery · anchoring a follow-up', () => {
+  const previous = 'best all-terrain pet stroller for a large dog'
+
+  test('a short continuer is anchored to the previous message', () => {
+    // Sent alone, this query comes back about gold bullion.
+    assert.equal(
+      buildSearchQuery('lets go with the gold one', previous),
+      `${previous} — lets go with the gold one`
+    )
+  })
+
+  test('an ordinal back-reference is anchored', () => {
+    assert.equal(
+      buildSearchQuery('what about the second one?', previous),
+      `${previous} — what about the second one?`
+    )
+    assert.equal(buildSearchQuery('number 2 please', previous), `${previous} — number 2 please`)
+  })
+
+  test('a self-contained question is NOT anchored just for containing a pronoun', () => {
+    // "it" appears in ordinary standalone questions constantly. Anchoring on
+    // it prepends an unrelated topic and doubles what reaches the provider.
+    const q = 'how tall is the Eiffel Tower and when was it built?'
+    assert.equal(buildSearchQuery(q, previous), q)
+  })
+
+  test('a long message is never anchored, however it opens', () => {
+    const q =
+      'and now that I have compared them, which of these car seats has the best crash test rating in Europe?'
+    assert.equal(buildSearchQuery(q, previous), q)
+  })
+
+  test('a weak continuer only counts in a terse message', () => {
+    assert.equal(buildSearchQuery('and the price?', previous), `${previous} — and the price?`)
+    const longer = 'now explain how regenerative braking recovers energy'
+    assert.equal(buildSearchQuery(longer, previous), longer)
+  })
+
+  test('with no previous message there is nothing to anchor to', () => {
+    assert.equal(buildSearchQuery('and the price?'), 'and the price?')
+    assert.equal(buildSearchQuery('and the price?', '   '), 'and the price?')
+  })
+
+  test('the combined query still respects the length cap', () => {
+    const long = 'y'.repeat(500)
+    assert.ok(buildSearchQuery('and the price?', long).length <= 241 + 1)
+  })
+})
+
+describe('consultedSources', () => {
+  const rec = (name: string, status: ToolCallRecord['status']): ToolCallRecord => ({
+    id: name,
+    name,
+    args: {},
+    status
+  })
+
+  test('only a successful source-tool call counts', () => {
+    assert.equal(consultedSources([rec('web_search', 'done')]), true)
+    assert.equal(consultedSources([rec('fetch_webpage', 'done')]), true)
+    assert.equal(consultedSources([rec('deep_research', 'done')]), true)
+  })
+
+  test('failed, pending, and non-source tools leave the turn unverified', () => {
+    assert.equal(consultedSources([rec('web_search', 'error')]), false)
+    assert.equal(consultedSources([rec('web_search', 'running')]), false)
+    assert.equal(consultedSources([rec('memory_search', 'done')]), false)
+    assert.equal(consultedSources([rec('read_file', 'done')]), false)
+    assert.equal(consultedSources([]), false)
+  })
+})
+
+describe('withToolCallPreamble (Layer 1d)', () => {
+  test('non-reasoning models get the one-sentence instruction', () => {
+    const out = withToolCallPreamble('You are helpful.', 'llama-3.1-8b-instruct')
+    assert.ok(out.endsWith(TOOL_PREAMBLE_INSTRUCTION))
+    assert.equal(out.startsWith('You are helpful.'), true)
+  })
+
+  test('reasoning models do not — their CoT already covers it', () => {
+    assert.equal(withToolCallPreamble('You are helpful.', 'qwen3-8b'), 'You are helpful.')
+    assert.equal(
+      withToolCallPreamble('You are helpful.', 'google/gemma-4-12b-qat'),
+      'You are helpful.'
+    )
+  })
+
+  test('the instruction asks for the reason and the expectation, in one sentence', () => {
+    assert.match(TOOL_PREAMBLE_INSTRUCTION, /one sentence/)
+    assert.match(TOOL_PREAMBLE_INSTRUCTION, /why it is needed/)
+    assert.match(TOOL_PREAMBLE_INSTRUCTION, /expect back/)
+  })
+})

@@ -1,0 +1,225 @@
+import { test, describe } from 'node:test'
+import assert from 'node:assert/strict'
+import { createReasoningSplitter, isLikelyReasoningModel } from '../src/renderer/src/lib/reasoning'
+
+/**
+ * The reasoning splitter is pure logic over a token stream, so it is tested
+ * directly rather than through the React hook that drives it. Every case here
+ * is a silent-corruption failure if it regresses — the answer text changes
+ * without anything throwing — which is exactly why they are pinned.
+ */
+
+/** Feed a whole reply through the splitter in the given chunks. */
+function run(chunks: string[]): { answer: string; reasoning: string } {
+  const splitter = createReasoningSplitter()
+  let answer = ''
+  let reasoning = ''
+  for (const chunk of chunks) {
+    const out = splitter.push(chunk)
+    answer += out.answer
+    reasoning += out.reasoning
+  }
+  const tail = splitter.flush()
+  return { answer: answer + tail.answer, reasoning: reasoning + tail.reasoning }
+}
+
+describe('createReasoningSplitter — the common case', () => {
+  test('separates a leading think block from the answer', () => {
+    const out = run(['<think>Let me work this out. 2+2.</think>The answer is 4.'])
+    assert.equal(out.reasoning, 'Let me work this out. 2+2.')
+    assert.equal(out.answer, 'The answer is 4.')
+  })
+
+  test('a reply with no reasoning is passed through untouched', () => {
+    const out = run(['Hello, ', 'how can I help?'])
+    assert.equal(out.answer, 'Hello, how can I help?')
+    assert.equal(out.reasoning, '')
+  })
+
+  test('recognizes the other tag spellings, case-insensitively', () => {
+    for (const tag of ['think', 'thinking', 'reason', 'reasoning', 'THINK', 'Thinking']) {
+      const out = run([`<${tag}>hidden</${tag}>shown`])
+      assert.equal(out.reasoning, 'hidden', `tag: ${tag}`)
+      assert.equal(out.answer, 'shown', `tag: ${tag}`)
+    }
+  })
+
+  test('leading whitespace before the tag does not start the answer', () => {
+    const out = run(['\n\n<think>thought</think>answer'])
+    assert.equal(out.reasoning, 'thought')
+    assert.equal(out.answer.trim(), 'answer')
+  })
+})
+
+describe('createReasoningSplitter — chunk boundaries', () => {
+  test('an opening tag split across deltas is still recognized', () => {
+    const out = run(['<thi', 'nk>thought', '</think>answer'])
+    assert.equal(out.reasoning, 'thought')
+    assert.equal(out.answer, 'answer')
+  })
+
+  test('a closing tag split across deltas is still recognized', () => {
+    const out = run(['<think>thought</thi', 'nk>answer'])
+    assert.equal(out.reasoning, 'thought')
+    assert.equal(out.answer, 'answer')
+  })
+
+  test('one character per delta — the worst case — round-trips exactly', () => {
+    const source = '<think>step one. step two.</think>The final answer.'
+    const out = run(source.split(''))
+    assert.equal(out.reasoning, 'step one. step two.')
+    assert.equal(out.answer, 'The final answer.')
+  })
+
+  test('a partial tag is never emitted as answer text mid-stream', () => {
+    const splitter = createReasoningSplitter()
+    // `<thi` could still become `<think>`; it must be held, not shown.
+    assert.equal(splitter.push('<thi').answer, '')
+  })
+
+  test('a held-back prefix that turns out to be prose is emitted on flush', () => {
+    // `<thi` never completes into a tag, so it is real answer text.
+    const out = run(['<thi'])
+    assert.equal(out.answer, '<thi')
+    assert.equal(out.reasoning, '')
+  })
+})
+
+describe('createReasoningSplitter — refusing to eat the answer', () => {
+  test('a think tag inside a code block mid-answer is left as text', () => {
+    const out = run([
+      'Reasoning models emit this:\n```html\n<think>example</think>\n```\nThat is the format.'
+    ])
+    assert.equal(out.reasoning, '')
+    assert.match(out.answer, /<think>example<\/think>/)
+    assert.match(out.answer, /That is the format\.$/)
+  })
+
+  test('a think tag after the answer has started is text, even across chunks', () => {
+    const out = run(['Here is how it works. ', '<think>not really thinking</think>', ' Done.'])
+    assert.equal(out.reasoning, '')
+    assert.equal(out.answer, 'Here is how it works. <think>not really thinking</think> Done.')
+  })
+})
+
+describe('createReasoningSplitter — truncated streams', () => {
+  test('an unclosed block flushes as reasoning rather than vanishing', () => {
+    // What a max_tokens cutoff or an aborted turn looks like.
+    const out = run(['<think>I was still thinking when the stream ended'])
+    assert.equal(out.reasoning, 'I was still thinking when the stream ended')
+    assert.equal(out.answer, '')
+  })
+
+  test('an empty stream produces nothing', () => {
+    const out = run([])
+    assert.equal(out.answer, '')
+    assert.equal(out.reasoning, '')
+  })
+
+  test('an empty think block is dropped without disturbing the answer', () => {
+    const out = run(['<think></think>Straight to the point.'])
+    assert.equal(out.reasoning, '')
+    assert.equal(out.answer, 'Straight to the point.')
+  })
+})
+
+describe('createReasoningSplitter — Gemma 4 native control tokens', () => {
+  test('pipe-style think tags separate like the XML spellings', () => {
+    const out = run(['<|think|>hidden<|/think|>shown'])
+    assert.equal(out.reasoning, 'hidden')
+    assert.equal(out.answer, 'shown')
+  })
+
+  test('the structured thinking channel separates, leading newline stripped', () => {
+    const out = run(['<|channel>thought\nhidden<channel|>shown'])
+    assert.equal(out.reasoning, 'hidden')
+    assert.equal(out.answer, 'shown')
+  })
+
+  test('a tool-call token ends the thinking block with no close tag at all', () => {
+    // Gemma 4 goes straight from thinking to calling; observed verbatim on
+    // gemma-4-12b-qat through LM Studio.
+    const out = run(['<|think|>planning the call<|tool_call>call:x{a:1}<tool_call|>after'])
+    assert.equal(out.reasoning, 'planning the call')
+    assert.equal(out.answer, '<|tool_call>call:x{a:1}<tool_call|>after')
+  })
+
+  test('the sloppy <|tool> opener also terminates thinking', () => {
+    const out = run(['<|think|>plan<|tool>call:x{a:1}<tool_call|>'])
+    assert.equal(out.reasoning, 'plan')
+    assert.equal(out.answer, '<|tool>call:x{a:1}<tool_call|>')
+  })
+
+  test('pipe tokens split across chunks are still recognized', () => {
+    const out = run(['<|th', 'ink|>hidden<|/th', 'ink|>shown'])
+    assert.equal(out.reasoning, 'hidden')
+    assert.equal(out.answer, 'shown')
+  })
+
+  test('the exact reply a user reported renders clean after both stages', () => {
+    // Verbatim from a gemma-4-12b-qat session: thinking, then an inline tool
+    // call the server never executed, and no answer text at all.
+    const sample =
+      '<|think|>The user has asked me to generate another story, following up on ' +
+      'the previous request.<|tool>call:text_generation{prompt:<|"|>a short story about cats<|"|>}<tool_call|>'
+    const out = run([sample])
+    assert.equal(out.reasoning, 'The user has asked me to generate another story, following up on the previous request.')
+    assert.equal(
+      out.answer,
+      '<|tool>call:text_generation{prompt:<|"|>a short story about cats<|"|>}<tool_call|>'
+    )
+  })
+})
+
+describe('isLikelyReasoningModel (the Layer 1d gate)', () => {
+  test('the families whose CoT the splitter strips read as reasoning models', () => {
+    assert.equal(isLikelyReasoningModel('qwen3-8b-instruct'), true)
+    assert.equal(isLikelyReasoningModel('deepseek-r1-distill-qwen-7b'), true)
+    assert.equal(isLikelyReasoningModel('openai/gpt-oss-20b'), true)
+    assert.equal(isLikelyReasoningModel('mistralai/magistral-small'), true)
+    // Gemma 4 reasons in native control tokens the splitter strips.
+    assert.equal(isLikelyReasoningModel('google/gemma-4-12b-qat'), true)
+    assert.equal(isLikelyReasoningModel('gemma-4-e4b-agentic-sol-fable-reasoning-geminicli'), true)
+  })
+
+  test('plain instruct models get the preamble instead', () => {
+    assert.equal(isLikelyReasoningModel('llama-3.1-8b-instruct'), false)
+    assert.equal(isLikelyReasoningModel('mistral-7b-instruct-v0.3'), false)
+    assert.equal(isLikelyReasoningModel('qwen2.5-7b-instruct'), false)
+  })
+})
+
+describe('createReasoningSplitter — e4b-agentic thought/response spellings', () => {
+  // Measured on gemma-4-e4b-agentic-sol-fable and google/gemma-4-12b-qat,
+  // 2026-08-03: the thought opens with <|thought> and closes with whichever
+  // delimiter the template carries — </thought>, <|response>, or <response>.
+  test('<|thought>…<|response> separates thought from answer', () => {
+    const out = run(['<|thought>working it out<|response>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('<|thought>…</thought> closes with the xml-ish spelling', () => {
+    const out = run(['<|thought>working it out</thought>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('<|thought>…<response> closes with the bare spelling', () => {
+    const out = run(['<|thought>working it out<response>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('the thought block split across chunks is still recognized', () => {
+    const out = run(['<|thou', 'ght>working it out<|resp', 'onse>The answer.'])
+    assert.equal(out.reasoning, 'working it out')
+    assert.equal(out.answer, 'The answer.')
+  })
+
+  test('a thought after the answer has started is not swallowed', () => {
+    const out = run(['The answer.<|thought>not a real thought'])
+    assert.equal(out.answer, 'The answer.<|thought>not a real thought')
+    assert.equal(out.reasoning, '')
+  })
+})

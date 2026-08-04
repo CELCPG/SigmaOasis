@@ -27,6 +27,50 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Notarization failures surface as a JSON parse error, not a useful
+      # message: when Apple rejects a submission it replies in plain text
+      # ("Error: HTTP status code: 403 ..."), and @electron/notarize feeds that
+      # straight into JSON.parse, so the log only ever shows
+      # `Unexpected token 'E', "Error: HTT"... is not valid JSON`.
+      # Asking notarytool the same question up front gets Apple's actual
+      # wording into the log, and does it before the 97 MB Electron download
+      # and the signing pass rather than after.
+      - name: Preflight — verify Apple notary credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          [ -n "$APPLE_ID" ] || missing+=(APPLE_ID)
+          [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] || missing+=(APPLE_APP_SPECIFIC_PASSWORD)
+          [ -n "$APPLE_TEAM_ID" ] || missing+=(APPLE_TEAM_ID)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secret(s): ${missing[*]}"
+            exit 1
+          fi
+
+          # A pasted app-specific password often carries a trailing newline or
+          # space. Apple answers that with a bare 401, so name it explicitly.
+          case "$APPLE_APP_SPECIFIC_PASSWORD" in
+            *[[:space:]]) echo "::warning::APPLE_APP_SPECIFIC_PASSWORD ends in whitespace — re-paste it without the trailing character." ;;
+          esac
+
+          set +e
+          out=$(xcrun notarytool history \
+                  --apple-id "$APPLE_ID" \
+                  --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD" 2>&1)
+          status=$?
+          set -e
+
+          if [ $status -ne 0 ]; then
+            echo "::error::Apple rejected these notary credentials (notarytool exit $status). Raw response:"
+            echo "$out"
+            exit 1
+          fi
+          echo "Notary credentials accepted by Apple for team $APPLE_TEAM_ID."
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -37,6 +81,11 @@ jobs:
       - run: npm ci
 
       - run: npm run typecheck
+
+      # Gates the release: a failing suite stops the signed build here, before
+      # any installer is produced. (Windows and Linux jobs stay build-only —
+      # the suite's Electron checks need bash and, for some, a display.)
+      - run: npm test
 
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
@@ -50,6 +99,11 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Traces the notarytool invocation (args, exit code, temp paths). Note
+          # it does NOT reveal Apple's rejection message — @electron/notarize
+          # throws inside JSON.parse before it logs the response body. The
+          # preflight step above is what surfaces that.
+          DEBUG: electron-notarize*
 
   windows:
     name: Windows
@@ -73,3 +127,93 @@ jobs:
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Bundle main, preload & renderer
+        run: npx electron-vite build
+
+      # Build-only, like Windows: the macOS job is the test gate for the
+      # release, and the suite's Electron checks need a display anyway.
+      - name: Build & publish
+        run: npx electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  homebrew:
+    name: Homebrew cask bump
+    # After the signed DMGs land on the release: refresh the tap's version and
+    # checksums so `brew install --cask sigma-oasis` tracks every tag.
+    needs: macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # GITHUB_TOKEN cannot push outside this repo; HOMEBREW_TAP_TOKEN is a PAT
+      # with write access to CELCPG/homebrew-tap (see RELEASING.md).
+      - uses: actions/checkout@v4
+        with:
+          repository: CELCPG/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update cask version and checksums
+        env:
+          # The PAT, not GITHUB_TOKEN: it is verified to list draft releases,
+          # which the download below depends on (the release is a draft here).
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          CASK=Casks/sigma-oasis.rb
+          API="https://api.github.com/repos/CELCPG/SigmaOasis"
+          AUTH="Authorization: Bearer $GH_TOKEN"
+          # The release is still a draft here. The pretty /releases/download/
+          # URLs (and the /releases/tags/ endpoint) 404 for drafts even with
+          # auth, so find the release in the list and go through the assets API.
+          RELEASES_JSON=$(curl -sf -H "$AUTH" "$API/releases?per_page=10")
+          for pair in "arm arm64" "intel x64"; do
+            read -r key arch <<< "$pair"
+            ASSET_NAME="Sigma-Oasis-${VERSION}-mac-${arch}.dmg"
+            id=$(printf '%s' "$RELEASES_JSON" | jq -r --arg tag "$TAG" --arg name "$ASSET_NAME" \
+              '[.[] | select(.tag_name == $tag)][0].assets[] | select(.name == $name) | .id')
+            if [[ -z "$id" ]]; then
+              echo "::error::No asset named $ASSET_NAME on the $TAG release"
+              printf '%s' "$RELEASES_JSON" | jq -r '.[].tag_name' | sed 's/^/visible release: /'
+              exit 1
+            fi
+            sha=$(curl -sfL -H "$AUTH" -H "Accept: application/octet-stream" \
+              "$API/releases/assets/$id" | shasum -a 256 | cut -d' ' -f1)
+            if ! [[ "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::Could not checksum the $arch DMG for $VERSION"
+              exit 1
+            fi
+            sed -i -E "s|(${key}: +)\"[0-9a-f]{64}\"|\1\"${sha}\"|" "$CASK"
+          done
+          sed -i -E "s|^  version \".*\"|  version \"${VERSION}\"|" "$CASK"
+          grep -E "version |arm:|intel:" "$CASK"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/sigma-oasis.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date — nothing to push."
+          else
+            git commit -m "sigma-oasis ${GITHUB_REF_NAME#v}"
+            git push
+          fi

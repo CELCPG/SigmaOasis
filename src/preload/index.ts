@@ -2,16 +2,21 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppSettings,
   AttachmentLoadResult,
+  AuditEntryInput,
+  AuditStatus,
   Conversation,
   MemorySearchResult,
   MemoryStats,
+  ModelInfo,
   NetworkActivityEntry,
   ResearchIndexStats,
   SttStatus,
   ToolResult,
   ToolSchema,
-  UpdateStatus
+  UpdateStatus,
+  EvalScoreSummary
 } from '../renderer/src/types'
+import type { EvalFixture } from '../renderer/src/lib/evalRunner'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -48,6 +53,56 @@ const api = {
     args: Record<string, unknown>,
     context?: { modelId?: string }
   ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
+  /**
+   * Rank candidate tools against the user's message by embedding cosine
+   * (main/ipc/toolRank.ts). { ok: false } means "no ranking available" — the
+   * caller falls back to its full list; it is never a turn failure.
+   */
+  rankTools: (
+    query: string,
+    tools: { name: string; description: string }[]
+  ): Promise<{ ok: boolean; scores?: Record<string, number>; error?: string }> =>
+    ipcRenderer.invoke('tools:rank', query, tools),
+
+  /**
+   * Measured tool-choice scores per evaluated model (main/ipc/evalResults.ts,
+   * Layer 0c). Empty list when no eval has been run.
+   */
+  evalScores: (): Promise<EvalScoreSummary[]> => ipcRenderer.invoke('eval:scores'),
+
+  /**
+   * In-app "Run eval" support (Settings → Models): the fixtures plus the full
+   * unfiltered toolbox, and persistence for each model's result. An empty
+   * fixture list means the test tree is unavailable (packaged app).
+   */
+  evalFixtures: (): Promise<{ fixtures: EvalFixture[]; tools: ToolSchema[] }> =>
+    ipcRenderer.invoke('eval:fixtures'),
+  saveEvalResult: (payload: unknown): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('eval:saveResult', payload),
+
+  // Keep a chat model resident in LM Studio (main/ipc/modelPin.ts)
+  pinModel: (modelId: string): Promise<boolean> => ipcRenderer.invoke('models:pin', modelId),
+
+  /**
+   * The model list with capabilities (main/ipc/modelCatalog.ts). Goes through
+   * the main process rather than fetching from the renderer so it passes the
+   * egress allowlist and shows up in the Privacy activity log like every other
+   * request.
+   */
+  getModelCatalog: (): Promise<
+    { models: ModelInfo[]; detailed: boolean } | { error: string }
+  > => ipcRenderer.invoke('models:catalog'),
+
+  /** Compact dropped conversation history into a carry-forward note (main/ipc/summarize.ts). */
+  summarizeConversation: (request: {
+    previousSummary?: string
+    droppedText: string
+    modelId?: string
+  }): Promise<{ ok: true; summary: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('chat:summarize', request),
+
+  // Build version shown in the sidebar footer
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
 
   /** Live phase updates from a running deep_research call. */
   onResearchProgress: (
@@ -104,9 +159,11 @@ const api = {
   memoryStats: (): Promise<MemoryStats> => ipcRenderer.invoke('memory:stats'),
   memorySearch: (
     query: string,
-    topK?: number
+    topK?: number,
+    minScore?: number,
+    sources?: string[] | null
   ): Promise<{ ok: boolean; results: MemorySearchResult[]; error?: string }> =>
-    ipcRenderer.invoke('memory:search', query, topK),
+    ipcRenderer.invoke('memory:search', query, topK, minScore, sources ?? null),
   memoryAddDocument: (
     source: string,
     text: string
@@ -118,6 +175,49 @@ const api = {
     ipcRenderer.invoke('memory:addDocumentFromPath', path),
   memoryDeleteSource: (source: string): Promise<{ ok: boolean; removed?: number; error?: string }> =>
     ipcRenderer.invoke('memory:delete', source),
+
+  // Session audit log (main/ipc/audit.ts) — opt-in, encrypted, tamper-evident.
+  auditStatus: (): Promise<AuditStatus> => ipcRenderer.invoke('audit:status'),
+  auditRecord: (input: AuditEntryInput): Promise<boolean> =>
+    ipcRenderer.invoke('audit:record', input),
+  auditExport: (
+    sessionId?: string
+  ): Promise<
+    | { ok: true; path: string; entries: number; chainValid: boolean }
+    | { ok: false; canceled?: boolean; error?: string }
+  > => ipcRenderer.invoke('audit:export', sessionId),
+  auditPurge: (): Promise<{ removed: number }> => ipcRenderer.invoke('audit:purge'),
+
+  // Layer 4 trace export (main/ipc/traces.ts) — OpenAI JSONL for out-of-band
+  // fine-tuning, labeled from outcomes, redacted, schema-stamped. Opt-in per
+  // export via the save dialog; writes to local disk only.
+  tracesExport: (
+    sessionId?: string
+  ): Promise<
+    | {
+        ok: true
+        paths: { positive: string; rejected: string; manifest: string; tools: string }
+        counts: {
+          turns: number
+          positive: number
+          rejected: number
+          unlabeled: number
+          skippedEntries: number
+        }
+        outcomesMatched: number
+        schemaVersion: string | null
+        chainValid: boolean
+      }
+    | { ok: false; canceled?: boolean; error?: string }
+  > => ipcRenderer.invoke('traces:export', sessionId),
+
+  // Plan mode (main/ipc/plan.ts) — structured plan generation; execution is renderer-side.
+  planGenerate: (
+    task: string,
+    modelId?: string,
+    maxSteps?: number
+  ): Promise<{ ok: boolean; steps?: { title: string; detail: string }[]; error?: string }> =>
+    ipcRenderer.invoke('plan:generate', task, modelId, maxSteps),
 
   // Auto-update (main/updates.ts)
   getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:getStatus'),

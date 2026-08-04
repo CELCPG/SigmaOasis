@@ -1,0 +1,1 @@
+{ "prompt": "what does the MSI Titan 18 HX gaming laptop cost right now?", "expect": { "tool": "shop_compare" } }

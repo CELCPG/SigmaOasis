@@ -40,6 +40,16 @@ export interface MemorySearchResult {
 
 const MAX_DOCUMENT_CHARS = 500_000
 
+/**
+ * Relevance floor for memory recall. Cosine scores below this are the
+ * embedding model saying "nothing stored is actually about this query" —
+ * without the floor, top-K always returns *something*, and injecting random
+ * memories into the system prompt can pull a small model off the user's
+ * question entirely (worst on a conversation's first turn, when no history
+ * anchors the topic). Callers that want raw ranking can pass minScore: 0.
+ */
+export const MEMORY_SCORE_FLOOR = 0.35
+
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 }
@@ -102,7 +112,12 @@ export async function addToMemory(
   })
 }
 
-export async function searchMemory(query: string, topK: number): Promise<MemorySearchResult[]> {
+export async function searchMemory(
+  query: string,
+  topK: number,
+  minScore: number = MEMORY_SCORE_FLOOR,
+  sources?: string[] | null
+): Promise<MemorySearchResult[]> {
   const memory = await readMemory()
   if (memory.chunks.length === 0) return []
 
@@ -111,7 +126,7 @@ export async function searchMemory(query: string, topK: number): Promise<MemoryS
 
   // Chunks embedded by a different model live in a different vector space —
   // scoring them against this query is meaningless, so they are excluded.
-  const comparable = memory.chunks.filter((c) => c.embedding.length === queryVector.length)
+  let comparable = memory.chunks.filter((c) => c.embedding.length === queryVector.length)
   if (comparable.length === 0) {
     throw new Error(
       `All ${memory.chunks.length} stored memories were embedded with a different model than "${model}". ` +
@@ -119,8 +134,19 @@ export async function searchMemory(query: string, topK: number): Promise<MemoryS
     )
   }
 
+  // Per-conversation scoping (v0.9): when a conversation restricts its sources,
+  // everything else simply does not exist for it. `null`/undefined = all
+  // sources; `[]` = none, which is a legitimate "no memory for this chat" and
+  // returns empty rather than throwing.
+  if (sources != null) {
+    const allowed = new Set(sources)
+    comparable = comparable.filter((c) => allowed.has(c.source))
+    if (comparable.length === 0) return []
+  }
+
   return comparable
     .map((c) => ({ source: c.source, text: c.text, score: cosine(queryVector, c.embedding) }))
+    .filter((r) => r.score >= minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, topK))
     .map((r) => ({ ...r, score: Math.round(r.score * 1000) / 1000 }))
@@ -168,13 +194,24 @@ async function memoryStats(): Promise<unknown> {
 export function registerMemoryHandlers(): void {
   ipcMain.handle('memory:stats', () => memoryStats())
 
-  ipcMain.handle('memory:search', async (_e, query: string, topK?: number) => {
-    try {
-      return { ok: true, results: await searchMemory(String(query ?? ''), topK ?? getSettings().memory.topK) }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err), results: [] }
+  ipcMain.handle(
+    'memory:search',
+    async (_e, query: string, topK?: number, minScore?: number, sources?: string[] | null) => {
+      try {
+        return {
+          ok: true,
+          results: await searchMemory(
+            String(query ?? ''),
+            topK ?? getSettings().memory.topK,
+            typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : undefined,
+            Array.isArray(sources) ? sources.map(String) : null
+          )
+        }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err), results: [] }
+      }
     }
-  })
+  )
 
   ipcMain.handle('memory:addDocument', async (_e, source: string, text: string) => {
     try {

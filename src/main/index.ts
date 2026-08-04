@@ -1,13 +1,23 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
-import { registerStoreHandlers, migrateSettings } from './ipc/store'
+import { registerStoreHandlers, migrateSettings, getSettings } from './ipc/store'
 import { registerToolHandlers } from './ipc/tools'
+import { registerToolRankHandlers } from './ipc/toolRank'
 import { registerAttachmentHandlers } from './ipc/attachments'
 import { registerVoiceHandlers } from './ipc/voice'
 import { registerMemoryHandlers } from './ipc/memory'
 import { registerNetworkHandlers } from './ipc/net'
 import { registerSearchHandlers } from './ipc/search'
+import { registerAuditHandlers, purgeAuditLogs } from './ipc/audit'
+import { registerTraceHandlers } from './ipc/traces'
+import { registerPlanHandlers } from './ipc/plan'
+import { registerModelPinHandlers, hasLegacyPins, unloadLegacyPins } from './ipc/modelPin'
+import { registerModelCatalogHandlers } from './ipc/modelCatalog'
+import { registerSummarizeHandlers } from './ipc/summarize'
+import { readEvalResults, readEvalFixtures, saveEvalResult } from './ipc/evalResults'
+import { TOOL_SCHEMAS } from './ipc/toolSchemas'
 import { registerUpdateHandlers } from './updates'
 
 /** electron-vite serves the renderer over http in dev, from a file in production. */
@@ -95,15 +105,55 @@ app.whenReady().then(() => {
   migrateSettings()
   registerStoreHandlers()
   registerToolHandlers()
+  registerToolRankHandlers()
   registerAttachmentHandlers()
   registerVoiceHandlers()
   registerMemoryHandlers()
   registerNetworkHandlers()
   registerSearchHandlers()
   registerUpdateHandlers()
+  registerModelPinHandlers()
+  registerModelCatalogHandlers()
+  registerSummarizeHandlers()
+  registerAuditHandlers()
+  registerTraceHandlers()
+  registerPlanHandlers()
 
-  ipcMain.handle('dialog:pickDirectory', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
+  // Build version for the sidebar badge. Prefer the project's own
+  // package.json: in dev, app.getVersion() can report Electron's version
+  // instead, since the app path may resolve into node_modules/electron.
+  ipcMain.handle('app:getVersion', () => {
+    try {
+      const pkg = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf-8')) as {
+        version?: string
+      }
+      return pkg.version ?? app.getVersion()
+    } catch {
+      return app.getVersion()
+    }
+  })
+
+  // Layer 0c: measured tool-choice scores for the model picker. Lives beside
+  // the app like package.json does in dev; absent in packaged builds, where
+  // readEvalResults returns an empty list.
+  ipcMain.handle('eval:scores', () => readEvalResults(join(app.getAppPath(), '.eval-results')))
+
+  // In-app "Run eval" support: the renderer runs the shared eval runner and
+  // main supplies the repo fixtures plus the full toolbox (unfiltered by the
+  // user's toggles, so scores stay comparable with the CLI baseline), then
+  // persists each model's result with the CLI's filename convention.
+  ipcMain.handle('eval:fixtures', () => ({
+    fixtures: readEvalFixtures(
+      join(app.getAppPath(), 'test', 'fixtures', 'toolchoice'),
+      TOOL_SCHEMAS.map((t) => t.function.name)
+    ),
+    tools: TOOL_SCHEMAS
+  }))
+  ipcMain.handle('eval:saveResult', (_e, payload: unknown) =>
+    saveEvalResult(join(app.getAppPath(), '.eval-results'), payload)
+  )
+
+  ipcMain.handle('dialog:pickDirectory', async (event) => {    const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openDirectory', 'createDirectory']
     })
@@ -131,4 +181,26 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Undo TTL-less model pins before exiting (see ipc/modelPin.ts): the legacy
+// LM Studio load endpoint accepts no TTL, so models we explicitly loaded
+// would otherwise stay resident after the app is gone.
+let allowQuit = false
+app.on('before-quit', (event) => {
+  // Auto-purge the session audit log when the user asked for that (v0.9).
+  // Best effort and synchronous-adjacent: do not hold the quit hostage.
+  try {
+    if (getSettings().audit.enabled && getSettings().audit.autoPurgeOnQuit) {
+      void purgeAuditLogs()
+    }
+  } catch {
+    // Settings unreadable at quit — nothing sane to do but exit.
+  }
+  if (allowQuit || !hasLegacyPins()) return
+  event.preventDefault()
+  void unloadLegacyPins().finally(() => {
+    allowQuit = true
+    app.quit()
+  })
 })

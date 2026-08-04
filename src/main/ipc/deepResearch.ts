@@ -1,4 +1,9 @@
-import { chatComplete, chatCompleteJson, resolveChatModel } from './llm'
+import {
+  chatCompleteJson,
+  chatCompleteStream,
+  PartialCompletionError,
+  resolveChatModel
+} from './llm'
 import { getSettings } from './store'
 import { readWebpage, runWebSearch } from './search'
 import type { SearchResult } from './search'
@@ -58,6 +63,15 @@ export interface ResearchBudget {
   /** Distinct hosts contacted. The privacy-relevant one. */
   maxHosts: number
   maxWallClockMs: number
+  /**
+   * Wall clock held back from retrieval so synthesis has room to run.
+   *
+   * Retrieval will happily consume every second available and then leave the
+   * model no time to write the brief, which is how a run that successfully
+   * read eight pages returns nothing at all. The reserve makes gathering stop
+   * early on purpose: fewer sources, but an actual answer.
+   */
+  synthesisReserveMs: number
 }
 
 export type ResearchDepth = 'quick' | 'standard' | 'thorough'
@@ -93,6 +107,14 @@ export interface ResearchLedger {
 export interface ResearchOutcome {
   ok: boolean
   brief?: string
+  /**
+   * False when sources were gathered but the brief is missing or truncated.
+   * The run still succeeded — citations exist — but nothing may be presented
+   * as a synthesis that was not actually synthesized.
+   */
+  synthesized?: boolean
+  /** What went wrong with the write-up, when something did. */
+  synthesisNote?: string
   plan?: ResearchPlan
   /** False when the planner failed and the original question was used as-is. */
   planned?: boolean
@@ -112,12 +134,36 @@ export type ProgressFn = (phase: string, detail: string) => void
 export function budgetFor(depth: ResearchDepth): ResearchBudget {
   switch (depth) {
     case 'quick':
-      return { maxRounds: 1, maxSearches: 3, maxFetches: 4, maxHosts: 4, maxWallClockMs: 60_000 }
+      return {
+        maxRounds: 1,
+        maxSearches: 3,
+        maxFetches: 4,
+        maxHosts: 4,
+        maxWallClockMs: 60_000,
+        synthesisReserveMs: 20_000
+      }
     case 'thorough':
-      return { maxRounds: 2, maxSearches: 10, maxFetches: 16, maxHosts: 12, maxWallClockMs: 300_000 }
+      return {
+        maxRounds: 4,
+        maxSearches: 12,
+        maxFetches: 16,
+        maxHosts: 12,
+        maxWallClockMs: 300_000,
+        synthesisReserveMs: 60_000
+      }
     case 'standard':
     default:
-      return { maxRounds: 2, maxSearches: 6, maxFetches: 10, maxHosts: 8, maxWallClockMs: 150_000 }
+      // Rounds are coverage-driven: the loop stops as soon as every
+      // sub-question is answered, so a higher ceiling costs nothing on easy
+      // questions and buys persistence on hard ones.
+      return {
+        maxRounds: 3,
+        maxSearches: 8,
+        maxFetches: 10,
+        maxHosts: 8,
+        maxWallClockMs: 150_000,
+        synthesisReserveMs: 45_000
+      }
   }
 }
 
@@ -140,8 +186,23 @@ export class BudgetTracker {
     return false
   }
 
+  /**
+   * True once retrieval must stop. This is the *retrieval* deadline, which is
+   * deliberately earlier than the run's overall wall clock: whatever is left
+   * belongs to synthesis, which cannot borrow time it does not have.
+   */
   get expired(): boolean {
-    return Date.now() - this.startedAt > this.budget.maxWallClockMs
+    const deadline = Math.max(0, this.budget.maxWallClockMs - this.budget.synthesisReserveMs)
+    // `>=`, not `>`: a reserve that consumes the whole wall clock leaves
+    // retrieval no time at all, and that has to read as expired immediately
+    // rather than granting one free round.
+    return Date.now() - this.startedAt >= deadline
+  }
+
+  /** Milliseconds left for synthesis, never less than the stated reserve. */
+  get synthesisBudgetMs(): number {
+    const spent = Date.now() - this.startedAt
+    return Math.max(this.budget.synthesisReserveMs, this.budget.maxWallClockMs - spent)
   }
 
   canSearch(): boolean {
@@ -193,6 +254,40 @@ export class BudgetTracker {
 
 const MAX_SUB_QUESTIONS = 5
 const MAX_QUERIES_PER_SUB = 2
+
+/**
+ * Grammar-enforced plan shape (llama.cpp structured output). The tolerant
+ * parsePlan below stays as the safety net for servers without schema support,
+ * but with the constraint active the near-miss JSON small models produce —
+ * trailing commas, missing keys, prose around the object — cannot be emitted
+ * at all.
+ */
+const PLAN_SCHEMA = {
+  type: 'object',
+  properties: {
+    subQuestions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: MAX_SUB_QUESTIONS,
+      items: {
+        type: 'object',
+        properties: {
+          question: { type: 'string' },
+          queries: {
+            type: 'array',
+            minItems: 1,
+            maxItems: MAX_QUERIES_PER_SUB,
+            items: { type: 'string' }
+          }
+        },
+        required: ['question', 'queries'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['subQuestions'],
+  additionalProperties: false
+} as const
 
 const PLANNER_SYSTEM = `You are a research planner. Break the user's question into independent sub-questions, and for each give web search queries.
 
@@ -270,6 +365,7 @@ async function makePlan(
       ],
       temperature: 0.1,
       maxTokens: 700,
+      jsonSchema: { name: 'research_plan', schema: PLAN_SCHEMA },
       signal
     })
     const plan = parsePlan(raw, question)
@@ -282,6 +378,87 @@ async function makePlan(
     // Fall through to the unplanned path.
   }
   return { plan: { subQuestions: [{ question, queries: [question] }] }, planned: false }
+}
+
+// ---- adaptive re-planning ----------------------------------------------------
+
+/**
+ * Schema for the reformulation step: one new query set per open sub-question,
+ * aligned by array order with the input.
+ */
+const REFORMULATE_SCHEMA = {
+  type: 'object',
+  properties: {
+    queries: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          queries: {
+            type: 'array',
+            minItems: 1,
+            maxItems: MAX_QUERIES_PER_SUB,
+            items: { type: 'string' }
+          }
+        },
+        required: ['queries'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['queries'],
+  additionalProperties: false
+} as const
+
+const REFORMULATE_SYSTEM = `You are a research planner. A round of web research failed to answer the sub-questions listed below.
+
+For each, propose DIFFERENT keyword search queries that attack the question from another angle: narrower or broader terms, synonyms, a specific aspect, a likely source type (documentation, news, paper). Do not repeat the failed queries.
+
+Respond with JSON only, one entry per sub-question in the same order:
+{"queries":[{"queries":["...","..."]}]}`
+
+/**
+ * New queries for the sub-questions a round failed to cover.
+ *
+ * Re-running the same queries in round two would mostly re-hit the search
+ * cache and return the same results that just failed. Asking for a different
+ * angle is what makes later rounds worth their budget. Falls back to the
+ * original queries per sub-question when the model produces nothing usable,
+ * so a weak model degrades to the old behavior rather than losing the round.
+ */
+export async function reformulateQueries(
+  open: SubQuestion[],
+  model: string,
+  signal?: AbortSignal
+): Promise<string[][]> {
+  const fallback = open.map((sub) => sub.queries)
+  try {
+    const listed = open
+      .map((sub, i) => `${i + 1}. ${sub.question}\n   failed queries: ${sub.queries.join(' | ')}`)
+      .join('\n')
+    const raw = await chatCompleteJson<{ queries?: { queries?: unknown }[] }>({
+      model,
+      messages: [
+        { role: 'system', content: REFORMULATE_SYSTEM },
+        { role: 'user', content: listed }
+      ],
+      temperature: 0.3,
+      maxTokens: 400,
+      jsonSchema: { name: 'research_reformulate', schema: REFORMULATE_SCHEMA },
+      signal
+    })
+    if (!raw || !Array.isArray(raw.queries)) return fallback
+    return open.map((sub, i) => {
+      const entry = raw.queries?.[i]
+      const queries = (Array.isArray(entry?.queries) ? entry.queries : [])
+        .map((q) => String(q ?? '').trim())
+        .filter(Boolean)
+        .slice(0, MAX_QUERIES_PER_SUB)
+      return queries.length > 0 ? queries : sub.queries
+    })
+  } catch {
+    return fallback
+  }
 }
 
 // ---- search fan-out ----------------------------------------------------------
@@ -534,8 +711,10 @@ export async function runDeepResearch(options: {
     if (!tracker.canStartRound()) break
     tracker.rounds += 1
 
-    // Round 2 only revisits what round 1 failed to answer.
-    const targets =
+    // Later rounds only revisit what earlier rounds failed to answer, and
+    // they attack those with fresh queries rather than re-running the ones
+    // that just failed (which would mostly re-hit the search cache).
+    let targets =
       round === 0
         ? plan.subQuestions.map((sub, index) => ({ sub, index }))
         : plan.subQuestions
@@ -543,6 +722,20 @@ export async function runDeepResearch(options: {
             .filter(({ index }) => !coverage[index]?.covered)
 
     if (targets.length === 0) break
+
+    if (round > 0) {
+      progress('replanning', `New angle for ${targets.length} open sub-question(s)`)
+      const freshQueries = await reformulateQueries(
+        targets.map((t) => t.sub),
+        model,
+        options.signal
+      )
+      targets = targets.map((t, i) => ({
+        ...t,
+        sub: { ...t.sub, queries: freshQueries[i] ?? t.sub.queries }
+      }))
+    }
+    if (options.signal?.aborted) return { ok: false, error: 'Research was cancelled.' }
 
     // --- search ---
     const provider = getSettings().search.provider
@@ -594,32 +787,45 @@ export async function runDeepResearch(options: {
     const chosen = selectSources(fresh, relevance, remainingFetches)
 
     // --- read ---
-    for (const candidate of chosen) {
-      if (options.signal?.aborted) break
-      const host = hostOf(candidate.url)
-      if (!host || !tracker.canFetch(host)) break
+    // Pages are fetched through a small worker pool rather than one at a
+    // time: a multi-page crawl is the longest phase of a run, and the
+    // per-domain cap in selectSources already keeps any single host from
+    // bearing the burst. Budget check and fetch recording happen
+    // synchronously inside the worker, so the ceiling holds under
+    // concurrency exactly as it did serially.
+    const READ_CONCURRENCY = 3
+    let readCursor = 0
+    const readWorker = async (): Promise<void> => {
+      for (;;) {
+        const candidate = chosen[readCursor++]
+        if (!candidate) return
+        if (options.signal?.aborted) return
+        const host = hostOf(candidate.url)
+        if (!host || !tracker.canFetch(host)) continue
 
-      const subQuestion = plan.subQuestions[candidate.subQuestion]
-      progress('reading', `${sources.length + 1}. ${candidate.title || candidate.url}`)
+        const subQuestion = plan.subQuestions[candidate.subQuestion]
+        progress('reading', `${sources.length + 1}. ${candidate.title || candidate.url}`)
+        readUrls.add(canonicalUrl(candidate.url))
+        tracker.recordFetch(host)
 
-      const page = await readWebpage(
-        candidate.url,
-        subQuestion?.question ?? question,
-        PASSAGES_PER_SOURCE
-      )
-      readUrls.add(canonicalUrl(candidate.url))
-      tracker.recordFetch(host)
-      if (!page.ok || !page.retrieval || page.retrieval.passages.length === 0) continue
+        const page = await readWebpage(
+          candidate.url,
+          subQuestion?.question ?? question,
+          PASSAGES_PER_SOURCE
+        )
+        if (!page.ok || !page.retrieval || page.retrieval.passages.length === 0) continue
 
-      sources.push({
-        index: sourceIndex++,
-        url: page.url,
-        title: page.title,
-        subQuestion: candidate.subQuestion,
-        passages: page.retrieval.passages.map((p) => ({ text: p.text, score: p.score })),
-        via: page.source
-      })
+        sources.push({
+          index: sourceIndex++,
+          url: page.url,
+          title: page.title,
+          subQuestion: candidate.subQuestion,
+          passages: page.retrieval.passages.map((p) => ({ text: p.text, score: p.score })),
+          via: page.source
+        })
+      }
     }
+    await Promise.all(Array.from({ length: READ_CONCURRENCY }, readWorker))
 
     // --- reflect ---
     coverage = assessCoverage(plan.subQuestions, sources)
@@ -643,8 +849,9 @@ export async function runDeepResearch(options: {
   // --- synthesize ---
   progress('synthesizing', `Writing a brief from ${sources.length} source(s)`)
   let brief: string
+  let synthesisNote: string | undefined
   try {
-    brief = await chatComplete({
+    brief = await chatCompleteStream({
       model,
       messages: [
         { role: 'system', content: SYNTH_SYSTEM },
@@ -655,37 +862,46 @@ export async function runDeepResearch(options: {
       ],
       temperature: 0.2,
       maxTokens: 1400,
+      // Whatever retrieval did not spend. Retrieval stopped early to leave
+      // this, so the brief is not racing a deadline the fetches already ate.
+      timeoutMs: tracker.synthesisBudgetMs,
       signal: options.signal
     })
   } catch (err) {
-    return {
-      ok: false,
-      plan,
-      sources,
-      coverage,
-      sentQueries,
-      redactions: [...redactions],
-      ledger: tracker.ledger(),
-      error: `Synthesis failed: ${err instanceof Error ? err.message : String(err)}`
+    // Sources were read, ranked and cited; only the write-up fell over. The
+    // run's whole cost is already paid, and handing back an error string
+    // throws away every page of it — so keep what exists and say what is
+    // missing. A partial brief beats nothing; a source list beats a partial.
+    if (err instanceof PartialCompletionError && err.partial.trim().length > 200) {
+      brief = err.partial
+      synthesisNote =
+        'The brief was cut off before it finished (' +
+        `${err.message}). It stops mid-thought — treat the end as incomplete, and read the ` +
+        'sources below for anything it did not reach.'
+    } else {
+      brief = ''
+      synthesisNote =
+        `The model could not write the brief (${err instanceof Error ? err.message : String(err)}). ` +
+        'The sources below were retrieved and ranked successfully — they are listed unread ' +
+        'rather than summarized. Nothing here has been synthesized, so state that plainly ' +
+        'rather than presenting a summary you did not receive.'
     }
   }
 
-  if (!brief.trim()) {
-    return {
-      ok: false,
-      plan,
-      sources,
-      coverage,
-      sentQueries,
-      redactions: [...redactions],
-      ledger: tracker.ledger(),
-      error: 'The model returned an empty brief.'
-    }
+  // An empty brief with sources in hand is still a usable result — the caller
+  // reports it as retrieved-but-unsynthesized rather than as a failed run.
+  if (!brief.trim() && !synthesisNote) {
+    synthesisNote =
+      'The model returned an empty brief. The sources below were retrieved and ranked ' +
+      'successfully but nothing was synthesized from them; say so rather than summarizing ' +
+      'them yourself from memory.'
   }
 
   return {
     ok: true,
     brief: brief.trim(),
+    synthesized: brief.trim().length > 0 && !synthesisNote,
+    synthesisNote,
     plan,
     planned,
     sources,

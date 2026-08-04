@@ -1,0 +1,1 @@
+{ "prompt": "show me what an all-terrain pet stroller looks like", "expect": { "tool": "image_search" } }

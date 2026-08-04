@@ -1,13 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { useUpdates } from '../hooks/useUpdates'
 import { Logo } from './Logo'
+import { SessionControls } from './SessionControls'
 
-/** Left rail: conversation search + list, new-chat button, settings footer. */
+/**
+ * Left rail: conversation search + list, new-chat button, the per-conversation
+ * session controls, and the settings footer.
+ */
 export function Sidebar(): JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const activeId = useAppStore((s) => s.activeConversationId)
+  const activeConversation = useAppStore((s) =>
+    s.conversations.find((c) => c.id === s.activeConversationId)
+  )
   const connection = useAppStore((s) => s.connection)
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
   const streaming = useAppStore((s) => s.streaming)
@@ -18,6 +25,20 @@ export function Sidebar(): JSX.Element {
   const [query, setQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    window.api
+      .getAppVersion()
+      .then((v) => {
+        if (!cancelled) setAppVersion(v)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const sorted = useMemo(
     () => [...conversations].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -42,22 +63,33 @@ export function Sidebar(): JSX.Element {
 
   return (
     <aside className="relative z-10 m-3 mr-0 flex w-[280px] shrink-0 flex-col glass-panel">
-      <div className="flex items-center gap-2 p-4 pb-2">
+      <div className="flex items-center gap-2 px-4 pb-1 pt-4">
         <Logo size={22} />
-        <div className="flex flex-col">
-          <span className="text-[15px] font-semibold tracking-[-0.3px]">Sigma Oasis</span>
-          <span className="text-[10px] text-neutral-400 dark:text-white/35">Private AI — you own your data</span>
+        <span className="text-[15px] font-semibold tracking-[-0.3px]">Sigma Oasis</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => createConversation({ ephemeral: true })}
+            disabled={streaming}
+            className="rounded-2xl border border-violet-400/30 bg-violet-400/10 px-2 py-1 text-xs text-violet-500 dark:text-violet-400 hover:bg-violet-400/20 disabled:opacity-50"
+            title="New ephemeral chat — nothing is written to disk; gone when you close it or quit"
+          >
+            ◌
+          </button>
+          <button
+            type="button"
+            onClick={() => createConversation()}
+            disabled={streaming}
+            className="rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-xs text-accent-ink shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
+            title="New conversation (⌘N)"
+          >
+            + New
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={createConversation}
-          disabled={streaming}
-          className="ml-auto rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-xs text-accent-glow shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
-          title="New conversation (⌘N)"
-        >
-          + New
-        </button>
       </div>
+
+      {/* Its own row — beside the two buttons it wrapped mid-phrase at 280px. */}
+      <p className="px-4 pb-3 text-[10px] text-ink-muted">Private AI — you own your data</p>
 
       {conversations.length > 0 && (
         <div className="px-4 pb-2">
@@ -118,6 +150,14 @@ export function Sidebar(): JSX.Element {
                   {c.mode === 'collaborative' && (
                     <span className="ml-1.5 text-xs text-neutral-400">⛓</span>
                   )}
+                  {c.ephemeral && (
+                    <span
+                      className="ml-1.5 text-xs text-violet-500 dark:text-violet-400"
+                      title="Ephemeral — never written to disk"
+                    >
+                      ◌
+                    </span>
+                  )}
                 </button>
               )}
               {editingId !== c.id && (
@@ -147,6 +187,8 @@ export function Sidebar(): JSX.Element {
           ))
         )}
       </div>
+
+      {activeConversation && <SessionControls conversation={activeConversation} />}
 
       {(updateStatus?.state === 'downloaded' || updateStatus?.state === 'downloading') && (
         <div className="border-t border-black/10 dark:border-white/10 px-4 py-2">
@@ -181,6 +223,11 @@ export function Sidebar(): JSX.Element {
         <span className="text-xs text-neutral-500">
           {connection === 'online' ? 'LM Studio connected' : connection}
         </span>
+        {appVersion && (
+          <span className="text-[10px] text-neutral-400 dark:text-neutral-600" title="Sigma Oasis build version">
+            v{appVersion}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => useAppStore.getState().setOnboardingOpen(true)}

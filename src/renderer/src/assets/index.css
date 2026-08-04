@@ -9,36 +9,75 @@
    Dark canvas, physical glass surfaces, light that emits from within.
    ========================================================================== */
 
+/*
+ * Light theme is the `:root` default; `.dark` overrides below. Every surface and
+ * ink value is a variable so a component never needs a `dark:` variant to stay
+ * legible — see the `ink` colors in tailwind.config.js.
+ */
 :root {
   /* Backgrounds */
-  --bg-base: #000000;
-  --bg-orb-teal: rgba(0, 212, 170, 0.06);
-  --bg-orb-purple: rgba(100, 80, 220, 0.05);
+  --bg-base: #f4f4f5;
+  --bg-orb-teal: rgba(0, 212, 170, 0.1);
+  --bg-orb-purple: rgba(100, 80, 220, 0.08);
 
-  /* Glass surfaces */
-  --glass-primary: rgba(255, 255, 255, 0.05);
-  --glass-hover: rgba(255, 255, 255, 0.08);
-  --glass-active: rgba(255, 255, 255, 0.12);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-highlight: rgba(255, 255, 255, 0.12);
+  /* Glass surfaces — frosted white over a light canvas */
+  --glass-primary: rgba(255, 255, 255, 0.72);
+  --glass-hover: rgba(255, 255, 255, 0.86);
+  --glass-active: rgba(255, 255, 255, 0.94);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.9);
+  --glass-inset: rgba(255, 255, 255, 0.6);
+  --shadow-panel: 0 8px 28px rgba(0, 0, 0, 0.08);
 
-  /* Emitting accents */
+  /* Emitting accents — identical in both themes; they emit, they don't sit on top */
   --accent-teal: #00d4aa;
   --accent-teal-glow: #4fffd1;
   --accent-amber: #ffd166;
   --accent-lavender: #a78bfa;
   --accent-coral: #ff6b6b;
+  /*
+   * Accent *text*, as opposed to accent light. The glow teal is only legible on
+   * the dark canvas — on a pale teal button fill it all but disappears, so the
+   * light theme takes a deep teal instead. Both clear AA on their own surface.
+   */
+  --accent-ink: #00695a;
 
   /* Text */
-  --text-primary: rgba(255, 255, 255, 0.92);
-  --text-secondary: rgba(255, 255, 255, 0.6);
-  --text-tertiary: rgba(255, 255, 255, 0.35);
-  --text-muted: rgba(255, 255, 255, 0.2);
+  --text-primary: rgba(23, 23, 23, 0.94);
+  --text-secondary: rgba(23, 23, 23, 0.68);
+  --text-tertiary: rgba(23, 23, 23, 0.48);
+  --text-muted: rgba(23, 23, 23, 0.32);
 
   /* Easing */
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-settle: cubic-bezier(0.33, 1, 0.68, 1);
   --ease-ripple: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.dark {
+  --bg-base: #000000;
+  --bg-orb-teal: rgba(0, 212, 170, 0.06);
+  --bg-orb-purple: rgba(100, 80, 220, 0.05);
+
+  --glass-primary: rgba(255, 255, 255, 0.05);
+  --glass-hover: rgba(255, 255, 255, 0.08);
+  --glass-active: rgba(255, 255, 255, 0.12);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-inset: rgba(255, 255, 255, 0.08);
+  --shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.3);
+
+  --accent-ink: #4fffd1;
+
+  /*
+   * The ink ramp is deliberately brighter than the original 0.92/0.6/0.35/0.2.
+   * Tertiary at 0.35 on the black canvas is ~4.0:1 and fails AA for body text;
+   * 0.55 clears it. Muted is for decorative and disabled states only.
+   */
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.72);
+  --text-tertiary: rgba(255, 255, 255, 0.55);
+  --text-muted: rgba(255, 255, 255, 0.38);
 }
 
 body {
@@ -51,8 +90,7 @@ body {
 
 /* ---- Ambient space: pure black canvas + two light orbs -------------------- */
 
-.dark body,
-.dark {
+body {
   background-color: var(--bg-base);
 }
 
@@ -96,8 +134,8 @@ body {
   border-radius: 24px;
   border: 1px solid var(--glass-border);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 12px 40px rgba(0, 0, 0, 0.3);
+    inset 0 1px 0 var(--glass-inset),
+    var(--shadow-panel);
   overflow: hidden;
 }
 /* Signature top light streak — on every glass surface. */
@@ -134,6 +172,56 @@ body {
 }
 .oasis-enter {
   animation: oasis-enter 0.4s var(--ease-spring) both;
+}
+
+/* ---- Empty state ------------------------------------------------------------ */
+
+/* Headline ink, fading toward the bottom so the type feels lit from above. */
+.oasis-heading {
+  background-image: linear-gradient(180deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* The one place the brand mark emits — a soft teal pool behind the logo. */
+.oasis-logo-glow::before {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 212, 170, 0.28), transparent 70%);
+  filter: blur(24px);
+  pointer-events: none;
+}
+
+/*
+ * Starter cards. Each carries its own --card-accent (set inline from the accent
+ * palette), so hover lights the border and glow in that card's colour.
+ */
+.oasis-starter {
+  transition:
+    transform 0.3s var(--ease-spring),
+    background 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+.oasis-starter:hover {
+  transform: translateY(-2px);
+  background: var(--glass-hover);
+  border-color: color-mix(in srgb, var(--card-accent) 45%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--glass-inset),
+    0 10px 30px color-mix(in srgb, var(--card-accent) 14%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oasis-enter {
+    animation: none;
+  }
+  .oasis-starter:hover {
+    transform: none;
+  }
 }
 
 /* ---- Sigma avatar ------------------------------------------------------------ */

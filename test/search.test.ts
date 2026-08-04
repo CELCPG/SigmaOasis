@@ -1,6 +1,6 @@
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { load, state, resetState } from './harness'
+import { load, state, resetState, fakeImageBytes } from './harness'
 
 const search = load<typeof import('../src/main/ipc/search')>('search')
 const researchIndex = load<typeof import('../src/main/ipc/researchIndex')>('researchIndex')
@@ -510,5 +510,304 @@ describe('SSRF guard (fetchWebpage)', () => {
     const out = await search.readWebpage('https://loop.example/start', '', 5)
     assert.equal(out.ok, false)
     assert.match(out.error!, /too many redirects/i)
+  })
+})
+
+describe('runImageSearch', () => {
+  test('SearXNG results map to image, thumbnail and page URLs', async () => {
+    settings().search.provider = 'searxng'
+    state.searxngJson = {
+      results: [
+        {
+          title: 'Pet stroller',
+          url: 'https://shop.example/stroller',
+          img_src: 'https://cdn.example/full.jpg',
+          thumbnail_src: 'https://cdn.example/thumb.jpg'
+        }
+      ]
+    }
+    const out = await search.runImageSearch('all-terrain pet stroller')
+    assert.equal(out.ok, true)
+    assert.deepEqual(out.images, [
+      {
+        title: 'Pet stroller',
+        imageUrl: 'https://cdn.example/full.jpg',
+        thumbnailUrl: 'https://cdn.example/thumb.jpg',
+        pageUrl: 'https://shop.example/stroller'
+      }
+    ])
+  })
+
+  test('protocol-relative provider URLs are given a scheme', async () => {
+    settings().search.provider = 'searxng'
+    state.searxngJson = {
+      results: [{ title: 'x', url: 'https://page.example/a', img_src: '//cdn.example/i.jpg' }]
+    }
+    const out = await search.runImageSearch('x')
+    assert.equal(out.images[0].imageUrl, 'https://cdn.example/i.jpg')
+    // An absent thumbnail stays absent rather than becoming "https:undefined".
+    assert.equal(out.images[0].thumbnailUrl, undefined)
+  })
+
+  test('results without an image or a page URL are dropped', async () => {
+    settings().search.provider = 'searxng'
+    state.searxngJson = {
+      results: [
+        { title: 'no image', url: 'https://page.example/a' },
+        { title: 'no page', img_src: 'https://cdn.example/b.jpg' },
+        { title: 'good', url: 'https://page.example/c', img_src: 'https://cdn.example/c.jpg' }
+      ]
+    }
+    const out = await search.runImageSearch('x')
+    assert.equal(out.images.length, 1)
+    assert.equal(out.images[0].title, 'good')
+  })
+
+  test('the query is sanitized before it leaves, exactly as web search is', async () => {
+    settings().search.provider = 'searxng'
+    state.searxngJson = { results: [] }
+    const out = await search.runImageSearch('pictures of a boat email me@example.com')
+    assert.ok(!out.sentQuery.includes('me@example.com'))
+    assert.ok(out.redactions.length > 0)
+  })
+
+  test('an empty query never reaches the provider', async () => {
+    settings().search.provider = 'searxng'
+    const out = await search.runImageSearch('   ')
+    assert.equal(out.ok, false)
+    assert.equal(state.fetchLog.length, 0)
+  })
+
+  test('a declined confirmation sends nothing', async () => {
+    settings().search.provider = 'searxng'
+    settings().search.confirmBeforeSearch = true
+    const out = await search.runImageSearch('boats', 6, async () => false)
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /declined/i)
+    assert.equal(state.fetchLog.length, 0)
+  })
+
+  test('more images than MAX_IMAGE_RESULTS are never requested', async () => {
+    // The cap is a privacy budget: every extra result is another third-party
+    // host contacted. Asking for more and discarding the surplus spends the
+    // user's quota to produce nothing.
+    settings().search.provider = 'searxng'
+    state.searxngJson = {
+      results: Array.from({ length: 20 }, (_, i) => ({
+        title: `i${i}`,
+        url: `https://page.example/${i}`,
+        img_src: `https://cdn.example/${i}.jpg`
+      }))
+    }
+    const out = await search.runImageSearch('x', 50)
+    assert.equal(out.images.length, search.MAX_IMAGE_RESULTS)
+    assert.equal(search.MAX_IMAGE_RESULTS, 6)
+  })
+
+  test('Brave without a key refuses rather than falling back to another provider', async () => {
+    // The provider the user chose is the only one that may see the query.
+    // Silently reaching for a different one would send it somewhere they did
+    // not pick — so a missing key has to fail, visibly.
+    settings().search.provider = 'brave'
+    const out = await search.runImageSearch('laptop')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /Brave Search API key/i)
+    assert.equal(state.fetchLog.length, 0)
+  })
+
+  test('DuckDuckGo images refuse to guess when no vqd token is issued', async () => {
+    settings().search.provider = 'duckduckgo'
+    state.searchHtml = '<html>no token here</html>'
+    const out = await search.runImageSearch('boats')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /token/i)
+  })
+
+  test('DuckDuckGo images parse the i.js feed once a token is found', async () => {
+    settings().search.provider = 'duckduckgo'
+    state.searchRoutes = [
+      { match: 'i.js', html: JSON.stringify({
+        results: [
+          {
+            title: 'Boat',
+            image: 'https://cdn.example/boat.jpg',
+            thumbnail: 'https://cdn.example/boat-t.jpg',
+            url: 'https://page.example/boat'
+          }
+        ]
+      }) },
+      { match: 'duckduckgo.com/?q=', html: '<script>vqd="4-12345"</script>' }
+    ]
+    const out = await search.runImageSearch('boats')
+    assert.equal(out.ok, true)
+    assert.equal(out.images.length, 1)
+    assert.equal(out.images[0].pageUrl, 'https://page.example/boat')
+  })
+})
+
+describe('fetchImageDataUrl', () => {
+  const jpeg = 'image/jpeg'
+
+  test('returns a data URL, downscaled, for an ordinary image', async () => {
+    state.responses = [
+      { match: 'cdn.example', contentType: jpeg, body: fakeImageBytes({ width: 1600, jpegBytes: 6000 }) }
+    ]
+    const out = await search.fetchImageDataUrl('https://cdn.example/a.jpg')
+    assert.equal(out.ok, true)
+    assert.ok(out.dataUrl!.startsWith('data:image/jpeg;base64,'))
+    assert.deepEqual(state.resizeWidths, [320], 'a 1600px source must be resized down')
+  })
+
+  test('an already-small image is not upscaled', async () => {
+    state.responses = [
+      { match: 'cdn.example', contentType: jpeg, body: fakeImageBytes({ width: 200, jpegBytes: 3000 }) }
+    ]
+    const out = await search.fetchImageDataUrl('https://cdn.example/small.jpg')
+    assert.equal(out.ok, true)
+    assert.deepEqual(state.resizeWidths, [])
+  })
+
+  test('refuses a body the transport had to cut short', async () => {
+    // A capped body is a partial body. Base64-encoding it yields a data URL
+    // that looks valid and renders as a broken image — the one outcome worse
+    // than showing nothing.
+    state.responses = [
+      {
+        match: 'cdn.example',
+        contentType: jpeg,
+        body: fakeImageBytes({ width: 800, jpegBytes: 4000 }),
+        truncated: true
+      }
+    ]
+    const out = await search.fetchImageDataUrl('https://cdn.example/huge.jpg')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /larger than/i)
+  })
+
+  test('refuses an image that is still over the stored cap after resizing', async () => {
+    state.responses = [
+      {
+        match: 'cdn.example',
+        contentType: jpeg,
+        body: fakeImageBytes({ width: 4000, jpegBytes: search.MAX_STORED_THUMBNAIL_BYTES + 1 })
+      }
+    ]
+    const out = await search.fetchImageDataUrl('https://cdn.example/big.jpg')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /limit/i)
+  })
+
+  test('a format nativeImage cannot decode passes through only when already small', async () => {
+    state.responses = [
+      { match: 'small.example', contentType: 'image/webp', body: fakeImageBytes({ undecodable: true, totalBytes: 4096 }) }
+    ]
+    const small = await search.fetchImageDataUrl('https://small.example/a.webp')
+    assert.equal(small.ok, true)
+    assert.ok(small.dataUrl!.startsWith('data:image/webp;base64,'))
+
+    state.responses = [
+      {
+        match: 'big.example',
+        contentType: 'image/webp',
+        body: fakeImageBytes({ undecodable: true, totalBytes: search.MAX_STORED_THUMBNAIL_BYTES + 10 })
+      }
+    ]
+    const big = await search.fetchImageDataUrl('https://big.example/a.webp')
+    assert.equal(big.ok, false)
+    assert.match(big.error!, /cannot be resized/i)
+  })
+
+  test('PNG keeps its format when it fits, and falls back to JPEG when it does not', async () => {
+    state.responses = [
+      { match: 'alpha.example', contentType: 'image/png', body: fakeImageBytes({ width: 900, pngBytes: 20 * 1024, jpegBytes: 5000 }) }
+    ]
+    const kept = await search.fetchImageDataUrl('https://alpha.example/a.png')
+    assert.ok(kept.dataUrl!.startsWith('data:image/png;base64,'))
+
+    state.responses = [
+      { match: 'photo.example', contentType: 'image/png', body: fakeImageBytes({ width: 900, pngBytes: 900 * 1024, jpegBytes: 5000 }) }
+    ]
+    const converted = await search.fetchImageDataUrl('https://photo.example/a.png')
+    assert.ok(converted.dataUrl!.startsWith('data:image/jpeg;base64,'))
+  })
+
+  test('refuses SVG outright — it can carry script', async () => {
+    state.responses = [
+      { match: 'cdn.example', contentType: 'image/svg+xml', body: '<svg onload="alert(1)"/>' }
+    ]
+    const out = await search.fetchImageDataUrl('https://cdn.example/x.svg')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /not a supported image/i)
+  })
+
+  test('refuses a non-image content type', async () => {
+    state.responses = [{ match: 'cdn.example', contentType: 'text/html', body: '<html/>' }]
+    const out = await search.fetchImageDataUrl('https://cdn.example/x')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /not a supported image/i)
+  })
+
+  test('refuses a non-HTTPS URL', async () => {
+    const out = await search.fetchImageDataUrl('http://cdn.example/x.jpg')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /HTTPS/i)
+    assert.equal(state.fetchLog.length, 0)
+  })
+
+  test('runs the SSRF guard, including on every redirect hop', async () => {
+    state.dnsOverrides['inside.example'] = [{ address: '10.1.2.3', family: 4 }]
+    state.responses = [
+      {
+        match: 'public.example',
+        contentType: jpeg,
+        body: '',
+        status: 302,
+        headers: { location: 'https://inside.example/a.jpg' }
+      }
+    ]
+    const out = await search.fetchImageDataUrl('https://public.example/a.jpg')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /private or reserved/i)
+  })
+
+  test('refuses a redirect that downgrades to HTTP', async () => {
+    state.responses = [
+      {
+        match: 'downgrade.example',
+        contentType: jpeg,
+        body: '',
+        status: 302,
+        headers: { location: 'http://plain.example/a.jpg' }
+      }
+    ]
+    const out = await search.fetchImageDataUrl('https://downgrade.example/a.jpg')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /non-HTTPS/i)
+  })
+
+  test('stops a redirect loop', async () => {
+    state.responses = [
+      {
+        match: 'loop.example',
+        contentType: jpeg,
+        body: '',
+        status: 302,
+        headers: { location: 'https://loop.example/again.jpg' }
+      }
+    ]
+    const out = await search.fetchImageDataUrl('https://loop.example/a.jpg')
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /too many redirects/i)
+  })
+
+  test('thumbnail fetches are logged under their own purpose, not as a webpage', async () => {
+    // The activity log is the basis of the privacy claim: "an image host we
+    // contacted to draw a gallery" is a different disclosure from "a page you
+    // asked to read", and the log has to be able to tell the user which.
+    state.responses = [
+      { match: 'cdn.example', contentType: jpeg, body: fakeImageBytes({ width: 400, jpegBytes: 2000 }) }
+    ]
+    await search.fetchImageDataUrl('https://cdn.example/a.jpg')
+    assert.deepEqual(state.fetchLog.map((f) => f.purpose), ['image'])
   })
 })

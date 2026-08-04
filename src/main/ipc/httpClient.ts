@@ -54,6 +54,15 @@ export interface HttpRequestOptions {
   timeoutMs?: number
   /** Hard cap on bytes read. The transport stops there rather than buffering more. */
   maxBytes?: number
+  /**
+   * Called with each chunk as it arrives, before the response completes.
+   *
+   * The point is not speed — it is that a caller accumulating here keeps what
+   * it received even when the request later times out or aborts. A long
+   * generation that fails at the 4-minute mark has still produced most of an
+   * answer, and throwing that away is a choice, not a necessity.
+   */
+  onChunk?: (chunk: Uint8Array) => void
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -190,6 +199,9 @@ export function httpRequest(url: string, options: HttpRequestOptions): Promise<H
       response.on('data', (chunk: Buffer) => {
         if (settled) return
         if (total >= maxBytes) return
+        // Surfaced before the cap check so a streaming caller sees every byte
+        // the transport accepted, including the final partial one.
+        options.onChunk?.(chunk)
         const room = maxBytes - total
         if (chunk.byteLength > room) {
           chunks.push(chunk.subarray(0, room))

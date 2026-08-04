@@ -1,6 +1,6 @@
 {
   "name": "sigma-oasis",
-  "version": "0.6.0",
+  "version": "1.3.0",
   "description": "Sigma Oasis — a private, local-first desktop AI chat powered by LM Studio. Your safe oasis of data protection.",
   "author": "Colin Long",
   "license": "MIT",
@@ -25,7 +25,9 @@
     "install:mac": "bash scripts/install-mac.sh",
     "postinstall": "bash scripts/sign-dev-electron.sh || true",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "bash scripts/test.sh"
+    "test": "bash scripts/test.sh",
+    "eval:tools": "bash scripts/eval-tools.sh",
+    "export:traces": "bash scripts/export-traces.sh"
   },
   "dependencies": {
     "dompurify": "^3.4.12",

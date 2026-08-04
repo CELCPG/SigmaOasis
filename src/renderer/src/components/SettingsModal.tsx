@@ -1,17 +1,27 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
 import { useUpdates } from '../hooks/useUpdates'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
+import { describeModel, describeEvalScore, modelLabel } from '../lib/modelInfo'
+import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
+import { withGrounding, withToolCallPreamble } from '../lib/grounding'
+import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
+import type { ToolSchema } from '../types'
+import { TEMPERATURE_PRESETS, activePreset } from '../lib/sampling'
 import type {
   AppSettings,
   AccentColor,
+  AuditStatus,
+  EvalScoreSummary,
+  ModelConfig,
   ToolToggles,
   SttStatus,
   MemoryStats,
   NetworkActivityEntry,
-  ResearchIndexStats
+  ResearchIndexStats,
+  SamplingSettings
 } from '../types'
 import { speak } from '../lib/voice'
 
@@ -21,6 +31,7 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   list_directory: 'List directory',
   run_terminal_command: 'Run terminal command (asks to confirm)',
   web_search: 'Web search (provider chosen in Settings → Search)',
+  image_search: 'Image search (shows thumbnails in chat; each links to its source page)',
   fetch_webpage: 'Fetch webpage (HTTPS only, private addresses refused)',
   deep_research: 'Deep research (multi-step: plans, searches, reads and cites sources)',
   get_current_datetime: 'Get current date/time',
@@ -29,7 +40,11 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   read_note: 'Read note',
   memory_save: 'Save to long-term memory',
   memory_search: 'Search long-term memory',
-  memory_forget: 'Delete a memory'
+  memory_forget: 'Delete a memory',
+  finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)',
+  shop_requirements: 'Shopping requirements (works out what you need — fully local, sends nothing)',
+  shop_compare: 'Shopping comparison (contacts retailers; prices carry a source and a timestamp)',
+  price_watch: 'Price watch (local watchlist — no service is told what is on it)'
 }
 
 type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory'
@@ -49,6 +64,32 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
+/**
+ * Layer 0c: the model's measured tool-choice scores, shown under its picker.
+ * Absent entirely for models never evaluated — no "untested" badge, because
+ * the absence of a number is not a claim about the model.
+ */
+function EvalScoreLine({
+  scores,
+  modelId
+}: {
+  scores: EvalScoreSummary[]
+  modelId: string
+}): JSX.Element | null {
+  const score = scores.find((s) => s.model === modelId)
+  if (!score) return null
+  const text = describeEvalScore(score)
+  if (!text) return null
+  return (
+    <p
+      className="mt-1 text-xs text-neutral-400"
+      title={`Measured by the local tool-choice eval (npm run eval:tools) against canned tool results; newest run ${new Date(score.ranAt).toLocaleString()}.`}
+    >
+      Eval: {text} · {new Date(score.ranAt).toLocaleDateString()}
+    </p>
+  )
+}
+
 export function SettingsModal(): JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const setOpen = useAppStore((s) => s.setSettingsOpen)
@@ -64,6 +105,17 @@ export function SettingsModal(): JSX.Element | null {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
+  const [evalScores, setEvalScores] = useState<EvalScoreSummary[]>([])
+  const [evalRun, setEvalRun] = useState<{
+    model: string
+    modelIndex: number
+    modelCount: number
+    fixtureIndex: number
+    fixtureCount: number
+    last: string
+  } | null>(null)
+  const [evalNotice, setEvalNotice] = useState<string | null>(null)
+  const evalCancelRef = useRef(false)
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null)
   const [researchStats, setResearchStats] = useState<ResearchIndexStats | null>(null)
   const [searchTest, setSearchTest] = useState<{ ok: boolean; detail: string } | null>(null)
@@ -74,10 +126,39 @@ export function SettingsModal(): JSX.Element | null {
   const [braveKeyInfo, setBraveKeyInfo] = useState<{ set: boolean; encrypted: boolean } | null>(null)
   const [braveKeyNotice, setBraveKeyNotice] = useState<string | null>(null)
   const [netActivity, setNetActivity] = useState<NetworkActivityEntry[]>([])
+  const [auditInfo, setAuditInfo] = useState<AuditStatus | null>(null)
+  const [auditNotice, setAuditNotice] = useState<string | null>(null)
+  const [confirmingReset, setConfirmingReset] = useState(false)
 
   useEffect(() => {
     if (open) setDraft(settings)
   }, [open, settings])
+
+  // Live appearance preview: theme and font size follow the draft while the
+  // modal is open, so Save is never a leap of faith. Closing without saving
+  // reverts to the saved values (see attemptClose).
+  useEffect(() => {
+    if (!open || !draft) return
+    document.documentElement.classList.toggle('dark', draft.theme === 'dark')
+    document.documentElement.style.fontSize = `${draft.fontSize}px`
+  }, [open, draft, draft?.theme, draft?.fontSize])
+
+  const dirty = Boolean(draft && settings && JSON.stringify(draft) !== JSON.stringify(settings))
+
+  /** Restore the saved appearance after a preview that was not saved. */
+  const revertAppearance = (): void => {
+    if (!settings) return
+    document.documentElement.classList.toggle('dark', settings.theme === 'dark')
+    document.documentElement.style.fontSize = `${settings.fontSize}px`
+  }
+
+  /** Closing discards the draft; guard that when there is something to lose. */
+  const attemptClose = (): void => {
+    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return
+    revertAppearance()
+    setConfirmingReset(false)
+    setOpen(false)
+  }
 
   // Load available TTS voices and STT status when the Voice tab opens.
   useEffect(() => {
@@ -94,6 +175,11 @@ export function SettingsModal(): JSX.Element | null {
     if (tab === 'memory') void window.api.memoryStats().then(setMemoryStats)
   }, [tab])
 
+  // Load measured tool-choice scores when the Models tab opens (Layer 0c).
+  useEffect(() => {
+    if (tab === 'models') void window.api.evalScores().then(setEvalScores).catch(() => {})
+  }, [tab])
+
   // Load Brave key status when the Search tab opens; reset transient UI state.
   useEffect(() => {
     if (tab !== 'search') return
@@ -103,11 +189,13 @@ export function SettingsModal(): JSX.Element | null {
     setBraveKeyInput('')
   }, [tab])
 
-  // Load the network activity log when the Privacy tab opens.
+  // Load the network activity log and audit-log status when the Privacy tab opens.
   useEffect(() => {
     if (tab === 'privacy') {
       void window.api.getNetworkActivity().then(setNetActivity)
       void window.api.researchIndexStats().then(setResearchStats)
+      void window.api.auditStatus().then(setAuditInfo)
+      setAuditNotice(null)
     }
   }, [tab])
 
@@ -116,10 +204,135 @@ export function SettingsModal(): JSX.Element | null {
   const update = (partial: Partial<AppSettings>): void =>
     setDraft((d) => (d ? { ...d, ...partial } : d))
 
+  /**
+   * Layer 0c: run the tool-choice eval against every loaded model, from the
+   * Models tab. The shared runner (lib/evalRunner.ts) is the same code the
+   * CLI shells; here the transport is a loopback fetch and progress renders
+   * under the button. A cancelled run still saves what it measured.
+   */
+  const runEval = async (): Promise<void> => {
+    if (!draft || evalRun) return
+    const models = availableModels.filter((m) => m.loaded).map((m) => m.id)
+    if (models.length === 0) {
+      setEvalNotice('No loaded models to evaluate — load one in LM Studio first.')
+      return
+    }
+    setEvalNotice(null)
+    evalCancelRef.current = false
+
+    let fixtures, tools
+    try {
+      ;({ fixtures, tools } = await window.api.evalFixtures())
+    } catch (err) {
+      setEvalNotice(`Could not load eval fixtures: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    if (fixtures.length === 0) {
+      setEvalNotice('Eval fixtures are unavailable in this build (they live in the dev checkout).')
+      return
+    }
+
+    const baseUrl = draft.baseUrl
+    const complete = async (
+      model: string,
+      messages: ApiMessage[],
+      wireTools: ToolSchema[]
+    ): Promise<{ content: string; toolCalls: ApiToolCall[] }> => {
+      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(240_000),
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: false,
+          temperature: 0,
+          ...(wireTools.length > 0 ? { tools: wireTools, tool_choice: 'auto' } : {})
+        })
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as {
+        choices?: {
+          message?: {
+            content?: string | null
+            tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[]
+          }
+        }[]
+      }
+      return parseCompletionMessage(
+        json.choices?.[0]?.message ?? {},
+        wireTools.map((t) => t.function.name)
+      )
+    }
+
+    try {
+      const results = await runToolChoiceEval({
+        models,
+        fixtures,
+        tools,
+        systemPromptFor: (model) =>
+          withToolCallPreamble(withGrounding('You are a helpful local assistant.'), model),
+        complete,
+        onFixture: (model, index, total, run) => {
+          const mark = run.error ? '!' : run.correct === false || run.spurious === true || run.looped ? '✗' : '✓'
+          setEvalRun({
+            model,
+            modelIndex: models.indexOf(model) + 1,
+            modelCount: models.length,
+            fixtureIndex: index,
+            fixtureCount: total,
+            last: `${mark} ${run.file}`
+          })
+        },
+        shouldStop: () => evalCancelRef.current
+      })
+
+      for (const { model, runs, rates } of results) {
+        await window.api.saveEvalResult({
+          model,
+          baseUrl,
+          ranAt: new Date().toISOString(),
+          caveats: ['tool results canned stubs', 'temperature 0', 'run in-app'],
+          scores: {
+            correctTool: rates.correctTool,
+            spuriousCall: rates.spuriousCall,
+            argValidity: rates.argValidity,
+            loop: rates.loop
+          },
+          runs
+        })
+      }
+      const summary = results
+        .map((r) => `${r.model}: ${r.rates.correctTool.hit}/${r.rates.correctTool.of}`)
+        .join(' · ')
+      setEvalNotice(
+        (evalCancelRef.current ? 'Cancelled — partial results saved. ' : 'Done. ') + summary
+      )
+      void window.api.evalScores().then(setEvalScores).catch(() => {})
+    } catch (err) {
+      setEvalNotice(`Eval failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setEvalRun(null)
+    }
+  }
+
   const updateModel = (id: string, partial: Partial<AppSettings['models'][number]>): void =>
     setDraft((d) =>
       d
         ? { ...d, models: d.models.map((m) => (m.id === id ? { ...m, ...partial } : m)) }
+        : d
+    )
+
+  /** Sampling is nested, so it needs its own merge rather than updateModel's spread. */
+  const updateSampling = (id: string, partial: Partial<SamplingSettings>): void =>
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            models: d.models.map((m) =>
+              m.id === id ? { ...m, sampling: { ...m.sampling, ...partial } } : m
+            )
+          }
         : d
     )
 
@@ -131,6 +344,14 @@ export function SettingsModal(): JSX.Element | null {
   }
 
   const reset = async (): Promise<void> => {
+    // Two-step: the first click arms, the second wipes. A stray click used to
+    // erase every model slot, prompt and provider config with no recourse.
+    if (!confirmingReset) {
+      setConfirmingReset(true)
+      window.setTimeout(() => setConfirmingReset(false), 4000)
+      return
+    }
+    setConfirmingReset(false)
     const fresh = (await window.api.resetSettings()) as AppSettings
     setDraft(fresh)
     setSettings(fresh)
@@ -156,7 +377,7 @@ export function SettingsModal(): JSX.Element | null {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => setOpen(false)}
+      onClick={attemptClose}
     >
       <div
         className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-panel-light dark:bg-panel-dark shadow-2xl"
@@ -167,7 +388,7 @@ export function SettingsModal(): JSX.Element | null {
           <h2 className="text-lg font-semibold">Settings</h2>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={attemptClose}
             className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
           >
             ✕
@@ -249,6 +470,11 @@ export function SettingsModal(): JSX.Element | null {
                       {availableModels.map((m) => (
                         <li key={m.id} className="font-mono">
                           {m.id}
+                          {describeModel(m) && (
+                            <span className="ml-2 font-sans text-neutral-500">
+                              {describeModel(m)}
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -259,6 +485,48 @@ export function SettingsModal(): JSX.Element | null {
 
             {tab === 'models' && (
               <div className="space-y-5">
+                <div className="rounded-xl border border-black/10 dark:border-white/10 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">Tool-choice eval</div>
+                      <p className="mt-0.5 text-xs text-neutral-400">
+                        Measures whether each loaded model calls the right tool, against canned
+                        results (the same harness as <code>npm run eval:tools</code>). Scores appear
+                        under each model picker. A big model can take minutes per fixture.
+                      </p>
+                    </div>
+                    {evalRun ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          evalCancelRef.current = true
+                        }}
+                        className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                      >
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void runEval()}
+                        className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                      >
+                        Run eval
+                      </button>
+                    )}
+                  </div>
+                  {evalRun && (
+                    <p className="mt-2 text-xs text-neutral-500">
+                      Model {evalRun.modelIndex}/{evalRun.modelCount} ({evalRun.model}) — fixture{' '}
+                      {evalRun.fixtureIndex}/{evalRun.fixtureCount}{' '}
+                      <span className="font-mono">{evalRun.last}</span>
+                    </p>
+                  )}
+                  {evalNotice && !evalRun && (
+                    <p className="mt-2 text-xs text-neutral-500">{evalNotice}</p>
+                  )}
+                </div>
+
                 {draft.models.map((m, idx) => (
                   <div
                     key={m.id}
@@ -291,7 +559,7 @@ export function SettingsModal(): JSX.Element | null {
                           <option value="">— select a model —</option>
                           {availableModels.map((am) => (
                             <option key={am.id} value={am.id}>
-                              {am.id}
+                              {modelLabel(am)}
                             </option>
                           ))}
                           {/* Keep a stale selection visible even if offline */}
@@ -299,6 +567,7 @@ export function SettingsModal(): JSX.Element | null {
                             <option value={m.modelId}>{m.modelId} (not loaded)</option>
                           )}
                         </select>
+                        <EvalScoreLine scores={evalScores} modelId={m.modelId} />
                       </div>
                       <div>
                         <label className="mb-1 block text-xs font-medium text-neutral-500">
@@ -314,6 +583,30 @@ export function SettingsModal(): JSX.Element | null {
 
                     <div className="mt-3">
                       <label className="mb-1 block text-xs font-medium text-neutral-500">
+                        Context window override (tokens)
+                      </label>
+                      <input
+                        type="number"
+                        min={512}
+                        step={1024}
+                        value={m.contextWindow ?? ''}
+                        placeholder="auto — use what LM Studio reports"
+                        onChange={(e) =>
+                          updateModel(m.id, {
+                            contextWindow: e.target.value === '' ? null : Number(e.target.value)
+                          })
+                        }
+                        className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                      />
+                      <p className="mt-1 text-xs text-neutral-400">
+                        History compaction and the context meter budget against this number. Leave
+                        empty to trust LM Studio; set it when the server under-reports the window
+                        or you loaded the model with a larger one.
+                      </p>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="mb-1 block text-xs font-medium text-neutral-500">
                         System prompt
                       </label>
                       <textarea
@@ -323,6 +616,49 @@ export function SettingsModal(): JSX.Element | null {
                         className="w-full resize-y rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none font-mono"
                       />
                     </div>
+
+                    <div className="mt-3 flex flex-wrap items-end gap-4">
+                      <div className="min-w-64 flex-1">
+                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                          Capability
+                        </label>
+                        <input
+                          type="text"
+                          value={m.capability ?? ''}
+                          placeholder="send me: …; don't send me: …"
+                          onChange={(e) =>
+                            updateModel(m.id, { capability: e.target.value || undefined })
+                          }
+                          className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                          Specialty
+                        </label>
+                        <select
+                          value={m.specialty ?? ''}
+                          onChange={(e) =>
+                            updateModel(m.id, {
+                              specialty: (e.target.value || undefined) as ModelConfig['specialty']
+                            })
+                          }
+                          className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                        >
+                          <option value="">General</option>
+                          <option value="coding">Coding</option>
+                          <option value="research">Research</option>
+                          <option value="finance">Finance</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-neutral-400">
+                      How other models and the pre-flight router decide what to send this role.
+                      Capability is the one-line declaration shown in the consult roster; Specialty
+                      is what the router matches on (code → Coding, finance questions → Finance,
+                      factual questions → Research). Leave Specialty at General to opt out of
+                      auto-routing.
+                    </p>
 
                     <div className="mt-3 flex items-center gap-2">
                       <span className="text-xs font-medium text-neutral-500">Accent:</span>
@@ -341,8 +677,260 @@ export function SettingsModal(): JSX.Element | null {
                         Route with <code>@{m.roleName.replace(/\s+/g, '')}</code>
                       </span>
                     </div>
+
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                        Tools
+                        <span className="ml-1 font-normal text-neutral-400">
+                          {m.tools
+                            ? `${m.tools.filter((t) => draft.tools[t as keyof ToolToggles]).length} of ${(Object.keys(TOOL_LABELS) as (keyof ToolToggles)[]).filter((k) => draft.tools[k]).length} enabled`
+                            : 'all enabled tools'}
+                        </span>
+                      </summary>
+                      <div className="mt-2">
+                        {m.tools === undefined ? (
+                          <div className="flex items-center gap-3">
+                            <p className="flex-1 text-xs text-neutral-400">
+                              This role holds every tool enabled under Settings → Tools. Restrict
+                              it when a smaller, focused list would help the model choose — or keep
+                              a powerful tool out of the wrong hands.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateModel(m.id, {
+                                  tools: (Object.keys(TOOL_LABELS) as (keyof ToolToggles)[]).filter(
+                                    (k) => draft.tools[k]
+                                  )
+                                })
+                              }
+                              className="shrink-0 rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                            >
+                              Restrict…
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-2 gap-x-3">
+                              {(Object.keys(TOOL_LABELS) as (keyof ToolToggles)[])
+                                .filter((k) => draft.tools[k])
+                                .map((key) => (
+                                  <label
+                                    key={key}
+                                    className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={(m.tools ?? []).includes(key)}
+                                      onChange={(e) =>
+                                        updateModel(m.id, {
+                                          tools: e.target.checked
+                                            ? [...(m.tools ?? []), key]
+                                            : (m.tools ?? []).filter((t) => t !== key)
+                                        })
+                                      }
+                                      className="accent-accent"
+                                    />
+                                    <code className="text-xs">{key}</code>
+                                  </label>
+                                ))}
+                            </div>
+                            <div className="mt-1.5 flex items-center gap-3">
+                              <p className="flex-1 text-xs text-neutral-400">
+                                {(m.tools.filter((t) => draft.tools[t as keyof ToolToggles])).length === 0
+                                  ? 'This role holds no tools — it answers from its own knowledge only.'
+                                  : 'Only checked tools reach this role. Tools disabled globally never do.'}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => updateModel(m.id, { tools: undefined })}
+                                className="shrink-0 rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                              >
+                                Allow all
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </details>
+
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                        Sampling
+                      </summary>
+                      <div className="mt-2 grid grid-cols-4 gap-3">
+                        <div className="col-span-4">
+                          <div className="flex gap-1.5">
+                            {TEMPERATURE_PRESETS.map((p) => (
+                              <button
+                                key={p.label}
+                                type="button"
+                                title={p.hint}
+                                onClick={() => updateSampling(m.id, { temperature: p.value })}
+                                className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                                  activePreset(m.sampling.temperature)?.value === p.value
+                                    ? 'bg-accent/20 font-medium text-accent-ink'
+                                    : 'bg-black/5 dark:bg-white/10 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                                }`}
+                              >
+                                {p.label} {p.value}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Temperature</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={2}
+                            step={0.1}
+                            value={m.sampling.temperature}
+                            onChange={(e) =>
+                              updateSampling(m.id, { temperature: Number(e.target.value) })
+                            }
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Top P</label>
+                          <input
+                            type="number"
+                            min={0.01}
+                            max={1}
+                            step={0.05}
+                            value={m.sampling.topP}
+                            onChange={(e) => updateSampling(m.id, { topP: Number(e.target.value) })}
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Max tokens</label>
+                          <input
+                            type="number"
+                            min={-1}
+                            step={128}
+                            value={m.sampling.maxTokens}
+                            onChange={(e) =>
+                              updateSampling(m.id, { maxTokens: Number(e.target.value) })
+                            }
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Seed</label>
+                          <input
+                            type="number"
+                            placeholder="random"
+                            value={m.sampling.seed ?? ''}
+                            onChange={(e) =>
+                              updateSampling(m.id, {
+                                seed: e.target.value === '' ? null : Number(e.target.value)
+                              })
+                            }
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-neutral-400">
+                        Lower temperature = fewer invented facts; higher = more varied prose.
+                        Temperature 0 with a fixed seed makes this role reproducible: the same
+                        prompt returns the same answer. Max tokens <code>-1</code> leaves the reply
+                        length to LM Studio.
+                      </p>
+                    </details>
                   </div>
                 ))}
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="text-sm font-medium">Second opinion</div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Adds a &quot;🔍 2nd opinion&quot; action under replies: a <em>different</em> role
+                    reviews the answer and names the factual claims it could not verify, plus the
+                    check that would settle each. Never a confidence score — a model grading its
+                    own answer says &quot;yes&quot; nearly always, so the reviewer is always another
+                    slot. When enabled, the review also runs automatically on factual-looking
+                    answers that consulted no web source (marked ⚠️ unverified).
+                  </p>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.secondOpinion.enabled}
+                      onChange={(e) =>
+                        update({ secondOpinion: { ...draft.secondOpinion, enabled: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>Enable second opinions</span>
+                  </label>
+                  {draft.secondOpinion.enabled && (
+                    <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-2">
+                      <label className="text-xs text-neutral-500">Reviewing role</label>
+                      <select
+                        value={draft.secondOpinion.criticSlotId ?? ''}
+                        onChange={(e) =>
+                          update({
+                            secondOpinion: {
+                              ...draft.secondOpinion,
+                              criticSlotId: e.target.value || null
+                            }
+                          })
+                        }
+                        className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm"
+                      >
+                        <option value="">Auto — first enabled role that did not answer</option>
+                        {draft.models
+                          .filter((m) => m.enabled)
+                          .map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.roleName || m.id}
+                            </option>
+                          ))}
+                      </select>
+                      <p className="col-span-2 text-xs text-neutral-400">
+                        Needs at least two enabled roles; with one, the action explains that no
+                        independent review is possible instead of asking the answerer to grade
+                        itself.
+                      </p>
+                      <label className="col-span-2 mt-1 flex cursor-pointer items-start gap-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={draft.claimCheck.enabled}
+                          onChange={(e) =>
+                            update({ claimCheck: { ...draft.claimCheck, enabled: e.target.checked } })
+                          }
+                          className="mt-0.5 h-4 w-4 accent-accent"
+                        />
+                        <span>
+                          Check claims automatically
+                          <span className="mt-0.5 block text-xs text-neutral-500">
+                            On ⚠️ unverified answers, the reviewing role extracts the factual
+                            claims and the app checks each against web sources — confirmed,
+                            contradicted, or unverifiable, with the source shown. Runs one search
+                            per claim (max{' '}
+                            <input
+                              type="number"
+                              min={1}
+                              max={10}
+                              value={draft.claimCheck.maxClaims}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                update({
+                                  claimCheck: {
+                                    ...draft.claimCheck,
+                                    maxClaims: Math.max(1, Math.min(10, Number(e.target.value) || 5))
+                                  }
+                                })
+                              }
+                              className="mx-0.5 w-12 rounded border border-black/10 dark:border-white/10 bg-transparent px-1 py-0.5 text-center text-xs"
+                            />
+                            ) — respects &quot;confirm before search&quot;.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -413,6 +1001,91 @@ export function SettingsModal(): JSX.Element | null {
                     When on, tool activity collapses to a subtle thinking animation — the chat
                     stays clean. Off by default.
                   </p>
+                  <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.showResponseStats}
+                      onChange={(e) => update({ showResponseStats: e.target.checked })}
+                      className="h-4 w-4 accent-accent"
+                    />
+                    Show response stats
+                  </label>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Tokens/sec and time to first token under each reply. Token counts come from LM
+                    Studio; when a server does not report them, only timing is shown.
+                  </p>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-sm">Reasoning display</label>
+                    <select
+                      value={draft.reasoningDisplay}
+                      onChange={(e) =>
+                        update({
+                          reasoningDisplay: e.target.value as AppSettings['reasoningDisplay']
+                        })
+                      }
+                      className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                    >
+                      <option value="collapsed">Collapsed behind a &quot;Thought&quot; header</option>
+                      <option value="expanded">Always expanded</option>
+                      <option value="hidden">Hidden</option>
+                    </select>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      How a model&apos;s chain-of-thought appears above its reply. Applies to new
+                      views of a message; the reasoning itself is always kept.
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    When a conversation outgrows the context window
+                  </label>
+                  <select
+                    value={draft.contextManagement}
+                    onChange={(e) =>
+                      update({ contextManagement: e.target.value as 'compact' | 'trim' })
+                    }
+                    className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                  >
+                    <option value="compact">Summarize what no longer fits</option>
+                    <option value="trim">Drop it silently</option>
+                  </select>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Summarizing costs one extra local model call when the limit is first reached,
+                    and keeps the model aware of how the conversation began. Dropping is what
+                    versions before 0.8.2 did.
+                  </p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Plan mode (📋 in the composer)</label>
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.plan.confirmPlan}
+                      onChange={(e) => update({ plan: { ...draft.plan, confirmPlan: e.target.checked } })}
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Show the plan for approval before executing
+                      <span className="block text-xs text-neutral-500">
+                        One dialog with every step before anything runs — the moment to catch a plan
+                        that misread the task. Off means generated plans run immediately.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="mt-2 flex items-center gap-2">
+                    <label className="text-xs text-neutral-500">Max steps per plan</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={draft.plan.maxSteps}
+                      onChange={(e) => update({ plan: { ...draft.plan, maxSteps: Number(e.target.value) } })}
+                      className="w-20 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                    />
+                    <span className="text-xs text-neutral-400">
+                      Each step is a bounded sub-turn with the enabled tools.
+                    </span>
+                  </div>
                 </div>
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <label className="mb-1 block text-sm font-medium">About</label>
@@ -891,6 +1564,71 @@ export function SettingsModal(): JSX.Element | null {
                 </div>
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="text-sm font-medium">Shopping</div>
+                  <p className="mt-1 mb-3 text-xs text-neutral-500">
+                    Shopping tools contact retailers, who log the visit. Sigma Oasis never logs in,
+                    never fills a cart and never checks out — you finish the purchase in your own
+                    browser. The watchlist stays on this machine.
+                  </p>
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.shopping.requireProxy}
+                      onChange={(e) =>
+                        update({ shopping: { ...draft.shopping, requireProxy: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Require a proxy for shopping fetches
+                      <span className="block text-xs text-neutral-500">
+                        Refuses rather than going out direct. Big retailers block Tor exits, so this
+                        trades success rate for not handing them your IP — deliberately, and in that
+                        order.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.shopping.excludeTierX}
+                      onChange={(e) =>
+                        update({ shopping: { ...draft.shopping, excludeTierX: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Exclude affiliate listicles and content farms
+                      <span className="block text-xs text-neutral-500">
+                        &quot;Top 10 best…&quot; pages are written to rank, not to inform. The domain
+                        list is in <code>src/main/ipc/sourceTiers.ts</code> — a ranking you can read.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs text-neutral-500">
+                      Sellers checked per comparison: {draft.shopping.maxSellers}
+                    </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={5}
+                      value={draft.shopping.maxSellers}
+                      onChange={(e) =>
+                        update({
+                          shopping: { ...draft.shopping, maxSellers: Number(e.target.value) }
+                        })
+                      }
+                      className="w-full accent-accent"
+                    />
+                    <p className="text-xs text-neutral-500">
+                      Each seller is one page fetch. The budget is checked before each fetch and the
+                      stop is stated in the result.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-medium">Pages read this session</div>
                     <button
@@ -941,6 +1679,145 @@ export function SettingsModal(): JSX.Element | null {
                       </strong>{' '}
                       cached search{researchStats.searchQueries === 1 ? '' : 'es'}. In RAM only.
                     </p>
+                  )}
+                </div>
+
+                <div className="border-t border-black/10 dark:border-white/10 pt-4">
+                  <div className="text-sm font-medium">Session audit log</div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    An append-only transcript of what was actually said: your inputs, the
+                    model&apos;s answers, and each tool call — no system prompts or other hidden
+                    layers. Every line is encrypted with your OS keychain and hash-chained, so an
+                    edited or deleted line is detectable on export. Ephemeral chats are never
+                    logged. Off by default.
+                  </p>
+
+                  {auditInfo && !auditInfo.available && (
+                    <p className="mt-3 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                      Unavailable: your OS keychain is not accessible, and this log is never
+                      written unencrypted.
+                    </p>
+                  )}
+
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.audit.enabled}
+                      disabled={auditInfo !== null && !auditInfo.available}
+                      onChange={(e) => update({ audit: { ...draft.audit, enabled: e.target.checked } })}
+                      className="mt-0.5 h-4 w-4 accent-accent disabled:opacity-40"
+                    />
+                    <span>
+                      Record a session audit log
+                      <span className="block text-xs text-neutral-500">
+                        Takes effect after Save. Entries from before enabling are not recovered —
+                        the log starts when you turn it on.
+                      </span>
+                    </span>
+                  </label>
+
+                  {draft.audit.enabled && (
+                    <label className="mt-2 flex cursor-pointer items-start gap-2.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={draft.audit.autoPurgeOnQuit}
+                        onChange={(e) =>
+                          update({ audit: { ...draft.audit, autoPurgeOnQuit: e.target.checked } })
+                        }
+                        className="mt-0.5 h-4 w-4 accent-accent"
+                      />
+                      <span>
+                        Purge the log automatically when the app quits
+                        <span className="block text-xs text-neutral-500">
+                          Verification for the current session only; nothing accumulates.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+
+                  {auditInfo && (
+                    <div className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                      {auditInfo.sessions.length === 0 ? (
+                        <span>No audit logs on disk.</span>
+                      ) : (
+                        <span>
+                          <strong className="text-neutral-700 dark:text-neutral-300">
+                            {auditInfo.sessions.length}
+                          </strong>{' '}
+                          session log{auditInfo.sessions.length === 1 ? '' : 's'} on disk · latest:{' '}
+                          {auditInfo.sessions[0]!.entries} entries,{' '}
+                          {Math.max(1, Math.round(auditInfo.sessions[0]!.sizeBytes / 1024))} KB
+                          {auditInfo.sessions[0]!.sessionId === auditInfo.currentSessionId
+                            ? ' (this session)'
+                            : ''}
+                          . The key is machine-bound, so logs do not survive an OS reinstall.
+                        </span>
+                      )}
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={!auditInfo.available || auditInfo.sessions.length === 0}
+                          onClick={() =>
+                            void window.api.auditExport().then((r) => {
+                              if (r.ok) {
+                                setAuditNotice(
+                                  `Exported ${r.entries} entries to ${r.path}` +
+                                    (r.chainValid
+                                      ? ' — hash chain verified.'
+                                      : ' — ⚠ hash chain BROKEN: the log was modified.')
+                                )
+                              } else if (!r.canceled) {
+                                setAuditNotice(`Export failed: ${r.error ?? 'unknown error'}`)
+                              }
+                            })
+                          }
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                          title="Decrypt the latest session log to a file you choose. The export is plaintext — anyone with the file can read it."
+                        >
+                          Export latest (decrypted)
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!auditInfo.available || auditInfo.sessions.length === 0}
+                          onClick={() =>
+                            void window.api.tracesExport().then((r) => {
+                              if (r.ok) {
+                                setAuditNotice(
+                                  `Traces: ${r.counts.positive} positive, ${r.counts.rejected} rejected, ` +
+                                    `${r.counts.unlabeled} unlabeled (excluded) — schema ${r.schemaVersion ?? 'n/a'}. ` +
+                                    `Wrote ${r.paths.positive} and siblings.` +
+                                    (r.chainValid
+                                      ? ''
+                                      : ' ⚠ Hash chain BROKEN: the log was modified.')
+                                )
+                              } else if (!r.canceled) {
+                                setAuditNotice(`Trace export failed: ${r.error ?? 'unknown error'}`)
+                              }
+                            })
+                          }
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                          title="Export the latest session as OpenAI-format fine-tuning traces: positive and rejected JSONL, a manifest, and the tool schemas. Redacted; writes to a location you choose."
+                        >
+                          Export traces (SFT)
+                        </button>
+                        <button
+                          type="button"
+                          disabled={auditInfo.sessions.length === 0}
+                          onClick={() => {
+                            if (!window.confirm('Delete every audit log on disk? This cannot be undone.'))
+                              return
+                            void window.api.auditPurge().then((r) => {
+                              setAuditNotice(`Purged ${r.removed} session log${r.removed === 1 ? '' : 's'}.`)
+                              void window.api.auditStatus().then(setAuditInfo)
+                            })
+                          }}
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-red-500 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                        >
+                          Purge all
+                        </button>
+                      </div>
+                      {auditNotice && <p className="mt-2 break-all text-neutral-400">{auditNotice}</p>}
+                    </div>
                   )}
                 </div>
 
@@ -1326,14 +2203,16 @@ export function SettingsModal(): JSX.Element | null {
           <button
             type="button"
             onClick={reset}
-            className="text-sm text-neutral-500 hover:text-red-500"
+            className={`text-sm ${
+              confirmingReset ? 'font-medium text-red-500' : 'text-neutral-500 hover:text-red-500'
+            }`}
           >
-            Reset to defaults
+            {confirmingReset ? 'Really reset everything? Click again to confirm' : 'Reset to defaults'}
           </button>
           <div className="ml-auto flex gap-2">
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={attemptClose}
               className="rounded-lg border border-black/10 dark:border-white/10 px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
             >
               Cancel
@@ -1341,9 +2220,10 @@ export function SettingsModal(): JSX.Element | null {
             <button
               type="button"
               onClick={save}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+              disabled={!dirty}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent"
             >
-              Save
+              {dirty ? 'Save' : 'No changes'}
             </button>
           </div>
         </div>

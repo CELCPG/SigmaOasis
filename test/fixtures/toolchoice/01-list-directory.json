@@ -1,0 +1,1 @@
+{ "prompt": "what's in my ~/Downloads folder?", "expect": { "tool": "list_directory" } }

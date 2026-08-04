@@ -488,7 +488,7 @@ export function extractPdfText(bytes: Uint8Array): PdfOutcome | PdfFailure {
     return {
       ok: false,
       error:
-        'This PDF is encrypted, so its text cannot be extracted. Download it and open it in a PDF reader.'
+        'This PDF is encrypted, so its text cannot be extracted. Open it in a PDF reader instead.'
     }
   }
 

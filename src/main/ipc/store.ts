@@ -9,6 +9,22 @@ import { writeFileAtomic } from './fsAtomic'
  * Default settings shape. The renderer keeps a mirror of this shape in its
  * Zustand store, but electron-store is the source of truth for persistence.
  */
+/**
+ * Per-role sampling. Through v0.8.1 the chat path sent no sampling parameters
+ * at all, so every role ran at whatever the server defaulted to and there was
+ * no way to make one deterministic.
+ */
+export interface SamplingSettings {
+  /** 0–2. 0 is greedy decoding: same prompt, same answer. */
+  temperature: number
+  /** 0–1 nucleus sampling. 1 disables it. */
+  topP: number
+  /** Reply length cap. -1 leaves it to the server. */
+  maxTokens: number
+  /** Fixed RNG seed for reproducible replies; null lets the server choose. */
+  seed: number | null
+}
+
 export interface ModelConfig {
   id: string
   modelId: string // the model identifier from LM Studio /v1/models
@@ -16,6 +32,31 @@ export interface ModelConfig {
   systemPrompt: string
   color: string // 'blue' | 'purple' | 'green' (accent key)
   enabled: boolean
+  sampling: SamplingSettings
+  /**
+   * Context window to budget against, overriding what LM Studio reports.
+   * Null means auto (trust the server). Set this when the server under-reports
+   * or the model is loaded with a window LM Studio does not advertise, because
+   * history compaction triggers off this number.
+   */
+  contextWindow: number | null
+  /**
+   * Per-role tool allowlist (v1.3). Absent = all globally-enabled tools; an
+   * array — even empty — restricts the slot to the named tools that are also
+   * globally enabled.
+   */
+  tools?: string[]
+  /**
+   * One-line routing declaration (v1.4): "send me X; don't send me Y". Shown
+   * to other models in the consult_model roster and used by the pre-flight
+   * router. Absent = the router falls back to the system prompt.
+   */
+  capability?: string
+  /**
+   * Structured routing tag (v1.4) the pre-flight classifier matches on.
+   * Absent = generalist; the slot is never auto-routed a specialty signal.
+   */
+  specialty?: 'coding' | 'research' | 'finance'
 }
 
 export interface ToolToggles {
@@ -24,6 +65,7 @@ export interface ToolToggles {
   list_directory: boolean
   run_terminal_command: boolean
   web_search: boolean
+  image_search: boolean
   fetch_webpage: boolean
   get_current_datetime: boolean
   create_note: boolean
@@ -33,6 +75,23 @@ export interface ToolToggles {
   memory_search: boolean
   memory_forget: boolean
   deep_research: boolean
+  finance_calculator: boolean
+  shop_requirements: boolean
+  shop_compare: boolean
+  price_watch: boolean
+}
+
+export interface ShoppingSettings {
+  /**
+   * Refuse shopping fetches when no proxy is active. On by default: these
+   * requests contact commercial sites that log them, and a privacy setting
+   * that silently does not cover the case that matters is worse than none.
+   */
+  requireProxy: boolean
+  /** Sellers fetched per comparison (1–5). */
+  maxSellers: number
+  /** Drop affiliate listicles and content farms from candidate discovery. */
+  excludeTierX: boolean
 }
 
 export type SearchProviderId = 'searxng' | 'brave' | 'duckduckgo'
@@ -101,6 +160,38 @@ export interface MemorySettings {
   embeddingModel: string
 }
 
+export interface SecondOpinionSettings {
+  /** Master switch for the critic pass. Off by default. */
+  enabled: boolean
+  /** Reviewing slot; null = auto (first enabled slot that is not the answerer). */
+  criticSlotId: string | null
+}
+
+export interface ClaimCheckSettings {
+  /**
+   * v1.2: mechanical per-claim verification of unverified answers. Requires
+   * secondOpinion.enabled — the critic slot extracts and judges, never the
+   * answerer.
+   */
+  enabled: boolean
+  /** Cap on extracted claims checked per reply; keeps the pass cheap. */
+  maxClaims: number
+}
+
+export interface AuditSettings {
+  /** Append-only session transcript. Off by default — a privacy app does not log by default. */
+  enabled: boolean
+  /** Delete every audit log when the app quits. */
+  autoPurgeOnQuit: boolean
+}
+
+export interface PlanSettings {
+  /** Max steps a generated plan may contain (1–10). */
+  maxSteps: number
+  /** Show the plan for approval before executing. On by default. */
+  confirmPlan: boolean
+}
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -121,6 +212,40 @@ export interface AppSettings {
   onboardingCompleted: boolean
   /** Hide tool-call blocks in chat; show a thinking animation instead. */
   hideToolCalls: boolean
+  /**
+   * How the chain-of-thought block appears in chat: collapsed behind a
+   * "Thought for Xs" header (default), always expanded, or hidden entirely.
+   */
+  reasoningDisplay: 'collapsed' | 'expanded' | 'hidden'
+  /** Show tokens/sec and time-to-first-token under each reply. */
+  showResponseStats: boolean
+  /**
+   * What happens when a conversation outgrows the model's context window.
+   * 'compact' summarizes the dropped span and carries it forward; 'trim'
+   * silently drops it, which is what every version before 0.8.2 did.
+   */
+  contextManagement: 'compact' | 'trim'
+  /** v0.9: a second role reviews replies on request (Settings → Models). */
+  secondOpinion: SecondOpinionSettings
+  /** v1.2: mechanical per-claim verification of unverified answers. */
+  claimCheck: ClaimCheckSettings
+  /** v1.4: private shopping research. Tools ship off; this governs how they behave. */
+  shopping: ShoppingSettings
+  /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
+  audit: AuditSettings
+  /** v0.9: multi-step plan generation and execution. */
+  plan: PlanSettings
+}
+
+/**
+ * Default sampling for a new slot. All four built-in roles default to 0.3:
+ * pure recall at 0.7 measurably increases confabulation on small local
+ * models (v1.1 grounding), and Coder/Finance Coach do factual work too
+ * (v1.2). Creative use is a preset click away. Saved per-slot values are
+ * never rewritten — normalizeSampling preserves them.
+ */
+export function defaultSampling(temperature = 0.7): SamplingSettings {
+  return { temperature, topP: 1, maxTokens: -1, seed: null }
 }
 
 function defaultSettings(): AppSettings {
@@ -132,9 +257,16 @@ function defaultSettings(): AppSettings {
         modelId: 'google/gemma-4-12b-qat',
         roleName: 'Assistant',
         systemPrompt:
-          'You are a helpful, harmless, and honest AI assistant. Answer questions clearly and concisely.',
+          'You are a helpful, harmless, and honest AI assistant. Answer questions clearly and concisely, ' +
+          'leading with the answer. Treat a short follow-up ("and the price?", "what about the first one?") ' +
+          'as part of the ongoing conversation, never as a brand-new question. Do not assume the user\u2019s ' +
+          'gender, age, body, or life situation — when it would change the recommendation, ask first. ' +
+          'The chat UI renders Markdown but not LaTeX math notation, so write formulas, units, and ' +
+          'symbols as plain text (for example, 374 °C or E = mc^2) instead of $...$ markup.',
         color: 'blue',
-        enabled: true
+        enabled: true,
+        sampling: defaultSampling(0.3),
+        contextWindow: null
       },
       {
         id: 'model-2',
@@ -143,7 +275,9 @@ function defaultSettings(): AppSettings {
         systemPrompt:
           'You are a meticulous researcher. Use available tools to gather facts, cite sources, and summarize findings.',
         color: 'purple',
-        enabled: false
+        enabled: false,
+        sampling: defaultSampling(0.3),
+        contextWindow: null
       },
       {
         id: 'model-3',
@@ -152,10 +286,31 @@ function defaultSettings(): AppSettings {
         systemPrompt:
           'You are an expert software engineer. Write clean, correct code and explain your reasoning briefly.',
         color: 'green',
-        enabled: false
+        enabled: false,
+        sampling: defaultSampling(0.3),
+        contextWindow: null
+      },
+      {
+        id: 'model-4',
+        modelId: '',
+        roleName: 'Finance Coach',
+        systemPrompt:
+          'You are a patient financial literacy coach. Teach concepts clearly with everyday ' +
+          'examples, and build understanding rather than lecturing about risk. For any numbers, ' +
+          'such as loan payments, compound growth, savings goals, or inflation, always use the ' +
+          'finance_calculator tool instead of mental arithmetic, and state the assumptions you ' +
+          'used. For current rates, prices, or market figures, use web_search rather than ' +
+          'guessing. Help users evaluate options themselves: compare scenarios factually, ' +
+          'explain tradeoffs, and never tell them what to buy or sell. End finance answers with ' +
+          'one short line noting this is education, not personalized financial advice.',
+        color: 'green',
+        enabled: false,
+        sampling: defaultSampling(0.3),
+        contextWindow: null
       }
     ],
-    theme: 'dark',
+    // Light is the flagship look since 1.0; existing installs keep their saved choice.
+    theme: 'light',
     fontSize: 15,
     historyLimit: 100,
     tools: {
@@ -165,6 +320,7 @@ function defaultSettings(): AppSettings {
       list_directory: true,
       run_terminal_command: false,
       web_search: true,
+      image_search: true,
       fetch_webpage: true,
       get_current_datetime: true,
       create_note: true,
@@ -173,7 +329,13 @@ function defaultSettings(): AppSettings {
       memory_save: true,
       memory_search: true,
       memory_forget: true,
-      deep_research: true
+      deep_research: true,
+      finance_calculator: true,
+      // Off by default: these initiate outbound requests to commercial sites
+      // that log them. That should be a choice the user makes on purpose.
+      shop_requirements: false,
+      shop_compare: false,
+      price_watch: false
     },
     workingDirectory: '',
     pipeline: ['model-1'],
@@ -212,7 +374,33 @@ function defaultSettings(): AppSettings {
       autoCheck: false
     },
     onboardingCompleted: false,
-    hideToolCalls: false
+    hideToolCalls: false,
+    reasoningDisplay: 'collapsed',
+    showResponseStats: true,
+    contextManagement: 'compact',
+    secondOpinion: {
+      enabled: false,
+      criticSlotId: null
+    },
+    claimCheck: {
+      // On by default, but only fires when second opinions are also enabled —
+      // the critic slot does the extraction and judging.
+      enabled: true,
+      maxClaims: 5
+    },
+    shopping: {
+      requireProxy: true,
+      maxSellers: 4,
+      excludeTierX: true
+    },
+    audit: {
+      enabled: false,
+      autoPurgeOnQuit: false
+    },
+    plan: {
+      maxSteps: 6,
+      confirmPlan: true
+    }
   }
 }
 
@@ -224,6 +412,34 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 
 function str(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
+}
+
+/** Like clamp, but without rounding — sampling values are fractional. */
+function clampFloat(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
+/**
+ * Sampling needs its own merge rather than riding the `{ ...base, ...m }`
+ * spread the model loop uses: a spread copies a half-written or hand-edited
+ * `sampling` object through verbatim, and a NaN temperature reaching the wire
+ * makes LM Studio reject every request in the conversation.
+ */
+function normalizeSampling(value: unknown): SamplingSettings {
+  const s = (value ?? {}) as Partial<SamplingSettings>
+  const defaults = defaultSampling()
+  const seed = typeof s.seed === 'number' && Number.isFinite(s.seed) ? Math.round(s.seed) : null
+  return {
+    temperature: clampFloat(s.temperature, 0, 2, defaults.temperature),
+    topP: clampFloat(s.topP, 0.01, 1, defaults.topP),
+    // -1 means "server default". A cleared number input reads as 0/NaN, and
+    // clamping that up to 1 would silently cap every reply at one token — so
+    // anything non-positive falls back to the server default instead.
+    maxTokens: Number(s.maxTokens) > 0 ? clamp(s.maxTokens, 1, 128_000, -1) : -1,
+    seed
+  }
 }
 
 /**
@@ -247,7 +463,26 @@ function normalizeSettings(settings: AppSettings): AppSettings {
           roleName: str(m?.roleName, base.roleName),
           systemPrompt: str(m?.systemPrompt, base.systemPrompt),
           color: ['blue', 'purple', 'green'].includes(m?.color) ? m.color : base.color,
-          enabled: Boolean(m?.enabled)
+          enabled: Boolean(m?.enabled),
+          sampling: normalizeSampling(m?.sampling),
+          contextWindow:
+            typeof m?.contextWindow === 'number' && m.contextWindow >= 512
+              ? Math.round(m.contextWindow)
+              : null,
+          // Absent stays absent (= all globally-enabled tools); a stored array
+          // is an allowlist, sanitized to plain strings.
+          tools: Array.isArray(m?.tools)
+            ? m.tools.filter((t): t is string => typeof t === 'string')
+            : undefined,
+          // Routing declarations (v1.4): a trimmed non-empty string, else absent.
+          capability:
+            typeof m?.capability === 'string' && m.capability.trim()
+              ? m.capability.trim()
+              : undefined,
+          specialty:
+            m?.specialty === 'coding' || m?.specialty === 'research' || m?.specialty === 'finance'
+              ? m.specialty
+              : undefined
         }
       })
     : defaults.models
@@ -319,7 +554,41 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       autoCheck: Boolean(settings.updates?.autoCheck)
     },
     onboardingCompleted: Boolean(settings.onboardingCompleted),
-    hideToolCalls: Boolean(settings.hideToolCalls)
+    hideToolCalls: Boolean(settings.hideToolCalls),
+    reasoningDisplay: (['collapsed', 'expanded', 'hidden'] as const).includes(
+      settings.reasoningDisplay as AppSettings['reasoningDisplay']
+    )
+      ? (settings.reasoningDisplay as AppSettings['reasoningDisplay'])
+      : 'collapsed',
+    showResponseStats: settings.showResponseStats !== false,
+    contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact',
+    secondOpinion: {
+      enabled: Boolean(settings.secondOpinion?.enabled),
+      criticSlotId:
+        typeof settings.secondOpinion?.criticSlotId === 'string' &&
+        models.some((m) => m.id === settings.secondOpinion?.criticSlotId)
+          ? settings.secondOpinion.criticSlotId
+          : null
+    },
+    claimCheck: {
+      enabled: settings.claimCheck?.enabled !== false,
+      maxClaims: clamp(settings.claimCheck?.maxClaims, 1, 10, defaults.claimCheck.maxClaims)
+    },
+    shopping: {
+      // Defaults to on: an absent or malformed value must not silently disable
+      // the proxy requirement, which is the setting most costly to get wrong.
+      requireProxy: settings.shopping?.requireProxy !== false,
+      maxSellers: clamp(settings.shopping?.maxSellers, 1, 5, defaults.shopping.maxSellers),
+      excludeTierX: settings.shopping?.excludeTierX !== false
+    },
+    audit: {
+      enabled: Boolean(settings.audit?.enabled),
+      autoPurgeOnQuit: Boolean(settings.audit?.autoPurgeOnQuit)
+    },
+    plan: {
+      maxSteps: clamp(settings.plan?.maxSteps, 1, 10, defaults.plan.maxSteps),
+      confirmPlan: settings.plan?.confirmPlan !== false
+    }
   }
 }
 
@@ -340,7 +609,12 @@ export function migrateSettings(): void {
     search: { ...defaults.search, ...current.search },
     research: { ...defaults.research, ...current.research },
     proxy: { ...defaults.proxy, ...current.proxy },
-    updates: { ...defaults.updates, ...current.updates }
+    updates: { ...defaults.updates, ...current.updates },
+    secondOpinion: { ...defaults.secondOpinion, ...current.secondOpinion },
+    claimCheck: { ...defaults.claimCheck, ...current.claimCheck },
+    shopping: { ...defaults.shopping, ...current.shopping },
+    audit: { ...defaults.audit, ...current.audit },
+    plan: { ...defaults.plan, ...current.plan }
   } as AppSettings
   store.set('settings', normalizeSettings(merged))
 }
@@ -514,10 +788,17 @@ export function registerStoreHandlers(): void {
         // ignore corrupt file
       }
     }
-    return convos
+    // An ephemeral conversation must never come back from disk. If one somehow
+    // landed there (a pre-guard build, a hand-copied file), it is dropped from
+    // the list rather than resurrected as a normal conversation.
+    return convos.filter((c) => !(c as { ephemeral?: boolean })?.ephemeral)
   })
 
-  ipcMain.handle('conversations:save', async (_e, convo: { id: string }) => {
+  ipcMain.handle('conversations:save', async (_e, convo: { id: string; ephemeral?: boolean }) => {
+    // Structural no-trace guarantee: an ephemeral conversation is never
+    // written, regardless of what the renderer asks. This is the boundary
+    // that must hold even if the renderer regresses.
+    if (convo?.ephemeral) return false
     const file = conversationFile(String(convo?.id ?? ''))
     if (!file) return false
     await ensureDir(conversationsDir())

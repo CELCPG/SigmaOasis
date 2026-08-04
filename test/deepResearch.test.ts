@@ -158,7 +158,7 @@ describe('budgetFor / BudgetTracker', () => {
 
   test('search limit stops further searches and is recorded', () => {
     const tracker = new BudgetTracker({
-      maxRounds: 2, maxSearches: 2, maxFetches: 9, maxHosts: 9, maxWallClockMs: 60_000
+      maxRounds: 2, maxSearches: 2, maxFetches: 9, maxHosts: 9, maxWallClockMs: 60_000, synthesisReserveMs: 0
     })
     assert.equal(tracker.canSearch(), true)
     tracker.recordSearch()
@@ -169,7 +169,7 @@ describe('budgetFor / BudgetTracker', () => {
 
   test('fetch limit stops further fetches', () => {
     const tracker = new BudgetTracker({
-      maxRounds: 2, maxSearches: 9, maxFetches: 1, maxHosts: 9, maxWallClockMs: 60_000
+      maxRounds: 2, maxSearches: 9, maxFetches: 1, maxHosts: 9, maxWallClockMs: 60_000, synthesisReserveMs: 0
     })
     tracker.recordFetch('a.com')
     assert.equal(tracker.canFetch('b.com'), false)
@@ -180,7 +180,7 @@ describe('budgetFor / BudgetTracker', () => {
     // The privacy-relevant limit: more pages from a site already contacted
     // discloses less than the first page from a new one.
     const tracker = new BudgetTracker({
-      maxRounds: 2, maxSearches: 9, maxFetches: 9, maxHosts: 2, maxWallClockMs: 60_000
+      maxRounds: 2, maxSearches: 9, maxFetches: 9, maxHosts: 2, maxWallClockMs: 60_000, synthesisReserveMs: 0
     })
     tracker.recordFetch('a.com')
     tracker.recordFetch('b.com')
@@ -191,16 +191,48 @@ describe('budgetFor / BudgetTracker', () => {
 
   test('round limit stops further rounds', () => {
     const tracker = new BudgetTracker({
-      maxRounds: 1, maxSearches: 9, maxFetches: 9, maxHosts: 9, maxWallClockMs: 60_000
+      maxRounds: 1, maxSearches: 9, maxFetches: 9, maxHosts: 9, maxWallClockMs: 60_000, synthesisReserveMs: 0
     })
     assert.equal(tracker.canStartRound(), true)
     tracker.rounds = 1
     assert.equal(tracker.canStartRound(), false)
   })
 
+  test('retrieval stops early to leave synthesis its reserve', () => {
+    // The measured v1.3 failure: retrieval spent 183s, then synthesis was
+    // handed a deadline it could not meet and the whole run returned nothing.
+    // Retrieval's deadline is now the wall clock minus the reserve.
+    const tracker = new BudgetTracker({
+      maxRounds: 9, maxSearches: 9, maxFetches: 9, maxHosts: 9,
+      maxWallClockMs: 1000, synthesisReserveMs: 1000
+    })
+    // Reserve equals the whole budget, so retrieval has none: expired at once.
+    assert.equal(tracker.expired, true)
+    assert.equal(tracker.canSearch(), false)
+  })
+
+  test('synthesis is never given less than its reserve', () => {
+    const tracker = new BudgetTracker({
+      maxRounds: 9, maxSearches: 9, maxFetches: 9, maxHosts: 9,
+      maxWallClockMs: 150_000, synthesisReserveMs: 45_000
+    })
+    assert.ok(tracker.synthesisBudgetMs >= 45_000)
+    assert.ok(tracker.synthesisBudgetMs <= 150_000)
+  })
+
+  test('every shipped depth reserves time for the write-up', () => {
+    for (const depth of ['quick', 'standard', 'thorough'] as const) {
+      const budget = budgetFor(depth)
+      assert.ok(
+        budget.synthesisReserveMs > 0 && budget.synthesisReserveMs < budget.maxWallClockMs,
+        `${depth} must reserve a slice of its wall clock, not all or none of it`
+      )
+    }
+  })
+
   test('an expired wall clock blocks every phase', () => {
     const tracker = new BudgetTracker({
-      maxRounds: 9, maxSearches: 9, maxFetches: 9, maxHosts: 9, maxWallClockMs: -1
+      maxRounds: 9, maxSearches: 9, maxFetches: 9, maxHosts: 9, maxWallClockMs: -1, synthesisReserveMs: 0
     })
     assert.equal(tracker.canSearch(), false)
     assert.equal(tracker.canFetch('a.com'), false)
@@ -210,7 +242,7 @@ describe('budgetFor / BudgetTracker', () => {
 
   test('the ledger reports hosts and does not duplicate a limit', () => {
     const tracker = new BudgetTracker({
-      maxRounds: 2, maxSearches: 1, maxFetches: 9, maxHosts: 9, maxWallClockMs: 60_000
+      maxRounds: 2, maxSearches: 1, maxFetches: 9, maxHosts: 9, maxWallClockMs: 60_000, synthesisReserveMs: 0
     })
     tracker.recordSearch()
     tracker.canSearch()
@@ -371,17 +403,32 @@ const PLAN_JSON = JSON.stringify({
   ]
 })
 
-describe('runDeepResearch', () => {
-  const hosts = ['alpha.example', 'beta.example', 'gamma.example']
+/**
+ * Full happy-path fixture. Each planned query routes to its own pair of hosts,
+ * the way a real search provider would answer different queries with different
+ * results. Without that, both sub-questions compete for the same URLs and the
+ * per-URL dedupe in selectSources hands every source to one sub-question, so
+ * coverage can never pass in round one.
+ */
+function fullFixture(): void {
+  const retryHosts = ['alpha.example', 'beta.example']
+  const cacheHosts = ['gamma.example', 'delta.example']
+  state.searchHtml = searchHtmlFor(['alpha.example', 'beta.example', 'gamma.example'])
+  state.searchRoutes = [
+    { match: 'retry', html: searchHtmlFor(retryHosts) },
+    { match: 'invalidation', html: searchHtmlFor(cacheHosts) }
+  ]
+  state.responses = [...retryHosts, ...cacheHosts].map((h) => ({
+    match: h,
+    contentType: 'text/html',
+    body: ARTICLE(h)
+  }))
+  state.completions = [PLAN_JSON, 'The retry timeout defaults to thirty seconds [1].']
+}
 
+describe('runDeepResearch', () => {
   beforeEach(() => {
-    state.searchHtml = searchHtmlFor(hosts)
-    state.responses = hosts.map((h) => ({
-      match: h,
-      contentType: 'text/html',
-      body: ARTICLE(h)
-    }))
-    state.completions = [PLAN_JSON, 'The retry timeout defaults to thirty seconds [1].']
+    fullFixture()
   })
 
   test('returns a brief with sources and a ledger', async () => {
@@ -487,14 +534,19 @@ describe('runDeepResearch', () => {
   test('surviving a completely failed planner still produces research', async () => {
     state.failCompletions = true
     const outcome = await runDeepResearch({ question: 'q', modelId: 'fake-chat' })
-    // Planning and synthesis both fail, so the run fails — but with an
-    // explanation rather than an unhandled rejection.
-    assert.equal(outcome.ok, false)
-    assert.ok(outcome.error)
+    // Every model call fails: planning falls back to the bare question, and
+    // synthesis cannot run. The retrieval half still worked, so v1.3 returns
+    // what it found and says plainly that nothing was written from it — the
+    // model is explicitly told not to summarize the sources from memory.
+    assert.equal(outcome.ok, true)
+    assert.equal(outcome.planned, false)
+    assert.equal(outcome.synthesized, false)
+    assert.ok((outcome.sources ?? []).length > 0, 'retrieval succeeded and must be kept')
+    assert.match(outcome.synthesisNote!, /could not write the brief/i)
   })
 
   test('fails clearly when no source yields text', async () => {
-    state.responses = hosts.map((h) => ({
+    state.responses = ['alpha.example', 'beta.example', 'gamma.example', 'delta.example'].map((h) => ({
       match: h,
       contentType: 'text/html',
       body: '<html><body></body></html>'
@@ -507,6 +559,7 @@ describe('runDeepResearch', () => {
 
   test('fails clearly when search returns nothing', async () => {
     state.searchHtml = '<html></html>'
+    state.searchRoutes = []
     const outcome = await runDeepResearch({ question: 'q', modelId: 'fake-chat' })
     assert.equal(outcome.ok, false)
     assert.match(outcome.error!, /No usable sources/i)
@@ -518,11 +571,25 @@ describe('runDeepResearch', () => {
     assert.equal(state.completionPrompts.length, 0)
   })
 
-  test('an empty brief is reported rather than returned as success', async () => {
+  test('an empty brief keeps the sources instead of discarding the run', async () => {
+    // Changed in v1.3. Through v1.3 this returned ok:false and threw away
+    // every page the run had fetched and ranked — measured at 183 seconds of
+    // retrieval discarded because the write-up failed. Retrieval succeeding
+    // and synthesis failing are different outcomes, and the second one still
+    // leaves the user with cited sources.
     state.completions = [PLAN_JSON, '   ']
     const outcome = await runDeepResearch({ question: 'q', modelId: 'fake-chat' })
-    assert.equal(outcome.ok, false)
-    assert.match(outcome.error!, /empty brief/i)
+    assert.equal(outcome.ok, true)
+    assert.equal(outcome.synthesized, false)
+    assert.ok((outcome.sources ?? []).length > 0, 'the sources must survive')
+    assert.match(outcome.synthesisNote!, /nothing was synthesized/i)
+  })
+
+  test('a successful run is marked as actually synthesized', async () => {
+    const outcome = await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    assert.equal(outcome.ok, true)
+    assert.equal(outcome.synthesized, true)
+    assert.equal(outcome.synthesisNote, undefined)
   })
 
   test('cancellation stops the run', async () => {
@@ -579,3 +646,100 @@ function outgoingQueries(): string[] {
       }
     })
 }
+
+// ---- structured planning + adaptive rounds ------------------------------------
+
+describe('structured planning and adaptive rounds', () => {
+  beforeEach(() => {
+    fullFixture()
+  })
+
+  test('the planner request is grammar-constrained with the plan schema', async () => {
+    await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    const plannerBody = state.completionBodies[0]!
+    const format = plannerBody.response_format as {
+      type?: string
+      json_schema?: { name?: string; strict?: boolean; schema?: { required?: string[] } }
+    }
+    assert.equal(format.type, 'json_schema')
+    assert.equal(format.json_schema?.name, 'research_plan')
+    assert.equal(format.json_schema?.strict, true)
+    assert.deepEqual(format.json_schema?.schema?.required, ['subQuestions'])
+  })
+
+  test('the synthesizer request is free-form, not schema-constrained', async () => {
+    await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    const synthBody = state.completionBodies.at(-1)!
+    const format = synthBody.response_format as { type?: string } | undefined
+    assert.notEqual(format?.type, 'json_schema')
+  })
+
+  test('a server that rejects json_schema gets a plain retry and research still plans', async () => {
+    state.completionOnce400 = true
+    const outcome = await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    assert.equal(outcome.ok, true, outcome.error)
+    assert.equal(outcome.planned, true)
+    // The retry went out without the schema constraint.
+    const retryBody = state.completionBodies[0]!
+    const format = retryBody.response_format as { type?: string } | undefined
+    assert.equal(format?.type, 'json_object')
+  })
+
+  test('uncovered sub-questions are attacked with reformulated queries in later rounds', async () => {
+    // Every page read fails, so coverage never passes and the run adapts until
+    // the round ceiling stops it.
+    state.responses = []
+    state.completions = [
+      PLAN_JSON,
+      JSON.stringify({
+        queries: [
+          { queries: ['retry backoff strategy'] },
+          { queries: ['cache eviction policy'] }
+        ]
+      })
+    ]
+    const outcome = await runDeepResearch({
+      question: 'How do retries work?',
+      modelId: 'fake-chat'
+    })
+    assert.equal(outcome.ok, false)
+    assert.match(outcome.error!, /No usable sources/i)
+    // Standard depth now allows three coverage-driven rounds, and all three ran.
+    assert.equal(outcome.ledger!.rounds, 3)
+    // Round two searched the reformulated angle, not just the failed query again.
+    assert.ok(outgoingQueries().includes('retry backoff strategy'))
+    assert.ok(outgoingQueries().includes('cache eviction policy'))
+  })
+
+  test('reformulateQueries falls back to the original queries when the model is useless', async () => {
+    state.completions = ['not json at all']
+    const queries = await research.reformulateQueries(
+      [
+        { question: 'q1', queries: ['original one'] },
+        { question: 'q2', queries: ['original two'] }
+      ],
+      'fake-chat'
+    )
+    assert.deepEqual(queries, [['original one'], ['original two']])
+  })
+
+  test('reformulateQueries maps by order and caps queries per sub-question', async () => {
+    state.completions = [
+      JSON.stringify({
+        queries: [
+          { queries: ['new a', 'new b', 'new c'] },
+          { queries: [] }
+        ]
+      })
+    ]
+    const queries = await research.reformulateQueries(
+      [
+        { question: 'q1', queries: ['old one'] },
+        { question: 'q2', queries: ['old two'] }
+      ],
+      'fake-chat'
+    )
+    // Capped at MAX_QUERIES_PER_SUB, and an empty set falls back per sub-question.
+    assert.deepEqual(queries, [['new a', 'new b'], ['old two']])
+  })
+})

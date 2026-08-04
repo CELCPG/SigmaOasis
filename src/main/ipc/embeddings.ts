@@ -65,10 +65,16 @@ export function chunkText(text: string): string[] {
 }
 
 /** Resolve the embedding model: configured value wins, else auto-detect. */
+let cachedDetectedModel: string | null = null
+
 export async function resolveEmbeddingModel(): Promise<string | null> {
   const settings = getSettings()
   const configured = settings.memory.embeddingModel.trim()
   if (configured) return configured
+  // Auto-detection costs a /models round-trip; a research crawl embeds dozens
+  // of batches, so detect once per session. Only successes are cached — a null
+  // may just mean the user has not loaded an embedding model yet.
+  if (cachedDetectedModel) return cachedDetectedModel
   try {
     const res = await auditedFetch(
       `${settings.baseUrl.replace(/\/+$/, '')}/models`,
@@ -77,7 +83,9 @@ export async function resolveEmbeddingModel(): Promise<string | null> {
     )
     if (!res.ok) return null
     const data = (await res.json()) as { data?: { id: string }[] }
-    return data.data?.find((m) => /embed/i.test(m.id))?.id ?? null
+    const found = data.data?.find((m) => /embed/i.test(m.id))?.id ?? null
+    if (found) cachedDetectedModel = found
+    return found
   } catch {
     return null
   }
@@ -110,7 +118,11 @@ export async function embedTexts(texts: string[]): Promise<{ model: string; vect
       },
       'lmstudio'
     )
-    if (!res.ok) throw new Error(`Embeddings endpoint returned HTTP ${res.status}`)
+    if (!res.ok) {
+      // The detected model may be gone (user removed it); re-detect next time.
+      cachedDetectedModel = null
+      throw new Error(`Embeddings endpoint returned HTTP ${res.status}`)
+    }
     const data = (await res.json()) as { data?: { embedding: number[]; index: number }[] }
     const byIndex = (data.data ?? []).sort((a, b) => a.index - b.index)
     for (const item of byIndex) vectors.push(item.embedding)

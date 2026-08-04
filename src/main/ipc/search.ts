@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, nativeImage } from 'electron'
 import { lookup } from 'dns/promises'
 import { homedir } from 'os'
 import { auditedFetch, isLoopbackHostname } from './net'
@@ -56,6 +56,27 @@ export interface WebSearchOutcome {
   error?: string
 }
 
+export interface ImageResult {
+  title: string
+  /** Full-size image URL. */
+  imageUrl: string
+  /** Provider-supplied thumbnail URL when there is one. */
+  thumbnailUrl?: string
+  /** Page the image appears on — where a click should lead. */
+  pageUrl: string
+}
+
+export interface ImageSearchOutcome {
+  ok: boolean
+  provider: SearchProviderId
+  images: ImageResult[]
+  /** Parts of the query that were redacted before it left the machine. */
+  redactions: string[]
+  /** The exact query that was sent (after redaction). */
+  sentQuery: string
+  error?: string
+}
+
 // ---- Query hygiene -----------------------------------------------------------
 
 /**
@@ -107,7 +128,12 @@ function localPathPatterns(): RegExp[] {
   return roots.map((root) => new RegExp(escapeRegExp(root), 'gi'))
 }
 
-function sanitizeQuery(query: string): { query: string; redactions: string[] } {
+function sanitizeQuery(query: string): {
+  query: string
+  redactions: string[]
+  /** Set when the query was framing rather than terms; see minimizeQuery. */
+  refusal?: string
+} {
   const redactions = new Set<string>()
   let cleaned = query
 
@@ -125,7 +151,123 @@ function sanitizeQuery(query: string): { query: string; redactions: string[] } {
   }
   // Collapse whitespace and cap length — queries are requests, not documents.
   cleaned = cleaned.replace(/\s+/g, ' ').trim().slice(0, 400)
-  return { query: cleaned, redactions: [...redactions] }
+  const minimized = minimizeQuery(cleaned)
+  if (minimized.dropped) redactions.add('conversational framing')
+  return { query: minimized.query, redactions: [...redactions], refusal: minimized.refusal }
+}
+
+// ---- Query minimization ------------------------------------------------------
+
+/**
+ * First-person framing: the part of a query that describes the *asker* rather
+ * than the thing being looked up.
+ */
+const FIRST_PERSON = /\b(?:i|i'm|im|i've|ive|i'd|my|mine|me|myself|we|we're|our|ours|us)\b/i
+
+/**
+ * Openers that introduce a request rather than a subject. Applied repeatedly
+ * from the front, longest-lived first — one giant alternation is unreadable
+ * and, worse, silently stops matching when a clause is phrased slightly
+ * differently.
+ */
+const PREAMBLES: RegExp[] = [
+  /^(?:hi|hey|hello|ok(?:ay)?|so|well|actually|please)\b[\s,]*/i,
+  /^(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:help\s+me\s+)?/i,
+  /^(?:i|we)\s*(?:'m|'ve|'d|m|ve|am|have|was|were)?\s*(?:just|really|currently)?\s*(?:need|want|look|looking|try|trying|hop(?:e|ing)|wonder(?:ing)?|search(?:ing)?|shop(?:ping)?|would\s+like|like)\b/i,
+  /^(?:to|for|if|up|out|about)\b\s*/i,
+  /^(?:find|search|look\s*up|show\s+me|tell\s+me(?:\s+about)?|get\s+me|help\s+me)\b\s*/i,
+  /^(?:a|an|the|some|any)\b\s+/i
+]
+
+/** Trailing clauses that attach the asker's situation to a subject. */
+const TRAILING_CONTEXT =
+  /\s+(?:for\s+(?:my|our|me|us)\b|because\b|since\b|so\s+(?:i|we)\b|as\s+(?:i|we)\b|before\s+(?:i|we)\b|while\s+(?:i|we)\b|when\s+(?:i|we)\b).*$/i
+
+/** Above this, a query has stopped being search terms and become a paragraph. */
+const MAX_QUERY_WORDS = 16
+
+export interface MinimizedQuery {
+  query: string
+  /** True when framing was stripped, for the redaction note. */
+  dropped: boolean
+  /**
+   * Set when the query is not salvageable as search terms. The caller refuses
+   * the search and hands this back to the model to try again.
+   */
+  refusal?: string
+}
+
+const wordsOf = (text: string): string[] => text.split(/\s+/).filter(Boolean)
+
+/**
+ * Reduce a search query to its subject, or refuse it.
+ *
+ * `sanitizeQuery` removes what is *secret*. This removes what is merely nobody
+ * else's business: that the person asking is planning a business trip, shopping
+ * for themselves, or in a hurry. A provider needs the subject terms to answer;
+ * the rest is disclosure with nothing bought by it.
+ *
+ * Two mechanisms, because one is not enough:
+ *
+ * 1. **Strip** leading request framing and trailing personal context. This
+ *    handles the common, recoverable case ("i'm looking for organic cotton
+ *    thongs" → "organic cotton thongs") without bouncing anything.
+ * 2. **Refuse** what is still a paragraph about the asker. DESIGN-private-
+ *    shopping §2b specifies exactly this — *"enforced in code by rejecting
+ *    queries over N tokens that contain first-person pronouns, not by asking
+ *    the model nicely"* — and asking nicely is measurably insufficient: in a
+ *    v1.3 session a model sent *"I have a business meeting coming up in Japan.
+ *    I need to buy 2 new business suits and book flights and hotel in Tokyo
+ *    for Aug 28 - September 12…"* verbatim as a query, under a schema that
+ *    says to send terms only.
+ *
+ * Refusing beats truncating. Cutting that example at sixteen words yields
+ * "I have a business meeting coming up in Japan. I need to buy 2 new business"
+ * — which has leaked the trip *and* searches for nothing. A refusal costs one
+ * round trip and gets a query that works.
+ */
+export function minimizeQuery(query: string): MinimizedQuery {
+  const original = query.trim()
+  if (!original) return { query: original, dropped: false }
+
+  let working = original
+  if (FIRST_PERSON.test(working) || /^(?:can|could|would|will|find|search|look|show|tell)\b/i.test(working)) {
+    // Peel the front until nothing matches: "so i'm trying to find a …" needs
+    // several passes, and each pattern is individually conservative.
+    for (let pass = 0; pass < PREAMBLES.length * 2; pass++) {
+      const before = working
+      for (const re of PREAMBLES) working = working.replace(re, '')
+      working = working.replace(/^[\s,.;:—-]+/, '')
+      if (working === before) break
+    }
+    working = working.replace(TRAILING_CONTEXT, '').trim()
+  }
+
+  // Stripping must never produce an empty or gutted query; fall back whole.
+  if (wordsOf(working).length === 0) working = original
+
+  const words = wordsOf(working)
+  const stillPersonal = FIRST_PERSON.test(working)
+  const multiSentence = /[.!?]\s+\S/.test(working)
+
+  if (stillPersonal && (words.length > MAX_QUERY_WORDS || multiSentence)) {
+    return {
+      query: working,
+      dropped: working !== original,
+      refusal:
+        'That query is a sentence about you, not search terms, so it was not sent. ' +
+        'Search providers get the subject only — no first-person framing, no plans, no dates ' +
+        'or places that are not part of what you are looking up. Call the tool again with ' +
+        'just the terms (for example "grand sumo tournament September 2026 schedule" rather ' +
+        'than a description of your trip). Split separate subjects into separate searches.'
+    }
+  }
+
+  if (words.length > MAX_QUERY_WORDS) {
+    working = words.slice(0, MAX_QUERY_WORDS).join(' ')
+  }
+
+  return { query: working, dropped: working !== original }
 }
 
 // ---- HTTP helpers ------------------------------------------------------------
@@ -137,7 +279,7 @@ const USER_AGENT = GENERIC_USER_AGENT
 async function fetchWithTimeout(
   url: string,
   init: AuditedFetchInit | undefined,
-  purpose: 'search' | 'webpage',
+  purpose: 'search' | 'webpage' | 'shop' | 'image',
   timeoutMs: number
 ): Promise<HttpResponseLike> {
   return auditedFetch(url, { ...init, timeoutMs }, purpose)
@@ -274,6 +416,329 @@ async function searchDuckDuckGo(query: string, maxResults: number): Promise<Sear
   return results
 }
 
+// ---- Image search ------------------------------------------------------------
+
+/** Protocol-relative URLs (`//cdn.example/…`) need a scheme before parsing. */
+function absoluteHttpUrl(url: string): string {
+  return url.startsWith('//') ? `https:${url}` : url
+}
+
+async function searchSearXNGImages(query: string, maxResults: number): Promise<ImageResult[]> {
+  const base = getSettings().search.searxngUrl.trim().replace(/\/+$/, '')
+  if (!base) throw new Error('No SearXNG URL configured — set it under Settings → Search.')
+  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&categories=images`
+  const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } }, 'search', 15_000)
+  if (!res.ok) throw new Error(`SearXNG returned HTTP ${res.status}`)
+  const data = (await res.json()) as {
+    results?: { title?: string; url?: string; img_src?: string; thumbnail_src?: string }[]
+  }
+  return (data.results ?? [])
+    .filter((r) => r.img_src && r.url)
+    .slice(0, maxResults)
+    .map((r) => ({
+      title: r.title ?? '',
+      imageUrl: absoluteHttpUrl(r.img_src!),
+      thumbnailUrl: r.thumbnail_src ? absoluteHttpUrl(r.thumbnail_src) : undefined,
+      pageUrl: r.url!
+    }))
+}
+
+async function searchBraveImages(query: string, maxResults: number): Promise<ImageResult[]> {
+  const apiKey = getBraveApiKey()
+  if (!apiKey) {
+    throw new Error('No Brave Search API key set — add one under Settings → Search.')
+  }
+  const url =
+    `https://api.search.brave.com/res/v1/images/search?q=${encodeURIComponent(query)}` +
+    `&count=${maxResults}&safesearch=moderate`
+  const res = await fetchWithTimeout(
+    url,
+    {
+      headers: {
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip',
+        'X-Subscription-Token': apiKey,
+        'User-Agent': USER_AGENT
+      }
+    },
+    'search',
+    15_000
+  )
+  if (!res.ok) throw new Error(`Brave Image Search returned HTTP ${res.status}`)
+  const data = (await res.json()) as {
+    results?: { title?: string; url?: string; properties?: { url?: string }; thumbnail?: { src?: string } }[]
+  }
+  return (data.results ?? [])
+    .filter((r) => r.properties?.url && r.url)
+    .slice(0, maxResults)
+    .map((r) => ({
+      title: r.title ?? '',
+      imageUrl: r.properties!.url!,
+      thumbnailUrl: r.thumbnail?.src ?? undefined,
+      pageUrl: r.url!
+    }))
+}
+
+/**
+ * DuckDuckGo's keyless image endpoint. The JSON feed requires a `vqd` token
+ * from the results page first — same no-key, rate-limited posture as the HTML
+ * endpoint, so keep bursts low here too.
+ */
+async function searchDuckDuckGoImages(query: string, maxResults: number): Promise<ImageResult[]> {
+  const page = await fetchWithTimeout(
+    `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
+    { headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' } },
+    'search',
+    15_000
+  )
+  if (!page.ok) throw new Error(`DuckDuckGo returned HTTP ${page.status}`)
+  const html = await page.text()
+  const vqd = /vqd=["']([^"']+)["']/.exec(html)?.[1] ?? /vqd=([\d-]+)&/.exec(html)?.[1]
+  if (!vqd) throw new Error('DuckDuckGo did not issue an image-search token.')
+
+  const res = await fetchWithTimeout(
+    `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}` +
+      `&vqd=${encodeURIComponent(vqd)}&f=,,,&p=1`,
+    {
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+        Referer: 'https://duckduckgo.com/'
+      }
+    },
+    'search',
+    15_000
+  )
+  if (!res.ok) throw new Error(`DuckDuckGo images returned HTTP ${res.status}`)
+  const data = (await res.json()) as {
+    results?: { title?: string; image?: string; thumbnail?: string; url?: string }[]
+  }
+  return (data.results ?? [])
+    .filter((r) => r.image && r.url)
+    .slice(0, maxResults)
+    .map((r) => ({
+      title: r.title ?? '',
+      imageUrl: absoluteHttpUrl(r.image!),
+      thumbnailUrl: r.thumbnail ? absoluteHttpUrl(r.thumbnail) : undefined,
+      pageUrl: r.url!
+    }))
+}
+
+/**
+ * The ceiling on images per search, and the only one.
+ *
+ * Every returned image costs a separate fetch to a separate third-party host,
+ * so this number is a privacy budget before it is a display choice. It is
+ * enforced here rather than downstream: asking a provider for results that are
+ * then discarded spends the user's quota to produce nothing.
+ */
+export const MAX_IMAGE_RESULTS = 6
+
+/**
+ * The image counterpart of runWebSearch: same query sanitization, same
+ * provider abstraction, same pre-send confirmation hook. Images are NOT
+ * cached — the text search cache exists to spare rate limits, and image
+ * queries are far rarer; every image search is one provider request.
+ */
+export async function runImageSearch(
+  rawQuery: string,
+  maxResults = MAX_IMAGE_RESULTS,
+  beforeSend?: (sanitizedQuery: string) => Promise<boolean>
+): Promise<ImageSearchOutcome> {
+  const settings = getSettings().search
+  const { query, redactions, refusal } = sanitizeQuery(String(rawQuery ?? ''))
+  const provider = settings.provider
+
+  if (!query) {
+    return { ok: false, provider, images: [], redactions, sentQuery: '', error: 'Empty image search query.' }
+  }
+  if (refusal) {
+    return { ok: false, provider, images: [], redactions, sentQuery: '', error: refusal }
+  }
+  const limit = Math.min(Math.max(1, Math.round(maxResults) || 1), MAX_IMAGE_RESULTS)
+
+  if (settings.confirmBeforeSearch && beforeSend && !(await beforeSend(query))) {
+    return {
+      ok: false,
+      provider,
+      images: [],
+      redactions,
+      sentQuery: query,
+      error: 'The user declined this image search.'
+    }
+  }
+
+  try {
+    let images: ImageResult[]
+    switch (provider) {
+      case 'searxng':
+        images = await searchSearXNGImages(query, limit)
+        break
+      case 'brave':
+        images = await searchBraveImages(query, limit)
+        break
+      case 'duckduckgo':
+        images = await searchDuckDuckGoImages(query, limit)
+        break
+    }
+    return { ok: true, provider, images, redactions, sentQuery: query }
+  } catch (err) {
+    return {
+      ok: false,
+      provider,
+      images: [],
+      redactions,
+      sentQuery: query,
+      error: err instanceof Error ? err.message : String(err)
+    }
+  }
+}
+
+// ---- Thumbnail proxying --------------------------------------------------------
+
+/** Largest body we will pull off the wire before deciding it is not a thumbnail. */
+const MAX_THUMBNAIL_BYTES = 256 * 1024
+/** Largest data URL we will keep, after downscaling. See `downscaleThumbnail`. */
+export const MAX_STORED_THUMBNAIL_BYTES = 48 * 1024
+const THUMBNAIL_WIDTH = 320
+const THUMBNAIL_TIMEOUT_MS = 10_000
+const MAX_THUMBNAIL_REDIRECTS = 2
+/** Raster formats only — SVG can carry script and is refused outright. */
+const THUMBNAIL_TYPES = /^image\/(jpeg|png|gif|webp|avif)$/
+
+export interface ThumbnailOutcome {
+  ok: boolean
+  dataUrl?: string
+  error?: string
+}
+
+/**
+ * Shrink a fetched image to gallery size.
+ *
+ * This is not cosmetic. A tool-call record is persisted verbatim with its
+ * conversation, and every conversation file is re-read and parsed at launch —
+ * so a full-size image here is megabytes of base64 that the app pays for on
+ * every start, forever. 320px wide is already more than the three-column grid
+ * renders.
+ *
+ * `nativeImage` decodes PNG and JPEG only; WebP, AVIF and GIF come back empty.
+ * Those are kept unchanged when they are already under the stored cap and
+ * refused when they are not — a stated limit rather than a silent blank tile.
+ */
+function downscaleThumbnail(bytes: Uint8Array, contentType: string): ThumbnailOutcome {
+  const asDataUrl = (type: string, buffer: Buffer): ThumbnailOutcome => ({
+    ok: true,
+    dataUrl: `data:${type};base64,${buffer.toString('base64')}`
+  })
+  const tooBig = (size: number): ThumbnailOutcome => ({
+    ok: false,
+    error:
+      `Thumbnail is ${Math.round(size / 1024)}KB after resizing, over the ` +
+      `${Math.round(MAX_STORED_THUMBNAIL_BYTES / 1024)}KB limit.`
+  })
+
+  const source = Buffer.from(bytes)
+  const image = nativeImage.createFromBuffer(source)
+  if (image.isEmpty()) {
+    // Undecodable here (WebP/AVIF/GIF, or a corrupt body). Pass it through only
+    // if it is already small enough to store.
+    if (source.byteLength <= MAX_STORED_THUMBNAIL_BYTES) return asDataUrl(contentType, source)
+    return {
+      ok: false,
+      error:
+        `Image is ${Math.round(source.byteLength / 1024)}KB and its format (${contentType}) ` +
+        'cannot be resized locally.'
+    }
+  }
+
+  const { width } = image.getSize()
+  const resized =
+    width > THUMBNAIL_WIDTH ? image.resize({ width: THUMBNAIL_WIDTH, quality: 'good' }) : image
+
+  // PNG keeps transparency, which some product shots rely on — but PNG of a
+  // photograph is far larger than JPEG, so fall back when it does not fit.
+  if (contentType === 'image/png') {
+    const png = resized.toPNG()
+    if (png.byteLength <= MAX_STORED_THUMBNAIL_BYTES) return asDataUrl('image/png', png)
+  }
+  const jpeg = resized.toJPEG(72)
+  if (jpeg.byteLength > MAX_STORED_THUMBNAIL_BYTES) return tooBig(jpeg.byteLength)
+  return asDataUrl('image/jpeg', jpeg)
+}
+
+/**
+ * Fetch one image through the audited egress path and return it as a data URL.
+ *
+ * The renderer's CSP allows `data:` images only, so a remote thumbnail cannot
+ * be loaded by the chat UI directly. That is deliberate, and this is the
+ * controlled way around it: the fetch goes through the SSRF guard, the egress
+ * session (so a configured proxy actually covers it), and the network activity
+ * log — and it carries no cookies, no referrer and no browser fingerprint.
+ *
+ * What it does not do is hide the user from the image host. Without a proxy the
+ * host still sees the user's IP address, because the main process fetches from
+ * the same machine. The gain over letting the renderer load the URL directly is
+ * auditability, proxy coverage and a stripped request — not invisibility, and
+ * the confirmation dialog says so before any of this runs.
+ */
+export async function fetchImageDataUrl(rawUrl: string): Promise<ThumbnailOutcome> {
+  let url: URL
+  try {
+    url = new URL(String(rawUrl ?? ''))
+  } catch {
+    return { ok: false, error: 'Unparseable image URL.' }
+  }
+  if (url.protocol !== 'https:') {
+    return { ok: false, error: 'Refused: image URLs must be HTTPS.' }
+  }
+
+  try {
+    for (let hop = 0; ; hop++) {
+      await assertPublicHost(url)
+      const res = await fetchWithTimeout(
+        url.toString(),
+        {
+          redirect: 'manual',
+          // JPEG and PNG first on purpose: those are the two formats
+          // `downscaleThumbnail` can actually resize, so preferring them keeps
+          // more results displayable rather than dropped for being too large.
+          headers: { 'User-Agent': USER_AGENT, Accept: 'image/jpeg,image/png,image/*' },
+          maxBytes: MAX_THUMBNAIL_BYTES
+        },
+        'image',
+        THUMBNAIL_TIMEOUT_MS
+      )
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location')
+        if (!location) throw new Error(`Redirect (HTTP ${res.status}) without a Location header.`)
+        if (hop >= MAX_THUMBNAIL_REDIRECTS) throw new Error('Too many redirects.')
+        const next = new URL(location, url)
+        if (next.protocol !== 'https:') throw new Error('Refused: redirect to a non-HTTPS URL.')
+        url = next
+        continue
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const contentType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
+      if (!THUMBNAIL_TYPES.test(contentType)) {
+        throw new Error(`Not a supported image (${contentType || 'unknown content type'}).`)
+      }
+      // A capped body is a *partial* body: base64-encoding it produces a data
+      // URL that looks valid and decodes to a broken image. Refuse instead.
+      if (res.truncated) {
+        throw new Error(
+          `Image is larger than the ${Math.round(MAX_THUMBNAIL_BYTES / 1024)}KB fetch limit.`
+        )
+      }
+      const bytes = await readCappedBytes(res, MAX_THUMBNAIL_BYTES)
+      return downscaleThumbnail(bytes, contentType)
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 // ---- Public search API -------------------------------------------------------
 
 /**
@@ -297,7 +762,7 @@ interface CachedSearch {
 const searchCache = new Map<string, CachedSearch>()
 
 function searchCacheKey(provider: SearchProviderId, query: string, maxResults: number): string {
-  return `${provider} ${maxResults} ${query.toLowerCase()}`
+  return `${provider}\u001f${maxResults}\u001f${query.toLowerCase()}`
 }
 
 function readSearchCache(key: string): SearchResult[] | null {
@@ -337,11 +802,17 @@ export async function runWebSearch(
   beforeSend?: (sanitizedQuery: string) => Promise<boolean>
 ): Promise<WebSearchOutcome> {
   const settings = getSettings().search
-  const { query, redactions } = sanitizeQuery(String(rawQuery ?? ''))
+  const { query, redactions, refusal } = sanitizeQuery(String(rawQuery ?? ''))
   const provider = settings.provider
 
   if (!query) {
     return { ok: false, provider, results: [], redactions, sentQuery: '', error: 'Empty search query.' }
+  }
+  // Refused before the cache and before the wire: a paragraph about the user
+  // is neither a good search nor theirs to disclose. The model gets told how
+  // to fix it and calls again.
+  if (refusal) {
+    return { ok: false, provider, results: [], redactions, sentQuery: '', error: refusal }
   }
 
   // A cache hit sends nothing, so it is checked before the confirmation prompt —
@@ -489,7 +960,9 @@ function literalAddress(hostname: string): { address: string; family: number } |
 async function assertPublicHost(url: URL): Promise<void> {
   const hostname = url.hostname
   if (isLoopbackHostname(hostname)) {
-    throw new Error('Refused: fetch_webpage cannot fetch loopback addresses.')
+    // Shared by fetch_webpage, shopping and image thumbnails, so the message
+    // names the rule rather than one of the three callers.
+    throw new Error('Refused: loopback addresses cannot be fetched.')
   }
 
   // A literal address needs no resolution, so this part of the check always runs.
@@ -567,7 +1040,16 @@ function failedPage(url: string, error: string): WebpageOutcome {
   }
 }
 
-export async function fetchWebpage(rawUrl: string): Promise<WebpageOutcome> {
+/**
+ * `purpose` selects the activity-log label only — the SSRF guard, the HTTPS
+ * requirement and the redirect handling are identical either way. Shopping
+ * fetches pass 'shop' so the user can tell a page they asked to read from a
+ * retailer the app contacted on their behalf.
+ */
+export async function fetchWebpage(
+  rawUrl: string,
+  purpose: 'webpage' | 'shop' = 'webpage'
+): Promise<WebpageOutcome> {
   let url: URL
   try {
     url = new URL(String(rawUrl ?? ''))
@@ -596,7 +1078,7 @@ export async function fetchWebpage(rawUrl: string): Promise<WebpageOutcome> {
           },
           maxBytes: MAX_PAGE_BYTES
         },
-        'webpage',
+        purpose,
         FETCH_TIMEOUT_MS
       )
 

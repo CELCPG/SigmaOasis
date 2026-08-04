@@ -1,0 +1,1 @@
+{ "prompt": "what's the current EUR to USD exchange rate?", "expect": { "tool": "web_search" } }

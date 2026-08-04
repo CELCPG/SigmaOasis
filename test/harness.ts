@@ -12,6 +12,7 @@
  * test file calls it at the top.
  */
 import Module from 'module'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 /**
@@ -27,6 +28,13 @@ export interface HarnessState {
   settings: Record<string, unknown>
   /** Body returned for a search-provider request. */
   searchHtml: string
+  /**
+   * Per-query search results, checked before `searchHtml`: the first route whose
+   * `match` appears in the request URL wins. Real search providers answer
+   * different queries with different results, and a fixture that cannot express
+   * that forces every sub-question onto the same candidates.
+   */
+  searchRoutes: { match: string; html: string }[]
   /** Body returned for a SearXNG JSON request. */
   searxngJson: unknown
   /** Bytes returned for a webpage/PDF fetch, keyed by URL substring. */
@@ -37,6 +45,8 @@ export interface HarnessState {
     status?: number
     /** Extra response headers, e.g. `location` for a redirect. */
     headers?: Record<string, string>
+    /** Report the body as cut short at maxBytes, as the real transport does. */
+    truncated?: boolean
   }[]
   /** Make every /embeddings call throw. */
   failEmbeddings: boolean
@@ -53,8 +63,30 @@ export interface HarnessState {
   completions: string[]
   /** Every prompt sent to /chat/completions, for asserting what the model saw. */
   completionPrompts: string[]
+  /** Full parsed bodies of /chat/completions requests, for asserting request shaping. */
+  completionBodies: Record<string, unknown>[]
   /** Make every /chat/completions call throw. */
   failCompletions: boolean
+  /** Make the FIRST /chat/completions call return HTTP 400, then recover. */
+  completionOnce400: boolean
+  /** Bodies received by /api/v0/models/load, in order. */
+  pinCalls: { model?: string; ttl?: number }[]
+  /** Bodies received by the legacy /api/v1/models/load, in order. */
+  legacyPinCalls: { model?: string }[]
+  /** Bodies received by /api/v1/models/unload, in order. */
+  unloadCalls: { instance_id?: string }[]
+  /** Make /api/v0/models/load return "Unexpected endpoint" (older LM Studio). */
+  pinUnavailable: boolean
+  /** Make the legacy /api/v1/models/load also return "Unexpected endpoint". */
+  pinLegacyUnavailable: boolean
+  /** Make both load endpoints refuse with a guardrail-style model_load_failed. */
+  pinRefused: boolean
+  /** Reported `state` per model id from GET /api/v0/models (default: not-loaded). */
+  modelStates: Record<string, string>
+  /** Make GET /api/v0/models 404, as older LM Studio builds without the REST API do. */
+  catalogUnavailable: boolean
+  /** Full override for the GET /api/v0/models `data` array, for capability fields. */
+  catalogModels: Record<string, unknown>[] | null
   /**
    * DNS answers per hostname, for search.ts's SSRF guard. Anything not listed
    * resolves to a public address.
@@ -66,11 +98,16 @@ export interface HarnessState {
   dnsOverrides: Record<string, { address: string; family: number }[]>
   /** Hostnames that fail to resolve at all. */
   dnsFailures: string[]
+  /** Whether the safeStorage stub reports an OS keychain (audit log gating). */
+  encryptionAvailable: boolean
+  /** Widths passed to nativeImage.resize(), in order — image thumbnailing. */
+  resizeWidths: number[]
 }
 
 export const state: HarnessState = {
   settings: {},
   searchHtml: '',
+  searchRoutes: [],
   searxngJson: { results: [] },
   responses: [],
   failEmbeddings: false,
@@ -79,14 +116,28 @@ export const state: HarnessState = {
   externalRequests: [],
   completions: [],
   completionPrompts: [],
+  completionBodies: [],
   failCompletions: false,
+  completionOnce400: false,
+  pinCalls: [],
+  legacyPinCalls: [],
+  unloadCalls: [],
+  pinUnavailable: false,
+  pinLegacyUnavailable: false,
+  pinRefused: false,
+  modelStates: {},
+  catalogUnavailable: false,
+  catalogModels: null,
   dnsOverrides: {},
-  dnsFailures: []
+  dnsFailures: [],
+  encryptionAvailable: true,
+  resizeWidths: []
 }
 
 export function resetState(): void {
   state.settings = defaultSettings()
   state.searchHtml = ''
+  state.searchRoutes = []
   state.searxngJson = { results: [] }
   state.responses = []
   state.failEmbeddings = false
@@ -95,9 +146,22 @@ export function resetState(): void {
   state.externalRequests = []
   state.completions = []
   state.completionPrompts = []
+  state.completionBodies = []
   state.failCompletions = false
+  state.completionOnce400 = false
+  state.pinCalls = []
+  state.legacyPinCalls = []
+  state.unloadCalls = []
+  state.pinUnavailable = false
+  state.pinLegacyUnavailable = false
+  state.pinRefused = false
+  state.modelStates = {}
+  state.catalogUnavailable = false
+  state.catalogModels = null
   state.dnsOverrides = {}
   state.dnsFailures = []
+  state.encryptionAvailable = true
+  state.resizeWidths = []
 }
 
 function defaultSettings(): Record<string, unknown> {
@@ -113,7 +177,14 @@ function defaultSettings(): Record<string, unknown> {
       useHeadlessRenderer: false
     },
     research: { depth: 'standard', confirmPlan: false },
-    proxy: { mode: 'none', host: '127.0.0.1', port: 9050 }
+    proxy: { mode: 'none', host: '127.0.0.1', port: 9050 },
+    audit: { enabled: false, autoPurgeOnQuit: false },
+    plan: { maxSteps: 6, confirmPlan: true },
+    secondOpinion: { enabled: false, criticSlotId: null },
+    // requireProxy defaults false here so the majority of shopping tests
+    // exercise the pipeline; the refusal path sets it true explicitly, which is
+    // the behavior that must never regress.
+    shopping: { requireProxy: false, maxSellers: 4, excludeTierX: true }
   }
 }
 
@@ -151,7 +222,8 @@ function makeResponse(
   body: string | Buffer,
   contentType: string,
   status = 200,
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> = {},
+  truncated = false
 ): unknown {
   const isBuffer = Buffer.isBuffer(body)
   const headers: Record<string, string> = { 'content-type': contentType }
@@ -163,14 +235,70 @@ function makeResponse(
     text: async () => (isBuffer ? body.toString('utf-8') : body),
     json: async () => JSON.parse(isBuffer ? body.toString('utf-8') : body),
     arrayBuffer: async () => (isBuffer ? body : Buffer.from(body)),
-    body: null
+    body: null,
+    truncated
   }
 }
 
 const netStub = {
-  auditedFetch: async (url: string, init: { body?: string } | undefined, purpose: string) => {
+  auditedFetch: async (
+    url: string,
+    init: { body?: string; onChunk?: (chunk: Uint8Array) => void } | undefined,
+    purpose: string
+  ) => {
     state.fetchLog.push({ url, purpose })
 
+    if (url.endsWith('/api/v0/models/load')) {
+      if (state.pinUnavailable) {
+        return makeResponse('{"error":"Unexpected endpoint or method. (POST /api/v0/models/load)"}', 'application/json', 404)
+      }
+      if (state.pinRefused) {
+        return makeResponse(
+          '{"error":{"type":"model_load_failed","message":"Model loading was stopped due to insufficient system resources."}}',
+          'application/json',
+          400
+        )
+      }
+      state.pinCalls.push(JSON.parse(init!.body!) as { model?: string; ttl?: number })
+      return makeResponse(JSON.stringify({ status: 'loaded' }), 'application/json')
+    }
+    if (url.endsWith('/api/v1/models/load')) {
+      if (state.pinLegacyUnavailable) {
+        return makeResponse('{"error":"Unexpected endpoint or method. (POST /api/v1/models/load)"}', 'application/json', 404)
+      }
+      if (state.pinRefused) {
+        return makeResponse(
+          '{"error":{"type":"model_load_failed","message":"Model loading was stopped due to insufficient system resources."}}',
+          'application/json',
+          400
+        )
+      }
+      const body = JSON.parse(init!.body!) as { model?: string }
+      state.legacyPinCalls.push(body)
+      if (body.model) state.modelStates[body.model] = 'loaded'
+      return makeResponse(JSON.stringify({ status: 'loaded' }), 'application/json')
+    }
+    if (url.endsWith('/api/v1/models/unload')) {
+      const body = JSON.parse(init!.body!) as { instance_id?: string }
+      state.unloadCalls.push(body)
+      if (body.instance_id) state.modelStates[body.instance_id] = 'not-loaded'
+      return makeResponse(JSON.stringify({ status: 'unloaded' }), 'application/json')
+    }
+    if (url.endsWith('/api/v0/models')) {
+      if (state.catalogUnavailable) {
+        return makeResponse('{"error":"Unexpected endpoint or method."}', 'application/json', 404)
+      }
+      if (state.catalogModels) {
+        return makeResponse(JSON.stringify({ data: state.catalogModels }), 'application/json')
+      }
+      const ids = new Set(['fake-embed', 'fake-chat', ...Object.keys(state.modelStates)])
+      return makeResponse(
+        JSON.stringify({
+          data: [...ids].map((id) => ({ id, state: state.modelStates[id] ?? 'not-loaded' }))
+        }),
+        'application/json'
+      )
+    }
     if (url.endsWith('/embeddings')) {
       if (state.failEmbeddings) throw new Error('simulated embedding failure')
       state.embedCalls += 1
@@ -182,9 +310,32 @@ const netStub = {
     }
     if (url.endsWith('/chat/completions')) {
       if (state.failCompletions) throw new Error('simulated completion failure')
-      const body = JSON.parse(init!.body!) as { messages: { content: string }[] }
+      if (state.completionOnce400) {
+        state.completionOnce400 = false
+        return makeResponse(
+          '{"error":"response_format json_schema is not supported by this server"}',
+          'application/json',
+          400
+        )
+      }
+      const body = JSON.parse(init!.body!) as { messages: { content: string }[]; stream?: boolean }
       state.completionPrompts.push(body.messages.map((m) => m.content).join('\n'))
+      state.completionBodies.push(body as unknown as Record<string, unknown>)
       const reply = state.completions.shift() ?? ''
+      // Streaming callers (research synthesis) accumulate from onChunk rather
+      // than the body, so the stub has to actually emit SSE frames — split in
+      // two, so a caller that mishandles chunk boundaries fails here.
+      if (body.stream) {
+        const encoder = new TextEncoder()
+        const half = Math.ceil(reply.length / 2)
+        const frames = [reply.slice(0, half), reply.slice(half)]
+          .filter((part) => part.length > 0)
+          .map((part) => `data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n`)
+        for (const frame of [...frames, 'data: [DONE]\n']) {
+          init?.onChunk?.(encoder.encode(frame))
+        }
+        return makeResponse('', 'text/event-stream')
+      }
       return makeResponse(
         JSON.stringify({ choices: [{ message: { content: reply } }] }),
         'application/json'
@@ -197,14 +348,15 @@ const netStub = {
       )
     }
     if (url.includes('duckduckgo')) {
-      return makeResponse(state.searchHtml, 'text/html')
+      const route = state.searchRoutes.find((r) => url.includes(r.match))
+      return makeResponse(route ? route.html : state.searchHtml, 'text/html')
     }
     if (url.includes('search?q=') || url.includes('8888')) {
       return makeResponse(JSON.stringify(state.searxngJson), 'application/json')
     }
     for (const r of state.responses) {
       if (url.includes(r.match)) {
-        return makeResponse(r.body, r.contentType, r.status, r.headers)
+        return makeResponse(r.body, r.contentType, r.status, r.headers, r.truncated)
       }
     }
     throw new Error(`harness: unexpected fetch ${url}`)
@@ -242,7 +394,108 @@ const storeStub = {
   braveApiKeyStatus: () => ({ set: false, encrypted: false })
 }
 
-const electronStub = { ipcMain: { handle: () => undefined } }
+/**
+ * Per-process userData stand-in for modules that persist JSON under
+ * app.getPath('userData') (memory.ts). Tests clean up what they write.
+ */
+const TEST_USER_DATA_DIR = join(tmpdir(), `sigma-oasis-harness-${process.pid}`)
+
+export function testUserDataDir(): string {
+  return TEST_USER_DATA_DIR
+}
+
+// ---- fake images -------------------------------------------------------------
+
+/**
+ * Marker for a synthetic image the nativeImage stub can "decode".
+ *
+ * Real nativeImage decodes by sniffing the format and re-encodes at whatever
+ * size the pixels demand — neither of which a unit test can reproduce or should
+ * depend on. So a fake image simply carries its own answers in a header: the
+ * width it reports, and how large it encodes to. Bytes without the marker are
+ * undecodable, which is exactly how a WebP or AVIF body looks to nativeImage.
+ */
+const FAKE_IMAGE_MARKER = 'SIGMAFAKEIMG'
+
+export interface FakeImageSpec {
+  /** Reported source width, so tests can drive the resize branch. */
+  width?: number
+  /** Size of the buffer toJPEG() hands back. */
+  jpegBytes?: number
+  /** Size of the buffer toPNG() hands back. */
+  pngBytes?: number
+  /** Omit the marker: nativeImage cannot decode it (WebP/AVIF/GIF/corrupt). */
+  undecodable?: boolean
+  /** Total on-the-wire size, padded out. Defaults to just the header. */
+  totalBytes?: number
+}
+
+/** Build the body for a stubbed image response. */
+export function fakeImageBytes(spec: FakeImageSpec = {}): Buffer {
+  const header = spec.undecodable
+    ? 'not-a-decodable-image'
+    : `${FAKE_IMAGE_MARKER}${JSON.stringify({
+        width: spec.width ?? 800,
+        jpegBytes: spec.jpegBytes ?? 8 * 1024,
+        pngBytes: spec.pngBytes ?? 32 * 1024
+      })}`
+  const total = Math.max(spec.totalBytes ?? header.length, header.length)
+  return Buffer.concat([Buffer.from(header, 'latin1'), Buffer.alloc(total - header.length, 0x41)])
+}
+
+function parseFakeImage(buffer: Buffer): Required<Omit<FakeImageSpec, 'undecodable' | 'totalBytes'>> | null {
+  const head = buffer.subarray(0, 256).toString('latin1')
+  if (!head.startsWith(FAKE_IMAGE_MARKER)) return null
+  const end = head.indexOf('}')
+  if (end < 0) return null
+  try {
+    return JSON.parse(head.slice(FAKE_IMAGE_MARKER.length, end + 1))
+  } catch {
+    return null
+  }
+}
+
+function fakeNativeImage(spec: ReturnType<typeof parseFakeImage>, width: number): unknown {
+  return {
+    isEmpty: () => spec === null,
+    getSize: () => ({ width, height: width }),
+    resize: ({ width: w }: { width: number }) => {
+      state.resizeWidths.push(w)
+      return fakeNativeImage(spec, w)
+    },
+    toJPEG: () => Buffer.alloc(spec?.jpegBytes ?? 0),
+    toPNG: () => Buffer.alloc(spec?.pngBytes ?? 0)
+  }
+}
+
+const electronStub = {
+  app: {
+    getPath: () => TEST_USER_DATA_DIR,
+    getVersion: () => '0.9.0-test'
+  },
+  nativeImage: {
+    createFromBuffer: (buffer: Buffer) => {
+      const spec = parseFakeImage(buffer)
+      return fakeNativeImage(spec, spec?.width ?? 0)
+    }
+  },
+  ipcMain: { handle: () => undefined },
+  // Deterministic stand-in for the OS keychain: a reversible, prefixed encoding,
+  // so tests can assert that what lands on disk is not plaintext and that
+  // decrypt rejects anything not written by the stub.
+  safeStorage: {
+    isEncryptionAvailable: () => state.encryptionAvailable,
+    encryptString: (s: string) => Buffer.from(`enc:${Buffer.from(s, 'utf-8').toString('base64')}`),
+    decryptString: (b: Buffer) => {
+      const s = b.toString('utf-8')
+      if (!s.startsWith('enc:')) throw new Error('safeStorage stub: cannot decrypt')
+      return Buffer.from(s.slice(4), 'base64').toString('utf-8')
+    }
+  },
+  // Only reached by the audit export handler, which tests do not invoke.
+  dialog: {},
+  BrowserWindow: { fromWebContents: () => null }
+}
 
 /** `Module._load` is internal, so it is not in @types/node. */
 type ModuleLoader = (request: string, parent: { filename?: string } | null, isMain: boolean) => unknown

@@ -1,0 +1,1 @@
+{ "prompt": "what do you remember about my music preferences?", "expect": { "tool": "memory_search" } }

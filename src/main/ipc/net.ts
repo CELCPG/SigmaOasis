@@ -17,6 +17,8 @@ export interface AuditedFetchInit {
   signal?: AbortSignal
   timeoutMs?: number
   maxBytes?: number
+  /** Per-chunk callback, so a streaming caller keeps partial output on failure. */
+  onChunk?: (chunk: Uint8Array) => void
 }
 
 /**
@@ -41,6 +43,8 @@ export type NetworkPurpose =
   | 'lmstudio' // loopback model server: chat, models, embeddings
   | 'search' // the configured search provider
   | 'webpage' // fetch_webpage tool (SSRF-guarded in search.ts)
+  | 'shop' // shopping research: retailer/manufacturer product pages
+  | 'image' // thumbnail bytes for image_search results
   | 'render' // headless page rendering (filtered in render.ts)
   | 'proxytest' // user-initiated "Test proxy" check only
   | 'update' // opt-in update checks
@@ -152,6 +156,17 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
     case 'webpage':
       // Arbitrary by design — guarded by the SSRF checks in search.ts.
       return ['*']
+    case 'shop':
+      // Same guard as 'webpage' — this purpose exists so the activity log
+      // distinguishes "a page you asked to read" from "a retailer we contacted
+      // on your behalf." Those are different disclosures to the same user.
+      return ['*']
+    case 'image':
+      // Same reasoning again: an image CDN contacted to fill a thumbnail
+      // gallery is not "a page you asked to read", and the log should not
+      // imply it was. Guarded by the same SSRF checks in search.ts, plus a
+      // raster-only content-type allowlist and a hard size cap.
+      return ['*']
     case 'render':
       // Arbitrary by design, but far more tightly constrained than 'webpage':
       // render.ts permits only the target page's own origin and refuses every
@@ -168,6 +183,25 @@ export class EgressBlockedError extends Error {
     )
     this.name = 'EgressBlockedError'
   }
+}
+
+/**
+ * Translate raw Chromium transport errors into something actionable. The
+ * common case by far: a proxy is configured (Tor on 127.0.0.1:9050, say) but
+ * nothing is listening, and Chromium's `net::ERR_PROXY_CONNECTION_FAILED`
+ * tells the user — and the model that receives it as a tool error — nothing
+ * about why or what to do. Say which proxy was tried and where the switch is.
+ */
+function friendlyTransportError(err: unknown): Error {
+  const original = err instanceof Error ? err : new Error(String(err))
+  if (!original.message.includes('ERR_PROXY_CONNECTION_FAILED')) return original
+  const config = currentProxyConfig()
+  if (!config.proxyRules) return original
+  return new Error(
+    `The configured proxy (${config.description}) refused the connection — nothing is ` +
+      `listening there. Start the proxy, or turn it off in Settings → Connection. ` +
+      `(${original.message})`
+  )
 }
 
 /**
@@ -231,6 +265,7 @@ export async function auditedFetch(
       signal: init?.signal,
       timeoutMs: init?.timeoutMs,
       maxBytes: init?.maxBytes,
+      onChunk: init?.onChunk,
       session: target
     })
     record({
@@ -243,6 +278,7 @@ export async function auditedFetch(
     })
     return res
   } catch (err) {
+    const friendly = friendlyTransportError(err)
     record({
       at: Date.now(),
       purpose,
@@ -250,9 +286,9 @@ export async function auditedFetch(
       method: init?.method ?? 'GET',
       status: null,
       ok: false,
-      error: err instanceof Error ? err.message : String(err)
+      error: friendly.message
     })
-    throw err
+    throw friendly
   }
 }
 
