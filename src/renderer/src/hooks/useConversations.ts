@@ -21,7 +21,10 @@ function uid(): string {
  */
 export function useConversations(): {
   load: () => Promise<void>
-  createConversation: (options?: { ephemeral?: boolean }) => void
+  createConversation: (options?: {
+    ephemeral?: boolean
+    branchFromMessageId?: string
+  }) => Conversation
   selectConversation: (id: string) => void
   removeConversation: (id: string) => Promise<void>
   renameConversation: (id: string, title: string) => Promise<void>
@@ -49,21 +52,35 @@ export function useConversations(): {
     }
   }, [])
 
-  const createConversation = useCallback((options?: { ephemeral?: boolean }): void => {
-    const store = useAppStore.getState()
-    const convo: Conversation = {
-      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
-      title: options?.ephemeral ? 'Ephemeral chat' : 'New conversation',
-      mode: 'independent',
-      activeModelSlotId: store.settings?.models.find((m) => m.enabled)?.id,
-      messages: [],
-      ...(options?.ephemeral ? { ephemeral: true } : {}),
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }
-    store.upsertConversation(convo)
-    store.setActiveConversationId(convo.id)
-  }, [])
+  const createConversation = useCallback(
+    (options?: { ephemeral?: boolean; branchFromMessageId?: string }): Conversation => {
+      const store = useAppStore.getState()
+      // The id is needed inside `branches` below, so it is bound before the
+      // literal rather than read back off `convo` mid-initialisation.
+      const id = uid()
+      const branchFrom = options?.branchFromMessageId
+      const convo: Conversation = {
+        id,
+        title: options?.ephemeral ? 'Ephemeral chat' : 'New conversation',
+        mode: 'independent',
+        activeModelSlotId: store.settings?.models.find((m) => m.enabled)?.id,
+        messages: [],
+        ...(options?.ephemeral ? { ephemeral: true } : {}),
+        ...(branchFrom
+          ? {
+              branches: [{ messageId: branchFrom, branchId: id, title: 'Alternative response' }],
+              activeBranchId: id
+            }
+          : {}),
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }
+      store.upsertConversation(convo)
+      store.setActiveConversationId(id)
+      return convo
+    },
+    []
+  )
 
   const selectConversation = useCallback((id: string): void => {
     useAppStore.getState().setActiveConversationId(id)
