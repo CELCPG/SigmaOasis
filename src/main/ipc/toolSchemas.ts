@@ -129,6 +129,32 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: 'function',
     function: {
+      name: 'image_search',
+      description:
+        'Find pictures of something on the public web and display thumbnails to the user in the ' +
+        'chat, each linked to its source page.\n' +
+        'Use when: the user wants to SEE what something looks like — "show me", "what does it look ' +
+        'like", "find me a picture" — or when you are recommending specific purchasable items the ' +
+        'user will want to look at.\n' +
+        'Do not use when: the question is about facts, prices, or specifications (web_search or ' +
+        'shop_compare), or you already have the page URL (fetch_webpage). Never use it to verify a ' +
+        'fact — images illustrate, they do not prove.\n' +
+        'Send only the visual subject as search terms, built from the conversation — resolve "it", ' +
+        '"these", "that one" first. No personal data.\n' +
+        'Example: {"query": "all-terrain pet stroller large wheels"}',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What to find pictures of — subject terms only, no personal data' },
+          max_results: { type: 'number', description: 'How many images to return (1–6, default 6)' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'fetch_webpage',
       description:
         'Fetch a single public web page (HTTPS only) and return its text content, stripped of ' +
@@ -213,6 +239,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         'Do not use when: the question is conceptual (what compound interest means, how ' +
         'amortization works) — answer that directly.\n' +
         'Rates are percentages (7 means 7%).\n' +
+        'For loan_amortization, principal is the amount BORROWED — subtract any down payment ' +
+        'or trade-in from the purchase price first ($20,000 car with $5,000 down is 15000).\n' +
+        'Report the figures this tool returns verbatim. Never recompute, adjust, or round them ' +
+        'into different numbers; if the arguments were wrong, call it again with the right ones.\n' +
         'Example: {"operation": "compound_interest", "principal": 0, "monthly_contribution": 500, "annual_rate": 7, "years": 20}',
       parameters: {
         type: 'object',
@@ -225,8 +255,9 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           principal: {
             type: 'number',
             description:
-              'Starting amount in dollars: initial investment, loan amount, or current savings. ' +
-              'For inflation_adjust, the amount to convert.'
+              'Starting amount in dollars: initial investment, current savings, or — for ' +
+              'loan_amortization — the amount actually borrowed, i.e. purchase price minus any ' +
+              'down payment and trade-in. For inflation_adjust, the amount to convert.'
           },
           annual_rate: {
             type: 'number',

@@ -37,9 +37,41 @@ export interface CompleteOptions {
    * turns into a retry without the constraint.
    */
   jsonSchema?: { name: string; schema: Record<string, unknown> }
+  /**
+   * Override the derived timeout. Rarely needed — the default already scales
+   * with `maxTokens`, which is the thing that actually determines how long a
+   * local model takes.
+   */
+  timeoutMs?: number
 }
 
-const DEFAULT_TIMEOUT_MS = 120_000
+/**
+ * How long to wait, derived from how much the model was asked to write.
+ *
+ * A single flat timeout was wrong in both directions. Through v1.3 every
+ * main-process call — a 400-token query reformulation and a 1400-token
+ * research brief alike — got 120 seconds. On laptop-class hardware a 12B model
+ * writing 1400 tokens needs well past that, so research runs that had already
+ * spent three minutes fetching and ranking sources threw all of it away at the
+ * final step (measured: 8 pages across 7 domains, then "Synthesis failed:
+ * Request timed out after 120s"). Meanwhile a genuinely hung server held a
+ * short call for the full two minutes.
+ *
+ * So: a fixed allowance for prompt processing, plus time per requested token
+ * at a pessimistic generation rate. This is a ceiling for the pathological
+ * case, not a delay anyone waits out — a healthy server returns long before it.
+ */
+const PROMPT_ALLOWANCE_MS = 60_000
+/** Pessimistic floor for local generation; slower than any healthy setup. */
+const TOKENS_PER_SECOND = 4
+const MIN_TIMEOUT_MS = 90_000
+const MAX_TIMEOUT_MS = 300_000
+
+export function timeoutForTokens(maxTokens: number | undefined): number {
+  const tokens = maxTokens && maxTokens > 0 ? maxTokens : 512
+  const derived = PROMPT_ALLOWANCE_MS + (tokens / TOKENS_PER_SECOND) * 1000
+  return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.round(derived)))
+}
 
 /** One non-streaming completion. Returns the assistant's text. */
 export async function chatComplete(options: CompleteOptions): Promise<string> {
@@ -76,7 +108,7 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
               : {})
         }),
         signal: options.signal,
-        timeoutMs: DEFAULT_TIMEOUT_MS
+        timeoutMs: options.timeoutMs ?? timeoutForTokens(options.maxTokens)
       },
       'lmstudio'
     )
@@ -90,6 +122,110 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
     return data.choices?.[0]?.message?.content ?? ''
   } catch (err) {
     throw err instanceof Error ? err : new Error(String(err))
+  }
+}
+
+/**
+ * A completion that failed after the model had already written something.
+ *
+ * `partial` is what arrived before the failure. A research brief that stopped
+ * four paragraphs in is worth far more to the user than an error string, and
+ * the caller — not this module — decides whether the fragment is usable.
+ */
+export class PartialCompletionError extends Error {
+  constructor(
+    message: string,
+    readonly partial: string
+  ) {
+    super(message)
+    this.name = 'PartialCompletionError'
+  }
+}
+
+/**
+ * Parse one Server-Sent Events buffer into completion deltas.
+ *
+ * Returns the text found plus whatever trailing fragment was incomplete, which
+ * the caller carries into the next chunk — a delta can split mid-line, and
+ * dropping the remainder loses tokens silently.
+ */
+export function parseSseDeltas(buffer: string): { text: string; rest: string } {
+  let text = ''
+  const lastBreak = buffer.lastIndexOf('\n')
+  if (lastBreak === -1) return { text: '', rest: buffer }
+  const complete = buffer.slice(0, lastBreak)
+  const rest = buffer.slice(lastBreak + 1)
+
+  for (const line of complete.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('data:')) continue
+    const payload = trimmed.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+    try {
+      const parsed = JSON.parse(payload) as {
+        choices?: { delta?: { content?: string }; message?: { content?: string } }[]
+      }
+      const choice = parsed.choices?.[0]
+      text += choice?.delta?.content ?? choice?.message?.content ?? ''
+    } catch {
+      // A malformed frame is skipped rather than failing the whole stream.
+    }
+  }
+  return { text, rest }
+}
+
+/**
+ * One streaming completion, returning the full text.
+ *
+ * Streams for durability rather than display: nothing here is shown token by
+ * token, but accumulating as bytes arrive means a timeout throws a
+ * `PartialCompletionError` carrying the text written so far instead of
+ * discarding minutes of generation.
+ */
+export async function chatCompleteStream(options: CompleteOptions): Promise<string> {
+  const settings = getSettings()
+  await pinChatModel(options.model)
+
+  let accumulated = ''
+  let pending = ''
+  const decoder = new TextDecoder()
+  const onChunk = (chunk: Uint8Array): void => {
+    pending += decoder.decode(chunk, { stream: true })
+    const { text, rest } = parseSseDeltas(pending)
+    accumulated += text
+    pending = rest
+  }
+
+  try {
+    const res = await auditedFetch(
+      `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: options.model,
+          messages: options.messages,
+          stream: true,
+          temperature: options.temperature ?? 0.2,
+          ...(options.maxTokens ? { max_tokens: options.maxTokens } : {})
+        }),
+        signal: options.signal,
+        timeoutMs: options.timeoutMs ?? timeoutForTokens(options.maxTokens),
+        onChunk
+      },
+      'lmstudio'
+    )
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`LM Studio returned HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`)
+    }
+    // Flush any final frame the last chunk left incomplete.
+    const { text } = parseSseDeltas(`${pending}\n`)
+    return accumulated + text
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (accumulated.trim()) throw new PartialCompletionError(message, accumulated)
+    throw err instanceof Error ? err : new Error(message)
   }
 }
 

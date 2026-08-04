@@ -80,6 +80,55 @@ describe('search context', () => {
   })
 })
 
+describe('buildSearchQuery · anchoring a follow-up', () => {
+  const previous = 'best all-terrain pet stroller for a large dog'
+
+  test('a short continuer is anchored to the previous message', () => {
+    // Sent alone, this query comes back about gold bullion.
+    assert.equal(
+      buildSearchQuery('lets go with the gold one', previous),
+      `${previous} — lets go with the gold one`
+    )
+  })
+
+  test('an ordinal back-reference is anchored', () => {
+    assert.equal(
+      buildSearchQuery('what about the second one?', previous),
+      `${previous} — what about the second one?`
+    )
+    assert.equal(buildSearchQuery('number 2 please', previous), `${previous} — number 2 please`)
+  })
+
+  test('a self-contained question is NOT anchored just for containing a pronoun', () => {
+    // "it" appears in ordinary standalone questions constantly. Anchoring on
+    // it prepends an unrelated topic and doubles what reaches the provider.
+    const q = 'how tall is the Eiffel Tower and when was it built?'
+    assert.equal(buildSearchQuery(q, previous), q)
+  })
+
+  test('a long message is never anchored, however it opens', () => {
+    const q =
+      'and now that I have compared them, which of these car seats has the best crash test rating in Europe?'
+    assert.equal(buildSearchQuery(q, previous), q)
+  })
+
+  test('a weak continuer only counts in a terse message', () => {
+    assert.equal(buildSearchQuery('and the price?', previous), `${previous} — and the price?`)
+    const longer = 'now explain how regenerative braking recovers energy'
+    assert.equal(buildSearchQuery(longer, previous), longer)
+  })
+
+  test('with no previous message there is nothing to anchor to', () => {
+    assert.equal(buildSearchQuery('and the price?'), 'and the price?')
+    assert.equal(buildSearchQuery('and the price?', '   '), 'and the price?')
+  })
+
+  test('the combined query still respects the length cap', () => {
+    const long = 'y'.repeat(500)
+    assert.ok(buildSearchQuery('and the price?', long).length <= 241 + 1)
+  })
+})
+
 describe('consultedSources', () => {
   const rec = (name: string, status: ToolCallRecord['status']): ToolCallRecord => ({
     id: name,

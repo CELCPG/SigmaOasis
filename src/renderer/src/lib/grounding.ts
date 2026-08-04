@@ -42,6 +42,11 @@ export function buildGroundingBlock(now: Date = new Date()): string {
     'that you do not know.\n' +
     '- Never invent a plausible-sounding title, name, date, or statistic. A confident guess ' +
     'presented as fact is far worse than "I don\'t know".\n' +
+    '- When you search the web or shop, build the query from the whole conversation: resolve ' +
+    '"it", "these", "that one", "number 1" to what they refer to, and never send the user\'s ' +
+    'raw sentence as a query.\n' +
+    '- When a tool fails, times out, or returns nothing relevant, say exactly what you could ' +
+    'not verify. Never fill the gap with an invented product, brand, price, or name.\n' +
     '- If the question assumes facts you cannot confirm, flag the premise instead of playing along.'
   )
 }
@@ -117,10 +122,64 @@ export function looksFactual(text: string): boolean {
   return false
 }
 
-/** Turn the user's message into a compact search query. */
-export function buildSearchQuery(text: string): string {
+/**
+ * Openers that mark a message as meaningless without the conversation around
+ * it — "lets go with the first one", "and the price?". A search provider has
+ * never seen the conversation, so a query built from this text alone comes back
+ * about gold bullion and whey protein instead of the stroller the chat was
+ * actually about (measured v1.2).
+ */
+const CONTEXT_DEPENDENT = /^(?:ok(?:ay)?|yes|yeah|sure|yep|lets?\b|let's|go with|what about|how about)/i
+
+/**
+ * The same, for the words that carry no meaning outside the conversation but
+ * can appear mid-sentence: "and the price?", "so which is cheaper".
+ * Deliberately only matched on very short messages — see `buildSearchQuery`.
+ */
+const WEAK_CONTINUER = /^(?:and|so|then|now)\b/i
+
+/**
+ * References to something the chat named earlier.
+ *
+ * Bare pronouns are *not* here on purpose. "it", "that", "they" and friends
+ * appear constantly in ordinary self-contained questions ("how tall is the
+ * Eiffel Tower and when was it built?"), and treating those as follow-ups
+ * would prepend an unrelated earlier message — which both wrecks the query and
+ * sends the provider twice as much of the conversation as it needs. Only
+ * unambiguously back-referring forms count.
+ */
+const ANAPHORA =
+  /\b(?:these|those|the (?:first|second|third|fourth|last|other|same) (?:one|ones)?|the (?:first|second|third|fourth|last|other|same)\b|number \d+|option \w+|the \d+(?:st|nd|rd|th))\b/i
+
+/** Above this, a message carries its own subject and needs no anchor. */
+const MAX_ANCHORABLE_CHARS = 60
+/** A weak continuer only signals a follow-up in a genuinely terse message. */
+const MAX_WEAK_CONTINUER_CHARS = 40
+
+/**
+ * Turn the user's message into a compact search query.
+ *
+ * `previousUserText` anchors context-dependent follow-ups: when the current
+ * message is short *and* either opens with a continuer or leans on a
+ * back-reference, the previous user message is prepended so the query carries
+ * the topic as well as the follow-up. The result reads like notes, not a
+ * sentence — which is what a search provider wants anyway.
+ *
+ * The conditions are narrow by design. Anchoring doubles what the query
+ * discloses to the provider, so it has to earn that: a message long enough to
+ * stand on its own never gets anchored, however many pronouns it contains.
+ */
+export function buildSearchQuery(text: string, previousUserText?: string): string {
   const oneLine = text.replace(/\s+/g, ' ').trim()
-  return oneLine.length > MAX_QUERY_CHARS ? `${oneLine.slice(0, MAX_QUERY_CHARS)}…` : oneLine
+  const previous = previousUserText?.replace(/\s+/g, ' ').trim()
+  const needsAnchor =
+    !!previous &&
+    oneLine.length <= MAX_ANCHORABLE_CHARS &&
+    (CONTEXT_DEPENDENT.test(oneLine) ||
+      ANAPHORA.test(oneLine) ||
+      (oneLine.length <= MAX_WEAK_CONTINUER_CHARS && WEAK_CONTINUER.test(oneLine)))
+  const combined = needsAnchor ? `${previous} — ${oneLine}` : oneLine
+  return combined.length > MAX_QUERY_CHARS ? `${combined.slice(0, MAX_QUERY_CHARS)}…` : combined
 }
 
 /** Wrap automatic search results for injection into the system prompt. */

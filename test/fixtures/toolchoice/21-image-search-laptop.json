@@ -1,0 +1,1 @@
+{ "prompt": "find me pictures of the MSI Titan 18 HX gaming laptop", "expect": { "tool": "image_search" } }

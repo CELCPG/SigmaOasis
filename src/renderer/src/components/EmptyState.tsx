@@ -26,16 +26,17 @@ const STARTERS: Starter[] = [
     role: 'Finance Coach'
   },
   {
-    icon: '🏺',
-    title: 'Step into another era',
-    prompt: 'What was daily life actually like for an ordinary person in Edo-period Japan?',
+    icon: '🩹',
+    title: 'First Aid training',
+    prompt:
+      'Teach me basic first aid — common injuries, what to do, and when to get help. Remember: this is training, not medical advice. In a real emergency, call 911 right away.',
     accent: 'var(--accent-amber)'
   },
   {
-    icon: '📄',
-    title: 'Read what I drop in',
+    icon: '🔧',
+    title: 'Home repair & improvement',
     prompt:
-      "Summarize the document I'm about to attach and pull out every decision and deadline.",
+      'How do I fix or improve things around my house? Ask me what I’m working on and walk me through it step by step.',
     accent: 'var(--accent-lavender)'
   },
   {

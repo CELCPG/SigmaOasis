@@ -294,7 +294,7 @@ Education, not personalized financial advice.`,
 const SIDEBAR_CONVOS = [
   {
     id: 'convo-edo',
-    title: 'Daily life in Edo-period Japan',
+    title: 'Basic first aid training',
     mode: 'independent',
     activeModelSlotId: 'model-1',
     messages: [],
@@ -303,7 +303,7 @@ const SIDEBAR_CONVOS = [
   },
   {
     id: 'convo-board',
-    title: 'Q3 board notes — decisions & deadlines',
+    title: 'Fixing a leaky faucet, step by step',
     mode: 'orchestrated',
     activeModelSlotId: 'model-1',
     orchestratorSlotId: 'model-1',

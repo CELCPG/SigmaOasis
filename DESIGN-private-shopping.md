@@ -1,6 +1,12 @@
 # Sigma Oasis — Private shopping research
 
-Status: **proposed** · Target: v1.4 · Author: Colin Long
+Status: **shipped in v1.2.0** · Author: Colin Long
+
+> Implemented as `shopping.ts`, `watchlist.ts`, `urlHygiene.ts` and
+> `productExtract.ts`, with the `shop_requirements` / `shop_compare` /
+> `price_watch` tools and their test files. The design below is kept as the
+> record of why the boundary in §0 was drawn where it was; §4's file table and
+> §7's test list describe what exists, not what is planned.
 
 Shopping is the most surveilled thing a person does online. Price trackers work
 by knowing your entire watchlist. Coupon extensions work by seeing every cart.

@@ -55,6 +55,38 @@ The outbound paths are:
   tokens, JWTs, private IPs, card-shaped numbers, and local filesystem paths (including your home
   directory and configured working directory by exact match) are redacted. Enable **Confirm every
   query** to approve the exact outgoing string each time.
+
+  Queries are also **minimized**, which is a separate control from redaction: redaction removes what
+  is secret, minimization removes what is merely nobody else's business. Request framing is stripped
+  ("i'm looking for X" searches for X; "best headphones for my flight to Lagos" searches for the
+  headphones), and a query that is still a long, first-person, sentence-shaped paragraph is
+  **refused outright** rather than sent or truncated — the model is told to send subject terms and
+  calls again. A model instructed to send terms only will nonetheless sometimes send the user's
+  whole message, so this is enforced in code rather than in a prompt.
+- **`image_search`**: the same provider as `web_search`, with the same sanitization — plus one fetch
+  per result to whichever host that result's image sits on (at most 6 per search, two at a time). Those
+  fetches use the same SSRF guard as `fetch_webpage`: HTTPS only, private/loopback addresses refused, the
+  check re-run on every redirect hop, and a size cap. The content type must be a raster image
+  (`jpeg`, `png`, `gif`, `webp`, `avif`); **SVG is refused outright** because it can carry script. Bytes
+  are downscaled to 320px and inlined as a `data:` URL, so the chat window — whose CSP permits
+  `img-src 'self' data:` and nothing else — never makes a request of its own, and no image host is
+  contacted again when an old conversation is reopened. Requests carry no cookies, no referrer and no
+  browser fingerprint, and appear in the activity log under the `image` purpose so they are
+  distinguishable from pages you asked to read. What this does **not** do is hide you from the image
+  host: without a proxy it still sees your IP address, which is why the confirmation dialog states it
+  before the search runs.
+
+  **Which hosts those are depends on your provider.** DuckDuckGo's image results are served by Bing,
+  and its thumbnails resolve to Microsoft's CDN: a live check against the shipped code returned six
+  results whose thumbnails all sat on `tse1`/`tse2`/`tse4.mm.bing.net` rather than on the retailers'
+  own domains. That is fewer parties than contacting six separate shops, but it means one company
+  sees the whole gallery. Other providers hand back different hosts — some their own cache, some the
+  origin site — and this is not a difference the app can normalize away. The activity log under
+  Settings → Privacy is the authority: it lists every host contacted, per search, with a timestamp.
+- **`shop_compare` / `price_watch`**: retailer and manufacturer product pages, under the same SSRF
+  guard, logged under the `shop` purpose. `requireProxy` refuses the fetch outright when no proxy is
+  active rather than silently going out direct. The app never authenticates, never adds to a cart and
+  never transacts.
 - **`fetch_webpage`**: arbitrary HTTPS URLs, at a model's direction. This is the one path not bound
   by the allowlist, so it is guarded separately: HTTPS only, private/loopback/link-local addresses
   refused, redirects followed manually with the check re-run on every hop, and hard size and time caps.

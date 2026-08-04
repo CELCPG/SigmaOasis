@@ -17,6 +17,8 @@ export interface AuditedFetchInit {
   signal?: AbortSignal
   timeoutMs?: number
   maxBytes?: number
+  /** Per-chunk callback, so a streaming caller keeps partial output on failure. */
+  onChunk?: (chunk: Uint8Array) => void
 }
 
 /**
@@ -42,6 +44,7 @@ export type NetworkPurpose =
   | 'search' // the configured search provider
   | 'webpage' // fetch_webpage tool (SSRF-guarded in search.ts)
   | 'shop' // shopping research: retailer/manufacturer product pages
+  | 'image' // thumbnail bytes for image_search results
   | 'render' // headless page rendering (filtered in render.ts)
   | 'proxytest' // user-initiated "Test proxy" check only
   | 'update' // opt-in update checks
@@ -158,6 +161,12 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
       // distinguishes "a page you asked to read" from "a retailer we contacted
       // on your behalf." Those are different disclosures to the same user.
       return ['*']
+    case 'image':
+      // Same reasoning again: an image CDN contacted to fill a thumbnail
+      // gallery is not "a page you asked to read", and the log should not
+      // imply it was. Guarded by the same SSRF checks in search.ts, plus a
+      // raster-only content-type allowlist and a hard size cap.
+      return ['*']
     case 'render':
       // Arbitrary by design, but far more tightly constrained than 'webpage':
       // render.ts permits only the target page's own origin and refuses every
@@ -256,6 +265,7 @@ export async function auditedFetch(
       signal: init?.signal,
       timeoutMs: init?.timeoutMs,
       maxBytes: init?.maxBytes,
+      onChunk: init?.onChunk,
       session: target
     })
     record({

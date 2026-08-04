@@ -31,6 +31,7 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   list_directory: 'List directory',
   run_terminal_command: 'Run terminal command (asks to confirm)',
   web_search: 'Web search (provider chosen in Settings → Search)',
+  image_search: 'Image search (shows thumbnails in chat; each links to its source page)',
   fetch_webpage: 'Fetch webpage (HTTPS only, private addresses refused)',
   deep_research: 'Deep research (multi-step: plans, searches, reads and cites sources)',
   get_current_datetime: 'Get current date/time',

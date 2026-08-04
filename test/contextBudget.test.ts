@@ -59,6 +59,37 @@ describe('estimateTokens', () => {
     )
     assert.ok(withTool - bare >= 1000, `tool result was not counted: ${withTool - bare}`)
   })
+
+  test('gallery thumbnails cost nothing — they are display-only, never on the wire', () => {
+    // image_search hangs data URLs off the record so the chat can draw them.
+    // They are deliberately excluded from the messages sent to the model, so
+    // counting them here would shrink the history for tokens nobody spends.
+    const bare = estimateMessageTokens(msg('here they are'))
+    const withGallery = estimateMessageTokens(
+      msg('here they are', {
+        toolCalls: [
+          {
+            id: 't',
+            name: 'image_search',
+            args: { query: 'stroller' },
+            status: 'done',
+            result: '1. Stroller',
+            images: [
+              {
+                title: 'Stroller',
+                pageUrl: 'https://shop.example/a',
+                dataUrl: `data:image/jpeg;base64,${'A'.repeat(40_000)}`
+              }
+            ]
+          }
+        ]
+      })
+    )
+    assert.ok(
+      withGallery - bare < 20,
+      `thumbnails must not be charged to the context budget: ${withGallery - bare}`
+    )
+  })
 })
 
 describe('planHistory', () => {

@@ -114,11 +114,18 @@ function loanAmortization(args: FinanceArgs): string {
 
   const lines = [
     `Loan amortization`,
+    // Restating the inputs is what makes a wrong argument visible: a "loan
+    // amount" equal to the sticker price means the down payment was not
+    // subtracted, and the model can see that and call again.
     `Loan amount: $${money(principal)} at ${ratePct}% for ${years} year(s) (${months} payments)`,
+    `(If a down payment or trade-in applies, the loan amount above must already exclude it.)`,
     ``,
     `Monthly payment: $${money(payment)}`,
     `Total paid: $${money(totalPaid)}`,
-    `Total interest: $${money(totalInterest)} (${round2((totalInterest / principal) * 100)}% of the loan amount)`
+    `Total interest: $${money(totalInterest)} (${round2((totalInterest / principal) * 100)}% of the loan amount)`,
+    ``,
+    `Report these figures exactly as written. Do not recompute or adjust them — if an input was ` +
+      `wrong, call this tool again with corrected arguments.`
   ]
 
   if (extra > 0) {

@@ -18,7 +18,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 
 ## ✨ Features
 
-- **Local & private.** Connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `fetch_webpage` tools (provider of your choice), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default). All of it is enforced by a built-in egress allowlist, visible in a network activity log, and can optionally be routed through **Tor or a VPN** while your LM Studio server stays on a direct loopback connection.
+- **Local & private.** Connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `image_search` / `fetch_webpage` tools (provider of your choice), the image hosts an `image_search` result points at (thumbnails only, fetched by the app so the request carries no cookies, referrer or browser fingerprint), the shopping research tools (`shop_compare` / `price_watch`, which contact retailer and manufacturer pages), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default). All of it is enforced by a built-in egress allowlist, visible in a network activity log with a purpose on every row, and can optionally be routed through **Tor or a VPN** while your LM Studio server stays on a direct loopback connection.
 - **Multi-model roles (up to 3).** Each slot has its own model, role name, system prompt, and color accent.
 - **Three ways to use your models**
   - **Independent mode.** Pick the active model in the sidebar's *This chat* section; each conversation keeps its thread.
@@ -33,6 +33,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches. New in 0.9: recall is **visible** (each reply shows which memory chunks it used) and **scoped** (a conversation can restrict which sources it recalls from).
 - **Second opinions (0.9).** A "🔍 2nd opinion" action under any reply has a **different role** review it and name the factual claims it could not verify, plus the check that would settle each. Never a confidence score — a model grading its own answer says "yes" nearly always.
+- **Tool grounding (1.3).** After every reply the app checks, mechanically, whether the money figures and links in it actually came from the tools that ran. A payment the calculator did not return, a price on a shopping turn with no price check, a product URL in no search result — each gets a warning under the answer naming what was checked against what. No model call and no network: it is number and string comparison, so it holds even when the prompt telling the model not to invent things does not. Prompts are how you ask; this is how you know.
 - **Plan mode (0.9).** The 📋 toggle in the composer turns a task into a visible step-by-step plan: decomposed by the model, shown for your **approval**, executed step by step with live progress, then synthesized into a final answer. A failed step is marked failed and disclosed, never silently retried.
 - **Ephemeral chats (0.9).** The ◌ button starts a conversation that lives only in RAM: never written to disk, gone when you close it or quit. The main process refuses to persist it — the no-trace guarantee is structural, not a habit of the UI.
 - **Context rollback (0.9).** One click forgets what the model remembers that you can't see — the compacted summary and any fetched pages held in memory — while visible messages, notes and long-term memory stay untouched.
@@ -163,12 +164,17 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | `list_directory` | List entries in a directory. |
 | `run_terminal_command` | Run a shell command. **Off by default**; shows a confirmation dialog before every run, with destructive patterns (e.g. `rm -rf`, `dd`, `curl \| sh`) flagged as dangerous. |
 | `web_search` | Web search via your chosen privacy-preserving provider: self-hosted **SearXNG**, **Brave Search API**, or **DuckDuckGo** (Settings → Search). Queries are sanitized (emails, tokens, paths, etc. redacted) before they leave the machine. |
+| `image_search` | Find pictures and show them as thumbnails in the chat, each linked to its source page. Same provider and same query sanitization as `web_search`. Thumbnails are fetched **by the main process** — through the SSRF guard, your proxy and the activity log, with no cookies, referrer or browser fingerprint — then downscaled and inlined as `data:` URLs, so the chat window itself makes no network request. Capped at 6 images per search; those hosts still see your IP unless a proxy is on, and the confirmation dialog says so. |
 | `fetch_webpage` | Fetch and read a public web page or **PDF** (HTTPS only, scripts/ads/site chrome stripped). Private/internal addresses are refused (SSRF guard). Pass a `query` and the page is split into passages and **ranked**, so the model gets the parts that answer the query instead of the first few thousand characters. Outbound links are returned so a citation can be followed directly. Re-reading a page already fetched makes no new network request. |
 | `deep_research` | Research a question across many sources in **one call**: plans sub-questions, searches, reads and ranks the best pages, checks what is still unanswered, and returns a brief with numbered citations. See below. |
 | `get_current_datetime` | Return the current local date/time. |
 | `create_note` | Save a note to the local notes store. |
 | `list_notes` | List saved note titles. |
 | `read_note` | Read a note by title. |
+| `memory_save` / `memory_search` / `memory_forget` | Write to, search, and delete from long-term local memory. Stored on this machine; recalled chunks are shown in the reply so you can see what was injected. |
+| `shop_requirements` | Turn a shopping ask ("a quiet air purifier for a 40 m² bedroom under $300") into a structured checklist the comparison is then scored against. |
+| `shop_compare` | Price the same product across sellers side by side — through the proxy when you require it, with worst-privacy sellers excludable. Prices are extracted mechanically from the page, never written by the model. When enabled, the app runs this itself on a turn it detects as a purchase decision, so the model has real offers rather than remembered ones. |
+| `price_watch` | Add, list, remove and re-check watched items. The watchlist is a file on this machine; no account, no tracker, nobody else holds the list. |
 
 **Enable/disable tools** and set a **working directory** under **Settings → Tools**. Disabled tools
 are not exposed to the models at all.
@@ -181,7 +187,7 @@ it. Leave it empty for unrestricted paths; every `write_file` call is then confi
 > and a model can be influenced by anything it reads: web search results, attached documents, files
 > on disk. `write_file` and `run_terminal_command` ship **disabled**; the terminal tool always asks
 > for confirmation. Set a scoped working directory before enabling write access.
-> All text returned from the web (`web_search`, `fetch_webpage`) is fed back to models wrapped in an
+> All text returned from the web (`web_search`, `image_search`, `fetch_webpage`) is fed back to models wrapped in an
 > explicit **"untrusted external content"** marker, so the trust boundary is visible to both the
 > model and you.
 

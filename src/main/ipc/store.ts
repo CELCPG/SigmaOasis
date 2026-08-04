@@ -65,6 +65,7 @@ export interface ToolToggles {
   list_directory: boolean
   run_terminal_command: boolean
   web_search: boolean
+  image_search: boolean
   fetch_webpage: boolean
   get_current_datetime: boolean
   create_note: boolean
@@ -256,7 +257,10 @@ function defaultSettings(): AppSettings {
         modelId: 'google/gemma-4-12b-qat',
         roleName: 'Assistant',
         systemPrompt:
-          'You are a helpful, harmless, and honest AI assistant. Answer questions clearly and concisely. ' +
+          'You are a helpful, harmless, and honest AI assistant. Answer questions clearly and concisely, ' +
+          'leading with the answer. Treat a short follow-up ("and the price?", "what about the first one?") ' +
+          'as part of the ongoing conversation, never as a brand-new question. Do not assume the user\u2019s ' +
+          'gender, age, body, or life situation — when it would change the recommendation, ask first. ' +
           'The chat UI renders Markdown but not LaTeX math notation, so write formulas, units, and ' +
           'symbols as plain text (for example, 374 °C or E = mc^2) instead of $...$ markup.',
         color: 'blue',
@@ -316,6 +320,7 @@ function defaultSettings(): AppSettings {
       list_directory: true,
       run_terminal_command: false,
       web_search: true,
+      image_search: true,
       fetch_webpage: true,
       get_current_datetime: true,
       create_note: true,

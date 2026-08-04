@@ -20,6 +20,8 @@ import {
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
+import { checkToolGrounding } from '../lib/toolGrounding'
+import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
 import {
   buildExtractionMessages,
   buildJudgeMessages,
@@ -804,7 +806,12 @@ async function runTurn(
   const lastUserContent = [...convo.messages].reverse().find((m) => m.role === 'user')?.content
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
   if (factualTurn && lastUserContent && slotTools.some((t) => t.function.name === 'web_search')) {
-    const query = buildSearchQuery(lastUserContent)
+    // The user message before this one anchors context-dependent follow-ups
+    // ("lets go with the first one") so the query carries the topic too.
+    const userMessages = convo.messages.filter((m) => m.role === 'user')
+    const previousUserContent =
+      userMessages.length > 1 ? userMessages[userMessages.length - 2].content : undefined
+    const query = buildSearchQuery(lastUserContent, previousUserContent)
     const record: ToolCallRecord = { id: uid(), name: 'web_search', args: { query }, status: 'running' }
     allRecords.push(record)
     patch({ toolCalls: [...allRecords] })
@@ -829,6 +836,61 @@ async function runTurn(
       text: `web_search(${JSON.stringify({ query })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
     })
     if (signal.aborted) return
+  }
+
+  // v1.3 shopping intent (DESIGN-private-shopping §2e). Same reasoning as
+  // the auto-search above, for the case where a wrong answer costs money: on
+  // a purchase turn the app prices the thing mechanically, so the model has
+  // real offers to write around instead of the option to recall a number.
+  const shoppingTurn = lastUserContent ? looksLikeShopping(lastUserContent) : false
+  const canCompare = slotTools.some((t) => t.function.name === 'shop_compare')
+  if (shoppingTurn && canCompare && lastUserContent) {
+    const userMessages = convo.messages.filter((m) => m.role === 'user')
+    const previous =
+      userMessages.length > 1 ? userMessages[userMessages.length - 2].content : undefined
+    const product = shoppingSubject(lastUserContent, previous)
+    if (product) {
+      const record: ToolCallRecord = {
+        id: uid(),
+        name: 'shop_compare',
+        args: { product },
+        status: 'running'
+      }
+      allRecords.push(record)
+      patch({ toolCalls: [...allRecords] })
+      const result: { ok: boolean; output?: string; error?: string } = await window.api
+        .executeTool('shop_compare', { product }, { modelId: slot.modelId })
+        .catch((err: unknown) => ({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err)
+        }))
+      record.status = result.ok ? 'done' : 'error'
+      record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+      if (result.ok) {
+        systemPrompt += `\n\n${buildSearchContext(`prices for "${product}"`, result.output ?? '')}`
+      }
+      patch({ toolCalls: [...allRecords] })
+      audit(convo, {
+        kind: 'tool_call',
+        roleName: slot.roleName,
+        modelId: slot.modelId,
+        toolName: 'shop_compare',
+        ok: result.ok,
+        text: `shop_compare(${JSON.stringify({ product })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+      })
+      if (signal.aborted) return
+    }
+  } else if (shoppingTurn) {
+    // The comparison tools are off (they ship that way — they contact
+    // commercial sites, which is the user's call to make). The option to
+    // invent a price still has to go, so say so, and the grounding check
+    // flags any price that appears anyway.
+    systemPrompt +=
+      '\n\nThis turn is a purchase decision and no price-checking tool is enabled. Do not state ' +
+      'prices, discounts, or "typical" cost ranges — you have no source for them and a ' +
+      'remembered price is a guess about a number that changes weekly. Say that price checking ' +
+      'is off (Settings → Tools), describe the options qualitatively, and link only to pages ' +
+      'that appeared in a tool result.'
   }
 
   // The wire history is maintained locally across tool-loop iterations;
@@ -1045,6 +1107,17 @@ async function runTurn(
   // Layer 2d: a weak ending — unverified, contradicted, or capped out of
   // tool rounds — earns an offer to re-run on a bigger slot. An offer, never
   // an automatic re-run: the user decides, and the click re-validates.
+  // v1.3: did the reply actually use what the tools returned? Purely
+  // mechanical (no model call, no network), so it runs on every finished turn
+  // — including turns that consulted sources, which is exactly where a model
+  // overriding a computed figure would otherwise pass unnoticed.
+  const checkGrounding = (): void => {
+    const report = checkToolGrounding(assistantMsg.content, allRecords, lastUserContent ?? '', {
+      expectPricingTool: shoppingTurn
+    })
+    if (report) patch({ grounding: report })
+  }
+
   const offerEscalation = (): void => {
     if (routingNote?.startsWith('escalated to')) return // no escalation chains
     const state = useAppStore.getState()
@@ -1096,6 +1169,7 @@ async function runTurn(
         )
       }
     }
+    checkGrounding()
     audit(convo, {
       kind: 'assistant_output',
       roleName: slot.roleName,
@@ -1139,6 +1213,7 @@ async function runTurn(
       )
     }
   }
+  checkGrounding()
   // Read whatever is left unspoken (including the warning above).
   speakNewSentences(true)
   offerEscalation()

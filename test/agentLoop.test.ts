@@ -733,7 +733,7 @@ describe('runAgentLoop · per-tool budgets (Layer 3c)', () => {
     })
     assert.equal(executed, 3)
     assert.equal(records[3].status, 'error')
-    assert.equal(records[3].result, 'web_search budget reached (3 of 3 this turn) — answer from what you have, or say you could not check.')
+    assert.equal(records[3].result, 'web_search budget reached (3 of 3 this turn) — answer from the results you already have, and name plainly what you could not check. Never invent the missing data.')
   })
 
   test('budgets are per tool, not shared', async () => {
@@ -774,6 +774,38 @@ describe('runAgentLoop · per-tool budgets (Layer 3c)', () => {
       'fetch_webpage',
       'web_search'
     ])
+  })
+
+  test('image_search is budgeted — it fans out to more third parties than any other tool', async () => {
+    const imageTools: ToolSchema[] = [
+      {
+        type: 'function',
+        function: { name: 'image_search', description: 'Find pictures.', parameters: {} }
+      }
+    ]
+    const rounds: StreamRoundResult[] = Array.from({ length: 4 }, (_, i) => ({
+      content: '',
+      toolCalls: [call(`c${i}`, 'image_search', { query: `q${i}` })]
+    }))
+    const { streamRound } = scripted(rounds)
+    let executed = 0
+    const records: ToolCallRecord[] = []
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: imageTools,
+      records,
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => {
+          executed += 1
+          return { ok: true, output: 'images' }
+        }
+      }
+    })
+    assert.equal(executed, 2)
+    assert.equal(records[2].status, 'error')
+    assert.match(records[2].result ?? '', /image_search budget reached \(2 of 2 this turn\)/)
   })
 
   test('a caller-provided budget map overrides the defaults', async () => {
@@ -829,5 +861,65 @@ describe('runAgentLoop · per-tool budgets (Layer 3c)', () => {
     // only one unit of work happened.
     assert.equal(executed, 1)
     assert.ok(records.every((r) => r.status === 'done'))
+  })
+})
+
+describe('runAgentLoop · display payloads (image_search)', () => {
+  const imageTools: ToolSchema[] = [
+    {
+      type: 'function',
+      function: { name: 'image_search', description: 'Find pictures.', parameters: {} }
+    }
+  ]
+
+  const gallery = [
+    { title: 'Stroller', pageUrl: 'https://shop.example/a', dataUrl: 'data:image/jpeg;base64,AAAA' }
+  ]
+
+  test('images ride the record and never the wire history', async () => {
+    // The split the feature depends on: the model gets a text list it can
+    // reason about, the user gets pictures. Putting base64 on the wire would
+    // evict the conversation for nothing the model can read.
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [call('c1', 'image_search', { query: 'stroller' })] },
+      { content: 'here they are', toolCalls: [] }
+    ])
+    const records: ToolCallRecord[] = []
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: imageTools,
+      records,
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => ({ ok: true, output: '1. Stroller', images: gallery })
+      }
+    })
+
+    assert.deepEqual(records[0].images, gallery)
+    assert.equal(records[0].result, '1. Stroller')
+
+    const wire = JSON.stringify(seen[seen.length - 1])
+    assert.ok(wire.includes('1. Stroller'), 'the text list must reach the model')
+    assert.ok(!wire.includes('data:image'), 'no data URL may reach the model')
+  })
+
+  test('a tool that returns no images leaves the field unset', async () => {
+    const { streamRound } = scripted([
+      { content: '', toolCalls: [call('c1', 'image_search', { query: 'x' })] },
+      { content: 'done', toolCalls: [] }
+    ])
+    const records: ToolCallRecord[] = []
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: imageTools,
+      records,
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => ({ ok: true, output: 'no images found', images: [] })
+      }
+    })
+    assert.equal(records[0].images, undefined)
   })
 })

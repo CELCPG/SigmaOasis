@@ -45,6 +45,8 @@ export interface HarnessState {
     status?: number
     /** Extra response headers, e.g. `location` for a redirect. */
     headers?: Record<string, string>
+    /** Report the body as cut short at maxBytes, as the real transport does. */
+    truncated?: boolean
   }[]
   /** Make every /embeddings call throw. */
   failEmbeddings: boolean
@@ -98,6 +100,8 @@ export interface HarnessState {
   dnsFailures: string[]
   /** Whether the safeStorage stub reports an OS keychain (audit log gating). */
   encryptionAvailable: boolean
+  /** Widths passed to nativeImage.resize(), in order — image thumbnailing. */
+  resizeWidths: number[]
 }
 
 export const state: HarnessState = {
@@ -126,7 +130,8 @@ export const state: HarnessState = {
   catalogModels: null,
   dnsOverrides: {},
   dnsFailures: [],
-  encryptionAvailable: true
+  encryptionAvailable: true,
+  resizeWidths: []
 }
 
 export function resetState(): void {
@@ -156,6 +161,7 @@ export function resetState(): void {
   state.dnsOverrides = {}
   state.dnsFailures = []
   state.encryptionAvailable = true
+  state.resizeWidths = []
 }
 
 function defaultSettings(): Record<string, unknown> {
@@ -216,7 +222,8 @@ function makeResponse(
   body: string | Buffer,
   contentType: string,
   status = 200,
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> = {},
+  truncated = false
 ): unknown {
   const isBuffer = Buffer.isBuffer(body)
   const headers: Record<string, string> = { 'content-type': contentType }
@@ -228,12 +235,17 @@ function makeResponse(
     text: async () => (isBuffer ? body.toString('utf-8') : body),
     json: async () => JSON.parse(isBuffer ? body.toString('utf-8') : body),
     arrayBuffer: async () => (isBuffer ? body : Buffer.from(body)),
-    body: null
+    body: null,
+    truncated
   }
 }
 
 const netStub = {
-  auditedFetch: async (url: string, init: { body?: string } | undefined, purpose: string) => {
+  auditedFetch: async (
+    url: string,
+    init: { body?: string; onChunk?: (chunk: Uint8Array) => void } | undefined,
+    purpose: string
+  ) => {
     state.fetchLog.push({ url, purpose })
 
     if (url.endsWith('/api/v0/models/load')) {
@@ -306,10 +318,24 @@ const netStub = {
           400
         )
       }
-      const body = JSON.parse(init!.body!) as { messages: { content: string }[] }
+      const body = JSON.parse(init!.body!) as { messages: { content: string }[]; stream?: boolean }
       state.completionPrompts.push(body.messages.map((m) => m.content).join('\n'))
       state.completionBodies.push(body as unknown as Record<string, unknown>)
       const reply = state.completions.shift() ?? ''
+      // Streaming callers (research synthesis) accumulate from onChunk rather
+      // than the body, so the stub has to actually emit SSE frames — split in
+      // two, so a caller that mishandles chunk boundaries fails here.
+      if (body.stream) {
+        const encoder = new TextEncoder()
+        const half = Math.ceil(reply.length / 2)
+        const frames = [reply.slice(0, half), reply.slice(half)]
+          .filter((part) => part.length > 0)
+          .map((part) => `data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n`)
+        for (const frame of [...frames, 'data: [DONE]\n']) {
+          init?.onChunk?.(encoder.encode(frame))
+        }
+        return makeResponse('', 'text/event-stream')
+      }
       return makeResponse(
         JSON.stringify({ choices: [{ message: { content: reply } }] }),
         'application/json'
@@ -330,7 +356,7 @@ const netStub = {
     }
     for (const r of state.responses) {
       if (url.includes(r.match)) {
-        return makeResponse(r.body, r.contentType, r.status, r.headers)
+        return makeResponse(r.body, r.contentType, r.status, r.headers, r.truncated)
       }
     }
     throw new Error(`harness: unexpected fetch ${url}`)
@@ -378,10 +404,80 @@ export function testUserDataDir(): string {
   return TEST_USER_DATA_DIR
 }
 
+// ---- fake images -------------------------------------------------------------
+
+/**
+ * Marker for a synthetic image the nativeImage stub can "decode".
+ *
+ * Real nativeImage decodes by sniffing the format and re-encodes at whatever
+ * size the pixels demand — neither of which a unit test can reproduce or should
+ * depend on. So a fake image simply carries its own answers in a header: the
+ * width it reports, and how large it encodes to. Bytes without the marker are
+ * undecodable, which is exactly how a WebP or AVIF body looks to nativeImage.
+ */
+const FAKE_IMAGE_MARKER = 'SIGMAFAKEIMG'
+
+export interface FakeImageSpec {
+  /** Reported source width, so tests can drive the resize branch. */
+  width?: number
+  /** Size of the buffer toJPEG() hands back. */
+  jpegBytes?: number
+  /** Size of the buffer toPNG() hands back. */
+  pngBytes?: number
+  /** Omit the marker: nativeImage cannot decode it (WebP/AVIF/GIF/corrupt). */
+  undecodable?: boolean
+  /** Total on-the-wire size, padded out. Defaults to just the header. */
+  totalBytes?: number
+}
+
+/** Build the body for a stubbed image response. */
+export function fakeImageBytes(spec: FakeImageSpec = {}): Buffer {
+  const header = spec.undecodable
+    ? 'not-a-decodable-image'
+    : `${FAKE_IMAGE_MARKER}${JSON.stringify({
+        width: spec.width ?? 800,
+        jpegBytes: spec.jpegBytes ?? 8 * 1024,
+        pngBytes: spec.pngBytes ?? 32 * 1024
+      })}`
+  const total = Math.max(spec.totalBytes ?? header.length, header.length)
+  return Buffer.concat([Buffer.from(header, 'latin1'), Buffer.alloc(total - header.length, 0x41)])
+}
+
+function parseFakeImage(buffer: Buffer): Required<Omit<FakeImageSpec, 'undecodable' | 'totalBytes'>> | null {
+  const head = buffer.subarray(0, 256).toString('latin1')
+  if (!head.startsWith(FAKE_IMAGE_MARKER)) return null
+  const end = head.indexOf('}')
+  if (end < 0) return null
+  try {
+    return JSON.parse(head.slice(FAKE_IMAGE_MARKER.length, end + 1))
+  } catch {
+    return null
+  }
+}
+
+function fakeNativeImage(spec: ReturnType<typeof parseFakeImage>, width: number): unknown {
+  return {
+    isEmpty: () => spec === null,
+    getSize: () => ({ width, height: width }),
+    resize: ({ width: w }: { width: number }) => {
+      state.resizeWidths.push(w)
+      return fakeNativeImage(spec, w)
+    },
+    toJPEG: () => Buffer.alloc(spec?.jpegBytes ?? 0),
+    toPNG: () => Buffer.alloc(spec?.pngBytes ?? 0)
+  }
+}
+
 const electronStub = {
   app: {
     getPath: () => TEST_USER_DATA_DIR,
     getVersion: () => '0.9.0-test'
+  },
+  nativeImage: {
+    createFromBuffer: (buffer: Buffer) => {
+      const spec = parseFakeImage(buffer)
+      return fakeNativeImage(spec, spec?.width ?? 0)
+    }
   },
   ipcMain: { handle: () => undefined },
   // Deterministic stand-in for the OS keychain: a reversible, prefixed encoding,

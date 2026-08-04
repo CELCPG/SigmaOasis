@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { ChatMessage } from '../types'
+import type { ChatMessage, GroundingReport, ToolCallRecord } from '../types'
 import { ACCENT } from '../lib/colors'
 import { renderMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
@@ -38,6 +38,90 @@ function handleCopyClick(event: React.MouseEvent<HTMLDivElement>): void {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * Thumbnails a tool asked to show (image_search). These are data: URLs the main
+ * process already fetched and downscaled — never remote URLs — so rendering one
+ * makes no network request at all. Each thumbnail links to the page the image
+ * came from.
+ */
+function ToolImageGallery({ records }: { records: ToolCallRecord[] }): JSX.Element | null {
+  const withImages = records.filter((r) => r.status === 'done' && r.images && r.images.length > 0)
+  if (withImages.length === 0) return null
+  return (
+    <>
+      {withImages.map((record) => (
+        <div key={`${record.id}-images`} className="mt-2">
+          <div className="grid grid-cols-3 gap-2">
+            {record.images!.map((img, i) => (
+              <a
+                key={i}
+                href={img.pageUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={`${img.title}\n${img.pageUrl}`}
+                className="block overflow-hidden rounded-xl border border-black/10 transition-transform hover:scale-[1.02] dark:border-white/15"
+              >
+                <img
+                  src={img.dataUrl}
+                  alt={img.title}
+                  loading="lazy"
+                  className="h-24 w-full object-cover"
+                />
+              </a>
+            ))}
+          </div>
+          <div className="mt-1 text-[10px] text-neutral-400">
+            🖼️ {record.images!.length} image(s) for “{String(record.args.query ?? '')}” — click a
+            thumbnail to open its source page.
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+/**
+ * v1.3: figures or links the reply asserted that its own tools did not
+ * support. Distinct from the `unverified` badge, which means "no source was
+ * consulted at all" — this one fires when sources *were* consulted and the
+ * answer went past them, which is the harder failure to notice by eye.
+ */
+function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element {
+  const parts: string[] = []
+  if (report.figures.length > 0) {
+    parts.push(
+      `${report.figures.length} figure${report.figures.length === 1 ? '' : 's'} (${report.figures.join(', ')})`
+    )
+  }
+  if (report.links.length > 0) {
+    parts.push(`${report.links.length} link${report.links.length === 1 ? '' : 's'}`)
+  }
+  return (
+    <div
+      className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+      title={
+        'These came from the model, not from the tools this turn actually ran ' +
+        `(${report.checkedAgainst.join(', ')}). Numbers a calculator did not return, and links ` +
+        'that appeared in no search result, are the two things most worth re-checking yourself.'
+      }
+    >
+      <div>⚠️ {parts.join(' and ')} in this reply {parts.length > 1 ? 'are' : 'is'} not backed by the tool output.</div>
+      {report.links.length > 0 && (
+        <ul className="mt-1 list-disc pl-4 opacity-90">
+          {report.links.map((link) => (
+            <li key={link} className="break-all">
+              {link}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-1 opacity-75">
+        Checked against: {report.checkedAgainst.join(', ')}.
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -276,6 +360,10 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
           />
         )}
 
+        {/* Tool-provided pictures are content, not diagnostics — they render
+            even when the user hides tool-call blocks. */}
+        <ToolImageGallery records={toolCalls} />
+
         {!hideToolCalls &&
           toolCalls.map((record) => <ToolCallBlock key={record.id} record={record} />)}
 
@@ -301,6 +389,8 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
             numbers as unverified.
           </div>
         )}
+
+        {!isStreaming && message.grounding && <GroundingWarning report={message.grounding} />}
 
         {message.secondOpinion && (
           <SecondOpinionBlock opinion={message.secondOpinion} isStreaming={streaming && isLast} />

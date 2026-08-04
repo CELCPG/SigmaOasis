@@ -71,6 +71,9 @@ export function evalStubResult(name: string): ToolResult {
     web_search:
       '1. Example result — https://example.com/1\n   A short snippet answering the query.\n' +
       '2. Another result — https://example.com/2\n   More relevant text.',
+    image_search:
+      '1. Example image — page: https://example.com/product\n   image: https://example.com/img.jpg\n' +
+      '(thumbnails displayed to the user in the chat)',
     fetch_webpage: 'Page text relevant to the query, a few sentences long.',
     deep_research: 'Brief: the question, answered with numbered citations [1][2].',
     finance_calculator: 'Future value: $260,463. Total contributed: $120,000. Growth: $140,463.',

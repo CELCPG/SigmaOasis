@@ -1,4 +1,9 @@
-import { chatComplete, chatCompleteJson, resolveChatModel } from './llm'
+import {
+  chatCompleteJson,
+  chatCompleteStream,
+  PartialCompletionError,
+  resolveChatModel
+} from './llm'
 import { getSettings } from './store'
 import { readWebpage, runWebSearch } from './search'
 import type { SearchResult } from './search'
@@ -58,6 +63,15 @@ export interface ResearchBudget {
   /** Distinct hosts contacted. The privacy-relevant one. */
   maxHosts: number
   maxWallClockMs: number
+  /**
+   * Wall clock held back from retrieval so synthesis has room to run.
+   *
+   * Retrieval will happily consume every second available and then leave the
+   * model no time to write the brief, which is how a run that successfully
+   * read eight pages returns nothing at all. The reserve makes gathering stop
+   * early on purpose: fewer sources, but an actual answer.
+   */
+  synthesisReserveMs: number
 }
 
 export type ResearchDepth = 'quick' | 'standard' | 'thorough'
@@ -93,6 +107,14 @@ export interface ResearchLedger {
 export interface ResearchOutcome {
   ok: boolean
   brief?: string
+  /**
+   * False when sources were gathered but the brief is missing or truncated.
+   * The run still succeeded — citations exist — but nothing may be presented
+   * as a synthesis that was not actually synthesized.
+   */
+  synthesized?: boolean
+  /** What went wrong with the write-up, when something did. */
+  synthesisNote?: string
   plan?: ResearchPlan
   /** False when the planner failed and the original question was used as-is. */
   planned?: boolean
@@ -112,15 +134,36 @@ export type ProgressFn = (phase: string, detail: string) => void
 export function budgetFor(depth: ResearchDepth): ResearchBudget {
   switch (depth) {
     case 'quick':
-      return { maxRounds: 1, maxSearches: 3, maxFetches: 4, maxHosts: 4, maxWallClockMs: 60_000 }
+      return {
+        maxRounds: 1,
+        maxSearches: 3,
+        maxFetches: 4,
+        maxHosts: 4,
+        maxWallClockMs: 60_000,
+        synthesisReserveMs: 20_000
+      }
     case 'thorough':
-      return { maxRounds: 4, maxSearches: 12, maxFetches: 16, maxHosts: 12, maxWallClockMs: 300_000 }
+      return {
+        maxRounds: 4,
+        maxSearches: 12,
+        maxFetches: 16,
+        maxHosts: 12,
+        maxWallClockMs: 300_000,
+        synthesisReserveMs: 60_000
+      }
     case 'standard':
     default:
       // Rounds are coverage-driven: the loop stops as soon as every
       // sub-question is answered, so a higher ceiling costs nothing on easy
       // questions and buys persistence on hard ones.
-      return { maxRounds: 3, maxSearches: 8, maxFetches: 10, maxHosts: 8, maxWallClockMs: 150_000 }
+      return {
+        maxRounds: 3,
+        maxSearches: 8,
+        maxFetches: 10,
+        maxHosts: 8,
+        maxWallClockMs: 150_000,
+        synthesisReserveMs: 45_000
+      }
   }
 }
 
@@ -143,8 +186,23 @@ export class BudgetTracker {
     return false
   }
 
+  /**
+   * True once retrieval must stop. This is the *retrieval* deadline, which is
+   * deliberately earlier than the run's overall wall clock: whatever is left
+   * belongs to synthesis, which cannot borrow time it does not have.
+   */
   get expired(): boolean {
-    return Date.now() - this.startedAt > this.budget.maxWallClockMs
+    const deadline = Math.max(0, this.budget.maxWallClockMs - this.budget.synthesisReserveMs)
+    // `>=`, not `>`: a reserve that consumes the whole wall clock leaves
+    // retrieval no time at all, and that has to read as expired immediately
+    // rather than granting one free round.
+    return Date.now() - this.startedAt >= deadline
+  }
+
+  /** Milliseconds left for synthesis, never less than the stated reserve. */
+  get synthesisBudgetMs(): number {
+    const spent = Date.now() - this.startedAt
+    return Math.max(this.budget.synthesisReserveMs, this.budget.maxWallClockMs - spent)
   }
 
   canSearch(): boolean {
@@ -791,8 +849,9 @@ export async function runDeepResearch(options: {
   // --- synthesize ---
   progress('synthesizing', `Writing a brief from ${sources.length} source(s)`)
   let brief: string
+  let synthesisNote: string | undefined
   try {
-    brief = await chatComplete({
+    brief = await chatCompleteStream({
       model,
       messages: [
         { role: 'system', content: SYNTH_SYSTEM },
@@ -803,37 +862,46 @@ export async function runDeepResearch(options: {
       ],
       temperature: 0.2,
       maxTokens: 1400,
+      // Whatever retrieval did not spend. Retrieval stopped early to leave
+      // this, so the brief is not racing a deadline the fetches already ate.
+      timeoutMs: tracker.synthesisBudgetMs,
       signal: options.signal
     })
   } catch (err) {
-    return {
-      ok: false,
-      plan,
-      sources,
-      coverage,
-      sentQueries,
-      redactions: [...redactions],
-      ledger: tracker.ledger(),
-      error: `Synthesis failed: ${err instanceof Error ? err.message : String(err)}`
+    // Sources were read, ranked and cited; only the write-up fell over. The
+    // run's whole cost is already paid, and handing back an error string
+    // throws away every page of it — so keep what exists and say what is
+    // missing. A partial brief beats nothing; a source list beats a partial.
+    if (err instanceof PartialCompletionError && err.partial.trim().length > 200) {
+      brief = err.partial
+      synthesisNote =
+        'The brief was cut off before it finished (' +
+        `${err.message}). It stops mid-thought — treat the end as incomplete, and read the ` +
+        'sources below for anything it did not reach.'
+    } else {
+      brief = ''
+      synthesisNote =
+        `The model could not write the brief (${err instanceof Error ? err.message : String(err)}). ` +
+        'The sources below were retrieved and ranked successfully — they are listed unread ' +
+        'rather than summarized. Nothing here has been synthesized, so state that plainly ' +
+        'rather than presenting a summary you did not receive.'
     }
   }
 
-  if (!brief.trim()) {
-    return {
-      ok: false,
-      plan,
-      sources,
-      coverage,
-      sentQueries,
-      redactions: [...redactions],
-      ledger: tracker.ledger(),
-      error: 'The model returned an empty brief.'
-    }
+  // An empty brief with sources in hand is still a usable result — the caller
+  // reports it as retrieved-but-unsynthesized rather than as a failed run.
+  if (!brief.trim() && !synthesisNote) {
+    synthesisNote =
+      'The model returned an empty brief. The sources below were retrieved and ranked ' +
+      'successfully but nothing was synthesized from them; say so rather than summarizing ' +
+      'them yourself from memory.'
   }
 
   return {
     ok: true,
     brief: brief.trim(),
+    synthesized: brief.trim().length > 0 && !synthesisNote,
+    synthesisNote,
     plan,
     planned,
     sources,

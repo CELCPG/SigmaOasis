@@ -52,6 +52,7 @@ export interface ToolToggles {
   list_directory: boolean
   run_terminal_command: boolean
   web_search: boolean
+  image_search: boolean
   fetch_webpage: boolean
   get_current_datetime: boolean
   create_note: boolean
@@ -113,7 +114,8 @@ export interface UpdateSettings {
 /** One entry in the main-process network activity log (Settings → Privacy). */
 export interface NetworkActivityEntry {
   at: number
-  purpose: 'lmstudio' | 'search' | 'webpage' | 'render' | 'proxytest' | 'update'
+  /** Mirrors NetworkPurpose in src/main/ipc/net.ts — keep the two in step. */
+  purpose: 'lmstudio' | 'search' | 'webpage' | 'shop' | 'image' | 'render' | 'proxytest' | 'update'
   /** Origin only — full URLs (and queries) are never logged. */
   origin: string
   method: string
@@ -469,7 +471,34 @@ export interface UpdateStatus {
 
 // ---- Chat domain ------------------------------------------------------------
 
+/**
+ * v1.3: what a reply asserted that its own tools did not support. Produced
+ * mechanically by `checkToolGrounding`; see toolGrounding.ts for why.
+ */
+export interface GroundingReport {
+  /** Money figures in the reply backed by no tool output or user statement. */
+  figures: string[]
+  /** Links in the reply that appear in no tool output. */
+  links: string[]
+  /** Tools whose output formed the corpus, named in the disclosure. */
+  checkedAgainst: string[]
+}
+
 export type ChatMode = 'independent' | 'collaborative' | 'orchestrated'
+
+/**
+ * One image a tool asked to show in the chat. `dataUrl` (never a remote URL)
+ * is displayed — the CSP allows data: images only, and the main process
+ * fetches the bytes so the request goes through the SSRF guard, any configured
+ * proxy, and the network activity log, carrying no cookies or referrer. The
+ * host still sees the machine's IP unless a proxy is on; the confirmation
+ * dialog says so. `pageUrl` is where a click leads.
+ */
+export interface ToolImage {
+  title: string
+  pageUrl: string
+  dataUrl: string
+}
 
 export interface ToolCallRecord {
   id: string
@@ -477,6 +506,8 @@ export interface ToolCallRecord {
   args: Record<string, unknown>
   result?: string
   status: 'running' | 'done' | 'error'
+  /** Images the tool returned for display (image_search), shown as a gallery. */
+  images?: ToolImage[]
   /**
    * The model's one-sentence reason for the call (v1.3, Layer 1d), captured
    * from the round that produced it and rendered in the tool-call block.
@@ -522,6 +553,13 @@ export interface ChatMessage {
    * never replayed to a model.
    */
   unverified?: boolean
+  /**
+   * v1.3 tool grounding: figures or links in this reply that the turn's own
+   * tool output does not support — the model overriding or inventing past what
+   * was actually retrieved. Mechanical, no model call. Display-only; never
+   * replayed to a model.
+   */
+  grounding?: GroundingReport
   /**
    * v1.4 routing: how the pre-flight router chose this reply's model slot
    * (e.g. "routed to Coder — fenced code detected"). Display-only — never
@@ -621,4 +659,6 @@ export interface ToolResult {
   /** Tool output fed back to the model when ok is true. */
   output?: string
   error?: string
+  /** Images to render in the chat, when the tool produced any (image_search). */
+  images?: ToolImage[]
 }

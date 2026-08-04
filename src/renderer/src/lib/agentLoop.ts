@@ -35,6 +35,9 @@ export const MAX_TOOL_PREAMBLE_CHARS = 240
  */
 export const TOOL_TURN_BUDGETS: Record<string, number> = {
   web_search: 3,
+  // One call is one provider request plus a fetch to every image host it names
+  // — the widest third-party fan-out of any tool here, so the tightest budget.
+  image_search: 2,
   fetch_webpage: 2,
   deep_research: 1,
   shop_requirements: 2,
@@ -319,7 +322,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
           ok: false,
           error:
             `${tc.function.name} budget reached (${toolBudgets[tc.function.name]} of ${toolBudgets[tc.function.name]} this turn) ` +
-            '— answer from what you have, or say you could not check.'
+            '— answer from the results you already have, and name plainly what you could not check. ' +
+            'Never invent the missing data.'
         }
       } else {
         // Layer 3a: validate against the tool's own schema before dispatch —
@@ -345,6 +349,9 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       if (result.ok) {
         record.status = 'done'
         record.result = result.output ?? ''
+        // Display payloads (image_search thumbnails) ride the record, not the
+        // wire history — the model gets the text list, the user gets pictures.
+        if (result.images && result.images.length > 0) record.images = result.images
       } else {
         record.status = 'error'
         record.result = result.error ?? 'Unknown tool error'
