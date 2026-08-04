@@ -8,6 +8,7 @@ import { ChatArea } from './components/ChatArea'
 import { InputBar } from './components/InputBar'
 import { SettingsModal } from './components/SettingsModal'
 import { OnboardingModal } from './components/OnboardingModal'
+import { CommandPalette } from './components/CommandPalette'
 import { Logo } from './components/Logo'
 
 export default function App(): JSX.Element {
@@ -95,6 +96,7 @@ export default function App(): JSX.Element {
 
       <SettingsModal />
       <OnboardingModal />
+      <CommandPalette />
     </div>
   )
 }

@@ -39,7 +39,7 @@ export function useConversations(): {
     }
   }, [])
 
-  const createConversation = useCallback((): void => {
+  const createConversation = useCallback((branchFromMessageId?: string): void => {
     const store = useAppStore.getState()
     const convo: Conversation = {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
@@ -48,7 +48,9 @@ export function useConversations(): {
       activeModelSlotId: store.settings?.models.find((m) => m.enabled)?.id,
       messages: [],
       createdAt: Date.now(),
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      branches: branchFromMessageId ? [{ messageId: branchFromMessageId, branchId: convo.id, title: 'Branch' }] : [],
+      activeBranchId: null
     }
     store.upsertConversation(convo)
     store.setActiveConversationId(convo.id)

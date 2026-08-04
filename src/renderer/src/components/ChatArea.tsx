@@ -67,6 +67,7 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
           message={m}
           isStreaming={streaming && idx === conversation.messages.length - 1 && m.role === 'assistant'}
           isLast={idx === conversation.messages.length - 1 && m.role === 'assistant'}
+          conversation={conversation}
         />
       ))}
       {streaming && researchProgress && (

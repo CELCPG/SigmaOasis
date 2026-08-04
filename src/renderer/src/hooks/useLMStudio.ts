@@ -1,6 +1,8 @@
 import { useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/voice'
+import { getFromCache, setInCache } from '../lib/responseCache'
+import { smartTrimHistory } from '../lib/contextCompressor'
 import type {
   AppSettings,
   Attachment,
@@ -160,6 +162,7 @@ function routeTargets(
 /**
  * Stream one chat completion. Calls `onContent` for each text delta and
  * returns any accumulated tool calls once the stream ends.
+ * Uses response caching to avoid redundant API calls for identical requests.
  */
 async function streamChat(
   baseUrl: string,
@@ -169,6 +172,21 @@ async function streamChat(
   signal: AbortSignal,
   onContent: (chunk: string) => void
 ): Promise<{ toolCalls: ApiToolCall[] }> {
+  // Check cache first (only when no tools, as tool results vary)
+  if (tools.length === 0) {
+    const cached = await getFromCache(messages, modelId)
+    if (cached.hit) {
+      // Simulate streaming by yielding cached response in chunks
+      const chunkSize = 20
+      for (let i = 0; i < cached.response.length; i += chunkSize) {
+        if (signal.aborted) break
+        onContent(cached.response.slice(i, i + chunkSize))
+        await new Promise(resolve => setTimeout(resolve, 5)) // Small delay to simulate streaming
+      }
+      return { toolCalls: cached.toolCalls ?? [] }
+    }
+  }
+
   const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -190,6 +208,7 @@ async function streamChat(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let fullResponse = ''
   const pending = new Map<number, ApiToolCall>()
 
   for (;;) {
@@ -217,7 +236,10 @@ async function streamChat(
           } }[]
         }
         const delta = json.choices?.[0]?.delta
-        if (delta?.content) onContent(delta.content)
+        if (delta?.content) {
+          onContent(delta.content)
+          fullResponse += delta.content
+        }
         for (const tc of delta?.tool_calls ?? []) {
           const idx = tc.index ?? 0
           const existing = pending.get(idx) ?? {
@@ -236,7 +258,14 @@ async function streamChat(
     }
   }
 
-  return { toolCalls: [...pending.values()] }
+  const toolCalls = [...pending.values()]
+  
+  // Cache the response if no tool calls were made and no tools were used
+  if (tools.length === 0 && toolCalls.length === 0 && fullResponse) {
+    await setInCache(messages, modelId, fullResponse, [])
+  }
+
+  return { toolCalls }
 }
 
 // ---- Orchestration: models-as-tools -------------------------------------------
@@ -412,7 +441,8 @@ async function runTurn(
 
   // The wire history is maintained locally across tool-loop iterations;
   // the visible conversation only keeps final text + tool-call records.
-  const history = trimHistory(convo.messages)
+  // Use smart trimming with context compression for better token efficiency.
+  const history = smartTrimHistory(convo.messages, MAX_HISTORY_MESSAGES, MAX_HISTORY_CHARS)
   const currentTurn = history.map((m) => m.role).lastIndexOf('user')
   const apiMessages: ApiMessage[] = [
     { role: 'system', content: systemPrompt },
@@ -465,9 +495,11 @@ async function runTurn(
       return
     }
 
-    // Record the calls on the visible message, then execute them in order.
+    // Record the calls on the visible message, then execute them.
+    // Independent tool calls are executed in parallel for better performance.
     apiMessages.push({ role: 'assistant', content: content || null, tool_calls: toolCalls })
 
+    // Initialize all records first
     for (const tc of toolCalls) {
       let args: Record<string, unknown> = {}
       try {
@@ -477,7 +509,29 @@ async function runTurn(
       }
       const record: ToolCallRecord = { id: tc.id, name: tc.function.name, args, status: 'running' }
       allRecords.push(record)
-      patch({ toolCalls: [...allRecords] })
+    }
+    patch({ toolCalls: [...allRecords] })
+
+    // Group tool calls: consult_model must run sequentially, others can be parallel
+    const consultCalls: typeof toolCalls = []
+    const parallelCalls: typeof toolCalls = []
+    
+    for (const tc of toolCalls) {
+      if (tc.function.name === 'consult_model' && delegation) {
+        consultCalls.push(tc)
+      } else {
+        parallelCalls.push(tc)
+      }
+    }
+
+    // Execute independent tool calls in parallel
+    const executeToolCall = async (tc: ApiToolCall): Promise<{ tc: ApiToolCall; result: { ok: boolean; output?: string; error?: string } }> => {
+      let args: Record<string, unknown> = {}
+      try {
+        args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
+      } catch {
+        // Malformed arguments from the model — execute with what we have.
+      }
 
       let result: { ok: boolean; output?: string; error?: string }
 
@@ -521,12 +575,38 @@ async function runTurn(
         })
       }
 
-      if (result.ok) {
-        record.status = 'done'
-        record.result = result.output ?? ''
-      } else {
-        record.status = 'error'
-        record.result = result.error ?? 'Unknown tool error'
+      return { tc, result }
+    }
+
+    // Run parallel tool calls concurrently
+    const parallelResults = await Promise.all(parallelCalls.map(executeToolCall))
+    
+    // Update records with parallel results
+    for (const { tc, result } of parallelResults) {
+      const record = allRecords.find(r => r.id === tc.id)
+      if (record) {
+        record.status = result.ok ? 'done' : 'error'
+        record.result = result.ok ? result.output ?? '' : result.error ?? 'Unknown tool error'
+      }
+    }
+    patch({ toolCalls: [...allRecords] })
+
+    // Add tool results to API messages for parallel calls
+    for (const { tc, result } of parallelResults) {
+      apiMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
+      })
+    }
+
+    // Run consult_model calls sequentially (they may depend on previous results)
+    for (const tc of consultCalls) {
+      const { result } = await executeToolCall(tc)
+      const record = allRecords.find(r => r.id === tc.id)
+      if (record) {
+        record.status = result.ok ? 'done' : 'error'
+        record.result = result.ok ? result.output ?? '' : result.error ?? 'Unknown tool error'
       }
       patch({ toolCalls: [...allRecords] })
 

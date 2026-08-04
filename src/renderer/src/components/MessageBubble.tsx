@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react'
-import type { ChatMessage } from '../types'
+import type { ChatMessage, Conversation } from '../types'
 import { ACCENT } from '../lib/colors'
 import { renderMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
+import { useConversations } from '../hooks/useConversations'
 import { ToolCallBlock } from './ToolCallBlock'
 import { OasisRipple } from './OasisRipple'
 import { SigmaAvatar } from './SigmaAvatar'
+import { BranchMenu } from './BranchMenu'
 
 interface Props {
   message: ChatMessage
@@ -16,6 +18,8 @@ interface Props {
   isStreaming: boolean
   /** True for the final message in the conversation (enables Regenerate). */
   isLast: boolean
+  /** The current conversation (for branching support) */
+  conversation?: Conversation
 }
 
 function handleCopyClick(event: React.MouseEvent<HTMLDivElement>): void {
@@ -35,7 +39,7 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Element {
+export function MessageBubble({ message, isStreaming, isLast, conversation }: Props): JSX.Element {
   const html = useMemo(
     () => (message.role === 'assistant' ? renderMarkdown(message.content) : ''),
     [message.role, message.content]
@@ -46,6 +50,9 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
   const [copied, setCopied] = useState(false)
   const regenerate = useLMStudio().regenerate
   const streaming = useAppStore((s) => s.streaming)
+  const conversations = useAppStore((s) => s.conversations)
+  const activeConversationId = useAppStore((s) => s.activeConversationId)
+  const activeConvo = conversations.find(c => c.id === activeConversationId)
 
   const copyMessage = (): void => {
     void navigator.clipboard.writeText(message.content).then(() => {
@@ -185,7 +192,11 @@ export function MessageBubble({ message, isStreaming, isLast }: Props): JSX.Elem
 
         {!hideToolCalls &&
           toolCalls.map((record) => <ToolCallBlock key={record.id} record={record} />)}
-        </div>
+        
+        {/* Branch menu for assistant messages */}
+        {message.role === 'assistant' && conversation && (
+          <BranchMenu message={message} conversation={conversation} />
+        )}
       </div>
     </div>
   )

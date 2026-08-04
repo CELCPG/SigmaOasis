@@ -242,6 +242,10 @@ export interface ChatMessage {
   color?: AccentColor
   toolCalls?: ToolCallRecord[]
   createdAt: number
+  /** Parent message ID if this is a branched response */
+  parentMessageId?: string
+  /** Branch metadata for alternative responses */
+  branchInfo?: { branchId: string; isBranch: boolean }
 }
 
 export interface Conversation {
@@ -255,6 +259,9 @@ export interface Conversation {
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  /** Support for conversation branching - allows exploring alternative responses */
+  branches?: { messageId: string; branchId: string; title: string }[]
+  activeBranchId?: string | null
 }
 
 // ---- Tool execution (renderer ↔ main) ----------------------------------------
