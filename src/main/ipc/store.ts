@@ -23,6 +23,20 @@ export interface SamplingSettings {
   maxTokens: number
   /** Fixed RNG seed for reproducible replies; null lets the server choose. */
   seed: number | null
+  /**
+   * Top-k truncation. -1 follows the model family's published recipe, 0
+   * disables it, a positive value is sent as given.
+   *
+   * v1.5, and new fields rather than new defaults on the old ones: through
+   * v1.4 nothing but temperature and top_p reached the wire, so every model ran
+   * with top-k off. Qwen3 ships a recipe that assumes top_k 20 and degenerates
+   * into repetition without it — and repetition is not only worse text, it is
+   * tokens spent to produce worse text. Defaulting to "auto" fixes that for
+   * anyone who never opened this panel, while an explicit value always wins.
+   */
+  topK: number
+  /** Minimum-probability floor. -1 follows the family recipe, 0 disables it. */
+  minP: number
 }
 
 export interface ModelConfig {
@@ -245,7 +259,7 @@ export interface AppSettings {
  * never rewritten — normalizeSampling preserves them.
  */
 export function defaultSampling(temperature = 0.7): SamplingSettings {
-  return { temperature, topP: 1, maxTokens: -1, seed: null }
+  return { temperature, topP: 1, maxTokens: -1, seed: null, topK: -1, minP: -1 }
 }
 
 function defaultSettings(): AppSettings {
@@ -438,7 +452,12 @@ function normalizeSampling(value: unknown): SamplingSettings {
     // clamping that up to 1 would silently cap every reply at one token — so
     // anything non-positive falls back to the server default instead.
     maxTokens: Number(s.maxTokens) > 0 ? clamp(s.maxTokens, 1, 128_000, -1) : -1,
-    seed
+    seed,
+    // Negative is a real setting here ("auto"), not a fallback, so an absent
+    // or unparseable value has to land on it rather than on zero — zero means
+    // the user explicitly turned the sampler off.
+    topK: Number.isFinite(Number(s.topK)) ? clamp(s.topK, -1, 500, -1) : -1,
+    minP: Number.isFinite(Number(s.minP)) ? clampFloat(s.minP, -1, 1, -1) : -1
   }
 }
 

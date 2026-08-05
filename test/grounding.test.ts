@@ -4,10 +4,13 @@ import {
   buildGroundingBlock,
   buildSearchContext,
   buildSearchQuery,
+  buildTurnContext,
   consultedSources,
   looksFactual,
   withGrounding,
   withToolCallPreamble,
+  BREVITY_RULES,
+  TURN_CONTEXT_HEADER,
   TOOL_PREAMBLE_INSTRUCTION
 } from '../src/renderer/src/lib/grounding'
 import type { ToolCallRecord } from '../src/renderer/src/types'
@@ -171,5 +174,86 @@ describe('withToolCallPreamble (Layer 1d)', () => {
     assert.match(TOOL_PREAMBLE_INSTRUCTION, /one sentence/)
     assert.match(TOOL_PREAMBLE_INSTRUCTION, /why it is needed/)
     assert.match(TOOL_PREAMBLE_INSTRUCTION, /expect back/)
+  })
+})
+
+/**
+ * v1.5: the per-turn additions moved out of the system prompt so the prompt
+ * prefix stops changing at token zero on every turn. What this pins is the
+ * part that has to hold for that to be worth anything — a turn with nothing
+ * to add must leave the message byte-identical — plus the disclosure that
+ * keeps injected search results from reading as the user's own instructions.
+ */
+/**
+ * v1.5: the two domains where the v1.4 badge was silent and the cost of being
+ * wrong was highest. Both are drawn from measured sessions — a suspected black
+ * widow bite the model never verified, and a deck load it got backwards.
+ */
+describe('looksFactual — harm-shaped domains', () => {
+  const factual = [
+    'he says he feels dizzy, what do i do',
+    'my brother was bit by a spider',
+    'is aspirin contraindicated after a black widow bite',
+    'what dosage of ibuprofen is safe',
+    'how much psf can my joists carry',
+    'do i need a permit for a load-bearing wall',
+    'what amperage breaker for this circuit'
+  ]
+  for (const text of factual) {
+    test(`"${text}" earns a source`, () => {
+      assert.equal(looksFactual(text), true)
+    })
+  }
+
+  test('a creative request that mentions a symptom is still creative', () => {
+    assert.equal(looksFactual('write a story about a snake bite'), false)
+  })
+})
+
+describe('BREVITY_RULES', () => {
+  test('ride every turn, alongside the grounding block', () => {
+    const out = withGrounding('You are helpful.')
+    assert.ok(out.includes(BREVITY_RULES))
+    assert.ok(out.includes(buildGroundingBlock()))
+  })
+
+  test('name the numbered-menu ending specifically', () => {
+    // The measured pattern: every turn closing with "explore 1, 2, or 3?",
+    // which turns a conversation into one-word replies and a prefill each.
+    assert.match(BREVITY_RULES, /numbered menu/i)
+  })
+
+  test('ask for the answer first', () => {
+    assert.match(BREVITY_RULES, /lead with the answer/i)
+  })
+})
+
+describe('buildTurnContext', () => {
+  test('a turn with nothing to add changes nothing', () => {
+    assert.equal(buildTurnContext([]), null)
+  })
+
+  test('blank blocks do not count as something to add', () => {
+    assert.equal(buildTurnContext(['', '   ', '\n']), null)
+  })
+
+  test('the block says the notes are not the user speaking', () => {
+    const out = buildTurnContext(['Search results: …'])
+    assert.ok(out)
+    assert.ok(out.includes(TURN_CONTEXT_HEADER))
+    assert.match(TURN_CONTEXT_HEADER, /not part of the user/i)
+    assert.match(TURN_CONTEXT_HEADER, /instruction/i)
+  })
+
+  test('it appends — the user\'s own message keeps its start', () => {
+    const out = buildTurnContext(['note'])
+    assert.ok(out?.startsWith('\n\n'))
+  })
+
+  test('every block survives', () => {
+    const out = buildTurnContext(['memory recall', 'search results', 'pricing note'])
+    assert.ok(out?.includes('memory recall'))
+    assert.ok(out?.includes('search results'))
+    assert.ok(out?.includes('pricing note'))
   })
 })

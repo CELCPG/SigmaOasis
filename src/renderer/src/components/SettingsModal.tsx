@@ -9,7 +9,7 @@ import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
 import type { ToolSchema } from '../types'
-import { TEMPERATURE_PRESETS, activePreset } from '../lib/sampling'
+import { TEMPERATURE_PRESETS, activePreset, recommendedSampling } from '../lib/sampling'
 import type {
   AppSettings,
   AccentColor,
@@ -776,6 +776,24 @@ export function SettingsModal(): JSX.Element | null {
                                 {p.label} {p.value}
                               </button>
                             ))}
+                            {/*
+                              The family's own published recipe, applied only
+                              on a click: it sets a warmer temperature than
+                              this app's anti-confabulation default, and that
+                              is the user's trade to make, not ours.
+                            */}
+                            {recommendedSampling(m.modelId) && (
+                              <button
+                                type="button"
+                                title={`Temperature ${recommendedSampling(m.modelId)!.recipe.temperature}, top-p ${recommendedSampling(m.modelId)!.recipe.topP}, top-k ${recommendedSampling(m.modelId)!.recipe.topK} — as published for this model family. Warmer than the Factual preset.`}
+                                onClick={() =>
+                                  updateSampling(m.id, recommendedSampling(m.modelId)!.recipe)
+                                }
+                                className="rounded-full bg-black/5 dark:bg-white/10 px-2.5 py-1 text-xs text-neutral-500 transition-colors hover:text-neutral-700 dark:hover:text-neutral-300"
+                              >
+                                {recommendedSampling(m.modelId)!.label} defaults
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div>
@@ -818,6 +836,30 @@ export function SettingsModal(): JSX.Element | null {
                           />
                         </div>
                         <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Top K</label>
+                          <input
+                            type="number"
+                            min={-1}
+                            max={500}
+                            step={1}
+                            value={m.sampling.topK}
+                            onChange={(e) => updateSampling(m.id, { topK: Number(e.target.value) })}
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-neutral-500">Min P</label>
+                          <input
+                            type="number"
+                            min={-1}
+                            max={1}
+                            step={0.01}
+                            value={m.sampling.minP}
+                            onChange={(e) => updateSampling(m.id, { minP: Number(e.target.value) })}
+                            className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
+                          />
+                        </div>
+                        <div>
                           <label className="mb-1 block text-xs text-neutral-500">Seed</label>
                           <input
                             type="number"
@@ -836,7 +878,9 @@ export function SettingsModal(): JSX.Element | null {
                         Lower temperature = fewer invented facts; higher = more varied prose.
                         Temperature 0 with a fixed seed makes this role reproducible: the same
                         prompt returns the same answer. Max tokens <code>-1</code> leaves the reply
-                        length to LM Studio.
+                        length to LM Studio. Top K and Min P at <code>-1</code> follow the model
+                        family&rsquo;s published recipe (Qwen3 runs top-k 20, and loops without
+                        it); <code>0</code> turns them off.
                       </p>
                     </details>
                   </div>

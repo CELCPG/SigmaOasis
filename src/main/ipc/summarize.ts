@@ -73,7 +73,11 @@ export async function summarizeConversation(
         { role: 'user', content: user }
       ],
       temperature: 0.2,
-      maxTokens: MAX_SUMMARY_TOKENS
+      maxTokens: MAX_SUMMARY_TOKENS,
+      // Compression is transcription, not reasoning. Thinking here spent the
+      // 400-token cap before the summary started, which sent every compaction
+      // down the local-digest fallback path.
+      thinking: false
     })
     const trimmed = summary.trim()
     if (!trimmed) return { ok: false, error: 'The model returned an empty summary.' }

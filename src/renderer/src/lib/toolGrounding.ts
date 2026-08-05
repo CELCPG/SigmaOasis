@@ -159,6 +159,14 @@ function outputOf(records: ToolCallRecord[], include: (name: string) => boolean)
  * noise. It is deliberately *not* part of the link corpus: a URL the user
  * pasted is fine to echo, but the app has still not verified it, and the
  * pasted-link case is rare enough not to be worth the false-negative.
+ *
+ * v1.5: it must be *every* user message, not just the latest one. Passing only
+ * the current turn produced the badge's worst false positive — a v1.4 session
+ * where the user said "$5,000 to invest, $500 a month" four turns earlier and
+ * every figure in the resulting plan was flagged as unsourced, including the
+ * app's own arithmetic on those numbers. A badge that cries wolf on the user's
+ * own budget is a badge they learn to ignore, which costs exactly the cases it
+ * exists for.
  */
 export function checkToolGrounding(
   answer: string,

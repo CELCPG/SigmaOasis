@@ -43,7 +43,14 @@ describe('looksLikeShopping · negatives', () => {
     // Not commerce at all.
     'write me a poem about the sea',
     'teach me basic first aid',
-    'summarize this document'
+    'summarize this document',
+    // v1.5: buying a security is not shopping. "you can buy stocks on kraken"
+    // put a measured v1.4 turn into pricing mode, where shop_compare has
+    // nothing to say and the price check then flagged the user's own budget.
+    'you can buy stocks on kraken',
+    'is it a good buy right now, what are price targets',
+    'should i buy more shares this month',
+    'how much bitcoin can i buy with $500'
   ]
   for (const text of notShopping) {
     test(`"${text}"`, () => assert.equal(looksLikeShopping(text), false))
@@ -51,6 +58,12 @@ describe('looksLikeShopping · negatives', () => {
 
   test('too short to classify', () => {
     assert.equal(looksLikeShopping('buy'), false)
+  })
+
+  test('retail availability still reads as shopping, securities veto or not', () => {
+    // The veto is plural-only precisely so "in stock" survives it.
+    assert.equal(looksLikeShopping('are these headphones in stock'), true)
+    assert.equal(looksLikeShopping('can you share the link to that monitor deal'), true)
   })
 })
 

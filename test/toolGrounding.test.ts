@@ -114,6 +114,37 @@ describe('checkToolGrounding', () => {
     assert.equal(report, null)
   })
 
+  /**
+   * v1.5: the corpus is every user message, not just the current turn. The
+   * measured false positive — a v1.4 session where "$5,000 to invest, $500 a
+   * month" was said four turns before the plan that restated it, and every
+   * figure in that plan was flagged.
+   */
+  test('a budget stated turns ago is still the user\'s own number', () => {
+    const conversation = [
+      'i have $5000 to invest then $500 a month to add every month',
+      'yes let me see the strong buys list',
+      'you can buy stocks on kraken'
+    ].join('\n')
+    const report = checkToolGrounding(
+      'Deposit the $5,000, then $500 monthly.',
+      [rec('web_search', 'results')],
+      conversation,
+      { expectPricingTool: true }
+    )
+    assert.equal(report, null)
+  })
+
+  test('a figure from nowhere is still caught in a long conversation', () => {
+    const report = checkToolGrounding(
+      'Expect around $2,400 in fees.',
+      [rec('web_search', 'results')],
+      'i have $5000 to invest\nwhat about monthly costs',
+      { expectPricingTool: true }
+    )
+    assert.ok(report?.figures.includes('$2,400'))
+  })
+
   test('a clean reply produces no report at all', () => {
     const report = checkToolGrounding(
       'The monthly payment is $396.02.',

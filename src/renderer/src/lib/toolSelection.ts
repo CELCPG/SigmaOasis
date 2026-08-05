@@ -69,3 +69,35 @@ export function selectTurnTools(
 
   return available.filter((t) => chosen.has(t.function.name))
 }
+
+/**
+ * v1.5: hold the subset steady across turns of the same conversation.
+ *
+ * Per-turn ranking is good for accuracy and bad for latency, because chat
+ * templates render the tool list inside the system block — so a subset that
+ * reshuffles every turn moves the prompt's first bytes every turn, and the
+ * server re-processes the whole conversation instead of reusing its KV cache.
+ * That undoes the v1.5 work on the system prompt itself (lib/grounding.ts) for
+ * anyone running the default toolbox, which is well over the cap.
+ *
+ * The rule keeps both properties: when this turn's ranking is already covered
+ * by what the last turn carried, the last turn's list is reused verbatim and
+ * the prefix survives. When the ranking reaches for something the previous
+ * subset does not hold — a genuine change of subject — the new selection wins
+ * and the prefix is spent on a turn that needed it.
+ *
+ * `previousNames` is rebuilt against `available` rather than trusted as-is, so
+ * a tool disabled since the last turn cannot be reintroduced by the cache.
+ */
+export function stabilizeTurnTools(
+  available: ToolSchema[],
+  selected: ToolSchema[],
+  previousNames: readonly string[] | undefined
+): ToolSchema[] {
+  if (!previousNames || previousNames.length === 0) return selected
+  const held = new Set(previousNames)
+  const previous = available.filter((t) => held.has(t.function.name))
+  if (previous.length === 0) return selected
+  const covered = selected.every((t) => held.has(t.function.name))
+  return covered ? previous : selected
+}

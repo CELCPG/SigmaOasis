@@ -78,6 +78,7 @@ export async function generatePlan(
       { role: 'user', content: task }
     ],
     temperature: 0.2,
+    thinking: false,
     jsonSchema: PLAN_SCHEMA
   })
 

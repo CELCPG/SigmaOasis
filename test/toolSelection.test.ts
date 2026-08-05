@@ -1,6 +1,11 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { toolsForSlot, selectTurnTools, TURN_TOOL_CAP } from '../src/renderer/src/lib/toolSelection'
+import {
+  toolsForSlot,
+  selectTurnTools,
+  stabilizeTurnTools,
+  TURN_TOOL_CAP
+} from '../src/renderer/src/lib/toolSelection'
 import type { ToolSchema } from '../src/renderer/src/types'
 
 /**
@@ -86,5 +91,65 @@ describe('selectTurnTools', () => {
     assert.equal(result.length, 4)
     assert.ok(result.some((t) => t.function.name === 'web_search'))
     assert.ok(result.some((t) => t.function.name === 'get_current_datetime'))
+  })
+
+  /**
+   * v1.5: the subset is rendered inside the system block by every chat
+   * template, so reshuffling it per turn moves the prompt's first bytes and
+   * costs a full re-prefill of the conversation. Stability is only allowed to
+   * hold while it changes nothing the ranking asked for.
+   */
+  describe('stabilizeTurnTools', () => {
+    const names = (tools: ToolSchema[]): string[] => tools.map((t) => t.function.name)
+
+    test('the first turn of a conversation has nothing to hold to', () => {
+      const selected = selectTurnTools(TURN_TOOLS, { web_search: 0.9 })
+      assert.equal(stabilizeTurnTools(TURN_TOOLS, selected, undefined), selected)
+      assert.equal(stabilizeTurnTools(TURN_TOOLS, selected, []), selected)
+    })
+
+    test('a follow-up covered by last turn\'s subset reuses it exactly', () => {
+      const selected = selectTurnTools(TURN_TOOLS, {
+        web_search: 0.9,
+        read_file: 0.8,
+        fetch_webpage: 0.7
+      })
+      // Last turn carried everything this turn wants, and one tool besides.
+      const previous = [...names(selected), 'write_file']
+      const out = stabilizeTurnTools(TURN_TOOLS, selected, previous)
+      assert.ok(names(out).includes('write_file'))
+      assert.equal(names(out).length, previous.length)
+    })
+
+    test('a change of subject takes the new selection', () => {
+      const previous = ['read_file', 'get_current_datetime', 'memory_search', 'memory_save']
+      const selected = selectTurnTools(TURN_TOOLS, { fetch_webpage: 0.95 })
+      // fetch_webpage was not on last turn's list, so the prefix has to move.
+      assert.ok(names(selected).includes('fetch_webpage'))
+      const out = stabilizeTurnTools(TURN_TOOLS, selected, previous)
+      assert.equal(out, selected)
+    })
+
+    test('a tool disabled since last turn cannot come back through the cache', () => {
+      const shrunk = TURN_TOOLS.filter((t) => t.function.name !== 'run_terminal_command')
+      const previous = ['read_file', 'run_terminal_command', 'get_current_datetime']
+      const selected = selectTurnTools(shrunk, { read_file: 0.9 }, 3)
+      const out = stabilizeTurnTools(shrunk, selected, previous)
+      assert.ok(!names(out).includes('run_terminal_command'))
+    })
+
+    test('a cache naming nothing still available falls back to the selection', () => {
+      const selected = selectTurnTools(TURN_TOOLS, { web_search: 0.9 }, 3)
+      assert.equal(stabilizeTurnTools(TURN_TOOLS, selected, ['gone', 'also_gone']), selected)
+    })
+
+    test('the reused list keeps wire order, not cache order', () => {
+      const selected = selectTurnTools(TURN_TOOLS, { read_file: 0.9 })
+      // The same set as the cache holds it: reversed. Wire order has to win,
+      // because a reordered tool list is a changed prompt prefix.
+      const previous = [...names(selected)].reverse()
+      const out = stabilizeTurnTools(TURN_TOOLS, selected, previous)
+      assert.deepEqual(names(out), names(selected))
+    })
   })
 })

@@ -24,7 +24,7 @@ function slot(id: string, roleName: string): ModelConfig {
     systemPrompt: `You are ${roleName}.`,
     color: 'blue',
     enabled: true,
-    sampling: { temperature: 0.3, topP: 1, maxTokens: -1, seed: null },
+    sampling: { temperature: 0.3, topP: 1, maxTokens: -1, seed: null, topK: -1, minP: -1 },
     contextWindow: null
   }
 }

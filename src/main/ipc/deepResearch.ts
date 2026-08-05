@@ -365,6 +365,9 @@ async function makePlan(
       ],
       temperature: 0.1,
       maxTokens: 700,
+      // The schema already constrains the output; thinking in front of it only
+      // spends the budget that has to reach the JSON.
+      thinking: false,
       jsonSchema: { name: 'research_plan', schema: PLAN_SCHEMA },
       signal
     })
@@ -444,6 +447,7 @@ export async function reformulateQueries(
       ],
       temperature: 0.3,
       maxTokens: 400,
+      thinking: false,
       jsonSchema: { name: 'research_reformulate', schema: REFORMULATE_SCHEMA },
       signal
     })
@@ -862,6 +866,12 @@ export async function runDeepResearch(options: {
       ],
       temperature: 0.2,
       maxTokens: 1400,
+      // The brief is written from evidence that is already in front of the
+      // model, cited passage by passage. Deliberating first produces the same
+      // brief for twice the tokens — and on a 9B reasoning model those 1400
+      // tokens were being spent entirely on the thinking, so the brief came
+      // back empty after the whole crawl had been paid for.
+      thinking: false,
       // Whatever retrieval did not spend. Retrieval stopped early to leave
       // this, so the brief is not racing a deadline the fetches already ate.
       timeoutMs: tracker.synthesisBudgetMs,

@@ -16,7 +16,7 @@ function slot(id: string, modelId: string, roleName: string, enabled = true): Mo
     systemPrompt: `You are ${roleName}.`,
     color: 'blue',
     enabled,
-    sampling: { temperature: 0.7, topP: 1, maxTokens: -1, seed: null },
+    sampling: { temperature: 0.7, topP: 1, maxTokens: -1, seed: null, topK: -1, minP: -1 },
     contextWindow: null
   }
 }

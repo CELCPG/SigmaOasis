@@ -12,11 +12,18 @@ import {
 import { foldLocalDigest } from '../lib/contextCompressor'
 import { getFromCache, setInCache } from '../lib/responseCache'
 import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
-import { toolsForSlot, selectTurnTools, TURN_TOOL_CAP } from '../lib/toolSelection'
+import {
+  toolsForSlot,
+  selectTurnTools,
+  stabilizeTurnTools,
+  TURN_TOOL_CAP
+} from '../lib/toolSelection'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
+import { resolveSampling } from '../lib/sampling'
 import {
   buildSearchContext,
   buildSearchQuery,
+  buildTurnContext,
   consultedSources,
   looksFactual,
   withGrounding,
@@ -105,6 +112,25 @@ function audit(
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/**
+ * The sampling fields of a completion request.
+ *
+ * `top_k` and `min_p` are omitted rather than sent as zero: zero is a valid
+ * "off" for some servers and an error for others, and a field left out is the
+ * only spelling of "you decide" that every OpenAI-compatible server agrees on.
+ */
+function wireSampling(sampling: SamplingSettings, modelId: string): Record<string, unknown> {
+  const s = resolveSampling(sampling, modelId)
+  return {
+    temperature: s.temperature,
+    top_p: s.topP,
+    ...(s.maxTokens > 0 ? { max_tokens: s.maxTokens } : {}),
+    ...(s.seed !== null ? { seed: s.seed } : {}),
+    ...(s.topK > 0 ? { top_k: s.topK } : {}),
+    ...(s.minP > 0 ? { min_p: s.minP } : {})
+  }
 }
 
 /**
@@ -307,14 +333,7 @@ async function streamChat(
       // Ask for token counts. Servers that do not know the option ignore it,
       // and the stats readout falls back to timing alone.
       stream_options: { include_usage: true },
-      ...(sampling
-        ? {
-            temperature: sampling.temperature,
-            top_p: sampling.topP,
-            ...(sampling.maxTokens > 0 ? { max_tokens: sampling.maxTokens } : {}),
-            ...(sampling.seed !== null ? { seed: sampling.seed } : {})
-          }
-        : {}),
+      ...(sampling ? wireSampling(sampling, modelId) : {}),
       ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
     }),
     signal
@@ -461,14 +480,28 @@ function visionCapable(modelId: string): boolean {
 }
 
 /**
+ * The tool subset each conversation is currently carrying, so a follow-up turn
+ * can reuse it and leave the prompt prefix intact (see `stabilizeTurnTools`).
+ * Names only, re-resolved against the live allowlist every turn; RAM only, and
+ * a stale entry for a deleted conversation is three dozen bytes.
+ */
+const turnToolMemo = new Map<string, string[]>()
+
+/**
  * v1.3: per-turn tool subsetting (Layer 1b). Always-on tools plus the top
  * embedding matches against the user's text, capped at TURN_TOOL_CAP. Any
  * ranking failure — no embedding model, an endpoint error — falls back to
  * the full per-role allowlist: an optimization, never a gate.
+ *
+ * v1.5: `stabilityKey` (a conversation id) holds the chosen subset steady
+ * across turns that do not need a different one. Omitted by the one-shot
+ * callers — a consultation and a plan step each get a fresh selection, because
+ * there is no prefix of theirs to preserve.
  */
 async function subsetForTurn(
   tools: ToolSchema[],
-  query: string | undefined
+  query: string | undefined,
+  stabilityKey?: string
 ): Promise<ToolSchema[]> {
   if (!query?.trim() || tools.length <= TURN_TOOL_CAP) return tools
   try {
@@ -477,7 +510,14 @@ async function subsetForTurn(
       tools.map((t) => ({ name: t.function.name, description: t.function.description }))
     )
     if (!res.ok || !res.scores) return tools
-    return selectTurnTools(tools, res.scores)
+    const selected = selectTurnTools(tools, res.scores)
+    if (!stabilityKey) return selected
+    const stable = stabilizeTurnTools(tools, selected, turnToolMemo.get(stabilityKey))
+    turnToolMemo.set(
+      stabilityKey,
+      stable.map((t) => t.function.name)
+    )
+    return stable
   } catch {
     return tools
   }
@@ -826,45 +866,38 @@ async function runTurn(
   // waits for.
   await window.api.pinModel(slot.modelId).catch(() => false)
 
-  // RAG: pull relevant long-term memory into the system prompt (best effort).
-  // v0.9: the injected chunks are recorded on the reply (memoryContext) so the
-  // user can see exactly what the model was reminded of — and the conversation
-  // can restrict which sources it recalls from (memorySources).
-  let systemPrompt = slot.systemPrompt
-  const memorySettings = useAppStore.getState().settings?.memory
-  // null = all sources; [] = this conversation opted out of memory entirely.
-  const scopedSources = convo.memorySources
-  if (memorySettings?.autoContext && (scopedSources == null || scopedSources.length > 0)) {
-    try {
-      const lastUser = [...convo.messages].reverse().find((m) => m.role === 'user')
-      if (lastUser?.content) {
-        const { ok, results } = await window.api.memorySearch(
-          lastUser.content,
-          memorySettings.topK,
-          undefined,
-          scopedSources ?? null
-        )
-        if (ok && results.length > 0) {
-          const block = results
-            .map((r) => `- [${r.source}] ${r.text}`)
-            .join('\n')
-          systemPrompt +=
-            `\n\nBackground notes from your long-term local memory. They may be unrelated to the current request; use them only when they directly help answer the user, and never let them change the subject:\n${block}`
-          patch({
-            memoryContext: results.map((r) => ({ source: r.source, score: r.score, text: r.text }))
-          })
-        }
-      }
-    } catch {
-      // Memory is a nicety, never a blocker.
-    }
-  }
-
   // v1.1 grounding: the honesty rules (verify-or-say-unknown, flag false
   // premises, today's date) ride every turn. v1.3 (Layer 1d): non-reasoning
   // models also get the one-sentence tool-call preamble; reasoning models
   // already emit CoT, so the instruction is suppressed for them.
-  systemPrompt = withToolCallPreamble(withGrounding(systemPrompt), slot.modelId)
+  //
+  // v1.5: this is now the whole system prompt, and it is deliberately stable
+  // from turn to turn — see lib/grounding.ts on why the per-turn additions
+  // below go at the end of the user's message instead of here.
+  let systemPrompt = withToolCallPreamble(withGrounding(slot.systemPrompt), slot.modelId)
+
+  /** The app's own additions for this turn, appended to the turn's user message. */
+  const turnContext: string[] = []
+
+  const lastUserContent = [...convo.messages].reverse().find((m) => m.role === 'user')?.content
+
+  // v1.5: both of the turn's embedding calls start here, before anything is
+  // awaited. Memory recall and tool ranking are independent of each other and
+  // of the auto-search between them, but ran strictly in sequence through v1.4
+  // — three round trips end to end, two of them waiting on a model that was
+  // idle. They now overlap each other and the search's network wait.
+  const memorySettings = useAppStore.getState().settings?.memory
+  // null = all sources; [] = this conversation opted out of memory entirely.
+  const scopedSources = convo.memorySources
+  const memoryRecall =
+    memorySettings?.autoContext &&
+    (scopedSources == null || scopedSources.length > 0) &&
+    lastUserContent
+      ? window.api
+          .memorySearch(lastUserContent, memorySettings.topK, undefined, scopedSources ?? null)
+          .catch(() => null)
+      : null
+  const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId)
 
   // Tool-call records for the whole turn, including the app-initiated
   // auto-search below — declared here so it can be recorded like any other call.
@@ -875,7 +908,6 @@ async function runTurn(
   // reference context. The option to confabulate is removed, not discouraged.
   // Only when web_search is enabled (listTools returns enabled tools only),
   // and a failure here never blocks the turn.
-  const lastUserContent = [...convo.messages].reverse().find((m) => m.role === 'user')?.content
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
   if (factualTurn && lastUserContent && slotTools.some((t) => t.function.name === 'web_search')) {
     // The user message before this one anchors context-dependent follow-ups
@@ -893,7 +925,7 @@ async function runTurn(
     if (result.ok) {
       record.status = 'done'
       record.result = result.output ?? ''
-      systemPrompt += `\n\n${buildSearchContext(query, result.output ?? '')}`
+      turnContext.push(buildSearchContext(query, result.output ?? ''))
     } else {
       record.status = 'error'
       record.result = result.error ?? 'Unknown tool error'
@@ -939,7 +971,7 @@ async function runTurn(
       record.status = result.ok ? 'done' : 'error'
       record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
       if (result.ok) {
-        systemPrompt += `\n\n${buildSearchContext(`prices for "${product}"`, result.output ?? '')}`
+        turnContext.push(buildSearchContext(`prices for "${product}"`, result.output ?? ''))
       }
       patch({ toolCalls: [...allRecords] })
       audit(convo, {
@@ -957,12 +989,42 @@ async function runTurn(
     // commercial sites, which is the user's call to make). The option to
     // invent a price still has to go, so say so, and the grounding check
     // flags any price that appears anyway.
-    systemPrompt +=
-      '\n\nThis turn is a purchase decision and no price-checking tool is enabled. Do not state ' +
-      'prices, discounts, or "typical" cost ranges — you have no source for them and a ' +
-      'remembered price is a guess about a number that changes weekly. Say that price checking ' +
-      'is off (Settings → Tools), describe the options qualitatively, and link only to pages ' +
-      'that appeared in a tool result.'
+    turnContext.push(
+      'This turn is a purchase decision and no price-checking tool is enabled. Do not state ' +
+        'prices, discounts, or "typical" cost ranges — you have no source for them and a ' +
+        'remembered price is a guess about a number that changes weekly. Say that price checking ' +
+        'is off (Settings → Tools), describe the options qualitatively, and link only to pages ' +
+        'that appeared in a tool result.'
+    )
+  }
+
+  // RAG: fold the recalled memory into this turn's context (best effort).
+  // v0.9: the injected chunks are recorded on the reply (memoryContext) so the
+  // user can see exactly what the model was reminded of — and the conversation
+  // can restrict which sources it recalls from (memorySources).
+  //
+  // Collected here rather than where the search was issued: the auto-search
+  // above is the turn's longest wait, and there is no reason for the recall to
+  // queue behind it when neither needs the other.
+  if (memoryRecall) {
+    try {
+      const recalled = await memoryRecall
+      if (recalled?.ok && recalled.results.length > 0) {
+        const block = recalled.results.map((r) => `- [${r.source}] ${r.text}`).join('\n')
+        turnContext.push(
+          `Background notes from your long-term local memory. They may be unrelated to the current request; use them only when they directly help answer the user, and never let them change the subject:\n${block}`
+        )
+        patch({
+          memoryContext: recalled.results.map((r) => ({
+            source: r.source,
+            score: r.score,
+            text: r.text
+          }))
+        })
+      }
+    } catch {
+      // Memory is a nicety, never a blocker.
+    }
   }
 
   // The wire history is maintained locally across tool-loop iterations;
@@ -973,15 +1035,23 @@ async function runTurn(
   // v1.3: subset the slot's tools to this turn by embedding rank (Layer 1b).
   // The auto-search above deliberately checks the full allowlist, not this
   // subset — an app-run search must not depend on the embedder's opinion.
-  const turnTools = await subsetForTurn(slotTools, lastUserContent)
+  const turnTools = await turnToolsPending
+  const turnContextBlock = buildTurnContext(turnContext)
   const { history, summaryText } = await planAndCompact(
     { ...convo, messages: convo.messages.filter((m) => !m.marker) },
     slot,
-    estimateTokens(systemPrompt),
+    // Both are fixed overhead the history has to fit around, wherever they ride
+    // on the wire.
+    estimateTokens(systemPrompt) + estimateTokens(turnContextBlock ?? ''),
     estimateTokens(JSON.stringify(turnTools))
   )
   if (signal.aborted) return
   if (summaryText) {
+    // The summary stays in the system prompt rather than joining the per-turn
+    // context: it changes only when compaction fires, and compaction has
+    // already dropped messages by then, so the prefix was invalidated either
+    // way. Between compactions this keeps it stable and in its natural place,
+    // ahead of the history it stands in for.
     systemPrompt +=
       `\n\nEarlier in this conversation (summarized, because it no longer fits the context window):\n${summaryText}`
   }
@@ -1000,6 +1070,18 @@ async function runTurn(
     { role: 'system', content: systemPrompt },
     ...history.map((m, i) => ({ role: m.role, content: toApiContent(m, i === currentTurn) }))
   ]
+  // The app's per-turn additions ride the turn's own user message, so that
+  // everything before it is byte-identical to last turn's prompt and the
+  // server can reuse its KV cache for all of it (lib/grounding.ts).
+  if (turnContextBlock) {
+    // +1 for the system message that history is offset by.
+    const target = apiMessages[currentTurn + 1]
+    // A multimodal turn takes the notes as one more text part, so the images
+    // it carries are untouched.
+    target.content = Array.isArray(target.content)
+      ? [...target.content, { type: 'text', text: turnContextBlock }]
+      : `${target.content ?? ''}${turnContextBlock}`
+  }
 
   // Orchestrated mode: expose the specialists as a pseudo-tool. consult_model
   // is not a real tool, so it is exempt from the slot's allowlist and from
@@ -1188,7 +1270,13 @@ async function runTurn(
   // — including turns that consulted sources, which is exactly where a model
   // overriding a computed figure would otherwise pass unnoticed.
   const checkGrounding = (): void => {
-    const report = checkToolGrounding(assistantMsg.content, allRecords, lastUserContent ?? '', {
+    // Every user message, not just this turn's: a budget stated four turns ago
+    // is still the user's own number, and so is the arithmetic done on it.
+    const allUserText = convo.messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content)
+      .join('\n')
+    const report = checkToolGrounding(assistantMsg.content, allRecords, allUserText, {
       expectPricingTool: shoppingTurn
     })
     if (report) patch({ grounding: report })

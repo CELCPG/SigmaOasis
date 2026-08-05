@@ -15,7 +15,7 @@ function slot(partial: Partial<ModelConfig> & { id: string; roleName: string }):
     systemPrompt: '',
     color: 'blue',
     enabled: true,
-    sampling: { temperature: 0.7, topP: 0.9, maxTokens: -1, seed: null },
+    sampling: { temperature: 0.7, topP: 0.9, maxTokens: -1, seed: null, topK: -1, minP: -1 },
     contextWindow: null,
     ...partial
   }

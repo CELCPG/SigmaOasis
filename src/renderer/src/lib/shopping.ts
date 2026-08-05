@@ -49,6 +49,24 @@ const OWNERSHIP =
   /\b(?:fix|repair|troubleshoot|broken|won'?t\s+(?:start|turn|work)|not\s+working|clean(?:ing)?|maintain|warranty\s+claim|return\s+my|my\s+old)\b/i
 
 /**
+ * Buying a security is not shopping.
+ *
+ * "you can buy stocks on kraken" tripped the purchase branch in a measured
+ * v1.4 session, which put the turn into pricing mode: `shop_compare` has
+ * nothing to say about an equity, and the mode's other half — the check that
+ * flags any price in the reply — then flagged the user's own investment
+ * budget. Both halves were wrong for the same reason, so the veto sits here
+ * rather than in either of them.
+ *
+ * Plural-only for `stocks` and `shares`: "are these headphones in stock" is a
+ * genuine availability question, and "can you share the link" is not about
+ * equities. The singular forms carry too much ordinary retail traffic to spend
+ * a veto on.
+ */
+const SECURITIES =
+  /\b(?:stocks|stock (?:market|price)|shares|shareholders?|equit(?:y|ies)|etfs?|bonds|treasuries|crypto(?:currency)?|bitcoin|ethereum|tickers?|brokerages?|portfolios?|index funds?|mutual funds?|ira|401k|dividends?|options contracts?|price targets?|market cap|valuations?|ipo|analysts?)\b/i
+
+/**
  * Decide whether a turn is a purchase decision worth pricing mechanically.
  *
  * Conservative in the opposite direction from `looksFactual`: over-triggering
@@ -60,6 +78,7 @@ export function looksLikeShopping(text: string): boolean {
   if (t.length < 8) return false
   if (OPINION_OR_EXPLANATION.test(t)) return false
   if (OWNERSHIP.test(t)) return false
+  if (SECURITIES.test(t)) return false
   if (SHOPPING_INTENT.test(t)) return true
   if (PRODUCT_CHOICE.test(t)) return true
   return false

@@ -15,6 +15,10 @@ export interface SamplingSettings {
   maxTokens: number
   /** Fixed RNG seed for reproducible replies; null lets the server choose. */
   seed: number | null
+  /** Top-k truncation. -1 follows the model family's recipe, 0 disables it. */
+  topK: number
+  /** Minimum-probability floor. -1 follows the family recipe, 0 disables it. */
+  minP: number
 }
 
 export interface ModelConfig {

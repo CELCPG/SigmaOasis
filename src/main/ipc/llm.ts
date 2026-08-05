@@ -43,6 +43,98 @@ export interface CompleteOptions {
    * local model takes.
    */
   timeoutMs?: number
+  /**
+   * `false` asks a reasoning model not to think before answering.
+   *
+   * Every call in this module is a utility call — plan, reformulate,
+   * summarize, synthesize — whose output is parsed or filed, never read as it
+   * arrives. Chain-of-thought buys nothing on any of them and is charged twice:
+   * once in latency, and once against `maxTokens`, which is a budget for the
+   * answer rather than for the deliberation in front of it. Left undefined the
+   * model decides, which is the right default for anything user-facing.
+   */
+  thinking?: boolean
+}
+
+// ---- reasoning ----------------------------------------------------------------
+
+/**
+ * Chain-of-thought is invisible to this module by default, and that is a
+ * problem rather than a convenience.
+ *
+ * LM Studio registers a reasoning parser for the Qwen3 family (and others), so
+ * the model's thinking is routed out of band into `reasoning_content` while
+ * `content` stays empty until it finishes. Reading only `content` — which is
+ * what every parser here did through v1.4 — means a model that spends its whole
+ * token budget thinking looks exactly like a model that answered with nothing.
+ * Measured on qwen3.5-9b-mlx: the research planner (700 tokens) never emitted
+ * its JSON, so runs reported "planning did not produce sub-questions", and
+ * synthesis (1400 tokens) came back as "the model returned an empty brief"
+ * after a full ninety-second crawl. Both are the same starved budget wearing
+ * two different error messages.
+ *
+ * So: thinking is switched off for these calls, parsed when it arrives anyway,
+ * and a reply that is *only* thinking is reported as such instead of as silence.
+ */
+
+/** Qwen3's documented soft switch, for servers that drop unknown body fields. */
+const NO_THINK_TOKEN = '/no_think'
+/** Families known to honor the soft switch. Others get the body field alone. */
+const SOFT_SWITCH_MODELS = /qwen3/i
+
+/** Inline `<think>…</think>`, in the spellings lib/reasoning.ts also handles. */
+const THINK_BLOCK = /<(think|thinking|reason|reasoning)>[\s\S]*?<\/\1>\s*/gi
+/** A block the model opened and never closed — everything after it is thinking. */
+const UNCLOSED_THINK = /<(think|thinking|reason|reasoning)>[\s\S]*$/i
+
+/**
+ * Remove inline reasoning from model output.
+ *
+ * The out-of-band channel is the common case, but the same model on a build
+ * without the parser emits the tags in `content` instead. A brief that opens
+ * with the model's own deliberation is not a brief.
+ */
+export function stripReasoning(text: string): string {
+  return text.replace(THINK_BLOCK, '').replace(UNCLOSED_THINK, '').trim()
+}
+
+/**
+ * A completion that produced only chain-of-thought.
+ *
+ * Distinct from an empty reply on purpose: the causes are different (a budget
+ * spent thinking versus a model with nothing to say) and so is the fix, and the
+ * caller's disclosure to the user should say which one happened.
+ */
+export class ReasoningOnlyError extends Error {
+  constructor(readonly reasoningChars: number) {
+    super(
+      `the model spent its whole token budget on chain-of-thought and never began the answer ` +
+        `(${reasoningChars} characters of reasoning, no output). Raise maxTokens or disable thinking.`
+    )
+    this.name = 'ReasoningOnlyError'
+  }
+}
+
+/** The request shape that turns thinking off, or the request unchanged. */
+export function applyThinking(options: CompleteOptions): {
+  messages: ChatMessage[]
+  body: Record<string, unknown>
+} {
+  if (options.thinking !== false) return { messages: options.messages, body: {} }
+  const body = { chat_template_kwargs: { enable_thinking: false } }
+  if (!SOFT_SWITCH_MODELS.test(options.model)) return { messages: options.messages, body }
+
+  const first = options.messages[0]
+  if (first?.role === 'system') {
+    return {
+      messages: [{ ...first, content: `${first.content}\n\n${NO_THINK_TOKEN}` }, ...options.messages.slice(1)],
+      body
+    }
+  }
+  return {
+    messages: [{ role: 'system', content: NO_THINK_TOKEN }, ...options.messages],
+    body
+  }
 }
 
 /**
@@ -80,6 +172,7 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
   // call between research steps lets LM Studio's auto-evict unload it, and
   // every reflect/synthesize pays a full reload.
   await pinChatModel(options.model)
+  const thinking = applyThinking(options)
   try {
     const res = await auditedFetch(
       `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`,
@@ -88,9 +181,10 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: options.model,
-          messages: options.messages,
+          messages: thinking.messages,
           stream: false,
           temperature: options.temperature ?? 0.2,
+          ...thinking.body,
           ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
           ...(options.jsonSchema
             ? {
@@ -117,9 +211,15 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
       throw new Error(`LM Studio returned HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`)
     }
     const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[]
+      choices?: { message?: { content?: string; reasoning_content?: string } }[]
     }
-    return data.choices?.[0]?.message?.content ?? ''
+    const message = data.choices?.[0]?.message
+    const answer = stripReasoning(message?.content ?? '')
+    // Thinking with nothing after it is a starved budget, not an empty reply.
+    if (!answer && message?.reasoning_content?.trim()) {
+      throw new ReasoningOnlyError(message.reasoning_content.length)
+    }
+    return answer
   } catch (err) {
     throw err instanceof Error ? err : new Error(String(err))
   }
@@ -148,11 +248,17 @@ export class PartialCompletionError extends Error {
  * Returns the text found plus whatever trailing fragment was incomplete, which
  * the caller carries into the next chunk — a delta can split mid-line, and
  * dropping the remainder loses tokens silently.
+ *
+ * `reasoning` is the out-of-band chain-of-thought channel, kept separate rather
+ * than merged or discarded: merging it would put the model's deliberation into
+ * a brief, and discarding it makes a reply that was *only* thinking
+ * indistinguishable from no reply at all.
  */
-export function parseSseDeltas(buffer: string): { text: string; rest: string } {
+export function parseSseDeltas(buffer: string): { text: string; reasoning: string; rest: string } {
   let text = ''
+  let reasoning = ''
   const lastBreak = buffer.lastIndexOf('\n')
-  if (lastBreak === -1) return { text: '', rest: buffer }
+  if (lastBreak === -1) return { text: '', reasoning: '', rest: buffer }
   const complete = buffer.slice(0, lastBreak)
   const rest = buffer.slice(lastBreak + 1)
 
@@ -163,15 +269,19 @@ export function parseSseDeltas(buffer: string): { text: string; rest: string } {
     if (!payload || payload === '[DONE]') continue
     try {
       const parsed = JSON.parse(payload) as {
-        choices?: { delta?: { content?: string }; message?: { content?: string } }[]
+        choices?: {
+          delta?: { content?: string; reasoning_content?: string }
+          message?: { content?: string; reasoning_content?: string }
+        }[]
       }
       const choice = parsed.choices?.[0]
       text += choice?.delta?.content ?? choice?.message?.content ?? ''
+      reasoning += choice?.delta?.reasoning_content ?? choice?.message?.reasoning_content ?? ''
     } catch {
       // A malformed frame is skipped rather than failing the whole stream.
     }
   }
-  return { text, rest }
+  return { text, reasoning, rest }
 }
 
 /**
@@ -185,14 +295,17 @@ export function parseSseDeltas(buffer: string): { text: string; rest: string } {
 export async function chatCompleteStream(options: CompleteOptions): Promise<string> {
   const settings = getSettings()
   await pinChatModel(options.model)
+  const thinking = applyThinking(options)
 
   let accumulated = ''
+  let reasoned = ''
   let pending = ''
   const decoder = new TextDecoder()
   const onChunk = (chunk: Uint8Array): void => {
     pending += decoder.decode(chunk, { stream: true })
-    const { text, rest } = parseSseDeltas(pending)
+    const { text, reasoning, rest } = parseSseDeltas(pending)
     accumulated += text
+    reasoned += reasoning
     pending = rest
   }
 
@@ -204,9 +317,10 @@ export async function chatCompleteStream(options: CompleteOptions): Promise<stri
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: options.model,
-          messages: options.messages,
+          messages: thinking.messages,
           stream: true,
           temperature: options.temperature ?? 0.2,
+          ...thinking.body,
           ...(options.maxTokens ? { max_tokens: options.maxTokens } : {})
         }),
         signal: options.signal,
@@ -220,11 +334,20 @@ export async function chatCompleteStream(options: CompleteOptions): Promise<stri
       throw new Error(`LM Studio returned HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`)
     }
     // Flush any final frame the last chunk left incomplete.
-    const { text } = parseSseDeltas(`${pending}\n`)
-    return accumulated + text
+    const tail = parseSseDeltas(`${pending}\n`)
+    const answer = stripReasoning(accumulated + tail.text)
+    // Thinking with nothing after it is a starved budget, not an empty reply.
+    if (!answer && (reasoned + tail.reasoning).trim()) {
+      throw new ReasoningOnlyError((reasoned + tail.reasoning).length)
+    }
+    return answer
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    if (accumulated.trim()) throw new PartialCompletionError(message, accumulated)
+    if (err instanceof ReasoningOnlyError) throw err
+    // The partial is stripped for the same reason the whole reply is: a brief
+    // cut off mid-thought is worth keeping, its `<think>` preamble is not.
+    const partial = stripReasoning(accumulated)
+    if (partial) throw new PartialCompletionError(message, partial)
     throw err instanceof Error ? err : new Error(message)
   }
 }

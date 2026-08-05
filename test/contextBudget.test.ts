@@ -234,7 +234,7 @@ describe('conversationContextUsage', () => {
       systemPrompt: '',
       color: 'blue',
       enabled: true,
-      sampling: { temperature: 0.7, topP: 1, maxTokens: -1, seed: null },
+      sampling: { temperature: 0.7, topP: 1, maxTokens: -1, seed: null, topK: -1, minP: -1 },
       contextWindow: null,
       ...extra
     }
