@@ -288,6 +288,38 @@ describe('selectSources', () => {
     assert.equal(selectSources(candidates, relevance, 2)[0].url, 'https://b.com/1')
   })
 
+  /**
+   * v1.5. A measured v1.4 run spent its whole fetch budget on SEO pages about
+   * a stock and synthesized a brief from them. Search-bait now reads last —
+   * but still reads, because on a thin topic it may be the only thing there,
+   * and an unread page is worth less than a labelled one.
+   */
+  test('search-bait reads after everything else, however well it ranks', () => {
+    const bait = candidate('https://thechronex.com/how-to-buy-spacex-stock-spcx-ipo-guide/')
+    const plain = candidate('https://example.com/analysis')
+    const relevance = new Map([
+      [bait.url, 0.99],
+      [plain.url, 0.10]
+    ])
+    assert.equal(selectSources([bait, plain], relevance, 2)[0].url, plain.url)
+  })
+
+  test('but it is still read when nothing else is on offer', () => {
+    const bait = candidate('https://thechronex.com/how-to-buy-spacex-stock-spcx-ipo-guide/')
+    const selected = selectSources([bait], new Map([[bait.url, 0.5]]), 2)
+    assert.deepEqual(selected.map((s) => s.url), [bait.url])
+  })
+
+  test('relevance order still holds within the demoted group', () => {
+    const a = candidate('https://one.example/how-to-buy-x-complete-guide/')
+    const b = candidate('https://two.example/price-prediction/y')
+    const relevance = new Map([
+      [a.url, 0.2],
+      [b.url, 0.8]
+    ])
+    assert.equal(selectSources([a, b], relevance, 2)[0].url, b.url)
+  })
+
   test('deduplicates URLs differing only by fragment or trailing slash', () => {
     const candidates = [
       candidate('https://a.com/x'),

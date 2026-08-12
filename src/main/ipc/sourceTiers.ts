@@ -175,6 +175,137 @@ export function isMarketplace(rawUrl: string): boolean {
   }
 }
 
+// ---- general web provenance (v1.5) -------------------------------------------
+
+/**
+ * The tiers above answer a product question — manufacturer, tested, retailer —
+ * and they do not transfer. Run `tierOf` over a cosmology search and NASA comes
+ * back "unrecognized source", which is worse than saying nothing.
+ *
+ * So general search gets its own, much smaller claim. It is deliberately not a
+ * credibility ranking: this app has no business deciding which news outlet to
+ * believe, and a list like that would be a political artifact maintained by
+ * nobody. It marks only the two ends that can be argued from a URL alone —
+ * a source that is the record itself, and a source built to rank rather than
+ * to inform — and says nothing at all about the vast middle.
+ *
+ * The failure it exists for: a v1.4 session researched a stock, and every
+ * corroborating source was an SEO domain (spacexstockreview.com,
+ * coingabbar.com/price-prediction/…, thechronex.com/how-to-buy-…). No filing,
+ * no exchange listing, no wire service appeared, and nothing in the output
+ * suggested that the sources had anything in common. The model wrote an
+ * investment plan on top of them.
+ */
+export type Provenance = 'primary' | 'reference' | 'farm' | 'unknown'
+
+export interface ProvenanceAssignment {
+  kind: Provenance
+  /** Short clause shown next to the result. Empty for `unknown` — no claim. */
+  why: string
+}
+
+/** Suffixes that are the public record: government, military, accredited academia. */
+const PRIMARY_SUFFIXES = ['.gov', '.mil', '.edu', '.gov.uk', '.ac.uk', '.europa.eu', '.int']
+
+/**
+ * Registries, standards bodies and scholarly publishers — the record itself
+ * rather than reporting about it. Deliberately short: every entry has to be
+ * somewhere a claim originates, not somewhere claims are repeated well.
+ */
+const PRIMARY_DOMAINS = [
+  'sec.gov', 'federalregister.gov', 'nasdaq.com', 'nyse.com', 'ecb.europa.eu',
+  'bis.org', 'imf.org', 'worldbank.org', 'oecd.org', 'un.org', 'who.int',
+  'iso.org', 'ietf.org', 'rfc-editor.org', 'w3.org', 'unicode.org', 'ieee.org',
+  'doi.org', 'arxiv.org', 'nature.com', 'science.org', 'jstor.org',
+  'sciencedirect.com', 'springer.com', 'esa.int', 'noaa.gov'
+]
+
+/** Tertiary summaries. Useful, and explicitly not a source. */
+const REFERENCE_DOMAINS = ['wikipedia.org', 'britannica.com', 'wikidata.org', 'wiktionary.org']
+
+/**
+ * Page shapes that exist to capture a search query rather than to report:
+ * "/how-to-buy-x", "/price-prediction/", "/complete-guide-to-y".
+ *
+ * Applied only to domains not otherwise recognized, exactly as LISTICLE_PATH
+ * is — a regulator publishing a "how to file" guide is still the regulator.
+ */
+const SEO_PATH =
+  /\/(?:how[-_]to[-_](?:buy|invest|purchase|get)|price[-_]predictions?|(?:complete|ultimate|beginners?|definitive)[-_]guide|[a-z0-9-]*[-_](?:complete|ultimate)[-_]guide)/i
+
+function hasSuffix(hostname: string, suffix: string): boolean {
+  return hostname.toLowerCase().endsWith(suffix)
+}
+
+/**
+ * Classify a general web result. Unknown is the honest and by far the most
+ * common answer, and it is reported as nothing at all rather than as a
+ * demerit — most of the useful web is unremarkable by URL.
+ */
+export function provenanceOf(rawUrl: string): ProvenanceAssignment {
+  let hostname: string
+  let pathname: string
+  try {
+    const u = new URL(rawUrl)
+    hostname = u.hostname.toLowerCase()
+    pathname = u.pathname
+  } catch {
+    return { kind: 'unknown', why: '' }
+  }
+
+  // A known farm outranks everything: these domains are the whole point.
+  if (TIER_X.some((d) => hostMatches(hostname, d))) {
+    return { kind: 'farm', why: 'known affiliate content farm' }
+  }
+
+  if (PRIMARY_SUFFIXES.some((s) => hasSuffix(hostname, s))) {
+    return { kind: 'primary', why: 'official/academic domain' }
+  }
+  if (PRIMARY_DOMAINS.some((d) => hostMatches(hostname, d))) {
+    return { kind: 'primary', why: 'registry, standards body or scholarly publisher' }
+  }
+  if (REFERENCE_DOMAINS.some((d) => hostMatches(hostname, d))) {
+    return { kind: 'reference', why: 'encyclopedia — a summary of sources, not a source' }
+  }
+  if (LISTICLE_PATH.test(pathname) || SEO_PATH.test(pathname)) {
+    return { kind: 'farm', why: 'search-bait page shape on an unrecognized domain' }
+  }
+  return { kind: 'unknown', why: '' }
+}
+
+/** True when a result should be read last, if at all. */
+export function isLowProvenance(rawUrl: string): boolean {
+  return provenanceOf(rawUrl).kind === 'farm'
+}
+
+/**
+ * One line about the shape of a result set, or null when there is nothing worth
+ * saying — which is the common case and has to stay quiet. A note on every
+ * search is a note the model learns to skip.
+ *
+ * It speaks only when at least one result is search-bait, and mentions the
+ * absence of a primary source only in that company: plenty of good questions
+ * have no official source, and saying so every time would be noise.
+ */
+export function provenanceNote(urls: string[]): string | null {
+  const kinds = urls.map((u) => provenanceOf(u).kind)
+  const farms = kinds.filter((k) => k === 'farm').length
+  if (farms === 0) return null
+
+  const grounded = kinds.some((k) => k === 'primary')
+  const all = farms === kinds.length
+  const lead = all
+    ? `Every result here is search-bait — pages built to rank for this query rather than to report on it.`
+    : `${farms} of these ${kinds.length} results ${farms === 1 ? 'is' : 'are'} search-bait, marked below.`
+  const missing = grounded
+    ? ''
+    : ' No primary or official source (regulator, filing, standards body, academic publisher) appeared at all.'
+  return (
+    `${lead}${missing} Do not treat them as corroborating each other — repetition across ` +
+    `SEO pages is not evidence. If a claim rests only on these, say so.`
+  )
+}
+
 /** What a tier may be cited for — rendered next to every extracted value. */
 export function authoritativeFor(tier: SourceTier): string {
   switch (tier) {

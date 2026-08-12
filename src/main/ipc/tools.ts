@@ -20,6 +20,7 @@ import type { ResearchDepth, ResearchOutcome, ResearchPlan } from './deepResearc
 import { formatCompare, runShopCompare, runShopRequirements } from './shopping'
 import { addWatch, formatWatchlist, readWatchlist, removeWatch } from './watchlist'
 import { DEFAULT_PASSAGES, MAX_PASSAGES, TOOL_SCHEMAS } from './toolSchemas'
+import { provenanceNote, provenanceOf } from './sourceTiers'
 
 /**
  * Content fetched from the public web is data, not instructions. Every piece
@@ -266,7 +267,11 @@ function formatResearch(outcome: ResearchOutcome): ToolResult {
   }
 
   const sources = (outcome.sources ?? [])
-    .map((s) => `[${s.index}] ${s.title || '(untitled)'}\n    ${s.url}`)
+    .map((s) => {
+      const { kind, why } = provenanceOf(s.url)
+      const mark = kind === 'unknown' ? '' : `\n    [${kind}: ${why}]`
+      return `[${s.index}] ${s.title || '(untitled)'}\n    ${s.url}${mark}`
+    })
     .join('\n')
 
   const gaps = (outcome.coverage ?? []).filter((c) => !c.covered)
@@ -288,6 +293,8 @@ function formatResearch(outcome: ResearchOutcome): ToolResult {
   if (ledger && ledger.limitsHit.length > 0) {
     notes.push(`Stopped by the research budget (${ledger.limitsHit.join(', ')}).`)
   }
+  const shape = provenanceNote((outcome.sources ?? []).map((s) => s.url))
+  if (shape) notes.push(shape)
   if (outcome.redactions && outcome.redactions.length > 0) {
     notes.push(`Queries were sanitized before sending — redacted: ${outcome.redactions.join(', ')}.`)
   }
@@ -412,17 +419,23 @@ async function executeTool(
               'Say plainly that the search found nothing usable; do not invent results.'
           }
         }
-        const lines = outcome.results.map(
-          (r, i) =>
-            `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}${r.published ? `\n   (${r.published})` : ''}`
-        )
+        // v1.5: mark what can be argued from the URL alone — the public record
+        // at one end, search-bait at the other — and stay silent about the
+        // middle. Unmarked is the common case and means exactly nothing.
+        const lines = outcome.results.map((r, i) => {
+          const { kind, why } = provenanceOf(r.url)
+          const mark = kind === 'unknown' ? '' : `\n   [${kind}: ${why}]`
+          return `${i + 1}. ${r.title}\n   ${r.url}${mark}\n   ${r.snippet}${r.published ? `\n   (${r.published})` : ''}`
+        })
         const source = outcome.cached
           ? `from this session's cache — the query was not re-sent`
           : `via ${outcome.provider}`
+        const shape = provenanceNote(outcome.results.map((r) => r.url))
         return {
           ok: true,
           output: truncate(
-            `${UNTRUSTED_HEADER}\n\nSearch results for "${outcome.sentQuery}" ${source}:${redactionNote}\n\n${lines.join('\n\n')}`
+            `${UNTRUSTED_HEADER}\n\nSearch results for "${outcome.sentQuery}" ${source}:${redactionNote}\n\n` +
+              `${lines.join('\n\n')}${shape ? `\n\n${shape}` : ''}`
           )
         }
       }

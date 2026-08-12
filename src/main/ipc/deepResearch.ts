@@ -9,6 +9,7 @@ import { readWebpage, runWebSearch } from './search'
 import type { SearchResult } from './search'
 import { embedTexts, toUnitVector, unitDot } from './embeddings'
 import { Bm25Index, normalizeScores, tokenize } from './retrieval'
+import { isLowProvenance } from './sourceTiers'
 
 /**
  * Multi-step research, as one tool call.
@@ -533,9 +534,20 @@ export function selectSources(
   const perDomain = new Map<string, number>()
   const deduped: CandidateSource[] = []
 
-  const ranked = [...candidates].sort(
+  const byRelevance = [...candidates].sort(
     (a, b) => (relevance.get(b.url) ?? 0) - (relevance.get(a.url) ?? 0)
   )
+
+  // v1.5: search-bait goes to the back of the queue, not the bin. A page built
+  // to rank for the query rather than to answer it is the worst use of a fetch
+  // budget — a v1.4 run spent its whole budget on SEO pages about a stock and
+  // synthesized a brief from them — but on a thin topic it may be all there is,
+  // and reading nothing is worse than reading something labelled. Relevance
+  // order is preserved within each group.
+  const ranked = [
+    ...byRelevance.filter((c) => !isLowProvenance(c.url)),
+    ...byRelevance.filter((c) => isLowProvenance(c.url))
+  ]
 
   // First pass honors the per-domain cap.
   for (const candidate of ranked) {
