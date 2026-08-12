@@ -139,26 +139,48 @@ describe('applyThinking', () => {
     assert.deepEqual(out.body, { chat_template_kwargs: { enable_thinking: false } })
   })
 
-  test('adds the soft switch for the family that honors it', () => {
+  /**
+   * The switch that survived measurement. Every server-side parameter —
+   * chat_template_kwargs, reasoning_effort, template_kwargs, a top-level
+   * enable_thinking, /no_think, /nothink — was inert on qwen3.5-9b-mlx in
+   * LM Studio on 2026-08-12: identical output to sending nothing, the whole
+   * budget spent thinking, no answer. Prefilling a closed thinking block is
+   * what actually works, so that is what these pin.
+   */
+  test('prefills a closed thinking block for the tag-delimited families', () => {
     const out = llm.applyThinking({ model: 'qwen3.5-9b-mlx', messages, thinking: false })
-    assert.match(String(out.messages[0].content), /\/no_think$/)
-    // The user's message is never rewritten.
-    assert.equal(out.messages[1].content, 'Summarize.')
+    const last = out.messages[out.messages.length - 1]
+    assert.equal(last.role, 'assistant')
+    assert.match(String(last.content), /^<think>\s*<\/think>/)
   })
 
-  test('other families get the body field alone, with no stray token', () => {
-    const out = llm.applyThinking({ model: 'google/gemma-4-12b-qat', messages, thinking: false })
+  test('the caller\'s own messages are passed through untouched', () => {
+    const out = llm.applyThinking({ model: 'qwen3.5-9b-mlx', messages, thinking: false })
     assert.equal(out.messages[0].content, 'You are helpful.')
+    assert.equal(out.messages[1].content, 'Summarize.')
+    assert.equal(out.messages.length, messages.length + 1)
   })
 
-  test('a request with no system message still gets the switch', () => {
+  test('the prefill goes last, after the question it answers', () => {
+    // Anywhere else and it is not a turn the model continues from.
+    const out = llm.applyThinking({ model: 'deepseek-r1-distill-qwen-7b', messages, thinking: false })
+    assert.equal(out.messages[out.messages.length - 2].role, 'user')
+  })
+
+  test('Gemma gets the body field alone — its thinking uses other tokens', () => {
+    const out = llm.applyThinking({ model: 'google/gemma-4-12b-qat', messages, thinking: false })
+    assert.deepEqual(out.messages, messages)
+    assert.deepEqual(out.body, { chat_template_kwargs: { enable_thinking: false } })
+  })
+
+  test('a request with no system message is still handled', () => {
     const out = llm.applyThinking({
       model: 'qwen3.5-9b-mlx',
       messages: [{ role: 'user' as const, content: 'Hi' }],
       thinking: false
     })
-    assert.equal(out.messages[0].role, 'system')
-    assert.equal(out.messages[1].content, 'Hi')
+    assert.equal(out.messages[0].content, 'Hi')
+    assert.equal(out.messages[1].role, 'assistant')
   })
 })
 

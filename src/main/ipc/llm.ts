@@ -77,10 +77,34 @@ export interface CompleteOptions {
  * and a reply that is *only* thinking is reported as such instead of as silence.
  */
 
-/** Qwen3's documented soft switch, for servers that drop unknown body fields. */
-const NO_THINK_TOKEN = '/no_think'
-/** Families known to honor the soft switch. Others get the body field alone. */
-const SOFT_SWITCH_MODELS = /qwen3/i
+/**
+ * How thinking is actually switched off, as measured rather than as documented.
+ *
+ * v1.4.1 sent `chat_template_kwargs: {enable_thinking: false}` plus Qwen3's
+ * `/no_think` token and shipped them unverified. Both are inert on
+ * qwen3.5-9b-mlx in LM Studio — measured 2026-08-12, along with
+ * `reasoning_effort`, `template_kwargs`, a top-level `enable_thinking`, and
+ * `/nothink`. Every one produced byte-for-byte the same behavior as sending
+ * nothing: the whole budget spent thinking, no answer at all.
+ *
+ * What works is prefilling the assistant turn with a thinking block that is
+ * already closed, so the model resumes *after* it rather than opening one.
+ * Same measurement: the research planner went from an empty reply to valid
+ * JSON, and the synthesis brief from empty-after-36s to a cited brief in 6.4s.
+ *
+ * Raising the token budget is not an alternative. At 1200 tokens this model
+ * still produced 4,751 characters of deliberation and no answer; it only got
+ * there at 2000, after 69 seconds. Thinking length does not converge, so a
+ * budget large enough to always contain it is a budget nothing can afford.
+ */
+const CLOSED_THINK_PREFILL = '<think>\n\n</think>\n\n'
+/**
+ * Families whose chain-of-thought is delimited by `<think>` tags, so a closed
+ * block is a valid thing to hand them. Gemma 4 is deliberately absent: it
+ * marks thinking with its own control tokens, and feeding it another family's
+ * tags would put literal markup in the answer rather than suppress anything.
+ */
+const THINK_TAG_MODELS = /qwen[-_]?3|deepseek[-_]?r1|r1[-_]?distill|magistral/i
 
 /** Inline `<think>…</think>`, in the spellings lib/reasoning.ts also handles. */
 const THINK_BLOCK = /<(think|thinking|reason|reasoning)>[\s\S]*?<\/\1>\s*/gi
@@ -121,18 +145,12 @@ export function applyThinking(options: CompleteOptions): {
   body: Record<string, unknown>
 } {
   if (options.thinking !== false) return { messages: options.messages, body: {} }
+  // Kept although it does nothing here: it is the parameter the API documents,
+  // it costs one field, and a server that honors it needs no prefill at all.
   const body = { chat_template_kwargs: { enable_thinking: false } }
-  if (!SOFT_SWITCH_MODELS.test(options.model)) return { messages: options.messages, body }
-
-  const first = options.messages[0]
-  if (first?.role === 'system') {
-    return {
-      messages: [{ ...first, content: `${first.content}\n\n${NO_THINK_TOKEN}` }, ...options.messages.slice(1)],
-      body
-    }
-  }
+  if (!THINK_TAG_MODELS.test(options.model)) return { messages: options.messages, body }
   return {
-    messages: [{ role: 'system', content: NO_THINK_TOKEN }, ...options.messages],
+    messages: [...options.messages, { role: 'assistant', content: CLOSED_THINK_PREFILL }],
     body
   }
 }
