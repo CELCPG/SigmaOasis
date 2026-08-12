@@ -78,6 +78,39 @@ describe('pinChatModel — legacy fallback', () => {
     assert.equal(state.legacyPinCalls[0].model, 'pin-target-g')
   })
 
+  /**
+   * The v1.4.1 field failure. LM Studio answered POST /api/v0/models/load with
+   * a 200 and an error in the body — its own log reads "Unexpected endpoint or
+   * method. (POST /api/v0/models/load). Returning 200 anyway". The pin took the
+   * status at face value, skipped the legacy fallback, and left the model
+   * merely JIT-loaded, so auto-evict unloaded it on the next embedding call and
+   * every turn paid a full reload. Only the 404 spelling was simulated here,
+   * which is why it shipped.
+   */
+  test('a 200 whose body says the route is unknown is still a missing route', async () => {
+    resetState()
+    state.pinUnavailable = true
+    state.pinUnavailableStatus = 200
+    await pinChatModel('pin-target-g200')
+    assert.equal(state.pinCalls.length, 0, 'the v0 route must not count as a pin')
+    assert.equal(state.legacyPinCalls.length, 1, 'the legacy endpoint must still be tried')
+    assert.equal(state.legacyPinCalls[0].model, 'pin-target-g200')
+  })
+
+  test('the model really ends up pinned when only the legacy route exists', async () => {
+    // Drain pins left by earlier tests first: the registry is module-level, so
+    // asserting hasLegacyPins() without this passes even when nothing pinned.
+    await unloadLegacyPins()
+    resetState()
+    state.pinUnavailable = true
+    state.pinUnavailableStatus = 200
+    await pinChatModel('pin-target-g201')
+    await unloadLegacyPins()
+    // What was unloaded is the observable proof that a pin actually happened,
+    // rather than merely being reported as done.
+    assert.deepEqual(state.unloadCalls, [{ instance_id: 'pin-target-g201' }])
+  })
+
   test('legacy pins are recorded for quit-time unload (the legacy API has no TTL)', async () => {
     resetState()
     state.pinUnavailable = true

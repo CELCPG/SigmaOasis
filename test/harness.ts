@@ -77,6 +77,13 @@ export interface HarnessState {
   unloadCalls: { instance_id?: string }[]
   /** Make /api/v0/models/load return "Unexpected endpoint" (older LM Studio). */
   pinUnavailable: boolean
+  /**
+   * Status the unknown-route response carries. Real LM Studio builds differ:
+   * some 404, and the one measured on 2026-08-12 logs "Unexpected endpoint or
+   * method. (POST /api/v0/models/load). Returning 200 anyway" and does exactly
+   * that. Simulating only the 404 is how the v1.3–v1.4.1 pin bug went unseen.
+   */
+  pinUnavailableStatus: number
   /** Make the legacy /api/v1/models/load also return "Unexpected endpoint". */
   pinLegacyUnavailable: boolean
   /** Make both load endpoints refuse with a guardrail-style model_load_failed. */
@@ -123,6 +130,7 @@ export const state: HarnessState = {
   legacyPinCalls: [],
   unloadCalls: [],
   pinUnavailable: false,
+  pinUnavailableStatus: 404,
   pinLegacyUnavailable: false,
   pinRefused: false,
   modelStates: {},
@@ -153,6 +161,7 @@ export function resetState(): void {
   state.legacyPinCalls = []
   state.unloadCalls = []
   state.pinUnavailable = false
+  state.pinUnavailableStatus = 404
   state.pinLegacyUnavailable = false
   state.pinRefused = false
   state.modelStates = {}
@@ -250,7 +259,11 @@ const netStub = {
 
     if (url.endsWith('/api/v0/models/load')) {
       if (state.pinUnavailable) {
-        return makeResponse('{"error":"Unexpected endpoint or method. (POST /api/v0/models/load)"}', 'application/json', 404)
+        return makeResponse(
+          '{"error":"Unexpected endpoint or method. (POST /api/v0/models/load)"}',
+          'application/json',
+          state.pinUnavailableStatus
+        )
       }
       if (state.pinRefused) {
         return makeResponse(

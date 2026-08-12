@@ -84,12 +84,21 @@ async function postLoad(url: string, body: Record<string, unknown>): Promise<'ok
       },
       'lmstudio'
     )
+    const text = await res.text().catch(() => '')
+    // A route that does not exist, checked BEFORE the status.
+    //
+    // v1.4.2: this check has been here since v1.3 and was unreachable, because
+    // `res.ok` returned 'ok' first. Some LM Studio builds answer an unknown
+    // route with a 200 and an error in the body — this one says so in its own
+    // log: "Unexpected endpoint or method. (POST /api/v0/models/load).
+    // Returning 200 anyway". The pin then reported success, never fell back to
+    // the legacy endpoint, and left the model merely JIT-loaded. Auto-evict
+    // unloaded it the next time an embedding call landed, so every turn paid a
+    // full model reload — and every reload discards the prompt cache, which is
+    // scoped to the load ("lifetime=model_load" in the server log).
+    if (text.includes('Unexpected endpoint')) return 'missing'
     if (res.ok) return 'ok'
     if (res.status === 404) return 'missing'
-    const text = await res.text().catch(() => '')
-    // Older servers answer an unknown route with 200-less JSON rather than a
-    // bare 404 ("Unexpected endpoint or method").
-    if (text.includes('Unexpected endpoint')) return 'missing'
     // The resource guardrail declining the load ("insufficient system
     // resources") will not change from one turn to the next; treat it as
     // settled rather than retrying every message.
