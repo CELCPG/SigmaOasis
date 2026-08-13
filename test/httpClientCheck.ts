@@ -56,6 +56,28 @@ async function main(): Promise<void> {
           res.writeHead(200, { 'content-type': 'text/plain' })
           res.end('late')
         }, 3000)
+      } else if (req.url === '/drip') {
+        // Headers, then a chunk every 100ms — a model streaming steadily.
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        let sent = 0
+        const tick = setInterval(() => {
+          if (sent++ >= 12) {
+            clearInterval(tick)
+            res.end()
+            return
+          }
+          // Same reason as /stall: big enough that each write really lands.
+          res.write('x'.repeat(64 * 1024))
+        }, 100)
+      } else if (req.url === '/stall') {
+        // Headers and one chunk, then silence — a connection that died after
+        // the first token. A total deadline cannot tell this from /drip.
+        //
+        // Deliberately large: Chromium coalesces small writes, and a handful of
+        // bytes never surfaces as a 'data' event at all, so a tiny fixture here
+        // measures the buffer rather than the stall clock.
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        res.write('x'.repeat(64 * 1024))
       } else if (req.url === '/echo-header') {
         res.writeHead(200, { 'content-type': 'text/plain' })
         res.end(String(req.headers['x-custom'] ?? ''))
@@ -123,6 +145,57 @@ async function main(): Promise<void> {
     timedOut = (err as Error).name === 'AbortError'
   }
   check('a slow response times out as AbortError', timedOut)
+
+  /**
+   * v1.5. A single deadline cannot tell a hung server from a slow one, so it
+   * had to be set generously enough for the slow case — and a dead LM Studio
+   * then held the caller for the full five minutes. Liveness is measured
+   * between chunks instead, and only after the first one, because the silence
+   * before it is prompt processing and is legitimately long.
+   */
+  let stalled = false
+  const stallStarted = Date.now()
+  try {
+    await httpRequest(`${origin}/stall`, { session: ses, timeoutMs: 30_000, stallTimeoutMs: 400 })
+  } catch (err) {
+    stalled = (err as Error).name === 'AbortError'
+  }
+  const stallElapsed = Date.now() - stallStarted
+  // The timing is the whole assertion: without a stall clock this request also
+  // ends in an AbortError, thirty seconds later. Failing fast is the feature.
+  check(
+    `a stream that goes silent is cut without waiting for the deadline (${stallElapsed}ms)`,
+    stalled && stallElapsed < 5_000
+  )
+
+  const dripStarted = Date.now()
+  const dripped = await httpRequest(`${origin}/drip`, {
+    session: ses,
+    timeoutMs: 30_000,
+    maxBytes: 4 * 1024 * 1024,
+    // Well under the 1.2s the response takes in total, and comfortably over
+    // the 100ms between its chunks: a steady stream must survive.
+    stallTimeoutMs: 400
+  })
+  check(
+    'a steadily streaming response is left alone',
+    (await dripped.text()).length === 12 * 64 * 1024 && Date.now() - dripStarted > 1_000
+  )
+
+  let prefillSurvived = false
+  try {
+    // /slow sends nothing for 3s, then everything. The stall clock must not be
+    // running yet — that silence is the model reading the prompt.
+    const late = await httpRequest(`${origin}/slow`, {
+      session: ses,
+      timeoutMs: 10_000,
+      stallTimeoutMs: 500
+    })
+    prefillSurvived = (await late.text()) === 'late'
+  } catch {
+    prefillSurvived = false
+  }
+  check('silence before the first chunk is not a stall', prefillSurvived)
 
   const controller = new AbortController()
   let aborted = false

@@ -101,7 +101,38 @@ export class NoEmbeddingModelError extends Error {
 }
 
 /** Embed a batch of texts through LM Studio's /v1/embeddings (loopback only). */
+/**
+ * Identical embedding requests already in flight, keyed by their input.
+ *
+ * v1.4.5. A turn asks for the same vector twice: memory recall embeds the
+ * user's message, and tool ranking embeds it again. v1.4.1 made those two calls
+ * concurrent, which turned a wasteful pair into a simultaneous one — the server
+ * log shows two `POST /v1/embeddings` with byte-identical input, microseconds
+ * apart, on every prompt. Both then race to JIT-load the embedding model.
+ *
+ * Coalescing is the honest fix rather than caching: nothing is retained after
+ * the request settles, so this cannot serve a stale vector, and a caller that
+ * asks a second later still gets a fresh round trip.
+ */
+const inFlight = new Map<string, Promise<{ model: string; vectors: number[][] }>>()
+
 export async function embedTexts(texts: string[]): Promise<{ model: string; vectors: number[][] }> {
+  if (texts.length === 0) return { model: '', vectors: [] }
+  const key = JSON.stringify(texts)
+  const existing = inFlight.get(key)
+  if (existing) return existing
+  const started = embedTextsUncoalesced(texts)
+  inFlight.set(key, started)
+  try {
+    return await started
+  } finally {
+    inFlight.delete(key)
+  }
+}
+
+async function embedTextsUncoalesced(
+  texts: string[]
+): Promise<{ model: string; vectors: number[][] }> {
   const settings = getSettings()
   const model = await resolveEmbeddingModel()
   if (!model) throw new NoEmbeddingModelError()

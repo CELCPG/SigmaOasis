@@ -215,9 +215,11 @@ const api = {
   planGenerate: (
     task: string,
     modelId?: string,
-    maxSteps?: number
+    maxSteps?: number,
+    /** The conversation the task came from, so a follow-up plans against it. */
+    context?: string
   ): Promise<{ ok: boolean; steps?: { title: string; detail: string }[]; error?: string }> =>
-    ipcRenderer.invoke('plan:generate', task, modelId, maxSteps),
+    ipcRenderer.invoke('plan:generate', task, modelId, maxSteps, context),
 
   // Auto-update (main/updates.ts)
   getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:getStatus'),

@@ -127,7 +127,24 @@ export function pinChatModel(model: string): Promise<void> {
   const attempt = (async () => {
     // Resident already (user loaded it, or we did earlier): nothing to do,
     // and nothing to unload later.
-    if (await isAlreadyLoaded(root, trimmed)) return
+    //
+    // v1.4.5: the memo is dropped in this branch, which is the whole fix for a
+    // model that reloads on every prompt. "Already loaded" is not a permanent
+    // fact — a JIT-loaded model is evicted the moment the embedding model
+    // loads, which happens on every turn that recalls memory or ranks tools.
+    // Memoizing the skip meant the app checked once at startup, found the
+    // model resident, and never looked again; the eviction that arrived thirty
+    // seconds later went unnoticed for the rest of the session, and every
+    // prompt after it paid a full reload. Measured 2026-08-12: the chat model
+    // reloading on all three turns of a conversation, prompt cache restoring
+    // `cached_tokens=0` each time, and no load request ever sent.
+    //
+    // Re-checking costs one loopback GET per turn while unpinned, and stops
+    // entirely once a pin succeeds — that path stays memoized below.
+    if (await isAlreadyLoaded(root, trimmed)) {
+      attempts.delete(key)
+      return
+    }
 
     // Preferred: the current REST API, whose TTL makes the pin self-cleaning.
     const modern = await postLoad(`${root}/api/v0/models/load`, {

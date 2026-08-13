@@ -16,6 +16,8 @@ import {
   toolsForSlot,
   selectTurnTools,
   stabilizeTurnTools,
+  rankingIsDecisive,
+  withBudgetNotes,
   TURN_TOOL_CAP
 } from '../lib/toolSelection'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
@@ -43,6 +45,7 @@ import {
   runAgentLoop,
   toolCallPreamble,
   MAX_TOOL_ITERATIONS,
+  TOOL_TURN_BUDGETS,
   type ApiContentPart,
   type ApiMessage,
   type ApiToolCall,
@@ -512,7 +515,16 @@ async function subsetForTurn(
     if (!res.ok || !res.scores) return tools
     const selected = selectTurnTools(tools, res.scores)
     if (!stabilityKey) return selected
-    const stable = stabilizeTurnTools(tools, selected, turnToolMemo.get(stabilityKey))
+    const previous = turnToolMemo.get(stabilityKey)
+    // v1.4.5: an indecisive ranking must not be allowed to move anything. On
+    // "1" or "yes" the scores are separated by less than a rounding error, so
+    // whichever tool wins is arbitrary — and swapping the toolbox on a coin
+    // flip both hands the model the wrong tools and discards the prompt cache.
+    // With nothing to hold to yet, this turn's arbitrary pick becomes the
+    // incumbent and stops moving.
+    const stable = rankingIsDecisive(res.scores)
+      ? stabilizeTurnTools(tools, selected, previous)
+      : stabilizeTurnTools(tools, selected, previous ?? selected.map((t) => t.function.name))
     turnToolMemo.set(
       stabilityKey,
       stable.map((t) => t.function.name)
@@ -1088,7 +1100,9 @@ async function runTurn(
   // per-turn subsetting. The roster line (Layer 2a) carries each specialist's
   // routing declaration, its effective tools, context size, and vision so the
   // orchestrator can pick deliberately rather than from a persona slice.
-  let wireTools: ToolSchema[] = turnTools
+  // The budget each tool carries this turn, stated in its own description so
+  // the model plans within it instead of discovering it by refusal.
+  let wireTools: ToolSchema[] = withBudgetNotes(turnTools, TOOL_TURN_BUDGETS)
   if (delegation && delegation.specialists.length > 0) {
     const catalog = useAppStore.getState().availableModels
     const profiles: SpecialistProfile[] = delegation.specialists.map((s) => {
@@ -1391,6 +1405,35 @@ const MAX_STEP_OUTPUT_CHARS = 2000
 const MAX_PLAN_STEP_ITERATIONS = 4
 /** The synthesis turn sees all step results; cap the block so it cannot crowd out the task. */
 const MAX_PLAN_RESULTS_CHARS = 12_000
+/** Conversation carried into planning, each step, and the synthesis. */
+const MAX_PLAN_CONTEXT_CHARS = 4000
+
+/**
+ * The conversation so far, for a plan that is about to run without it.
+ *
+ * v1.4.5. Planning took the user's message and nothing else — no history for
+ * the planner, none for any step, none for the synthesis. On a follow-up that
+ * is the whole task: asked to "update to the proposed route 8 stops" one turn
+ * after proposing an 8-stop route, the planner wrote six steps about a route it
+ * could not see, every step reported missing input data, and the synthesis told
+ * the user their request "cannot be completed at this time" and asked them to
+ * supply the route the assistant had itself written a minute earlier.
+ *
+ * Newest turns first, oldest dropped: a follow-up refers to what just happened.
+ */
+function planContext(messages: ChatMessage[]): string {
+  const lines: string[] = []
+  let used = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.marker || !m.content.trim()) continue
+    const line = `${m.role === 'user' ? 'User' : m.roleName || 'Assistant'}: ${m.content.trim()}`
+    if (used + line.length > MAX_PLAN_CONTEXT_CHARS) break
+    lines.unshift(line)
+    used += line.length
+  }
+  return lines.join('\n\n')
+}
 
 /**
  * Pending plan approvals, keyed by assistant message id. The Approve/Cancel
@@ -1410,14 +1453,21 @@ async function runPlanStep(
   baseUrl: string,
   tools: ToolSchema[],
   signal: AbortSignal,
-  convo: Conversation
+  convo: Conversation,
+  context: string
 ): Promise<string> {
   const apiMessages: ApiMessage[] = [
     {
       role: 'system',
       content:
         `${withToolCallPreamble(withGrounding(slot.systemPrompt), slot.modelId)}\n\nYou are executing one step of a larger plan. Produce the ` +
-        `step's result directly and concisely — later steps and the final answer build on it.`
+        `step's result directly and concisely — later steps and the final answer build on it.` +
+        // Without this a step cannot see what the conversation already settled,
+        // and reports the absence as missing input rather than reading it.
+        (context
+          ? `\n\nThe conversation this plan came from, for reference — anything already ` +
+            `established here is input to your step, not something to ask for again:\n${context}`
+          : '')
     },
     { role: 'user', content: input }
   ]
@@ -1496,7 +1546,15 @@ async function runPlanTurn(
 
   // 1. Plan, before any placeholder message exists: a failure simply becomes
   // a normal turn, which is the honest degradation.
-  const gen = await window.api.planGenerate(task, slot.modelId, settings.plan.maxSteps)
+  // The turn being planned is the last message; everything before it is what
+  // the plan has to be written against.
+  const context = planContext(convo.messages.slice(0, -1))
+  const gen = await window.api.planGenerate(
+    task,
+    slot.modelId,
+    settings.plan.maxSteps,
+    context || undefined
+  )
   if (signal.aborted) return
   if (!gen.ok || !gen.steps || gen.steps.length === 0) {
     patchPlanErrorNotice(conversationId, gen.error ?? 'the model did not produce a usable plan')
@@ -1569,7 +1627,7 @@ async function runPlanTurn(
         : '')
 
     try {
-      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo)
+      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo, context)
       patchStep(step.id, { status: 'done', output })
       completed.push({ title: step.title, output })
     } catch (err) {
@@ -1595,7 +1653,12 @@ async function runPlanTurn(
   }
 
   const synthesis: ApiMessage[] = [
-    { role: 'system', content: withGrounding(slot.systemPrompt) },
+    {
+      role: 'system',
+      content:
+        withGrounding(slot.systemPrompt) +
+        (context ? `\n\nThe conversation this task came from:\n${context}` : '')
+    },
     {
       role: 'user',
       content:

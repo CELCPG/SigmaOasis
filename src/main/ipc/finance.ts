@@ -22,6 +22,12 @@ export interface FinanceArgs {
   target_amount?: unknown
   extra_monthly_payment?: unknown
   direction?: unknown
+  /** channel_margin: the retailer's gross margin percentage on the shelf price. */
+  retailer_margin?: unknown
+  /** channel_margin: the supplier's own target margin on landed cost, if any. */
+  supplier_margin?: unknown
+  /** channel_margin: units in a case, to report case economics as well. */
+  units_per_case?: unknown
 }
 
 export interface FinanceResult {
@@ -240,6 +246,81 @@ function inflationAdjust(args: FinanceArgs): string {
   ].join('\n')
 }
 
+/**
+ * Channel pricing: cost in, shelf price out, with every party's margin named.
+ *
+ * v1.4.5, and it exists because of one measured conversation. The user said
+ * "Costco works off a 15% GM while Sam's Club works off 20% GM" and gave a
+ * landed cost of $2.51. The model computed *its own* margin on that cost, then
+ * printed the result as the shelf price — so a supplier who read the answer
+ * would have quoted a number that leaves the retailer no margin at all and
+ * their own business nothing. Every table in the rest of that session, a P&L
+ * and a ten-slide buyer deck included, inherited the error.
+ *
+ * The distinction the arithmetic turns on:
+ *
+ *   margin = (price − cost) / price      what retailers mean by "GM"
+ *   markup = (price − cost) / cost       what the same numbers look like from below
+ *
+ * A 20% margin is a 25% markup. Confusing them is the oldest error in trade
+ * pricing, and a model doing it in its head will confuse them every time.
+ *
+ * Both are always reported, and so is the whole chain from landed cost to
+ * shelf, because the useful answer to "what do I quote?" is a wholesale price
+ * — and the useful sanity check is what that becomes on the shelf.
+ */
+function channelMargin(args: FinanceArgs): string {
+  const cost = num(args.principal, 'principal')! // landed/unit cost
+  const retailerPct = num(args.retailer_margin, 'retailer_margin', { min: 0 })!
+  const supplierPct = num(args.supplier_margin, 'supplier_margin', { min: 0, required: false })
+  if (retailerPct >= 100) {
+    throw new Error(`"retailer_margin" must be below 100%, got ${retailerPct}.`)
+  }
+  if (supplierPct !== null && supplierPct >= 100) {
+    throw new Error(`"supplier_margin" must be below 100%, got ${supplierPct}.`)
+  }
+  const units = num(args.units_per_case, 'units_per_case', { min: 1, required: false })
+
+  // What the supplier sells to the retailer for. With no target of their own,
+  // the cost is the floor and the answer is what the shelf has to be to leave
+  // the retailer whole.
+  const wholesale = supplierPct === null ? cost : cost / (1 - supplierPct / 100)
+  const shelf = wholesale / (1 - retailerPct / 100)
+  const supplierMarkup = cost > 0 ? ((wholesale - cost) / cost) * 100 : 0
+  const retailerMarkup = ((shelf - wholesale) / wholesale) * 100
+
+  const lines = [
+    'Channel pricing (per unit)',
+    `Landed cost:        $${money(cost)}`,
+    supplierPct === null
+      ? `Wholesale price:    $${money(wholesale)} (at cost — no supplier margin requested)`
+      : `Wholesale price:    $${money(wholesale)} — your ${round2(supplierPct)}% margin, a ${round2(supplierMarkup)}% markup on cost`,
+    `Shelf price:        $${money(shelf)} — retailer's ${round2(retailerPct)}% margin, a ${round2(retailerMarkup)}% markup on wholesale`,
+    '',
+    `Retailer keeps      $${money(shelf - wholesale)} per unit.`,
+    supplierPct === null
+      ? `You keep            $0.00 per unit at this wholesale price.`
+      : `You keep            $${money(wholesale - cost)} per unit.`
+  ]
+
+  if (units !== null) {
+    lines.push(
+      '',
+      `Per ${units}-unit case:`,
+      `  Case cost:        $${money(cost * units)}`,
+      `  Case wholesale:   $${money(wholesale * units)}`,
+      `  Case shelf price: $${money(shelf * units)}`
+    )
+  }
+
+  lines.push(
+    '',
+    'Margin is on the selling price; markup is on the cost. A 20% margin is a 25% markup —',
+    'quoting the markup as the margin underprices the case.'
+  )
+  return lines.join('\n')
+}
+
 /** Entry point used by the tool dispatcher. Throws become clean tool errors. */
 export function runFinanceCalculation(args: FinanceArgs): FinanceResult {
   try {
@@ -252,12 +333,14 @@ export function runFinanceCalculation(args: FinanceArgs): FinanceResult {
         return { ok: true, output: savingsGoal(args) }
       case 'inflation_adjust':
         return { ok: true, output: inflationAdjust(args) }
+      case 'channel_margin':
+        return { ok: true, output: channelMargin(args) }
       default:
         return {
           ok: false,
           error:
             `Unknown operation ${JSON.stringify(args.operation)}. Use one of: ` +
-            'compound_interest, loan_amortization, savings_goal, inflation_adjust.'
+            'compound_interest, loan_amortization, savings_goal, inflation_adjust, channel_margin.'
         }
     }
   } catch (err) {

@@ -241,6 +241,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         'Rates are percentages (7 means 7%).\n' +
         'For loan_amortization, principal is the amount BORROWED — subtract any down payment ' +
         'or trade-in from the purchase price first ($20,000 car with $5,000 down is 15000).\n' +
+        'For channel_margin, principal is the LANDED COST per unit, and retailer_margin is the ' +
+        'retailer\'s own margin — "Costco works off 15% GM" is retailer_margin 15, never your ' +
+        'margin. Margin is on the selling price, markup is on the cost, and a 20% margin is a ' +
+        '25% markup: do not compute either in your head.\n' +
         'Report the figures this tool returns verbatim. Never recompute, adjust, or round them ' +
         'into different numbers; if the arguments were wrong, call it again with the right ones.\n' +
         'Example: {"operation": "compound_interest", "principal": 0, "monthly_contribution": 500, "annual_rate": 7, "years": 20}',
@@ -249,7 +253,13 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         properties: {
           operation: {
             type: 'string',
-            enum: ['compound_interest', 'loan_amortization', 'savings_goal', 'inflation_adjust'],
+            enum: [
+              'compound_interest',
+              'loan_amortization',
+              'savings_goal',
+              'inflation_adjust',
+              'channel_margin'
+            ],
             description: 'Which calculation to run'
           },
           principal: {
@@ -288,6 +298,22 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
             description:
               'inflation_adjust only: what today\'s money will cost later (default), or what a ' +
               'future amount is worth today.'
+          },
+          retailer_margin: {
+            type: 'number',
+            description:
+              'channel_margin: the retailer\'s gross margin percentage, taken on the shelf ' +
+              'price. "Costco works off 15%" means 15 here.'
+          },
+          supplier_margin: {
+            type: 'number',
+            description:
+              'channel_margin: your own target margin percentage on landed cost. Omit to see ' +
+              'the shelf price implied by selling at cost.'
+          },
+          units_per_case: {
+            type: 'number',
+            description: 'channel_margin: units in a case, to report case economics too.'
           }
         },
         required: ['operation']

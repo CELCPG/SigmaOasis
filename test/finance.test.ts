@@ -161,3 +161,61 @@ describe('input validation', () => {
     )
   })
 })
+
+/**
+ * v1.4.5. From a measured session: the user said "Costco works off a 15% GM
+ * while Sam's Club works off 20% GM" with a $2.51 landed cost, and the model
+ * computed its own margin on that cost and printed it as the shelf price. A
+ * supplier acting on the answer would have quoted a number leaving the
+ * retailer nothing. A ten-slide buyer deck and a full P&L inherited it.
+ */
+describe('channel_margin', () => {
+  const run = (args: Record<string, unknown>): string => {
+    const out = runFinanceCalculation({ operation: 'channel_margin', ...args })
+    assert.ok(out.ok, out.error)
+    return out.output!
+  }
+
+  test("the retailer's margin comes off the shelf price, not the cost", () => {
+    // $2.51 sold at cost, retailer takes 15% of the shelf: 2.51 / 0.85 = 2.95.
+    // The measured wrong answer treated 15% as a markup on cost ($2.89).
+    const out = run({ principal: 2.51, retailer_margin: 15 })
+    assert.match(out, /Shelf price:\s+\$2\.95/)
+  })
+
+  test('a supplier margin stacks underneath it', () => {
+    // 2.51 / 0.70 = 3.5857 wholesale; 3.5857 / 0.85 = 4.2185 shelf.
+    const out = run({ principal: 2.51, retailer_margin: 15, supplier_margin: 30 })
+    assert.match(out, /Wholesale price:\s+\$3\.59/)
+    assert.match(out, /Shelf price:\s+\$4\.22/)
+  })
+
+  test('margin and markup are both named, because confusing them is the error', () => {
+    // A 20% margin is a 25% markup — stated outright so neither can be read
+    // as the other.
+    const out = run({ principal: 10, retailer_margin: 20 })
+    assert.match(out, /Shelf price:\s+\$12\.50/)
+    assert.match(out, /25% markup/)
+  })
+
+  test('case economics come out too, when a pack size is given', () => {
+    const out = run({ principal: 2.51, retailer_margin: 20, units_per_case: 8 })
+    assert.match(out, /Case cost:\s+\$20\.08/)
+    assert.match(out, /Case shelf price:\s+\$25\.10/)
+  })
+
+  test('a 100% margin is impossible and says so rather than dividing by zero', () => {
+    const out = runFinanceCalculation({
+      operation: 'channel_margin',
+      principal: 2.51,
+      retailer_margin: 100
+    })
+    assert.equal(out.ok, false)
+    assert.match(String(out.error), /below 100%/)
+  })
+
+  test('the cost is required — there is no margin without one', () => {
+    const out = runFinanceCalculation({ operation: 'channel_margin', retailer_margin: 15 })
+    assert.equal(out.ok, false)
+  })
+})

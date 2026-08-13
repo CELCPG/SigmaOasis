@@ -25,6 +25,40 @@ export function toolsForSlot(
 }
 
 /**
+ * Tell the model, in the tool description, how many times it may call the tool
+ * this turn.
+ *
+ * v1.4.5. The per-turn budgets are enforced but were never disclosed, so the
+ * model could only discover them by being refused. Measured on a route-planning
+ * turn: five `web_search` calls issued at once against a budget of three, then
+ * three `fetch_webpage` against a budget of two, then two more searches — seven
+ * of twelve calls rejected across three wasted rounds and about two minutes,
+ * and the answer that followed filled the resulting gaps from memory.
+ *
+ * Budgets before work, disclosed before the stop rather than only at it — the
+ * same principle the refusal message already follows, moved earlier.
+ */
+export function withBudgetNotes(
+  tools: ToolSchema[],
+  budgets: Record<string, number>
+): ToolSchema[] {
+  return tools.map((t) => {
+    const budget = budgets[t.function.name]
+    if (!budget) return t
+    return {
+      ...t,
+      function: {
+        ...t.function,
+        description:
+          `${t.function.description}\n` +
+          `Budget: at most ${budget} call${budget === 1 ? '' : 's'} per turn. Plan for that — ` +
+          `calls beyond it are refused, and the refusal is not a source.`
+      }
+    }
+  })
+}
+
+/**
  * Always-on tools (strategy Layer 1b): cheap, zero-argument, and useful on
  * almost any turn, so they ride every turn regardless of embedding rank.
  */
@@ -68,6 +102,45 @@ export function selectTurnTools(
   }
 
   return available.filter((t) => chosen.has(t.function.name))
+}
+
+/**
+ * Below this spread across the top candidates, the ranking is noise.
+ *
+ * Measured against nomic-embed-text-v1.5 on 2026-08-12, cosine similarity
+ * between real user turns and the tool descriptions:
+ *
+ *   "1"                          spread 0.014   top pick: web_search
+ *   "lets flush out next steps"  spread 0.025   top pick: finance_calculator
+ *   "yes"                        spread 0.056   top pick: memory_search
+ *   sales-presentation request   spread 0.088   top pick: finance_calculator
+ *   "what is the weather..."     spread 0.091   top pick: get_current_datetime
+ *   "email campaign copy"        spread 0.184   top pick: deep_research
+ *   "read the file at ~/notes"   spread 0.191   top pick: read_file
+ *
+ * The bottom three are indistinguishable from a coin flip — the winners are
+ * separated by less than a rounding error, and a different one wins each turn.
+ * That was visible in a measured session as `list_notes`, then `list_directory`,
+ * then `create_note` riding three consecutive turns of a conversation about a
+ * sales deck: tools nothing in the conversation called for, and a tool list
+ * that moved every turn. Chat templates render tools into the leading block, so
+ * each reshuffle also discarded the prompt cache for the whole conversation.
+ */
+const MIN_RANK_SPREAD = 0.07
+
+/**
+ * Did the ranking actually discriminate? Compares the best score against the
+ * one at the cut line, which is the comparison that decides whether the subset
+ * changes at all.
+ */
+export function rankingIsDecisive(
+  scores: Record<string, number> | null,
+  cap: number = TURN_TOOL_CAP
+): boolean {
+  if (scores === null) return false
+  const ranked = Object.values(scores).sort((a, b) => b - a)
+  if (ranked.length <= cap) return true
+  return ranked[0] - ranked[cap - 1] >= MIN_RANK_SPREAD
 }
 
 /**

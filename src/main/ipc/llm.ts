@@ -171,15 +171,62 @@ export function applyThinking(options: CompleteOptions): {
  * at a pessimistic generation rate. This is a ceiling for the pathological
  * case, not a delay anyone waits out — a healthy server returns long before it.
  */
-const PROMPT_ALLOWANCE_MS = 60_000
-/** Pessimistic floor for local generation; slower than any healthy setup. */
-const TOKENS_PER_SECOND = 4
-const MIN_TIMEOUT_MS = 90_000
+const BASE_ALLOWANCE_MS = 15_000
+/**
+ * Floors, not estimates, and now calibrated against something.
+ *
+ * v1.5 measured qwen3.5-9b-mlx (4-bit MLX, Apple silicon): ~300 tokens/s of
+ * prompt processing and 13–25 tokens/s of generation. The v1.3 constant of 4
+ * tokens/s was three to six times under that, which is why every derived
+ * timeout pinned to the 300-second ceiling.
+ *
+ * These stay well below the measurement anyway, because the same constant has
+ * to hold for a 12B GGUF on an Intel Mac, and because overshooting costs
+ * nothing on a healthy server while undershooting discards real work.
+ */
+const GENERATION_TOKENS_PER_SECOND = 6
+const PROMPT_TOKENS_PER_SECOND = 60
+const MIN_TIMEOUT_MS = 60_000
 const MAX_TIMEOUT_MS = 300_000
 
-export function timeoutForTokens(maxTokens: number | undefined): number {
+/**
+ * How long a streaming response may go silent before the connection is treated
+ * as dead. Armed only after the first token, so prompt processing — which is
+ * legitimately silent, and legitimately long — is governed by the overall
+ * budget instead. Between tokens a healthy local model pauses milliseconds.
+ *
+ * A full minute rather than the ten seconds the measurement would justify,
+ * because the thing being timed is not the model. Small writes are coalesced
+ * on their way through the socket and the Chromium net stack — a five-byte
+ * write never surfaced as a read event at all while writing this — so the gap
+ * observed here is a buffer's rhythm, not a token's. Anything tight enough to
+ * be interesting would eventually cut off a healthy slow generation, and this
+ * is still five times faster than the ceiling it replaces.
+ */
+export const STREAM_STALL_MS = 60_000
+
+/** Rough token count for a set of messages; the usual four-chars-per-token. */
+export function estimatePromptTokens(messages: ChatMessage[]): number {
+  return Math.ceil(messages.reduce((n, m) => n + m.content.length, 0) / 4)
+}
+
+/**
+ * The overall deadline, from what the model was asked to read and to write.
+ *
+ * Through v1.4 the prompt side was a flat 60 seconds regardless of size, which
+ * was generous for a two-line question and short for a 30k-token conversation —
+ * wrong in both directions at once, and invisible because the generation term
+ * was so inflated that the total always hit the ceiling anyway.
+ */
+export function timeoutForTokens(
+  maxTokens: number | undefined,
+  promptTokens = 0
+): number {
   const tokens = maxTokens && maxTokens > 0 ? maxTokens : 512
-  const derived = PROMPT_ALLOWANCE_MS + (tokens / TOKENS_PER_SECOND) * 1000
+  const derived =
+    BASE_ALLOWANCE_MS +
+    (promptTokens / PROMPT_TOKENS_PER_SECOND) * 1000 +
+    (tokens / GENERATION_TOKENS_PER_SECOND) * 1000
   return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.round(derived)))
 }
 
@@ -220,7 +267,12 @@ export async function chatComplete(options: CompleteOptions): Promise<string> {
               : {})
         }),
         signal: options.signal,
-        timeoutMs: options.timeoutMs ?? timeoutForTokens(options.maxTokens)
+        // No stall detection here: a non-streaming completion is silent from
+        // the request until the whole answer lands, so silence carries no
+        // information and the overall deadline is all there is.
+        timeoutMs:
+          options.timeoutMs ??
+          timeoutForTokens(options.maxTokens, estimatePromptTokens(thinking.messages))
       },
       'lmstudio'
     )
@@ -342,7 +394,13 @@ export async function chatCompleteStream(options: CompleteOptions): Promise<stri
           ...(options.maxTokens ? { max_tokens: options.maxTokens } : {})
         }),
         signal: options.signal,
-        timeoutMs: options.timeoutMs ?? timeoutForTokens(options.maxTokens),
+        timeoutMs:
+          options.timeoutMs ??
+          timeoutForTokens(options.maxTokens, estimatePromptTokens(thinking.messages)),
+        // Tokens arriving is the liveness signal a total deadline cannot see.
+        // A dead server now fails in half a minute instead of holding the
+        // caller for the whole budget, and a slow one is left alone.
+        stallTimeoutMs: STREAM_STALL_MS,
         onChunk
       },
       'lmstudio'

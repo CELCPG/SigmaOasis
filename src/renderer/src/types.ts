@@ -484,6 +484,12 @@ export interface GroundingReport {
   figures: string[]
   /** Links in the reply that appear in no tool output. */
   links: string[]
+  /** Countries the reply names that the consulted sources never mention (v1.4.5). */
+  origins?: string[]
+  /** Phone numbers and email addresses backed by no tool output (v1.4.5). */
+  contacts?: string[]
+  /** Street addresses backed by no tool output (v1.4.5). */
+  addresses?: string[]
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }

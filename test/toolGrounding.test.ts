@@ -2,6 +2,9 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   checkToolGrounding,
+  contradictedOrigins,
+  unsourcedAddresses,
+  unsourcedContacts,
   unsourcedFigures,
   unsourcedLinks
 } from '../src/renderer/src/lib/toolGrounding'
@@ -185,5 +188,243 @@ describe('checkToolGrounding', () => {
 
   test('an empty answer is never reported on', () => {
     assert.equal(checkToolGrounding('   ', [rec('finance_calculator', CAR_TOOL_OUTPUT)], ''), null)
+  })
+})
+
+/**
+ * v1.4.5, all three transcribed from the Vichy Catalan sessions of 2026-08-12.
+ * The app watched every one of these go past and said nothing.
+ */
+describe('derived figures', () => {
+  test('arithmetic on a number the user gave is not fabrication', () => {
+    // Told "$2.51 per bottle", the model wrote the 6- and 8-bottle case costs.
+    // The badge reported both as unsourced, which is the model being right.
+    const answer = '6-bottle case: $15.06. 8-bottle case: $20.08. 12-bottle: $30.12.'
+    assert.deepEqual(unsourcedFigures(answer, 'our landed cost is $2.51 per unit'), [])
+  })
+
+  test('a per-unit figure derived by division is also fine', () => {
+    assert.deepEqual(unsourcedFigures('That is $3.50 a bottle.', 'the case costs $42.00'), [])
+  })
+
+  test('but a price that is nobody\'s arithmetic is still caught', () => {
+    const flagged = unsourcedFigures('Club price: $2.90 per bottle.', 'landed cost $2.51 per unit')
+    assert.deepEqual(flagged, ['$2.90'])
+  })
+
+  test('derivation does not stretch far enough to launder anything', () => {
+    // 24x is the ceiling; a figure needing a wilder multiple stays flagged.
+    assert.deepEqual(unsourcedFigures('Revenue: $2,510,000.', 'cost $2.51'), ['$2,510,000'])
+  })
+})
+
+describe('unprompted pricing tables', () => {
+  const emailCopy =
+    'Retail ~$5.00/bottle. Sam’s Club 8-pack: ~$3.80/bottle. You save 16% per unit!'
+
+  test('a table of prices is checked even with no pricing tool in sight', () => {
+    // The measured miss: "email campaign copy" was not recognized as commerce,
+    // so an entire member-facing price comparison went out unchecked.
+    const report = checkToolGrounding(emailCopy, [], 'email campaign copy')
+    assert.ok(report, 'expected a report')
+    assert.deepEqual(report!.figures, ['$5.00', '$3.80'])
+  })
+
+  test('one passing mention of money is not a pricing table', () => {
+    // The noise this threshold exists to prevent.
+    assert.equal(checkToolGrounding('Coffee runs about $5 there.', [], 'tell me about lisbon'), null)
+  })
+})
+
+describe('contradictedOrigins', () => {
+  const spanishSources =
+    'Vichy Catalan, the best-known mineral water from Spain, bottled at Caldes de Malavella. ' +
+    'This premium Spanish water emerges from the ground at 60 degrees Celsius.'
+
+  test('catches the country the sources never mentioned', () => {
+    // The pitch deck said "French spa water"; the outreach email promised
+    // "direct import from France". Ten snippets had said Spain.
+    assert.deepEqual(
+      contradictedOrigins('Premium French spa water, direct import from France.', spanishSources),
+      ['France']
+    )
+  })
+
+  test('the country the sources actually gave is not flagged', () => {
+    assert.deepEqual(contradictedOrigins('Spanish sparkling water since 1881.', spanishSources), [])
+  })
+
+  test('silent when the sources establish no geography of their own', () => {
+    // Ordinary knowledge, none of this check's business.
+    assert.deepEqual(contradictedOrigins('Fiji is in the Pacific.', 'a page about hydration'), [])
+  })
+
+  test('reports through checkToolGrounding when sources were consulted', () => {
+    const report = checkToolGrounding(
+      'Premium French spa water with 168-year heritage.',
+      [rec('web_search', spanishSources)],
+      'build me a pitch deck'
+    )
+    assert.ok(report, 'expected a report')
+    assert.deepEqual(report!.origins, ['France'])
+  })
+
+  test('a competitor named in the same breath is not a contradiction', () => {
+    // "Evian (French)" alongside Spanish Vichy is accurate, and both appear in
+    // the sources, so nothing should fire.
+    const sources = `${spanishSources} Evian is a French spring water.`
+    assert.deepEqual(contradictedOrigins('Vichy is Spanish; Evian is French.', sources), [])
+  })
+})
+
+describe('derivation cannot launder a figure', () => {
+  /**
+   * Caught by replaying a real transcript rather than by a fixture: the user
+   * had answered a menu with the message "1", which put 1 into the base set,
+   * and 1 multiplied by the permitted factors certifies every integer from 2
+   * to 24. A fabricated "$5.00/bottle" in member-facing email copy came back
+   * clean, and because that dropped the flagged count below the threshold it
+   * suppressed the whole check for the turn.
+   */
+  test('a bare number in the conversation is not a price to derive from', () => {
+    const flagged = unsourcedFigures(
+      'Retail ~$5.00/bottle, club ~$3.80/bottle.',
+      'lets build a sales presentation for a 8 pack of 1L waters\n1\nemail campaign copy'
+    )
+    assert.deepEqual(flagged, ['$5.00', '$3.80'])
+  })
+
+  test('a real price in the conversation still derives normally', () => {
+    assert.deepEqual(unsourcedFigures('8-pack: $20.08.', 'landed cost is $2.51 per unit'), [])
+  })
+
+  test('the end-to-end case: invented club prices with no tool run', () => {
+    const report = checkToolGrounding(
+      'Retail ~$5.00/bottle. Sam’s Club 8-pack ~$3.80/bottle. You save 16%!',
+      [],
+      'email campaign copy'
+    )
+    assert.ok(report, 'expected a report')
+    assert.deepEqual(report!.figures, ['$5.00', '$3.80'])
+  })
+})
+
+/**
+ * v1.4.5. Measured: member-facing email copy signed off with "call Member
+ * Services at 1-800-SAM'S-CUB" — not Sam's Club's number, not a number at all,
+ * present in no tool result. Assembled from the shape of the brand name.
+ */
+describe('unsourcedContacts', () => {
+  test('catches a vanity number the model assembled', () => {
+    const flagged = unsourcedContacts("call Member Services at 1-800-SAM'S-CUB.", 'search results')
+    assert.deepEqual(flagged, ["1-800-SAM'S-CUB"])
+  })
+
+  test('a number that appeared in the sources is fine', () => {
+    const corpus = 'Contact Sam’s Club Member Services: 1-888-746-7726.'
+    assert.deepEqual(unsourcedContacts('Call 1-888-746-7726 for help.', corpus), [])
+  })
+
+  test('punctuation differences do not create a false positive', () => {
+    const corpus = 'Support: (888) 746-7726'
+    assert.deepEqual(unsourcedContacts('Call 888-746-7726.', corpus), [])
+  })
+
+  test("a number the user gave is theirs to repeat", () => {
+    assert.deepEqual(unsourcedContacts('I will list 555-867-5309.', 'my number is 555-867-5309'), [])
+  })
+
+  test('invented email addresses count too', () => {
+    const flagged = unsourcedContacts('Write to support@vichycatalan-clubs.com.', 'sources')
+    assert.deepEqual(flagged, ['support@vichycatalan-clubs.com'])
+  })
+
+  test('a year range is not a phone number', () => {
+    assert.deepEqual(unsourcedContacts('Launch in 2026-2027, growing 10-15%.', ''), [])
+  })
+
+  test('reported through checkToolGrounding even with no tools run', () => {
+    // The measured turn ran nothing at all, which is exactly when a fabricated
+    // support line is most likely and least likely to be noticed.
+    const report = checkToolGrounding("Call 1-800-SAM'S-CUB.", [], 'email campaign copy')
+    assert.ok(report, 'expected a report')
+    assert.deepEqual(report!.contacts, ["1-800-SAM'S-CUB"])
+  })
+})
+
+/**
+ * v1.4.5. From the NYC route session of 2026-08-13. The turn collected three
+ * successful searches, then lost five more calls to per-turn budgets — and the
+ * itinerary it produced filled the gaps: three of seven stop addresses appear
+ * in none of the results, including a Gristedes address on a turn where every
+ * Gristedes search had been refused. The three real ones were quoted verbatim,
+ * so the model could quote; it chose to complete the list instead.
+ */
+describe('unsourcedAddresses', () => {
+  const results = `6. Morton Williams - New York, NY
+   2015 Broadway New York, NY 10023 Upper West Side
+   1031 First Avenue (56th Street) 212-486-0340
+8. FAIRWAY MARKET OF CHELSEA
+   Fairway Market of Chelsea at 766 6th Ave, New York NY 10010`
+
+  test('catches the stops that came from nowhere', () => {
+    const answer = [
+      'Stop 1: Gristedes – 800 3rd Ave, New York, NY',
+      'Stop 2: Morton Williams – 1031 First Ave, New York, NY',
+      'Stop 3: Whole Foods – 175 E 14th St, New York, NY',
+      'Stop 4: Fairway Market – 766 6th Ave, New York, NY'
+    ].join('\n')
+    const flagged = unsourcedAddresses(answer, results)
+    assert.ok(flagged.some((a) => a.includes('800 3rd Ave')), `got ${flagged.join(' | ')}`)
+    assert.ok(flagged.some((a) => a.includes('175 E 14th St')), `got ${flagged.join(' | ')}`)
+  })
+
+  test('an address quoted from the results is not flagged', () => {
+    assert.deepEqual(unsourcedAddresses('Go to 766 6th Ave.', results), [])
+  })
+
+  test('abbreviation is normalized, so Ave and Avenue are the same address', () => {
+    assert.deepEqual(unsourcedAddresses('Morton Williams, 1031 First Ave', results), [])
+  })
+
+  test('an address the user supplied is theirs', () => {
+    const report = checkToolGrounding(
+      'Start at 4 Pennsylvania Plaza.',
+      [rec('web_search', results)],
+      'my starting point is 4 Pennsylvania Plaza'
+    )
+    assert.equal(report, null)
+  })
+
+  test('nothing to compare against means no claim', () => {
+    assert.deepEqual(unsourcedAddresses('Meet at 123 Main St.', ''), [])
+  })
+
+  test('reported through checkToolGrounding', () => {
+    const report = checkToolGrounding(
+      'Stop 1: Gristedes – 800 3rd Ave, New York, NY',
+      [rec('web_search', results)],
+      'plan my route'
+    )
+    assert.ok(report, 'expected a report')
+    assert.ok(report!.addresses?.some((a) => a.includes('800 3rd Ave')))
+  })
+})
+
+describe('addresses do not wrap across lines', () => {
+  /**
+   * Caught by replaying the real search output, not by a fixture. With `\s`
+   * between the words the scanner matched "212-308-6922\n1031 First Avenue" as
+   * one address, so the genuine "1031 First Avenue" never entered the known
+   * set — and the itinerary quoting it correctly was reported as invented.
+   */
+  test('a phone number above an address does not swallow it', () => {
+    const corpus = '908 Second Avenue (48th Street) 212-308-6922\n1031 First Avenue (56th Street)'
+    assert.deepEqual(unsourcedAddresses('Morton Williams, 1031 First Ave', corpus), [])
+  })
+
+  test('numbered street names still parse', () => {
+    assert.deepEqual(unsourcedAddresses('at 800 3rd Ave', 'store at 800 3rd Ave'), [])
+    assert.deepEqual(unsourcedAddresses('at 766 6th Ave', 'Chelsea: 766 6th Ave, NY'), [])
   })
 })

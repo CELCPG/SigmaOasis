@@ -16,6 +16,8 @@ export interface AuditedFetchInit {
   redirect?: 'follow' | 'manual'
   signal?: AbortSignal
   timeoutMs?: number
+  /** Gap between response chunks that counts as a dead connection (streaming only). */
+  stallTimeoutMs?: number
   maxBytes?: number
   /** Per-chunk callback, so a streaming caller keeps partial output on failure. */
   onChunk?: (chunk: Uint8Array) => void
@@ -264,6 +266,7 @@ export async function auditedFetch(
       redirect: init?.redirect,
       signal: init?.signal,
       timeoutMs: init?.timeoutMs,
+      stallTimeoutMs: init?.stallTimeoutMs,
       maxBytes: init?.maxBytes,
       onChunk: init?.onChunk,
       session: target

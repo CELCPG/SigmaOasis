@@ -4,6 +4,8 @@ import {
   toolsForSlot,
   selectTurnTools,
   stabilizeTurnTools,
+  rankingIsDecisive,
+  withBudgetNotes,
   TURN_TOOL_CAP
 } from '../src/renderer/src/lib/toolSelection'
 import type { ToolSchema } from '../src/renderer/src/types'
@@ -151,5 +153,99 @@ describe('selectTurnTools', () => {
       const out = stabilizeTurnTools(TURN_TOOLS, selected, previous)
       assert.deepEqual(names(out), names(selected))
     })
+  })
+})
+
+/**
+ * v1.4.5. Measured against nomic-embed-text-v1.5: a one-word turn separates
+ * its top tool candidates by 0.014–0.056 cosine, which is a coin flip, while a
+ * turn that genuinely names a tool separates them by 0.18–0.19. Acting on the
+ * coin flip put `list_notes`, then `list_directory`, then `create_note` on
+ * three consecutive turns of a conversation about a sales deck — wrong tools,
+ * and a tool list that moved every turn, discarding the prompt cache with it.
+ */
+describe('rankingIsDecisive', () => {
+  /** Scores shaped like a real ranking: one clear winner, then a tail. */
+  const decisive = {
+    read_file: 0.687,
+    create_note: 0.601,
+    list_notes: 0.571,
+    fetch_webpage: 0.496,
+    web_search: 0.44,
+    memory_save: 0.43,
+    memory_search: 0.42
+  }
+  /** The measured "1" case: everything within 0.014. */
+  const noise = {
+    web_search: 0.438,
+    list_notes: 0.433,
+    fetch_webpage: 0.425,
+    memory_search: 0.424,
+    memory_save: 0.424,
+    deep_research: 0.423,
+    read_file: 0.422
+  }
+
+  test('a query that names a tool ranks decisively', () => {
+    assert.equal(rankingIsDecisive(decisive), true)
+  })
+
+  test('a one-word turn does not', () => {
+    assert.equal(rankingIsDecisive(noise), false)
+  })
+
+  test('no ranking at all is not decisive', () => {
+    assert.equal(rankingIsDecisive(null), false)
+  })
+
+  test('a list shorter than the cap needs no discrimination', () => {
+    // Everything fits; there is no cut line to be uncertain about.
+    assert.equal(rankingIsDecisive({ a: 0.5, b: 0.5 }), true)
+  })
+
+  test('the threshold sits between the measured noise and the measured signal', () => {
+    // The two closest real cases either side of the line, so a future tweak
+    // has to consciously reclassify one of them.
+    const spread = (top: number, cut: number): Record<string, number> => ({
+      a: top, b: top - 0.001, c: top - 0.002, d: top - 0.003,
+      e: top - 0.004, f: cut, g: cut - 0.01
+    })
+    assert.equal(rankingIsDecisive(spread(0.508, 0.508 - 0.056)), false) // "yes"
+    assert.equal(rankingIsDecisive(spread(0.482, 0.482 - 0.091)), true) // weather
+  })
+})
+
+/**
+ * v1.4.5. Budgets were enforced and never disclosed, so the only way to learn
+ * one was to be refused. Measured: five web_search calls against a budget of
+ * three, then three fetch_webpage against two, then two more searches — seven
+ * of twelve rejected across three rounds, and the answer filled the gaps from
+ * memory.
+ */
+describe('withBudgetNotes', () => {
+  const tools: ToolSchema[] = ['web_search', 'read_file'].map((name) => ({
+    type: 'function',
+    function: { name, description: `${name} does a thing.`, parameters: {} }
+  }))
+
+  test('a budgeted tool says its budget', () => {
+    const [search] = withBudgetNotes(tools, { web_search: 3 })
+    assert.match(search.function.description, /at most 3 calls per turn/)
+    assert.match(search.function.description, /web_search does a thing\./)
+  })
+
+  test('an unbudgeted tool is untouched', () => {
+    const out = withBudgetNotes(tools, { web_search: 3 })
+    assert.equal(out[1].function.description, 'read_file does a thing.')
+  })
+
+  test('singular reads correctly for a budget of one', () => {
+    const [search] = withBudgetNotes(tools, { web_search: 1 })
+    assert.match(search.function.description, /at most 1 call per turn/)
+  })
+
+  test('the originals are not mutated', () => {
+    withBudgetNotes(tools, { web_search: 3 })
+    assert.equal(tools[0].function.description, 'web_search does a thing.')
   })
 })

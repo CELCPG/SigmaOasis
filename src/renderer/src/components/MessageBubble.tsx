@@ -101,6 +101,9 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   if (report.links.length > 0) {
     parts.push(`${report.links.length} link${report.links.length === 1 ? '' : 's'}`)
   }
+  const origins = report.origins ?? []
+  const contacts = report.contacts ?? []
+  const addresses = report.addresses ?? []
   return (
     <div
       className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
@@ -110,7 +113,40 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         'that appeared in no search result, are the two things most worth re-checking yourself.'
       }
     >
-      <div>⚠️ {parts.join(' and ')} in this reply {parts.length > 1 ? 'are' : 'is'} not backed by the tool output.</div>
+      {parts.length > 0 && (
+        <div>
+          ⚠️ {parts.join(' and ')} in this reply {parts.length > 1 ? 'are' : 'is'} not backed by the
+          tool output.
+        </div>
+      )}
+      {/*
+        Called out separately from figures and links because it is a different
+        kind of wrong: not an unsupported number but a contradicted fact, and
+        the one most likely to be repeated out loud to someone else.
+      */}
+      {origins.length > 0 && (
+        <div className={parts.length > 0 ? 'mt-1' : undefined}>
+          ⚠️ This reply places the subject in {origins.join(', ')}, which the sources it consulted
+          never mention.
+        </div>
+      )}
+      {/*
+        Listed in full rather than counted: a phone number is checked by
+        looking at it, and this is the one item here that a reader may be
+        about to put in front of customers.
+      */}
+      {contacts.length > 0 && (
+        <div className={parts.length > 0 || origins.length > 0 ? 'mt-1' : undefined}>
+          ⚠️ Contact details no tool returned: {contacts.join(', ')}. Verify before sending these
+          anywhere.
+        </div>
+      )}
+      {/* Listed in full for the same reason as contacts: someone drives there. */}
+      {addresses.length > 0 && (
+        <div className="mt-1">
+          ⚠️ Addresses no tool returned: {addresses.join('; ')}. Check these before travelling.
+        </div>
+      )}
       {report.links.length > 0 && (
         <ul className="mt-1 list-disc pl-4 opacity-90">
           {report.links.map((link) => (

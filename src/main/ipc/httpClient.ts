@@ -63,6 +63,23 @@ export interface HttpRequestOptions {
    * answer, and throwing that away is a choice, not a necessity.
    */
   onChunk?: (chunk: Uint8Array) => void
+  /**
+   * Gap between response chunks that counts as a dead connection.
+   *
+   * `timeoutMs` alone cannot tell a hung server from a slow one: it is a single
+   * deadline for the whole request, so a model streaming steadily for four
+   * minutes and a socket that died at second one are killed at the same moment.
+   * Making the deadline generous enough for the slow case therefore means
+   * waiting the same generous time on the dead one — measured, five minutes of
+   * spinner for a server that was never going to answer.
+   *
+   * A streaming caller can say instead: tokens should keep arriving. The clock
+   * is armed only once the first chunk lands, because the silence *before* that
+   * is the model reading the prompt and is legitimately long — a 30k-token
+   * prompt is a minute of prefill on laptop hardware. `timeoutMs` still applies
+   * throughout as the backstop.
+   */
+  stallTimeoutMs?: number
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -153,8 +170,30 @@ export function httpRequest(url: string, options: HttpRequestOptions): Promise<H
         reject(error)
       })
 
+    // Armed by the first response chunk, reset by every one after it.
+    let stallTimer: ReturnType<typeof setTimeout> | null = null
+    const touch = (): void => {
+      if (!options.stallTimeoutMs) return
+      if (stallTimer) clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => {
+        finish(() => {
+          try {
+            request.abort()
+          } catch {
+            // Already finished.
+          }
+          const error = new Error(
+            `The response stalled — nothing received for ${options.stallTimeoutMs! / 1000}s.`
+          )
+          error.name = 'AbortError'
+          reject(error)
+        })
+      }, options.stallTimeoutMs)
+    }
+
     function cleanup(): void {
       clearTimeout(timer)
+      if (stallTimer) clearTimeout(stallTimer)
       options.signal?.removeEventListener('abort', onAbort)
     }
 
@@ -198,6 +237,7 @@ export function httpRequest(url: string, options: HttpRequestOptions): Promise<H
 
       response.on('data', (chunk: Buffer) => {
         if (settled) return
+        touch()
         if (total >= maxBytes) return
         // Surfaced before the cap check so a streaming caller sees every byte
         // the transport accepted, including the final partial one.

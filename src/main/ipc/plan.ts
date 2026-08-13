@@ -56,7 +56,14 @@ const PLAN_SCHEMA = {
 export async function generatePlan(
   task: string,
   modelId?: string,
-  maxSteps?: number
+  maxSteps?: number,
+  /**
+   * The conversation the task came from. v1.4.5: without it the planner wrote
+   * steps for a follow-up as though the follow-up were the whole request —
+   * "update the route to 8 stops" became six steps that each asked for a route
+   * the previous turn had already produced.
+   */
+  context?: string
 ): Promise<PlannedStep[] | null> {
   const model = await resolveChatModel(modelId)
   if (!model) return null
@@ -75,7 +82,14 @@ export async function generatePlan(
           'something checkable. If the task is simple enough to answer directly, return a ' +
           'single step. Return JSON only.'
       },
-      { role: 'user', content: task }
+      {
+        role: 'user',
+        content: context
+          ? `Conversation so far:\n${context}\n\nTask to plan: ${task}\n\n` +
+            'Anything the conversation already established is available to the steps — plan to ' +
+            'use it, never to ask for it again.'
+          : task
+      }
     ],
     temperature: 0.2,
     thinking: false,
@@ -92,11 +106,16 @@ export async function generatePlan(
 export function registerPlanHandlers(): void {
   ipcMain.handle(
     'plan:generate',
-    async (_e, task: string, modelId?: string, maxSteps?: number) => {
+    async (_e, task: string, modelId?: string, maxSteps?: number, context?: string) => {
       const trimmed = String(task ?? '').trim()
       if (!trimmed) return { ok: false, error: 'A task is required.' }
       try {
-        const steps = await generatePlan(trimmed, modelId, maxSteps)
+        const steps = await generatePlan(
+          trimmed,
+          modelId,
+          maxSteps,
+          typeof context === 'string' ? context : undefined
+        )
         return steps
           ? { ok: true, steps }
           : { ok: false, error: 'The model did not produce a usable plan.' }

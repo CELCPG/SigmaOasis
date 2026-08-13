@@ -23,7 +23,56 @@ describe('timeoutForTokens', () => {
   })
 
   test('a short request still gets a usable floor', () => {
-    assert.ok(llm.timeoutForTokens(10) >= 90_000)
+    assert.ok(llm.timeoutForTokens(10) >= 60_000)
+  })
+
+  /**
+   * v1.5 recalibration. The v1.3 constant assumed 4 tokens/s of generation and
+   * charged a flat 60s for the prompt whatever its size. Measured on
+   * qwen3.5-9b-mlx: ~300 tokens/s prompt, 13–25 tokens/s generation — so the
+   * generation term was 3–6x over and every derived timeout pinned to the
+   * ceiling, while a 30k-token conversation was quietly under-budgeted.
+   */
+  test('a long generation no longer pins straight to the ceiling', () => {
+    // The research brief. It needs room; it does not need five minutes.
+    assert.ok(llm.timeoutForTokens(1400) < 300_000)
+    assert.ok(llm.timeoutForTokens(1400) > 120_000)
+  })
+
+  test('a big prompt costs time, and a small one does not', () => {
+    const small = llm.timeoutForTokens(400, 100)
+    const large = llm.timeoutForTokens(400, 20_000)
+    assert.ok(large > small, 'prompt size has to move the budget')
+    // Through v1.4 these were identical — the flat allowance saw no difference
+    // between a two-line question and a full conversation.
+    assert.ok(large - small > 60_000)
+  })
+
+  test('prompt tokens default to zero, so old call sites are unchanged', () => {
+    assert.equal(llm.timeoutForTokens(700), llm.timeoutForTokens(700, 0))
+  })
+
+  test('the ceiling still holds once both terms are large', () => {
+    assert.equal(llm.timeoutForTokens(100_000, 100_000), 300_000)
+  })
+})
+
+describe('estimatePromptTokens', () => {
+  test('counts the whole conversation, not just the last message', () => {
+    const one = llm.estimatePromptTokens([{ role: 'user', content: 'x'.repeat(400) }])
+    const two = llm.estimatePromptTokens([
+      { role: 'user', content: 'x'.repeat(400) },
+      { role: 'assistant', content: 'y'.repeat(400) }
+    ])
+    assert.ok(two > one)
+  })
+
+  test('four characters to the token, near enough for a budget', () => {
+    assert.equal(llm.estimatePromptTokens([{ role: 'user', content: 'x'.repeat(400) }]), 100)
+  })
+
+  test('an empty conversation costs nothing', () => {
+    assert.equal(llm.estimatePromptTokens([]), 0)
   })
 
   test('nothing waits forever — the ceiling is bounded', () => {
