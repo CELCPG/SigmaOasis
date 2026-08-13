@@ -78,6 +78,13 @@ async function main(): Promise<void> {
         // measures the buffer rather than the stall clock.
         res.writeHead(200, { 'content-type': 'text/plain' })
         res.write('x'.repeat(64 * 1024))
+        // Self-close, so the never-ending response cannot outlive the check.
+        // Without this the socket stays open after the client aborts, and
+        // `server.close()` — which waits for open connections — never returns:
+        // the whole suite hung for twenty minutes on a CI runner rather than
+        // failing. The delay is far longer than the 400ms stall window under
+        // test, so it never races the thing being measured.
+        setTimeout(() => res.end(), 5_000).unref()
       } else if (req.url === '/echo-header') {
         res.writeHead(200, { 'content-type': 'text/plain' })
         res.end(String(req.headers['x-custom'] ?? ''))
@@ -252,6 +259,9 @@ async function main(): Promise<void> {
   }
   check('a connection failure rejects rather than hanging', refused)
 
+  // Belt and braces with the self-closing /stall route above: any connection
+  // this suite deliberately left hanging is dropped rather than waited on.
+  server.closeAllConnections?.()
   server.close()
 
   console.log(`\n${'='.repeat(58)}`)
