@@ -173,9 +173,13 @@ async function main(): Promise<void> {
     session: ses,
     timeoutMs: 30_000,
     maxBytes: 4 * 1024 * 1024,
-    // Well under the 1.2s the response takes in total, and comfortably over
-    // the 100ms between its chunks: a steady stream must survive.
-    stallTimeoutMs: 400
+    // Twenty times the 100ms between chunks. An earlier 400ms was under four
+    // times, which passed locally and failed on a loaded CI runner where
+    // scheduling a timer and delivering a chunk can slip past it — a flaky
+    // test that would have taught us to distrust a real signal. Still well
+    // under the 1.2s the whole response takes, so a stream that genuinely
+    // stopped would be caught before it finished.
+    stallTimeoutMs: 2_000
   })
   check(
     'a steadily streaming response is left alone',
@@ -189,7 +193,9 @@ async function main(): Promise<void> {
     const late = await httpRequest(`${origin}/slow`, {
       session: ses,
       timeoutMs: 10_000,
-      stallTimeoutMs: 500
+      // Far under the 3s of silence /slow opens with, so this fails loudly if
+      // the clock ever starts before the first chunk.
+      stallTimeoutMs: 1_000
     })
     prefillSurvived = (await late.text()) === 'late'
   } catch {
