@@ -62,6 +62,90 @@ export interface GroundingReport {
  */
 const MIN_UNPROMPTED_FIGURES = 2
 
+// ---- correction ----------------------------------------------------------------
+
+/**
+ * The findings, written for the model that produced them.
+ *
+ * v1.4.6. Everything above this line detects; nothing acted on what it found.
+ * Across ten measured sessions the checks correctly identified invented
+ * addresses, prices, phone numbers and a relocated brand — and then rendered a
+ * badge underneath an answer the user had already read. The detection was
+ * right and the answer was still wrong.
+ *
+ * So the findings go back to the model for one revision. Two things make that
+ * safe rather than destructive: it names the specific items rather than
+ * asking for a general rewrite, and it offers verification as the first
+ * option — the model still has its tools, and an address it can confirm is
+ * better kept than deleted.
+ */
+/** How many separate unsupported things a report names. */
+export function groundingFindingCount(report: GroundingReport | null): number {
+  if (!report) return 0
+  return (
+    report.figures.length +
+    report.links.length +
+    (report.origins?.length ?? 0) +
+    (report.contacts?.length ?? 0) +
+    (report.addresses?.length ?? 0)
+  )
+}
+
+/**
+ * Is a revision an improvement, or just a different set of inventions?
+ *
+ * v1.4.6, and this guard is why the correction pass is safe to run at all.
+ * Asked to fix an itinerary with two invented addresses, the model — measured,
+ * against the live model — returned the same table with *different* invented
+ * addresses ("155 W 52nd St" became "150 W 52nd St") plus a line claiming the
+ * rest had been "verified against search results" when nothing had run. The
+ * prompt forbids exactly that and the model did it anyway, which is the usual
+ * lesson: an instruction is a preference, a check is a guarantee.
+ *
+ * So a revision is kept only when it strictly reduces what the checker can
+ * fault. Anything else and the original stands, flagged — the answer the user
+ * gets is never worse than the one the model first produced.
+ */
+export function revisionIsAnImprovement(
+  before: GroundingReport,
+  after: GroundingReport | null
+): boolean {
+  return groundingFindingCount(after) < groundingFindingCount(before)
+}
+
+export function describeGroundingFindings(report: GroundingReport): string {
+  const lines: string[] = []
+  if (report.addresses?.length) {
+    lines.push(`- Addresses that appear in no result: ${report.addresses.join('; ')}`)
+  }
+  if (report.contacts?.length) {
+    lines.push(`- Contact details no tool returned: ${report.contacts.join('; ')}`)
+  }
+  if (report.links.length) {
+    lines.push(`- Links that appear in no result: ${report.links.join('; ')}`)
+  }
+  if (report.figures.length) {
+    lines.push(`- Money figures nothing retrieved supports: ${report.figures.join(', ')}`)
+  }
+  if (report.origins?.length) {
+    lines.push(
+      `- Your answer places the subject in ${report.origins.join(', ')}, which the sources never mention.`
+    )
+  }
+  if (lines.length === 0) return ''
+
+  return (
+    'A mechanical check compared your answer against what the tools actually returned this ' +
+    `turn (${report.checkedAgainst.join(', ')}). It found specifics nothing supports:\n\n` +
+    `${lines.join('\n')}\n\n` +
+    'Rewrite the answer. For each item: verify it with a tool, or drop it and say plainly what ' +
+    'you could not confirm. Do not restate any of them as fact, and do not replace one ' +
+    'unverified specific with another. Everything the sources do support stays — this is a ' +
+    'correction, not a shorter answer. Give the full corrected answer, not a description of ' +
+    'what you changed.'
+  )
+}
+
 // ---- figures -----------------------------------------------------------------
 
 /**

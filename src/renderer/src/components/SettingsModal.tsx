@@ -1000,6 +1000,30 @@ export function SettingsModal(): JSX.Element | null {
                       </label>
                     </div>
                   )}
+
+                  {/*
+                    Outside the secondOpinion gate on purpose: this pass needs
+                    no critic slot. It works from what the checker already
+                    found, and the answerer fixes its own answer.
+                  */}
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.grounding.autoCorrect}
+                      onChange={(e) => update({ grounding: { autoCorrect: e.target.checked } })}
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Correct unsupported specifics
+                      <span className="mt-0.5 block text-xs text-neutral-500">
+                        When the grounding check finds an address, price, link or phone number the
+                        turn&rsquo;s own tools never returned, the findings go back to the model for
+                        one revision — verify it with a tool, or drop it and say so. Costs one extra
+                        round, and only on answers already known to contain unsupported specifics.
+                        The reply is marked as revised.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
             )}

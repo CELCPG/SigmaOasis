@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ChatMessage, Conversation, GroundingReport, ToolCallRecord } from '../types'
+import { groundingFindingCount } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
 import { renderMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
@@ -449,6 +450,26 @@ export function MessageBubble({
           >
             ✂️ Cut off at the length cap — this reply is unfinished. Raise max tokens in Settings
             → Models, or ask it to continue.
+          </div>
+        )}
+
+        {/*
+          The answer on screen is not the one the model first produced. Saying
+          so is not optional: a correction the user cannot see is the app
+          quietly editing the record, which is exactly what every other check
+          here exists to prevent.
+        */}
+        {!isStreaming && message.corrected && (
+          <div
+            className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400"
+            title={
+              'A mechanical check found specifics the turn\'s tools did not support, and the ' +
+              'model was asked to verify or remove them. What you are reading is the revision.'
+            }
+          >
+            ✎ Revised: {groundingFindingCount(message.corrected.before)} unsupported item
+            {groundingFindingCount(message.corrected.before) === 1 ? '' : 's'} were sent back for
+            verification or removal.
           </div>
         )}
 

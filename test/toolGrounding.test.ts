@@ -3,12 +3,15 @@ import assert from 'node:assert/strict'
 import {
   checkToolGrounding,
   contradictedOrigins,
+  describeGroundingFindings,
+  groundingFindingCount,
+  revisionIsAnImprovement,
   unsourcedAddresses,
   unsourcedContacts,
   unsourcedFigures,
   unsourcedLinks
 } from '../src/renderer/src/lib/toolGrounding'
-import type { ToolCallRecord } from '../src/renderer/src/types'
+import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 
 /**
  * These cases are transcribed from a real v1.3 session, not invented. The
@@ -426,5 +429,120 @@ describe('addresses do not wrap across lines', () => {
   test('numbered street names still parse', () => {
     assert.deepEqual(unsourcedAddresses('at 800 3rd Ave', 'store at 800 3rd Ave'), [])
     assert.deepEqual(unsourcedAddresses('at 766 6th Ave', 'Chelsea: 766 6th Ave, NY'), [])
+  })
+})
+
+/**
+ * v1.4.6. Everything else in this module detects; this is what finally acts on
+ * a finding. Across ten measured sessions the checks correctly identified
+ * invented addresses, prices, phone numbers and a relocated brand — and then
+ * rendered a badge under an answer the user had already read. What the model
+ * is told here is the whole difference between a corrected answer and an
+ * annotated one, so it is pinned.
+ */
+describe('describeGroundingFindings', () => {
+  const full = {
+    figures: ['$5.00', '$3.80'],
+    links: ['https://example.com/invented'],
+    addresses: ['800 3rd Ave', '175 E 14th St'],
+    contacts: ["1-800-SAM'S-CUB"],
+    origins: ['France'],
+    checkedAgainst: ['web_search']
+  }
+
+  test('names every flagged item, so the model fixes those and not the answer', () => {
+    const out = describeGroundingFindings(full)
+    for (const item of ['$5.00', '800 3rd Ave', "1-800-SAM'S-CUB", 'France', 'invented']) {
+      assert.ok(out.includes(item), `expected ${item} in the findings`)
+    }
+  })
+
+  test('offers verification before removal', () => {
+    // The model keeps its tools during the pass; an address it can confirm is
+    // worth more than an address it deleted.
+    assert.match(describeGroundingFindings(full), /verify it with a tool, or drop it/i)
+  })
+
+  test('forbids swapping one invention for another', () => {
+    assert.match(describeGroundingFindings(full), /do not replace one[\s\S]*unverified specific/i)
+  })
+
+  test('says a correction is not a shorter answer', () => {
+    // Without this the cheapest way to satisfy the checker is to delete the
+    // useful parts too.
+    assert.match(describeGroundingFindings(full), /correction, not a shorter answer/i)
+  })
+
+  test('names what the answer was checked against', () => {
+    assert.match(describeGroundingFindings(full), /web_search/)
+  })
+
+  test('a report with nothing in it produces no instruction', () => {
+    assert.equal(
+      describeGroundingFindings({ figures: [], links: [], checkedAgainst: ['web_search'] }),
+      ''
+    )
+  })
+
+  test('only the categories that fired are mentioned', () => {
+    const out = describeGroundingFindings({
+      figures: [],
+      links: [],
+      addresses: ['800 3rd Ave'],
+      checkedAgainst: ['web_search']
+    })
+    assert.ok(out.includes('800 3rd Ave'))
+    assert.ok(!/Money figures/.test(out))
+    assert.ok(!/Contact details/.test(out))
+  })
+})
+
+/**
+ * v1.4.6. The guard that makes the correction pass safe to run.
+ *
+ * Measured against the live model: asked to fix an itinerary with two invented
+ * addresses, it returned the same table with *different* invented addresses
+ * ("155 W 52nd St" became "150 W 52nd St"), plus a line claiming the rest had
+ * been "verified against search results" when nothing had run. The prompt
+ * forbids exactly that, and the model did it anyway.
+ */
+describe('revisionIsAnImprovement', () => {
+  const report = (n: number): GroundingReport => ({
+    figures: [],
+    links: [],
+    addresses: Array.from({ length: n }, (_, i) => `${i} Fake St`),
+    checkedAgainst: ['web_search']
+  })
+
+  test('a revision that fixed everything is kept', () => {
+    assert.equal(revisionIsAnImprovement(report(3), null), true)
+  })
+
+  test('a revision that fixed some of it is kept', () => {
+    assert.equal(revisionIsAnImprovement(report(3), report(1)), true)
+  })
+
+  test('swapping one invention for another is rejected', () => {
+    // Same count, different content: the measured failure.
+    assert.equal(revisionIsAnImprovement(report(2), report(2)), false)
+  })
+
+  test('a revision that made it worse is rejected', () => {
+    assert.equal(revisionIsAnImprovement(report(2), report(4)), false)
+  })
+
+  test('the count spans every category', () => {
+    assert.equal(
+      groundingFindingCount({
+        figures: ['$1'],
+        links: ['https://x'],
+        addresses: ['1 A St'],
+        contacts: ['555-0100'],
+        origins: ['France'],
+        checkedAgainst: []
+      }),
+      5
+    )
+    assert.equal(groundingFindingCount(null), 0)
   })
 })

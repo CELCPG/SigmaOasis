@@ -400,6 +400,8 @@ export interface AppSettings {
   secondOpinion: SecondOpinionSettings
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
+  /** v1.4.6: revise an answer whose specifics the tools did not support. */
+  grounding: { autoCorrect: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -570,6 +572,13 @@ export interface ChatMessage {
    * made a length cap unsafe to recommend. Display-only.
    */
   truncated?: boolean
+  /**
+   * v1.4.6: this reply was revised because the grounding check found specifics
+   * the turn's tools did not support. `before` is what that first pass found,
+   * kept so the UI can say the answer was corrected rather than silently
+   * replacing it. Display-only.
+   */
+  corrected?: { before: GroundingReport; at: number }
   /**
    * v1.3 tool grounding: figures or links in this reply that the turn's own
    * tool output does not support — the model overriding or inventing past what

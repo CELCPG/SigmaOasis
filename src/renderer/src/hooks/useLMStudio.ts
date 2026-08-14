@@ -31,7 +31,11 @@ import {
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
-import { checkToolGrounding } from '../lib/toolGrounding'
+import {
+  checkToolGrounding,
+  describeGroundingFindings,
+  revisionIsAnImprovement
+} from '../lib/toolGrounding'
 import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
 import {
   buildExtractionMessages,
@@ -66,6 +70,7 @@ import type {
   CheckedClaim,
   ClaimCheckRecord,
   Conversation,
+  GroundingReport,
   ModelConfig,
   PlanStep,
   ResponseStats,
@@ -846,6 +851,87 @@ async function runClaimCheck(
 }
 
 /**
+ * One revision pass over an answer the grounding check found fault with.
+ *
+ * Runs with the slot's real tools on purpose: the first option offered to the
+ * model is to *verify* a flagged specific, not to delete it. An address it can
+ * confirm is worth more than an address it removed, and a correction pass that
+ * could only delete would make answers shorter rather than truer.
+ *
+ * Returns the corrected answer, or '' when nothing usable came back — the
+ * caller then keeps the original, flagged.
+ */
+async function reviseAgainstFindings(
+  slot: ModelConfig,
+  baseUrl: string,
+  tools: ToolSchema[],
+  signal: AbortSignal,
+  convo: Conversation,
+  answer: string,
+  report: GroundingReport,
+  records: ToolCallRecord[]
+): Promise<string> {
+  const findings = describeGroundingFindings(report)
+  if (!findings) return ''
+
+  const messages: ApiMessage[] = [
+    { role: 'system', content: withGrounding(slot.systemPrompt) },
+    { role: 'user', content: `The answer you just gave:\n\n${answer}\n\n---\n${findings}` }
+  ]
+
+  let revised = ''
+  try {
+    await runAgentLoop({
+      messages,
+      tools: withBudgetNotes(
+        await subsetForTurn(toolsForSlot(slot, tools), answer.slice(0, 400)),
+        TOOL_TURN_BUDGETS
+      ),
+      // Tool calls made while correcting join the turn's own record list, so
+      // the work done to verify a figure is as visible as the work that
+      // produced it.
+      records,
+      signal,
+      maxIterations: MAX_PLAN_STEP_ITERATIONS,
+      deps: {
+        streamRound: async (roundMessages, roundTools) => {
+          let roundContent = ''
+          const { toolCalls } = await streamChat(
+            baseUrl,
+            slot.modelId,
+            roundMessages,
+            roundTools,
+            signal,
+            (chunk) => {
+              roundContent += chunk
+            },
+            undefined,
+            slot.sampling
+          )
+          revised = roundContent || revised
+          return { content: roundContent, toolCalls }
+        },
+        executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+        onToolExecuted: (record, result) => {
+          audit(convo, {
+            kind: 'tool_call',
+            roleName: slot.roleName,
+            modelId: slot.modelId,
+            toolName: record.name,
+            ok: result.ok,
+            text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+          })
+        }
+      }
+    })
+  } catch {
+    // A failed correction is not a failed turn. The original stands, flagged.
+    return ''
+  }
+  return revised.trim()
+}
+
+/**
  * Run one model's turn: stream a reply, execute any requested tools, feed the
  * results back, and repeat until the model stops calling tools.
  */
@@ -1304,17 +1390,72 @@ async function runTurn(
   // mechanical (no model call, no network), so it runs on every finished turn
   // — including turns that consulted sources, which is exactly where a model
   // overriding a computed figure would otherwise pass unnoticed.
-  const checkGrounding = (): void => {
-    // Every user message, not just this turn's: a budget stated four turns ago
-    // is still the user's own number, and so is the arithmetic done on it.
-    const allUserText = convo.messages
+  // Every user message, not just this turn's: a budget stated four turns ago
+  // is still the user's own number, and so is the arithmetic done on it.
+  const allUserText = (): string =>
+    convo.messages
       .filter((m) => m.role === 'user')
       .map((m) => m.content)
       .join('\n')
-    const report = checkToolGrounding(assistantMsg.content, allRecords, allUserText, {
+
+  const groundingReport = (): GroundingReport | null =>
+    checkToolGrounding(assistantMsg.content, allRecords, allUserText(), {
       expectPricingTool: shoppingTurn
     })
-    if (report) patch({ grounding: report })
+
+  /**
+   * v1.4.6: hand the findings back for one revision, then re-check.
+   *
+   * Only ever one pass. A second would be the model arguing with a regex, and
+   * whatever survives the first correction is what the badge is for — the
+   * point is to fix what can be fixed and disclose the rest, not to loop until
+   * the checker is satisfied.
+   */
+  const checkGrounding = async (): Promise<void> => {
+    const report = groundingReport()
+    if (!report) return
+    const autoCorrect = useAppStore.getState().settings?.grounding.autoCorrect !== false
+    if (!autoCorrect || signal.aborted) {
+      patch({ grounding: report })
+      return
+    }
+
+    const before = assistantMsg.content
+    const revised = await reviseAgainstFindings(
+      slot,
+      baseUrl,
+      tools,
+      signal,
+      convo,
+      before,
+      report,
+      allRecords
+    )
+    // A revision that came back empty, or that the user cancelled, leaves the
+    // original standing: a flagged answer beats no answer.
+    if (!revised.trim() || signal.aborted) {
+      patch({ grounding: report })
+      return
+    }
+
+    // Provisionally adopt the revision so the checker sees it, then keep it
+    // only if it actually reduced what can be faulted. Measured against the
+    // live model: a correction that swapped two invented addresses for two
+    // different invented addresses, and added a claim that the rest had been
+    // "verified against search results" when nothing had run.
+    const original = assistantMsg.content
+    assistantMsg.content = revised
+    const after = groundingReport()
+    if (!revisionIsAnImprovement(report, after)) {
+      assistantMsg.content = original
+      patch({ content: original, grounding: report })
+      return
+    }
+    patch({
+      content: revised,
+      corrected: { before: report, at: Date.now() },
+      grounding: after ?? undefined
+    })
   }
 
   const offerEscalation = (): void => {
@@ -1368,7 +1509,7 @@ async function runTurn(
         )
       }
     }
-    checkGrounding()
+    await checkGrounding()
     audit(convo, {
       kind: 'assistant_output',
       roleName: slot.roleName,
@@ -1412,7 +1553,7 @@ async function runTurn(
       )
     }
   }
-  checkGrounding()
+  await checkGrounding()
   // Read whatever is left unspoken (including the warning above).
   speakNewSentences(true)
   offerEscalation()

@@ -181,6 +181,22 @@ export interface SecondOpinionSettings {
   criticSlotId: string | null
 }
 
+export interface GroundingSettings {
+  /**
+   * v1.4.6: when the mechanical grounding check finds specifics the turn's own
+   * tools do not support — an address in no result, a price from nowhere, a
+   * phone number assembled from a brand name — hand those findings back to the
+   * model for one revision pass before the answer is final.
+   *
+   * Detection without correction was the gap. Ten measured sessions produced
+   * answers whose invented parts were identified accurately and then shown to
+   * the user underneath the answer they had already read. This spends one more
+   * round to fix what was found, and only on answers already known to contain
+   * unsupported specifics — a clean turn never pays for it.
+   */
+  autoCorrect: boolean
+}
+
 export interface ClaimCheckSettings {
   /**
    * v1.2: mechanical per-claim verification of unverified answers. Requires
@@ -243,6 +259,8 @@ export interface AppSettings {
   secondOpinion: SecondOpinionSettings
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
+  /** v1.4.6: revise an answer whose specifics the tools did not support. */
+  grounding: GroundingSettings
   /** v1.4: private shopping research. Tools ship off; this governs how they behave. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -396,6 +414,7 @@ function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
+    grounding: { autoCorrect: true },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -593,6 +612,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       enabled: settings.claimCheck?.enabled !== false,
       maxClaims: clamp(settings.claimCheck?.maxClaims, 1, 10, defaults.claimCheck.maxClaims)
     },
+    grounding: { autoCorrect: settings.grounding?.autoCorrect !== false },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable
       // the proxy requirement, which is the setting most costly to get wrong.
@@ -631,6 +651,7 @@ export function migrateSettings(): void {
     updates: { ...defaults.updates, ...current.updates },
     secondOpinion: { ...defaults.secondOpinion, ...current.secondOpinion },
     claimCheck: { ...defaults.claimCheck, ...current.claimCheck },
+    grounding: { ...defaults.grounding, ...current.grounding },
     shopping: { ...defaults.shopping, ...current.shopping },
     audit: { ...defaults.audit, ...current.audit },
     plan: { ...defaults.plan, ...current.plan }
