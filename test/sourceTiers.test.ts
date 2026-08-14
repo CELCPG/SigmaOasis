@@ -177,3 +177,46 @@ describe('provenanceNote', () => {
     assert.match(note, /not evidence/i)
   })
 })
+
+/**
+ * v1.4.6. The check shipped inverted, and a production session showed it:
+ * searching for restaurants, it marked Time Out and Eater as content farms in
+ * three consecutive result sets while the menu-price aggregators alongside
+ * them went unmarked. A badge that flags the magazine and clears the spam is
+ * worse than no badge.
+ */
+describe('provenance · editorial outlets and aggregators', () => {
+  const kind = (url: string): string => provenanceOf(url).kind
+
+  test('a magazine titling a guide "best-x" is not search-bait', () => {
+    assert.equal(kind('https://www.timeout.com/newyork/restaurants/best-restaurants-near-penn-station'), 'unknown')
+    assert.equal(kind('https://ny.eater.com/maps/best-restaurants-bars-near-penn-station-nyc'), 'unknown')
+  })
+
+  test('unmarked means unmarked — not endorsed', () => {
+    // The claim is only "this is a publication, not a page built to rank".
+    assert.equal(provenanceOf('https://www.timeout.com/newyork/best-bars').why, '')
+  })
+
+  test('aggregator hostnames named after the query are caught', () => {
+    assert.equal(kind('https://www.menuxp.com/carbone-menu'), 'farm')
+    assert.equal(kind('https://menupedia.us/carbone-menu/'), 'farm')
+    assert.equal(kind('https://restaurantmenuprices.org/2026/06/11/carbone-menu-prices/'), 'farm')
+    assert.equal(kind('https://menuwithprices.com/menu/carbone/'), 'farm')
+  })
+
+  test('a rating body is primary for its own ratings', () => {
+    // Five searches failed to establish star counts while this sat in every
+    // result set, and the answer that followed invented three of them.
+    assert.equal(kind('https://guide.michelin.com/us/en/new-york-state/new-york/restaurants'), 'primary')
+  })
+
+  test('the known farms are still caught', () => {
+    assert.equal(kind('https://top10.com/best-brokers'), 'farm')
+    assert.equal(kind('https://thechronex.com/how-to-buy-spacex-stock-spcx-ipo-guide/'), 'farm')
+  })
+
+  test('an editorial domain does not launder a listicle path elsewhere', () => {
+    assert.equal(kind('https://randomblog.example/best-restaurants-near-me-2026'), 'farm')
+  })
+})

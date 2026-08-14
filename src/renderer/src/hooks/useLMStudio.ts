@@ -1686,24 +1686,63 @@ async function runPlanTurn(
         `Original task: ${task}\n\nA step-by-step plan was executed. Results:\n\n${resultsBlock}\n\n` +
         (haltedBy
           ? `${haltedBy}. Answer using what the completed steps produced, and state plainly what the failed step leaves unanswered.`
-          : 'Answer the original task using these results.')
+          : 'Answer the original task using these results.') +
+        // v1.4.6: the plan is the app's scaffolding, not something the user
+        // saw. A measured run opened with "Step 1 returned no results and Step
+        // 3 lists Spring Lake", which reads to the user as a reference to a
+        // document that does not exist.
+        '\n\nThe user never saw this plan or its steps. Write the answer as your own work: no ' +
+        'step numbers, no mention of a plan. If something could not be established, say what ' +
+        'is missing in ordinary terms.' +
+        // And the reason it needs tools at all: when the steps came back empty
+        // the model wanted to search, had nothing to call, and emitted
+        // `google_search("...")` in a Python fence as though that were a tool.
+        '\n\nYou still have your tools here. If the results are thin, use them rather than ' +
+        'describing a search you did not run.'
     }
   ]
 
   let content = ''
-  await streamChat(
-    baseUrl,
-    slot.modelId,
-    synthesis,
-    [],
+  await runAgentLoop({
+    messages: synthesis,
+    // The same allowlist any turn gets, with budgets stated. Without tools the
+    // synthesis could only fabricate; with them it can actually close the gap.
+    tools: withBudgetNotes(await subsetForTurn(toolsForSlot(slot, tools), task), TOOL_TURN_BUDGETS),
+    records: [],
     signal,
-    (chunk) => {
-      content += chunk
-      patch({ content: (assistantMsg.content += chunk) })
-    },
-    undefined,
-    slot.sampling
-  )
+    maxIterations: MAX_PLAN_STEP_ITERATIONS,
+    deps: {
+      streamRound: async (messages, roundTools) => {
+        let roundContent = ''
+        const { toolCalls } = await streamChat(
+          baseUrl,
+          slot.modelId,
+          messages,
+          roundTools,
+          signal,
+          (chunk) => {
+            roundContent += chunk
+            patch({ content: (assistantMsg.content += chunk) })
+          },
+          undefined,
+          slot.sampling
+        )
+        content += roundContent
+        return { content: roundContent, toolCalls }
+      },
+      executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+      onToolExecuted: (record, result) => {
+        audit(convo, {
+          kind: 'tool_call',
+          roleName: slot.roleName,
+          modelId: slot.modelId,
+          toolName: record.name,
+          ok: result.ok,
+          text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+        })
+      }
+    }
+  })
   if (!signal.aborted) {
     audit(convo, {
       kind: 'assistant_output',

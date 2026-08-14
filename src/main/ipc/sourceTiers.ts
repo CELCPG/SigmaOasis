@@ -217,11 +217,55 @@ const PRIMARY_DOMAINS = [
   'bis.org', 'imf.org', 'worldbank.org', 'oecd.org', 'un.org', 'who.int',
   'iso.org', 'ietf.org', 'rfc-editor.org', 'w3.org', 'unicode.org', 'ieee.org',
   'doi.org', 'arxiv.org', 'nature.com', 'science.org', 'jstor.org',
-  'sciencedirect.com', 'springer.com', 'esa.int', 'noaa.gov'
+  'sciencedirect.com', 'springer.com', 'esa.int', 'noaa.gov',
+  // A rating body is the record for its own ratings, the same way a registry
+  // is. Measured: a session spent five searches failing to establish Michelin
+  // star counts while guide.michelin.com sat unmarked in every result set, and
+  // the answer it finally wrote gave Carbone three stars (it has one) and
+  // placed Atelier Crenn — a San Francisco restaurant — on West 75th Street.
+  'guide.michelin.com'
 ]
 
 /** Tertiary summaries. Useful, and explicitly not a source. */
 const REFERENCE_DOMAINS = ['wikipedia.org', 'britannica.com', 'wikidata.org', 'wiktionary.org']
+
+/**
+ * Publications that employ editors, and are therefore not search-bait however
+ * their URLs are shaped.
+ *
+ * v1.4.6, fixing a false positive this module caused in production. The path
+ * heuristics below flag a listicle shape — "/best-restaurants-near-x" — which
+ * is a good signal on a domain nothing is known about and a terrible one on a
+ * magazine, because that is simply how magazines title service journalism. A
+ * measured session searching for restaurants marked **Time Out** and **Eater**
+ * as content farms in three consecutive result sets, while the actual farms in
+ * the same lists — menu-price aggregators and AI-spun city guides — went
+ * unmarked. The check was not merely noisy, it was inverted.
+ *
+ * This is a narrower claim than "trustworthy", and deliberately so: it says
+ * only that a domain is a real publication rather than a page built to rank.
+ * Whether any given article is right is a separate question this app does not
+ * answer, and the results stay unmarked rather than endorsed.
+ */
+const EDITORIAL_DOMAINS = [
+  'timeout.com', 'eater.com', 'theinfatuation.com', 'nytimes.com', 'washingtonpost.com',
+  'theguardian.com', 'bbc.com', 'bbc.co.uk', 'reuters.com', 'apnews.com', 'npr.org',
+  'bloomberg.com', 'ft.com', 'wsj.com', 'economist.com', 'newyorker.com', 'theatlantic.com',
+  'wired.com', 'arstechnica.com', 'theverge.com', 'bonappetit.com', 'seriouseats.com',
+  'epicurious.com', 'food52.com', 'condenast.com', 'cntraveler.com', 'travelandleisure.com',
+  'afar.com', 'lonelyplanet.com', 'michelin.com', 'resy.com', 'opentable.com', 'yelp.com',
+  'tripadvisor.com', 'zagat.com', 'grubstreet.com', 'nymag.com', 'sfgate.com', 'latimes.com'
+]
+
+/**
+ * Shapes that mark a page as an aggregator rather than a publication: a
+ * hostname built out of the query it wants to rank for.
+ *
+ * From the same session: menuxp.com, menupedia.us, restaurantmenuprices.org,
+ * menuexplor.com, menuwithprices.com, carbonenewyork.gotoeat.net. All exist to
+ * republish a restaurant's prices; none marked, while Eater was.
+ */
+const AGGREGATOR_HOST = /(?:^|\.)(?:menu[a-z]*|[a-z]*menu|restaurantmenu[a-z]*)\.(?:com|us|org|net)$/i
 
 /**
  * Page shapes that exist to capture a search query rather than to report:
@@ -266,6 +310,15 @@ export function provenanceOf(rawUrl: string): ProvenanceAssignment {
   }
   if (REFERENCE_DOMAINS.some((d) => hostMatches(hostname, d))) {
     return { kind: 'reference', why: 'encyclopedia — a summary of sources, not a source' }
+  }
+  // Checked before the path heuristics, which is the whole point: a magazine
+  // titling a guide "best-restaurants-near-x" is doing its job, not gaming a
+  // query, and marking it as bait made the badge actively misleading.
+  if (EDITORIAL_DOMAINS.some((d) => hostMatches(hostname, d))) {
+    return { kind: 'unknown', why: '' }
+  }
+  if (AGGREGATOR_HOST.test(hostname)) {
+    return { kind: 'farm', why: 'aggregator domain named after the query it ranks for' }
   }
   if (LISTICLE_PATH.test(pathname) || SEO_PATH.test(pathname)) {
     return { kind: 'farm', why: 'search-bait page shape on an unrecognized domain' }
