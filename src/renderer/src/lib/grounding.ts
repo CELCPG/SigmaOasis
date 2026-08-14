@@ -133,6 +133,25 @@ const HEALTH_DOMAINS =
   // ordinary conversation and would drag every turn into a search.
   /\b(?:symptoms?|dosages?|overdose|allerg(?:y|ic|ies)|bites?|bitten|bit by|stings?|poison(?:ous)?|venom(?:ous)?|antivenom|rash|fever|infections?|cpr|first aid|choking|seizures?|concussions?|dizzy|dizziness|bleeding|fractures?|sprains?|antibiotics?|medications?|prescriptions?|side effects?|contraindicated)\b/i
 
+/**
+ * Places and businesses in the physical world: whether they exist, where they
+ * are, and whether they are still trading.
+ *
+ * v1.4.6. A route-planning turn — "plan a route in NYC … 3 whole foods, 2
+ * fairway markets, morton williams, gristedes, citerella" — read as
+ * non-factual, so no search ran and the reply could never earn the
+ * `unverified` badge. It opened by asserting that Citarella "closed
+ * permanently between 2019–2024", dropped a chain the user had asked for on
+ * that basis, and recommended Dean & DeLuca as the substitute, a company that
+ * went bankrupt in 2020. Not one tool call, and nothing in the UI said so.
+ *
+ * Store status and street addresses are as checkable as a release date and
+ * rather more expensive to get wrong — being sent to a shop that closed is a
+ * wasted morning.
+ */
+const PLACE_DOMAINS =
+  /\b(?:store (?:locations?|hours)|locations? (?:in|near|of|for)|street addresses?|addresses (?:in|of|for)|still (?:open|in business|operating|trading)|permanently closed|closed (?:down|permanently)|out of business|went bankrupt|storefronts?|branches (?:in|near)|plan (?:a|my|the) route|itinerar(?:y|ies)|driving directions|directions (?:to|from))\b/i
+
 /** Structural, electrical and gas work — where the failure mode is a collapse. */
 const BUILDING_DOMAINS =
   /\b(load[- ]bearing|joists?|rafters?|footings?|psf|span tables?|building code|permits?|structural|amperage|breakers?|gas line|load capacity|dead load|live load)\b/i
@@ -163,7 +182,7 @@ export function looksFactual(text: string): boolean {
   if (t.length < 8) return false
   if (CREATIVE_INTENT.test(t)) return false
   if (FACT_DOMAINS.test(t)) return true
-  if (HEALTH_DOMAINS.test(t) || BUILDING_DOMAINS.test(t)) return true
+  if (HEALTH_DOMAINS.test(t) || BUILDING_DOMAINS.test(t) || PLACE_DOMAINS.test(t)) return true
   const asksQuestion = t.includes('?') || QUESTION_LEAD.test(t)
   if (asksQuestion && PROPER_NOUN.test(t)) return true
   if (ASKS_ABOUT_ENTITY.test(t) && PROPER_NOUN.test(t)) return true

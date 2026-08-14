@@ -564,6 +564,13 @@ export interface ChatMessage {
    */
   unverified?: boolean
   /**
+   * v1.4.6: the reply stopped because it hit the slot's max_tokens, so it ends
+   * mid-thought. Read from `finish_reason`, which nothing parsed before — a
+   * truncated reply was indistinguishable from a finished one, which is what
+   * made a length cap unsafe to recommend. Display-only.
+   */
+  truncated?: boolean
+  /**
    * v1.3 tool grounding: figures or links in this reply that the turn's own
    * tool output does not support — the model overriding or inventing past what
    * was actually retrieved. Mechanical, no model call. Display-only; never

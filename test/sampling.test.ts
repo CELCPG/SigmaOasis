@@ -2,6 +2,8 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   TEMPERATURE_PRESETS,
+  LENGTH_PRESETS,
+  activeLengthPreset,
   activePreset,
   recommendedSampling,
   resolveSampling
@@ -107,5 +109,33 @@ describe('resolveSampling', () => {
     const out = resolveSampling(settings(), 'qwen3.5-9b-mlx')
     assert.equal(out.temperature, 0.3)
     assert.equal(out.topP, 1)
+  })
+})
+
+/**
+ * v1.4.6. Measured on qwen3.5-9b-mlx: one reply streamed for seven and a half
+ * minutes with nothing bounding it. A cap is the only real bound, and it was
+ * unsafe to offer while a truncated reply looked exactly like a finished one —
+ * `finish_reason` is read now, so the trade is visible.
+ */
+describe('LENGTH_PRESETS', () => {
+  test('unlimited is offered, and is what -1 means', () => {
+    assert.equal(activeLengthPreset(-1)?.label, 'Unlimited')
+  })
+
+  test('the presets rise and are all usable caps', () => {
+    const capped = LENGTH_PRESETS.filter((p) => p.value > 0).map((p) => p.value)
+    assert.deepEqual(capped, [...capped].sort((a, b) => a - b))
+    // Generous on purpose: these bound the pathological case, they are not a
+    // style setting, and cutting off a good answer is worse than waiting.
+    assert.ok(Math.min(...capped) >= 500)
+  })
+
+  test('a hand-tuned value matches no preset', () => {
+    assert.equal(activeLengthPreset(1234), null)
+  })
+
+  test('every preset explains what it costs', () => {
+    for (const p of LENGTH_PRESETS) assert.ok(p.hint.length > 20, p.label)
   })
 })

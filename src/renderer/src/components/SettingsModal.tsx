@@ -9,7 +9,13 @@ import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
 import type { ToolSchema } from '../types'
-import { TEMPERATURE_PRESETS, activePreset, recommendedSampling } from '../lib/sampling'
+import {
+  LENGTH_PRESETS,
+  TEMPERATURE_PRESETS,
+  activeLengthPreset,
+  activePreset,
+  recommendedSampling
+} from '../lib/sampling'
 import type {
   AppSettings,
   AccentColor,
@@ -821,6 +827,26 @@ export function SettingsModal(): JSX.Element | null {
                             onChange={(e) => updateSampling(m.id, { topP: Number(e.target.value) })}
                             className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
                           />
+                        </div>
+                        <div className="col-span-4">
+                          <div className="mb-1 text-xs text-neutral-500">Reply length</div>
+                          <div className="flex gap-1.5">
+                            {LENGTH_PRESETS.map((p) => (
+                              <button
+                                key={p.label}
+                                type="button"
+                                title={p.hint}
+                                onClick={() => updateSampling(m.id, { maxTokens: p.value })}
+                                className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                                  activeLengthPreset(m.sampling.maxTokens)?.value === p.value
+                                    ? 'bg-accent/20 font-medium text-accent-ink'
+                                    : 'bg-black/5 dark:bg-white/10 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                                }`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                         <div>
                           <label className="mb-1 block text-xs text-neutral-500">Max tokens</label>

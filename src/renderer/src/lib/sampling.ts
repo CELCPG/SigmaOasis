@@ -44,6 +44,58 @@ export function activePreset(temperature: number): TemperaturePreset | null {
   return TEMPERATURE_PRESETS.find((p) => p.value === temperature) ?? null
 }
 
+// ---- Reply length (v1.4.6) ----------------------------------------------------
+
+/**
+ * Length presets, because `-1` is the only setting most people ever see and it
+ * means "no limit at all".
+ *
+ * Measured on qwen3.5-9b-mlx: one reply streamed for seven and a half minutes.
+ * Nothing bounded it, and on a reasoning model a large share of that is
+ * deliberation the user never reads. A cap is the only real bound, but it was
+ * unsafe to recommend while a truncated reply looked exactly like a finished
+ * one — `finish_reason` is parsed now, and the UI says when a cap ended a
+ * reply, so choosing one is an informed trade rather than a silent one.
+ *
+ * The numbers are generous on purpose. These bound the pathological case; they
+ * are not a style setting, and cutting off a good answer is worse than waiting
+ * for it.
+ */
+export interface LengthPreset {
+  label: string
+  /** max_tokens; -1 leaves it to the server, which is no limit. */
+  value: number
+  hint: string
+}
+
+export const LENGTH_PRESETS: LengthPreset[] = [
+  {
+    label: 'Brief',
+    value: 700,
+    hint: 'A few paragraphs. Enough for an answer and its reasoning, not a report.'
+  },
+  {
+    label: 'Standard',
+    value: 1500,
+    hint: 'Room for a structured answer with a table or two. A good default.'
+  },
+  {
+    label: 'Long',
+    value: 4000,
+    hint: 'Full documents and long code. Slow on a local model, but rarely cut off.'
+  },
+  {
+    label: 'Unlimited',
+    value: -1,
+    hint: 'No cap. A reasoning model can run for many minutes on one reply.'
+  }
+]
+
+/** Which length preset a max_tokens value corresponds to, for the active chip. */
+export function activeLengthPreset(maxTokens: number): LengthPreset | null {
+  return LENGTH_PRESETS.find((p) => p.value === maxTokens) ?? null
+}
+
 // ---- Family recipes (v1.5) ----------------------------------------------------
 
 /**

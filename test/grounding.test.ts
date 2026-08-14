@@ -257,3 +257,39 @@ describe('buildTurnContext', () => {
     assert.ok(out?.includes('pricing note'))
   })
 })
+
+/**
+ * v1.4.6. The NYC route session: a turn naming five retail chains and asking
+ * for a route between them read as non-factual, so nothing searched and the
+ * reply could never be flagged. It opened by asserting a chain had "closed
+ * permanently between 2019–2024" — no tool call — and substituted a company
+ * that went bankrupt in 2020.
+ */
+describe('looksFactual — places and businesses', () => {
+  const factual = [
+    'tomorrow i need to plan a route in NYC for sales and merchendising of Seggiano products',
+    'is Citarella still open in Manhattan',
+    'what are the store locations for whole foods in brooklyn',
+    'give me addresses for morton williams',
+    'did Dean & DeLuca go out of business',
+    'store hours for the chelsea location'
+  ]
+  for (const text of factual) {
+    test(`"${text.slice(0, 46)}…" earns a source`, () => {
+      assert.equal(looksFactual(text), true)
+    })
+  }
+
+  const notFactual = [
+    // "open" and "closed" are ordinary words; only the paired forms count.
+    'open the config file and change the port',
+    'the issue is closed, what should i do next',
+    'plan a birthday party for twelve people',
+    'write me a poem about the open road'
+  ]
+  for (const text of notFactual) {
+    test(`"${text.slice(0, 46)}…" is left alone`, () => {
+      assert.equal(looksFactual(text), false)
+    })
+  }
+})

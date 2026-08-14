@@ -437,6 +437,21 @@ export function MessageBubble({
           </div>
         )}
 
+        {/*
+          A reply that ran out of budget ends mid-thought. Without this it is
+          indistinguishable from one that simply finished badly, and the user
+          has no way to know the cap — not the model — ended it.
+        */}
+        {!isStreaming && message.truncated && (
+          <div
+            className="mt-2 text-[11px] text-amber-600 dark:text-amber-400"
+            title="The reply reached this role's max tokens and was cut off. Raise it under Settings → Models → Sampling, or ask for the rest."
+          >
+            ✂️ Cut off at the length cap — this reply is unfinished. Raise max tokens in Settings
+            → Models, or ask it to continue.
+          </div>
+        )}
+
         {!isStreaming && message.grounding && <GroundingWarning report={message.grounding} />}
 
         {message.secondOpinion && (

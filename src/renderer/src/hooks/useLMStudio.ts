@@ -308,7 +308,13 @@ async function streamChat(
    * nothing while still reporting that the check ran.
    */
   cacheable = false
-): Promise<{ toolCalls: ApiToolCall[]; usage: ApiUsage | null; ttftMs: number | null }> {
+): Promise<{
+  toolCalls: ApiToolCall[]
+  usage: ApiUsage | null
+  ttftMs: number | null
+  /** The reply hit max_tokens; it stops mid-thought. */
+  truncated: boolean
+}> {
   const startedAt = Date.now()
 
   // Tool rounds are never cached in either direction: tool output is
@@ -322,7 +328,7 @@ async function streamChat(
       // usage/ttft stay null: nothing was generated, and recordStats already
       // null-guards both. Reporting a fabricated token count here would put
       // invented telemetry into the trace and SFT exports.
-      return { toolCalls: [], usage: null, ttftMs: null }
+      return { toolCalls: [], usage: null, ttftMs: null, truncated: false }
     }
   }
 
@@ -361,6 +367,15 @@ async function streamChat(
   const nativeCalls: NativeToolCall[] = []
   let usage: ApiUsage | null = null
   let ttftMs: number | null = null
+  /**
+   * v1.4.6: did the reply stop because it ran out of budget?
+   *
+   * `finish_reason` was parsed nowhere, so a reply cut off at max_tokens
+   * looked exactly like a finished one — the user got a sentence that simply
+   * stopped, with nothing saying why. That has to be visible before a length
+   * cap is a reasonable thing to recommend to anyone.
+   */
+  let truncated = false
 
   // What the caller actually saw, accumulated for the cache. Captured after the
   // native-tool extractor so a replay reproduces the visible answer, not the raw
@@ -411,11 +426,14 @@ async function streamChat(
               id?: string
               function?: { name?: string; arguments?: string }
             }[]
-          } }[]
+          }
+          /** 'length' means the reply hit max_tokens and stops mid-thought. */
+          finish_reason?: string | null }[]
           usage?: ApiUsage
         }
         // The usage block rides a final chunk whose `choices` is empty.
         if (json.usage) usage = json.usage
+        if (json.choices?.[0]?.finish_reason === 'length') truncated = true
         const delta = json.choices?.[0]?.delta
         if (delta?.reasoning_content) emit({ answer: '', reasoning: delta.reasoning_content })
         if (delta?.content) emit(splitter.push(delta.content))
@@ -463,7 +481,7 @@ async function streamChat(
     setInCache(messages, modelId, cachedAnswer, cachedReasoning)
   }
 
-  return { toolCalls, usage, ttftMs }
+  return { toolCalls, usage, ttftMs, truncated }
 }
 
 // ---- Orchestration: models-as-tools -------------------------------------------
@@ -1200,7 +1218,7 @@ async function runTurn(
       streamRound: async (messages, roundTools) => {
         let content = ''
         const roundStartedAt = Date.now()
-        const { toolCalls, usage, ttftMs } = await streamChat(
+        const { toolCalls, usage, ttftMs, truncated } = await streamChat(
           baseUrl,
           slot.modelId,
           messages,
@@ -1219,6 +1237,9 @@ async function runTurn(
           cacheable
         )
         recordStats(usage, ttftMs, Date.now() - roundStartedAt)
+        // A reply cut off at max_tokens stops mid-thought. Saying so is the
+        // difference between a cap the user set and a model that trailed off.
+        if (truncated) patch({ truncated: true })
         // Layer 1d: a short text round that ends in tool calls is the model's
         // stated reason for them — it moves from the answer into the
         // tool-call block (the loop has already attached it to the records).
