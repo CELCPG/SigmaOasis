@@ -364,7 +364,11 @@ const netStub = {
       const route = state.searchRoutes.find((r) => url.includes(r.match))
       return makeResponse(route ? route.html : state.searchHtml, 'text/html')
     }
-    if (url.includes('search?q=') || url.includes('8888')) {
+    // The SearXNG catch is shaped like any "/search?q=" endpoint, and other
+    // hosts use that path too — Nominatim's geocoder among them. Without the
+    // exclusion a place lookup silently receives a search-engine payload and
+    // the test fails somewhere far from the cause.
+    if ((url.includes('search?q=') && !url.includes('nominatim')) || url.includes('8888')) {
       return makeResponse(JSON.stringify(state.searxngJson), 'application/json')
     }
     for (const r of state.responses) {

@@ -48,6 +48,7 @@ export type NetworkPurpose =
   | 'shop' // shopping research: retailer/manufacturer product pages
   | 'image' // thumbnail bytes for image_search results
   | 'render' // headless page rendering (filtered in render.ts)
+  | 'geo' // place lookups for the geo_locate tool (OpenStreetMap only)
   | 'proxytest' // user-initiated "Test proxy" check only
   | 'update' // opt-in update checks
 
@@ -146,6 +147,12 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
       }
       return []
     }
+    case 'geo':
+      // One host, named explicitly rather than wildcarded. Place lookups say
+      // where the user is going, which is at least as revealing as a search
+      // query, so this purpose exists to keep them distinguishable in the
+      // activity log and impossible to widen by accident.
+      return ['nominatim.openstreetmap.org']
     case 'proxytest':
       // A single host, contacted only when the user presses "Test proxy". Listed
       // explicitly so this cannot become a general-purpose escape hatch, and so

@@ -59,6 +59,7 @@ export interface ToolToggles {
   image_search: boolean
   fetch_webpage: boolean
   date_calculator: boolean
+  geo_locate: boolean
   get_current_datetime: boolean
   create_note: boolean
   list_notes: boolean
@@ -120,7 +121,16 @@ export interface UpdateSettings {
 export interface NetworkActivityEntry {
   at: number
   /** Mirrors NetworkPurpose in src/main/ipc/net.ts — keep the two in step. */
-  purpose: 'lmstudio' | 'search' | 'webpage' | 'shop' | 'image' | 'render' | 'proxytest' | 'update'
+  purpose:
+    | 'lmstudio'
+    | 'search'
+    | 'webpage'
+    | 'shop'
+    | 'image'
+    | 'render'
+    | 'geo'
+    | 'proxytest'
+    | 'update'
   /** Origin only — full URLs (and queries) are never logged. */
   origin: string
   method: string

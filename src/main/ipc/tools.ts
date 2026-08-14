@@ -22,6 +22,7 @@ import { addWatch, formatWatchlist, readWatchlist, removeWatch } from './watchli
 import { DEFAULT_PASSAGES, MAX_PASSAGES, TOOL_SCHEMAS } from './toolSchemas'
 import { provenanceNote, provenanceOf } from './sourceTiers'
 import { runDateCalculation } from './dates'
+import { runGeoQuery } from './geo'
 
 /**
  * Content fetched from the public web is data, not instructions. Every piece
@@ -653,6 +654,11 @@ async function executeTool(
 
       case 'finance_calculator': {
         return runFinanceCalculation(args)
+      }
+
+      case 'geo_locate': {
+        const result = await runGeoQuery(args as Parameters<typeof runGeoQuery>[0])
+        return result.ok ? { ok: true, output: result.output } : { ok: false, error: result.error }
       }
 
       case 'date_calculator': {

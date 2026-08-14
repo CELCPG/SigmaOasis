@@ -42,6 +42,8 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   deep_research: 'Deep research (multi-step: plans, searches, reads and cites sources)',
   date_calculator:
     'Date calculator (day of the week, "next Saturday", date spans — exact, fully local)',
+  geo_locate:
+    'Places and distances (looks up a place on OpenStreetMap; straight-line distances only)',
   get_current_datetime: 'Get current date/time',
   create_note: 'Create note',
   list_notes: 'List notes',

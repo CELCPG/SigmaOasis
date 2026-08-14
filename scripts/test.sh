@@ -62,6 +62,7 @@ rm -rf "$OUT"
   src/main/ipc/deepResearch.ts \
   src/main/ipc/finance.ts \
   src/main/ipc/dates.ts \
+  src/main/ipc/geo.ts \
   src/main/ipc/urlHygiene.ts \
   src/main/ipc/sourceTiers.ts \
   src/main/ipc/productExtract.ts \

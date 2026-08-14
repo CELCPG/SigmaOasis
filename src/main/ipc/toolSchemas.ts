@@ -323,6 +323,46 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: 'function',
     function: {
+      name: 'geo_locate',
+      description:
+        'Find where a place actually is, how far apart two places are, and a sensible order to ' +
+        'visit several — using OpenStreetMap.\n' +
+        'Use when: ANY question about location, distance, "how far", "closest", "within a N ' +
+        'minute walk", or the order of stops on a trip. Never estimate a distance or a walking ' +
+        'time yourself, and never state an address you have not looked up.\n' +
+        'Distances come back straight-line, with an approximate walking time. Drive and ' +
+        'ride-hail times are NOT available from this tool and must not be stated at all — ' +
+        'traffic decides them, and a number invented for one is worse than no number.\n' +
+        'Contacts OpenStreetMap with the place name. No personal addresses.\n' +
+        'Example: {"operation": "distance", "from": "Penn Station, New York", "to": "Le Bernardin, New York"}',
+      parameters: {
+        type: 'object',
+        properties: {
+          operation: {
+            type: 'string',
+            enum: ['find', 'distance', 'order'],
+            description:
+              'find one place (default), the distance between two, or a nearest-neighbour ' +
+              'order for a list of stops.'
+          },
+          place: { type: 'string', description: 'find only: the place to locate. Include the city.' },
+          from: {
+            type: 'string',
+            description: 'distance/order: the first place, or the starting point of the route.'
+          },
+          to: { type: 'string', description: 'distance only: the second place.' },
+          stops: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'order only: the places to visit, in any order. Include each city.'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'date_calculator',
       description:
         'Work out any date, exactly and locally: what day of the week a date falls on, what ' +

@@ -77,6 +77,8 @@ export function evalStubResult(name: string): ToolResult {
     fetch_webpage: 'Page text relevant to the query, a few sentences long.',
     deep_research: 'Brief: the question, answered with numbered citations [1][2].',
     finance_calculator: 'Future value: $260,463. Total contributed: $120,000. Growth: $140,463.',
+    geo_locate:
+      'Penn Station, New York, NY\n  40.75061, -73.99356 — railway / station',
     date_calculator:
       'Saturday, 22 August 2026\nISO: 2026-08-22\nThat is in 8 day(s).\nWeekend: yes',
     get_current_datetime: new Date().toString(),
