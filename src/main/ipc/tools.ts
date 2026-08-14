@@ -21,6 +21,7 @@ import { formatCompare, runShopCompare, runShopRequirements } from './shopping'
 import { addWatch, formatWatchlist, readWatchlist, removeWatch } from './watchlist'
 import { DEFAULT_PASSAGES, MAX_PASSAGES, TOOL_SCHEMAS } from './toolSchemas'
 import { provenanceNote, provenanceOf } from './sourceTiers'
+import { runDateCalculation } from './dates'
 
 /**
  * Content fetched from the public web is data, not instructions. Every piece
@@ -652,6 +653,11 @@ async function executeTool(
 
       case 'finance_calculator': {
         return runFinanceCalculation(args)
+      }
+
+      case 'date_calculator': {
+        const result = runDateCalculation(args as Parameters<typeof runDateCalculation>[0])
+        return result.ok ? { ok: true, output: result.output } : { ok: false, error: result.error }
       }
 
       case 'get_current_datetime': {

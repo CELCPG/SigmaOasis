@@ -55,7 +55,7 @@ describe('toolsForSlot', () => {
 describe('selectTurnTools', () => {
   const TURN_TOOLS: ToolSchema[] = [
     'read_file', 'write_file', 'list_directory', 'run_terminal_command',
-    'web_search', 'fetch_webpage', 'get_current_datetime', 'memory_search', 'memory_save'
+    'web_search', 'fetch_webpage', 'date_calculator', 'memory_search', 'memory_save'
   ].map((name) => ({
     type: 'function',
     function: { name, description: `${name} tool`, parameters: {} }
@@ -76,7 +76,7 @@ describe('selectTurnTools', () => {
     assert.deepEqual(
       result.map((t) => t.function.name),
       // Wire order preserved: read_file was 3rd-ranked but sits first in the list.
-      ['read_file', 'web_search', 'fetch_webpage', 'get_current_datetime', 'memory_search', 'memory_save']
+      ['read_file', 'web_search', 'fetch_webpage', 'date_calculator', 'memory_search', 'memory_save']
     )
     assert.equal(result.length, TURN_TOOL_CAP)
   })
@@ -92,7 +92,7 @@ describe('selectTurnTools', () => {
     const result = selectTurnTools(TURN_TOOLS, { web_search: 0.9 }, 4)
     assert.equal(result.length, 4)
     assert.ok(result.some((t) => t.function.name === 'web_search'))
-    assert.ok(result.some((t) => t.function.name === 'get_current_datetime'))
+    assert.ok(result.some((t) => t.function.name === 'date_calculator'))
   })
 
   /**
@@ -124,7 +124,7 @@ describe('selectTurnTools', () => {
     })
 
     test('a change of subject takes the new selection', () => {
-      const previous = ['read_file', 'get_current_datetime', 'memory_search', 'memory_save']
+      const previous = ['read_file', 'date_calculator', 'memory_search', 'memory_save']
       const selected = selectTurnTools(TURN_TOOLS, { fetch_webpage: 0.95 })
       // fetch_webpage was not on last turn's list, so the prefix has to move.
       assert.ok(names(selected).includes('fetch_webpage'))
@@ -134,7 +134,7 @@ describe('selectTurnTools', () => {
 
     test('a tool disabled since last turn cannot come back through the cache', () => {
       const shrunk = TURN_TOOLS.filter((t) => t.function.name !== 'run_terminal_command')
-      const previous = ['read_file', 'run_terminal_command', 'get_current_datetime']
+      const previous = ['read_file', 'run_terminal_command', 'date_calculator']
       const selected = selectTurnTools(shrunk, { read_file: 0.9 }, 3)
       const out = stabilizeTurnTools(shrunk, selected, previous)
       assert.ok(!names(out).includes('run_terminal_command'))

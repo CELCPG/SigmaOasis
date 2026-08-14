@@ -40,6 +40,8 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   image_search: 'Image search (shows thumbnails in chat; each links to its source page)',
   fetch_webpage: 'Fetch webpage (HTTPS only, private addresses refused)',
   deep_research: 'Deep research (multi-step: plans, searches, reads and cites sources)',
+  date_calculator:
+    'Date calculator (day of the week, "next Saturday", date spans — exact, fully local)',
   get_current_datetime: 'Get current date/time',
   create_note: 'Create note',
   list_notes: 'List notes',

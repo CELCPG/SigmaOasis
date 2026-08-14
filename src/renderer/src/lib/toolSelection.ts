@@ -63,7 +63,13 @@ export function withBudgetNotes(
  * almost any turn, so they ride every turn regardless of embedding rank.
  */
 export const ALWAYS_ON_TOOLS: readonly string[] = [
-  'get_current_datetime',
+  // v1.4.6: date_calculator takes the always-on slot that get_current_datetime
+  // held, because it is a superset — with no expression it returns today — and
+  // because the failures were never "what time is it". They were "what day is
+  // October 1st 2026" and "next Saturday", asked on turns where the clock tool
+  // was present, ignored, and web-searched around. A tool that can answer the
+  // question is only useful if it is there when the question is asked.
+  'date_calculator',
   'memory_save',
   'memory_search',
   'memory_forget'

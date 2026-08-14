@@ -58,6 +58,7 @@ export interface ToolToggles {
   web_search: boolean
   image_search: boolean
   fetch_webpage: boolean
+  date_calculator: boolean
   get_current_datetime: boolean
   create_note: boolean
   list_notes: boolean

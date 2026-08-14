@@ -323,6 +323,46 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: 'function',
     function: {
+      name: 'date_calculator',
+      description:
+        'Work out any date, exactly and locally: what day of the week a date falls on, what ' +
+        '"next Saturday" or "tomorrow" resolves to, and how far apart two dates are.\n' +
+        'Use when: ANY date or day-of-week question comes up, including relative phrases in the ' +
+        "user's own words. Never work a date out in your head and never web-search for one — a " +
+        'calendar is exact and your arithmetic is not.\n' +
+        'With no expression it returns today, so this also answers "what is today".\n' +
+        'Understood: today, tomorrow, yesterday, "next Saturday", "this weekend", "in 3 weeks", ' +
+        '"2 days ago", 2026-10-01, "1 October 2026", "October 1 2026".\n' +
+        'Ambiguous phrases come back with both readings — pass the note on rather than choosing ' +
+        'silently.\n' +
+        'Example: {"operation": "resolve", "expression": "next saturday"}',
+      parameters: {
+        type: 'object',
+        properties: {
+          operation: {
+            type: 'string',
+            enum: ['resolve', 'difference'],
+            description: 'resolve one date (default), or the span between two.'
+          },
+          expression: {
+            type: 'string',
+            description: 'The date or phrase to resolve. Omit for today.'
+          },
+          from: { type: 'string', description: 'difference only: the earlier date or phrase.' },
+          to: { type: 'string', description: 'difference only: the later date or phrase.' },
+          relative_to: {
+            type: 'string',
+            description:
+              'resolve only: treat this date as "today". Omit unless the user anchored to a ' +
+              'date other than the present.'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_current_datetime',
       description:
         'Get the current local date and time.\n' +

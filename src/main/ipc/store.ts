@@ -81,6 +81,7 @@ export interface ToolToggles {
   web_search: boolean
   image_search: boolean
   fetch_webpage: boolean
+  date_calculator: boolean
   get_current_datetime: boolean
   create_note: boolean
   list_notes: boolean
@@ -354,6 +355,7 @@ function defaultSettings(): AppSettings {
       web_search: true,
       image_search: true,
       fetch_webpage: true,
+      date_calculator: true,
       get_current_datetime: true,
       create_note: true,
       list_notes: true,
