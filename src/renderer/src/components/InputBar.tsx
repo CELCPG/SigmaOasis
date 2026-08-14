@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
@@ -114,13 +114,19 @@ export function InputBar(): JSX.Element {
 
   // How full the active model's window is — null when LM Studio never told us
   // the window size, since a meter against a guessed denominator misleads.
-  const contextMeter = activeConvo
-    ? conversationContextUsage(
-        activeConvo,
-        activeSlot,
-        availableModels.find((m) => m.id === activeSlot?.modelId)
-      )
-    : null
+  // Memoized: the usage estimate reduces over every message and tool result
+  // in the conversation, and this component re-renders per keystroke.
+  const contextMeter = useMemo(
+    () =>
+      activeConvo
+        ? conversationContextUsage(
+            activeConvo,
+            activeSlot,
+            availableModels.find((m) => m.id === activeSlot?.modelId)
+          )
+        : null,
+    [activeConvo, activeSlot, availableModels]
+  )
 
   // Models can be steered by anything they read (search results, documents,
   // files), so make it visible when they can also change the machine.

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/voice'
 import { createReasoningSplitter } from '../lib/reasoning'
@@ -120,6 +120,57 @@ function audit(
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/**
+ * Cap on how often streamed text is flushed to the UI (~30 fps). Tokens can
+ * arrive far faster than the screen repaints; flushing each one bought nothing
+ * visually and cost a store commit per token.
+ */
+const TAIL_FLUSH_MS = 33
+
+/**
+ * Routes a streaming message's tokens through the store's streamingTail slice
+ * instead of patchMessage. A per-token patchMessage rebuilds the conversations
+ * array — which re-renders every subscriber, for every token, for the whole
+ * reply (O(n²) with the markdown re-parse on top). The tail is a two-field
+ * object only the streaming bubble subscribes to. `assistantMsg.content`
+ * remains the turn's source of truth; the caller appends chunks to it and
+ * calls `schedule()`, commits it into the message at round boundaries with
+ * `commit()`, and must call `finish()` when the turn ends, however it ends.
+ *
+ * Pacing is driven by chunk arrival, never by a timer: Chromium throttles
+ * timers in occluded windows (measured here as a stream coalescing into
+ * one-per-minute jumps behind another window), while network callbacks keep
+ * firing. A chunk flushes if TAIL_FLUSH_MS has passed since the last flush;
+ * a sub-interval remainder is picked up by the next chunk or by commit().
+ */
+function makeTailStream(
+  assistantMsg: ChatMessage,
+  patch: (p: Partial<ChatMessage>) => void
+): { schedule: () => void; commit: () => void; finish: () => void } {
+  let lastFlush = 0
+  const setTail = (): void =>
+    useAppStore
+      .getState()
+      .setStreamingTail({ messageId: assistantMsg.id, text: assistantMsg.content })
+  return {
+    schedule(): void {
+      const now = Date.now()
+      if (now - lastFlush >= TAIL_FLUSH_MS) {
+        lastFlush = now
+        setTail()
+      }
+    },
+    commit(): void {
+      patch({ content: assistantMsg.content })
+      setTail()
+    },
+    finish(): void {
+      patch({ content: assistantMsg.content })
+      useAppStore.getState().setStreamingTail(null)
+    }
+  }
 }
 
 /**
@@ -974,6 +1025,7 @@ async function runTurn(
   store.appendMessage(conversationId, assistantMsg)
   const patch = (p: Partial<ChatMessage>): void =>
     useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
+  const tail = makeTailStream(assistantMsg, patch)
 
   // Pin before the memory RAG below: its embedding call JIT-loads the
   // embedding model, and LM Studio's default auto-evict would unload this
@@ -1294,92 +1346,101 @@ async function runTurn(
   // The tool-call loop itself lives in lib/agentLoop.ts — a pure state machine
   // with injectable transport, reachable from node:test. The deps below carry
   // this turn's React concerns (content patching, voice, stats, audit).
-  const outcome = await runAgentLoop({
-    messages: apiMessages,
-    tools: wireTools,
-    records: allRecords,
-    signal,
-    onRecordChange: () => patch({ toolCalls: [...allRecords] }),
-    deps: {
-      streamRound: async (messages, roundTools) => {
-        let content = ''
-        const roundStartedAt = Date.now()
-        const { toolCalls, usage, ttftMs, truncated } = await streamChat(
-          baseUrl,
-          slot.modelId,
-          messages,
-          roundTools,
-          signal,
-          (chunk) => {
-            content += chunk
-            patch({ content: (assistantMsg.content += chunk) })
-            speakNewSentences(false)
-          },
-          onReasoning,
-          slot.sampling,
-          // The only cacheable call site: the user-facing answer. Every other
-          // streamChat caller is a verification or delegation pass that has to
-          // stay live.
-          cacheable
-        )
-        recordStats(usage, ttftMs, Date.now() - roundStartedAt)
-        // A reply cut off at max_tokens stops mid-thought. Saying so is the
-        // difference between a cap the user set and a model that trailed off.
-        if (truncated) patch({ truncated: true })
-        // Layer 1d: a short text round that ends in tool calls is the model's
-        // stated reason for them — it moves from the answer into the
-        // tool-call block (the loop has already attached it to the records).
-        if (toolCalls.length > 0 && toolCallPreamble(content)) {
-          assistantMsg.content = assistantMsg.content.slice(
-            0,
-            assistantMsg.content.length - content.length
+  let outcome: Awaited<ReturnType<typeof runAgentLoop>>
+  try {
+    outcome = await runAgentLoop({
+      messages: apiMessages,
+      tools: wireTools,
+      records: allRecords,
+      signal,
+      onRecordChange: () => patch({ toolCalls: [...allRecords] }),
+      deps: {
+        streamRound: async (messages, roundTools) => {
+          let content = ''
+          const roundStartedAt = Date.now()
+          const { toolCalls, usage, ttftMs, truncated } = await streamChat(
+            baseUrl,
+            slot.modelId,
+            messages,
+            roundTools,
+            signal,
+            (chunk) => {
+              content += chunk
+              assistantMsg.content += chunk
+              tail.schedule()
+              speakNewSentences(false)
+            },
+            onReasoning,
+            slot.sampling,
+            // The only cacheable call site: the user-facing answer. Every other
+            // streamChat caller is a verification or delegation pass that has to
+            // stay live.
+            cacheable
           )
-          patch({ content: assistantMsg.content })
-        }
-        return { content, toolCalls }
-      },
-      // The caller's model id goes along so main-process tools that need to
-      // reason (deep_research) plan with the model the user is talking to.
-      executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
-      consult: delegation
-        ? async (role, task): Promise<ToolResult> => {
-            const specialist =
-              delegation.specialists.find((s) => s.roleName === role) ??
-              delegation.specialists.find(
-                (s) =>
-                  s.roleName.replace(/\s+/g, '').toLowerCase() ===
-                  role.replace(/\s+/g, '').toLowerCase()
-              )
-            if (!specialist) {
-              return {
-                ok: false,
-                error: `No specialist named "${role}". Available: ${delegation.specialists.map((s) => s.roleName).join(', ')}.`
+          recordStats(usage, ttftMs, Date.now() - roundStartedAt)
+          // A reply cut off at max_tokens stops mid-thought. Saying so is the
+          // difference between a cap the user set and a model that trailed off.
+          if (truncated) patch({ truncated: true })
+          // Layer 1d: a short text round that ends in tool calls is the model's
+          // stated reason for them — it moves from the answer into the
+          // tool-call block (the loop has already attached it to the records).
+          if (toolCalls.length > 0 && toolCallPreamble(content)) {
+            assistantMsg.content = assistantMsg.content.slice(
+              0,
+              assistantMsg.content.length - content.length
+            )
+          }
+          // Round boundary: land the accumulated content in the message.
+          tail.commit()
+          return { content, toolCalls }
+        },
+        // The caller's model id goes along so main-process tools that need to
+        // reason (deep_research) plan with the model the user is talking to.
+        executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+        consult: delegation
+          ? async (role, task): Promise<ToolResult> => {
+              const specialist =
+                delegation.specialists.find((s) => s.roleName === role) ??
+                delegation.specialists.find(
+                  (s) =>
+                    s.roleName.replace(/\s+/g, '').toLowerCase() ===
+                    role.replace(/\s+/g, '').toLowerCase()
+                )
+              if (!specialist) {
+                return {
+                  ok: false,
+                  error: `No specialist named "${role}". Available: ${delegation.specialists.map((s) => s.roleName).join(', ')}.`
+                }
+              }
+              if (!task.trim()) {
+                return { ok: false, error: 'The "task" argument is required and must be self-contained.' }
+              }
+              try {
+                const reply = await runConsultation(specialist, task, baseUrl, tools, signal)
+                return { ok: true, output: reply }
+              } catch (err) {
+                return { ok: false, error: err instanceof Error ? err.message : String(err) }
               }
             }
-            if (!task.trim()) {
-              return { ok: false, error: 'The "task" argument is required and must be self-contained.' }
-            }
-            try {
-              const reply = await runConsultation(specialist, task, baseUrl, tools, signal)
-              return { ok: true, output: reply }
-            } catch (err) {
-              return { ok: false, error: err instanceof Error ? err.message : String(err) }
-            }
-          }
-        : undefined,
-      onToolExecuted: (record, result) => {
-        // Audit log (v0.9): the tool call exactly as executed — name, args, outcome.
-        audit(convo, {
-          kind: 'tool_call',
-          roleName: slot.roleName,
-          modelId: slot.modelId,
-          toolName: record.name,
-          ok: result.ok,
-          text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
-        })
+          : undefined,
+        onToolExecuted: (record, result) => {
+          // Audit log (v0.9): the tool call exactly as executed — name, args, outcome.
+          audit(convo, {
+            kind: 'tool_call',
+            roleName: slot.roleName,
+            modelId: slot.modelId,
+            toolName: record.name,
+            ok: result.ok,
+            text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+          })
+        }
       }
-    }
-  })
+    })
+  } finally {
+    // Release the tail however the loop ended — abort included. This also
+    // lands whatever content had streamed, so a stopped reply keeps its text.
+    tail.finish()
+  }
 
   if (outcome.stopReason === 'aborted') return
 
@@ -1844,7 +1905,9 @@ async function runPlanTurn(
   ]
 
   let content = ''
-  await runAgentLoop({
+  const tail = makeTailStream(assistantMsg, patch)
+  try {
+    await runAgentLoop({
     messages: synthesis,
     // The same allowlist any turn gets, with budgets stated. Without tools the
     // synthesis could only fabricate; with them it can actually close the gap.
@@ -1863,12 +1926,14 @@ async function runPlanTurn(
           signal,
           (chunk) => {
             roundContent += chunk
-            patch({ content: (assistantMsg.content += chunk) })
+            assistantMsg.content += chunk
+            tail.schedule()
           },
           undefined,
           slot.sampling
         )
         content += roundContent
+        tail.commit()
         return { content: roundContent, toolCalls }
       },
       executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
@@ -1883,7 +1948,10 @@ async function runPlanTurn(
         })
       }
     }
-  })
+    })
+  } finally {
+    tail.finish()
+  }
   if (!signal.aborted) {
     audit(convo, {
       kind: 'assistant_output',
@@ -1905,6 +1973,9 @@ function patchPlanErrorNotice(conversationId: string, error: string): void {
   })
 }
 
+/** The in-flight turn's AbortController — see the note inside useLMStudio(). */
+const activeTurnAbort: { current: AbortController | null } = { current: null }
+
 export function useLMStudio(): {
   sendMessage: (
     text: string,
@@ -1919,7 +1990,13 @@ export function useLMStudio(): {
   /** Re-run a weak reply's turn on the bigger slot its escalation offer names (Layer 2d). */
   escalate: (messageId: string) => Promise<void>
 } {
-  const abortRef = useRef<AbortController | null>(null)
+  // Module-level, not useRef: every component that calls useLMStudio() must
+  // share the one in-flight turn's controller. A useRef gave each caller its
+  // own — regenerate/second-opinion/escalate ran from a MessageBubble and
+  // stored their controller in that bubble's instance, so the composer's Stop
+  // button aborted its own forever-null one. Only one turn streams at a time
+  // (store.streaming gates entry), so a single shared slot is correct.
+  const abortRef = activeTurnAbort
 
   const stopStreaming = useCallback((): void => {
     abortRef.current?.abort()

@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { ChatMessage, Conversation, GroundingReport, ToolCallRecord } from '../types'
 import { groundingFindingCount } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
-import { renderMarkdown } from '../lib/markdown'
+import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
@@ -213,26 +213,52 @@ function formatStats(stats: NonNullable<ChatMessage['stats']>): string {
   return parts.join(' · ')
 }
 
-export function MessageBubble({
+export const MessageBubble = memo(function MessageBubble({
   message,
   isStreaming,
   isLast,
   conversation
 }: Props): JSX.Element {
-  const html = useMemo(
-    () => (message.role === 'assistant' ? renderMarkdown(message.content) : ''),
-    [message.role, message.content]
+  // While this message streams, its live text arrives via the streamingTail
+  // slice, not the message object — one token re-renders this bubble alone
+  // (see appStore.streamingTail). The selector returns null for every other
+  // message, so finished bubbles never re-render on a token.
+  const tailText = useAppStore((s) =>
+    s.streamingTail && s.streamingTail.messageId === message.id ? s.streamingTail.text : null
   )
-  // Declared before the user-message branch below: hooks must run in the same
-  // order on every render, and an early return would skip this one.
+  const displayContent = tailText ?? message.content
+
+  // Finished messages parse once, memoized on their content. The streaming
+  // one parses its stable prefix only when a block completes, and re-parses
+  // just the growing tail per flush — the O(n²) whole-reply re-parse was the
+  // single heaviest per-token cost in the app.
+  const [stablePart, livePart] =
+    tailText !== null && message.role === 'assistant'
+      ? splitStreamingMarkdown(displayContent)
+      : [displayContent, '']
+  const stableHtml = useMemo(
+    () => (message.role === 'assistant' && stablePart ? renderMarkdown(stablePart) : ''),
+    [message.role, stablePart]
+  )
+  // Both halves are DOMPurify-sanitized in renderMarkdown; concatenating two
+  // sanitized block-level fragments is still sanitized.
+  const html =
+    livePart && message.role === 'assistant' ? stableHtml + renderMarkdown(livePart) : stableHtml
+  // Declared before the marker/user branches below: hooks must run in the same
+  // order on every render, and an early return would skip them. That includes
+  // the three settings subscriptions — they were once below the early returns,
+  // which made the hook count differ between user and assistant messages.
   const [speaking, setSpeaking] = useState(false)
   const [copied, setCopied] = useState(false)
   const { regenerate, secondOpinion, escalate } = useLMStudio()
   const streaming = useAppStore((s) => s.streaming)
   const secondOpinionEnabled = useAppStore((s) => s.settings?.secondOpinion.enabled) ?? false
+  const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
+  const reasoningDisplay = useAppStore((s) => s.settings?.reasoningDisplay) ?? 'collapsed'
+  const showStats = useAppStore((s) => s.settings?.showResponseStats) ?? true
 
   const copyMessage = (): void => {
-    void navigator.clipboard.writeText(message.content).then(() => {
+    void navigator.clipboard.writeText(displayContent).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -295,14 +321,11 @@ export function MessageBubble({
   }
 
   const accent = message.color ? ACCENT[message.color] : null
-  const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
-  const reasoningDisplay = useAppStore((s) => s.settings?.reasoningDisplay) ?? 'collapsed'
-  const showStats = useAppStore((s) => s.settings?.showResponseStats) ?? true
   const toolCalls = message.toolCalls ?? []
   // The Oasis Ripple is the single thinking indicator: ambient pool while the
   // model composes, droplet + colored wave when a tool fires — regardless of
   // the hideToolCalls setting, since the ripple *is* the disclosure.
-  const oasisState = describeOasisState(isStreaming, message.content, toolCalls)
+  const oasisState = describeOasisState(isStreaming, displayContent, toolCalls)
 
   const toggleSpeak = (): void => {
     if (speaking) {
@@ -394,12 +417,12 @@ export function MessageBubble({
           <ReasoningBlock
             reasoning={message.reasoning}
             reasoningMs={message.reasoningMs}
-            isStreaming={isStreaming && message.content === ''}
+            isStreaming={isStreaming && displayContent === ''}
             defaultOpen={reasoningDisplay === 'expanded'}
           />
         )}
 
-        {message.content !== '' && (
+        {displayContent !== '' && (
           <div
             className="markdown-body oasis-enter text-sm leading-relaxed"
             onClick={handleCopyClick}
@@ -512,4 +535,4 @@ export function MessageBubble({
       </div>
     </div>
   )
-}
+})

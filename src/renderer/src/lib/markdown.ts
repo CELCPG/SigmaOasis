@@ -81,3 +81,31 @@ export function renderMarkdown(markdown: string): string {
   const html = marked.parse(latexToPlainText(markdown), { async: false }) as string
   return DOMPurify.sanitize(html)
 }
+
+/**
+ * Split a still-streaming reply into a stable prefix and a live tail, so the
+ * prefix can be parsed once and memoized while only the growing tail is
+ * re-parsed per flush. Without the split, a streaming reply re-parsed,
+ * re-highlighted and re-sanitized its entire accumulated text on every
+ * repaint — O(n²) over the reply, and worst exactly on long code answers.
+ *
+ * The split lands on a blank line (a block boundary for everything but
+ * tables, which contain no blank lines and so fall wholly into the tail) and
+ * never inside an open ``` fence — parsing half a fence turns code into
+ * prose. While a fence is open the split retreats to the blank line before
+ * it, so the live tail is the open code block and nothing more. Rendering
+ * prefix and tail separately can differ from a whole-parse in corner cases
+ * (reference links defined early and used late); any such imperfection is
+ * transient, because the finished message is always parsed whole.
+ */
+export function splitStreamingMarkdown(markdown: string): [stable: string, live: string] {
+  let idx = markdown.lastIndexOf('\n\n')
+  while (idx >= 0) {
+    const stable = markdown.slice(0, idx + 2)
+    const fences = stable.match(/```/g)
+    if (!fences || fences.length % 2 === 0) return [stable, markdown.slice(idx + 2)]
+    // Boundary sits inside an open fence — retreat to before its opening.
+    idx = markdown.lastIndexOf('\n\n', markdown.lastIndexOf('```', idx) - 1)
+  }
+  return ['', markdown]
+}

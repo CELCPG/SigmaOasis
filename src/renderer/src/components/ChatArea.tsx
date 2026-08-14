@@ -74,6 +74,22 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
     el.scrollTop = el.scrollHeight
   }, [lastContentLength, lastToolCount, compacting, researchProgress?.detail])
 
+  // Streamed tokens land in the streamingTail slice, which this component
+  // deliberately does not subscribe to via a selector — that would re-render
+  // the whole list per flush. A plain store subscription scrolls without
+  // rendering; the layout read happens only while pinned and streaming.
+  useEffect(() => {
+    let lastLength = -1
+    return useAppStore.subscribe((s) => {
+      const length = s.streamingTail ? s.streamingTail.text.length : -1
+      if (length === lastLength) return
+      lastLength = length
+      const el = scrollRef.current
+      if (length < 0 || !el || !pinnedRef.current) return
+      el.scrollTop = el.scrollHeight
+    })
+  }, [])
+
   if (conversation.messages.length === 0) {
     return (
       <EmptyState

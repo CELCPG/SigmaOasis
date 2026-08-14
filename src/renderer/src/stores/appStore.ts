@@ -61,6 +61,18 @@ interface AppState {
   composerPrefill: string | null
   setComposerPrefill: (text: string | null) => void
 
+  /**
+   * The live text of the message currently being streamed. Tokens land here —
+   * a two-field object replace — instead of in `conversations`, so a token
+   * re-renders exactly one subscriber (the streaming bubble) rather than every
+   * component holding the conversations array. While set, the bubble displays
+   * this text in place of its message's committed content; the accumulated
+   * content is committed through patchMessage at round and stream boundaries,
+   * and the tail is cleared when the turn ends.
+   */
+  streamingTail: { messageId: string; text: string } | null
+  setStreamingTail: (tail: { messageId: string; text: string } | null) => void
+
   appendMessage: (
     conversationId: string,
     message: ChatMessage,
@@ -122,6 +134,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   composerPrefill: null,
   setComposerPrefill: (composerPrefill) => set({ composerPrefill }),
+
+  streamingTail: null,
+  setStreamingTail: (streamingTail) => set({ streamingTail }),
 
   appendMessage: (conversationId, message, options) =>
     set((s) => ({

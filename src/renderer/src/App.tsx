@@ -51,12 +51,15 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [createConversation])
 
+  // Keyed on baseUrl alone — settings changes identity on every save, and a
+  // font-size change must not re-probe the server or reload conversations.
+  // `null` (settings not loaded yet) is distinct from '' (loaded, no URL).
+  const baseUrl = settings ? settings.baseUrl : null
   useEffect(() => {
-    if (!settings) return
+    if (baseUrl === null) return
     void refresh()
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings?.baseUrl])
+  }, [baseUrl, refresh, load])
 
   // Theme + font size.
   useEffect(() => {
