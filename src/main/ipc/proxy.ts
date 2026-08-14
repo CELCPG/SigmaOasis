@@ -112,21 +112,30 @@ export function proxyActive(): boolean {
 
 let egressSession: Session | null = null
 let localSession: Session | null = null
+/** Proxy rules last applied to the egress session, or unset before first apply. */
+let appliedEgressRules: string | null | undefined
 
 /**
- * The session for everything that leaves the machine. Its proxy is re-applied on
- * every call, so a settings change takes effect without a restart.
+ * The session for everything that leaves the machine. A settings change takes
+ * effect without a restart, but the proxy is re-applied only when the derived
+ * rules actually changed: `setProxy` is an async round-trip to the network
+ * service, and this function runs once per outbound fetch. The rules string is
+ * derived from settings on every call, so there is no second source of truth
+ * to go stale — only the redundant Chromium call is skipped.
  */
 export async function getEgressSession(): Promise<Session> {
   if (!egressSession) {
     egressSession = session.fromPartition('sigma-egress', { cache: false })
   }
   const config = currentProxyConfig()
-  await egressSession.setProxy(
-    config.proxyRules
-      ? { proxyRules: config.proxyRules, proxyBypassRules: config.proxyBypassRules }
-      : { mode: 'direct' }
-  )
+  if (appliedEgressRules !== config.proxyRules) {
+    await egressSession.setProxy(
+      config.proxyRules
+        ? { proxyRules: config.proxyRules, proxyBypassRules: config.proxyBypassRules }
+        : { mode: 'direct' }
+    )
+    appliedEgressRules = config.proxyRules
+  }
   return egressSession
 }
 

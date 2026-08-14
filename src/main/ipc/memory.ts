@@ -4,7 +4,7 @@ import { join } from 'path'
 import { getSettings } from './store'
 import { readTextDocument } from './attachments'
 import { writeFileAtomic } from './fsAtomic'
-import { chunkText, cosine, embedTexts, resolveEmbeddingModel } from './embeddings'
+import { chunkText, embedTexts, resolveEmbeddingModel, toUnitVector, unitDot } from './embeddings'
 
 /**
  * Local long-term memory (RAG): text is chunked, embedded with a local
@@ -58,17 +58,55 @@ function memoryFile(): string {
   return join(app.getPath('userData'), 'memory.json')
 }
 
+/**
+ * RAM cache over memory.json, validated by mtime+size. A personal knowledge
+ * base stores raw float embeddings as JSON (~12–15 KB of text per 768-dim
+ * chunk), so re-parsing the whole file on every memory_search — which is what
+ * happened before this cache — costs tens of megabytes of parsing per recall
+ * once the store reaches a few thousand chunks. A stat call per read keeps the
+ * cache honest against anything that touches the file behind our back (tests
+ * do; a user restoring a backup might).
+ */
+let memoryCache: { mtimeMs: number; size: number; data: MemoryFile } | null = null
+
+/**
+ * Unit vectors, computed lazily per chunk on first search and keyed by chunk
+ * object identity — replacing the cached file naturally drops stale entries.
+ * Turns every subsequent cosine into a plain dot product (see embeddings.ts).
+ */
+const unitVectors = new WeakMap<MemoryChunk, Float32Array>()
+
 async function readMemory(): Promise<MemoryFile> {
+  const file = memoryFile()
+  let stat: { mtimeMs: number; size: number }
   try {
-    const raw = await fs.readFile(memoryFile(), 'utf-8')
-    return JSON.parse(raw) as MemoryFile
+    stat = await fs.stat(file)
   } catch {
+    memoryCache = null
+    return { chunks: [] }
+  }
+  if (memoryCache && memoryCache.mtimeMs === stat.mtimeMs && memoryCache.size === stat.size) {
+    return memoryCache.data
+  }
+  try {
+    const data = JSON.parse(await fs.readFile(file, 'utf-8')) as MemoryFile
+    memoryCache = { mtimeMs: stat.mtimeMs, size: stat.size, data }
+    return data
+  } catch {
+    memoryCache = null
     return { chunks: [] }
   }
 }
 
 async function writeMemory(data: MemoryFile): Promise<void> {
-  await writeFileAtomic(memoryFile(), JSON.stringify(data))
+  const file = memoryFile()
+  await writeFileAtomic(file, JSON.stringify(data))
+  try {
+    const stat = await fs.stat(file)
+    memoryCache = { mtimeMs: stat.mtimeMs, size: stat.size, data }
+  } catch {
+    memoryCache = null
+  }
 }
 
 /**
@@ -144,8 +182,16 @@ export async function searchMemory(
     if (comparable.length === 0) return []
   }
 
+  const queryUnit = toUnitVector(queryVector)
   return comparable
-    .map((c) => ({ source: c.source, text: c.text, score: cosine(queryVector, c.embedding) }))
+    .map((c) => {
+      let unit = unitVectors.get(c)
+      if (!unit) {
+        unit = toUnitVector(c.embedding)
+        unitVectors.set(c, unit)
+      }
+      return { source: c.source, text: c.text, score: unitDot(queryUnit, unit) }
+    })
     .filter((r) => r.score >= minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, topK))

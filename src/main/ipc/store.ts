@@ -1,5 +1,6 @@
 import Store from 'electron-store'
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron'
+import { app, dialog, ipcMain, safeStorage } from 'electron'
+import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -640,7 +641,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
  * (e.g. voice/stt landed in v0.3). Runs once at startup.
  */
 export function migrateSettings(): void {
-  const current = store.get('settings') as Partial<AppSettings>
+  const current = readSettings() as Partial<AppSettings>
   const defaults = defaultSettings()
   const merged: AppSettings = {
     ...defaults,
@@ -660,7 +661,7 @@ export function migrateSettings(): void {
     audit: { ...defaults.audit, ...current.audit },
     plan: { ...defaults.plan, ...current.plan }
   } as AppSettings
-  store.set('settings', normalizeSettings(merged))
+  writeSettings(normalizeSettings(merged))
 }
 
 /**
@@ -713,6 +714,38 @@ interface StoredSecrets {
 const store = new Store<{ settings: AppSettings; secrets?: StoredSecrets }>({
   defaults: { settings: defaultSettings() }
 })
+
+/**
+ * Settings cache. electron-store's `conf` re-reads and re-parses config.json
+ * on *every* `store.get` — a synchronous disk read on hot paths (per fetch via
+ * proxyActive(), per completion, per audit entry). All reads and writes of the
+ * `settings` key must go through readSettings/writeSettings so the cache can
+ * never go stale. The cached object is deep-frozen: it is shared across 35
+ * call sites, so an accidental mutation must throw rather than silently leak
+ * into every other consumer. External edits to config.json while the app runs
+ * are no longer observed — that was never supported behavior.
+ */
+let settingsCache: AppSettings | null = null
+
+function deepFreeze<T>(obj: T): T {
+  if (obj && typeof obj === 'object') {
+    for (const value of Object.values(obj)) deepFreeze(value)
+    Object.freeze(obj)
+  }
+  return obj
+}
+
+function readSettings(): AppSettings {
+  if (!settingsCache) settingsCache = deepFreeze(store.get('settings'))
+  return settingsCache
+}
+
+function writeSettings(settings: AppSettings): void {
+  store.set('settings', settings)
+  // Re-read rather than trusting the argument: conf's own serialization is
+  // the source of truth for what a later cold start will see.
+  settingsCache = deepFreeze(store.get('settings'))
+}
 
 /**
  * API keys never live in `settings` (which round-trips to the renderer in
@@ -805,17 +838,17 @@ export function registerStoreHandlers(): void {
   ipcMain.handle('store:getSettings', () => ({
     // Merge defaults so installs created before a setting existed still get it.
     ...defaultSettings(),
-    ...store.get('settings')
+    ...readSettings()
   }))
 
   ipcMain.handle('store:setSettings', (_e, settings: AppSettings) => {
-    store.set('settings', normalizeSettings(settings))
+    writeSettings(normalizeSettings(settings))
     return true
   })
 
   ipcMain.handle('store:resetSettings', () => {
-    store.set('settings', defaultSettings())
-    return store.get('settings')
+    writeSettings(defaultSettings())
+    return readSettings()
   })
 
   // Conversations are stored as one JSON file per conversation.
@@ -865,7 +898,8 @@ export function registerStoreHandlers(): void {
   ipcMain.handle(
     'conversations:exportMarkdown',
     async (event, payload: { title: string; markdown: string }) => {
-      const win = BrowserWindow.fromWebContents(event.sender)
+      const win = hostWindow(event.sender)
+      if (!win) return { ok: false, canceled: true }
       const safeName =
         String(payload.title ?? 'conversation')
           .replace(/[^\w\s-]+/g, '')
@@ -889,5 +923,5 @@ export function registerStoreHandlers(): void {
 }
 
 export function getSettings(): AppSettings {
-  return store.get('settings')
+  return readSettings()
 }
