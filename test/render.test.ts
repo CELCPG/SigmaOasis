@@ -76,6 +76,42 @@ describe('shouldAllowRequest — the render egress filter', () => {
     assert.equal(blocked.allow, false)
     assert.ok(blocked.reason && blocked.reason.length > 0)
   })
+
+  /**
+   * Only a third-party refusal means an origin was kept out entirely. A
+   * same-site image or font is refused by resource type, but that origin was
+   * still contacted for the document — so counting it as a blocked origin
+   * overstates what was refused. Rendering excalidraw.com reported five
+   * "third-party origins blocked" when one of the five was excalidraw.com.
+   */
+  describe('thirdParty — which refusals count as an origin kept out', () => {
+    test('a third-party refusal is flagged', () => {
+      assert.equal(shouldAllowRequest('https://sentry.io/x', 'script', target).thirdParty, true)
+    })
+
+    test('a same-site refusal is not, even though it is still blocked', () => {
+      const result = shouldAllowRequest('https://example.com/logo.png', 'image', target)
+      assert.equal(result.allow, false)
+      assert.ok(!result.thirdParty, 'the page’s own origin was contacted, not kept out')
+    })
+
+    test('www and bare host count as the same site here too', () => {
+      const result = shouldAllowRequest('https://www.example.com/f.woff', 'font', target)
+      assert.equal(result.allow, false)
+      assert.ok(!result.thirdParty)
+    })
+
+    test('an unparseable URL is not reported as a third-party origin', () => {
+      // originOfUrl cannot name it, so it must not reach the reported list.
+      const result = shouldAllowRequest('http://[not a url', 'script', target)
+      assert.equal(result.allow, false)
+      assert.ok(!result.thirdParty)
+    })
+
+    test('an allowed request is never flagged', () => {
+      assert.ok(!shouldAllowRequest('https://example.com/a.js', 'script', target).thirdParty)
+    })
+  })
 })
 
 describe('shouldRender — static-first escalation', () => {

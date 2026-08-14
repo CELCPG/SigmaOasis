@@ -47,7 +47,14 @@ export interface RenderedPage {
   title: string
   text: string
   links: ExtractedLink[]
-  /** Requests the filter refused, by origin — surfaced so blocking is visible. */
+  /**
+   * Third-party origins the renderer refused to contact at all — surfaced so
+   * blocking is visible. Deliberately excludes the page's own origin: same-site
+   * subresources are refused by resource type (an image, a font, a websocket),
+   * but that origin *was* contacted for the document itself, so reporting it as
+   * blocked would overstate what was refused. Every refusal, same-site or not,
+   * is still in the activity log.
+   */
   blockedOrigins: string[]
   /** Text nodes dropped for being visually hidden (a prompt-injection vector). */
   hiddenTextRemoved: number
@@ -93,7 +100,7 @@ export function shouldAllowRequest(
   requestUrl: string,
   resourceType: string,
   targetHost: string
-): { allow: boolean; reason?: string } {
+): { allow: boolean; reason?: string; thirdParty?: boolean } {
   let host: string
   let protocol: string
   try {
@@ -109,7 +116,7 @@ export function shouldAllowRequest(
     return { allow: false, reason: `blocked scheme ${protocol}` }
   }
   if (!sameSiteHost(host, targetHost)) {
-    return { allow: false, reason: 'third-party request' }
+    return { allow: false, reason: 'third-party request', thirdParty: true }
   }
   if (!ALLOWED_RESOURCE_TYPES.has(resourceType)) {
     return { allow: false, reason: `resource type ${resourceType}` }
@@ -152,7 +159,12 @@ export async function renderPage(targetUrl: string): Promise<RenderedPage | Rend
 
   // THE chokepoint. Every request this session attempts arrives here first.
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*', 'ws://*/*', 'wss://*/*'] }, (details, cb) => {
-    const { allow, reason } = shouldAllowRequest(details.url, details.resourceType, target.host)
+    const { allow, reason, thirdParty } = shouldAllowRequest(
+      details.url,
+      details.resourceType,
+      target.host
+    )
+    // The audit log gets every refusal, same-site or not.
     recordExternalRequest({
       purpose: 'render',
       origin: originOfUrl(details.url),
@@ -162,7 +174,9 @@ export async function renderPage(targetUrl: string): Promise<RenderedPage | Rend
       blocked: !allow,
       error: allow ? undefined : reason
     })
-    if (!allow) blockedOrigins.add(originOfUrl(details.url))
+    // The reported list gets only origins never contacted at all. A same-site
+    // image or font refused by resource type is not an origin we kept out.
+    if (!allow && thirdParty) blockedOrigins.add(originOfUrl(details.url))
     cb({ cancel: !allow })
   })
 
