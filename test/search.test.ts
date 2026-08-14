@@ -811,3 +811,47 @@ describe('fetchImageDataUrl', () => {
     assert.deepEqual(state.fetchLog.map((f) => f.purpose), ['image'])
   })
 })
+
+/**
+ * v1.4.6. A measured session fetched two supermarket store-locator pages and
+ * got bare `HTTP 403` from both. The model read that as "unreachable" and
+ * wrote the addresses from memory — three of seven stops in the resulting
+ * route came from no source at all.
+ *
+ * The 403 was correct, and this app caused it: web traffic was routed through
+ * a SOCKS5 proxy on the Tor port, and both hosts refuse Tor exits. Verified
+ * directly on 2026-08-13 — both URLs answer 200 without the proxy and 403
+ * through it, while Wikipedia answers 200 either way.
+ *
+ * The fix is disclosure, never a retry. Stepping around a proxy the user
+ * turned on, for a page that would not otherwise load, is the kind of silent
+ * exception that makes the setting worthless.
+ */
+describe('proxyRefusalHint', () => {
+  test('explains a 403 when a proxy is carrying the request', () => {
+    const hint = search.proxyRefusalHint(403, 'socks5')
+    assert.match(hint, /SOCKS5 proxy/)
+    assert.match(hint, /block proxy and Tor exit addresses/)
+  })
+
+  test('tells the model what to do instead of guessing', () => {
+    // The whole point: the measured failure was not the block, it was the
+    // addresses invented after it.
+    assert.match(search.proxyRefusalHint(403, 'socks5'), /Do not fill the gap from memory/)
+  })
+
+  test('covers the other statuses a bot filter returns', () => {
+    assert.notEqual(search.proxyRefusalHint(429, 'socks5'), '')
+    assert.notEqual(search.proxyRefusalHint(451, 'http'), '')
+  })
+
+  test('says nothing when no proxy is configured', () => {
+    // Without a proxy a 403 means something else, and guessing would mislead.
+    assert.equal(search.proxyRefusalHint(403, 'none'), '')
+  })
+
+  test('says nothing about statuses a proxy does not explain', () => {
+    assert.equal(search.proxyRefusalHint(404, 'socks5'), '')
+    assert.equal(search.proxyRefusalHint(500, 'socks5'), '')
+  })
+})

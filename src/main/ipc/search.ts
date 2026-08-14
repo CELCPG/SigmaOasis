@@ -331,7 +331,7 @@ async function searchBrave(query: string, maxResults: number): Promise<SearchRes
     'search',
     15_000
   )
-  if (!res.ok) throw new Error(`Brave Search returned HTTP ${res.status}`)
+  if (!res.ok) throw new Error(`Brave Search returned HTTP ${res.status}${proxyRefusalHint(res.status)}`)
   const data = (await res.json()) as {
     web?: { results?: { title?: string; url?: string; description?: string; age?: string }[] }
   }
@@ -370,7 +370,7 @@ async function searchDuckDuckGo(query: string, maxResults: number): Promise<Sear
     'search',
     15_000
   )
-  if (!res.ok) throw new Error(`DuckDuckGo returned HTTP ${res.status}`)
+  if (!res.ok) throw new Error(`DuckDuckGo returned HTTP ${res.status}${proxyRefusalHint(res.status)}`)
   const html = await res.text()
 
   /**
@@ -464,7 +464,7 @@ async function searchBraveImages(query: string, maxResults: number): Promise<Ima
     'search',
     15_000
   )
-  if (!res.ok) throw new Error(`Brave Image Search returned HTTP ${res.status}`)
+  if (!res.ok) throw new Error(`Brave Image Search returned HTTP ${res.status}${proxyRefusalHint(res.status)}`)
   const data = (await res.json()) as {
     results?: { title?: string; url?: string; properties?: { url?: string }; thumbnail?: { src?: string } }[]
   }
@@ -509,7 +509,7 @@ async function searchDuckDuckGoImages(query: string, maxResults: number): Promis
     'search',
     15_000
   )
-  if (!res.ok) throw new Error(`DuckDuckGo images returned HTTP ${res.status}`)
+  if (!res.ok) throw new Error(`DuckDuckGo images returned HTTP ${res.status}${proxyRefusalHint(res.status)}`)
   const data = (await res.json()) as {
     results?: { title?: string; image?: string; thumbnail?: string; url?: string }[]
   }
@@ -719,7 +719,7 @@ export async function fetchImageDataUrl(rawUrl: string): Promise<ThumbnailOutcom
         continue
       }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}${proxyRefusalHint(res.status)}`)
       const contentType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
       if (!THUMBNAIL_TYPES.test(contentType)) {
         throw new Error(`Not a supported image (${contentType || 'unknown content type'}).`)
@@ -879,6 +879,42 @@ export async function testSearchProvider(): Promise<{ ok: boolean; detail: strin
 }
 
 // ---- fetch_webpage (SSRF-guarded) --------------------------------------------
+
+/**
+ * Statuses a bot filter returns to a request it does not like. All three are
+ * about *who asked*, not about whether the page exists.
+ */
+const REFUSAL_STATUSES = new Set([403, 429, 451])
+
+/**
+ * Why a page refused us, when the proxy is the likely reason.
+ *
+ * v1.4.6. A measured session tried two supermarket store-locator pages and got
+ * bare `HTTP 403` from both. The model read that as "these sites are
+ * unreachable" and wrote the addresses from memory instead — three of seven
+ * stops in the resulting route appeared in no source at all.
+ *
+ * The 403 was correct and the app caused it: outbound web traffic was routed
+ * through a SOCKS5 proxy on the loopback Tor port, and both hosts refuse Tor
+ * exit nodes. Verified directly — the same two URLs answer 200 without the
+ * proxy and 403 through it, while Wikipedia answers 200 either way.
+ *
+ * So this explains rather than evades. Retrying without the proxy is not on
+ * offer at any level: the user turned it on, and quietly stepping around it
+ * for a page that would not load is exactly the kind of silent exception that
+ * makes a privacy setting worthless. Naming the cause lets the model tell the
+ * user what to change, which is the honest version of the same help.
+ */
+export function proxyRefusalHint(status: number, proxyMode?: string): string {
+  const mode = proxyMode ?? getSettings().proxy.mode
+  if (mode === 'none' || !REFUSAL_STATUSES.has(status)) return ''
+  return (
+    ` — refused by the site, not a missing page. Outbound requests are going through your ` +
+    `${mode.toUpperCase()} proxy (Settings → Privacy), and many sites, retailers especially, ` +
+    `block proxy and Tor exit addresses. Tell the user the page was blocked and that turning ` +
+    `the proxy off would likely reach it. Do not fill the gap from memory.`
+  )
+}
 
 const MAX_PAGE_BYTES = 2 * 1024 * 1024
 const MAX_REDIRECTS = 5
@@ -1094,7 +1130,7 @@ export async function fetchWebpage(
         continue
       }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}${proxyRefusalHint(res.status)}`)
       const contentType = res.headers.get('content-type') ?? ''
       const finalUrl = url.toString()
 
