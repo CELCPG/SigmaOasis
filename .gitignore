@@ -12,3 +12,4 @@ scripts/signing.env
 .live-build/
 .traces/
 homebrew-tap/
+.render-bench/
