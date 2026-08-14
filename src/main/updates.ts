@@ -64,8 +64,12 @@ export function registerUpdateHandlers(): void {
   )
   autoUpdater.on('update-downloaded', async (info) => {
     setStatus({ state: 'downloaded', version: info.version, percent: 100 })
-    const win = BrowserWindow.getAllWindows()[0]
-    const { response } = await dialog.showMessageBox(win!, {
+    // A background download can finish with every window closed (macOS keeps
+    // the app alive). No window means no dialog — autoInstallOnAppQuit already
+    // covers the install, and the status push above covers the UI.
+    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    if (!win) return
+    const { response } = await dialog.showMessageBox(win, {
       type: 'info',
       title: 'Update ready',
       message: `Sigma Oasis ${info.version} is ready`,
@@ -101,6 +105,11 @@ export function registerUpdateHandlers(): void {
       void autoUpdater.checkForUpdates().catch(() => undefined)
     }
   }
-  setTimeout(checkIfEnabled, 10_000)
-  setInterval(checkIfEnabled, CHECK_INTERVAL_MS)
+  const initialCheck = setTimeout(checkIfEnabled, 10_000)
+  const periodicCheck = setInterval(checkIfEnabled, CHECK_INTERVAL_MS)
+  // Don't let a scheduled check fire into a tearing-down app.
+  app.on('will-quit', () => {
+    clearTimeout(initialCheck)
+    clearInterval(periodicCheck)
+  })
 }

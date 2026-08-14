@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron'
+import { app, dialog, ipcMain, safeStorage } from 'electron'
+import { hostWindow } from './hostWindow'
 import { createHash } from 'crypto'
 import { promises as fs } from 'fs'
 import { join } from 'path'
@@ -241,8 +242,9 @@ export function registerAuditHandlers(): void {
     const result = await readSessionPlaintext(id)
     if ('error' in result) return { ok: false, error: result.error }
 
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const { canceled, filePath } = await dialog.showSaveDialog(win!, {
+    const win = hostWindow(event.sender)
+    if (!win) return { ok: false, canceled: true }
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
       title: 'Export audit log (decrypted)',
       defaultPath: join(app.getPath('documents'), `${id}.jsonl`),
       filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }]

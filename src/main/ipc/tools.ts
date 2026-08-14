@@ -1,9 +1,10 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { dialog, ipcMain } from 'electron'
 import { exec } from 'child_process'
 import { promises as fs } from 'fs'
 import { homedir } from 'os'
 import { dirname, isAbsolute, resolve, sep } from 'path'
 import { getSettings, readNotes, writeNotes } from './store'
+import { hostWindow } from './hostWindow'
 import type { ToolToggles } from './store'
 import { addToMemory, deleteFromMemory, searchMemory } from './memory'
 import { runFinanceCalculation } from './finance'
@@ -121,8 +122,9 @@ async function confirmWrite(
   target: string,
   chars: number
 ): Promise<boolean> {
-  const win = BrowserWindow.fromWebContents(sender)
-  const { response } = await dialog.showMessageBox(win!, {
+  const win = hostWindow(sender)
+  if (!win) return false // window closed — nobody to ask; decline
+  const { response } = await dialog.showMessageBox(win, {
     type: 'warning',
     title: 'Confirm file write',
     message: 'A model wants to write to a file outside any scoped working directory:',
@@ -170,7 +172,8 @@ async function confirmSearch(
   query: string,
   kind: 'web' | 'image' = 'web'
 ): Promise<boolean> {
-  const win = BrowserWindow.fromWebContents(sender)
+  const win = hostWindow(sender)
+  if (!win) return false // window closed — nobody to ask; decline
   const detail =
     kind === 'image'
       ? `"${query}"\n\n` +
@@ -233,7 +236,8 @@ async function confirmResearchPlan(
   plan: ResearchPlan,
   queries: string[]
 ): Promise<boolean> {
-  const win = BrowserWindow.fromWebContents(sender)
+  const win = hostWindow(sender)
+  if (!win) return false // window closed — nobody to ask; decline
   const outline = plan.subQuestions
     .map((s, i) => `${i + 1}. ${s.question}\n   → ${s.queries.join('  |  ')}`)
     .join('\n')
@@ -362,8 +366,11 @@ async function executeTool(
       case 'run_terminal_command': {
         const command = String(args.command ?? '')
         const warning = dangerousCommandWarning(command)
-        const win = BrowserWindow.fromWebContents(sender)
-        const { response } = await dialog.showMessageBox(win!, {
+        const win = hostWindow(sender)
+        if (!win) {
+          return { ok: false, error: 'The user declined to run this command.' }
+        }
+        const { response } = await dialog.showMessageBox(win, {
           type: warning ? 'error' : 'warning',
           title: warning ? 'DANGEROUS command — confirm' : 'Confirm terminal command',
           message: warning ?? 'A model wants to run this terminal command:',

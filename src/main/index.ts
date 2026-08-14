@@ -3,6 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { registerStoreHandlers, migrateSettings, getSettings } from './ipc/store'
+import { hostWindow } from './ipc/hostWindow'
 import { registerToolHandlers } from './ipc/tools'
 import { registerToolRankHandlers } from './ipc/toolRank'
 import { registerAttachmentHandlers } from './ipc/attachments'
@@ -153,8 +154,10 @@ app.whenReady().then(() => {
     saveEvalResult(join(app.getAppPath(), '.eval-results'), payload)
   )
 
-  ipcMain.handle('dialog:pickDirectory', async (event) => {    const win = BrowserWindow.fromWebContents(event.sender)
-    const result = await dialog.showOpenDialog(win!, {
+  ipcMain.handle('dialog:pickDirectory', async (event) => {
+    const win = hostWindow(event.sender)
+    if (!win) return null
+    const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory', 'createDirectory']
     })
     return result.canceled ? null : result.filePaths[0]
@@ -163,8 +166,9 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'dialog:pickFile',
     async (event, filters?: { name: string; extensions: string[] }[]) => {
-      const win = BrowserWindow.fromWebContents(event.sender)
-      const result = await dialog.showOpenDialog(win!, {
+      const win = hostWindow(event.sender)
+      if (!win) return null
+      const result = await dialog.showOpenDialog(win, {
         properties: ['openFile'],
         filters
       })

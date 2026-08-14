@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain } from 'electron'
+import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { readSessionPlaintext, currentAuditSessionId } from './audit'
@@ -66,8 +67,9 @@ export function registerTraceHandlers(): void {
     const result = await readSessionPlaintext(id)
     if ('error' in result) return { ok: false, error: result.error }
 
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const { canceled, filePath } = await dialog.showSaveDialog(win!, {
+    const win = hostWindow(event.sender)
+    if (!win) return { ok: false, canceled: true }
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
       title: 'Export fine-tuning traces',
       defaultPath: join(app.getPath('documents'), `${id}-traces.jsonl`),
       filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }]

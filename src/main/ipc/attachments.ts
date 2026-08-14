@@ -1,4 +1,5 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { dialog, ipcMain } from 'electron'
+import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { basename, extname } from 'path'
 import { extractPdfText } from './pdf'
@@ -186,8 +187,9 @@ async function loadPaths(paths: string[]): Promise<LoadResult> {
 
 export function registerAttachmentHandlers(): void {
   ipcMain.handle('attachments:pick', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
+    const win = hostWindow(event.sender)
+    if (!win) return { attachments: [], rejected: [], audioPaths: [] }
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: 'Attach files',
       properties: ['openFile', 'multiSelections'],
       filters: [
