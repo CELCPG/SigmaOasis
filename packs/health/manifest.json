@@ -1,0 +1,309 @@
+{
+  "formatVersion": 1,
+  "id": "health",
+  "name": "Health reference",
+  "description": "Plain-language summaries of common conditions and safety topics — fever, dehydration, heat illness, food poisoning, carbon monoxide, concussion, burns, wounds, choking, allergies, colds and flu, blood pressure, diabetes, asthma, pain relievers, antibiotics — from MedlinePlus (US National Library of Medicine).",
+  "version": "2026.08",
+  "license": "Public domain (US federal work — NIH / National Library of Medicine health-topic summaries)",
+  "kind": "curated",
+  "sourceNote": "MedlinePlus health-topic pages retrieved and converted to text at build time. Only the NLM-written topic summaries are included — not encyclopedia or drug monographs, which are third-party copyright. Each document carries its URL and retrieval date. Not a substitute for a clinician. Built 2026-08-16 by scripts/build-packs.ts from packs/sources/health.json.",
+  "docs": [
+    {
+      "id": "first-aid",
+      "title": "First aid",
+      "source": "https://medlineplus.gov/firstaid.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed July 22, 2026; retrieved 2026-08-16",
+      "file": "first-aid.md",
+      "chars": 2528
+    },
+    {
+      "id": "choking",
+      "title": "Choking",
+      "source": "https://medlineplus.gov/choking.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed October 16, 2024; retrieved 2026-08-16",
+      "file": "choking.md",
+      "chars": 628
+    },
+    {
+      "id": "burns",
+      "title": "Burns",
+      "source": "https://medlineplus.gov/burns.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed October 10, 2024; retrieved 2026-08-16",
+      "file": "burns.md",
+      "chars": 1079
+    },
+    {
+      "id": "wounds",
+      "title": "Wounds and injuries",
+      "source": "https://medlineplus.gov/wounds.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed March 10, 2023; retrieved 2026-08-16",
+      "file": "wounds.md",
+      "chars": 1060
+    },
+    {
+      "id": "fractures",
+      "title": "Fractures",
+      "source": "https://medlineplus.gov/fractures.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed May 14, 2024; retrieved 2026-08-16",
+      "file": "fractures.md",
+      "chars": 2871
+    },
+    {
+      "id": "sprains-and-strains",
+      "title": "Sprains and strains",
+      "source": "https://medlineplus.gov/sprainsandstrains.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed September 22, 2025; retrieved 2026-08-16",
+      "file": "sprains-and-strains.md",
+      "chars": 1022
+    },
+    {
+      "id": "head-injuries",
+      "title": "Head injuries",
+      "source": "https://medlineplus.gov/headinjuries.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed August 8, 2024; retrieved 2026-08-16",
+      "file": "head-injuries.md",
+      "chars": 1228
+    },
+    {
+      "id": "concussion",
+      "title": "Concussion",
+      "source": "https://medlineplus.gov/concussion.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed November 24, 2025; retrieved 2026-08-16",
+      "file": "concussion.md",
+      "chars": 2479
+    },
+    {
+      "id": "fever",
+      "title": "Fever",
+      "source": "https://medlineplus.gov/fever.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed July 27, 2025; retrieved 2026-08-16",
+      "file": "fever.md",
+      "chars": 1134
+    },
+    {
+      "id": "dehydration",
+      "title": "Dehydration",
+      "source": "https://medlineplus.gov/dehydration.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed December 29, 2023; retrieved 2026-08-16",
+      "file": "dehydration.md",
+      "chars": 3442
+    },
+    {
+      "id": "heat-illness",
+      "title": "Heat illness",
+      "source": "https://medlineplus.gov/heatillness.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed November 15, 2024; retrieved 2026-08-16",
+      "file": "heat-illness.md",
+      "chars": 1498
+    },
+    {
+      "id": "hypothermia",
+      "title": "Hypothermia",
+      "source": "https://medlineplus.gov/hypothermia.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed August 8, 2024; retrieved 2026-08-16",
+      "file": "hypothermia.md",
+      "chars": 848
+    },
+    {
+      "id": "frostbite",
+      "title": "Frostbite",
+      "source": "https://medlineplus.gov/frostbite.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed December 2, 2025; retrieved 2026-08-16",
+      "file": "frostbite.md",
+      "chars": 1094
+    },
+    {
+      "id": "sun-exposure",
+      "title": "Sun exposure and sunburn",
+      "source": "https://medlineplus.gov/sunexposure.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed January 3, 2017; retrieved 2026-08-16",
+      "file": "sun-exposure.md",
+      "chars": 884
+    },
+    {
+      "id": "food-poisoning",
+      "title": "Food poisoning (foodborne illness)",
+      "source": "https://medlineplus.gov/foodborneillness.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed March 20, 2025; retrieved 2026-08-16",
+      "file": "food-poisoning.md",
+      "chars": 1460
+    },
+    {
+      "id": "poisoning",
+      "title": "Poisoning",
+      "source": "https://medlineplus.gov/poisoning.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed July 12, 2018; retrieved 2026-08-16",
+      "file": "poisoning.md",
+      "chars": 909
+    },
+    {
+      "id": "carbon-monoxide-poisoning",
+      "title": "Carbon monoxide poisoning",
+      "source": "https://medlineplus.gov/carbonmonoxidepoisoning.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed September 19, 2024; retrieved 2026-08-16",
+      "file": "carbon-monoxide-poisoning.md",
+      "chars": 846
+    },
+    {
+      "id": "insect-bites-and-stings",
+      "title": "Insect bites and stings",
+      "source": "https://medlineplus.gov/insectbitesandstings.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed August 2, 2026; retrieved 2026-08-16",
+      "file": "insect-bites-and-stings.md",
+      "chars": 702
+    },
+    {
+      "id": "animal-bites",
+      "title": "Animal bites",
+      "source": "https://medlineplus.gov/animalbites.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed September 8, 2021; retrieved 2026-08-16",
+      "file": "animal-bites.md",
+      "chars": 869
+    },
+    {
+      "id": "anaphylaxis",
+      "title": "Anaphylaxis",
+      "source": "https://medlineplus.gov/anaphylaxis.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed December 4, 2025; retrieved 2026-08-16",
+      "file": "anaphylaxis.md",
+      "chars": 911
+    },
+    {
+      "id": "allergy",
+      "title": "Allergy",
+      "source": "https://medlineplus.gov/allergy.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed November 19, 2025; retrieved 2026-08-16",
+      "file": "allergy.md",
+      "chars": 884
+    },
+    {
+      "id": "nose-injuries-and-disorders",
+      "title": "Nose injuries and disorders (nosebleeds)",
+      "source": "https://medlineplus.gov/nosedisorders.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed March 23, 2023; retrieved 2026-08-16",
+      "file": "nose-injuries-and-disorders.md",
+      "chars": 913
+    },
+    {
+      "id": "stroke",
+      "title": "Stroke",
+      "source": "https://medlineplus.gov/stroke.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed July 28, 2025; retrieved 2026-08-16",
+      "file": "stroke.md",
+      "chars": 6161
+    },
+    {
+      "id": "heart-attack",
+      "title": "Heart attack",
+      "source": "https://medlineplus.gov/heartattack.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed January 24, 2026; retrieved 2026-08-16",
+      "file": "heart-attack.md",
+      "chars": 2280
+    },
+    {
+      "id": "common-cold",
+      "title": "Common cold",
+      "source": "https://medlineplus.gov/commoncold.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed November 16, 2022; retrieved 2026-08-16",
+      "file": "common-cold.md",
+      "chars": 3648
+    },
+    {
+      "id": "flu",
+      "title": "Flu",
+      "source": "https://medlineplus.gov/flu.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed February 28, 2024; retrieved 2026-08-16",
+      "file": "flu.md",
+      "chars": 3798
+    },
+    {
+      "id": "high-blood-pressure",
+      "title": "High blood pressure",
+      "source": "https://medlineplus.gov/highbloodpressure.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed January 22, 2026; retrieved 2026-08-16",
+      "file": "high-blood-pressure.md",
+      "chars": 3146
+    },
+    {
+      "id": "diabetes",
+      "title": "Diabetes",
+      "source": "https://medlineplus.gov/diabetes.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed February 3, 2025; retrieved 2026-08-16",
+      "file": "diabetes.md",
+      "chars": 5922
+    },
+    {
+      "id": "asthma",
+      "title": "Asthma",
+      "source": "https://medlineplus.gov/asthma.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed January 24, 2024; retrieved 2026-08-16",
+      "file": "asthma.md",
+      "chars": 5254
+    },
+    {
+      "id": "pain-relievers",
+      "title": "Pain relievers",
+      "source": "https://medlineplus.gov/painrelievers.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed July 30, 2025; retrieved 2026-08-16",
+      "file": "pain-relievers.md",
+      "chars": 2633
+    },
+    {
+      "id": "antibiotics",
+      "title": "Antibiotics",
+      "source": "https://medlineplus.gov/antibiotics.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed April 17, 2023; retrieved 2026-08-16",
+      "file": "antibiotics.md",
+      "chars": 2822
+    },
+    {
+      "id": "drug-safety",
+      "title": "Drug safety",
+      "source": "https://medlineplus.gov/drugsafety.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed December 13, 2023; retrieved 2026-08-16",
+      "file": "drug-safety.md",
+      "chars": 763
+    },
+    {
+      "id": "food-safety",
+      "title": "Food safety",
+      "source": "https://medlineplus.gov/foodsafety.html",
+      "license": "Public domain (NLM / MedlinePlus)",
+      "date": "page reviewed June 4, 2019; retrieved 2026-08-16",
+      "file": "food-safety.md",
+      "chars": 641
+    }
+  ]
+}

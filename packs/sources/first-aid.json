@@ -1,0 +1,91 @@
+{
+  "id": "first-aid",
+  "name": "First aid & emergencies",
+  "description": "What to do first for common injuries and emergencies \u2014 burns, cuts, bleeding, fractures, sprains, head injury, heat and cold, dehydration, bites and stings, anaphylaxis, poisoning, stroke and heart-attack signs \u2014 from the UK National Health Service.",
+  "version": "2026.08",
+  "license": "Open Government Licence v3.0 (NHS, Crown copyright) \u2014 https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+  "sourceNote": "NHS pages retrieved and converted to text at build time; each document carries its URL and the page's own 'last reviewed' date where the page states one. Attribution: Contains public sector information licensed under the Open Government Licence v3.0. NHS's own /first-aid/ section pages redirect to St John Ambulance (not OGL) and are deliberately excluded.",
+  "docLicense": "OGL v3.0 (NHS)",
+  "docs": [
+    {
+      "id": "burns-and-scalds",
+      "title": "Burns and scalds",
+      "url": "https://www.nhs.uk/conditions/burns-and-scalds/"
+    },
+    {
+      "id": "cuts-and-grazes",
+      "title": "Cuts and grazes",
+      "url": "https://www.nhs.uk/conditions/cuts-and-grazes/"
+    },
+    {
+      "id": "nosebleed",
+      "title": "Nosebleed",
+      "url": "https://www.nhs.uk/conditions/nosebleed/"
+    },
+    {
+      "id": "broken-arm-or-wrist",
+      "title": "Broken arm or wrist",
+      "url": "https://www.nhs.uk/conditions/broken-arm-or-wrist/"
+    },
+    {
+      "id": "sprains-and-strains",
+      "title": "Sprains and strains",
+      "url": "https://www.nhs.uk/conditions/sprains-and-strains/"
+    },
+    {
+      "id": "head-injury-and-concussion",
+      "title": "Head injury and concussion",
+      "url": "https://www.nhs.uk/conditions/head-injury-and-concussion/"
+    },
+    {
+      "id": "heat-exhaustion-heatstroke",
+      "title": "Heat exhaustion and heatstroke",
+      "url": "https://www.nhs.uk/conditions/heat-exhaustion-heatstroke/"
+    },
+    {
+      "id": "hypothermia",
+      "title": "Hypothermia",
+      "url": "https://www.nhs.uk/conditions/hypothermia/"
+    },
+    {
+      "id": "frostbite",
+      "title": "Frostbite",
+      "url": "https://www.nhs.uk/conditions/frostbite/"
+    },
+    {
+      "id": "dehydration",
+      "title": "Dehydration",
+      "url": "https://www.nhs.uk/conditions/dehydration/"
+    },
+    {
+      "id": "anaphylaxis",
+      "title": "Anaphylaxis",
+      "url": "https://www.nhs.uk/conditions/anaphylaxis/"
+    },
+    {
+      "id": "insect-bites-and-stings",
+      "title": "Insect bites and stings",
+      "url": "https://www.nhs.uk/conditions/insect-bites-and-stings/"
+    },
+    {
+      "id": "animal-and-human-bites",
+      "title": "Animal and human bites",
+      "url": "https://www.nhs.uk/conditions/animal-and-human-bites/"
+    },
+    {
+      "id": "poisoning",
+      "title": "Poisoning",
+      "url": "https://www.nhs.uk/conditions/poisoning/"
+    },
+    {
+      "id": "stroke-symptoms",
+      "title": "Stroke \u2014 symptoms (FAST)",
+      "url": "https://www.nhs.uk/conditions/stroke/symptoms/"
+    },
+    {
+      "id": "heart-attack-symptoms",
+      "title": "Heart attack \u2014 symptoms",
+      "url": "https://www.nhs.uk/conditions/heart-attack/symptoms/"
+    }
+  ]
+}

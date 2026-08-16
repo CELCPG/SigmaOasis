@@ -1,0 +1,56 @@
+{
+  "id": "civic",
+  "name": "US civic & consumer basics",
+  "description": "Tenant rights, credit reports, identity theft, scams and fraud, debt collection, consumer complaints, replacing vital documents, passports, Social Security, unemployment benefits, voter registration and becoming a US citizen \u2014 from USA.gov.",
+  "version": "2026.08",
+  "license": "Public domain (US federal work \u2014 USA.gov / GSA)",
+  "sourceNote": "USA.gov pages retrieved and converted to text at build time; each document carries its URL and retrieval date. General information, US-specific, not legal advice; state rules vary.",
+  "docLicense": "Public domain (USA.gov)",
+  "docs": [
+    {
+      "id": "tenant-rights",
+      "title": "Tenant rights",
+      "url": "https://www.usa.gov/tenant-rights"
+    },
+    {
+      "id": "report-identity-theft",
+      "title": "Report identity theft",
+      "url": "https://www.usa.gov/report-identity-theft"
+    },
+    {
+      "id": "scams-and-fraud",
+      "title": "Scams and fraud",
+      "url": "https://www.usa.gov/scams-and-fraud"
+    },
+    {
+      "id": "consumer-complaints",
+      "title": "Consumer complaints",
+      "url": "https://www.usa.gov/consumer-complaints"
+    },
+    {
+      "id": "passport",
+      "title": "Passports",
+      "url": "https://www.usa.gov/passport"
+    },
+    {
+      "id": "social-security",
+      "title": "Social Security",
+      "url": "https://www.usa.gov/social-security"
+    },
+    {
+      "id": "unemployment-benefits",
+      "title": "Unemployment benefits",
+      "url": "https://www.usa.gov/unemployment-benefits"
+    },
+    {
+      "id": "voter-registration",
+      "title": "Voter registration",
+      "url": "https://www.usa.gov/voter-registration"
+    },
+    {
+      "id": "become-us-citizen",
+      "title": "Become a US citizen",
+      "url": "https://www.usa.gov/become-us-citizen"
+    }
+  ]
+}

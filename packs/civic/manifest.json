@@ -1,0 +1,93 @@
+{
+  "formatVersion": 1,
+  "id": "civic",
+  "name": "US civic & consumer basics",
+  "description": "Tenant rights, credit reports, identity theft, scams and fraud, debt collection, consumer complaints, replacing vital documents, passports, Social Security, unemployment benefits, voter registration and becoming a US citizen — from USA.gov.",
+  "version": "2026.08",
+  "license": "Public domain (US federal work — USA.gov / GSA)",
+  "kind": "curated",
+  "sourceNote": "USA.gov pages retrieved and converted to text at build time; each document carries its URL and retrieval date. General information, US-specific, not legal advice; state rules vary. Built 2026-08-16 by scripts/build-packs.ts from packs/sources/civic.json.",
+  "docs": [
+    {
+      "id": "tenant-rights",
+      "title": "Tenant rights",
+      "source": "https://www.usa.gov/tenant-rights",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "tenant-rights.md",
+      "chars": 1172
+    },
+    {
+      "id": "report-identity-theft",
+      "title": "Report identity theft",
+      "source": "https://www.usa.gov/report-identity-theft",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "report-identity-theft.md",
+      "chars": 731
+    },
+    {
+      "id": "scams-and-fraud",
+      "title": "Scams and fraud",
+      "source": "https://www.usa.gov/scams-and-fraud",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "scams-and-fraud.md",
+      "chars": 1452
+    },
+    {
+      "id": "consumer-complaints",
+      "title": "Consumer complaints",
+      "source": "https://www.usa.gov/consumer-complaints",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "consumer-complaints.md",
+      "chars": 1316
+    },
+    {
+      "id": "passport",
+      "title": "Passports",
+      "source": "https://www.usa.gov/passport",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "passport.md",
+      "chars": 838
+    },
+    {
+      "id": "social-security",
+      "title": "Social Security",
+      "source": "https://www.usa.gov/social-security",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "social-security.md",
+      "chars": 1353
+    },
+    {
+      "id": "unemployment-benefits",
+      "title": "Unemployment benefits",
+      "source": "https://www.usa.gov/unemployment-benefits",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "unemployment-benefits.md",
+      "chars": 1952
+    },
+    {
+      "id": "voter-registration",
+      "title": "Voter registration",
+      "source": "https://www.usa.gov/voter-registration",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "voter-registration.md",
+      "chars": 1059
+    },
+    {
+      "id": "become-us-citizen",
+      "title": "Become a US citizen",
+      "source": "https://www.usa.gov/become-us-citizen",
+      "license": "Public domain (USA.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "become-us-citizen.md",
+      "chars": 946
+    }
+  ]
+}

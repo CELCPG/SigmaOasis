@@ -1,0 +1,120 @@
+{
+  "formatVersion": 1,
+  "id": "preparedness",
+  "name": "Emergency preparedness",
+  "description": "Before, during and after: hurricanes, tornadoes, earthquakes, floods, wildfires, extreme heat, winter weather, home fires and power outages, plus building a kit and storing water and food — from Ready.gov (FEMA).",
+  "version": "2026.08",
+  "license": "Public domain (US federal work — FEMA / Ready.gov)",
+  "kind": "curated",
+  "sourceNote": "Ready.gov pages retrieved and converted to text at build time; each document carries its URL and the retrieval date. Guidance is US-oriented; local authorities' instructions take precedence. Built 2026-08-16 by scripts/build-packs.ts from packs/sources/preparedness.json.",
+  "docs": [
+    {
+      "id": "build-a-kit",
+      "title": "Build a kit",
+      "source": "https://www.ready.gov/kit",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "build-a-kit.md",
+      "chars": 4292
+    },
+    {
+      "id": "water",
+      "title": "Water — storing and treating",
+      "source": "https://www.ready.gov/water",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "water.md",
+      "chars": 5211
+    },
+    {
+      "id": "food",
+      "title": "Food — emergency supply",
+      "source": "https://www.ready.gov/food",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "food.md",
+      "chars": 3865
+    },
+    {
+      "id": "hurricanes",
+      "title": "Hurricanes",
+      "source": "https://www.ready.gov/hurricanes",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "hurricanes.md",
+      "chars": 6099
+    },
+    {
+      "id": "tornadoes",
+      "title": "Tornadoes",
+      "source": "https://www.ready.gov/tornadoes",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "tornadoes.md",
+      "chars": 4517
+    },
+    {
+      "id": "earthquakes",
+      "title": "Earthquakes",
+      "source": "https://www.ready.gov/earthquakes",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "earthquakes.md",
+      "chars": 5977
+    },
+    {
+      "id": "floods",
+      "title": "Floods",
+      "source": "https://www.ready.gov/floods",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "floods.md",
+      "chars": 5823
+    },
+    {
+      "id": "wildfires",
+      "title": "Wildfires",
+      "source": "https://www.ready.gov/wildfires",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "wildfires.md",
+      "chars": 6306
+    },
+    {
+      "id": "extreme-heat",
+      "title": "Extreme heat",
+      "source": "https://www.ready.gov/heat",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "extreme-heat.md",
+      "chars": 5551
+    },
+    {
+      "id": "winter-weather",
+      "title": "Winter weather",
+      "source": "https://www.ready.gov/winter-weather",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "winter-weather.md",
+      "chars": 5299
+    },
+    {
+      "id": "home-fires",
+      "title": "Home fires",
+      "source": "https://www.ready.gov/home-fires",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "home-fires.md",
+      "chars": 8402
+    },
+    {
+      "id": "power-outages",
+      "title": "Power outages",
+      "source": "https://www.ready.gov/power-outages",
+      "license": "Public domain (FEMA / Ready.gov)",
+      "date": "retrieved 2026-08-16",
+      "file": "power-outages.md",
+      "chars": 4508
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "id": "home-safety",
+  "name": "Home safety",
+  "description": "Smoke alarms, home fire escape plans, heating and cooking fire prevention (US Fire Administration); mold and moisture, radon, lead, carbon monoxide indoors, and emergency disinfection of drinking water (EPA).",
+  "version": "2026.08",
+  "license": "Public domain (US federal works \u2014 USFA/FEMA, EPA)",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date.",
+  "docLicense": "Public domain (US federal work)",
+  "docs": [
+    {
+      "id": "smoke-alarms",
+      "title": "Smoke alarms (USFA)",
+      "url": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/smoke-alarms/"
+    },
+    {
+      "id": "escape-plans",
+      "title": "Home fire escape plans (USFA)",
+      "url": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/home-fire-escape-plans/"
+    },
+    {
+      "id": "heating-fires",
+      "title": "Heating fire safety (USFA)",
+      "url": "https://www.usfa.fema.gov/prevention/home-fires/prevent-fires/heating/"
+    },
+    {
+      "id": "cooking-fires",
+      "title": "Cooking fire safety (USFA)",
+      "url": "https://www.usfa.fema.gov/prevention/home-fires/prevent-fires/cooking/"
+    },
+    {
+      "id": "older-adults",
+      "title": "Fire safety for older adults (USFA)",
+      "url": "https://www.usfa.fema.gov/prevention/home-fires/at-risk-audiences/older-adults/"
+    },
+    {
+      "id": "mold-and-moisture",
+      "title": "A brief guide to mold, moisture and your home (EPA)",
+      "url": "https://www.epa.gov/mold/brief-guide-mold-moisture-and-your-home"
+    },
+    {
+      "id": "radon",
+      "title": "Health risk of radon (EPA)",
+      "url": "https://www.epa.gov/radon/health-risk-radon"
+    },
+    {
+      "id": "lead",
+      "title": "Protect your family from sources of lead (EPA)",
+      "url": "https://www.epa.gov/lead/protect-your-family-sources-lead"
+    },
+    {
+      "id": "carbon-monoxide-indoors",
+      "title": "Carbon monoxide's impact on indoor air quality (EPA)",
+      "url": "https://www.epa.gov/indoor-air-quality-iaq/carbon-monoxides-impact-indoor-air-quality"
+    },
+    {
+      "id": "emergency-water-disinfection",
+      "title": "Emergency disinfection of drinking water (EPA)",
+      "url": "https://www.epa.gov/ground-water-and-drinking-water/emergency-disinfection-drinking-water"
+    }
+  ]
+}

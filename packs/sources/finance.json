@@ -1,0 +1,25 @@
+{
+  "id": "finance",
+  "name": "Personal finance & tax basics",
+  "description": "Credit scores and reports, debt-to-income, APR, mortgage loan types, saving and investing basics, compound interest, and US federal tax basics — who must file, standard deduction vs. itemizing, capital gains, IRA limits and the current inflation adjustments — from the CFPB, Investor.gov (SEC) and the IRS.",
+  "version": "2026.08",
+  "license": "Public domain (US federal works — CFPB, SEC, IRS)",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date. Tax figures are for the tax year the page names — check the year before relying on a number.",
+  "docLicense": "Public domain (US federal work)",
+  "docs": [
+    { "id": "credit-score", "title": "What is a credit score?", "url": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-credit-score-en-315/" },
+    { "id": "credit-reports-and-scores", "title": "Credit reports and scores", "url": "https://www.consumerfinance.gov/consumer-tools/credit-reports-and-scores/" },
+    { "id": "debt-to-income", "title": "What is a debt-to-income ratio?", "url": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-debt-to-income-ratio-en-1791/" },
+    { "id": "apr", "title": "What is an annual percentage rate (APR)?", "url": "https://www.consumerfinance.gov/ask-cfpb/what-is-an-annual-percentage-rate-apr-en-135/" },
+    { "id": "mortgage-loan-options", "title": "Mortgage loan options", "url": "https://www.consumerfinance.gov/owning-a-home/loan-options/" },
+    { "id": "save-and-invest", "title": "Save and invest", "url": "https://www.investor.gov/introduction-investing/investing-basics/save-and-invest" },
+    { "id": "how-stock-markets-work", "title": "How stock markets work", "url": "https://www.investor.gov/introduction-investing/investing-basics/how-stock-markets-work" },
+    { "id": "compound-interest", "title": "Compound interest", "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/compound-interest" },
+    { "id": "who-should-file", "title": "Who should file a tax return", "url": "https://www.irs.gov/filing/individuals/who-should-file" },
+    { "id": "standard-deduction", "title": "Tax Topic 551 — Standard deduction", "url": "https://www.irs.gov/taxtopics/tc551" },
+    { "id": "should-i-itemize", "title": "Tax Topic 501 — Should I itemize?", "url": "https://www.irs.gov/taxtopics/tc501" },
+    { "id": "capital-gains", "title": "Tax Topic 409 — Capital gains and losses", "url": "https://www.irs.gov/taxtopics/tc409" },
+    { "id": "ira-contribution-limits", "title": "IRA contribution limits", "url": "https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-ira-contribution-limits" },
+    { "id": "inflation-adjustments-2025", "title": "Tax inflation adjustments for tax year 2025", "url": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025" }
+  ]
+}

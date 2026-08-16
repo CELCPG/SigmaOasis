@@ -79,3 +79,26 @@ it is specific to the user's embedding model.
 Settings → Library → "Add folder…" builds a `user` pack from `.md`, `.txt` and `.pdf` files
 (recursively, up to 600 files). It is a snapshot: files are extracted and copied at that
 moment. Each document's `source` is its original path.
+
+## The curated tranche (v1.5)
+
+`packs/sources/*.json` are the build specs; `bash scripts/build-packs.sh [id …]` rebuilds
+`packs/<id>/` from them (Electron proper: each page is converted from a real DOM so headings
+survive; sequential with a courtesy pause, because the federal sites throttle bursts). Every
+document carries its URL, its license, and the page's own "last reviewed" date where the page
+states one, plus the retrieval date. `test/packs.test.ts` fails the suite if a built pack does
+not validate, has an error page captured as a document, or lacks provenance.
+
+| Pack | Source | License |
+| --- | --- | --- |
+| `first-aid` | NHS (nhs.uk/conditions) | Open Government Licence v3.0 — attribution carried per document |
+| `health` | MedlinePlus health-topic summaries (NLM) | Public domain (US federal) |
+| `preparedness` | Ready.gov (FEMA) | Public domain |
+| `food-safety` | FoodSafety.gov, USDA FSIS, FDA, CDC | Public domain |
+| `finance` | CFPB, Investor.gov (SEC), IRS | Public domain |
+| `home-safety` | US Fire Administration, EPA | Public domain |
+| `civic` | USA.gov | Public domain |
+
+Install any of them from Settings → Library → *Install pack…* by choosing the `packs/<id>` folder
+(or a downloaded copy of it). Not included on purpose: MedlinePlus encyclopedia and drug pages
+(A.D.A.M./ASHP copyright), Red Cross, wikiHow.

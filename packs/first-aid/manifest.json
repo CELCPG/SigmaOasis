@@ -1,0 +1,156 @@
+{
+  "formatVersion": 1,
+  "id": "first-aid",
+  "name": "First aid & emergencies",
+  "description": "What to do first for common injuries and emergencies — burns, cuts, bleeding, fractures, sprains, head injury, heat and cold, dehydration, bites and stings, anaphylaxis, poisoning, stroke and heart-attack signs — from the UK National Health Service.",
+  "version": "2026.08",
+  "license": "Open Government Licence v3.0 (NHS, Crown copyright) — https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+  "kind": "curated",
+  "sourceNote": "NHS pages retrieved and converted to text at build time; each document carries its URL and the page's own 'last reviewed' date where the page states one. Attribution: Contains public sector information licensed under the Open Government Licence v3.0. NHS's own /first-aid/ section pages redirect to St John Ambulance (not OGL) and are deliberately excluded. Built 2026-08-16 by scripts/build-packs.ts from packs/sources/first-aid.json.",
+  "docs": [
+    {
+      "id": "burns-and-scalds",
+      "title": "Burns and scalds",
+      "source": "https://www.nhs.uk/conditions/burns-and-scalds/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 31 March 2026; retrieved 2026-08-16",
+      "file": "burns-and-scalds.md",
+      "chars": 2553
+    },
+    {
+      "id": "cuts-and-grazes",
+      "title": "Cuts and grazes",
+      "source": "https://www.nhs.uk/conditions/cuts-and-grazes/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 02 April 2026; retrieved 2026-08-16",
+      "file": "cuts-and-grazes.md",
+      "chars": 4331
+    },
+    {
+      "id": "nosebleed",
+      "title": "Nosebleed",
+      "source": "https://www.nhs.uk/conditions/nosebleed/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 05 December 2023; retrieved 2026-08-16",
+      "file": "nosebleed.md",
+      "chars": 3646
+    },
+    {
+      "id": "broken-arm-or-wrist",
+      "title": "Broken arm or wrist",
+      "source": "https://www.nhs.uk/conditions/broken-arm-or-wrist/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 26 May 2023; retrieved 2026-08-16",
+      "file": "broken-arm-or-wrist.md",
+      "chars": 5116
+    },
+    {
+      "id": "sprains-and-strains",
+      "title": "Sprains and strains",
+      "source": "https://www.nhs.uk/conditions/sprains-and-strains/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 23 April 2024; retrieved 2026-08-16",
+      "file": "sprains-and-strains.md",
+      "chars": 4762
+    },
+    {
+      "id": "head-injury-and-concussion",
+      "title": "Head injury and concussion",
+      "source": "https://www.nhs.uk/conditions/head-injury-and-concussion/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 29 May 2025; retrieved 2026-08-16",
+      "file": "head-injury-and-concussion.md",
+      "chars": 3130
+    },
+    {
+      "id": "heat-exhaustion-heatstroke",
+      "title": "Heat exhaustion and heatstroke",
+      "source": "https://www.nhs.uk/conditions/heat-exhaustion-heatstroke/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 28 May 2026; retrieved 2026-08-16",
+      "file": "heat-exhaustion-heatstroke.md",
+      "chars": 3903
+    },
+    {
+      "id": "hypothermia",
+      "title": "Hypothermia",
+      "source": "https://www.nhs.uk/conditions/hypothermia/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 09 June 2023; retrieved 2026-08-16",
+      "file": "hypothermia.md",
+      "chars": 2395
+    },
+    {
+      "id": "frostbite",
+      "title": "Frostbite",
+      "source": "https://www.nhs.uk/conditions/frostbite/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 09 June 2025; retrieved 2026-08-16",
+      "file": "frostbite.md",
+      "chars": 4019
+    },
+    {
+      "id": "dehydration",
+      "title": "Dehydration",
+      "source": "https://www.nhs.uk/conditions/dehydration/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 01 May 2026; retrieved 2026-08-16",
+      "file": "dehydration.md",
+      "chars": 5140
+    },
+    {
+      "id": "anaphylaxis",
+      "title": "Anaphylaxis",
+      "source": "https://www.nhs.uk/conditions/anaphylaxis/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 21 June 2023; retrieved 2026-08-16",
+      "file": "anaphylaxis.md",
+      "chars": 5567
+    },
+    {
+      "id": "insect-bites-and-stings",
+      "title": "Insect bites and stings",
+      "source": "https://www.nhs.uk/conditions/insect-bites-and-stings/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 01 June 2023; retrieved 2026-08-16",
+      "file": "insect-bites-and-stings.md",
+      "chars": 6316
+    },
+    {
+      "id": "animal-and-human-bites",
+      "title": "Animal and human bites",
+      "source": "https://www.nhs.uk/conditions/animal-and-human-bites/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 27 October 2025; retrieved 2026-08-16",
+      "file": "animal-and-human-bites.md",
+      "chars": 2688
+    },
+    {
+      "id": "poisoning",
+      "title": "Poisoning",
+      "source": "https://www.nhs.uk/conditions/poisoning/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 12 June 2025; retrieved 2026-08-16",
+      "file": "poisoning.md",
+      "chars": 4432
+    },
+    {
+      "id": "stroke-symptoms",
+      "title": "Stroke — symptoms (FAST)",
+      "source": "https://www.nhs.uk/conditions/stroke/symptoms/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 12 September 2024; retrieved 2026-08-16",
+      "file": "stroke-symptoms.md",
+      "chars": 1523
+    },
+    {
+      "id": "heart-attack-symptoms",
+      "title": "Heart attack — symptoms",
+      "source": "https://www.nhs.uk/conditions/heart-attack/symptoms/",
+      "license": "OGL v3.0 (NHS)",
+      "date": "page reviewed 31 March 2026; retrieved 2026-08-16",
+      "file": "heart-attack-symptoms.md",
+      "chars": 6228
+    }
+  ]
+}

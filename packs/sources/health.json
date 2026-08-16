@@ -1,0 +1,177 @@
+{
+  "id": "health",
+  "name": "Health reference",
+  "description": "Plain-language summaries of common conditions and safety topics \u2014 fever, dehydration, heat illness, food poisoning, carbon monoxide, concussion, burns, wounds, choking, allergies, colds and flu, blood pressure, diabetes, asthma, pain relievers, antibiotics \u2014 from MedlinePlus (US National Library of Medicine).",
+  "version": "2026.08",
+  "license": "Public domain (US federal work \u2014 NIH / National Library of Medicine health-topic summaries)",
+  "sourceNote": "MedlinePlus health-topic pages retrieved and converted to text at build time. Only the NLM-written topic summaries are included \u2014 not encyclopedia or drug monographs, which are third-party copyright. Each document carries its URL and retrieval date. Not a substitute for a clinician.",
+  "docLicense": "Public domain (NLM / MedlinePlus)",
+  "docs": [
+    {
+      "id": "first-aid",
+      "title": "First aid",
+      "url": "https://medlineplus.gov/firstaid.html"
+    },
+    {
+      "id": "choking",
+      "title": "Choking",
+      "url": "https://medlineplus.gov/choking.html"
+    },
+    {
+      "id": "burns",
+      "title": "Burns",
+      "url": "https://medlineplus.gov/burns.html"
+    },
+    {
+      "id": "wounds",
+      "title": "Wounds and injuries",
+      "url": "https://medlineplus.gov/wounds.html"
+    },
+    {
+      "id": "fractures",
+      "title": "Fractures",
+      "url": "https://medlineplus.gov/fractures.html"
+    },
+    {
+      "id": "sprains-and-strains",
+      "title": "Sprains and strains",
+      "url": "https://medlineplus.gov/sprainsandstrains.html"
+    },
+    {
+      "id": "head-injuries",
+      "title": "Head injuries",
+      "url": "https://medlineplus.gov/headinjuries.html"
+    },
+    {
+      "id": "concussion",
+      "title": "Concussion",
+      "url": "https://medlineplus.gov/concussion.html"
+    },
+    {
+      "id": "fever",
+      "title": "Fever",
+      "url": "https://medlineplus.gov/fever.html"
+    },
+    {
+      "id": "dehydration",
+      "title": "Dehydration",
+      "url": "https://medlineplus.gov/dehydration.html"
+    },
+    {
+      "id": "heat-illness",
+      "title": "Heat illness",
+      "url": "https://medlineplus.gov/heatillness.html"
+    },
+    {
+      "id": "hypothermia",
+      "title": "Hypothermia",
+      "url": "https://medlineplus.gov/hypothermia.html"
+    },
+    {
+      "id": "frostbite",
+      "title": "Frostbite",
+      "url": "https://medlineplus.gov/frostbite.html"
+    },
+    {
+      "id": "sun-exposure",
+      "title": "Sun exposure and sunburn",
+      "url": "https://medlineplus.gov/sunexposure.html"
+    },
+    {
+      "id": "food-poisoning",
+      "title": "Food poisoning (foodborne illness)",
+      "url": "https://medlineplus.gov/foodborneillness.html"
+    },
+    {
+      "id": "poisoning",
+      "title": "Poisoning",
+      "url": "https://medlineplus.gov/poisoning.html"
+    },
+    {
+      "id": "carbon-monoxide-poisoning",
+      "title": "Carbon monoxide poisoning",
+      "url": "https://medlineplus.gov/carbonmonoxidepoisoning.html"
+    },
+    {
+      "id": "insect-bites-and-stings",
+      "title": "Insect bites and stings",
+      "url": "https://medlineplus.gov/insectbitesandstings.html"
+    },
+    {
+      "id": "animal-bites",
+      "title": "Animal bites",
+      "url": "https://medlineplus.gov/animalbites.html"
+    },
+    {
+      "id": "anaphylaxis",
+      "title": "Anaphylaxis",
+      "url": "https://medlineplus.gov/anaphylaxis.html"
+    },
+    {
+      "id": "allergy",
+      "title": "Allergy",
+      "url": "https://medlineplus.gov/allergy.html"
+    },
+    {
+      "id": "nose-injuries-and-disorders",
+      "title": "Nose injuries and disorders (nosebleeds)",
+      "url": "https://medlineplus.gov/nosedisorders.html"
+    },
+    {
+      "id": "stroke",
+      "title": "Stroke",
+      "url": "https://medlineplus.gov/stroke.html"
+    },
+    {
+      "id": "heart-attack",
+      "title": "Heart attack",
+      "url": "https://medlineplus.gov/heartattack.html"
+    },
+    {
+      "id": "common-cold",
+      "title": "Common cold",
+      "url": "https://medlineplus.gov/commoncold.html"
+    },
+    {
+      "id": "flu",
+      "title": "Flu",
+      "url": "https://medlineplus.gov/flu.html"
+    },
+    {
+      "id": "high-blood-pressure",
+      "title": "High blood pressure",
+      "url": "https://medlineplus.gov/highbloodpressure.html"
+    },
+    {
+      "id": "diabetes",
+      "title": "Diabetes",
+      "url": "https://medlineplus.gov/diabetes.html"
+    },
+    {
+      "id": "asthma",
+      "title": "Asthma",
+      "url": "https://medlineplus.gov/asthma.html"
+    },
+    {
+      "id": "pain-relievers",
+      "title": "Pain relievers",
+      "url": "https://medlineplus.gov/painrelievers.html"
+    },
+    {
+      "id": "antibiotics",
+      "title": "Antibiotics",
+      "url": "https://medlineplus.gov/antibiotics.html"
+    },
+    {
+      "id": "drug-safety",
+      "title": "Drug safety",
+      "url": "https://medlineplus.gov/drugsafety.html"
+    },
+    {
+      "id": "food-safety",
+      "title": "Food safety",
+      "url": "https://medlineplus.gov/foodsafety.html"
+    }
+  ],
+  "contentSelector": "#topic-summary"
+}

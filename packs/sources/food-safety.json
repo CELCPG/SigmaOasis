@@ -1,0 +1,66 @@
+{
+  "id": "food-safety",
+  "name": "Food safety",
+  "description": "Safe minimum internal temperatures, cold-storage times, leftovers, the four steps to food safety, food safety in a power outage, refrigerator thermometers, produce handling \u2014 from FoodSafety.gov, USDA FSIS, FDA and CDC.",
+  "version": "2026.08",
+  "license": "Public domain (US federal works \u2014 HHS, USDA, FDA, CDC)",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date.",
+  "docLicense": "Public domain (US federal work)",
+  "docs": [
+    {
+      "id": "safe-minimum-internal-temperatures",
+      "title": "Safe minimum internal temperatures",
+      "url": "https://www.foodsafety.gov/food-safety-charts/safe-minimum-internal-temperatures"
+    },
+    {
+      "id": "cold-food-storage-chart",
+      "title": "Cold food storage chart",
+      "url": "https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts"
+    },
+    {
+      "id": "four-steps",
+      "title": "4 steps to food safety",
+      "url": "https://www.foodsafety.gov/keep-food-safe/4-steps-to-food-safety"
+    },
+    {
+      "id": "food-poisoning",
+      "title": "Food poisoning",
+      "url": "https://www.foodsafety.gov/food-poisoning"
+    },
+    {
+      "id": "leftovers",
+      "title": "Leftovers and food safety (USDA)",
+      "url": "https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/leftovers-and-food-safety"
+    },
+    {
+      "id": "safe-temperature-chart",
+      "title": "Safe temperature chart (USDA)",
+      "url": "https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/safe-temperature-chart"
+    },
+    {
+      "id": "safe-food-handling",
+      "title": "Safe food handling (FDA)",
+      "url": "https://www.fda.gov/food/buy-store-serve-safe-food/safe-food-handling"
+    },
+    {
+      "id": "refrigerator-thermometers",
+      "title": "Refrigerator thermometers \u2014 cold facts (FDA)",
+      "url": "https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-thermometers-cold-facts-about-food-safety"
+    },
+    {
+      "id": "produce",
+      "title": "Selecting and serving produce safely (FDA)",
+      "url": "https://www.fda.gov/food/buy-store-serve-safe-food/selecting-and-serving-produce-safely"
+    },
+    {
+      "id": "kitchen",
+      "title": "Food safety in your kitchen (FDA)",
+      "url": "https://www.fda.gov/food/buy-store-serve-safe-food/food-safety-your-kitchen"
+    },
+    {
+      "id": "cdc-prevention",
+      "title": "Preventing food poisoning (CDC)",
+      "url": "https://www.cdc.gov/food-safety/prevention/index.html"
+    }
+  ]
+}

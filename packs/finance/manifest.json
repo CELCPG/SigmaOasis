@@ -1,0 +1,138 @@
+{
+  "formatVersion": 1,
+  "id": "finance",
+  "name": "Personal finance & tax basics",
+  "description": "Credit scores and reports, debt-to-income, APR, mortgage loan types, saving and investing basics, compound interest, and US federal tax basics — who must file, standard deduction vs. itemizing, capital gains, IRA limits and the current inflation adjustments — from the CFPB, Investor.gov (SEC) and the IRS.",
+  "version": "2026.08",
+  "license": "Public domain (US federal works — CFPB, SEC, IRS)",
+  "kind": "curated",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date. Tax figures are for the tax year the page names — check the year before relying on a number. Built 2026-08-16 by scripts/build-packs.ts from packs/sources/finance.json.",
+  "docs": [
+    {
+      "id": "credit-score",
+      "title": "What is a credit score?",
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-credit-score-en-315/",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "credit-score.md",
+      "chars": 1883
+    },
+    {
+      "id": "credit-reports-and-scores",
+      "title": "Credit reports and scores",
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-reports-and-scores/",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "credit-reports-and-scores.md",
+      "chars": 3249
+    },
+    {
+      "id": "debt-to-income",
+      "title": "What is a debt-to-income ratio?",
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-debt-to-income-ratio-en-1791/",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "debt-to-income.md",
+      "chars": 1328
+    },
+    {
+      "id": "apr",
+      "title": "What is an annual percentage rate (APR)?",
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-an-annual-percentage-rate-apr-en-135/",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "apr.md",
+      "chars": 2269
+    },
+    {
+      "id": "mortgage-loan-options",
+      "title": "Mortgage loan options",
+      "source": "https://www.consumerfinance.gov/owning-a-home/loan-options/",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "mortgage-loan-options.md",
+      "chars": 7237
+    },
+    {
+      "id": "save-and-invest",
+      "title": "Save and invest",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/save-and-invest",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "save-and-invest.md",
+      "chars": 1147
+    },
+    {
+      "id": "how-stock-markets-work",
+      "title": "How stock markets work",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/how-stock-markets-work",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "how-stock-markets-work.md",
+      "chars": 855
+    },
+    {
+      "id": "compound-interest",
+      "title": "Compound interest",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/compound-interest",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "compound-interest.md",
+      "chars": 822
+    },
+    {
+      "id": "who-should-file",
+      "title": "Who should file a tax return",
+      "source": "https://www.irs.gov/filing/individuals/who-should-file",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "who-should-file.md",
+      "chars": 4903
+    },
+    {
+      "id": "standard-deduction",
+      "title": "Tax Topic 551 — Standard deduction",
+      "source": "https://www.irs.gov/taxtopics/tc551",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "standard-deduction.md",
+      "chars": 4575
+    },
+    {
+      "id": "should-i-itemize",
+      "title": "Tax Topic 501 — Should I itemize?",
+      "source": "https://www.irs.gov/taxtopics/tc501",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "should-i-itemize.md",
+      "chars": 2484
+    },
+    {
+      "id": "capital-gains",
+      "title": "Tax Topic 409 — Capital gains and losses",
+      "source": "https://www.irs.gov/taxtopics/tc409",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "capital-gains.md",
+      "chars": 5852
+    },
+    {
+      "id": "ira-contribution-limits",
+      "title": "IRA contribution limits",
+      "source": "https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-ira-contribution-limits",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "ira-contribution-limits.md",
+      "chars": 4777
+    },
+    {
+      "id": "inflation-adjustments-2025",
+      "title": "Tax inflation adjustments for tax year 2025",
+      "source": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "inflation-adjustments-2025.md",
+      "chars": 5639
+    }
+  ]
+}

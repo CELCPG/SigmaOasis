@@ -1,0 +1,111 @@
+{
+  "formatVersion": 1,
+  "id": "food-safety",
+  "name": "Food safety",
+  "description": "Safe minimum internal temperatures, cold-storage times, leftovers, the four steps to food safety, food safety in a power outage, refrigerator thermometers, produce handling — from FoodSafety.gov, USDA FSIS, FDA and CDC.",
+  "version": "2026.08",
+  "license": "Public domain (US federal works — HHS, USDA, FDA, CDC)",
+  "kind": "curated",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date. Built 2026-08-16 by scripts/build-packs.ts from packs/sources/food-safety.json.",
+  "docs": [
+    {
+      "id": "safe-minimum-internal-temperatures",
+      "title": "Safe minimum internal temperatures",
+      "source": "https://www.foodsafety.gov/food-safety-charts/safe-minimum-internal-temperatures",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed November 21, 2024; retrieved 2026-08-16",
+      "file": "safe-minimum-internal-temperatures.md",
+      "chars": 2216
+    },
+    {
+      "id": "cold-food-storage-chart",
+      "title": "Cold food storage chart",
+      "source": "https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed September 19, 2023; retrieved 2026-08-16",
+      "file": "cold-food-storage-chart.md",
+      "chars": 4746
+    },
+    {
+      "id": "four-steps",
+      "title": "4 steps to food safety",
+      "source": "https://www.foodsafety.gov/keep-food-safe/4-steps-to-food-safety",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed September 18, 2023; retrieved 2026-08-16",
+      "file": "four-steps.md",
+      "chars": 6452
+    },
+    {
+      "id": "food-poisoning",
+      "title": "Food poisoning",
+      "source": "https://www.foodsafety.gov/food-poisoning",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed August 20, 2020; retrieved 2026-08-16",
+      "file": "food-poisoning.md",
+      "chars": 2805
+    },
+    {
+      "id": "leftovers",
+      "title": "Leftovers and food safety (USDA)",
+      "source": "https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/leftovers-and-food-safety",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed Jul 31, 2020; retrieved 2026-08-16",
+      "file": "leftovers.md",
+      "chars": 7915
+    },
+    {
+      "id": "safe-temperature-chart",
+      "title": "Safe temperature chart (USDA)",
+      "source": "https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/safe-temperature-chart",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed Apr 14, 2025; retrieved 2026-08-16",
+      "file": "safe-temperature-chart.md",
+      "chars": 2669
+    },
+    {
+      "id": "safe-food-handling",
+      "title": "Safe food handling (FDA)",
+      "source": "https://www.fda.gov/food/buy-store-serve-safe-food/safe-food-handling",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "safe-food-handling.md",
+      "chars": 5473
+    },
+    {
+      "id": "refrigerator-thermometers",
+      "title": "Refrigerator thermometers — cold facts (FDA)",
+      "source": "https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-thermometers-cold-facts-about-food-safety",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "refrigerator-thermometers.md",
+      "chars": 10709
+    },
+    {
+      "id": "produce",
+      "title": "Selecting and serving produce safely (FDA)",
+      "source": "https://www.fda.gov/food/buy-store-serve-safe-food/selecting-and-serving-produce-safely",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "produce.md",
+      "chars": 6852
+    },
+    {
+      "id": "kitchen",
+      "title": "Food safety in your kitchen (FDA)",
+      "source": "https://www.fda.gov/food/buy-store-serve-safe-food/food-safety-your-kitchen",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "kitchen.md",
+      "chars": 3636
+    },
+    {
+      "id": "cdc-prevention",
+      "title": "Preventing food poisoning (CDC)",
+      "source": "https://www.cdc.gov/food-safety/prevention/index.html",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "cdc-prevention.md",
+      "chars": 7071
+    }
+  ]
+}

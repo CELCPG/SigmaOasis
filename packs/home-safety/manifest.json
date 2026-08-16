@@ -1,0 +1,102 @@
+{
+  "formatVersion": 1,
+  "id": "home-safety",
+  "name": "Home safety",
+  "description": "Smoke alarms, home fire escape plans, heating and cooking fire prevention (US Fire Administration); mold and moisture, radon, lead, carbon monoxide indoors, and emergency disinfection of drinking water (EPA).",
+  "version": "2026.08",
+  "license": "Public domain (US federal works — USFA/FEMA, EPA)",
+  "kind": "curated",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date. Built 2026-08-16 by scripts/build-packs.ts from packs/sources/home-safety.json.",
+  "docs": [
+    {
+      "id": "smoke-alarms",
+      "title": "Smoke alarms (USFA)",
+      "source": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/smoke-alarms/",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed May 9, 2023; retrieved 2026-08-16",
+      "file": "smoke-alarms.md",
+      "chars": 5942
+    },
+    {
+      "id": "escape-plans",
+      "title": "Home fire escape plans (USFA)",
+      "source": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/home-fire-escape-plans/",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed April 10, 2025; retrieved 2026-08-16",
+      "file": "escape-plans.md",
+      "chars": 2282
+    },
+    {
+      "id": "heating-fires",
+      "title": "Heating fire safety (USFA)",
+      "source": "https://www.usfa.fema.gov/prevention/home-fires/prevent-fires/heating/",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed May 4, 2023; retrieved 2026-08-16",
+      "file": "heating-fires.md",
+      "chars": 2011
+    },
+    {
+      "id": "cooking-fires",
+      "title": "Cooking fire safety (USFA)",
+      "source": "https://www.usfa.fema.gov/prevention/home-fires/prevent-fires/cooking/",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed May 4, 2023; retrieved 2026-08-16",
+      "file": "cooking-fires.md",
+      "chars": 1851
+    },
+    {
+      "id": "older-adults",
+      "title": "Fire safety for older adults (USFA)",
+      "source": "https://www.usfa.fema.gov/prevention/home-fires/at-risk-audiences/older-adults/",
+      "license": "Public domain (US federal work)",
+      "date": "page reviewed April 1, 2023; retrieved 2026-08-16",
+      "file": "older-adults.md",
+      "chars": 2191
+    },
+    {
+      "id": "mold-and-moisture",
+      "title": "A brief guide to mold, moisture and your home (EPA)",
+      "source": "https://www.epa.gov/mold/brief-guide-mold-moisture-and-your-home",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "mold-and-moisture.md",
+      "chars": 15940
+    },
+    {
+      "id": "radon",
+      "title": "Health risk of radon (EPA)",
+      "source": "https://www.epa.gov/radon/health-risk-radon",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "radon.md",
+      "chars": 13400
+    },
+    {
+      "id": "lead",
+      "title": "Protect your family from sources of lead (EPA)",
+      "source": "https://www.epa.gov/lead/protect-your-family-sources-lead",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "lead.md",
+      "chars": 11161
+    },
+    {
+      "id": "carbon-monoxide-indoors",
+      "title": "Carbon monoxide's impact on indoor air quality (EPA)",
+      "source": "https://www.epa.gov/indoor-air-quality-iaq/carbon-monoxides-impact-indoor-air-quality",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "carbon-monoxide-indoors.md",
+      "chars": 11257
+    },
+    {
+      "id": "emergency-water-disinfection",
+      "title": "Emergency disinfection of drinking water (EPA)",
+      "source": "https://www.epa.gov/ground-water-and-drinking-water/emergency-disinfection-drinking-water",
+      "license": "Public domain (US federal work)",
+      "date": "retrieved 2026-08-16",
+      "file": "emergency-water-disinfection.md",
+      "chars": 6665
+    }
+  ]
+}

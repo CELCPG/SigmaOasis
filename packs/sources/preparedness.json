@@ -1,0 +1,23 @@
+{
+  "id": "preparedness",
+  "name": "Emergency preparedness",
+  "description": "Before, during and after: hurricanes, tornadoes, earthquakes, floods, wildfires, extreme heat, winter weather, home fires and power outages, plus building a kit and storing water and food — from Ready.gov (FEMA).",
+  "version": "2026.08",
+  "license": "Public domain (US federal work — FEMA / Ready.gov)",
+  "sourceNote": "Ready.gov pages retrieved and converted to text at build time; each document carries its URL and the retrieval date. Guidance is US-oriented; local authorities' instructions take precedence.",
+  "docLicense": "Public domain (FEMA / Ready.gov)",
+  "docs": [
+    { "id": "build-a-kit", "title": "Build a kit", "url": "https://www.ready.gov/kit" },
+    { "id": "water", "title": "Water — storing and treating", "url": "https://www.ready.gov/water" },
+    { "id": "food", "title": "Food — emergency supply", "url": "https://www.ready.gov/food" },
+    { "id": "hurricanes", "title": "Hurricanes", "url": "https://www.ready.gov/hurricanes" },
+    { "id": "tornadoes", "title": "Tornadoes", "url": "https://www.ready.gov/tornadoes" },
+    { "id": "earthquakes", "title": "Earthquakes", "url": "https://www.ready.gov/earthquakes" },
+    { "id": "floods", "title": "Floods", "url": "https://www.ready.gov/floods" },
+    { "id": "wildfires", "title": "Wildfires", "url": "https://www.ready.gov/wildfires" },
+    { "id": "extreme-heat", "title": "Extreme heat", "url": "https://www.ready.gov/heat" },
+    { "id": "winter-weather", "title": "Winter weather", "url": "https://www.ready.gov/winter-weather" },
+    { "id": "home-fires", "title": "Home fires", "url": "https://www.ready.gov/home-fires" },
+    { "id": "power-outages", "title": "Power outages", "url": "https://www.ready.gov/power-outages" }
+  ]
+}
