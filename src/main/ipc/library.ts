@@ -701,7 +701,7 @@ export async function createPackFromFolder(
     formatVersion: PACK_FORMAT_VERSION,
     id,
     name,
-    description: opts.description?.trim() || `Your documents from ${resolve(folder)}`,
+    description: opts.description?.trim() || `Your own documents from the folder “${basename(resolve(folder))}”.`,
     version: new Date().toISOString().slice(0, 10),
     license: 'private — the user\'s own files',
     kind: 'user',

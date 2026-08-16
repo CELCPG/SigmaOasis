@@ -1,0 +1,268 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { LibraryLookupResult, LibraryPackSummary } from '../../types'
+
+/**
+ * Settings → Library (v1.5, the Almanac). Lists installed reference packs,
+ * adds a folder of the user's own documents as a pack, installs a downloaded
+ * pack directory, embeds a pack for semantic retrieval (with progress), removes
+ * packs, and lets the user try a lookup and see exactly what the model would be
+ * given. Everything on this tab is local: disk, plus loopback embeddings.
+ *
+ * First tab split out of SettingsModal.tsx (STRATEGY-speed-and-quality.md 2d):
+ * the modal only mounts it; state lives here.
+ */
+
+const BUTTON =
+  'rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40'
+const NOTE = 'rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500'
+const WARN = 'rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400'
+
+function kb(chars: number): string {
+  if (chars >= 1_000_000) return `${(chars / 1_000_000).toFixed(1)} M chars`
+  if (chars >= 10_000) return `${Math.round(chars / 1000)} K chars`
+  return `${chars.toLocaleString()} chars`
+}
+
+export function LibraryTab(): JSX.Element {
+  const [packs, setPacks] = useState<LibraryPackSummary[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [embedding, setEmbedding] = useState<{ packId: string; done: number; total: number } | null>(null)
+  const [query, setQuery] = useState('')
+  const [lookup, setLookup] = useState<LibraryLookupResult | null>(null)
+  const [looking, setLooking] = useState(false)
+
+  const refresh = useCallback(() => {
+    void window.api.libraryList().then(setPacks).catch(() => setPacks([]))
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    return window.api.onLibraryEmbedProgress((p) => setEmbedding(p))
+  }, [refresh])
+
+  const run = async (label: string, action: () => Promise<{ ok: boolean; error?: string; cancelled?: boolean; pack?: LibraryPackSummary }>): Promise<void> => {
+    setBusy(label)
+    setNotice(null)
+    try {
+      const result = await action()
+      if (result.cancelled) return
+      if (!result.ok) setNotice(result.error ?? `${label} failed.`)
+      else if (result.pack) setNotice(`${label}: "${result.pack.name}" — ${result.pack.docs} document(s), ${result.pack.chunks} passage(s).`)
+      refresh()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const embed = async (pack: LibraryPackSummary): Promise<void> => {
+    setBusy(`embed:${pack.id}`)
+    setNotice(null)
+    setEmbedding({ packId: pack.id, done: pack.embeddedChunks, total: pack.chunks })
+    try {
+      const r = await window.api.libraryEmbed(pack.id)
+      setNotice(
+        r.ok
+          ? `Embedded "${pack.name}": ${r.embedded} of ${r.total} passages with ${r.model}.`
+          : `Embedding "${pack.name}" stopped: ${r.error ?? 'unknown error'} (${r.embedded} of ${r.total} kept).`
+      )
+    } finally {
+      setEmbedding(null)
+      setBusy(null)
+      refresh()
+    }
+  }
+
+  const remove = async (pack: LibraryPackSummary): Promise<void> => {
+    if (!window.confirm(`Remove "${pack.name}" from the reference library? Its copied documents are deleted; the original files are untouched.`)) return
+    await run('Removed', async () => {
+      const r = await window.api.libraryRemove(pack.id)
+      return { ok: r.removed, error: r.removed ? undefined : 'That pack was not found.' }
+    })
+  }
+
+  const tryLookup = async (): Promise<void> => {
+    if (!query.trim()) return
+    setLooking(true)
+    try {
+      setLookup(await window.api.libraryLookup(query, null, 4))
+    } finally {
+      setLooking(false)
+    }
+  }
+
+  const totalDocs = packs?.reduce((n, p) => n + p.docs, 0) ?? 0
+  const totalChunks = packs?.reduce((n, p) => n + p.chunks, 0) ?? 0
+  const totalEmbedded = packs?.reduce((n, p) => n + p.embeddedChunks, 0) ?? 0
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="text-sm font-medium">Reference library</div>
+        <p className="mt-1 text-xs text-neutral-500">
+          Reference documents the model reads <em>before</em> it answers — installed reference packs
+          and folders of your own files. Passages are retrieved by relevance and handed to the model
+          with their source, so answers about first aid, finance, health or your own manuals quote a
+          document instead of guessing. Entirely local: nothing on this tab uses the network. The{' '}
+          <code>reference_lookup</code> tool (Settings → Tools) is how the model reaches it.
+        </p>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => void run('Added folder', () => window.api.libraryAddFolder())}
+          className={BUTTON}
+          title="Build a pack from a folder of .md, .txt and .pdf files (a snapshot — copied now, not watched)"
+        >
+          Add folder…
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => void run('Installed pack', () => window.api.libraryInstallFromDirectory())}
+          className={BUTTON}
+          title="Install a downloaded reference pack (a folder containing manifest.json and docs/)"
+        >
+          Install pack…
+        </button>
+        <button type="button" onClick={refresh} className={`${BUTTON} ml-auto`}>
+          Refresh
+        </button>
+      </div>
+      {notice && <p className={NOTE}>{notice}</p>}
+
+      {/* Packs */}
+      {packs === null ? (
+        <p className={NOTE}>Loading…</p>
+      ) : packs.length === 0 ? (
+        <p className={NOTE}>
+          No packs installed. Add a folder of your own documents, or install a reference pack. Packs
+          are plain folders — see <code>docs/library-pack-format.md</code> in the repository for the
+          format, and the release notes for the curated public-domain packs.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {packs.map((p) => {
+            const progress = embedding && embedding.packId === p.id ? embedding : null
+            const fully = p.chunks > 0 && p.embeddedChunks === p.chunks
+            return (
+              <li key={p.id} className="rounded-xl border border-black/10 dark:border-white/10 p-3 text-xs">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">
+                      {p.name}{' '}
+                      <span className="font-normal text-neutral-400">
+                        · {p.kind === 'user' ? 'your documents' : 'reference pack'} · v{p.version}
+                      </span>
+                    </div>
+                    {p.description && <p className="mt-0.5 text-neutral-500">{p.description}</p>}
+                    <p className="mt-1 text-neutral-400">
+                      {p.docs} document{p.docs === 1 ? '' : 's'} · {p.chunks} passages · {kb(p.chars)} · {p.license}
+                      {' · '}
+                      {progress
+                        ? `embedding ${progress.done}/${progress.total}…`
+                        : fully
+                          ? `embedded (${p.embeddingModel})`
+                          : p.embeddedChunks > 0
+                            ? `${p.embeddedChunks}/${p.chunks} embedded — keyword + partial semantic`
+                            : 'keyword search only — embed for semantic search'}
+                    </p>
+                    {p.sourceNote && <p className="mt-1 text-neutral-400 break-all">{p.sourceNote}</p>}
+                    {progress && (
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-black/10 dark:bg-white/10">
+                        <div
+                          className="h-full bg-accent transition-all"
+                          style={{ width: `${progress.total ? Math.round((100 * progress.done) / progress.total) : 0}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-col gap-1">
+                    {progress ? (
+                      <button type="button" onClick={() => void window.api.libraryCancelEmbed()} className={BUTTON}>
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy !== null || fully}
+                        onClick={() => void embed(p)}
+                        className={BUTTON}
+                        title="Compute embedding vectors with the loaded embedding model so lookups can match meaning, not just words. Stored per model; re-run after changing the embedding model."
+                      >
+                        {fully ? 'Embedded' : p.embeddedChunks > 0 ? 'Finish embedding' : 'Embed'}
+                      </button>
+                    )}
+                    <button type="button" disabled={busy !== null} onClick={() => void remove(p)} className={`${BUTTON} text-red-500`}>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {packs && packs.length > 0 && (
+        <p className="text-xs text-neutral-400">
+          {packs.length} pack{packs.length === 1 ? '' : 's'} · {totalDocs} documents · {totalChunks} passages ·{' '}
+          {totalEmbedded === totalChunks ? 'all embedded' : `${totalEmbedded} embedded`}. Stored under the app&apos;s
+          data folder; the original files you added are never modified.
+        </p>
+      )}
+
+      {/* Try it */}
+      <div className="border-t border-black/10 dark:border-white/10 pt-4">
+        <div className="text-sm font-medium">Try a lookup</div>
+        <p className="mt-1 text-xs text-neutral-500">
+          See what the model would be given for a question. This is the same retrieval the{' '}
+          <code>reference_lookup</code> tool runs.
+        </p>
+        <div className="mt-2 flex gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void tryLookup()
+            }}
+            placeholder="e.g. how long to cool a burn under running water"
+            className="flex-1 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent/40"
+          />
+          <button type="button" disabled={looking || !query.trim()} onClick={() => void tryLookup()} className={BUTTON}>
+            {looking ? 'Looking…' : 'Look up'}
+          </button>
+        </div>
+        {lookup && (
+          <div className="mt-3 space-y-2">
+            {!lookup.ok && <p className={WARN}>{lookup.error}</p>}
+            {lookup.ok && lookup.passages.length === 0 && <p className={NOTE}>No passages matched.</p>}
+            {lookup.passages.map((p, i) => (
+              <div key={i} className="rounded-xl border border-black/10 dark:border-white/10 p-2.5 text-xs">
+                <div className="font-medium text-neutral-600 dark:text-neutral-300">
+                  [{i + 1}] {p.packName} › {p.docTitle}
+                  {p.section ? ` › ${p.section}` : ''} · {Math.round(p.position * 100)}% in · relevance {p.score}
+                </div>
+                {(p.source || p.date || p.license) && (
+                  <div className="mt-0.5 break-all text-neutral-400">
+                    {[p.source, p.date, p.license].filter(Boolean).join(' · ')}
+                  </div>
+                )}
+                <p className="mt-1 whitespace-pre-wrap text-neutral-500">{p.text}</p>
+              </div>
+            ))}
+            {lookup.notes.length > 0 && (
+              <p className="text-xs text-neutral-400">
+                {lookup.mode === 'hybrid' ? 'Semantic + keyword ranking. ' : 'Keyword ranking. '}
+                {lookup.notes.join(' ')}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

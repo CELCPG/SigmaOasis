@@ -7,6 +7,7 @@ import { ACCENT_KEYS, ACCENT } from '../lib/colors'
 import { describeModel, describeEvalScore, modelLabel } from '../lib/modelInfo'
 import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
+import { LibraryTab } from './settings/LibraryTab'
 import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
 import type { ToolSchema } from '../types'
 import {
@@ -58,7 +59,7 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   price_watch: 'Price watch (local watchlist — no service is told what is on it)'
 }
 
-type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory'
+type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library'
 
 /**
  * The renderer's Content-Security-Policy (index.html) only permits connections
@@ -382,7 +383,8 @@ export function SettingsModal(): JSX.Element | null {
     { key: 'search', label: 'Search' },
     { key: 'privacy', label: 'Privacy' },
     { key: 'voice', label: 'Voice' },
-    { key: 'memory', label: 'Memory' }
+    { key: 'memory', label: 'Memory' },
+    { key: 'library', label: 'Library' }
   ]
 
   return (
@@ -2164,6 +2166,8 @@ export function SettingsModal(): JSX.Element | null {
                 </div>
               </div>
             )}
+
+            {tab === 'library' && <LibraryTab />}
 
             {tab === 'memory' && (
               <div className="space-y-5">
