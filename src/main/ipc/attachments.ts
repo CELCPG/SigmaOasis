@@ -3,6 +3,8 @@ import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { basename, extname } from 'path'
 import { extractPdfText } from './pdf'
+import { indexAttachment, retrieveAttachmentPassages } from './attachmentIndex'
+import type { AttachmentRef } from './attachmentIndex'
 
 /**
  * Attachment ingestion: the renderer hands us absolute paths (from a file
@@ -26,6 +28,12 @@ interface AttachmentPayload {
   dataUrl?: string
   textContent?: string
   truncated?: boolean
+  /** v1.4.8: full length of the document when only its opening is inlined. */
+  totalChars?: number
+  /** v1.4.8: the whole text is in the session index; passages are retrieved per turn. */
+  indexed?: boolean
+  /** v1.4.8: where the file came from, so the index can be rebuilt after a restart. */
+  sourcePath?: string
 }
 
 interface LoadResult {
@@ -97,12 +105,68 @@ export async function readTextDocument(
 }
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+/**
+ * A document up to this long is inlined whole into the turn — small enough to
+ * sit in any usable context window next to a question about it.
+ */
 const MAX_TEXT_CHARS = 20_000
+/**
+ * v1.4.8: a longer document keeps this much of its opening inline (title,
+ * abstract, table of contents — what tells the model what it is reading) and
+ * the whole text goes to the session index, from which each turn retrieves the
+ * passages relevant to that turn's question. Before this the remainder was
+ * simply cut off.
+ */
+const INLINE_HEAD_CHARS = 6_000
+/** Documents beyond this are refused outright rather than half-indexed. */
+const MAX_DOCUMENT_CHARS = 8_000_000
 /** Parsing scales with file size, and a 25 MB PDF is already far past useful. */
 const MAX_PDF_BYTES = 25 * 1024 * 1024
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/**
+ * Turn a document's full text into an attachment payload: whole when it fits,
+ * otherwise head inline + full text indexed for per-turn retrieval.
+ */
+function textPayload(input: {
+  path: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+  text: string
+  kind: 'text' | 'pdf'
+}): AttachmentPayload | { name: string; reason: string } {
+  const { text } = input
+  if (text.length > MAX_DOCUMENT_CHARS) {
+    return {
+      name: input.name,
+      reason: `Document is longer than ${Math.round(MAX_DOCUMENT_CHARS / 1_000_000)} million characters.`
+    }
+  }
+  const id = uid()
+  const base = { id, kind: 'file' as const, name: input.name, mimeType: input.mimeType, sizeBytes: input.sizeBytes }
+  if (text.length <= MAX_TEXT_CHARS) {
+    return { ...base, textContent: text, truncated: false }
+  }
+  let indexed = false
+  try {
+    indexAttachment({ id, name: input.name, text, kind: input.kind })
+    indexed = true
+  } catch {
+    // Indexing is best effort: the head still goes through, and the renderer
+    // shows the file as truncated exactly as before.
+  }
+  return {
+    ...base,
+    textContent: text.slice(0, INLINE_HEAD_CHARS),
+    truncated: true,
+    totalChars: text.length,
+    indexed,
+    sourcePath: input.path
+  }
 }
 
 async function loadOne(path: string): Promise<AttachmentPayload | { name: string; reason: string }> {
@@ -132,30 +196,27 @@ async function loadOne(path: string): Promise<AttachmentPayload | { name: string
     }
     const outcome = extractPdfText(new Uint8Array(await fs.readFile(path)))
     if (!outcome.ok) return { name, reason: outcome.error }
-    return {
-      id: uid(),
-      kind: 'file',
+    return textPayload({
+      path,
       name,
       mimeType: 'application/pdf',
       sizeBytes: stat.size,
-      textContent: outcome.text.slice(0, MAX_TEXT_CHARS),
-      truncated: outcome.text.length > MAX_TEXT_CHARS
-    }
+      text: outcome.text,
+      kind: 'pdf'
+    })
   }
 
   if (TEXT_EXTENSIONS.has(ext)) {
     const raw = await fs.readFile(path)
     if (raw.includes(0)) return { name, reason: 'Binary files are not supported (images and text only).' }
-    const text = raw.toString('utf-8')
-    return {
-      id: uid(),
-      kind: 'file',
+    return textPayload({
+      path,
       name,
       mimeType: 'text/plain',
       sizeBytes: stat.size,
-      textContent: text.slice(0, MAX_TEXT_CHARS),
-      truncated: text.length > MAX_TEXT_CHARS
-    }
+      text: raw.toString('utf-8'),
+      kind: 'text'
+    })
   }
 
   return {
@@ -206,4 +267,18 @@ export function registerAttachmentHandlers(): void {
   })
 
   ipcMain.handle('attachments:load', (_event, paths: string[]) => loadPaths(paths ?? []))
+
+  // v1.4.8: per-turn retrieval over indexed attachments. Loopback embeddings
+  // at most; nothing leaves the machine.
+  ipcMain.handle(
+    'attachments:passages',
+    (_event, refs: AttachmentRef[], query: string, topK: number) =>
+      retrieveAttachmentPassages(
+        Array.isArray(refs) ? refs : [],
+        String(query ?? ''),
+        Math.min(12, Math.max(1, Number(topK) || 6))
+      )
+  )
 }
+
+export { loadPaths as loadAttachmentPaths }

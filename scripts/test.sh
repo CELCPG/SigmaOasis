@@ -59,6 +59,7 @@ rm -rf "$OUT"
   src/main/ipc/modelPin.ts \
   src/main/ipc/modelCatalog.ts \
   src/main/ipc/attachments.ts \
+  src/main/ipc/attachmentIndex.ts \
   src/main/ipc/deepResearch.ts \
   src/main/ipc/finance.ts \
   src/main/ipc/dates.ts \
@@ -95,6 +96,7 @@ rm -rf "$OUT"
   src/renderer/src/lib/toolSelection.ts \
   src/renderer/src/lib/routing.ts \
   src/renderer/src/lib/sampling.ts \
+  src/renderer/src/lib/attachmentRecall.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts

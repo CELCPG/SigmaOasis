@@ -320,10 +320,20 @@ export function InputBar(): JSX.Element {
                   <span
                     key={a.id}
                     className="flex items-center gap-1.5 rounded-lg border border-black/10 dark:border-white/15 px-2.5 py-1.5 text-xs"
-                    title={a.truncated ? `${a.name} (truncated)` : a.name}
+                    title={
+                      a.indexed
+                        ? `${a.name} — ${(a.totalChars ?? 0).toLocaleString()} characters, indexed: relevant passages are retrieved for each question`
+                        : a.truncated
+                          ? `${a.name} (truncated)`
+                          : a.name
+                    }
                   >
                     📄 {a.name}
-                    {a.truncated && <span className="text-neutral-400">(truncated)</span>}
+                    {a.indexed ? (
+                      <span className="text-neutral-400">(indexed)</span>
+                    ) : (
+                      a.truncated && <span className="text-neutral-400">(truncated)</span>
+                    )}
                     <button
                       type="button"
                       onClick={() => removeAttachment(a.id)}

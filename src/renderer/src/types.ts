@@ -375,6 +375,9 @@ export interface ResearchIndexStats {
   embeddedChunks: number
   /** Cached search responses held in RAM. */
   searchQueries: number
+  /** v1.4.8: attached documents indexed for per-turn retrieval (RAM only). */
+  pinnedDocs: number
+  pinnedChars: number
 }
 
 export interface AppSettings {
@@ -455,10 +458,41 @@ export interface Attachment {
   sizeBytes: number
   /** Images: base64 data URL, used both for display and for the vision API. */
   dataUrl?: string
-  /** Text files: extracted (possibly truncated) content. */
+  /** Text files: extracted content — the whole file, or its opening when `indexed`. */
   textContent?: string
-  /** Set when a text file was cut down to fit the context window. */
+  /** Set when only the opening of a text file is inlined. */
   truncated?: boolean
+  /** v1.4.8: full length of the document when only its opening is inlined. */
+  totalChars?: number
+  /**
+   * v1.4.8: the whole text is in the session's RAM index; every turn retrieves
+   * the passages relevant to that turn's question (see attachmentContext).
+   */
+  indexed?: boolean
+  /** v1.4.8: original path, so the index can be rebuilt after a restart. */
+  sourcePath?: string
+}
+
+/** v1.4.8: what the renderer hands main to retrieve from an attachment. */
+export interface AttachmentRef {
+  id: string
+  name: string
+  sourcePath?: string
+}
+
+export interface AttachmentPassage {
+  attachmentId: string
+  name: string
+  text: string
+  /** 0 (start) .. 1 (end) of the document. */
+  position: number
+  score: number
+}
+
+export interface AttachmentPassagesResult {
+  ok: boolean
+  passages: AttachmentPassage[]
+  notes: string[]
 }
 
 export interface AttachmentLoadResult {
@@ -569,6 +603,12 @@ export interface ChatMessage {
    * (v0.9 visible recall). Display-only — never replayed to a model.
    */
   memoryContext?: MemoryContextItem[]
+  /**
+   * v1.4.8: passages retrieved from the conversation's indexed attachments for
+   * this reply — shown like memory recall, so the user sees what the model was
+   * given from their document.
+   */
+  attachmentContext?: MemoryContextItem[]
   /**
    * v1.1 grounding: a factual-looking question was answered without any web
    * source being consulted (auto-search disabled/failed and the model never

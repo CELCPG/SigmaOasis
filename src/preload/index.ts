@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppSettings,
   AttachmentLoadResult,
+  AttachmentPassagesResult,
+  AttachmentRef,
   AuditEntryInput,
   AuditStatus,
   Conversation,
@@ -143,6 +145,12 @@ const api = {
   pickAttachments: (): Promise<AttachmentLoadResult> => ipcRenderer.invoke('attachments:pick'),
   loadAttachments: (paths: string[]): Promise<AttachmentLoadResult> =>
     ipcRenderer.invoke('attachments:load', paths),
+  /** v1.4.8: passages from indexed attachments most relevant to `query` (RAM index, loopback only). */
+  attachmentPassages: (
+    refs: AttachmentRef[],
+    query: string,
+    topK: number
+  ): Promise<AttachmentPassagesResult> => ipcRenderer.invoke('attachments:passages', refs, query, topK),
   /** Absolute path for a dropped File object (sandbox-safe replacement for File.path). */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 

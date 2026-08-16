@@ -38,6 +38,13 @@ import {
 } from '../lib/toolGrounding'
 import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
 import {
+  ATTACHMENT_PASSAGES_PER_TURN,
+  attachmentInlineNote,
+  buildAttachmentContext,
+  indexedAttachmentRefs,
+  toAttachmentContextItems
+} from '../lib/attachmentRecall'
+import {
   buildExtractionMessages,
   buildJudgeMessages,
   firstResultUrl,
@@ -209,7 +216,7 @@ function toApiContent(m: ChatMessage, withImages: boolean): string | ApiContentP
   if (m.content) textParts.push(m.content)
   for (const f of files) {
     textParts.push(
-      `[Attached file: ${f.name}${f.truncated ? ' — truncated' : ''}]\n\`\`\`\n${f.textContent ?? ''}\n\`\`\``
+      `[Attached file: ${f.name}${attachmentInlineNote(f)}]\n\`\`\`\n${f.textContent ?? ''}\n\`\`\``
     )
   }
   if (!withImages) {
@@ -1067,6 +1074,17 @@ async function runTurn(
       : null
   const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId)
 
+  // v1.4.8: attached documents longer than the inline limit live in the
+  // session index; retrieve what this message needs from them. Started here so
+  // it overlaps the other embedding calls, exactly like memory recall.
+  const attachmentRefs = indexedAttachmentRefs(convo)
+  const attachmentRecall =
+    attachmentRefs.length > 0 && lastUserContent
+      ? window.api
+          .attachmentPassages(attachmentRefs, lastUserContent, ATTACHMENT_PASSAGES_PER_TURN)
+          .catch(() => null)
+      : null
+
   // Tool-call records for the whole turn, including the app-initiated
   // auto-search below — declared here so it can be recorded like any other call.
   const allRecords: ToolCallRecord[] = []
@@ -1192,6 +1210,21 @@ async function runTurn(
       }
     } catch {
       // Memory is a nicety, never a blocker.
+    }
+  }
+
+  if (attachmentRecall) {
+    try {
+      const recalled = await attachmentRecall
+      if (recalled?.ok) {
+        const block = buildAttachmentContext(recalled.passages, recalled.notes)
+        if (block) turnContext.push(block)
+        if (recalled.passages.length > 0) {
+          patch({ attachmentContext: toAttachmentContextItems(recalled.passages) })
+        }
+      }
+    } catch {
+      // Retrieval is best effort; the inline head still went through.
     }
   }
 

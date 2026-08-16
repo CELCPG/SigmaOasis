@@ -1,0 +1,78 @@
+import type { Attachment, AttachmentPassage, AttachmentRef, Conversation, MemoryContextItem } from '../types'
+
+/**
+ * v1.4.8: per-turn retrieval over long attachments — the renderer half.
+ *
+ * A text or PDF attachment longer than the inline limit keeps its opening in
+ * the message and its whole text in the main process's session index
+ * (main/ipc/attachmentIndex.ts). Each turn, the passages most relevant to the
+ * user's latest message are retrieved and ride the turn's context notes, the
+ * same slot memory recall uses. Headless so the labelling and the block the
+ * model sees are pinned by tests.
+ */
+
+/** Passages retrieved per turn across all indexed attachments. */
+export const ATTACHMENT_PASSAGES_PER_TURN = 6
+
+/** Every indexed attachment in the conversation, in message order, deduplicated by id. */
+export function indexedAttachmentRefs(convo: Pick<Conversation, 'messages'>): AttachmentRef[] {
+  const seen = new Set<string>()
+  const refs: AttachmentRef[] = []
+  for (const m of convo.messages) {
+    for (const a of m.attachments ?? []) {
+      if (a.kind !== 'file' || !a.indexed || seen.has(a.id)) continue
+      seen.add(a.id)
+      refs.push({ id: a.id, name: a.name, sourcePath: a.sourcePath })
+    }
+  }
+  return refs
+}
+
+/**
+ * How an inlined text attachment is labelled for the model. An indexed
+ * document says exactly what is and is not in front of the model, and where
+ * the rest comes from — a small model that reads "truncated" alone tends to
+ * either apologize for missing content it was given, or invent it.
+ */
+export function attachmentInlineNote(f: Pick<Attachment, 'truncated' | 'indexed' | 'totalChars'>): string {
+  if (!f.truncated) return ''
+  if (f.indexed && f.totalChars) {
+    return (
+      ` — ${f.totalChars.toLocaleString('en-US')} characters in total; only the opening is shown here. ` +
+      'The passages of this document most relevant to each question are supplied in the notes the ' +
+      'app appends to the latest message — use those, and never guess at parts of the document ' +
+      'you were not given'
+    )
+  }
+  return ' — truncated'
+}
+
+/** The turn-context block carrying retrieved passages (and any retrieval notes). */
+export function buildAttachmentContext(passages: AttachmentPassage[], notes: string[]): string | null {
+  const blocks: string[] = []
+  if (passages.length > 0) {
+    blocks.push(
+      'Passages from the document(s) the user attached, chosen for their relevance to this ' +
+        'message (position is how far into the document the passage sits). Quote or cite these ' +
+        'when answering about the document; if what is needed is not here, say the passages you ' +
+        'were given do not cover it — do not invent document content:\n' +
+        passages
+          .map(
+            (p) =>
+              `--- ${p.name} · ${Math.round(p.position * 100)}% in · relevance ${p.score} ---\n${p.text}`
+          )
+          .join('\n\n')
+    )
+  }
+  for (const note of notes) blocks.push(`Note: ${note}`)
+  return blocks.length > 0 ? blocks.join('\n\n') : null
+}
+
+/** What the bubble shows under the reply — mechanical, exactly what was sent. */
+export function toAttachmentContextItems(passages: AttachmentPassage[]): MemoryContextItem[] {
+  return passages.map((p) => ({
+    source: `${p.name} · ${Math.round(p.position * 100)}% in`,
+    score: p.score,
+    text: p.text
+  }))
+}

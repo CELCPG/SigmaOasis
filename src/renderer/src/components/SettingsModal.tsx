@@ -1758,7 +1758,9 @@ export function SettingsModal(): JSX.Element | null {
                     means re-reading a page you already fetched costs no new network request.
                   </p>
                   {researchStats === null ||
-                  (researchStats.pages === 0 && researchStats.searchQueries === 0) ? (
+                  (researchStats.pages === 0 &&
+                    researchStats.searchQueries === 0 &&
+                    (researchStats.pinnedDocs ?? 0) === 0) ? (
                     <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
                       Nothing held in memory.
                     </p>
@@ -1776,7 +1778,18 @@ export function SettingsModal(): JSX.Element | null {
                       <strong className="text-neutral-700 dark:text-neutral-300">
                         {researchStats.searchQueries}
                       </strong>{' '}
-                      cached search{researchStats.searchQueries === 1 ? '' : 'es'}. In RAM only.
+                      cached search{researchStats.searchQueries === 1 ? '' : 'es'}
+                      {(researchStats.pinnedDocs ?? 0) > 0 && (
+                        <>
+                          {' '}·{' '}
+                          <strong className="text-neutral-700 dark:text-neutral-300">
+                            {researchStats.pinnedDocs}
+                          </strong>{' '}
+                          attached document{researchStats.pinnedDocs === 1 ? '' : 's'} (
+                          {Math.round((researchStats.pinnedChars ?? 0) / 1024)} KB)
+                        </>
+                      )}
+                      . In RAM only.
                     </p>
                   )}
                 </div>

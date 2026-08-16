@@ -169,7 +169,15 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
  * system prompt for this reply. The display is mechanical — the app shows
  * what it actually sent, it does not ask the model to footnote itself.
  */
-function MemoryContextLine({ items }: { items: NonNullable<ChatMessage['memoryContext']> }): JSX.Element {
+function MemoryContextLine({
+  items,
+  label = '📚 From memory:',
+  title = 'The long-term memory chunks the model was reminded of before answering'
+}: {
+  items: NonNullable<ChatMessage['memoryContext']>
+  label?: string
+  title?: string
+}): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
     <div className="mt-2 text-[11px] text-neutral-400">
@@ -177,9 +185,9 @@ function MemoryContextLine({ items }: { items: NonNullable<ChatMessage['memoryCo
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
-        title="The long-term memory chunks the model was reminded of before answering"
+        title={title}
       >
-        📚 From memory:{' '}
+        {label}{' '}
         {items.map((i) => `${i.source} (${i.score.toFixed(2)})`).join(', ')}{' '}
         <span>{open ? '▾' : '▸'}</span>
       </button>
@@ -300,9 +308,14 @@ export const MessageBubble = memo(function MessageBubble({
           <span
             key={a.id}
             className="rounded-lg border border-black/10 dark:border-white/15 px-2.5 py-1.5 text-xs"
-            title={a.name}
+            title={
+              a.indexed
+                ? `${a.name} — ${(a.totalChars ?? 0).toLocaleString()} characters, indexed: relevant passages are retrieved for each question`
+                : a.name
+            }
           >
             📄 {a.name}
+            {a.indexed && <span className="ml-1 text-neutral-400">(indexed)</span>}
           </span>
         ))}
         {message.content && (
@@ -449,6 +462,14 @@ export const MessageBubble = memo(function MessageBubble({
 
         {!isStreaming && message.memoryContext && message.memoryContext.length > 0 && (
           <MemoryContextLine items={message.memoryContext} />
+        )}
+
+        {!isStreaming && message.attachmentContext && message.attachmentContext.length > 0 && (
+          <MemoryContextLine
+            items={message.attachmentContext}
+            label="📄 From the attached document(s):"
+            title="The passages of the attached document(s) retrieved for this question — the model saw exactly these"
+          />
         )}
 
         {!isStreaming && message.unverified && (

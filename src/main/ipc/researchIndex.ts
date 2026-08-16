@@ -93,6 +93,14 @@ export interface IndexedPage {
   blockedOrigins: string[]
   /** Why rendering was or was not used, when it was considered. */
   renderNote?: string
+  /**
+   * v1.4.8: a pinned page is a document the user attached to a conversation
+   * rather than a page a tool fetched. It is exempt from the 30-minute TTL —
+   * the user may ask about it an hour later — and evicted only under its own
+   * cap, so a burst of research fetches cannot push the user's own document
+   * out. Still RAM only: nothing about the file is written anywhere.
+   */
+  pinned: boolean
   chunks: IndexedChunk[]
   bm25: Bm25Index
   /** Embedding model the cached vectors belong to; null until anything is embedded. */
@@ -107,6 +115,9 @@ const MAX_PAGES = 32
 const MAX_INDEX_CHARS = 4_000_000
 /** A cached page older than this is refetched rather than reused. */
 const TTL_MS = 30 * 60 * 1000
+/** Pinned (attached) documents held at once, and their total characters (~8 MB). */
+const MAX_PINNED_DOCS = 64
+const MAX_PINNED_CHARS = 8_000_000
 /**
  * Chunks embedded per page. Beyond this, BM25 selects which chunks are worth
  * the embedding calls (see `selectChunksToEmbed`) — embedding a 2 MB page in
@@ -127,23 +138,25 @@ function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function indexedChars(): number {
+function indexedChars(pinned = false): number {
   let total = 0
-  for (const page of pages.values()) total += page.text.length
+  for (const page of pages.values()) if (page.pinned === pinned) total += page.text.length
   return total
 }
 
-/** Drop expired pages, then evict least-recently-used until back inside caps. */
-function enforceCaps(): void {
-  const now = Date.now()
-  for (const [url, page] of pages) {
-    if (now - page.fetchedAt > TTL_MS) pages.delete(url)
-  }
-  while (pages.size > MAX_PAGES || indexedChars() > MAX_INDEX_CHARS) {
+function countPages(pinned: boolean): number {
+  let n = 0
+  for (const page of pages.values()) if (page.pinned === pinned) n += 1
+  return n
+}
+
+/** Evict the least-recently-used page of one class until that class is inside its caps. */
+function evictLru(pinned: boolean, maxPages: number, maxChars: number): void {
+  while (countPages(pinned) > maxPages || indexedChars(pinned) > maxChars) {
     let oldestUrl: string | null = null
     let oldestAccess = Infinity
     for (const [url, page] of pages) {
-      if (page.lastAccess < oldestAccess) {
+      if (page.pinned === pinned && page.lastAccess < oldestAccess) {
         oldestAccess = page.lastAccess
         oldestUrl = url
       }
@@ -151,6 +164,16 @@ function enforceCaps(): void {
     if (!oldestUrl) break
     pages.delete(oldestUrl)
   }
+}
+
+/** Drop expired pages, then evict least-recently-used until back inside caps. */
+function enforceCaps(): void {
+  const now = Date.now()
+  for (const [url, page] of pages) {
+    if (!page.pinned && now - page.fetchedAt > TTL_MS) pages.delete(url)
+  }
+  evictLru(false, MAX_PAGES, MAX_INDEX_CHARS)
+  evictLru(true, MAX_PINNED_DOCS, MAX_PINNED_CHARS)
 }
 
 /**
@@ -172,7 +195,7 @@ export function pageCacheKey(rawUrl: string): string {
 export function getIndexedPage(key: string): IndexedPage | null {
   const page = pages.get(key)
   if (!page) return null
-  if (Date.now() - page.fetchedAt > TTL_MS) {
+  if (!page.pinned && Date.now() - page.fetchedAt > TTL_MS) {
     pages.delete(key)
     return null
   }
@@ -194,6 +217,7 @@ export function indexPage(input: {
   hiddenTextRemoved?: number
   blockedOrigins?: string[]
   renderNote?: string
+  pinned?: boolean
 }): IndexedPage {
   const text = normalizeForChunking(input.text)
   const chunks: IndexedChunk[] = chunkTextWithOffsets(text).map((c) => {
@@ -214,6 +238,7 @@ export function indexPage(input: {
     hiddenTextRemoved: input.hiddenTextRemoved ?? 0,
     blockedOrigins: input.blockedOrigins ?? [],
     renderNote: input.renderNote,
+    pinned: input.pinned ?? false,
     chunks,
     bm25: new Bm25Index(chunks.map((c) => ({ id: c.id, terms: c.terms }))),
     embeddingModel: null,
@@ -399,6 +424,9 @@ export function researchIndexStats(): {
   chunks: number
   chars: number
   embeddedChunks: number
+  /** v1.4.8: attached documents held alongside the fetched pages. */
+  pinnedDocs: number
+  pinnedChars: number
 } {
   let chunks = 0
   let embeddedChunks = 0
@@ -406,7 +434,14 @@ export function researchIndexStats(): {
     chunks += page.chunks.length
     embeddedChunks += page.chunks.filter((c) => c.vector).length
   }
-  return { pages: pages.size, chunks, chars: indexedChars(), embeddedChunks }
+  return {
+    pages: countPages(false),
+    chunks,
+    chars: indexedChars(false),
+    embeddedChunks,
+    pinnedDocs: countPages(true),
+    pinnedChars: indexedChars(true)
+  }
 }
 
 /** Drop every cached page. Exposed so the user can clear it on demand. */
