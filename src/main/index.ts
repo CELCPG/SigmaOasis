@@ -10,6 +10,7 @@ import { registerAttachmentHandlers } from './ipc/attachments'
 import { registerVoiceHandlers } from './ipc/voice'
 import { registerMemoryHandlers } from './ipc/memory'
 import { registerLibraryHandlers } from './ipc/library'
+import { registerWorkbenchHandlers, registerWorkbenchScheme } from './ipc/workbench'
 import { registerNetworkHandlers } from './ipc/net'
 import { registerSearchHandlers } from './ipc/search'
 import { registerAuditHandlers, purgeAuditLogs } from './ipc/audit'
@@ -103,6 +104,10 @@ function createWindow(): void {
   }
 }
 
+// The Workbench sandbox serves its runtime over a privileged app scheme;
+// schemes must be registered before ready.
+registerWorkbenchScheme()
+
 app.whenReady().then(() => {
   migrateSettings()
   registerStoreHandlers()
@@ -112,6 +117,7 @@ app.whenReady().then(() => {
   registerVoiceHandlers()
   registerMemoryHandlers()
   registerLibraryHandlers()
+  registerWorkbenchHandlers()
   registerNetworkHandlers()
   registerSearchHandlers()
   registerUpdateHandlers()

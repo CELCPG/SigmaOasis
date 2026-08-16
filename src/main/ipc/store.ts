@@ -94,6 +94,8 @@ export interface ToolToggles {
   memory_forget: boolean
   /** v1.5: offline reference library (the Almanac). Local disk + loopback embeddings only. */
   reference_lookup: boolean
+  /** v1.6: the Workbench — sandboxed Python (WASM; no network, no real disk). */
+  run_python: boolean
   deep_research: boolean
   finance_calculator: boolean
   shop_requirements: boolean
@@ -387,6 +389,8 @@ function defaultSettings(): AppSettings {
       // v1.5: on by default — it reads only the user's own installed packs and
       // never touches the network, so there is nothing to consent to.
       reference_lookup: true,
+      // v1.6: on by default — sandboxed by construction, touches nothing outside the app.
+      run_python: true,
       deep_research: true,
       finance_calculator: true,
       // Off by default: these initiate outbound requests to commercial sites

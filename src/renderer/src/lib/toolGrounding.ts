@@ -23,7 +23,7 @@ import type { ToolCallRecord } from '../types'
  */
 
 /** Tools whose output is the authoritative source for numbers in a reply. */
-const NUMERIC_TOOLS = new Set(['finance_calculator', 'shop_compare', 'price_watch'])
+const NUMERIC_TOOLS = new Set(['finance_calculator', 'shop_compare', 'price_watch', 'run_python'])
 
 /** Tools whose output is the authoritative source for links in a reply. */
 const SOURCE_TOOLS = new Set([

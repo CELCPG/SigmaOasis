@@ -6,6 +6,7 @@ import { calculatorHandlers } from './calculators'
 import { noteHandlers } from './notes'
 import { memoryHandlers } from './memory'
 import { libraryHandlers } from './library'
+import { workbenchHandlers } from './workbench'
 import { shoppingHandlers } from './shopping'
 import type { ToolContext, ToolHandler, ToolResult } from './types'
 
@@ -23,6 +24,7 @@ export const TOOL_HANDLERS: Record<keyof ToolToggles, ToolHandler> = {
   ...noteHandlers,
   ...memoryHandlers,
   ...libraryHandlers,
+  ...workbenchHandlers,
   ...shoppingHandlers
 }
 

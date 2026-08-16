@@ -1,0 +1,45 @@
+# The Workbench — sandboxed Python (v1.6)
+
+`run_python` lets a model compute instead of estimate: arithmetic, unit conversion, dates,
+statistics, parsing, and checking a result it is about to state. It is the *computation* leg of
+the small-model strategy (STRATEGY-depth-and-reasoning.md, Feature B).
+
+## How it is sandboxed
+
+Python runs as **Pyodide** — CPython compiled to WebAssembly — inside a hidden, sandboxed Electron
+window (`src/main/ipc/workbench.ts`):
+
+- `sandbox: true`, context isolation, no Node integration. The page has a DOM and nothing else;
+  Python's `js` bridge reaches only that page.
+- Its own session, whose every request not on the app's `sigma-workbench://` scheme is refused,
+  and a CSP saying the same (`connect-src 'self'`). No permissions are granted. The check suite
+  proves it: `urllib` cannot reach even loopback, and `js.fetch` is blocked.
+- A virtual filesystem. Inputs the app provides appear under `/work`; files the code writes there
+  come back (bounded: 24 files / 8 MB). The host's disk is never mounted — `/Users`, `/etc/passwd`
+  do not exist inside.
+- Fresh globals and an emptied `/work` per job; one job at a time; a job over its budget
+  (default 60 s, max 180 s) has its window destroyed and the next job gets a fresh sandbox.
+- The idle sandbox is torn down after ten minutes (it holds ~150 MB) and never keeps the app
+  alive after the last real window closes.
+
+## The runtime files
+
+`resources/pyodide/` — fetched once by `bash scripts/fetch-pyodide.sh` (pinned version, ~14 MB
+unpacked: `pyodide.js`, `pyodide.asm.wasm`, `python_stdlib.zip`, lock file). Packaged builds ship
+it as an extra resource; the app never downloads anything at run time. Standard library only in
+this release; numpy/pandas/matplotlib are the next step (bundled wheels, still offline).
+
+## What the model sees
+
+`toolHandlers/workbench.ts` → `workbenchFormat.ts`: stdout, the last expression's `repr`, stderr,
+files written (small text files inlined, images handed to the chat gallery), and the standing
+rule *"Numbers above were computed, not recalled: state them exactly as shown, with units, and say
+they came from running code."* A traceback comes back as a failure the model can read and fix —
+*"do not guess at the value it would have produced"*. Computed numbers count as a consulted
+source for the grounding badge and as sourced figures for the tool-grounding check.
+
+## Verifying
+
+`bash scripts/test-render.sh` runs `test/workbenchCheck.ts` in Electron proper: round-trip,
+tracebacks, fresh globals, `/work` I/O, no disk, no network (two ways), timeout kill and recovery.
+It self-skips when the runtime is not fetched.

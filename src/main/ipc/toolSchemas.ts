@@ -557,6 +557,33 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: 'function',
     function: {
+      name: 'run_python',
+      description:
+        'Run Python code in a local sandbox and get back stdout, the last expression, and any files ' +
+        'it wrote (images are shown to the user). Python 3 with the standard library; no internet, ' +
+        'no access to the user\'s disk. Fresh globals each run; the working directory /work is empty ' +
+        'unless files were provided.\n' +
+        'Use when: the answer needs arithmetic beyond a single step, unit conversion, dates, ' +
+        'statistics, sorting or aggregating data, parsing text, or checking a result — compute it, ' +
+        'do not estimate it. Also to verify a calculation you are about to state.\n' +
+        'Do not use when: finance_calculator or date_calculator already does the exact job; or the ' +
+        'user needs a shell on their machine (run_terminal_command). Do not use it to reach the ' +
+        'network — it cannot.\n' +
+        'Print what you need to see, or end with an expression. Keep runs short (default limit 60 s).\n' +
+        'Example: {"code": "prices=[2.40/3]*17\\nprint(round(20-sum(prices),2))"}',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: 'Python source to execute' },
+          timeout_seconds: { type: 'number', description: 'Wall-clock limit for this run (default 60, max 180)' }
+        },
+        required: ['code']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'shop_requirements',
       description:
         'Work out what the user actually needs before shopping for it. Runs entirely on this machine — ' +

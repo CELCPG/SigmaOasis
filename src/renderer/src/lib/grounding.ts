@@ -406,7 +406,17 @@ export function buildTurnContext(blocks: string[]): string | null {
  * though it is not the live web. (Only a lookup that returned passages is
  * recorded as done; an empty library records nothing.)
  */
-const SOURCE_TOOLS = new Set(['web_search', 'fetch_webpage', 'deep_research', 'reference_lookup'])
+const SOURCE_TOOLS = new Set([
+  'web_search',
+  'fetch_webpage',
+  'deep_research',
+  'reference_lookup',
+  // v1.6: a number the sandbox or the calculator computed is not "from model
+  // memory" — the computation is its source. (Measured: a correct compound-
+  // interest answer computed by run_python still wore the unverified badge.)
+  'run_python',
+  'finance_calculator'
+])
 
 /**
  * Did this turn consult any source? The badge decision is mechanical:

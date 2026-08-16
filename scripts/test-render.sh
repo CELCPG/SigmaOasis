@@ -8,6 +8,9 @@
 #  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
 #                     window. DOMPurify is a no-op without a DOM, so a node test
 #                     of it would pass while sanitizing nothing.
+#  - workbenchCheck:  the sandboxed Python runtime (Pyodide in a sandboxed
+#                     window): round-trip, isolation, timeout kill. Self-skips
+#                     when resources/pyodide is not fetched.
 #  - httpClientCheck: the Electron-net transport every outbound request uses.
 #                     The node suite stubs ./net, so nothing there exercises the
 #                     real transport — a regression would break every network
@@ -52,12 +55,14 @@ fi
   --strict \
   test/renderCheck.ts \
   test/markdownCheck.ts \
+  test/workbenchCheck.ts \
+  src/preload/workbench.ts \
   test/httpClientCheck.ts
 
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
 status=0
-for check in renderCheck markdownCheck httpClientCheck; do
+for check in renderCheck markdownCheck workbenchCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
 done
 exit "$status"

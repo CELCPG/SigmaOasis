@@ -147,6 +147,9 @@ describe('consultedSources', () => {
     assert.equal(consultedSources([rec('deep_research', 'done')]), true)
     // v1.5: an installed reference document is a source the model can quote.
     assert.equal(consultedSources([rec('reference_lookup', 'done')]), true)
+    // v1.6: computed numbers have the computation as their source.
+    assert.equal(consultedSources([rec('run_python', 'done')]), true)
+    assert.equal(consultedSources([rec('finance_calculator', 'done')]), true)
   })
 
   test('failed, pending, and non-source tools leave the turn unverified', () => {
