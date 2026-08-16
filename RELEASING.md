@@ -104,8 +104,13 @@ Then watch the run:
 gh run watch
 ```
 
-The `Release` workflow runs four jobs:
+The `Release` workflow runs five jobs:
 
+- **Tag is on main** — refuses, before anything is built, a tag that is not an
+  ancestor of `main` or whose version disagrees with `package.json`. Tag first
+  and merge later and this is what stops you: the artifacts of such a build look
+  perfectly fine while the tag names history the repository does not have.
+  If it fails, the log prints the exact commands to drop the tag and re-cut it.
 - **macOS (signed & notarized)** — typecheck → test suite → bundle → build both
   DMGs → sign → notarize → staple → attach to the GitHub Release. Notarization
   is the slow part; expect 5–15 minutes.

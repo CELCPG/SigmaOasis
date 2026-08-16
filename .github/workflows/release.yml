@@ -15,14 +15,81 @@ name: Release
 #
 # Without these the macOS job fails at signing — that is deliberate, so an
 # unsigned build is never published as a release.
+#
+# Every build job waits on `guard`, which refuses a tag that is not on main or
+# that disagrees with package.json — see the comment on that job.
 
 on:
   push:
     tags: ['v*']
 
 jobs:
+  # Runs before anything is built, because the failure it catches is invisible
+  # in the artifacts. In v1.4.7 a tag was pushed at a commit that had been
+  # rebuilt and abandoned; it was on no branch, main had never received it, and
+  # the release built, signed, notarized and bumped the Homebrew tap without
+  # complaint. Nothing looked wrong — the app source happened to be identical —
+  # but the tag named history the repository did not have, and the notes it
+  # shipped were a superseded draft. The next such mistake will not be so
+  # lucky, so it fails here instead, before the ~6 minutes of notarization and
+  # before a draft release and a tap commit exist to clean up.
+  guard:
+    name: Tag is on main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # merge-base needs real history; checkout's default shallow fetch has
+          # none, and the ancestry test would fail for the wrong reason.
+          fetch-depth: 0
+
+      - name: Verify the tag is on main and matches package.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Fetch main explicitly rather than trusting what checkout left
+          # behind: this workflow is checked out at a tag, not a branch.
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          TAG_SHA=$(git rev-parse 'HEAD^{commit}')
+          MAIN_SHA=$(git rev-parse origin/main)
+
+          # A commit is its own ancestor, so the ordinary case — tag sitting on
+          # main's tip — passes.
+          if ! git merge-base --is-ancestor "$TAG_SHA" "$MAIN_SHA"; then
+            echo "::error::$TAG points at $TAG_SHA, which is not on main (main is $MAIN_SHA)."
+            echo "A release built from here would ship history that main does not contain."
+            echo ""
+            echo "To fix, drop the tag and re-cut it from main:"
+            echo "  gh release delete $TAG --yes          # if a draft was created"
+            echo "  git push origin :refs/tags/$TAG"
+            echo "  git tag -d $TAG"
+            echo "  git checkout main && git merge --ff-only <branch> && git push origin main"
+            echo "  git tag $TAG && git push origin $TAG"
+            exit 1
+          fi
+
+          # The tag is what names the assets and drives the Homebrew bump, while
+          # package.json is what electron-builder actually stamps on them. When
+          # they disagree the build succeeds and the tap bump fails hunting for
+          # an asset that was never built — six minutes later, on a release that
+          # already exists.
+          VERSION="${TAG#v}"
+          PKG=$(jq -r .version package.json)
+          if [ "$VERSION" != "$PKG" ]; then
+            echo "::error::$TAG implies version $VERSION but package.json says $PKG."
+            echo "Assets would be named $PKG while the tag and the tap expect $VERSION."
+            exit 1
+          fi
+
+          echo "$TAG is on main and package.json agrees ($PKG)."
+
   macos:
     name: macOS (signed & notarized)
+    needs: guard
     runs-on: macos-latest
     permissions:
       contents: write
@@ -107,6 +174,7 @@ jobs:
 
   windows:
     name: Windows
+    needs: guard
     runs-on: windows-latest
     permissions:
       contents: write
@@ -130,6 +198,7 @@ jobs:
 
   linux:
     name: Linux
+    needs: guard
     runs-on: ubuntu-latest
     permissions:
       contents: write
