@@ -9,6 +9,7 @@ import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
+import { RanCodeBlock } from './RanCodeBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
 import { describeDeliberation } from '../lib/deliberation'
@@ -514,7 +515,13 @@ export const MessageBubble = memo(function MessageBubble({
         <ToolImageGallery records={toolCalls} />
 
         {!hideToolCalls &&
-          toolCalls.map((record) => <ToolCallBlock key={record.id} record={record} />)}
+          toolCalls.map((record) =>
+            record.name === 'run_python' ? (
+              <RanCodeBlock key={record.id} record={record} onCopyClick={handleCopyClick} />
+            ) : (
+              <ToolCallBlock key={record.id} record={record} />
+            )
+          )}
 
         {message.routingNote && (
           <div
