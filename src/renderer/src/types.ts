@@ -67,6 +67,7 @@ export interface ToolToggles {
   memory_save: boolean
   memory_search: boolean
   memory_forget: boolean
+  reference_lookup: boolean
   deep_research: boolean
   finance_calculator: boolean
   shop_requirements: boolean

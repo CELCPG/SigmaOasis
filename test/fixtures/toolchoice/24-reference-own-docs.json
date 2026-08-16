@@ -1,0 +1,1 @@
+{ "prompt": "check my documents — what does the router manual say about resetting it?", "expect": { "tool": "reference_lookup" } }

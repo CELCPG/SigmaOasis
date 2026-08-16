@@ -68,3 +68,20 @@ describe('tool registry', () => {
     assert.match(result.output ?? '', /30 day\(s\)/)
   })
 })
+
+describe('reference_lookup through the registry', () => {
+  test('an empty library is an honest ok result, not an error', async () => {
+    resetState()
+    const lib = load<typeof import('../src/main/ipc/library')>('library')
+    lib.setLibraryDirForTests(require('path').join(require('os').tmpdir(), `sigma-reg-lib-${process.pid}`))
+    const result = await registry.executeTool('reference_lookup', { query: 'burns' }, context)
+    assert.equal(result.ok, true, result.error)
+    assert.match(result.output ?? '', /No reference passages found/)
+    assert.match(result.output ?? '', /do not invent a reference/)
+    lib.setLibraryDirForTests(null)
+  })
+  test('a blank query is refused', async () => {
+    const result = await registry.executeTool('reference_lookup', { query: '  ' }, context)
+    assert.equal(result.ok, false)
+  })
+})

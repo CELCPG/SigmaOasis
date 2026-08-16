@@ -88,6 +88,8 @@ export function evalStubResult(name: string): ToolResult {
     memory_save: 'Saved to long-term memory.',
     memory_search: '(no matching memories)',
     memory_forget: 'No memory with that title.',
+    reference_lookup:
+      '[1] First aid › FM 4-25.11 › Burns · 31% in\n    relevance 0.91\nCool the burn with cool running water for at least twenty minutes.',
     shop_requirements:
       'Derived requirements: 32GB RAM, discrete GPU, 1TB SSD. Confirm before searching.',
     shop_compare:

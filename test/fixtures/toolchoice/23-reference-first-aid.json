@@ -1,0 +1,1 @@
+{ "prompt": "what does the first aid manual say about treating a burn?", "expect": { "tool": "reference_lookup" } }

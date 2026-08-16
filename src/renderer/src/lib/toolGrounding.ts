@@ -33,7 +33,9 @@ const SOURCE_TOOLS = new Set([
   'deep_research',
   'shop_compare',
   'shop_requirements',
-  'price_watch'
+  'price_watch',
+  // v1.5: library passages carry their document's source URL/path.
+  'reference_lookup'
 ])
 
 /** Beyond this many findings the badge stops enumerating and just counts. */

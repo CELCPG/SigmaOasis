@@ -51,6 +51,7 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   memory_save: 'Save to long-term memory',
   memory_search: 'Search long-term memory',
   memory_forget: 'Delete a memory',
+  reference_lookup: 'Reference library (offline packs and your own documents — fully local)',
   finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)',
   shop_requirements: 'Shopping requirements (works out what you need — fully local, sends nothing)',
   shop_compare: 'Shopping comparison (contacts retailers; prices carry a source and a timestamp)',

@@ -40,6 +40,8 @@ export const TOOL_TURN_BUDGETS: Record<string, number> = {
   image_search: 2,
   fetch_webpage: 2,
   deep_research: 1,
+  // Local and cheap, but a model that keeps rephrasing the same lookup is looping.
+  reference_lookup: 3,
   shop_requirements: 2,
   shop_compare: 2
 }
