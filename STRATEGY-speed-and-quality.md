@@ -1,6 +1,6 @@
 # Strategy: Speed & Quality — post v1.4.6
 
-**Status: Part 1a/1b/1c and Part 2a shipped in v1.4.7 · Part 1d and Part 2b–2d proposed.**
+**Status: Part 1a/1b/1c and Part 2a shipped in v1.4.7 · Part 2b, the `markdown.ts` suite and hook split from 2c, and the `tools.ts` dispatch table + loopback dedupe from 2d shipped in v1.4.8 · Part 1d, the rest of 2c/2d, and Part 3 proposed (Part 3 is re-sequenced behind the Almanac — see `STRATEGY-depth-and-reasoning.md`).**
 Written against the v1.4.6 codebase (commit 81992aa). Companion to
 `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped) and `ROADMAP-v1.2.md` (prevent →
 detect → review → settle, shipped). Those two ladders made answers *honest*. This one makes

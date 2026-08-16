@@ -8,7 +8,15 @@ on:
 jobs:
   check:
     name: Typecheck & build
-    runs-on: macos-latest
+    # macOS runs the full suite including the real-Electron window checks.
+    # The Linux leg (v1.4.8) proves nothing is macOS-only: the node suite runs in
+    # full, and the Electron checks self-skip without a display (xvfb-run
+    # provides one so they run there too).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,11 +33,12 @@ jobs:
       # The node:test suite plus the real-Electron transport/render checks.
       # Runs before the build so a failing test never produces an artifact.
       - name: Test
-        run: npm test
+        run: ${{ runner.os == 'Linux' && 'xvfb-run -a npm test' || 'npm test' }}
 
       # Unpacked build only — verifies the bundle compiles without needing
       # signing credentials, which pull requests must never have access to.
       - name: Build (unpacked)
+        if: runner.os == 'macOS'
         run: npm run build:unpack
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
