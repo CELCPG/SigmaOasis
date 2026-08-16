@@ -34,6 +34,10 @@ interface AttachmentPayload {
   indexed?: boolean
   /** v1.4.8: where the file came from, so the index can be rebuilt after a restart. */
   sourcePath?: string
+  /** v1.6: a spreadsheet/data file — no inline text; read by the Workbench from /work. */
+  dataFile?: boolean
+  /** v1.6: a tabular text file (CSV/TSV/JSON) — only its head is inlined; the whole file is at /work. */
+  tabular?: boolean
 }
 
 interface LoadResult {
@@ -147,7 +151,19 @@ function textPayload(input: {
     }
   }
   const id = uid()
-  const base = { id, kind: 'file' as const, name: input.name, mimeType: input.mimeType, sizeBytes: input.sizeBytes }
+  // sourcePath on every file (v1.6): the Workbench stages attachments under
+  // /work from disk at tool time, and re-indexing after a restart needs it too.
+  const base = { id, kind: 'file' as const, name: input.name, mimeType: input.mimeType, sizeBytes: input.sizeBytes, sourcePath: input.path }
+  // v1.6: a tabular text file (CSV/TSV/JSON) is data, not prose. The model
+  // gets a short head so it knows the columns, the app profiles it
+  // (analyze_file) and computes on it (run_python at /work/<name>). Inlining
+  // 400 rows measurably blew a 9B model's 8K context and answered nothing.
+  const ext = extname(input.name).toLowerCase()
+  if (TABULAR_TEXT_EXTENSIONS.has(ext) && text.length > TABULAR_INLINE_CHARS) {
+    const lines = text.split('\n')
+    const head = lines.slice(0, TABULAR_INLINE_LINES).join('\n').slice(0, TABULAR_INLINE_CHARS)
+    return { ...base, textContent: head, truncated: true, totalChars: text.length, indexed: false, tabular: true }
+  }
   if (text.length <= MAX_TEXT_CHARS) {
     return { ...base, textContent: text, truncated: false }
   }
@@ -164,10 +180,26 @@ function textPayload(input: {
     textContent: text.slice(0, INLINE_HEAD_CHARS),
     truncated: true,
     totalChars: text.length,
-    indexed,
-    sourcePath: input.path
+    indexed
   }
 }
+
+/**
+ * v1.6: spreadsheets are attached as data files — no text is inlined (a
+ * workbook is not prose); the Workbench reads them from /work, and the app
+ * profiles them automatically (analyze_file) on the turn they are attached.
+ */
+const DATA_EXTENSIONS: Record<string, string> = {
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  '.parquet': 'application/vnd.apache.parquet'
+}
+const MAX_DATA_BYTES = 40 * 1024 * 1024
+/** Text attachments the Workbench also treats as tables. */
+export const TABULAR_TEXT_EXTENSIONS = new Set(['.csv', '.tsv', '.json', '.jsonl'])
+/** Head of a tabular text file shown inline; the rest lives in /work. */
+const TABULAR_INLINE_LINES = 25
+const TABULAR_INLINE_CHARS = 3_000
 
 async function loadOne(path: string): Promise<AttachmentPayload | { name: string; reason: string }> {
   const name = basename(path)
@@ -206,6 +238,21 @@ async function loadOne(path: string): Promise<AttachmentPayload | { name: string
     })
   }
 
+  if (DATA_EXTENSIONS[ext]) {
+    if (stat.size > MAX_DATA_BYTES) {
+      return { name, reason: `Data file is larger than ${MAX_DATA_BYTES / 1024 / 1024} MB.` }
+    }
+    return {
+      id: uid(),
+      kind: 'file',
+      name,
+      mimeType: DATA_EXTENSIONS[ext],
+      sizeBytes: stat.size,
+      sourcePath: path,
+      dataFile: true
+    }
+  }
+
   if (TEXT_EXTENSIONS.has(ext)) {
     const raw = await fs.readFile(path)
     if (raw.includes(0)) return { name, reason: 'Binary files are not supported (images and text only).' }
@@ -221,7 +268,7 @@ async function loadOne(path: string): Promise<AttachmentPayload | { name: string
 
   return {
     name,
-    reason: `Unsupported type "${ext || 'unknown'}" — images, text files and PDFs only.`
+    reason: `Unsupported type "${ext || 'unknown'}" — images, text files, PDFs and spreadsheets (.xlsx) only.`
   }
 }
 
@@ -256,7 +303,7 @@ export function registerAttachmentHandlers(): void {
       filters: [
         {
           name: 'Images, text & PDF',
-          extensions: [...Object.keys(IMAGE_MIME), ...TEXT_EXTENSIONS, '.pdf'].map((e) => e.slice(1))
+          extensions: [...Object.keys(IMAGE_MIME), ...TEXT_EXTENSIONS, '.pdf', ...Object.keys(DATA_EXTENSIONS)].map((e) => e.slice(1))
         },
         { name: 'Audio (transcribed locally)', extensions: [...AUDIO_EXTENSIONS].map((e) => e.slice(1)) },
         { name: 'All files', extensions: ['*'] }

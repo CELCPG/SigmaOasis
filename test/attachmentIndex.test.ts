@@ -158,3 +158,34 @@ describe('pinned documents in the research index', () => {
     assert.ok(stats.pages <= 32)
   })
 })
+
+describe('v1.6 tabular text attachments', () => {
+  test('a long CSV inlines only its head, is not indexed, and keeps its path', async () => {
+    resetState()
+    const rows = ['date,region,amount', ...Array.from({ length: 800 }, (_, i) => `2025-01-01,West,${i}`)].join('\n')
+    const path = write('big.csv', rows)
+    const { attachments: loaded } = await attachments.loadAttachmentPaths([path])
+    const a = loaded[0]
+    assert.equal(a.tabular, true)
+    assert.equal(a.truncated, true)
+    assert.equal(a.indexed, false)
+    assert.equal(a.sourcePath, path)
+    assert.equal(a.totalChars, rows.length)
+    assert.ok((a.textContent ?? '').split('\n').length <= 25)
+    assert.match(a.textContent ?? '', /^date,region,amount/)
+  })
+  test('a small CSV is inlined whole but still carries its path', async () => {
+    const path = write('small.csv', 'a,b\n1,2\n')
+    const { attachments: loaded } = await attachments.loadAttachmentPaths([path])
+    assert.equal(loaded[0].textContent, 'a,b\n1,2\n')
+    assert.equal(loaded[0].sourcePath, path)
+    assert.equal(loaded[0].tabular, undefined)
+  })
+  test('an xlsx attaches as a data file with no inline text', async () => {
+    const path = write('book.xlsx', 'PK not really a workbook')
+    const { attachments: loaded } = await attachments.loadAttachmentPaths([path])
+    assert.equal(loaded[0].dataFile, true)
+    assert.equal(loaded[0].textContent, undefined)
+    assert.equal(loaded[0].sourcePath, path)
+  })
+})

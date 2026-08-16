@@ -249,3 +249,32 @@ describe('withBudgetNotes', () => {
     assert.equal(tools[0].function.description, 'web_search does a thing.')
   })
 })
+
+describe('withForcedTools (v1.6)', () => {
+  const { withForcedTools, ALWAYS_ON_TOOLS, TURN_TOOL_CAP } = require('../src/renderer/src/lib/toolSelection') as typeof import('../src/renderer/src/lib/toolSelection')
+  const schema = (name: string): ToolSchema => ({ type: 'function', function: { name, description: name, parameters: { type: 'object', properties: {} } } })
+  const available = [...ALWAYS_ON_TOOLS, 'web_search', 'fetch_webpage', 'run_python', 'analyze_file', 'shop_compare'].map(schema)
+  test('adds a missing forced tool, evicting the last optional pick to keep the cap', () => {
+    const selected = [...ALWAYS_ON_TOOLS, 'web_search', 'fetch_webpage'].map(schema) // 6 = cap
+    const out = withForcedTools(available, selected, ['run_python']).map((t) => t.function.name)
+    assert.ok(out.includes('run_python'))
+    assert.ok(out.length <= TURN_TOOL_CAP)
+    assert.ok(!out.includes('fetch_webpage'), 'the last optional pick made room')
+    assert.ok(ALWAYS_ON_TOOLS.every((n) => out.includes(n)), 'always-on survives')
+  })
+  test('a forced tool already present changes nothing', () => {
+    // selectTurnTools returns wire order, so the input is in wire order too.
+    const selected = [...ALWAYS_ON_TOOLS, 'web_search', 'run_python'].map(schema)
+    assert.deepEqual(withForcedTools(available, selected, ['run_python']).map((t) => t.function.name), selected.map((t) => t.function.name))
+  })
+  test('a forced tool not in the allowlist is ignored', () => {
+    const selected = [...ALWAYS_ON_TOOLS, 'web_search'].map(schema)
+    assert.deepEqual(withForcedTools(available, selected, ['nope']).map((t) => t.function.name), selected.map((t) => t.function.name))
+  })
+  test('wire order is preserved', () => {
+    const selected = [...ALWAYS_ON_TOOLS, 'shop_compare'].map(schema)
+    const out = withForcedTools(available, selected, ['analyze_file', 'run_python']).map((t) => t.function.name)
+    const idx = (n: string): number => available.findIndex((t) => t.function.name === n)
+    assert.deepEqual(out, [...out].sort((a, b) => idx(a) - idx(b)))
+  })
+})

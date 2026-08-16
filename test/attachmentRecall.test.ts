@@ -83,3 +83,25 @@ describe('buildAttachmentContext', () => {
     assert.ok(ATTACHMENT_PASSAGES_PER_TURN >= 3 && ATTACHMENT_PASSAGES_PER_TURN <= 8)
   })
 })
+
+describe('v1.6 file refs for the Workbench', () => {
+  const { attachmentFileRefs, tabularAttachmentsOnTurn } = require('../src/renderer/src/lib/attachmentRecall') as typeof import('../src/renderer/src/lib/attachmentRecall')
+  test('every file with a path, latest wins on a name clash', () => {
+    const a1 = file({ id: '1', name: 'sales.csv', sourcePath: '/tmp/old/sales.csv' })
+    const a2 = file({ id: '2', name: 'sales.csv', sourcePath: '/tmp/new/sales.csv' })
+    const noPath = file({ id: '3', name: 'notes.md' })
+    const img: Attachment = { id: 'i', kind: 'image', name: 'x.png', mimeType: 'image/png', sizeBytes: 1, sourcePath: '/tmp/x.png' }
+    const refs = attachmentFileRefs({ messages: [msg('user', [a1, noPath, img]), msg('user', [a2])] })
+    assert.deepEqual(refs, [{ name: 'sales.csv', sourcePath: '/tmp/new/sales.csv' }])
+  })
+  test('tabular attachments on the latest user turn only', () => {
+    const earlier = file({ id: '1', name: 'old.csv', sourcePath: '/tmp/old.csv' })
+    const now = [file({ id: '2', name: 'q3.xlsx', sourcePath: '/tmp/q3.xlsx', dataFile: true }), file({ id: '3', name: 'notes.txt', sourcePath: '/tmp/n.txt' })]
+    assert.deepEqual(tabularAttachmentsOnTurn({ messages: [msg('user', [earlier]), msg('assistant'), msg('user', now)] }), ['q3.xlsx'])
+  })
+  test('labels: data files say where they live; tabular text says it is also under /work', () => {
+    assert.match(attachmentInlineNote({ truncated: false, dataFile: true, name: 'q3.xlsx' }), /\/work\/q3\.xlsx/)
+    assert.match(attachmentInlineNote({ truncated: false, name: 'sales.csv' }), /also available to run_python and analyze_file at \/work\/sales\.csv/)
+    assert.equal(attachmentInlineNote({ truncated: false, name: 'notes.txt' }), '')
+  })
+})

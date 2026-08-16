@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppSettings,
+  AttachmentFileRef,
   AttachmentLoadResult,
   AttachmentPassagesResult,
   AttachmentRef,
@@ -58,7 +59,7 @@ const api = {
   executeTool: (
     name: string,
     args: Record<string, unknown>,
-    context?: { modelId?: string }
+    context?: { modelId?: string; attachments?: AttachmentFileRef[] }
   ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
   /**
    * Rank candidate tools against the user's message by embedding cosine

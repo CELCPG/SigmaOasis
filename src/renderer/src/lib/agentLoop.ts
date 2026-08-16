@@ -44,6 +44,7 @@ export const TOOL_TURN_BUDGETS: Record<string, number> = {
   reference_lookup: 3,
   // Local, but each run is a model round trip; four is plenty for write → fix → verify.
   run_python: 4,
+  analyze_file: 2,
   shop_requirements: 2,
   shop_compare: 2
 }

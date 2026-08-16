@@ -36,6 +36,11 @@ export interface ToolContext {
   sender: Electron.WebContents
   /** Which model slot asked. Lets research plan with the caller's own model. */
   modelId?: string
+  /**
+   * v1.6: the conversation's file attachments (name + original path). The
+   * Workbench stages them under /work; nothing else reads them.
+   */
+  attachments?: { name: string; sourcePath: string }[]
 }
 
 export type ToolHandler = (args: Record<string, unknown>, context: ToolContext) => Promise<ToolResult>

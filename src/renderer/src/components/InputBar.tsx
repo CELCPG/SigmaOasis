@@ -195,6 +195,25 @@ export function InputBar(): JSX.Element {
         }
       })
       .filter(Boolean)
+    // v1.6: a drag from a terminal or file manager may carry paths as text
+    // (file:// URLs or absolute paths) rather than File objects.
+    if (paths.length === 0) {
+      const uriList = e.dataTransfer.getData('text/uri-list') || ''
+      const plain = e.dataTransfer.getData('text/plain') || ''
+      for (const line of `${uriList}\n${plain}`.split(/\r?\n/)) {
+        const t = line.trim()
+        if (!t || t.startsWith('#')) continue
+        if (t.startsWith('file://')) {
+          try {
+            paths.push(decodeURIComponent(new URL(t).pathname))
+          } catch {
+            /* not a URL */
+          }
+        } else if (/^(\/|[A-Za-z]:\\)/.test(t)) {
+          paths.push(t)
+        }
+      }
+    }
     if (paths.length > 0) addResult(await window.api.loadAttachments(paths))
   }
 

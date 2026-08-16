@@ -96,6 +96,8 @@ export interface ToolToggles {
   reference_lookup: boolean
   /** v1.6: the Workbench — sandboxed Python (WASM; no network, no real disk). */
   run_python: boolean
+  /** v1.6: mechanical profile of an attached CSV/TSV/JSON/XLSX (runs in the same sandbox). */
+  analyze_file: boolean
   deep_research: boolean
   finance_calculator: boolean
   shop_requirements: boolean
@@ -391,6 +393,7 @@ function defaultSettings(): AppSettings {
       reference_lookup: true,
       // v1.6: on by default — sandboxed by construction, touches nothing outside the app.
       run_python: true,
+      analyze_file: true,
       deep_research: true,
       finance_calculator: true,
       // Off by default: these initiate outbound requests to commercial sites

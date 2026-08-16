@@ -29,6 +29,24 @@ unpacked: `pyodide.js`, `pyodide.asm.wasm`, `python_stdlib.zip`, lock file). Pac
 it as an extra resource; the app never downloads anything at run time. Standard library only in
 this release; numpy/pandas/matplotlib are the next step (bundled wheels, still offline).
 
+## Attachments and analyze_file
+
+Every file attachment keeps its original path; at tool time the conversation's files are staged
+under `/work/<name>` (bytes copied into the virtual FS — the disk is never mounted; 40 MB per file,
+64 MB per run). A CSV/TSV/JSON attachment inlines only its first lines so the model sees the
+columns; `.xlsx` attaches as a data file with no inline text. On the turn a tabular file arrives
+the app runs **`analyze_file`** before the model speaks: a stdlib-only Python profile (rows,
+columns, inferred types, nulls, min/max/mean/median/sum, top values, duplicates, a head; XLSX read
+via `zipfile` + shared strings, sheet selectable), formatted as facts with the rule *"compute
+anything further with run_python; do not eyeball totals from the head."* When a data file is in
+the conversation, `run_python` and `analyze_file` are forced onto the turn's tool set whatever the
+embedding rank says — measured: without that, a 9B model spent five minutes reasoning that it had
+no way to compute. Percentages a reply states after a computation ran are checked against the
+tool output (stated or derivable as a ratio) by the tool-grounding pass.
+
+Measured in the built app with a 9B model: 400-row `sales.csv` dropped → profiled automatically →
+the model called `run_python` → "East, 37,907.39" — exactly right; ~50 s end to end.
+
 ## What the model sees
 
 `toolHandlers/workbench.ts` → `workbenchFormat.ts`: stdout, the last expression's `repr`, stderr,

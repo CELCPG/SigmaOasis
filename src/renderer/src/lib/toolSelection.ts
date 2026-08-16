@@ -180,3 +180,29 @@ export function stabilizeTurnTools(
   const covered = selected.every((t) => held.has(t.function.name))
   return covered ? previous : selected
 }
+
+/**
+ * v1.6: guarantee named tools are in the turn's set. When the app has just
+ * profiled a data file and told the model "compute with run_python", the tool
+ * must be on the wire — measured: the embedding rank dropped run_python for
+ * "which region had the highest revenue" and a 9B model spent five minutes
+ * reasoning that it had no way to compute. Forced tools take the place of the
+ * lowest-ranked non-always-on picks so the cap still holds; wire order is kept.
+ */
+export function withForcedTools(
+  available: ToolSchema[],
+  selected: ToolSchema[],
+  forced: readonly string[],
+  cap: number = TURN_TOOL_CAP
+): ToolSchema[] {
+  const want = forced.filter((n) => available.some((t) => t.function.name === n))
+  if (want.length === 0) return selected
+  const names = new Set(selected.map((t) => t.function.name))
+  const alwaysOn = new Set(ALWAYS_ON_TOOLS)
+  for (const n of want) names.add(n)
+  // Over the cap: drop optional picks (not always-on, not forced) from the
+  // end of the wire order until it fits.
+  const optional = selected.map((t) => t.function.name).filter((n) => !alwaysOn.has(n) && !want.includes(n))
+  while (names.size > cap && optional.length > 0) names.delete(optional.pop()!)
+  return available.filter((t) => names.has(t.function.name))
+}

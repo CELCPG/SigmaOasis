@@ -23,7 +23,7 @@ import type { ToolCallRecord } from '../types'
  */
 
 /** Tools whose output is the authoritative source for numbers in a reply. */
-const NUMERIC_TOOLS = new Set(['finance_calculator', 'shop_compare', 'price_watch', 'run_python'])
+const NUMERIC_TOOLS = new Set(['finance_calculator', 'shop_compare', 'price_watch', 'run_python', 'analyze_file'])
 
 /** Tools whose output is the authoritative source for links in a reply. */
 const SOURCE_TOOLS = new Set([
@@ -127,7 +127,7 @@ export function describeGroundingFindings(report: GroundingReport): string {
     lines.push(`- Links that appear in no result: ${report.links.join('; ')}`)
   }
   if (report.figures.length) {
-    lines.push(`- Money figures nothing retrieved supports: ${report.figures.join(', ')}`)
+    lines.push(`- Figures nothing retrieved or computed supports: ${report.figures.join(', ')}`)
   }
   if (report.origins?.length) {
     lines.push(
@@ -251,6 +251,46 @@ export function unsourcedFigures(answer: string, corpus: string): string[] {
       known.some((k) => roundTo(k, decimals) === value) || isDerivable(value, decimals, bases)
     if (supported) continue
     const label = `$${raw}`
+    if (seen.has(label)) continue
+    seen.add(label)
+    flagged.push(label)
+  }
+  return flagged
+}
+
+/**
+ * v1.6: percentages, checked only when a computation tool ran this turn. A
+ * model that has just had the app compute "East: 37,907.39" for it will still
+ * add "about 45% of the total" from nowhere (measured; the true share was
+ * 25.6%). Supported when the percentage appears in the tool output, or is the
+ * ratio of two numbers the output contains, to the stated precision.
+ */
+const PERCENT = /(?<![\w.])(\d{1,3}(?:\.\d+)?)\s?%/g
+const MAX_RATIO_BASES = 40
+
+export function unsourcedPercentages(answer: string, corpus: string): string[] {
+  const known = [...new Set(numbersIn(corpus))]
+  const bases = known.filter((k) => k !== 0).slice(0, MAX_RATIO_BASES)
+  const flagged: string[] = []
+  const seen = new Set<string>()
+  for (const match of answer.matchAll(PERCENT)) {
+    const raw = match[1]
+    const value = Number(raw)
+    if (!Number.isFinite(value)) continue
+    const decimals = precisionOf(raw)
+    let supported = known.some((k) => roundTo(k, decimals) === value)
+    if (!supported) {
+      outer: for (const a of bases) {
+        for (const b of bases) {
+          if (roundTo((a / b) * 100, decimals) === value) {
+            supported = true
+            break outer
+          }
+        }
+      }
+    }
+    if (supported) continue
+    const label = `${raw}%`
     if (seen.has(label)) continue
     seen.add(label)
     flagged.push(label)
@@ -528,7 +568,10 @@ export function checkToolGrounding(
     numericRecords.length > 0 ||
     options.expectPricingTool === true ||
     stated.length >= MIN_UNPROMPTED_FIGURES
-  const figures = checkFigures ? stated : []
+  // Percentages only when something actually computed this turn — that is
+  // when a stated share had a source it should have used.
+  const percentages = numericRecords.length > 0 ? unsourcedPercentages(answer, figureCorpus) : []
+  const figures = [...(checkFigures ? stated : []), ...percentages]
 
   const sourceCorpus = outputOf(records, (n) => SOURCE_TOOLS.has(n))
   const links = sourceRecords.length > 0 ? unsourcedLinks(answer, sourceCorpus) : []

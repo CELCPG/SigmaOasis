@@ -546,3 +546,22 @@ describe('revisionIsAnImprovement', () => {
     assert.equal(groundingFindingCount(null), 0)
   })
 })
+
+describe('unsourcedPercentages (v1.6)', () => {
+  const { unsourcedPercentages, checkToolGrounding } = require('../src/renderer/src/lib/toolGrounding') as typeof import('../src/renderer/src/lib/toolGrounding')
+  test('a share nothing computed supports is flagged; a stated or derivable one is not', () => {
+    const corpus = 'stdout:\nEast 37907.39\ntotal 147903.85\nshare 25.6%'
+    assert.deepEqual(unsourcedPercentages('East had 37907.39, about 45% of the total.', corpus), ['45%'])
+    assert.deepEqual(unsourcedPercentages('East had 25.6% of the total.', corpus), [])
+    // 37907.39 / 147903.85 = 25.63…% — derivable to one decimal.
+    assert.deepEqual(unsourcedPercentages('That is 25.6% of revenue.', 'East 37907.39\ntotal 147903.85'), [])
+    assert.deepEqual(unsourcedPercentages('That is 26% of revenue.', 'East 37907.39\ntotal 147903.85'), [])
+  })
+  test('only checked when a computation tool ran', () => {
+    const rec = (name: string): ToolCallRecord => ({ id: 'r', name, args: {}, status: 'done', result: 'stdout:\nEast 37907.39' })
+    const withRun = checkToolGrounding('About 45% of sales.', [rec('run_python')], 'q')
+    assert.deepEqual(withRun?.figures, ['45%'])
+    const withoutRun = checkToolGrounding('About 45% of sales.', [], 'q')
+    assert.equal(withoutRun, null)
+  })
+})

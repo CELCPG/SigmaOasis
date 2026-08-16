@@ -23,12 +23,18 @@ export function registerToolHandlers(): void {
       event,
       name: keyof ToolToggles,
       args: Record<string, unknown>,
-      context?: { modelId?: string }
+      context?: { modelId?: string; attachments?: { name: string; sourcePath: string }[] }
     ) => {
       if (!getSettings().tools[name]) {
         return { ok: false, error: `Tool "${String(name)}" is disabled in Settings → Tools.` }
       }
-      return executeTool(name, args ?? {}, { sender: event.sender, modelId: context?.modelId })
+      return executeTool(name, args ?? {}, {
+        sender: event.sender,
+        modelId: context?.modelId,
+        attachments: Array.isArray(context?.attachments)
+          ? context!.attachments.filter((a) => a && typeof a.name === 'string' && typeof a.sourcePath === 'string')
+          : []
+      })
     }
   )
 }

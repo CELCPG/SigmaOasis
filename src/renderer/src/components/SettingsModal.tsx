@@ -55,6 +55,7 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   memory_forget: 'Delete a memory',
   reference_lookup: 'Reference library (offline packs and your own documents — fully local)',
   run_python: 'Run Python (sandboxed WebAssembly runtime — no network, no access to your disk)',
+  analyze_file: 'Analyze attached data files (CSV/TSV/JSON/XLSX profile, computed in the same sandbox)',
   finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)',
   shop_requirements: 'Shopping requirements (works out what you need — fully local, sends nothing)',
   shop_compare: 'Shopping comparison (contacts retailers; prices carry a source and a timestamp)',

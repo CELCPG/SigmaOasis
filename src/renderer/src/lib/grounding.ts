@@ -415,6 +415,7 @@ const SOURCE_TOOLS = new Set([
   // memory" — the computation is its source. (Measured: a correct compound-
   // interest answer computed by run_python still wore the unverified badge.)
   'run_python',
+  'analyze_file',
   'finance_calculator'
 ])
 

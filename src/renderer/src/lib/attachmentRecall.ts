@@ -14,6 +14,29 @@ import type { Attachment, AttachmentPassage, AttachmentRef, Conversation, Memory
 /** Passages retrieved per turn across all indexed attachments. */
 export const ATTACHMENT_PASSAGES_PER_TURN = 6
 
+/**
+ * v1.6: every file attachment with a known path, latest first wins on a name
+ * clash — what the Workbench stages under /work for run_python/analyze_file.
+ */
+export function attachmentFileRefs(convo: Pick<Conversation, 'messages'>): { name: string; sourcePath: string }[] {
+  const byName = new Map<string, string>()
+  for (const m of convo.messages) {
+    for (const a of m.attachments ?? []) {
+      if (a.kind === 'file' && a.sourcePath) byName.set(a.name, a.sourcePath)
+    }
+  }
+  return [...byName].map(([name, sourcePath]) => ({ name, sourcePath }))
+}
+
+/** Attachments the app profiles automatically on the turn they arrive. */
+export const TABULAR_FILE = /\.(csv|tsv|xlsx|xlsm|json|jsonl)$/i
+
+/** Tabular attachments on the latest user message, for the automatic analyze_file. */
+export function tabularAttachmentsOnTurn(convo: Pick<Conversation, 'messages'>): string[] {
+  const last = [...convo.messages].reverse().find((m) => m.role === 'user')
+  return (last?.attachments ?? []).filter((a) => a.kind === 'file' && a.sourcePath && TABULAR_FILE.test(a.name)).map((a) => a.name)
+}
+
 /** Every indexed attachment in the conversation, in message order, deduplicated by id. */
 export function indexedAttachmentRefs(convo: Pick<Conversation, 'messages'>): AttachmentRef[] {
   const seen = new Set<string>()
@@ -34,8 +57,20 @@ export function indexedAttachmentRefs(convo: Pick<Conversation, 'messages'>): At
  * the rest comes from — a small model that reads "truncated" alone tends to
  * either apologize for missing content it was given, or invent it.
  */
-export function attachmentInlineNote(f: Pick<Attachment, 'truncated' | 'indexed' | 'totalChars'>): string {
-  if (!f.truncated) return ''
+export function attachmentInlineNote(f: Pick<Attachment, 'truncated' | 'indexed' | 'totalChars'> & Partial<Pick<Attachment, 'dataFile' | 'tabular' | 'name'>>): string {
+  if (f.tabular) {
+    return (
+      ` — a data file of ${(f.totalChars ?? 0).toLocaleString('en-US')} characters; only its first lines are shown here so you can see the columns. ` +
+      `The whole file is at /work/${f.name} for run_python and analyze_file — compute on it there; never total or count from these lines`
+    )
+  }
+  if (f.dataFile) {
+    return (
+      ` — a data file (${f.name}); its contents are not shown here. It is available to run_python ` +
+      `and analyze_file at /work/${f.name}; the app has profiled it if it was just attached`
+    )
+  }
+  if (!f.truncated) return TABULAR_FILE.test(f.name ?? '') ? ` — also available to run_python and analyze_file at /work/${f.name}` : ''
   if (f.indexed && f.totalChars) {
     return (
       ` — ${f.totalChars.toLocaleString('en-US')} characters in total; only the opening is shown here. ` +

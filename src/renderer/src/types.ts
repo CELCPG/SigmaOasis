@@ -69,6 +69,7 @@ export interface ToolToggles {
   memory_forget: boolean
   reference_lookup: boolean
   run_python: boolean
+  analyze_file: boolean
   deep_research: boolean
   finance_calculator: boolean
   shop_requirements: boolean
@@ -555,6 +556,16 @@ export interface Attachment {
   indexed?: boolean
   /** v1.4.8: original path, so the index can be rebuilt after a restart. */
   sourcePath?: string
+  /** v1.6: a spreadsheet/data file — no inline text; the Workbench reads it from /work. */
+  dataFile?: boolean
+  /** v1.6: a tabular text file — only its head is inlined; the whole file is at /work. */
+  tabular?: boolean
+}
+
+/** v1.6: what the renderer hands main so tools can stage attached files under /work. */
+export interface AttachmentFileRef {
+  name: string
+  sourcePath: string
 }
 
 /** v1.4.8: what the renderer hands main to retrieve from an attachment. */

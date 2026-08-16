@@ -40,7 +40,7 @@ const TOOL_RULES: { match: (name: string) => boolean; kind: OasisToolKind }[] = 
   // generic on purpose — they send nothing, and a search indicator over local
   // work would misreport what left the machine.
   { match: (n) => n === 'deep_research' || n === 'shop_compare' || n.includes('search') || n.includes('fetch') || n.includes('web'), kind: 'search' },
-  { match: (n) => n.includes('terminal') || n.includes('command') || n.includes('exec') || n.includes('code') || n.includes('python'), kind: 'code' },
+  { match: (n) => n.includes('terminal') || n.includes('command') || n.includes('exec') || n.includes('code') || n.includes('python') || n.includes('analyze'), kind: 'code' },
   { match: (n) => n.includes('write'), kind: 'write' },
   { match: (n) => n.includes('read') || n.includes('list') || n.includes('file') || n.includes('directory'), kind: 'file' }
 ]

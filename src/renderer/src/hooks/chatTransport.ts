@@ -238,6 +238,21 @@ export async function streamChat(
           /** 'length' means the reply hit max_tokens and stops mid-thought. */
           finish_reason?: string | null }[]
           usage?: ApiUsage
+          /**
+           * v1.6: LM Studio can answer 200 and then put the failure in the
+           * stream — measured: a request over the loaded context length
+           * streams one `{"error": {...}}` frame and ends, which through v1.5
+           * rendered as an empty reply with no explanation.
+           */
+          error?: { message?: string; type?: string; code?: number } | string
+        }
+        if (json.error) {
+          const message = typeof json.error === 'string' ? json.error : json.error.message ?? JSON.stringify(json.error)
+          throw new Error(
+            /context/i.test(message)
+              ? `${message} — this conversation (with its attachments and notes) is larger than the context the model is loaded with. Load the model with a larger context in LM Studio, or attach less.`
+              : message
+          )
         }
         // The usage block rides a final chunk whose `choices` is empty.
         if (json.usage) usage = json.usage

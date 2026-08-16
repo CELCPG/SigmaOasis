@@ -27,8 +27,11 @@ import {
 } from '../lib/libraryRecall'
 import {
   ATTACHMENT_PASSAGES_PER_TURN,
+  attachmentFileRefs,
   buildAttachmentContext,
   indexedAttachmentRefs,
+  TABULAR_FILE,
+  tabularAttachmentsOnTurn,
   toAttachmentContextItems
 } from '../lib/attachmentRecall'
 import {
@@ -179,7 +182,14 @@ async function runTurn(
           .memorySearch(lastUserContent, memorySettings.topK, undefined, scopedSources ?? null)
           .catch(() => null)
       : null
-  const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId)
+  // v1.6: files the Workbench may stage under /work for this turn's tools —
+  // and with a data file in the conversation the Workbench tools must be on
+  // the wire whatever the embedding rank says, because the app is about to
+  // tell the model to compute with them.
+  const fileRefs = attachmentFileRefs(convo)
+  const toolContext = { modelId: slot.modelId, attachments: fileRefs }
+  const forcedTools = fileRefs.some((f) => TABULAR_FILE.test(f.name)) ? ['run_python', 'analyze_file'] : []
+  const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId, forcedTools)
 
   // v1.4.8: attached documents longer than the inline limit live in the
   // session index; retrieve what this message needs from them. Started here so
@@ -396,6 +406,42 @@ async function runTurn(
     }
   }
 
+  // v1.6: a data file attached on this turn is profiled before the model
+  // speaks — the "describe the data before analysing it" step of the data
+  // playbook, done mechanically, so the model starts from the file's real
+  // shape, types, ranges and a head instead of a slice of it. Recorded like
+  // any tool call; the file stays available to run_python at /work/<name>.
+  const tabular = tabularAttachmentsOnTurn(convo).slice(0, 2)
+  if (tabular.length > 0 && slotTools.some((t) => t.function.name === 'analyze_file')) {
+    for (const file of tabular) {
+      const record: ToolCallRecord = { id: uid(), name: 'analyze_file', args: { file }, status: 'running' }
+      allRecords.push(record)
+      patch({ toolCalls: [...allRecords] })
+      const result: { ok: boolean; output?: string; error?: string } = await window.api
+        .executeTool('analyze_file', { file }, toolContext)
+        .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+      record.status = result.ok ? 'done' : 'error'
+      record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+      patch({ toolCalls: [...allRecords] })
+      if (result.ok && result.output) {
+        turnContext.push(
+          `The app profiled the attached data file "${file}" before you answered (analyze_file). Use these facts; ` +
+            'compute anything further with run_python on /work/' + file + ' rather than estimating from the head:\n' +
+            result.output
+        )
+      }
+      audit(convo, {
+        kind: 'tool_call',
+        roleName: slot.roleName,
+        modelId: slot.modelId,
+        toolName: 'analyze_file',
+        ok: result.ok,
+        text: `analyze_file(${JSON.stringify({ file })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+      })
+      if (signal.aborted) return
+    }
+  }
+
   // The wire history is maintained locally across tool-loop iterations;
   // the visible conversation only keeps final text + tool-call records.
   // Marker messages (e.g. a context-rollback divider) are display-only and
@@ -597,7 +643,7 @@ async function runTurn(
         },
         // The caller's model id goes along so main-process tools that need to
         // reason (deep_research) plan with the model the user is talking to.
-        executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+        executeTool: (name, args) => window.api.executeTool(name, args, toolContext),
         consult: delegation
           ? async (role, task): Promise<ToolResult> => {
               const specialist =

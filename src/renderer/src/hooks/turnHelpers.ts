@@ -6,7 +6,8 @@ import {
   selectTurnTools,
   stabilizeTurnTools,
   rankingIsDecisive,
-  TURN_TOOL_CAP
+  TURN_TOOL_CAP,
+  withForcedTools
 } from '../lib/toolSelection'
 import { attachmentInlineNote } from '../lib/attachmentRecall'
 import type { ApiContentPart } from '../lib/agentLoop'
@@ -62,6 +63,10 @@ export function toApiContent(m: ChatMessage, withImages: boolean): string | ApiC
   const textParts: string[] = []
   if (m.content) textParts.push(m.content)
   for (const f of files) {
+    if (f.dataFile) {
+      textParts.push(`[Attached file: ${f.name}${attachmentInlineNote(f)}]`)
+      continue
+    }
     textParts.push(
       `[Attached file: ${f.name}${attachmentInlineNote(f)}]\n\`\`\`\n${f.textContent ?? ''}\n\`\`\``
     )
@@ -223,7 +228,9 @@ const turnToolMemo = new Map<string, string[]>()
 export async function subsetForTurn(
   tools: ToolSchema[],
   query: string | undefined,
-  stabilityKey?: string
+  stabilityKey?: string,
+  /** v1.6: tools this turn must carry regardless of rank (e.g. run_python when a data file is attached). */
+  force: readonly string[] = []
 ): Promise<ToolSchema[]> {
   if (!query?.trim() || tools.length <= TURN_TOOL_CAP) return tools
   try {
@@ -233,7 +240,7 @@ export async function subsetForTurn(
     )
     if (!res.ok || !res.scores) return tools
     const selected = selectTurnTools(tools, res.scores)
-    if (!stabilityKey) return selected
+    if (!stabilityKey) return withForcedTools(tools, selected, force)
     const previous = turnToolMemo.get(stabilityKey)
     // v1.4.5: an indecisive ranking must not be allowed to move anything. On
     // "1" or "yes" the scores are separated by less than a rounding error, so
@@ -244,11 +251,12 @@ export async function subsetForTurn(
     const stable = rankingIsDecisive(res.scores)
       ? stabilizeTurnTools(tools, selected, previous)
       : stabilizeTurnTools(tools, selected, previous ?? selected.map((t) => t.function.name))
+    const withForced = withForcedTools(tools, stable, force)
     turnToolMemo.set(
       stabilityKey,
-      stable.map((t) => t.function.name)
+      withForced.map((t) => t.function.name)
     )
-    return stable
+    return withForced
   } catch {
     return tools
   }
