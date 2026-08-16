@@ -111,6 +111,9 @@ The `Release` workflow runs five jobs:
   and merge later and this is what stops you: the artifacts of such a build look
   perfectly fine while the tag names history the repository does not have.
   If it fails, the log prints the exact commands to drop the tag and re-cut it.
+  Note it runs from the *tagged* commit, so it only guards tags cut from history
+  containing it — a tag on a commit older than v1.4.8 runs the workflow as it
+  was then, without the guard.
 - **macOS (signed & notarized)** — typecheck → test suite → bundle → build both
   DMGs → sign → notarize → staple → attach to the GitHub Release. Notarization
   is the slow part; expect 5–15 minutes.
@@ -144,6 +147,32 @@ codesign --verify --deep --strict --verbose=2 /Applications/Sigma Oasis.app
 ```
 
 It should launch with **no Gatekeeper dialog at all**.
+
+---
+
+## Repository protections
+
+Two rulesets exist on the GitHub repo (Settings → Rules → Rulesets). They are
+not visible anywhere in this checkout, which is why they are written down here:
+
+| Ruleset | Applies to | Blocks |
+| --- | --- | --- |
+| `main history` | the default branch | force-pushes and deletion |
+| `release tags are immovable` | `refs/tags/v*` | updating an existing tag |
+
+Neither restricts *creating* a tag or pushing normally, so the release flow in
+step 6 is unaffected. Tag **deletion is deliberately still allowed**: when the
+guard job rejects a mis-cut tag it tells you to drop and re-cut it, and that
+recovery has to remain possible. The cost of that choice is that a tag can be
+removed and recreated elsewhere; what cannot happen is a published tag quietly
+moving under a name someone already fetched.
+
+If a force-push to `main` is ever genuinely required, disable the ruleset in
+Settings rather than looking for a bypass — the friction is the point.
+
+Note what no GitHub rule can do: none of them can require that a tag point at a
+commit on `main`. There is no such rule type. That check only exists in the
+workflow's `guard` job, with the limitation noted above.
 
 ---
 

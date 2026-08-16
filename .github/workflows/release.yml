@@ -33,6 +33,18 @@ jobs:
   # shipped were a superseded draft. The next such mistake will not be so
   # lucky, so it fails here instead, before the ~6 minutes of notarization and
   # before a draft release and a tap commit exist to clean up.
+  #
+  # Know what this cannot do. Actions runs the workflow file *from the tagged
+  # commit*, not from main, so this guard only exists for tags cut from history
+  # that already contains it. Verified the hard way: a probe tag placed on the
+  # pre-guard commit produced a run with no guard job in it at all, and built
+  # all three platforms. The hole closes for everything committed from here on,
+  # but a tag on older history — or on a branch where this file was edited —
+  # still runs whatever workflow that tree carries. That is why the repository
+  # also has a tag ruleset blocking updates to refs/tags/v*: GitHub enforces
+  # that at push time, independent of any workflow, so a release tag cannot be
+  # quietly repointed even where this job never runs. Neither mechanism stops a
+  # bad tag from being *created*; they stop it from building and from moving.
   guard:
     name: Tag is on main
     runs-on: ubuntu-latest
