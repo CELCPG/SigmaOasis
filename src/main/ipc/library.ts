@@ -155,6 +155,26 @@ export const MAX_LOOKUP_PASSAGES = 12
 /** Candidate pool for MMR, as a multiple of the requested count. */
 const CANDIDATE_MULTIPLIER = 5
 const MMR_LAMBDA = 0.72
+/**
+ * Words too common to signal that a passage is *about* the question. Extends
+ * the tokenizer's stopwords, which are tuned for indexing rather than for
+ * judging relevance.
+ */
+const WEAK_TERMS = new Set([
+  'do', 'does', 'did', 'get', 'got', 'give', 'gave', 'take', 'took', 'make', 'made', 'use', 'used',
+  'using', 'want', 'need', 'know', 'like', 'just', 'also', 'how', 'much', 'many', 'what', 'when',
+  'where', 'which', 'who', 'why', 'can', 'could', 'should', 'would', 'may', 'might', 'one', 'ones',
+  'way', 'ways', 'thing', 'things', 'please', 'tell', 'say', 'said', 'see', 'look', 'find', 'help',
+  'work', 'works', 'working', 'answer', 'question', 'about', 'into', 'over', 'under', 'than', 'then',
+  'them', 'they', 'their', 'there', 'here', 'your', 'you', 'our', 'its', 'not', 'any', 'all', 'some',
+  'more', 'most', 'very', 'really', 'still', 'even', 'ever', 'yes', 'yeah', 'okay', 'right', 'good',
+  'best', 'better', 'new', 'first', 'last', 'next', 'time', 'times', 'day', 'days', 'now', 'today',
+  'people', 'person', 'someone', 'something', 'anything', 'everything', 'nothing'
+])
+/** Distinct strong query terms a passage must share to count as a match (see lookupLibrary). */
+const MIN_TERM_OVERLAP = 2
+/** Cosine at which a semantic-only match is trusted without term overlap. */
+const MIN_COSINE = 0.55
 /** Chunks embedded per LM Studio round of an embed job. */
 const EMBED_JOB_BATCH = 48
 
@@ -507,10 +527,36 @@ export async function lookupLibrary(input: {
     return { ok: true, passages: [], mode: 'keyword', notes: [...notes, 'No passage matched the query.'] }
   }
 
+  // Relevance floor. Scores are normalized within the result set, so a lone
+  // weak hit reads as 1.00 — and a first-aid passage answered a tax question
+  // that way in testing. Keyword-only: a passage must share at least
+  // MIN_TERM_OVERLAP distinct query terms (or all of them for a short query).
+  // Hybrid: the same, unless its cosine alone clears MIN_COSINE.
+  // Only *strong* query terms count toward the floor: "do" and "give" both
+  // survive the tokenizer's stopwords and were exactly the two shared with an
+  // unrelated passage in testing.
+  const queryTerms = new Set(tokenize(query).filter((t) => t.length >= 3 && !WEAK_TERMS.has(t)))
+  const needed = Math.min(MIN_TERM_OVERLAP, queryTerms.size)
+  const overlapOf = (c: LibChunk): number => {
+    let n = 0
+    for (const t of queryTerms) if (c.termSet.has(t)) n += 1
+    return n
+  }
+  const passesFloor = (id: string): boolean => {
+    const c = byId.get(id)
+    if (!c) return false
+    if (overlapOf(c) >= needed) return true
+    return Boolean(queryVector && c.vector && unitDot(queryVector, c.vector) >= MIN_COSINE)
+  }
+
   const candidates = [...relevance]
+    .filter(([id]) => passesFloor(id))
     .map(([id, score]) => ({ id, relevance: score }))
     .sort((a, b) => b.relevance - a.relevance)
     .slice(0, topK * CANDIDATE_MULTIPLIER)
+  if (candidates.length === 0) {
+    return { ok: true, passages: [], mode: queryVector ? 'hybrid' : 'keyword', notes: [...notes, 'No passage matched the query closely enough.'] }
+  }
 
   const similarity = (a: string, b: string): number => {
     const ca = byId.get(a)

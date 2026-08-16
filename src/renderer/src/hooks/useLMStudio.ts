@@ -71,7 +71,8 @@ import {
   reviseAgainstFindings,
   runAutoCritic,
   runClaimCheck,
-  runConsultation
+  runConsultation,
+  runDeliberation
 } from './verification'
 import { planApprovals, runPlanTurn } from './planMode'
 
@@ -827,11 +828,13 @@ export function useLMStudio(): {
   sendMessage: (
     text: string,
     attachments?: Attachment[],
-    options?: { planned?: boolean }
+    options?: { planned?: boolean; deliberate?: boolean }
   ) => Promise<void>
   stopStreaming: () => void
   regenerate: () => Promise<void>
   secondOpinion: (messageId: string) => Promise<void>
+  /** v1.5.1: draft → review → revise on an existing reply. */
+  deliberate: (messageId: string) => Promise<void>
   /** Approve or cancel a generated plan (Plan mode). */
   resolvePlan: (messageId: string, approved: boolean) => void
   /** Re-run a weak reply's turn on the bigger slot its escalation offer names (Layer 2d). */
@@ -854,7 +857,7 @@ export function useLMStudio(): {
     async (
       rawText: string,
       attachments: Attachment[] = [],
-      options?: { planned?: boolean }
+      options?: { planned?: boolean; deliberate?: boolean }
     ): Promise<void> => {
       const text = rawText.trim()
       const store = useAppStore.getState()
@@ -930,6 +933,13 @@ export function useLMStudio(): {
         return
       }
       await executeTargets(convo.id, settings.baseUrl, targets, delegation, tools, routed.routingNote)
+      // v1.5.1 think harder: one review-and-revise pass on the reply just
+      // produced (the last assistant message of this conversation).
+      if (options?.deliberate) {
+        const after = useAppStore.getState().conversations.find((c) => c.id === convo!.id)
+        const last = after ? [...after.messages].reverse().find((m) => m.role === 'assistant') : undefined
+        if (last && last.content.trim()) await deliberate(last.id)
+      }
     },
     []
   )
@@ -1082,6 +1092,37 @@ export function useLMStudio(): {
    * that message (display-only; excluded from wire history). Runs through the
    * same streaming lock as a chat turn, so Stop cancels it and Send waits.
    */
+  /**
+   * v1.5.1 Think harder on an existing reply: draft → review by another slot
+   * (or self, labelled) → revise, once. Runs under the shared abort handle so
+   * Stop stops it.
+   */
+  const deliberate = useCallback(async (messageId: string): Promise<void> => {
+    const store = useAppStore.getState()
+    const settings = store.settings
+    if (!settings || store.streaming) return
+    const convo = store.conversations.find((c) => c.id === store.activeConversationId)
+    if (!convo) return
+    const idx = convo.messages.findIndex((m) => m.id === messageId)
+    const message = convo.messages[idx]
+    if (!message || message.role !== 'assistant' || !message.content.trim()) return
+    const question =
+      [...convo.messages.slice(0, idx)].reverse().find((m) => m.role === 'user')?.content ?? ''
+    const answerer =
+      settings.models.find((m) => m.modelId === message.modelId && m.roleName === message.roleName) ??
+      settings.models.find((m) => m.enabled && m.modelId)
+    if (!answerer) return
+    const controller = new AbortController()
+    abortRef.current = controller
+    store.setStreaming(true)
+    try {
+      await runDeliberation(convo, messageId, question, message.content, answerer, settings.baseUrl, controller.signal)
+    } finally {
+      useAppStore.getState().setStreaming(false)
+      abortRef.current = null
+    }
+  }, [])
+
   const secondOpinion = useCallback(async (messageId: string): Promise<void> => {
     const store = useAppStore.getState()
     const settings = store.settings
@@ -1212,5 +1253,5 @@ export function useLMStudio(): {
     }
   }, [])
 
-  return { sendMessage, stopStreaming, regenerate, secondOpinion, resolvePlan, escalate }
+  return { sendMessage, stopStreaming, regenerate, secondOpinion, deliberate, resolvePlan, escalate }
 }

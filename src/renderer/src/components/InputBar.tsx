@@ -36,6 +36,8 @@ export function InputBar(): JSX.Element {
   const [dragOver, setDragOver] = useState(false)
   const [micState, setMicState] = useState<MicState>('idle')
   const [planned, setPlanned] = useState(false)
+  /** v1.5.1: think harder — one review-and-revise pass on the reply. */
+  const [deliberate, setDeliberate] = useState(false)
   const [recSeconds, setRecSeconds] = useState(0)
   const [recLevel, setRecLevel] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -265,7 +267,7 @@ export function InputBar(): JSX.Element {
     setAttachments([])
     setNotice(null)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    void sendMessage(value, attachments, planned ? { planned: true } : undefined)
+    void sendMessage(value, attachments, planned || deliberate ? { planned, deliberate } : undefined)
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -397,6 +399,23 @@ export function InputBar(): JSX.Element {
               }
             >
               {planned ? '📋 Plan' : '📋'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeliberate((d) => !d)}
+              disabled={streaming}
+              className={
+                deliberate
+                  ? 'flex h-9 shrink-0 items-center justify-center rounded-full border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-sm text-accent-ink transition-colors disabled:opacity-40'
+                  : GHOST_BUTTON
+              }
+              title={
+                deliberate
+                  ? 'Think harder on — the reply is reviewed by another role (or by itself, labelled) and revised once before you see the final version'
+                  : 'Think harder — draft, review, revise: one extra pass that catches arithmetic slips and skipped steps. Costs two more model calls.'
+              }
+            >
+              {deliberate ? '🧠 Think harder' : '🧠'}
             </button>
             <textarea
               ref={textareaRef}

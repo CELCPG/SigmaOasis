@@ -200,6 +200,22 @@ export interface MemorySearchResult {
 // ---- v0.9: Second opinion (critic pass) -------------------------------------
 
 /** A different role's review of an assistant reply. Display-only. */
+/** v1.5.1: the think-harder pass — draft → review → revise, disclosed. */
+export interface DeliberationRecord {
+  reviewerRole: string
+  reviewerModelId: string
+  /** The answerer reviewed its own draft (no second slot) — weaker, and said so. */
+  self: boolean
+  status: 'reviewing' | 'revising' | 'done' | 'error'
+  /** The reply as it stood before the pass. */
+  draft: string
+  review: string
+  /** True when the revision replaced the draft. */
+  revised: boolean
+  note?: string
+  createdAt: number
+}
+
 export interface SecondOpinionRecord {
   roleName: string
   modelId: string
@@ -416,7 +432,7 @@ export interface AppSettings {
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
   /** v1.4.6: revise an answer whose specifics the tools did not support. */
-  grounding: { autoCorrect: boolean; playbooks: boolean }
+  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -665,6 +681,8 @@ export interface ChatMessage {
    * never replayed to a model as part of the conversation.
    */
   secondOpinion?: SecondOpinionRecord
+  /** v1.5.1: the think-harder pass that ran on this reply, if any. */
+  deliberation?: DeliberationRecord
   /**
    * The long-term memory chunks injected into the system prompt for this turn
    * (v0.9 visible recall). Display-only — never replayed to a model.

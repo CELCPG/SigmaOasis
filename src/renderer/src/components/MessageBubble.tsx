@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react'
-import type { ChatMessage, Conversation, GroundingReport, ToolCallRecord } from '../types'
+import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
 import { groundingFindingCount } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
 import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
@@ -11,6 +11,7 @@ import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
+import { describeDeliberation } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { OasisRipple } from './OasisRipple'
@@ -165,6 +166,47 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
 }
 
 /**
+ * v1.5.1 think-harder disclosure: what the pass did, and the draft and review
+ * on demand — the process, never a score.
+ */
+function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const busy = record.status === 'reviewing' || record.status === 'revising'
+  return (
+    <div className="mt-2 text-[11px] text-neutral-400">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="rounded px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+        title={
+          record.self
+            ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Models → self-review).'
+            : `A different role (${record.reviewerRole}) listed the problems in the draft; the answerer revised once with that list.`
+        }
+      >
+        {describeDeliberation(record)} {busy ? '' : <span>{open ? '▾' : '▸'}</span>}
+      </button>
+      {open && !busy && (
+        <div className="mt-1 space-y-2 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
+          <div>
+            <span className="font-medium text-neutral-500">
+              Review{record.self ? ' (self)' : ` by ${record.reviewerRole}`}
+            </span>
+            <p className="whitespace-pre-wrap text-neutral-500">{record.review || '(empty)'}</p>
+          </div>
+          {record.revised && (
+            <div>
+              <span className="font-medium text-neutral-500">Draft (before revision)</span>
+              <p className="whitespace-pre-wrap text-neutral-500">{record.draft}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * v0.9 visible recall: which long-term memory chunks were injected into the
  * system prompt for this reply. The display is mechanical — the app shows
  * what it actually sent, it does not ask the model to footnote itself.
@@ -258,7 +300,7 @@ export const MessageBubble = memo(function MessageBubble({
   // which made the hook count differ between user and assistant messages.
   const [speaking, setSpeaking] = useState(false)
   const [copied, setCopied] = useState(false)
-  const { regenerate, secondOpinion, escalate } = useLMStudio()
+  const { regenerate, secondOpinion, escalate, deliberate } = useLMStudio()
   const streaming = useAppStore((s) => s.streaming)
   const secondOpinionEnabled = useAppStore((s) => s.settings?.secondOpinion.enabled) ?? false
   const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
@@ -410,6 +452,17 @@ export const MessageBubble = memo(function MessageBubble({
                 🔍 2nd opinion
               </button>
             )}
+            {!isStreaming && !message.deliberation && (
+              <button
+                type="button"
+                onClick={() => void deliberate(message.id)}
+                disabled={streaming}
+                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+                title="Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible."
+              >
+                🧠 Think harder
+              </button>
+            )}
             {!isStreaming && conversation && (
               <BranchMenu message={message} conversation={conversation} />
             )}
@@ -543,6 +596,10 @@ export const MessageBubble = memo(function MessageBubble({
 
         {message.secondOpinion && (
           <SecondOpinionBlock opinion={message.secondOpinion} isStreaming={streaming && isLast} />
+        )}
+
+        {message.deliberation && (
+          <DeliberationLine record={message.deliberation} />
         )}
 
         {message.claimCheck && (

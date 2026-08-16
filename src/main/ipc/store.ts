@@ -208,6 +208,14 @@ export interface GroundingSettings {
    * few dozen tokens and is the cheapest lift a small model gets.
    */
   playbooks: boolean
+  /**
+   * v1.5.1: when "think harder" runs with only one slot enabled, let the
+   * answerer review its own draft (labelled as such) rather than doing
+   * nothing. On by default: the structure of a review pass catches arithmetic
+   * slips and skipped steps even from the same model; the disclosure keeps it
+   * honest. Off = think-harder requires a second slot, like second opinions.
+   */
+  selfReview: boolean
 }
 
 export interface ClaimCheckSettings {
@@ -432,7 +440,7 @@ function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -653,7 +661,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     },
     grounding: {
       autoCorrect: settings.grounding?.autoCorrect !== false,
-      playbooks: settings.grounding?.playbooks !== false
+      playbooks: settings.grounding?.playbooks !== false,
+      selfReview: settings.grounding?.selfReview !== false
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

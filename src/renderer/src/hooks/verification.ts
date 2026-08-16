@@ -1,6 +1,13 @@
 import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
+import {
+  buildReviewMessages,
+  buildRevisionMessages,
+  figuresChanged,
+  pickReviewer,
+  reviewFoundProblems
+} from '../lib/deliberation'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { describeGroundingFindings } from '../lib/toolGrounding'
 import {
@@ -16,6 +23,7 @@ import type {
   CheckedClaim,
   ClaimCheckRecord,
   Conversation,
+  DeliberationRecord,
   GroundingReport,
   ModelConfig,
   SecondOpinionRecord,
@@ -407,4 +415,115 @@ export async function reviseAgainstFindings(
     return ''
   }
   return revised.trim()
+}
+
+/**
+ * v1.5.1 Think harder: draft → review → revise, once, on a finished reply.
+ * See lib/deliberation.ts for the rules and the disclosure. The reviewer is a
+ * different slot when one exists; otherwise the answerer reviews its own
+ * draft if settings.grounding.selfReview allows, labelled as such.
+ */
+export async function runDeliberation(
+  convo: Conversation,
+  messageId: string,
+  question: string,
+  draft: string,
+  answerer: ModelConfig,
+  baseUrl: string,
+  signal: AbortSignal
+): Promise<void> {
+  const settings = useAppStore.getState().settings
+  if (!settings || !draft.trim()) return
+  const { slot: reviewer, self } = pickReviewer(settings.models, answerer, settings.secondOpinion.criticSlotId)
+  const record: DeliberationRecord = {
+    reviewerRole: reviewer.roleName,
+    reviewerModelId: reviewer.modelId,
+    self,
+    status: 'reviewing',
+    draft,
+    review: '',
+    revised: false,
+    createdAt: Date.now()
+  }
+  const patchRecord = (p: Partial<DeliberationRecord>): void => {
+    Object.assign(record, p)
+    useAppStore.getState().patchMessage(convo.id, messageId, { deliberation: { ...record } })
+  }
+  if (self && settings.grounding.selfReview === false) {
+    patchRecord({
+      status: 'error',
+      note: 'no second slot is enabled and self-review is off (Settings → Models)'
+    })
+    return
+  }
+  patchRecord({})
+
+  try {
+    await window.api.pinModel(reviewer.modelId).catch(() => false)
+    let review = ''
+    await streamChat(
+      baseUrl,
+      reviewer.modelId,
+      buildReviewMessages(reviewer, question, draft, answerer.roleName, self),
+      [],
+      signal,
+      (chunk) => {
+        review += chunk
+        patchRecord({ review })
+      },
+      undefined,
+      // A cool reviewer: the job is to find what is wrong, not to be creative.
+      { ...reviewer.sampling, temperature: Math.min(reviewer.sampling.temperature, 0.3) }
+    )
+    if (signal.aborted) return
+    audit(convo, {
+      kind: 'assistant_output',
+      roleName: reviewer.roleName,
+      modelId: reviewer.modelId,
+      text: `[think harder — ${self ? 'self-review' : 'review'}]\n${review}`
+    })
+    if (!reviewFoundProblems(review)) {
+      patchRecord({ status: 'done', revised: false })
+      return
+    }
+
+    patchRecord({ status: 'revising' })
+    await window.api.pinModel(answerer.modelId).catch(() => false)
+    let revision = ''
+    await streamChat(
+      baseUrl,
+      answerer.modelId,
+      buildRevisionMessages(answerer, question, draft, review),
+      [],
+      signal,
+      (chunk) => {
+        revision += chunk
+      },
+      undefined,
+      answerer.sampling
+    )
+    if (signal.aborted) return
+    const clean = revision.trim()
+    if (!clean) {
+      patchRecord({ status: 'done', revised: false, note: 'the revision came back empty; draft kept.' })
+      return
+    }
+    const { added, removed } = figuresChanged(draft, clean)
+    const note =
+      added.length || removed.length
+        ? `Figures changed: ${removed.slice(0, 4).join(', ') || '—'} → ${added.slice(0, 4).join(', ') || '—'}.`
+        : undefined
+    useAppStore.getState().patchMessage(convo.id, messageId, { content: clean })
+    patchRecord({ status: 'done', revised: true, note })
+    audit(convo, {
+      kind: 'assistant_output',
+      roleName: answerer.roleName,
+      modelId: answerer.modelId,
+      text: `[think harder — revised]\n${clean}`
+    })
+  } catch (err) {
+    if (!signal.aborted) {
+      patchRecord({ status: 'error', note: err instanceof Error ? err.message : String(err) })
+    }
+  }
 }

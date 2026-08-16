@@ -8,6 +8,7 @@ import { describeModel, describeEvalScore, modelLabel } from '../lib/modelInfo'
 import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { LibraryTab } from './settings/LibraryTab'
+import { describeProfile, profileFor } from '../lib/modelProfiles'
 import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
 import type { ToolSchema } from '../types'
 import {
@@ -81,6 +82,24 @@ function isLoopbackUrl(url: string): boolean {
  * Absent entirely for models never evaluated — no "untested" badge, because
  * the absence of a number is not a claim about the model.
  */
+/**
+ * v1.5.1: what the app knows about this model family — reasoning handling,
+ * sampling recipe, tool-calling reliability (measured when the eval has run,
+ * otherwise a stated prior). One line; details on hover.
+ */
+function ProfileLine({ modelId, scores }: { modelId: string; scores: EvalScoreSummary[] }): JSX.Element | null {
+  if (!modelId) return null
+  const profile = profileFor(modelId, scores.find((s) => s.model === modelId) ?? null)
+  const line = describeProfile(profile)
+  if (!line) return null
+  const tip = [profile.toolCalling.detail, ...profile.notes].filter(Boolean).join('\n')
+  return (
+    <p className="mt-1 text-xs text-neutral-400" title={tip}>
+      Profile: {line}
+    </p>
+  )
+}
+
 function EvalScoreLine({
   scores,
   modelId
@@ -581,6 +600,7 @@ export function SettingsModal(): JSX.Element | null {
                             <option value={m.modelId}>{m.modelId} (not loaded)</option>
                           )}
                         </select>
+                        <ProfileLine modelId={m.modelId} scores={evalScores} />
                         <EvalScoreLine scores={evalScores} modelId={m.modelId} />
                       </div>
                       <div>
@@ -1051,6 +1071,27 @@ export function SettingsModal(): JSX.Element | null {
                         calculator, never in your head&rdquo;, &ldquo;describe the data before
                         analysing it&rdquo;). A few dozen tokens; the reply says which playbook was
                         used. This is how a small model acts like it has expertise it does not have.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.grounding.selfReview}
+                      onChange={(e) =>
+                        update({ grounding: { ...draft.grounding, selfReview: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Think harder may use self-review when no second role is enabled
+                      <span className="mt-0.5 block text-xs text-neutral-500">
+                        🧠 Think harder is draft → review → revise, once. With two roles the review
+                        comes from a different model. With one, this lets the same model read its
+                        own draft as a strict reviewer — weaker, always labelled &ldquo;reviewed its
+                        own draft&rdquo;, and still useful for arithmetic slips and skipped steps.
+                        Off means think harder requires a second role, like second opinions.
                       </span>
                     </span>
                   </label>

@@ -276,3 +276,18 @@ describe('bounds', () => {
     assert.ok(stats.chars > 100)
   })
 })
+
+describe('relevance floor', () => {
+  test('a question with no real overlap returns nothing, not a lone 1.00', async () => {
+    await lib.installPackFromDirectory(writePack('first-aid', [{ id: 'basics', title: 'First Aid Basics', text: FIRST_AID }]))
+    const out = await lib.lookupLibrary({ query: 'how much change from twenty dollars ignoring tax', topK: 3 })
+    assert.equal(out.ok, true)
+    assert.deepEqual(out.passages, [])
+    assert.ok(out.notes.some((n) => /closely enough|No passage/.test(n)))
+  })
+  test('a real match still comes through', async () => {
+    await lib.installPackFromDirectory(writePack('first-aid', [{ id: 'basics', title: 'First Aid Basics', text: FIRST_AID }]))
+    const out = await lib.lookupLibrary({ query: 'running water burn', topK: 3 })
+    assert.ok(out.passages.length > 0)
+  })
+})
