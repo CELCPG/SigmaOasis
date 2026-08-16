@@ -1,0 +1,37 @@
+# Sigma Oasis v1.5.0 — the Almanac
+
+Every release so far made a small local model more *honest*: it verifies, it flags what it could not verify, it never grades itself. This one makes it *deeper* — and makes the offline half of the app's promise true for the first time. A 9–30B model is thin on the long tail, weak at procedure, and until now had nothing to read when the network was off except its own memory. Now it reads before it answers: an offline **reference library** it cites, and a **method** for the kind of question it was asked. Both are local, both are disclosed under every reply, and neither touches the network. Pinned by 1,196 checks (55 new) plus the real-window suites; the whole feature was verified against a 9B model in the built app.
+
+## An offline reference library the model quotes instead of guessing
+
+- **Reference packs.** A pack is a folder of plain-text documents with a manifest that says, for every document, where it came from, under what license, and when it was last reviewed. Seven curated packs ship in the repository (`packs/`, 105 documents, ~700 KB): **first aid** (NHS), **health** (MedlinePlus), **emergency preparedness** (Ready.gov), **food safety** (FoodSafety.gov / USDA / FDA), **personal finance & tax** (CFPB / Investor.gov / IRS), **home safety** (US Fire Administration / EPA) and **US civic & consumer basics** (USA.gov). All public domain except the NHS pack, which is Open Government Licence with attribution carried on every passage. Install one from *Settings → Library → Install pack…* by choosing its folder.
+- **Your own documents become a pack.** *Settings → Library → Add folder…* snapshots a folder of `.md`, `.txt` and `.pdf` files — manuals, notes, course material — into a pack with the same indexing and citation. Each passage cites the file it came from. This is what turns "reference library" into "my second brain".
+- **Retrieval, not lookup tables.** Packs are indexed with the same hybrid the app already trusts for fetched web pages — keyword (BM25) plus meaning (embeddings) fused by rank, then de-duplicated — and every passage comes back with a citation the model is told to carry into its answer: *pack › document › section · 42% in*, plus source, license and date. Keyword search works the moment a pack is installed, on a machine running one model; **Embed** in the Library tab adds semantic matching using the loaded embedding model, stored per model so a model change is noticed rather than silently degrading.
+- **The model reaches it two ways.** A new tool, `reference_lookup` (on by default; it reads only your own installed packs and never uses the network), for when the model decides to look. And — because a small model rarely decides to — the app looks *for* it: on a first-aid, health, finance, legal, preparedness, home-repair or food question, and on **any** factual question while offline, the library is consulted before the model speaks and the passages are handed over. The reply shows exactly what was retrieved under **📖 From the library**, and the lookup appears as a tool call the user can open.
+- **Measured, not asserted.** In the built app with a 9B model, web tools off and a first-aid pack installed: *"I just burned my hand on a pan, what should I do?"* → the app consulted the library before the model spoke; the model answered `[1] First Aid Basics › Burns: Cool a thermal burn under cool (not cold) running water for at least twenty minutes…` — verbatim from the pack — no "unverified" badge, strip present. Building the tranche found what only building finds: NHS's own `/first-aid/` pages silently redirect to a charity's site (not OGL) — the build's same-host guard refused them, which is the one failure a provenance-carrying library must never have.
+
+## Offline is a mode now, not an accident
+
+- **The grounding rules know when the network is off.** Through v1.4 the standing instruction was "verify with web_search" — offline, that sent the model into a failing tool loop and then a guess. Offline, the rule now names the reference library, or permission to say *I cannot verify this while offline*; the automatic web search is skipped; and the unverified badge says what happened: *no web source could be reached and the reference library had nothing on this*.
+
+## Playbooks: a method for the kind of question
+
+- **Twelve short numbered methods**, one chosen per turn by the same domain classifiers: first aid ("say to call emergency services first; quote durations and dosages, never paraphrase them"), health & medication, structural/electrical/gas ("never estimate a load or amperage; breaker off first"), emergencies & preparedness, food safety ("when in doubt, discard — the cost of being wrong is not symmetric"), home repair, personal finance & tax ("compute with the calculator, never in your head; say which tax year"), legal & civic ("name the jurisdiction; never invent a statute"), data analysis ("describe the data before analysing it"), code, comparing options, plans.
+- **Why:** a small model's third weakness is not facts or arithmetic but *procedure* — it does not know how an expert goes about a question. Persona prompts cannot carry a method for every kind of question; a playbook is chosen for this one. Each is under 130 words (small models tune out essays), rides the turn's notes after any reference passages (material first, then how to use it), and is disclosed: **📋 Method: First aid playbook**. Off switch on the Models tab.
+
+## Groundwork that shipped alongside (from v1.4.8, "the bounded one")
+
+- **Loopback-only LM Studio base URL, enforced** — a remote value leaked embeddings and research prompts un-proxied while chat failed anyway. **The activity log says what it excludes** (the loopback chat stream). **Settings normalize on read and write** and drop unknown keys.
+- **The markdown sanitizer is tested in a real window** — and the pins found two things DOMPurify's defaults let into a chat bubble: form controls and inline styles. Both forbidden now.
+- **Long attachments are read, not cut at 20,000 characters**: the opening stays inline and the rest is indexed in RAM; each question retrieves its relevant passages (**📄 From the attached document(s)**).
+- **The tool switch is a dispatch table** (adding a tool is one module + one line — that is how `reference_lookup` arrived), **`useLMStudio.ts` split by concern** (2,400 → 1,140 lines), Linux CI leg.
+
+## Upgrade notes
+
+- **New setting, on by default:** *Playbooks* (Settings → Models). **New tool, on by default:** `reference_lookup` (Settings → Tools) — it reads only your installed packs. Nothing else to configure.
+- **Packs are not bundled into the app.** Get them from the repository's `packs/` folder (or a release download) and install from Settings → Library. They live under the app's data folder; removing one deletes only the copy.
+- **Attribution:** the first-aid pack contains public sector information licensed under the Open Government Licence v3.0 (NHS). The other curated packs are US federal works in the public domain. Every passage the model sees carries its source.
+- **A base URL pointing at another machine** reverts to the default (see v1.4.8).
+- **macOS:** signed and notarized; Apple Silicon and Intel DMGs. Also `brew tap CELCPG/tap && brew install --cask sigma-oasis`. **Windows:** unsigned installer, SmartScreen will warn. **Auto-update** from v1.4.x.
+
+**Full changelog:** https://github.com/CELCPG/SigmaOasis/compare/v1.4.7...v1.5.0

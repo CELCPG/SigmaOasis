@@ -32,6 +32,8 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter beneath the composer shows how full the window is. Switch to plain trimming under Settings → General.
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches. New in 0.9: recall is **visible** (each reply shows which memory chunks it used) and **scoped** (a conversation can restrict which sources it recalls from).
+- **Offline reference library — the Almanac (1.5).** Install curated **reference packs** (first aid, health, emergency preparedness, food safety, personal finance & tax, home safety, US civic basics — public-domain / OGL sources, 105 documents in `packs/`) or turn a folder of your own manuals and notes into a pack. Passages are retrieved by relevance (keyword + semantic) with a citation — *pack › document › section*, plus source, license and date — and the app consults the library **before the model answers** first-aid, health, finance, legal, home-repair and food questions, and any factual question while offline. Shown under the reply as **📖 From the library**. Entirely local: nothing about it uses the network.
+- **Playbooks (1.5).** One short numbered method per turn for the kind of question — first aid, health, structural/electrical, preparedness, food safety, home repair, finance & tax, legal, data analysis, code, comparison, plans — so a small model acts like it has procedure it does not have. Disclosed under the reply (**📋 Method: …**); off switch on the Models tab.
 - **Second opinions (0.9).** A "🔍 2nd opinion" action under any reply has a **different role** review it and name the factual claims it could not verify, plus the check that would settle each. Never a confidence score — a model grading its own answer says "yes" nearly always.
 - **Tool grounding (1.3).** After every reply the app checks, mechanically, whether the money figures and links in it actually came from the tools that ran. A payment the calculator did not return, a price on a shopping turn with no price check, a product URL in no search result — each gets a warning under the answer naming what was checked against what. No model call and no network: it is number and string comparison, so it holds even when the prompt telling the model not to invent things does not. Prompts are how you ask; this is how you know.
 - **Plan mode (0.9).** The 📋 toggle in the composer turns a task into a visible step-by-step plan: decomposed by the model, shown for your **approval**, executed step by step with live progress, then synthesized into a final answer. A failed step is marked failed and disclosed, never silently retried.
@@ -172,6 +174,7 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | `list_notes` | List saved note titles. |
 | `read_note` | Read a note by title. |
 | `memory_save` / `memory_search` / `memory_forget` | Write to, search, and delete from long-term local memory. Stored on this machine; recalled chunks are shown in the reply so you can see what was injected. |
+| `reference_lookup` | **1.5.** Search the offline reference library — installed packs and your own document folders — and return passages with citations and provenance. **On by default**; reads only this machine, never the network. Also run automatically by the app on reference-domain and offline turns. |
 | `shop_requirements` | Turn a shopping ask ("a quiet air purifier for a 40 m² bedroom under $300") into a structured checklist the comparison is then scored against. |
 | `shop_compare` | Price the same product across sellers side by side — through the proxy when you require it, with worst-privacy sellers excludable. Prices are extracted mechanically from the page, never written by the model. When enabled, the app runs this itself on a turn it detects as a purchase decision, so the model has real offers rather than remembered ones. |
 | `price_watch` | Add, list, remove and re-check watched items. The watchlist is a file on this machine; no account, no tracker, nobody else holds the list. |
@@ -303,6 +306,50 @@ the hash of the line before it, so an edited or deleted entry breaks the chain a
 
 Off by default, because a privacy app does not log by default. Ephemeral chats produce no entries —
 no-trace includes the log. Optional auto-purge on quit keeps verification session-scoped.
+
+---
+
+## 📖 v1.5: the Almanac — an offline reference library and playbooks
+
+A 9–30B model is thin on the long tail, weak at procedure, and — until now — had nothing to read
+when the network was off except its own memory. v1.5 moves knowledge and method out of the weights
+and into the app.
+
+### Reference packs (Settings → Library)
+
+- **Install a pack.** A pack is a folder: `manifest.json` (id, name, license, and for every document
+  its title, source URL, license and date) plus `docs/*.md`. Seven curated packs are in the
+  repository under [`packs/`](packs/): `first-aid` (NHS, OGL v3.0), `health` (MedlinePlus NLM
+  summaries), `preparedness` (Ready.gov), `food-safety` (FoodSafety.gov / USDA / FDA), `finance`
+  (CFPB / Investor.gov / IRS), `home-safety` (USFA / EPA), `civic` (USA.gov). *Install pack…* and
+  choose the folder; the documents are **copied**, so the source can go away. Format and rebuild
+  instructions: [`docs/library-pack-format.md`](docs/library-pack-format.md).
+- **Add your own folder.** *Add folder…* snapshots `.md`, `.txt` and `.pdf` files (recursively) into
+  a pack; each passage cites the original file path.
+- **Keyword first, semantic when you ask.** A pack is searchable the moment it is installed (BM25).
+  *Embed* computes vectors with the loaded embedding model for meaning-based matching; they are stored
+  per model, so switching embedding models is noticed, not silently wrong. Retrieval is BM25 +
+  cosine fused by reciprocal rank, MMR-deduplicated — the same machinery as fetched web pages.
+- **Try a lookup** in the tab shows exactly what the model would be given.
+
+### How the model reaches it
+
+- `reference_lookup` — a tool the model can call (on by default; local only).
+- **App-initiated:** on first-aid, health, finance, legal, preparedness, home-repair and food
+  questions, and on *any* factual question while offline, the app queries the library before the
+  model speaks and appends the passages to the turn with the standing rule: cite by bracket, quote
+  steps and figures, say so if the passages do not answer. The reply shows **📖 From the library**
+  and the lookup as a tool record. An empty library injects nothing.
+- **Offline is a mode.** Offline, the grounding rules name the library instead of `web_search`, the
+  automatic search is skipped, and the unverified badge says that no web source could be reached.
+
+### Playbooks
+
+Twelve short numbered methods (`src/renderer/src/lib/playbooks.ts`), one chosen per turn by the same
+domain classifiers: first aid, health & medication, structural/electrical/gas, emergencies &
+preparedness, food safety, home repair, personal finance & tax, legal & civic, data analysis, code,
+comparing options, plans. Each is under 130 words, rides the turn's notes after any reference
+passages, and is disclosed as **📋 Method: … playbook**. Settings → Models → Playbooks.
 
 ---
 
@@ -482,6 +529,7 @@ All data lives in your OS application-data directory (`app.getPath('userData')`)
 - **Settings**: `config.json` (managed by `electron-store`)
 - **Conversations**: `conversations/<id>.json`
 - **Notes**: `notes.json`
+- **Reference library (1.5)**: `library/<packId>/` — the pack's manifest, its copied documents, and `index.json` (embedding vectors, per model)
 
 Typical locations:
 - macOS: `~/Library/Application Support/Sigma Oasis`
