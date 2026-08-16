@@ -9,6 +9,7 @@ import { registerToolRankHandlers } from './ipc/toolRank'
 import { registerAttachmentHandlers } from './ipc/attachments'
 import { registerVoiceHandlers } from './ipc/voice'
 import { registerMemoryHandlers } from './ipc/memory'
+import { registerLibraryHandlers } from './ipc/library'
 import { registerNetworkHandlers } from './ipc/net'
 import { registerSearchHandlers } from './ipc/search'
 import { registerAuditHandlers, purgeAuditLogs } from './ipc/audit'
@@ -110,6 +111,7 @@ app.whenReady().then(() => {
   registerAttachmentHandlers()
   registerVoiceHandlers()
   registerMemoryHandlers()
+  registerLibraryHandlers()
   registerNetworkHandlers()
   registerSearchHandlers()
   registerUpdateHandlers()

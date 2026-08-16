@@ -6,6 +6,11 @@ import type {
   AttachmentRef,
   AuditEntryInput,
   AuditStatus,
+  LibraryEmbedResult,
+  LibraryLookupResult,
+  LibraryPackResult,
+  LibraryPackSummary,
+  LibraryStats,
   Conversation,
   MemorySearchResult,
   MemoryStats,
@@ -153,6 +158,26 @@ const api = {
   ): Promise<AttachmentPassagesResult> => ipcRenderer.invoke('attachments:passages', refs, query, topK),
   /** Absolute path for a dropped File object (sandbox-safe replacement for File.path). */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+
+  // v1.5 Reference library (main/ipc/library.ts) — offline; disk + loopback only.
+  libraryList: (): Promise<LibraryPackSummary[]> => ipcRenderer.invoke('library:list'),
+  libraryStats: (): Promise<LibraryStats> => ipcRenderer.invoke('library:stats'),
+  libraryLookup: (query: string, packId?: string | null, topK?: number): Promise<LibraryLookupResult> =>
+    ipcRenderer.invoke('library:lookup', query, packId ?? null, topK),
+  libraryInstallFromDirectory: (path?: string): Promise<LibraryPackResult> =>
+    ipcRenderer.invoke('library:installFromDirectory', path),
+  libraryAddFolder: (path?: string, name?: string): Promise<LibraryPackResult> =>
+    ipcRenderer.invoke('library:addFolder', path, name),
+  libraryRemove: (id: string): Promise<{ removed: boolean }> => ipcRenderer.invoke('library:remove', id),
+  libraryEmbed: (id: string): Promise<LibraryEmbedResult> => ipcRenderer.invoke('library:embed', id),
+  libraryCancelEmbed: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('library:cancelEmbed'),
+  onLibraryEmbedProgress: (
+    cb: (p: { packId: string; done: number; total: number }) => void
+  ): (() => void) => {
+    const listener = (_e: unknown, p: { packId: string; done: number; total: number }): void => cb(p)
+    ipcRenderer.on('library:embedProgress', listener)
+    return () => ipcRenderer.removeListener('library:embedProgress', listener)
+  },
 
   // Voice (main/ipc/voice.ts)
   getSttStatus: (): Promise<SttStatus> => ipcRenderer.invoke('voice:sttStatus'),

@@ -60,6 +60,7 @@ rm -rf "$OUT"
   src/main/ipc/modelCatalog.ts \
   src/main/ipc/attachments.ts \
   src/main/ipc/attachmentIndex.ts \
+  src/main/ipc/library.ts \
   src/main/ipc/deepResearch.ts \
   src/main/ipc/finance.ts \
   src/main/ipc/dates.ts \

@@ -448,6 +448,70 @@ export interface ModelInfo {
   arch?: string
 }
 
+// ---- v1.5 Reference library (main/ipc/library.ts) ------------------------------
+
+export interface LibraryPackSummary {
+  id: string
+  name: string
+  description: string
+  version: string
+  license: string
+  kind: 'curated' | 'user'
+  sourceNote?: string
+  installedAt: string
+  docs: number
+  chars: number
+  chunks: number
+  embeddedChunks: number
+  embeddingModel: string | null
+}
+
+export interface LibraryPassage {
+  packId: string
+  packName: string
+  docId: string
+  docTitle: string
+  section: string
+  position: number
+  text: string
+  score: number
+  source?: string
+  license?: string
+  date?: string
+}
+
+export interface LibraryLookupResult {
+  ok: boolean
+  passages: LibraryPassage[]
+  mode: 'hybrid' | 'keyword'
+  notes: string[]
+  error?: string
+}
+
+export interface LibraryStats {
+  packs: number
+  docs: number
+  chunks: number
+  chars: number
+  embeddedChunks: number
+  scanned: boolean
+}
+
+export interface LibraryPackResult {
+  ok: boolean
+  pack?: LibraryPackSummary
+  error?: string
+  cancelled?: boolean
+}
+
+export interface LibraryEmbedResult {
+  ok: boolean
+  embedded: number
+  total: number
+  model: string | null
+  error?: string
+}
+
 // ---- Attachments ------------------------------------------------------------
 
 export interface Attachment {
