@@ -70,6 +70,7 @@ rm -rf "$OUT"
   src/main/ipc/shopping.ts \
   src/main/ipc/watchlist.ts \
   src/main/ipc/toolSchemas.ts \
+  src/main/ipc/toolHandlers/registry.ts \
   src/main/ipc/toolRank.ts \
   src/main/ipc/evalResults.ts \
   src/main/ipc/traceExport.ts \

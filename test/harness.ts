@@ -533,8 +533,9 @@ export function installStubs(): void {
     // harness's own dependencies or anything in node_modules.
     if (request === 'dns/promises' || request === 'dns') return dnsStub
     if (parent?.filename?.startsWith(COMPILED_DIR)) {
-      if (request === './store') return storeStub
-      if (request === './net') return netStub
+      // `./store` from src/main/ipc/*, `../store` from src/main/ipc/toolHandlers/*.
+      if (request === './store' || request === '../store') return storeStub
+      if (request === './net' || request === '../net') return netStub
     }
     return original.call(this, request, parent, isMain)
   }
