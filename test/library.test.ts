@@ -155,7 +155,10 @@ describe('lookup', () => {
     assert.equal(top.docTitle, 'First Aid Basics')
     assert.match(top.text, /twenty minutes/)
     assert.equal(top.source, 'https://example.gov/fa')
-    assert.match(lib.citationOf(top), /Pack first-aid › First Aid Basics › /)
+    // The chunk starts under the H1 (the document's title); the section is
+    // the first heading inside it, not the title repeated.
+    assert.equal(top.section, 'Bleeding')
+    assert.equal(lib.citationOf(top), 'Pack first-aid › First Aid Basics › Bleeding · 0% in')
     const text = lib.formatLookup(out, 'burn')
     assert.match(text, /\[1\] Pack first-aid › First Aid Basics/)
     assert.match(text, /source: https:\/\/example\.gov\/fa/)

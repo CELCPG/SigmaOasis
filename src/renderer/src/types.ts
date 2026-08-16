@@ -487,6 +487,8 @@ export interface LibraryLookupResult {
   mode: 'hybrid' | 'keyword'
   notes: string[]
   error?: string
+  /** The model-facing rendering (same text the reference_lookup tool returns). */
+  formatted?: string
 }
 
 export interface LibraryStats {
@@ -674,6 +676,10 @@ export interface ChatMessage {
    * given from their document.
    */
   attachmentContext?: MemoryContextItem[]
+  /** v1.5: passages the app retrieved from the local reference library for this reply. */
+  libraryContext?: MemoryContextItem[]
+  /** v1.5: the turn ran while the app was offline (no web tools could work). */
+  offline?: boolean
   /**
    * v1.1 grounding: a factual-looking question was answered without any web
    * source being consulted (auto-search disabled/failed and the model never

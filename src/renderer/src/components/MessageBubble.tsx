@@ -464,6 +464,14 @@ export const MessageBubble = memo(function MessageBubble({
           <MemoryContextLine items={message.memoryContext} />
         )}
 
+        {!isStreaming && message.libraryContext && message.libraryContext.length > 0 && (
+          <MemoryContextLine
+            items={message.libraryContext}
+            label="📖 From the library:"
+            title="Passages the app retrieved from your local reference library before the model answered — the model saw exactly these, with their citations"
+          />
+        )}
+
         {!isStreaming && message.attachmentContext && message.attachmentContext.length > 0 && (
           <MemoryContextLine
             items={message.attachmentContext}
@@ -475,10 +483,15 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.unverified && (
           <div
             className="mt-2 text-[11px] text-amber-600 dark:text-amber-400"
-            title="This looked like a factual question, but no web source was consulted — the answer comes entirely from the model's memory, which can invent plausible-sounding names, dates, and numbers."
+            title={
+              message.offline
+                ? 'This looked like a factual question, the app was offline so no web source could be consulted, and the local reference library had nothing on it — the answer comes entirely from the model\'s memory.'
+                : "This looked like a factual question, but no web source was consulted — the answer comes entirely from the model's memory, which can invent plausible-sounding names, dates, and numbers."
+            }
           >
-            ⚠️ Answered from model memory — no sources consulted. Treat names, dates, and
-            numbers as unverified.
+            {message.offline
+              ? '⚠️ Answered from model memory while offline — no web source could be reached and the reference library had nothing on this. Treat names, dates, and numbers as unverified.'
+              : '⚠️ Answered from model memory — no sources consulted. Treat names, dates, and numbers as unverified.'}
           </div>
         )}
 

@@ -32,14 +32,25 @@ const MAX_QUERY_CHARS = 240
  * The honesty rules appended to every slot's system prompt. Deliberately
  * short: small models attend to brief imperative rules and tune out essays.
  */
-export function buildGroundingBlock(now: Date = new Date()): string {
+export function buildGroundingBlock(now: Date = new Date(), options: { offline?: boolean } = {}): string {
   const date = now.toISOString().slice(0, 10)
+  // v1.5: offline, "verify with web_search" is an instruction to fail — the
+  // model calls a tool that cannot work, then either apologizes or guesses.
+  // The rule names the local reference library instead, and says what "offline"
+  // permits: quoting an installed reference, or saying it cannot verify.
+  const verifyRule = options.offline
+    ? '- You are OFFLINE: web_search and other web tools cannot work now. Before stating a ' +
+      'specific fact you are not certain of — names, dates, numbers, dosages, steps — check the ' +
+      'local reference library with reference_lookup, or say plainly that you cannot verify it ' +
+      'while offline. Never guess to cover for the missing connection.\n'
+    : '- Before stating a specific fact you are not certain of — names, titles (albums, songs, ' +
+      'books, films), dates, numbers, versions, quotes — verify it with web_search (or, for ' +
+      'first aid, health, finance rules, legal or home-repair questions, reference_lookup) or say ' +
+      'plainly that you do not know.\n'
   return (
     `Today's date is ${date}. Your training data may be outdated — verify anything recent.\n` +
     'Grounding rules:\n' +
-    '- Before stating a specific fact you are not certain of — names, titles (albums, songs, ' +
-    'books, films), dates, numbers, versions, quotes — verify it with web_search or say plainly ' +
-    'that you do not know.\n' +
+    verifyRule +
     '- Never invent a plausible-sounding title, name, date, or statistic. A confident guess ' +
     'presented as fact is far worse than "I don\'t know".\n' +
     '- When you search the web or shop, build the query from the whole conversation: resolve ' +
@@ -74,8 +85,12 @@ export const BREVITY_RULES =
   'cover next. One short offer to go deeper is enough.'
 
 /** Append the grounding and length rules to a slot's system prompt. */
-export function withGrounding(systemPrompt: string, now: Date = new Date()): string {
-  return `${systemPrompt}\n\n${buildGroundingBlock(now)}\n\n${BREVITY_RULES}`
+export function withGrounding(
+  systemPrompt: string,
+  now: Date = new Date(),
+  options: { offline?: boolean } = {}
+): string {
+  return `${systemPrompt}\n\n${buildGroundingBlock(now, options)}\n\n${BREVITY_RULES}`
 }
 
 /**
@@ -155,6 +170,59 @@ const PLACE_DOMAINS =
 /** Structural, electrical and gas work — where the failure mode is a collapse. */
 const BUILDING_DOMAINS =
   /\b(load[- ]bearing|joists?|rafters?|footings?|psf|span tables?|building code|permits?|structural|amperage|breakers?|gas line|load capacity|dead load|live load)\b/i
+
+/**
+ * v1.5: the reference-book domains — questions a good almanac answers, and
+ * where the offline reference library (Feature A) should be consulted before
+ * the model speaks. Deliberately broader than the web-search triggers above:
+ * a library lookup is local, private and cheap, so over-triggering costs a few
+ * hundred tokens of passages labelled "use if relevant", while under-triggering
+ * leaves a 9B model to recite a dosage from memory. HEALTH_DOMAINS and
+ * BUILDING_DOMAINS above are included by looksReference().
+ */
+const FINANCE_RULE_DOMAINS =
+  /\b(?:tax(?:es|able)?|deductions?|deductible|withholding|filing status|dependents?|ira|401\(?k\)?|roth|hsa|fsa|capital gains|standard deduction|itemi[sz]e|credit scores?|credit reports?|apr|interest rates?|amortization|escrow|mortgages?|refinanc(?:e|ing)|insurance|premiums?|deductibles?|budget(?:ing)?|emergency fund|compound(?:ing)? interest|inflation|annuit(?:y|ies)|estate plan|wills?|power of attorney|beneficiar(?:y|ies))\b/i
+
+const LEGAL_CIVIC_DOMAINS =
+  /\b(?:tenants?|landlords?|leases?|evictions?|small claims|contracts?|warrant(?:y|ies)|consumer rights|my rights|statute|statutes|jurisdiction|citizenship|naturali[sz]ation|green card|visas?|passports?|jury duty|notari[sz]e|notary|liabilit(?:y|ies)|negligence|copyright|trademark|fair use)\b/i
+
+const PREPAREDNESS_DOMAINS =
+  /\b(?:hurricanes?|tornado(?:es)?|earthquakes?|wildfires?|floods?|flooding|blizzards?|heat ?waves?|power outages?|blackouts?|evacuat(?:e|ion)|shelter in place|emergency kits?|go[- ]bags?|boil[- ]water|water purification|generators?|carbon monoxide|smoke detectors?|fire extinguishers?|survival|disaster)\b/i
+
+const HOME_FOOD_DOMAINS =
+  /\b(?:leak(?:s|ing)?|faucets?|toilets?|drywall|caulk(?:ing)?|grout|circuit breakers?|gfci|outlets?|thermostats?|furnaces?|water heaters?|hvac|insulation|mold|mildew|pests?|termites?|food safety|food poisoning|expir(?:ed|ation|y)|spoiled|refrigerat(?:e|ed|ion)|thaw(?:ing)?|defrost|internal temperature|calories|nutrition|vitamins?|sodium|servings?)\b/i
+
+/**
+ * First-aid and kitchen vocabulary that HEALTH_DOMAINS (a web-search trigger)
+ * deliberately does not carry — "burn" and "fridge" in ordinary chat should not
+ * fire a search, but they should open the first-aid and food-safety packs.
+ */
+const REFERENCE_ONLY_DOMAINS =
+  /\b(?:burn(?:s|ed|t|ing)?|scald(?:s|ed|ing)?|wound(?:s|ed)?|cuts?|blisters?|frostbite|hypothermia|heat ?stroke|dehydrat(?:ed|ion)|splints?|tourniquets?|leftovers?|fridge|refrigerator|freezer|reheat(?:ing)?|cooked (?:chicken|meat|rice|fish|food|eggs))\b/i
+
+/** Explicit asks to consult installed reference material or the user's own documents. */
+const ASKS_REFERENCE =
+  /\b(?:reference library|reference pack|first aid manual|the manual|my (?:documents|docs|notes|manuals?|files)|according to (?:the|my) (?:manual|guide|handbook|documents?|notes))\b/i
+
+/**
+ * Should the app consult the local reference library before the model
+ * answers this turn? Creative/coding intent still wins, as for looksFactual.
+ */
+export function looksReference(text: string): boolean {
+  const t = text.trim()
+  if (t.length < 8) return false
+  if (CREATIVE_INTENT.test(t)) return false
+  return (
+    ASKS_REFERENCE.test(t) ||
+    HEALTH_DOMAINS.test(t) ||
+    BUILDING_DOMAINS.test(t) ||
+    FINANCE_RULE_DOMAINS.test(t) ||
+    LEGAL_CIVIC_DOMAINS.test(t) ||
+    PREPAREDNESS_DOMAINS.test(t) ||
+    HOME_FOOD_DOMAINS.test(t) ||
+    REFERENCE_ONLY_DOMAINS.test(t)
+  )
+}
 
 /** A message that asks something, by leading word or by question mark. */
 const QUESTION_LEAD =
@@ -301,11 +369,17 @@ export function buildTurnContext(blocks: string[]): string | null {
 
 // ---- Source-consultation check ------------------------------------------------
 
-/** Tools whose successful use counts as consulting an external source. */
-const SOURCE_TOOLS = new Set(['web_search', 'fetch_webpage', 'deep_research'])
+/**
+ * Tools whose successful use counts as consulting a source. v1.5 adds
+ * reference_lookup: an installed reference document is a source in the sense
+ * that matters here — text the model can quote instead of recall — even
+ * though it is not the live web. (Only a lookup that returned passages is
+ * recorded as done; an empty library records nothing.)
+ */
+const SOURCE_TOOLS = new Set(['web_search', 'fetch_webpage', 'deep_research', 'reference_lookup'])
 
 /**
- * Did this turn consult any external source? The badge decision is mechanical:
+ * Did this turn consult any source? The badge decision is mechanical:
  * a source counts only when its tool call completed successfully. Memory
  * recall is not a source — it reminds, it does not verify.
  */

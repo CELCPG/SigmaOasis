@@ -11,11 +11,19 @@ import {
   buildTurnContext,
   consultedSources,
   looksFactual,
+  looksReference,
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
 import { checkToolGrounding, revisionIsAnImprovement } from '../lib/toolGrounding'
 import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
+import {
+  LIBRARY_PASSAGES_PER_TURN,
+  buildLibraryContext,
+  isOffline,
+  shouldConsultLibrary,
+  toLibraryContextItems
+} from '../lib/libraryRecall'
 import {
   ATTACHMENT_PASSAGES_PER_TURN,
   buildAttachmentContext,
@@ -140,7 +148,13 @@ async function runTurn(
   // v1.5: this is now the whole system prompt, and it is deliberately stable
   // from turn to turn — see lib/grounding.ts on why the per-turn additions
   // below go at the end of the user's message instead of here.
-  let systemPrompt = withToolCallPreamble(withGrounding(slot.systemPrompt), slot.modelId)
+  // v1.5: offline swaps the "verify with web_search" rule for the reference
+  // library, and the badge below says "offline" rather than implying neglect.
+  const offline = isOffline()
+  let systemPrompt = withToolCallPreamble(
+    withGrounding(slot.systemPrompt, new Date(), { offline }),
+    slot.modelId
+  )
 
   /** The app's own additions for this turn, appended to the turn's user message. */
   const turnContext: string[] = []
@@ -186,7 +200,8 @@ async function runTurn(
   // Only when web_search is enabled (listTools returns enabled tools only),
   // and a failure here never blocks the turn.
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
-  if (factualTurn && lastUserContent && slotTools.some((t) => t.function.name === 'web_search')) {
+  // Offline the search cannot work; the library lookup below takes its place.
+  if (factualTurn && !offline && lastUserContent && slotTools.some((t) => t.function.name === 'web_search')) {
     // The user message before this one anchors context-dependent follow-ups
     // ("lets go with the first one") so the query carries the topic too.
     const userMessages = convo.messages.filter((m) => m.role === 'user')
@@ -218,6 +233,51 @@ async function runTurn(
     })
     if (signal.aborted) return
   }
+
+  // v1.5: app-initiated reference lookup (STRATEGY-depth-and-reasoning.md,
+  // Feature A). For the domains a reference book answers — first aid, health,
+  // finance rules, legal, preparedness, home repair — and for any factual turn
+  // while offline, the app consults the local library before the model speaks
+  // and hands the passages over with their citations. Local and private, so
+  // the trigger is broad; an empty library or no match injects nothing.
+  const referenceTurn = lastUserContent ? looksReference(lastUserContent) : false
+  const libraryOn = slotTools.some((t) => t.function.name === 'reference_lookup')
+  if (
+    lastUserContent &&
+    shouldConsultLibrary({ enabled: libraryOn, reference: referenceTurn, factual: factualTurn, offline })
+  ) {
+    const userMessages = convo.messages.filter((m) => m.role === 'user')
+    const previousUserContent =
+      userMessages.length > 1 ? userMessages[userMessages.length - 2].content : undefined
+    const query = buildSearchQuery(lastUserContent, previousUserContent)
+    const looked = await window.api
+      .libraryLookup(query, null, LIBRARY_PASSAGES_PER_TURN)
+      .catch(() => null)
+    if (looked?.ok && looked.passages.length > 0 && looked.formatted) {
+      // Recorded like the auto-search: a tool-call record the user can open,
+      // an audit line, and a source for the grounding check.
+      const record: ToolCallRecord = {
+        id: uid(),
+        name: 'reference_lookup',
+        args: { query },
+        status: 'done',
+        result: looked.formatted
+      }
+      allRecords.push(record)
+      patch({ toolCalls: [...allRecords], libraryContext: toLibraryContextItems(looked.passages) })
+      turnContext.push(buildLibraryContext(looked.formatted, offline))
+      audit(convo, {
+        kind: 'tool_call',
+        roleName: slot.roleName,
+        modelId: slot.modelId,
+        toolName: 'reference_lookup',
+        ok: true,
+        text: `reference_lookup(${JSON.stringify({ query })})\n→ ${looked.formatted}`
+      })
+    }
+    if (signal.aborted) return
+  }
+  if (offline) patch({ offline: true })
 
   // v1.3 shopping intent (DESIGN-private-shopping §2e). Same reasoning as
   // the auto-search above, for the case where a wrong answer costs money: on

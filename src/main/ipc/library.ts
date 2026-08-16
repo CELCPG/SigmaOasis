@@ -298,13 +298,28 @@ function headingsOf(text: string): { offset: number; title: string }[] {
   return out
 }
 
-function sectionAt(doc: LoadedDoc, offset: number): string {
-  let title = ''
-  for (const h of doc.headings) {
-    if (h.offset <= offset) title = h.title
-    else break
+/**
+ * The section a passage belongs to: the nearest heading at or above its start.
+ * When that heading is the document's own title (the H1 a chunk at offset 0
+ * always sits under) and the chunk contains a heading of its own, the first
+ * heading inside the chunk is the better label — "Burns", not the title twice.
+ */
+function sectionAt(doc: LoadedDoc, offset: number, end: number): string {
+  let above = ''
+  let aboveIsFirst = false
+  for (let i = 0; i < doc.headings.length; i++) {
+    const h = doc.headings[i]
+    if (h.offset <= offset) {
+      above = h.title
+      aboveIsFirst = i === 0
+    } else break
   }
-  return title
+  const isTitle = aboveIsFirst || above.toLowerCase() === doc.meta.title.toLowerCase()
+  if (isTitle) {
+    const inside = doc.headings.find((h) => h.offset > offset && h.offset < end)
+    if (inside) return inside.title
+  }
+  return above.toLowerCase() === doc.meta.title.toLowerCase() ? '' : above
 }
 
 function decodeVectors(b64: string, dims: number, count: number): Float32Array[] | null {
@@ -517,7 +532,7 @@ export async function lookupLibrary(input: {
         packName: pack.manifest.name,
         docId: c.docId,
         docTitle: doc.meta.title,
-        section: sectionAt(doc, c.offset),
+        section: sectionAt(doc, c.offset, c.offset + c.text.length),
         position: Math.min(1, c.offset / Math.max(1, doc.text.length)),
         text: c.text,
         score: Math.round((relevance.get(c.id) ?? 0) * 1000) / 1000,
@@ -853,9 +868,13 @@ export function registerLibraryHandlers(): void {
   ipcMain.handle('library:list', () => listPacks())
   ipcMain.handle('library:stats', () => libraryStats())
   ipcMain.handle('library:remove', (_e, id: string) => removePack(String(id ?? '')))
-  ipcMain.handle('library:lookup', (_e, query: string, packId?: string | null, topK?: number) =>
-    lookupLibrary({ query: String(query ?? ''), packId: packId ?? null, topK })
-  )
+  ipcMain.handle('library:lookup', async (_e, query: string, packId?: string | null, topK?: number) => {
+    const q = String(query ?? '')
+    const outcome = await lookupLibrary({ query: q, packId: packId ?? null, topK })
+    // `formatted` is the model-facing text — the same the tool returns — so
+    // the renderer's app-initiated lookup injects exactly what a tool call would.
+    return { ...outcome, formatted: outcome.ok ? formatLookup(outcome, q) : '' }
+  })
 
   ipcMain.handle('library:installFromDirectory', async (event, path?: string) => {
     let dir = typeof path === 'string' && path.trim() ? path : null

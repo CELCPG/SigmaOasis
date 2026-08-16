@@ -7,6 +7,7 @@ import {
   buildTurnContext,
   consultedSources,
   looksFactual,
+  looksReference,
   withGrounding,
   withToolCallPreamble,
   BREVITY_RULES,
@@ -144,6 +145,8 @@ describe('consultedSources', () => {
     assert.equal(consultedSources([rec('web_search', 'done')]), true)
     assert.equal(consultedSources([rec('fetch_webpage', 'done')]), true)
     assert.equal(consultedSources([rec('deep_research', 'done')]), true)
+    // v1.5: an installed reference document is a source the model can quote.
+    assert.equal(consultedSources([rec('reference_lookup', 'done')]), true)
   })
 
   test('failed, pending, and non-source tools leave the turn unverified', () => {
@@ -292,4 +295,55 @@ describe('looksFactual — places and businesses', () => {
       assert.equal(looksFactual(text), false)
     })
   }
+})
+
+describe('grounding block · offline (v1.5)', () => {
+  test('online names web_search first and mentions the library for reference domains', () => {
+    const block = buildGroundingBlock(new Date('2026-08-16T12:00:00Z'))
+    assert.match(block, /verify it with web_search/)
+    assert.match(block, /reference_lookup/)
+    assert.doesNotMatch(block, /OFFLINE/)
+  })
+  test('offline replaces the web rule with the library and permission to say "cannot verify"', () => {
+    const block = buildGroundingBlock(new Date('2026-08-16T12:00:00Z'), { offline: true })
+    assert.match(block, /You are OFFLINE/)
+    assert.match(block, /reference_lookup/)
+    assert.match(block, /cannot verify it while offline/)
+    assert.doesNotMatch(block, /verify it with web_search/)
+    // The rest of the rules are unchanged.
+    assert.match(block, /Never invent a plausible-sounding title/)
+    assert.match(block, /flag the premise/)
+  })
+  test('withGrounding threads the option through', () => {
+    assert.match(withGrounding('persona', new Date(), { offline: true }), /You are OFFLINE/)
+    assert.doesNotMatch(withGrounding('persona', new Date()), /You are OFFLINE/)
+  })
+})
+
+describe('looksReference (v1.5)', () => {
+  const yes = [
+    'how do I treat a second-degree burn?',
+    'I just burned my hand on a pan, what should I do?',
+    'she scalded her arm with tea',
+    'what is the standard deduction for a married couple',
+    'can my landlord keep my deposit for normal wear',
+    'what goes in a hurricane emergency kit',
+    'how long can cooked chicken stay in the fridge',
+    'my faucet is leaking under the sink, where do I start',
+    'is it safe to run a generator in the garage',
+    'what does the first aid manual say about choking',
+    'according to my notes, what is the router password',
+    'symptoms of carbon monoxide poisoning',
+    'should I contribute to a roth or traditional ira'
+  ]
+  const no = [
+    'write a poem about the sea',
+    'fix this bug in my python function',
+    'what album did Radiohead release in 2007',
+    'hi',
+    'summarize our conversation so far',
+    'plan a trip to Lisbon in June'
+  ]
+  for (const t of yes) test(`yes: ${t}`, () => assert.equal(looksReference(t), true))
+  for (const t of no) test(`no: ${t}`, () => assert.equal(looksReference(t), false))
 })
