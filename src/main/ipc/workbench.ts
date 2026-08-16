@@ -49,6 +49,8 @@ export interface WorkbenchStatus {
   reason?: string
   /** A sandbox window is currently alive (warm). */
   warm: boolean
+  /** Top-level packages bundled offline (from workbench-packages.json), e.g. numpy, pandas, matplotlib. */
+  packages: string[]
 }
 
 const SCHEME = 'sigma-workbench'
@@ -176,7 +178,21 @@ const PAGE_JS = String.raw`
       const before = listWork();
       pyodide.setStdout({ batched: (s) => { stdout = cap(stdout, s + '\n'); } });
       pyodide.setStderr({ batched: (s) => { stderr = cap(stderr, s + '\n'); } });
-      pyodide.runPython('import os, sys; os.chdir("/work"); sys.path.insert(0, "/work")');
+      pyodide.runPython('import os, sys; os.chdir("/work"); sys.path.insert(0, "/work"); os.environ.setdefault("MPLBACKEND", "Agg")');
+      // Packages the code imports load from the bundled wheels (offline). One
+      // that is not bundled fails here; the run still happens so the model
+      // gets Python's own ModuleNotFoundError plus our note naming what is.
+      let packageNote = '';
+      try {
+        await pyodide.loadPackagesFromImports(job.code, { messageCallback: () => {}, errorCallback: () => {} });
+        // pandas' .plot() needs matplotlib without importing it (measured:
+        // "matplotlib is required for plotting" on the first real chart).
+        if (/^\s*(import|from)\s+pandas\b/m.test(job.code) && /\.plot\s*\(/.test(job.code)) {
+          await pyodide.loadPackage('matplotlib', { messageCallback: () => {}, errorCallback: () => {} });
+        }
+      } catch (e) {
+        packageNote = 'Package load: ' + String(e && e.message ? e.message : e);
+      }
       const globals = pyodide.toPy({ __name__: '__main__' });
       let result = null, ok = true, error;
       try {
@@ -191,9 +207,11 @@ const PAGE_JS = String.raw`
       } catch (e) {
         ok = false;
         error = String(e && e.message ? e.message : e);
+        if (packageNote) error += '\n' + packageNote;
       } finally {
         try { globals.destroy(); } catch (_) {}
       }
+      if (ok && packageNote) stderr = cap(stderr, packageNote + '\n');
       // Files that appeared or changed.
       const after = listWork();
       const files = [];
@@ -448,11 +466,21 @@ export function runPython(input: WorkbenchJobInput): Promise<WorkbenchOutcome> {
   return next
 }
 
+/** Top-level packages the fetch script bundled (empty when only the core is present). */
+export async function bundledPackages(): Promise<string[]> {
+  try {
+    const j = JSON.parse(await fs.readFile(join(pyodideDir(), 'workbench-packages.json'), 'utf-8')) as { requested?: string[] }
+    return Array.isArray(j.requested) ? j.requested : []
+  } catch {
+    return []
+  }
+}
+
 export async function workbenchStatus(): Promise<WorkbenchStatus> {
   if (!runtimePresent()) {
-    return { available: false, version: null, warm: false, reason: `Runtime not found at ${pyodideDir()}` }
+    return { available: false, version: null, warm: false, packages: [], reason: `Runtime not found at ${pyodideDir()}` }
   }
-  return { available: true, version: await runtimeVersion(), warm: Boolean(win && !win.isDestroyed()) }
+  return { available: true, version: await runtimeVersion(), warm: Boolean(win && !win.isDestroyed()), packages: await bundledPackages() }
 }
 
 /** Warm the sandbox ahead of a likely job (e.g. a CSV was attached). Best effort. */

@@ -24,10 +24,14 @@ window (`src/main/ipc/workbench.ts`):
 
 ## The runtime files
 
-`resources/pyodide/` — fetched once by `bash scripts/fetch-pyodide.sh` (pinned version, ~14 MB
-unpacked: `pyodide.js`, `pyodide.asm.wasm`, `python_stdlib.zip`, lock file). Packaged builds ship
-it as an extra resource; the app never downloads anything at run time. Standard library only in
-this release; numpy/pandas/matplotlib are the next step (bundled wheels, still offline).
+`resources/pyodide/` — fetched once by `bash scripts/fetch-pyodide.sh` (pinned version, ~30 MB:
+the core runtime plus offline wheels for **numpy, pandas and matplotlib** and their dependency
+closure, resolved from the release's lock file; `WORKBENCH_PACKAGES` changes the set). Packaged
+builds ship it as an extra resource; the app never downloads anything at run time. Packages load
+lazily per job from the local files (`loadPackagesFromImports`), matplotlib runs headless (Agg),
+and a module that is not bundled fails as a plain `ModuleNotFoundError` plus a note naming what
+is. Measured: numpy ~0.3 s and pandas ~1.2 s on first import in a sandbox, then cached; a
+matplotlib figure saved as `.png` appears in the chat as a figure.
 
 ## Attachments and analyze_file
 

@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs'
 import { basename } from 'path'
-import { runPython } from '../workbench'
+import { bundledPackages, runPython } from '../workbench'
 import { formatRun } from '../workbenchFormat'
 import { formatProfile, parseProfile, profileScript } from '../workbenchProfile'
 import { truncate } from './types'
@@ -63,6 +63,10 @@ const runPythonTool: ToolHandler = async (args, context) => {
   const staged = await stageAttachments(context)
   const outcome = await runPython({ code, files: staged.files, timeoutMs })
   const formatted = formatRun(outcome, code)
+  if (!formatted.ok && /ModuleNotFoundError|No module named/.test(formatted.error ?? '')) {
+    const pk = await bundledPackages()
+    formatted.error += `\n\nThe sandbox is offline: only the standard library${pk.length ? ` and these packages are available: ${pk.join(', ')}` : ' is available'}. Rewrite without the missing module.`
+  }
   const stagedNote =
     staged.files.length > 0
       ? `\n\nFiles available under /work: ${staged.files.map((f) => f.name).join(', ')}.`

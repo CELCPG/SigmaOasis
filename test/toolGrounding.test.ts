@@ -565,3 +565,12 @@ describe('unsourcedPercentages (v1.6)', () => {
     assert.equal(withoutRun, null)
   })
 })
+
+describe('errored numeric records still count as evidence (v1.6)', () => {
+  const { checkToolGrounding } = require('../src/renderer/src/lib/toolGrounding') as typeof import('../src/renderer/src/lib/toolGrounding')
+  test('a total printed before a later failure backs the figure', () => {
+    const rec: ToolCallRecord = { id: 'r', name: 'run_python', args: {}, status: 'error', result: 'stdout before the error:\nEast 37907.39\n\nerror: Traceback…' }
+    const done: ToolCallRecord = { id: 's', name: 'run_python', args: {}, status: 'done', result: 'files written: chart.png' }
+    assert.equal(checkToolGrounding('East: $37,907.39.', [rec, done], 'q'), null)
+  })
+})

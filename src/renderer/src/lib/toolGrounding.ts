@@ -509,10 +509,26 @@ export function unsourcedLinks(answer: string, corpus: string): string[] {
 // ---- the pass ----------------------------------------------------------------
 
 /** Successful output of the records whose names pass `include`. */
-function outputOf(records: ToolCallRecord[], include: (name: string) => boolean): string {
+/**
+ * Tool output as evidence. `errored` widens to records that ended in error:
+ * v1.6 — a run_python that printed the totals and then failed at the plot has
+ * still computed those totals, and the model that quotes them from that
+ * record is quoting real output. Links and addresses keep the stricter rule.
+ */
+const STDOUT_BEFORE_ERROR = /stdout before the error:\n([\s\S]*?)\n\nerror:/
+
+/** The output an errored run still produced (workbenchFormat's section), or '' when there is none. */
+export function producedBeforeError(record: ToolCallRecord): string {
+  if (record.status !== 'error') return ''
+  const m = (record.result ?? '').match(STDOUT_BEFORE_ERROR)
+  return m ? m[1] : ''
+}
+
+function outputOf(records: ToolCallRecord[], include: (name: string) => boolean, errored = false): string {
   return records
-    .filter((r) => r.status === 'done' && include(r.name))
-    .map((r) => r.result ?? '')
+    .filter((r) => include(r.name))
+    .map((r) => (r.status === 'done' ? (r.result ?? '') : errored ? producedBeforeError(r) : ''))
+    .filter(Boolean)
     .join('\n')
 }
 
@@ -553,7 +569,9 @@ export function checkToolGrounding(
 ): GroundingReport | null {
   if (!answer.trim()) return null
 
-  const numericRecords = records.filter((r) => r.status === 'done' && NUMERIC_TOOLS.has(r.name))
+  const numericRecords = records.filter(
+    (r) => NUMERIC_TOOLS.has(r.name) && (r.status === 'done' || producedBeforeError(r) !== '')
+  )
   const sourceRecords = records.filter((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name))
 
   // v1.4.5: a reply that states several prices is checked whether or not a
@@ -562,7 +580,7 @@ export function checkToolGrounding(
   // session — could put a whole table of invented per-bottle prices in front of
   // the user with nothing said about it. What a figure is checked against is
   // unchanged; only whether the check runs at all.
-  const figureCorpus = `${outputOf(records, (n) => NUMERIC_TOOLS.has(n))}\n${userText}`
+  const figureCorpus = `${outputOf(records, (n) => NUMERIC_TOOLS.has(n), true)}\n${userText}`
   const stated = unsourcedFigures(answer, figureCorpus)
   const checkFigures =
     numericRecords.length > 0 ||

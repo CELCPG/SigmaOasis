@@ -131,6 +131,34 @@ async function main(): Promise<void> {
   p = prof.parseProfile(r.stdout)
   check('XLSX: a missing sheet is a readable error naming the sheets', Boolean(p?.error) && /sheets: Q3, Notes/.test(p!.error!), JSON.stringify(p))
 
+  // ---- the scientific stack, offline ----------------------------------------------
+  console.log('\nbundled packages: numpy / pandas / matplotlib from local wheels')
+  const st = await wb.workbenchStatus()
+  check('status lists the bundled packages', st.packages.includes('numpy') && st.packages.includes('pandas'), JSON.stringify(st.packages))
+  let tp = Date.now()
+  r = await wb.runPython({ code: 'import numpy as np\nprint(np.arange(10).sum(), np.__version__)' })
+  console.log(`  (numpy import + run: ${Date.now() - tp} ms)`)
+  check('numpy loads offline and computes', r.ok && /^45 /m.test(r.stdout), JSON.stringify(r).slice(0, 300))
+  tp = Date.now()
+  r = await wb.runPython({
+    code: 'import pandas as pd\ndf = pd.read_csv("sales.csv")\nprint(df.groupby("region")["amount"].sum().round(2).sort_values(ascending=False).to_string())',
+    files: [{ name: 'sales.csv', data: Buffer.from(csv) }]
+  })
+  console.log(`  (pandas import + groupby: ${Date.now() - tp} ms)`)
+  // West = 12.50 + 1249.99; North's "N/A" parses as NaN and sums to 0.
+  check('pandas reads /work and aggregates', r.ok && /West\s+1262\.49/.test(r.stdout), JSON.stringify(r).slice(0, 400))
+  tp = Date.now()
+  r = await wb.runPython({
+    code: 'import matplotlib\nimport matplotlib.pyplot as plt\nplt.figure(figsize=(3,2))\nplt.bar(["a","b"],[1,3])\nplt.savefig("chart.png", dpi=60)\nprint(matplotlib.get_backend())'
+  })
+  console.log(`  (matplotlib import + savefig: ${Date.now() - tp} ms)`)
+  const png = r.files.find((f) => f.name === 'chart.png')
+  check('matplotlib renders headless and the PNG comes back', r.ok && Boolean(png) && png!.data.subarray(1, 4).toString() === 'PNG', JSON.stringify({ err: r.error, files: r.files.map((f) => f.name), backend: r.stdout.trim() }))
+  const fr = fmt.formatRun(r, '')
+  check('formatRun hands the chart to the gallery', Boolean(fr.images && fr.images.length === 1 && fr.images[0].dataUrl.startsWith('data:image/png;base64,')))
+  r = await wb.runPython({ code: 'import requests' })
+  check('an unbundled module fails as a readable ModuleNotFoundError', !r.ok && /No module named 'requests'|ModuleNotFoundError/.test(r.error ?? ''), r.error)
+
   const t1 = Date.now()
   r = await wb.runPython({ code: 'while True: pass', timeoutMs: 3000 })
   check('a runaway job is killed at its budget and reported', !r.ok && r.restarted === true && /Timed out/.test(r.error ?? ''), `${r.error} after ${Date.now() - t1} ms`)

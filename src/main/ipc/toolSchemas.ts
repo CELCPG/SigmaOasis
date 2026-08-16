@@ -560,7 +560,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       name: 'run_python',
       description:
         'Run Python code in a local sandbox and get back stdout, the last expression, and any files ' +
-        'it wrote (images are shown to the user). Python 3 with the standard library; no internet, ' +
+        'it wrote (images are shown to the user — save a matplotlib figure to a .png to show a chart). ' +
+        'Python 3 with the standard library plus numpy, pandas and matplotlib; no internet, ' +
         'no access to the user\'s disk. Fresh globals each run. Files the user attached to the ' +
         'conversation are placed under /work/<name> for every run (open("/work/sales.csv")).\n' +
         'Use when: the answer needs arithmetic beyond a single step, unit conversion, dates, ' +
