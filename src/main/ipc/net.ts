@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { getSettings } from './store'
+import { isLoopbackHostname } from './loopback'
 import { httpRequest } from './httpClient'
 import type { HttpResponseLike } from './httpClient'
 import { currentProxyConfig, getEgressSession, getLocalSession } from './proxy'
@@ -106,9 +107,6 @@ export function clearNetworkActivity(): void {
   activity.length = 0
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname)
-}
 
 function originOf(url: string): string {
   try {
@@ -347,4 +345,4 @@ export function registerNetworkHandlers(): void {
 }
 
 // Re-exported so callers can state intent at the call site.
-export { isLoopbackHostname }
+export { isLoopbackHostname }  // re-exported for search.ts's SSRF guard

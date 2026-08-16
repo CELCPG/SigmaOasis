@@ -442,9 +442,10 @@ export function SettingsModal(): JSX.Element | null {
                   </p>
                   {!isLoopbackUrl(draft.baseUrl) && (
                     <p className="mt-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
-                      Only servers on this machine are supported. Sigma Oasis&apos;s
-                      Content-Security-Policy blocks connections to other hosts, so chat will fail
-                      against this URL even if the model list loads.
+                      Only servers on this machine are supported. This URL will not be saved —
+                      Sigma Oasis reverts to the default. LM Studio traffic carries your
+                      conversations in plaintext and is deliberately never proxied, so a
+                      non-loopback address would send them off-machine unprotected.
                     </p>
                   )}
                 </div>
@@ -1940,8 +1941,14 @@ export function SettingsModal(): JSX.Element | null {
                     </button>
                   </div>
                   <p className="mt-1 text-xs text-neutral-500">
-                    Every request the app makes, newest first. Only origins are recorded — never
-                    full URLs, so your queries stay private even here.
+                    Every request the app makes to the outside, newest first. Only origins are
+                    recorded — never full URLs, so your queries stay private even here.
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Not listed: the chat stream itself. Replies stream straight from the chat window
+                    to your LM Studio server on this machine ({draft.baseUrl}); that traffic can
+                    only ever go to a loopback address, is never proxied, and does not pass through
+                    this log. Everything that leaves the machine does.
                   </p>
                   {netActivity.length === 0 ? (
                     <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">

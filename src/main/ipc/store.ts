@@ -5,6 +5,7 @@ import { promises as fs } from 'fs'
 import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
+import { isLoopbackBaseUrl } from './loopback'
 
 /**
  * Default settings shape. The renderer keeps a mirror of this shape in its
@@ -452,6 +453,24 @@ function str(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
 }
 
+/**
+ * The LM Studio base URL must be a loopback address.
+ *
+ * Why (v1.4.8). LM Studio traffic carries every conversation in plaintext, so
+ * it deliberately bypasses the proxy (net.ts) and is described everywhere as
+ * "loopback". Before this check a hand-edited or mistyped remote base URL
+ * silently sent embeddings, planning and research prompts off-machine on that
+ * un-proxied path — the worst of both worlds. The renderer's CSP already
+ * refuses non-loopback chat, so a remote value never worked as a whole; it only
+ * leaked. Anything not loopback reverts to the default and the Settings UI says
+ * so. If remote LM Studio is ever wanted it must be an explicit opt-in that
+ * also routes through the egress path — not a value that happens to parse.
+ */
+function normalizeBaseUrl(value: unknown, fallback: string): string {
+  const candidate = str(value, fallback).trim()
+  return isLoopbackBaseUrl(candidate) ? candidate : fallback
+}
+
 /** Like clamp, but without rounding — sampling values are fractional. */
 function clampFloat(value: unknown, min: number, max: number, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value)
@@ -491,7 +510,7 @@ function normalizeSampling(value: unknown): SamplingSettings {
  * which a cleared number input produces — would otherwise make the renderer
  * prune every saved conversation from disk on the next load.
  */
-function normalizeSettings(settings: AppSettings): AppSettings {
+export function normalizeSettings(settings: AppSettings): AppSettings {
   const defaults = defaultSettings()
   const rate = Number(settings.voice?.rate)
 
@@ -535,9 +554,12 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     if (settings.tools && key in settings.tools) tools[key] = Boolean(settings.tools[key])
   }
 
-  return {
-    ...settings,
-    baseUrl: str(settings.baseUrl, defaults.baseUrl),
+  // Built key by key from `defaults` rather than spread from the input: a
+  // renderer (or a hand-edited config.json) cannot smuggle unknown keys into
+  // what gets persisted, and a key added to AppSettings without a rule here is
+  // a compile error rather than a value that rides through unchecked.
+  const normalized: AppSettings = {
+    baseUrl: normalizeBaseUrl(settings.baseUrl, defaults.baseUrl),
     models,
     theme: settings.theme === 'light' ? 'light' : 'dark',
     fontSize: clamp(settings.fontSize, 12, 20, 15),
@@ -634,6 +656,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       confirmPlan: settings.plan?.confirmPlan !== false
     }
   }
+  return normalized
 }
 
 /**
@@ -835,11 +858,13 @@ export async function writeNotes(notes: Note[]): Promise<void> {
  * Registers all IPC handlers related to persistence: settings, conversations.
  */
 export function registerStoreHandlers(): void {
-  ipcMain.handle('store:getSettings', () => ({
-    // Merge defaults so installs created before a setting existed still get it.
-    ...defaultSettings(),
-    ...readSettings()
-  }))
+  // Reads and writes give the same guarantee: what the renderer receives is
+  // exactly what a write of it would persist (v1.4.8 — before, reads shallow-
+  // merged defaults while writes deep-normalized, so a stale install could see
+  // half-filled nested settings until its first save).
+  ipcMain.handle('store:getSettings', () =>
+    normalizeSettings({ ...defaultSettings(), ...readSettings() })
+  )
 
   ipcMain.handle('store:setSettings', (_e, settings: AppSettings) => {
     writeSettings(normalizeSettings(settings))

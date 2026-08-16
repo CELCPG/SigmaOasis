@@ -36,11 +36,15 @@ dialog rather than clicking through it.
 
 ## Network
 
-Sigma Oasis talks to your local LM Studio server (loopback only, enforced by the renderer's CSP).
-There is no telemetry, no analytics, and no cloud sync.
+Sigma Oasis talks to your local LM Studio server (loopback only — enforced by the renderer's CSP
+for the chat stream, and since v1.4.8 by settings normalization for everything else: a base URL
+that is not a loopback address is not saved, so the deliberately un-proxied LM Studio path can
+never point off-machine). There is no telemetry, no analytics, and no cloud sync.
 
 Every request the main process makes passes through an egress allowlist derived from your settings,
 and is recorded (origin only, never the full URL) in the activity log under Settings → Privacy.
+The one path not in that log is the chat stream itself, which the chat window sends directly to
+the loopback LM Studio server; the Privacy tab says so. Everything that leaves the machine is logged.
 
 Transport is **Electron's network stack**, not Node's `fetch`. That is deliberate: undici does not
 consult Electron sessions, so proxy configuration cannot reach it, and its SOCKS support needs a
