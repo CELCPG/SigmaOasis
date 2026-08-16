@@ -1018,7 +1018,7 @@ export function SettingsModal(): JSX.Element | null {
                     <input
                       type="checkbox"
                       checked={draft.grounding.autoCorrect}
-                      onChange={(e) => update({ grounding: { autoCorrect: e.target.checked } })}
+                      onChange={(e) => update({ grounding: { ...draft.grounding, autoCorrect: e.target.checked } })}
                       className="mt-0.5 h-4 w-4 accent-accent"
                     />
                     <span>
@@ -1029,6 +1029,28 @@ export function SettingsModal(): JSX.Element | null {
                         one revision — verify it with a tool, or drop it and say so. Costs one extra
                         round, and only on answers already known to contain unsupported specifics.
                         The reply is marked as revised.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.grounding.playbooks}
+                      onChange={(e) =>
+                        update({ grounding: { ...draft.grounding, playbooks: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Playbooks — give the model a method for the kind of question
+                      <span className="mt-0.5 block text-xs text-neutral-500">
+                        For first-aid, health, finance, legal, home-repair, data, code, comparison
+                        and planning questions, a short numbered method rides along with the turn
+                        (&ldquo;say to call emergency services first&rdquo;, &ldquo;compute with the
+                        calculator, never in your head&rdquo;, &ldquo;describe the data before
+                        analysing it&rdquo;). A few dozen tokens; the reply says which playbook was
+                        used. This is how a small model acts like it has expertise it does not have.
                       </span>
                     </span>
                   </label>

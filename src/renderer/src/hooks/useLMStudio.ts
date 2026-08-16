@@ -17,6 +17,7 @@ import {
 } from '../lib/grounding'
 import { checkToolGrounding, revisionIsAnImprovement } from '../lib/toolGrounding'
 import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
+import { buildPlaybookContext, selectPlaybook } from '../lib/playbooks'
 import {
   LIBRARY_PASSAGES_PER_TURN,
   buildLibraryContext,
@@ -278,6 +279,21 @@ async function runTurn(
     if (signal.aborted) return
   }
   if (offline) patch({ offline: true })
+
+  // v1.5 playbooks: one short method for the kind of question, chosen by the
+  // same domain classifiers, riding the turn notes after any passages so the
+  // model reads the material first and the method for using it second.
+  if (lastUserContent && useAppStore.getState().settings?.grounding.playbooks !== false) {
+    const lastUser = [...convo.messages].reverse().find((m) => m.role === 'user')
+    const playbook = selectPlaybook({
+      text: lastUserContent,
+      attachmentNames: (lastUser?.attachments ?? []).map((a) => a.name)
+    })
+    if (playbook) {
+      turnContext.push(buildPlaybookContext(playbook))
+      patch({ playbook: playbook.name })
+    }
+  }
 
   // v1.3 shopping intent (DESIGN-private-shopping §2e). Same reasoning as
   // the auto-search above, for the case where a wrong answer costs money: on

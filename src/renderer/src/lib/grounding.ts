@@ -149,6 +149,14 @@ const HEALTH_DOMAINS =
   /\b(?:symptoms?|dosages?|overdose|allerg(?:y|ic|ies)|bites?|bitten|bit by|stings?|poison(?:ous)?|venom(?:ous)?|antivenom|rash|fever|infections?|cpr|first aid|choking|seizures?|concussions?|dizzy|dizziness|bleeding|fractures?|sprains?|antibiotics?|medications?|prescriptions?|side effects?|contraindicated)\b/i
 
 /**
+ * v1.5: the emergency half of HEALTH_DOMAINS, for playbook selection — an
+ * injury in progress gets the first-aid method (call for help first, steps in
+ * order), a symptom or medication question gets the health method.
+ */
+const FIRST_AID_DOMAINS =
+  /\b(?:cpr|first aid|choking|bleeding|fractures?|sprains?|bites?|bitten|bit by|stings?|seizures?|concussions?|burn(?:s|ed|t|ing)?|scald(?:s|ed|ing)?|wound(?:s|ed)?|cuts?|blisters?|frostbite|hypothermia|heat ?stroke|dehydrat(?:ed|ion)|splints?|tourniquets?|unconscious|not breathing|anaphyla(?:xis|ctic)|drown(?:ed|ing)|electrocut(?:ed|ion)|overdose|poison(?:ed|ing)?)\b/i
+
+/**
  * Places and businesses in the physical world: whether they exist, where they
  * are, and whether they are still trading.
  *
@@ -189,39 +197,61 @@ const LEGAL_CIVIC_DOMAINS =
 const PREPAREDNESS_DOMAINS =
   /\b(?:hurricanes?|tornado(?:es)?|earthquakes?|wildfires?|floods?|flooding|blizzards?|heat ?waves?|power outages?|blackouts?|evacuat(?:e|ion)|shelter in place|emergency kits?|go[- ]bags?|boil[- ]water|water purification|generators?|carbon monoxide|smoke detectors?|fire extinguishers?|survival|disaster)\b/i
 
-const HOME_FOOD_DOMAINS =
-  /\b(?:leak(?:s|ing)?|faucets?|toilets?|drywall|caulk(?:ing)?|grout|circuit breakers?|gfci|outlets?|thermostats?|furnaces?|water heaters?|hvac|insulation|mold|mildew|pests?|termites?|food safety|food poisoning|expir(?:ed|ation|y)|spoiled|refrigerat(?:e|ed|ion)|thaw(?:ing)?|defrost|internal temperature|calories|nutrition|vitamins?|sodium|servings?)\b/i
+const HOME_DOMAINS =
+  /\b(?:leak(?:s|ing)?|faucets?|toilets?|drywall|caulk(?:ing)?|grout|circuit breakers?|gfci|outlets?|thermostats?|furnaces?|water heaters?|hvac|insulation|mold|mildew|pests?|termites?|clogged|drains?|sump pumps?|gutters?)\b/i
 
-/**
- * First-aid and kitchen vocabulary that HEALTH_DOMAINS (a web-search trigger)
- * deliberately does not carry — "burn" and "fridge" in ordinary chat should not
- * fire a search, but they should open the first-aid and food-safety packs.
- */
-const REFERENCE_ONLY_DOMAINS =
-  /\b(?:burn(?:s|ed|t|ing)?|scald(?:s|ed|ing)?|wound(?:s|ed)?|cuts?|blisters?|frostbite|hypothermia|heat ?stroke|dehydrat(?:ed|ion)|splints?|tourniquets?|leftovers?|fridge|refrigerator|freezer|reheat(?:ing)?|cooked (?:chicken|meat|rice|fish|food|eggs))\b/i
+const FOOD_DOMAINS =
+  /\b(?:food safety|food poisoning|expir(?:ed|ation|y)|spoiled|refrigerat(?:e|ed|ion)|thaw(?:ing)?|defrost|internal temperature|calories|nutrition|vitamins?|sodium|servings?|leftovers?|fridge|refrigerator|freezer|reheat(?:ing)?|cooked (?:chicken|meat|rice|fish|food|eggs))\b/i
 
 /** Explicit asks to consult installed reference material or the user's own documents. */
 const ASKS_REFERENCE =
   /\b(?:reference library|reference pack|first aid manual|the manual|my (?:documents|docs|notes|manuals?|files)|according to (?:the|my) (?:manual|guide|handbook|documents?|notes))\b/i
 
 /**
+ * The reference-book domains a message can fall into. Ordered by how much a
+ * wrong answer costs — the first match is the one a playbook is chosen for.
+ */
+export type ReferenceDomain =
+  | 'first-aid'
+  | 'health'
+  | 'building'
+  | 'preparedness'
+  | 'food'
+  | 'home'
+  | 'finance'
+  | 'legal'
+  | 'reference-ask'
+
+const REFERENCE_DOMAIN_RULES: { domain: ReferenceDomain; re: RegExp }[] = [
+  { domain: 'first-aid', re: FIRST_AID_DOMAINS },
+  { domain: 'health', re: HEALTH_DOMAINS },
+  { domain: 'building', re: BUILDING_DOMAINS },
+  { domain: 'preparedness', re: PREPAREDNESS_DOMAINS },
+  { domain: 'food', re: FOOD_DOMAINS },
+  { domain: 'home', re: HOME_DOMAINS },
+  { domain: 'finance', re: FINANCE_RULE_DOMAINS },
+  { domain: 'legal', re: LEGAL_CIVIC_DOMAINS },
+  { domain: 'reference-ask', re: ASKS_REFERENCE }
+]
+
+/**
+ * Which reference domains a message falls into, most consequential first.
+ * Empty for chat, creative and coding requests. Drives both the app-initiated
+ * library lookup (any match) and playbook selection (the first match).
+ */
+export function referenceDomains(text: string): ReferenceDomain[] {
+  const t = text.trim()
+  if (t.length < 8) return []
+  if (CREATIVE_INTENT.test(t)) return []
+  return REFERENCE_DOMAIN_RULES.filter((r) => r.re.test(t)).map((r) => r.domain)
+}
+
+/**
  * Should the app consult the local reference library before the model
  * answers this turn? Creative/coding intent still wins, as for looksFactual.
  */
 export function looksReference(text: string): boolean {
-  const t = text.trim()
-  if (t.length < 8) return false
-  if (CREATIVE_INTENT.test(t)) return false
-  return (
-    ASKS_REFERENCE.test(t) ||
-    HEALTH_DOMAINS.test(t) ||
-    BUILDING_DOMAINS.test(t) ||
-    FINANCE_RULE_DOMAINS.test(t) ||
-    LEGAL_CIVIC_DOMAINS.test(t) ||
-    PREPAREDNESS_DOMAINS.test(t) ||
-    HOME_FOOD_DOMAINS.test(t) ||
-    REFERENCE_ONLY_DOMAINS.test(t)
-  )
+  return referenceDomains(text).length > 0
 }
 
 /** A message that asks something, by leading word or by question mark. */

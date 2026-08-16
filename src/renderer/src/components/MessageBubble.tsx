@@ -464,6 +464,15 @@ export const MessageBubble = memo(function MessageBubble({
           <MemoryContextLine items={message.memoryContext} />
         )}
 
+        {!isStreaming && message.playbook && (
+          <div
+            className="mt-2 text-[11px] text-neutral-400"
+            title="The app added a short numbered method for this kind of question to the turn — the model was asked to follow it. Settings → Models → Playbooks."
+          >
+            📋 Method: {message.playbook} playbook
+          </div>
+        )}
+
         {!isStreaming && message.libraryContext && message.libraryContext.length > 0 && (
           <MemoryContextLine
             items={message.libraryContext}

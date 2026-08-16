@@ -201,6 +201,13 @@ export interface GroundingSettings {
    * unsupported specifics — a clean turn never pays for it.
    */
   autoCorrect: boolean
+  /**
+   * v1.5: inject a short per-domain method ("playbook") into the turn for
+   * first-aid, health, finance, legal, home, data, code, comparison and
+   * planning questions. Disclosed under the reply. On by default: it costs a
+   * few dozen tokens and is the cheapest lift a small model gets.
+   */
+  playbooks: boolean
 }
 
 export interface ClaimCheckSettings {
@@ -425,7 +432,7 @@ function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true },
+    grounding: { autoCorrect: true, playbooks: true },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -644,7 +651,10 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       enabled: settings.claimCheck?.enabled !== false,
       maxClaims: clamp(settings.claimCheck?.maxClaims, 1, 10, defaults.claimCheck.maxClaims)
     },
-    grounding: { autoCorrect: settings.grounding?.autoCorrect !== false },
+    grounding: {
+      autoCorrect: settings.grounding?.autoCorrect !== false,
+      playbooks: settings.grounding?.playbooks !== false
+    },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable
       // the proxy requirement, which is the setting most costly to get wrong.

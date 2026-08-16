@@ -99,6 +99,7 @@ rm -rf "$OUT"
   src/renderer/src/lib/sampling.ts \
   src/renderer/src/lib/attachmentRecall.ts \
   src/renderer/src/lib/libraryRecall.ts \
+  src/renderer/src/lib/playbooks.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts
