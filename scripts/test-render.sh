@@ -5,6 +5,9 @@
 #  - renderCheck:     the page-extraction script, in a real offscreen window.
 #                     Hidden-text stripping depends on getComputedStyle and a real
 #                     layout, so mocking a DOM would only test the mock.
+#  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
+#                     window. DOMPurify is a no-op without a DOM, so a node test
+#                     of it would pass while sanitizing nothing.
 #  - httpClientCheck: the Electron-net transport every outbound request uses.
 #                     The node suite stubs ./net, so nothing there exercises the
 #                     real transport — a regression would break every network
@@ -48,12 +51,13 @@ fi
   --skipLibCheck \
   --strict \
   test/renderCheck.ts \
+  test/markdownCheck.ts \
   test/httpClientCheck.ts
 
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
 status=0
-for check in renderCheck httpClientCheck; do
+for check in renderCheck markdownCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
 done
 exit "$status"
