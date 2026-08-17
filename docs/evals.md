@@ -8,6 +8,7 @@ so CI stays offline. Scoring is mechanical in every one: no model grades another
 | Tool choice (v1.3) | correct-tool, spurious-call, arg-validity, loop rates over 24 fixtures | `LMSTUDIO_EVAL=1 npm run eval:tools -- <model>` |
 | Library grounding (v1.6) | does an offline reference question get answered from the retrieved passages, cited, with no invented measurement | `LMSTUDIO_EVAL=1 EVAL_SUITES=library npm run eval:answers -- <model>` |
 | Quantitative + deliberation (v1.6) | the number right or wrong, **bare vs. with the Workbench**, and the same draft after one think-harder pass | `LMSTUDIO_EVAL=1 EVAL_SUITES=quant,deliberate npm run eval:answers -- <model>` |
+| Multi-turn analysis (v1.8) | follow-up questions over one dataset, **sessions vs. stateless**: per-turn correctness, whether follow-ups re-read the file, calls and seconds per turn | `LMSTUDIO_EVAL=1 EVAL_SUITES=multiturn npm run eval:answers -- <model>` |
 
 `EVAL_CASES=1-8` runs a 1-based inclusive slice, so a slow model can be evaluated in chunks that
 each fit a time budget. Results are written to `.eval-results/*.json` — including each case's
@@ -127,6 +128,26 @@ latency, which is worth knowing before recommending it as a default; the cases i
 Denominators differ because an arm that errored is excluded rather than scored as a failure: six
 calls hit a transport drop, each retried once, and two still failed. The first case pays a cold
 model load (31.6 s against a 28.6 s median).
+
+**Multi-turn analysis (v1.8) — 5 cases × 3 turns, sessions vs. stateless, one pass:**
+
+Both arms run identical fixtures through the identical agent loop; the only differences are the
+`run_python` session key and a truth-telling tool description per arm (the stateless arm's schema
+says "Fresh globals each run").
+
+| arm | first turn | follow-ups | follow-up re-reads | s/turn | calls/turn |
+| --- | --- | --- | --- | --- | --- |
+| session | 5/5 | 10/10 | **6/10** | **30.3** | 1.3 |
+| stateless | 5/5 | 9/10 | 10/10 | 40.1 | 1.5 |
+
+Read it carefully rather than triumphantly. Correctness moved by one turn, which a single pass
+cannot distinguish from noise (run with `EVAL_PASSES` before claiming it). The solid findings are
+the other columns: follow-up turns ran **24% faster** with fewer tool calls, and where the model
+actually leaned on the session (two cases re-read nothing at all on follow-ups) the win is exactly
+the one the feature was built for. The uncomfortable finding is the 6/10: a 9B told plainly that
+variables persist still re-reads the file out of habit more often than not. Sessions *enable*
+building on state; they do not force it — that gap between capability and habit is now a measured
+number, and prompting at it is future work this suite can judge.
 
 ## Findings worth keeping
 
