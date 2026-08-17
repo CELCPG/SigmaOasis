@@ -27,6 +27,11 @@ jobs:
 
       - run: npm ci
 
+      # The Workbench's Python runtime (extraResources in packaged builds;
+      # the workbench check suite self-skips without it).
+      - name: Fetch Pyodide runtime
+        run: bash scripts/fetch-pyodide.sh
+
       - name: Typecheck
         run: npm run typecheck
 

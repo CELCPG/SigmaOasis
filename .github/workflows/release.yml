@@ -159,6 +159,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Fetch Pyodide runtime (Workbench)
+        run: bash scripts/fetch-pyodide.sh
+
       - run: npm run typecheck
 
       # Gates the release: a failing suite stops the signed build here, before
@@ -200,6 +203,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Fetch Pyodide runtime (Workbench)
+        run: bash scripts/fetch-pyodide.sh
+
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
 
@@ -223,6 +229,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Fetch Pyodide runtime (Workbench)
+        run: bash scripts/fetch-pyodide.sh
 
       - name: Bundle main, preload & renderer
         run: npx electron-vite build

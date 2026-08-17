@@ -1,6 +1,6 @@
 # Strategy: Depth & Reasoning — post v1.4.7
 
-**Status: v1.4.8 groundwork and Feature A (the Almanac: packs, BYO folders, `reference_lookup`, app-initiated lookup, network-aware grounding, playbooks, first 7-pack tranche) shipped for v1.5.0 · items 3–4 (model profiles, think-harder) shipped for v1.5.1 · Feature B (the Workbench) next.** Written against the v1.4.7 codebase (commit 984aaba). Companion to
+**Status: v1.4.8 groundwork and Feature A (the Almanac: packs, BYO folders, `reference_lookup`, app-initiated lookup, network-aware grounding, playbooks, first 7-pack tranche) shipped for v1.5.0 · items 3–4 (model profiles, think-harder) shipped for v1.5.1 · Feature B (the Workbench: sandboxed runtime, /work staging, analyze_file, offline numpy/pandas/matplotlib, Ran-code block, recompute + code-check verification) shipped for v1.6.0 · remaining: eval suites (library/quantitative/deliberation), fact ledger, MCP, outline-then-fill, ZIM packs.** Written against the v1.4.7 codebase (commit 984aaba). Companion to
 `STRATEGY-speed-and-quality.md` (Part 3 proposed MCP + fact ledger) and
 `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped). Those made answers honest and the
 app fast. This one asks a narrower question: **how does the app make a 9–30B model on

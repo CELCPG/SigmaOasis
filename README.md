@@ -33,6 +33,8 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches. New in 0.9: recall is **visible** (each reply shows which memory chunks it used) and **scoped** (a conversation can restrict which sources it recalls from).
 - **Offline reference library — the Almanac (1.5).** Install curated **reference packs** (first aid, health, emergency preparedness, food safety, personal finance & tax, home safety, US civic basics — public-domain / OGL sources, 105 documents in `packs/`) or turn a folder of your own manuals and notes into a pack. Passages are retrieved by relevance (keyword + semantic) with a citation — *pack › document › section*, plus source, license and date — and the app consults the library **before the model answers** first-aid, health, finance, legal, home-repair and food questions, and any factual question while offline. Shown under the reply as **📖 From the library**. Entirely local: nothing about it uses the network.
+- **The Workbench (1.6).** A **Python runtime the model computes with instead of guessing** — sandboxed by construction (CPython in WebAssembly inside a fully sandboxed window: no network, not even loopback; a virtual filesystem; fresh state per run; runaway code killed at its budget). Standard library plus **numpy, pandas and matplotlib**, bundled offline. Attach a CSV/TSV/JSON/XLSX and the app **profiles it mechanically before the model answers** (`analyze_file`: types, nulls, stats, head — computed, not guessed); the file sits at `/work/<name>` for `run_python`; a saved matplotlib figure renders in the chat. The code that ran is shown open by default (**⚡ Ran Python**) with its output — the computation is the evidence.
+- **Workbench verification (1.6).** The sandbox checks answers, not just questions: figures a reply states with nothing behind them are **recomputed in Python** and judged against that output; **self-contained Python in a reply is run** before you trust it, and a syntax error, undefined name or failed assertion goes back for one gated revision, kept only if the revised code runs. Disclosed under the reply (🧮 / 🧪); measured live catching a 9B model's wrong out-the-door total and correcting it to the exact figure.
 - **Playbooks (1.5).** One short numbered method per turn for the kind of question — first aid, health, structural/electrical, preparedness, food safety, home repair, finance & tax, legal, data analysis, code, comparison, plans — so a small model acts like it has procedure it does not have. Disclosed under the reply (**📋 Method: …**); off switch on the Models tab.
 - **Think harder (1.5.1).** 🧠 in the composer, or under any reply: the reply becomes a draft, a *different role* lists its concrete problems (arithmetic, missing steps, unsupported claims), and the answerer revises once. Disclosed as **🧠 Deliberated — reviewed by …, revised**, with the review and draft on demand; with one role, a labelled self-review (switchable). Never a confidence score.
 - **Model profiles (1.5.1).** Settings → Models states what the app knows about each model — family, size, reasoning handling, sampling recipe, tool-calling reliability (measured by the eval when run, otherwise a stated prior).
@@ -87,6 +89,15 @@ npm run dev
 This starts the Vite dev server (with hot reload for the React renderer) and launches the Electron app.
 
 ---
+
+The Workbench's Python runtime is fetched separately (it is not an npm package):
+
+```bash
+bash scripts/fetch-pyodide.sh
+```
+
+Skip it and everything runs except `run_python` / `analyze_file`, which report themselves
+unavailable.
 
 ## 🏗️ Build for distribution
 
@@ -177,6 +188,8 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | `read_note` | Read a note by title. |
 | `memory_save` / `memory_search` / `memory_forget` | Write to, search, and delete from long-term local memory. Stored on this machine; recalled chunks are shown in the reply so you can see what was injected. |
 | `reference_lookup` | **1.5.** Search the offline reference library — installed packs and your own document folders — and return passages with citations and provenance. **On by default**; reads only this machine, never the network. Also run automatically by the app on reference-domain and offline turns. |
+| `run_python` | **1.6.** Run Python in the local WASM sandbox: stdout, last expression, files written (images shown in chat). Stdlib + numpy/pandas/matplotlib, offline. Attached files at `/work/<name>`. **On by default** — no network, no access to your disk. |
+| `analyze_file` | **1.6.** Mechanical profile of an attached CSV/TSV/JSON/XLSX: shape, types, nulls, stats, top values, duplicates, head — computed in the sandbox, no model call. Runs automatically when a tabular file is attached. |
 | `shop_requirements` | Turn a shopping ask ("a quiet air purifier for a 40 m² bedroom under $300") into a structured checklist the comparison is then scored against. |
 | `shop_compare` | Price the same product across sellers side by side — through the proxy when you require it, with worst-privacy sellers excludable. Prices are extracted mechanically from the page, never written by the model. When enabled, the app runs this itself on a turn it detects as a purchase decision, so the model has real offers rather than remembered ones. |
 | `price_watch` | Add, list, remove and re-check watched items. The watchlist is a file on this machine; no account, no tracker, nobody else holds the list. |
@@ -352,6 +365,34 @@ domain classifiers: first aid, health & medication, structural/electrical/gas, e
 preparedness, food safety, home repair, personal finance & tax, legal & civic, data analysis, code,
 comparing options, plans. Each is under 130 words, rides the turn's notes after any reference
 passages, and is disclosed as **📋 Method: … playbook**. Settings → Models → Playbooks.
+
+---
+
+## ⚡ v1.6: the Workbench — compute, don't guess
+
+A small model is unreliable at arithmetic and exact at writing the program that does the
+arithmetic. The Workbench (`src/main/ipc/workbench.ts`, [`docs/workbench.md`](docs/workbench.md))
+is that program's runtime, and the app's second use of it is pointing it back at the model's own
+answers.
+
+- **Sandboxed by construction.** Pyodide (CPython → WebAssembly) in a hidden, fully sandboxed
+  window: its own session refuses every request off the app's internal scheme (verified in the
+  check suite: `urllib` cannot reach even loopback, nor can the JS bridge), virtual filesystem
+  only, fresh globals per run, one job at a time, timeout = the sandbox is destroyed and
+  recreated, idle teardown after ten minutes.
+- **Data files.** Attachments are staged at `/work/<name>` per run (bytes copied — the disk is
+  never mounted). A tabular attachment is profiled automatically before the model answers;
+  spreadsheets are parsed with `zipfile` + XML inside the sandbox. The model is told: compute
+  further numbers with `run_python`; never eyeball totals from the head.
+- **Verification.** Stated-but-uncomputed figures → a recomputation program, run and compared;
+  Python in a reply → run, with the model's own errors (not the sandbox's) sent back through the
+  one-revision gate. Both disclosed under the reply. The revision guards are mechanical and
+  test-pinned: a revision may not delete every figure from a quantitative answer, may not paste
+  the checker's scaffolding, and must strictly reduce what the checker can fault.
+- **Runtime files:** `resources/pyodide/`, fetched once by `bash scripts/fetch-pyodide.sh`
+  (~30 MB, pinned version; CI and releases fetch it themselves). The app never downloads at run
+  time. Everything works without it except the two Workbench tools, which report themselves
+  unavailable.
 
 ---
 

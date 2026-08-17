@@ -18,6 +18,8 @@ PACKAGES="${WORKBENCH_PACKAGES:-numpy pandas matplotlib}"
 BASE="https://github.com/pyodide/pyodide/releases/download/${VERSION}"
 CDN="https://cdn.jsdelivr.net/pyodide/v${VERSION}/full"
 DEST=resources/pyodide
+# Windows runners expose python as `python`, not `python3`, under git-bash.
+PY="$(command -v python3 || command -v python)"
 
 need_core=1
 if [ -f "$DEST/pyodide.asm.wasm" ] && grep -q "\"version\": \"$VERSION\"" "$DEST/package.json" 2>/dev/null; then
@@ -43,7 +45,7 @@ echo "downloading lock file"
 curl -fsSL -o "$DEST/pyodide-lock.json" "$CDN/pyodide-lock.json"
 
 # Resolve the dependency closure and fetch each wheel that is not already here.
-FILES=$(python3 - "$DEST/pyodide-lock.json" $PACKAGES <<'PY'
+FILES=$("$PY" - "$DEST/pyodide-lock.json" $PACKAGES <<'PY'
 import json, sys
 lock = json.load(open(sys.argv[1]))["packages"]
 want = sys.argv[2:]
@@ -68,7 +70,7 @@ for f in $FILES; do
 done
 echo "$count wheel(s) present for: $PACKAGES"
 # Record what is bundled so the app can say so without parsing the lock.
-python3 - "$DEST" $PACKAGES <<'PY'
+"$PY" - "$DEST" $PACKAGES <<'PY'
 import json, sys, os
 dest = sys.argv[1]; want = sys.argv[2:]
 lock = json.load(open(os.path.join(dest, "pyodide-lock.json")))["packages"]
