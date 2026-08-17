@@ -6,6 +6,11 @@ directories:
 # Releases are published to GitHub Releases by .github/workflows/release.yml.
 # Owner/repo are inferred from the git remote locally and from the Actions
 # environment in CI, so nothing here needs to change if the repo is renamed.
+#
+# This config stays even though the workflow builds with `--publish never`:
+# electron-builder needs a publish provider to generate the auto-update
+# metadata (latest*.yml), which it writes regardless of publish state. The
+# workflow uploads the assets itself; see the `publish` job for why.
 publish:
   provider: github
 files:
@@ -25,7 +30,16 @@ mac:
       arch:
         - arm64
         - x64
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  # "Sigma-Oasis", not ${productName}: productName is "Sigma Oasis" with a
+  # space, and every asset ever published carries the dashed form because
+  # electron-publish sanitized the name as it uploaded. latest*.yml records
+  # that sanitized name as the download URL, so the auto-updater looks for
+  # `Sigma-Oasis-…`. Now that the workflow uploads the files itself, the name
+  # on disk *is* the published name — a space here would upload as
+  # `Sigma.Oasis-…` (GitHub rewrites spaces) and break both the updater and
+  # the Homebrew cask, silently, for one release. Hard-coded in all three
+  # targets for that reason.
+  artifactName: Sigma-Oasis-${version}-mac-${arch}.${ext}
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
@@ -39,7 +53,8 @@ mac:
 win:
   target:
     - nsis
-  artifactName: ${productName}-${version}-setup.${ext}
+  # Dashed literal, matching the published name — see the mac target above.
+  artifactName: Sigma-Oasis-${version}-setup.${ext}
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -48,4 +63,5 @@ linux:
   target:
     - AppImage
   category: Utility
-  artifactName: ${productName}-${version}-linux.${ext}
+  # Dashed literal, matching the published name — see the mac target above.
+  artifactName: Sigma-Oasis-${version}-linux.${ext}

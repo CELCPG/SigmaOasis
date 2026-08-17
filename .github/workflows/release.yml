@@ -18,6 +18,14 @@ name: Release
 #
 # Every build job waits on `guard`, which refuses a tag that is not on main or
 # that disagrees with package.json — see the comment on that job.
+#
+# Shape of the run: guard → {macOS, Windows, Linux} build in parallel with
+# `--publish never` and upload their installers as workflow artifacts → a single
+# `publish` job creates one draft release and attaches all nine assets → the
+# Homebrew cask bump reads that release by id. Only `publish` holds
+# `contents: write`. Letting each platform job publish for itself is what gave
+# v1.6.0 two draft releases with the assets split across them; the long comment
+# on `publish` records why.
 
 on:
   push:
@@ -103,8 +111,10 @@ jobs:
     name: macOS (signed & notarized)
     needs: guard
     runs-on: macos-latest
+    # Build-only. Exactly one job writes to the release (see `publish`), and
+    # this is enforced by permission, not convention.
     permissions:
-      contents: write
+      contents: read
     steps:
       # Notarization failures surface as a JSON parse error, not a useful
       # message: when Apple rejects a submission it replies in plain text
@@ -172,27 +182,38 @@ jobs:
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
 
-      - name: Build, sign, notarize, publish
-        run: npx electron-builder --mac --publish always
+      - name: Build, sign & notarize
+        run: npx electron-builder --mac --publish never
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Traces the notarytool invocation (args, exit code, temp paths). Note
           # it does NOT reveal Apple's rejection message — @electron/notarize
           # throws inside JSON.parse before it logs the response body. The
           # preflight step above is what surfaces that.
           DEBUG: electron-notarize*
 
+      - name: Hand the signed DMGs to the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-mac
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/latest-mac.yml
+
   windows:
     name: Windows
     needs: guard
     runs-on: windows-latest
+    # Build-only; see the macOS job.
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -209,17 +230,27 @@ jobs:
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
 
-      - name: Build & publish
-        run: npx electron-builder --win --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the installer
+        run: npx electron-builder --win --publish never
+
+      - name: Hand the installer to the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-win
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
 
   linux:
     name: Linux
     needs: guard
     runs-on: ubuntu-latest
+    # Build-only; see the macOS job.
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -236,18 +267,159 @@ jobs:
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
 
-      # Build-only, like Windows: the macOS job is the test gate for the
+      # No test run here, like Windows: the macOS job is the test gate for the
       # release, and the suite's Electron checks need a display anyway.
-      - name: Build & publish
-        run: npx electron-builder --linux --publish always
+      - name: Build the AppImage
+        run: npx electron-builder --linux --publish never
+
+      - name: Hand the AppImage to the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-linux
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/*.AppImage
+            dist/latest-linux.yml
+
+  # The single writer. Every platform job builds with `--publish never` and
+  # hands its installers here, because letting each job publish for itself is
+  # what broke v1.6.0.
+  #
+  # electron-publish decides whether a release already exists by listing
+  # releases — `GET /repos/{owner}/{repo}/releases`, chosen deliberately over
+  # "get a release by tag name" because a draft has no git tag of its own
+  # (gitHubPublisher.js, the comment above the call). On 2026-08-17 that
+  # endpoint began returning an empty array for every repository, verified
+  # against microsoft/vscode and electron/electron as controls. So all three
+  # jobs concluded "release doesn't exist" and each created its own draft:
+  # v1.6.0 finished with two drafts a second apart, the signed DMGs on one and
+  # the AppImage on the other, `gh release view v1.6.0` resolving to whichever
+  # it liked, and the tap bump failing on a release that genuinely had no DMG.
+  # Nothing reported failure except the last job in the chain.
+  #
+  # Uploading from one job removes the dependency on that endpoint and the race
+  # along with it: the release is found by GraphQL (which still sees drafts) or
+  # created once, and the assets go on it by id.
+  publish:
+    name: Attach the installers to the release
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - name: Collect every platform's installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          merge-multiple: true
+          path: assets
+
+      - name: Create or reuse the draft release, then upload
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ls -l assets
+
+          # A filename with a space uploads as "Sigma.Oasis-…" — GitHub rewrites
+          # spaces — while latest*.yml points at "Sigma-Oasis-…", so the
+          # auto-updater would 404 on a release that looks complete.
+          # electron-builder.yml hard-codes the dashed name; this asserts it.
+          if ls assets | grep -q ' '; then
+            echo "::error::Asset filenames contain spaces — check artifactName in electron-builder.yml"
+            exit 1
+          fi
+
+          QUERY='query($owner:String!,$name:String!){
+            repository(owner:$owner,name:$name){
+              releases(first:100, orderBy:{field:CREATED_AT,direction:DESC}){
+                nodes{ databaseId tagName }}}}'
+          ids=$(gh api graphql -f query="$QUERY" \
+                  -f owner="${REPO%/*}" -f name="${REPO#*/}" \
+                  --jq "[.data.repository.releases.nodes[] | select(.tagName == \"$TAG\") | .databaseId] | join(\" \")")
+          count=$(printf '%s' "$ids" | wc -w | tr -d ' ')
+
+          if [ "$count" -gt 1 ]; then
+            echo "::error::$count releases already exist for $TAG (ids: $ids)."
+            echo "Delete the extras before re-running — uploading into an arbitrary one is the v1.6.0 failure."
+            exit 1
+          fi
+
+          if [ "$count" -eq 0 ]; then
+            # The same call electron-publish made: a draft against the existing
+            # tag, named without the leading v, body left empty for the notes
+            # that RELEASING.md says to paste in before publishing.
+            id=$(gh api "repos/$REPO/releases" \
+                   -f tag_name="$TAG" -f name="${TAG#v}" -F draft=true --jq .id)
+            echo "created draft release $id for $TAG"
+          else
+            id="$ids"
+            echo "reusing draft release $id for $TAG"
+          fi
+
+          # Replace rather than fail on a re-run: uploading a name that already
+          # exists is a 422, and a re-run is the normal way a transient upload
+          # failure gets fixed.
+          existing=$(gh api "repos/$REPO/releases/$id" --jq '.assets[] | "\(.name) \(.id)"')
+
+          for f in assets/*; do
+            name=$(basename "$f")
+            old=$(printf '%s\n' "$existing" | awk -v n="$name" '$1 == n { print $2 }')
+            if [ -n "$old" ]; then
+              echo "replacing existing asset $name"
+              gh api -X DELETE "repos/$REPO/releases/assets/$old"
+            fi
+            echo "uploading $name ($(du -h "$f" | cut -f1))"
+            curl -sS --fail-with-body -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$f" \
+              -o /dev/null \
+              "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$name"
+          done
+
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+      # Prints the finished asset list, so "the release is missing the DMGs" is
+      # visible in the run that caused it rather than days later on the release
+      # page. Both DMGs, the installer, the AppImage and three update manifests.
+      - name: Verify the release carries all nine assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          names=$(gh api "repos/${{ github.repository }}/releases/${{ steps.release.outputs.release_id }}" \
+                    --jq '.assets[].name' | sort)
+          echo "$names" | sed 's/^/asset: /'
+          VERSION="${GITHUB_REF_NAME#v}"
+          missing=()
+          for want in \
+            "Sigma-Oasis-${VERSION}-mac-arm64.dmg" \
+            "Sigma-Oasis-${VERSION}-mac-x64.dmg" \
+            "Sigma-Oasis-${VERSION}-setup.exe" \
+            "Sigma-Oasis-${VERSION}-linux.AppImage" \
+            latest-mac.yml latest.yml latest-linux.yml; do
+            printf '%s\n' "$names" | grep -qxF "$want" || missing+=("$want")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::The release is missing: ${missing[*]}"
+            exit 1
+          fi
+          echo "All expected assets are on the release."
 
   homebrew:
     name: Homebrew cask bump
     # After the signed DMGs land on the release: refresh the tap's version and
-    # checksums so `brew install --cask sigma-oasis` tracks every tag.
-    needs: macos
+    # checksums so `brew install --cask sigma-oasis` tracks every tag. Waits on
+    # `publish`, not `macos` — before, it ran as soon as the DMGs were built and
+    # raced the release they were meant to be attached to.
+    needs: publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -261,28 +433,32 @@ jobs:
 
       - name: Update cask version and checksums
         env:
-          # The PAT, not GITHUB_TOKEN: it is verified to list draft releases,
-          # which the download below depends on (the release is a draft here).
+          # The PAT, not GITHUB_TOKEN: GITHUB_TOKEN cannot read this repository
+          # from a checkout of the tap, and the download below needs to reach a
+          # draft release's assets.
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ needs.publish.outputs.release_id }}
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"
           CASK=Casks/sigma-oasis.rb
           API="https://api.github.com/repos/CELCPG/SigmaOasis"
           AUTH="Authorization: Bearer $GH_TOKEN"
-          # The release is still a draft here. The pretty /releases/download/
-          # URLs (and the /releases/tags/ endpoint) 404 for drafts even with
-          # auth, so find the release in the list and go through the assets API.
-          RELEASES_JSON=$(curl -sf -H "$AUTH" "$API/releases?per_page=10")
+          # Fetch the one release the publish job wrote, by id. The release is
+          # still a draft, so /releases/download/ and /releases/tags/ both 404
+          # even with auth; the /releases *list* endpoint is no longer usable
+          # either — it returns an empty array (see the publish job), which is
+          # how this step failed on v1.6.0 with "Cannot iterate over null".
+          RELEASE_JSON=$(curl -sS --fail-with-body -H "$AUTH" "$API/releases/$RELEASE_ID")
           for pair in "arm arm64" "intel x64"; do
             read -r key arch <<< "$pair"
             ASSET_NAME="Sigma-Oasis-${VERSION}-mac-${arch}.dmg"
-            id=$(printf '%s' "$RELEASES_JSON" | jq -r --arg tag "$TAG" --arg name "$ASSET_NAME" \
-              '[.[] | select(.tag_name == $tag)][0].assets[] | select(.name == $name) | .id')
+            id=$(printf '%s' "$RELEASE_JSON" | jq -r --arg name "$ASSET_NAME" \
+              '.assets[] | select(.name == $name) | .id')
             if [[ -z "$id" ]]; then
-              echo "::error::No asset named $ASSET_NAME on the $TAG release"
-              printf '%s' "$RELEASES_JSON" | jq -r '.[].tag_name' | sed 's/^/visible release: /'
+              echo "::error::No asset named $ASSET_NAME on release $RELEASE_ID ($TAG)"
+              printf '%s' "$RELEASE_JSON" | jq -r '.assets[].name' | sed 's/^/visible asset: /'
               exit 1
             fi
             sha=$(curl -sfL -H "$AUTH" -H "Accept: application/octet-stream" \

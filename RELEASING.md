@@ -115,21 +115,32 @@ The `Release` workflow runs five jobs:
   containing it — a tag on a commit older than v1.4.8 runs the workflow as it
   was then, without the guard.
 - **macOS (signed & notarized)** — typecheck → test suite → bundle → build both
-  DMGs → sign → notarize → staple → attach to the GitHub Release. Notarization
+  DMGs → sign → notarize → staple → hand them to the publish job. Notarization
   is the slow part; expect 5–15 minutes.
-- **Windows** — builds the unsigned NSIS installer and attaches it.
-- **Linux** — builds the AppImage and attaches it.
-- **Homebrew cask bump** — after the DMGs upload, updates version + SHA-256s in
-  `CELCPG/homebrew-tap` and pushes, so `brew install --cask sigma-oasis` tracks
-  every tag. Needs the `HOMEBREW_TAP_TOKEN` secret.
+- **Windows** — builds the unsigned NSIS installer.
+- **Linux** — builds the AppImage.
+- **Attach the installers to the release** — the only job that writes to the
+  release: it creates one draft, uploads all nine assets, and then fails if any
+  of them is missing. The three build jobs deliberately hold no write
+  permission. This exists because v1.6.0 shipped with the DMGs and the AppImage
+  on *two different* draft releases — see the comment on the job.
+- **Homebrew cask bump** — updates version + SHA-256s in `CELCPG/homebrew-tap`
+  and pushes, so `brew install --cask sigma-oasis` tracks every tag. Needs the
+  `HOMEBREW_TAP_TOKEN` secret.
 
-When it finishes, publish the draft release and verify the page shows:
+When it finishes, publish the draft release. The publish job has already
+verified the asset list, so the page should show exactly:
 
-- `Sigma Oasis-1.0.0-mac-arm64.dmg`
-- `Sigma Oasis-1.0.0-mac-x64.dmg`
-- `Sigma Oasis-1.0.0-setup.exe`
-- `Sigma Oasis-1.0.0-linux.AppImage`
+- `Sigma-Oasis-1.0.0-mac-arm64.dmg` (+ `.blockmap`)
+- `Sigma-Oasis-1.0.0-mac-x64.dmg` (+ `.blockmap`)
+- `Sigma-Oasis-1.0.0-setup.exe` (+ `.blockmap`)
+- `Sigma-Oasis-1.0.0-linux.AppImage`
 - `latest-mac.yml` / `latest.yml` / `latest-linux.yml` (auto-update metadata)
+
+Dashes, not spaces: `latest*.yml` points the auto-updater at the dashed name, so
+`electron-builder.yml` hard-codes it rather than interpolating `${productName}`.
+If you ever see `Sigma.Oasis-…` on a release, a space reached the filename and
+the updater is broken for that version.
 
 The cask bump happens while the release is still a draft, so publish promptly —
 until you do, the tap points at a version whose downloads 404.
