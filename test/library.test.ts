@@ -315,6 +315,40 @@ describe('section-aware chunking (v1.7)', () => {
     for (const c of plain) assert.equal(text.slice(c.offset, c.offset + c.text.length), c.text)
   })
 
+  test('one passage per section: twins from one section do not crowd out other sections', async () => {
+    // One long section that chunks into several near-twin pieces sharing the
+    // query vocabulary, plus two short sections that each hold a distinct fact.
+    const doc = [
+      '# Poisoning',
+      '',
+      '## What not to do',
+      '',
+      ('Do not make the person sick. Poisoning cases must never be treated by inducing vomiting. ' +
+        'In a poisoning emergency stay calm and keep the poisoning victim still. ').repeat(18).trim(),
+      '',
+      '## Call 999 if',
+      '',
+      'Call 999 in a poisoning emergency if the person is unconscious or struggling to breathe.',
+      '',
+      '## Aftercare',
+      '',
+      'After a poisoning emergency keep the person under observation until help arrives.'
+    ].join('\n')
+    await lib.installPackFromDirectory(writePack('poison', [{ id: 'poisoning', title: 'Poisoning', text: doc }]))
+    const out = await lib.lookupLibrary({ query: 'poisoning emergency what should I do', topK: 3 })
+    assert.equal(out.passages.length, 3)
+    const sections = out.passages.map((p) => p.section)
+    assert.equal(new Set(sections).size, 3, `sections must be distinct, got ${sections.join(' / ')}`)
+    assert.ok(sections.includes('Call 999 if'), `the 999 section must not be crowded out (got ${sections.join(' / ')})`)
+  })
+
+  test('one passage per section: a single-section corpus still fills topK', async () => {
+    const doc = ['# Only topic', '', ('One long section about generator safety and carbon monoxide. ').repeat(60).trim()].join('\n')
+    await lib.installPackFromDirectory(writePack('gen', [{ id: 'gen', title: 'Generators', text: doc }]))
+    const out = await lib.lookupLibrary({ query: 'generator safety carbon monoxide', topK: 3 })
+    assert.equal(out.passages.length, 3, 'displaced same-section chunks must return when nothing else exists')
+  })
+
   test('lookup surfaces the small answering section over a wordy neighbor', async () => {
     const WATER = [
       '# Water treatment',

@@ -621,7 +621,43 @@ export async function lookupLibrary(input: {
     if (ca.vector && cb.vector && ca.vector.length === cb.vector.length) return Math.max(0, unitDot(ca.vector, cb.vector))
     return jaccard(ca.termSet, cb.termSet)
   }
-  const selected = mmrSelect(candidates, topK, MMR_LAMBDA, similarity)
+  const preliminary = mmrSelect(candidates, topK, MMR_LAMBDA, similarity)
+
+  // v1.7: at most one passage per (document, section). Section-aware chunking
+  // makes adjacent chunks of one section near-twins, and MMR's pairwise
+  // similarity lets a highly relevant section place two of them — which
+  // crowded "Call 999 if" out of a poisoning lookup in the eval. A reader
+  // wants the five most relevant *sections*, so extra same-section picks are
+  // swapped for the best remaining candidates from unseen sections; if the
+  // corpus genuinely has too few sections, the extras return.
+  const sectionKeyOf = (id: string): string => {
+    const c = byId.get(id)!
+    const doc = packs.get(c.packId)!.docs.get(c.docId)!
+    return `${c.packId}/${c.docId}#${sectionAt(doc, c.offset, c.offset + c.text.length)}`
+  }
+  const seenSections = new Set<string>()
+  const selected: string[] = []
+  const displaced: string[] = []
+  for (const id of preliminary) {
+    const key = sectionKeyOf(id)
+    if (seenSections.has(key)) displaced.push(id)
+    else {
+      seenSections.add(key)
+      selected.push(id)
+    }
+  }
+  for (const { id } of candidates) {
+    if (selected.length >= topK) break
+    if (preliminary.includes(id)) continue
+    const key = sectionKeyOf(id)
+    if (seenSections.has(key)) continue
+    seenSections.add(key)
+    selected.push(id)
+  }
+  for (const id of displaced) {
+    if (selected.length >= topK) break
+    selected.push(id)
+  }
 
   const passages: LibraryPassage[] = selected
     .map((id) => byId.get(id))

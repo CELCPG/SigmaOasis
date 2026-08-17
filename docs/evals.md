@@ -60,6 +60,39 @@ spent its five passages on the wrong *sections*. The one unsupported figure ("6%
 a boil-water question) came from the chlorination passage the lookup surfaced instead of the
 boiling one — precisely the class that check exists to catch.
 
+### v1.7 retrieval change, re-measured
+
+The wrong-section failure was mechanical: "### Boiling" is a ~200-character section, chunks were
+~1,000 characters, so passages blended sections and their embeddings matched nothing crisply.
+v1.7 makes chunking **section-aware** (no chunk spans a heading boundary) and caps lookups at
+**one passage per (document, section)** — the first change alone made adjacent chunks of a strong
+section crowd out other sections, which is the inverse disease; both are pinned by unit tests.
+
+Three full 28-case runs, same model, temperature 0:
+
+| run | answered | cited | unsupported |
+| --- | --- | --- | --- |
+| baseline (pre-v1.7) | 25/28 | 26/28 | 1/28 |
+| section chunks only (run overlapped other LM Studio use) | 22/27 | 21/27 | 1/27 |
+| section chunks + per-section cap, clean | 23/28 | 22/28 | **0/28** |
+
+What actually changed, case by case, matters more than those totals:
+
+- **Both recorded wrong-section failures were fixed.** The nosebleed case passes in every v1.7
+  run; the boil-water case stopped stating unsupported figures (the chlorination bleed-through it
+  was recorded for), and unsupported measurements went to **0/28**.
+- **The aggregate did not improve, and the reason is variance, not retrieval.** The three runs'
+  failure sets are mostly disjoint: cases 07, 19 and 26 passed twice and then failed with
+  *identical retrieval*, at temperature 0 — one reply emitted a tool call as prose text, one
+  summarized half the retrieved section and stopped, one echoed the app's own turn-notes header
+  and asked a question instead of answering. A ±3-case movement on this suite is within
+  run-to-run noise; treat single runs accordingly.
+- **The suite again earned its keep by failing things that are not retrieval:** the stroke case
+  fails whenever the model quotes the pack *verbatim* — as the grounding rules demand — because
+  the pack document itself reads "F ace drooping" (the pack builder split the styled FAST
+  letters). A model doing the right thing against a defective document; the defect is the
+  builder's, filed separately, along with a reply-echo guard for the turn-notes header.
+
 **Quantitative + deliberation — all 20 cases, with the sandbox verified before the run:**
 
 | arm | all cases | same cases, both arms | s/case |
