@@ -562,7 +562,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         'Run Python code in a local sandbox and get back stdout, the last expression, and any files ' +
         'it wrote (images are shown to the user — save a matplotlib figure to a .png to show a chart). ' +
         'Python 3 with the standard library plus numpy, pandas and matplotlib; no internet, ' +
-        'no access to the user\'s disk. Fresh globals each run. Files the user attached to the ' +
+        'no access to the user\'s disk. Variables PERSIST between run_python calls in this ' +
+        'conversation (like a REPL): a dataframe loaded once stays loaded — build on it instead of ' +
+        're-reading files, and the result lists the variables currently defined. If the result says ' +
+        'the session was reset, re-run your setup. Files the user attached to the ' +
         'conversation are placed under /work/<name> for every run (open("/work/sales.csv")).\n' +
         'Use when: the answer needs arithmetic beyond a single step, unit conversion, dates, ' +
         'statistics, sorting or aggregating data, parsing text, or checking a result — compute it, ' +

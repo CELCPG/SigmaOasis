@@ -23,7 +23,7 @@ export function registerToolHandlers(): void {
       event,
       name: keyof ToolToggles,
       args: Record<string, unknown>,
-      context?: { modelId?: string; attachments?: { name: string; sourcePath: string }[] }
+      context?: { modelId?: string; attachments?: { name: string; sourcePath: string }[]; conversationId?: string }
     ) => {
       if (!getSettings().tools[name]) {
         return { ok: false, error: `Tool "${String(name)}" is disabled in Settings → Tools.` }
@@ -31,6 +31,7 @@ export function registerToolHandlers(): void {
       return executeTool(name, args ?? {}, {
         sender: event.sender,
         modelId: context?.modelId,
+        conversationId: typeof context?.conversationId === 'string' ? context.conversationId : undefined,
         attachments: Array.isArray(context?.attachments)
           ? context!.attachments.filter((a) => a && typeof a.name === 'string' && typeof a.sourcePath === 'string')
           : []

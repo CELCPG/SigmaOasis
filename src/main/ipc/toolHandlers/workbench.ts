@@ -61,7 +61,11 @@ const runPythonTool: ToolHandler = async (args, context) => {
   const requested = Number(args.timeout_seconds)
   const timeoutMs = Number.isFinite(requested) ? Math.round(requested * 1000) : undefined
   const staged = await stageAttachments(context)
-  const outcome = await runPython({ code, files: staged.files, timeoutMs })
+  // v1.8: run_python is a session scoped to the conversation — variables
+  // persist between calls, so a follow-up filters the dataframe already
+  // loaded instead of re-writing the preamble. Profiles and the verification
+  // runs stay sessionless by construction (they call runPython directly).
+  const outcome = await runPython({ code, files: staged.files, timeoutMs, session: context.conversationId ?? null })
   const formatted = formatRun(outcome, code)
   if (!formatted.ok && /ModuleNotFoundError|No module named/.test(formatted.error ?? '')) {
     const pk = await bundledPackages()
@@ -72,9 +76,17 @@ const runPythonTool: ToolHandler = async (args, context) => {
       ? `\n\nFiles available under /work: ${staged.files.map((f) => f.name).join(', ')}.`
       : ''
   const notes = staged.notes.length ? `\n\n${staged.notes.map((n) => `Note: ${n}`).join('\n')}` : ''
+  const sessionNote = [
+    outcome.sessionReset
+      ? '\n\nSession reset: the sandbox restarted since the previous run in this conversation, so variables from earlier runs are gone — re-run any setup you rely on.'
+      : '',
+    outcome.sessionVars && outcome.sessionVars.length > 0
+      ? `\n\nSession variables (persist in this conversation): ${outcome.sessionVars.join(', ')}.`
+      : ''
+  ].join('')
   return formatted.ok
-    ? { ok: true, output: truncate(`${formatted.output ?? ''}${stagedNote}${notes}`, MAX_RUN_OUTPUT_CHARS), images: formatted.images }
-    : { ok: false, error: truncate(`${formatted.error ?? 'run failed'}${stagedNote}${notes}`, MAX_RUN_OUTPUT_CHARS), images: formatted.images }
+    ? { ok: true, output: truncate(`${formatted.output ?? ''}${stagedNote}${sessionNote}${notes}`, MAX_RUN_OUTPUT_CHARS), images: formatted.images }
+    : { ok: false, error: truncate(`${formatted.error ?? 'run failed'}${stagedNote}${sessionNote}${notes}`, MAX_RUN_OUTPUT_CHARS), images: formatted.images }
 }
 
 const analyzeFileTool: ToolHandler = async (args, context) => {

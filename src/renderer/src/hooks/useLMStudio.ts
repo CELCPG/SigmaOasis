@@ -197,7 +197,7 @@ async function runTurn(
   // the wire whatever the embedding rank says, because the app is about to
   // tell the model to compute with them.
   const fileRefs = attachmentFileRefs(convo)
-  const toolContext = { modelId: slot.modelId, attachments: fileRefs }
+  const toolContext = { modelId: slot.modelId, attachments: fileRefs, conversationId: convo.id }
   const forcedTools = fileRefs.some((f) => TABULAR_FILE.test(f.name)) ? ['run_python', 'analyze_file'] : []
   const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId, forcedTools)
 

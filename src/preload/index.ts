@@ -63,7 +63,7 @@ const api = {
   executeTool: (
     name: string,
     args: Record<string, unknown>,
-    context?: { modelId?: string; attachments?: AttachmentFileRef[] }
+    context?: { modelId?: string; attachments?: AttachmentFileRef[]; conversationId?: string }
   ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
   /**
    * Rank candidate tools against the user's message by embedding cosine

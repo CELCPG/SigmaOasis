@@ -41,6 +41,11 @@ export interface ToolContext {
    * Workbench stages them under /work; nothing else reads them.
    */
   attachments?: { name: string; sourcePath: string }[]
+  /**
+   * v1.8: the asking conversation — the Workbench session key, so run_python
+   * state persists within a conversation and never leaks across two.
+   */
+  conversationId?: string
 }
 
 export type ToolHandler = (args: Record<string, unknown>, context: ToolContext) => Promise<ToolResult>

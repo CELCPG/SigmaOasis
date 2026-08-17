@@ -9,6 +9,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 export interface WorkbenchJob {
   id: string
   code: string
+  /** v1.8: session key — runs sharing it keep globals and /work between calls. */
+  session?: string | null
   files: { name: string; base64: string }[]
 }
 
@@ -22,6 +24,10 @@ export interface WorkbenchResult {
   files: { name: string; base64: string; bytes: number }[]
   durationMs: number
   error?: string
+  /** v1.8: this run continued an existing session's globals. */
+  resumed?: boolean
+  /** v1.8: names defined in the session after this run. */
+  sessionVars?: string[]
 }
 
 contextBridge.exposeInMainWorld('workbench', {

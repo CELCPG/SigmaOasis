@@ -17,8 +17,17 @@ window (`src/main/ipc/workbench.ts`):
 - A virtual filesystem. Inputs the app provides appear under `/work`; files the code writes there
   come back (bounded: 24 files / 8 MB). The host's disk is never mounted — `/Users`, `/etc/passwd`
   do not exist inside.
-- Fresh globals and an emptied `/work` per job; one job at a time; a job over its budget
-  (default 60 s, max 180 s) has its window destroyed and the next job gets a fresh sandbox.
+- One job at a time; a job over its budget (default 60 s, max 180 s) has its window destroyed
+  and the next job gets a fresh sandbox.
+- **Sessions (v1.8):** `run_python` runs in a session scoped to the conversation — globals and
+  `/work` persist between calls with the same key, like a REPL, so a follow-up filters the
+  dataframe already loaded instead of re-writing the preamble. A different conversation (or the
+  newest one — only one session lives at a time), a sandbox restart, or the idle teardown resets
+  it, and a reset is *disclosed in the tool result* so the model re-runs its setup instead of
+  hitting NameError blind. Each result also lists the session's defined variables. Everything
+  else — `analyze_file` profiles, the verification recompute and code checks, docx extraction —
+  runs sessionless with fresh globals by construction: a check that could see session state
+  would not be checking the reply.
 - The idle sandbox is torn down after ten minutes (it holds ~150 MB) and never keeps the app
   alive after the last real window closes.
 
@@ -63,5 +72,5 @@ source for the grounding badge and as sourced figures for the tool-grounding che
 ## Verifying
 
 `bash scripts/test-render.sh` runs `test/workbenchCheck.ts` in Electron proper: round-trip,
-tracebacks, fresh globals, `/work` I/O, no disk, no network (two ways), timeout kill and recovery.
+tracebacks, fresh globals for sessionless jobs, session persistence/isolation/reset disclosure, `/work` I/O, no disk, no network (two ways), timeout kill and recovery.
 It self-skips when the runtime is not fetched.

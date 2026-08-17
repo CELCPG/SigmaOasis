@@ -5,8 +5,10 @@
  *
  * What is pinned: stdout and last-expression capture, tracebacks as failures
  * the model can read, files written under /work coming back, fresh globals per
- * job, that the sandbox cannot reach the network or the disk, and that a
- * runaway job is killed and the next job still works.
+ * sessionless job, conversation-scoped sessions (v1.8: same key keeps globals
+ * and /work, a different key or a one-shot sees none of it), that the sandbox
+ * cannot reach the network or the disk, and that a runaway job is killed and
+ * the next job still works.
  */
 import { app } from 'electron'
 import { existsSync } from 'fs'
@@ -74,6 +76,38 @@ async function main(): Promise<void> {
 
   r = await wb.runPython({ code: 'from js import fetch\nimport asyncio\nasync def go():\n    try:\n        await fetch("https://example.com/")\n        print("REACHED")\n    except Exception as e:\n        print("blocked:", type(e).__name__)\nawait go()' })
   check('nor via the JS bridge', !/REACHED/.test(r.stdout), r.stdout + (r.error ?? ''))
+
+  // ---- sessions (v1.8): conversation-scoped globals ---------------------------
+  console.log('\nWorkbench sessions: conversation-scoped state')
+
+  r = await wb.runPython({ code: 'x = 41\nopen("kept.txt", "w").write("still here")\nprint("set")', session: 'convo-A' })
+  check('a session run works and reports its variables', r.ok && r.sessionVars?.includes('x') === true, JSON.stringify({ vars: r.sessionVars, err: r.error }))
+  check('the first run of a session is not "resumed"', r.resumed !== true)
+
+  r = await wb.runPython({ code: 'print(x + 1)', session: 'convo-A' })
+  check('the same session keeps its variables (x survives)', r.ok && /^42/m.test(r.stdout), JSON.stringify({ stdout: r.stdout, err: r.error }))
+  check('and reports resumed', r.resumed === true)
+
+  r = await wb.runPython({ code: 'print(open("kept.txt").read())', session: 'convo-A' })
+  check('the session keeps files written by earlier runs', r.ok && /still here/.test(r.stdout), r.stdout + (r.error ?? ''))
+
+  r = await wb.runPython({ code: 'try:\n    print(x)\nexcept NameError:\n    print("isolated")' })
+  check('a sessionless job cannot see session variables', r.ok && /isolated/.test(r.stdout), r.stdout)
+
+  r = await wb.runPython({ code: 'print(x + 1)', session: 'convo-A' })
+  check('a one-shot between session runs does not disturb the session', r.ok && /^42/m.test(r.stdout), JSON.stringify({ stdout: r.stdout, err: r.error }))
+
+  r = await wb.runPython({ code: 'y = 1/0', session: 'convo-A' })
+  r = await wb.runPython({ code: 'print(x + 2)', session: 'convo-A' })
+  check('an exception mid-session leaves earlier definitions standing (REPL semantics)', r.ok && /^43/m.test(r.stdout), r.stdout + (r.error ?? ''))
+
+  r = await wb.runPython({ code: 'try:\n    print(x)\nexcept NameError:\n    print("clean start")\nz = 9', session: 'convo-B' })
+  check('a different session starts clean — nothing leaks across conversations', r.ok && /clean start/.test(r.stdout), r.stdout)
+  r = await wb.runPython({ code: 'import os\nprint(os.path.exists("/work/kept.txt"))', session: 'convo-B' })
+  check("nor does the previous session's /work", r.ok && /False/.test(r.stdout), r.stdout)
+
+  r = await wb.runPython({ code: 'print("back")\nw = 1', session: 'convo-A' })
+  check('returning to a torn-down session is disclosed as a reset', r.sessionReset === true, JSON.stringify({ reset: r.sessionReset, resumed: r.resumed }))
 
   // ---- analyze_file's profiler on real files ----------------------------------
   console.log('\nanalyze_file: mechanical profile of CSV / JSON / XLSX')

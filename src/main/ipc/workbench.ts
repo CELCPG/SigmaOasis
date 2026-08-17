@@ -29,6 +29,12 @@ export interface WorkbenchJobInput {
   code: string
   files?: { name: string; data: Buffer }[]
   timeoutMs?: number
+  /**
+   * v1.8: a session key (in practice the conversation id). Runs sharing a key
+   * keep their globals and /work between calls — a REPL scoped to one
+   * conversation. Absent = fresh globals for this job, exactly as before.
+   */
+  session?: string | null
 }
 
 export interface WorkbenchOutcome {
@@ -41,6 +47,16 @@ export interface WorkbenchOutcome {
   error?: string
   /** True when the sandbox had to be restarted (timeout or crash). */
   restarted?: boolean
+  /** v1.8: this run continued an existing session's globals. */
+  resumed?: boolean
+  /** v1.8: names defined in the session after this run (sorted, capped at 40). */
+  sessionVars?: string[]
+  /**
+   * v1.8: this run asked for a session the sandbox had served before, but the
+   * state was gone (restart, idle teardown, app relaunch) — earlier variables
+   * no longer exist and the model should be told so.
+   */
+  sessionReset?: boolean
 }
 
 export interface WorkbenchStatus {
@@ -118,11 +134,22 @@ const PAGE_HTML = `<!doctype html>
 
 /**
  * The page's own script: load Pyodide from the app scheme, then serve jobs.
- * Each job gets fresh globals and an emptied /work; stdout/stderr are captured
- * batched; the last expression's repr is returned; files that appeared or
- * changed under /work are read back (bounded). Errors carry the Python
- * traceback in `stderr` and `error`. Timeouts are the host's job (window
- * destroy), because a synchronous Python loop cannot be interrupted here.
+ * stdout/stderr are captured batched; the last expression's repr is returned;
+ * files that appeared or changed under /work are read back (bounded). Errors
+ * carry the Python traceback in `stderr` and `error`. Timeouts are the host's
+ * job (window destroy), because a synchronous Python loop cannot be
+ * interrupted here.
+ *
+ * Sessions (v1.8): a job carrying a `session` key keeps its globals and /work
+ * between runs with the same key — a REPL scoped to one conversation, so
+ * "now filter that to Q4" works on the dataframe already loaded instead of
+ * re-writing the whole load-and-clean preamble (each rewrite being a fresh
+ * chance for a small model to err). A different key resets both; a job with
+ * no key runs in fresh globals every time exactly as before (profiles, the
+ * verification recompute and code checks stay stateless by construction —
+ * a check that could see session state would not be checking the reply).
+ * At most one session lives at a time: the newest key wins, so RAM holds one
+ * conversation's dataframes, not every conversation's.
  */
 const PAGE_JS = String.raw`
 (() => {
@@ -169,13 +196,27 @@ const PAGE_JS = String.raw`
     rm('/work');
   };
 
+  // The one live session: its key and its kept globals (a PyProxy dict).
+  let sessionKey = null;
+  let sessionGlobals = null;
+
   window.workbench.onJob(async (job) => {
     const started = performance.now();
     let stdout = '', stderr = '';
     const cap = (s, add) => (s.length >= MAX_STDIO ? s : (s + add).slice(0, MAX_STDIO));
     try {
       await ready;
-      clearWork();
+      const wantSession = job.session || null;
+      let resumed = false;
+      if (wantSession && wantSession === sessionKey && sessionGlobals) {
+        resumed = true; // same conversation: keep globals AND /work
+      } else if (wantSession) {
+        if (sessionGlobals) { try { sessionGlobals.destroy(); } catch (_) {} }
+        sessionGlobals = null; sessionKey = wantSession;
+        clearWork();
+      } else if (!sessionKey) {
+        clearWork(); // sessionless steady state: fresh /work per job, as always
+      } // else: a one-shot alongside a live session — leave the session's /work alone
       for (const f of job.files || []) {
         const safe = String(f.name).replace(/[\/\\]/g, '_');
         pyodide.FS.writeFile('/work/' + safe, b64ToBytes(f.base64));
@@ -198,7 +239,7 @@ const PAGE_JS = String.raw`
       } catch (e) {
         packageNote = 'Package load: ' + String(e && e.message ? e.message : e);
       }
-      const globals = pyodide.toPy({ __name__: '__main__' });
+      const globals = resumed ? sessionGlobals : pyodide.toPy({ __name__: '__main__' });
       let result = null, ok = true, error;
       try {
         const r = await pyodide.runPythonAsync(job.code, { globals });
@@ -214,7 +255,20 @@ const PAGE_JS = String.raw`
         error = String(e && e.message ? e.message : e);
         if (packageNote) error += '\n' + packageNote;
       } finally {
-        try { globals.destroy(); } catch (_) {}
+        // A session keeps its globals — like a REPL, an exception mid-run
+        // leaves earlier definitions standing. One-shots destroy theirs.
+        if (wantSession) sessionGlobals = globals;
+        else { try { globals.destroy(); } catch (_) {} }
+      }
+      // Which names the session now holds, so the model can see its own state.
+      let sessionVars = [];
+      if (wantSession) {
+        try {
+          sessionVars = JSON.parse(pyodide.runPython(
+            'import json as _sj; _sj.dumps(sorted([k for k in list(globals().keys()) if not k.startswith("_")])[:40])',
+            { globals }
+          ));
+        } catch (_) {}
       }
       if (ok && packageNote) stderr = cap(stderr, packageNote + '\n');
       // Files that appeared or changed.
@@ -229,7 +283,7 @@ const PAGE_JS = String.raw`
         total += bytes.length;
         files.push({ name: p.slice('/work/'.length), base64: bytesToB64(bytes), bytes: bytes.length });
       }
-      window.workbench.result({ id: job.id, ok, stdout, stderr, result, files, durationMs: Math.round(performance.now() - started), error });
+      window.workbench.result({ id: job.id, ok, stdout, stderr, result, files, durationMs: Math.round(performance.now() - started), error, resumed, sessionVars });
     } catch (e) {
       window.workbench.result({ id: job.id, ok: false, stdout, stderr, result: null, files: [], durationMs: Math.round(performance.now() - started), error: 'sandbox: ' + String(e && e.message ? e.message : e) });
     }
@@ -321,7 +375,7 @@ function destroySandbox(reason: string): void {
 function installIpc(): void {
   if (ipcInstalled) return
   ipcInstalled = true
-  ipcMain.on('workbench:result', (event, r: { id: string; ok: boolean; stdout: string; stderr: string; result: string | null; files: { name: string; base64: string; bytes: number }[]; durationMs: number; error?: string }) => {
+  ipcMain.on('workbench:result', (event, r: { id: string; ok: boolean; stdout: string; stderr: string; result: string | null; files: { name: string; base64: string; bytes: number }[]; durationMs: number; error?: string; resumed?: boolean; sessionVars?: string[] }) => {
     if (!win || event.sender !== win.webContents) return
     const p = pending.get(r.id)
     if (!p) return
@@ -334,7 +388,9 @@ function installIpc(): void {
       result: r.result ?? null,
       files: (r.files ?? []).map((f) => ({ name: f.name, data: Buffer.from(f.base64, 'base64') })),
       durationMs: r.durationMs ?? 0,
-      error: r.error
+      error: r.error,
+      resumed: r.resumed === true,
+      sessionVars: Array.isArray(r.sessionVars) ? r.sessionVars.filter((v) => typeof v === 'string').slice(0, 40) : undefined
     })
     armIdle()
   })
@@ -461,15 +517,28 @@ export function runPython(input: WorkbenchJobInput): Promise<WorkbenchOutcome> {
       w.webContents.send('workbench:job', {
         id,
         code: input.code,
+        session: input.session ?? null,
         files: (input.files ?? []).map((f) => ({ name: f.name, base64: f.data.toString('base64') }))
       })
     })
-    return restarted ? { ...outcome, restarted: true } : outcome
+    const final = restarted ? { ...outcome, restarted: true } : outcome
+    // v1.8: a session the sandbox has served before that did not resume means
+    // its state is gone (restart, idle teardown, relaunch). Tracked across
+    // sandbox lifetimes on purpose — that is exactly when it matters.
+    if (input.session) {
+      if (sessionsEverSeen.has(input.session) && !final.resumed) final.sessionReset = true
+      sessionsEverSeen.add(input.session)
+      if (sessionsEverSeen.size > 500) sessionsEverSeen.clear()
+    }
+    return final
   }
   const next = queue.then(run, run)
   queue = next.catch(() => undefined)
   return next
 }
+
+/** Session keys ever served, for the reset disclosure above. */
+const sessionsEverSeen = new Set<string>()
 
 /** Top-level packages the fetch script bundled (empty when only the core is present). */
 export async function bundledPackages(): Promise<string[]> {
