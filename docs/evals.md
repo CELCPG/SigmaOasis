@@ -60,9 +60,33 @@ spent its five passages on the wrong *sections*. The one unsupported figure ("6%
 a boil-water question) came from the chlorination passage the lookup surfaced instead of the
 boiling one — precisely the class that check exists to catch.
 
-Quantitative numbers are pending a re-run: the first attempt measured a **broken** sandbox (see
-below), and its Workbench column is withdrawn rather than corrected — a column measured against a
-tool that failed in 0 ms is not a smaller number, it is a different experiment.
+**Quantitative + deliberation — all 20 cases, with the sandbox verified before the run:**
+
+| arm | all cases | same cases, both arms | s/case |
+| --- | --- | --- | --- |
+| bare (no tools) | 10/18 · 56% | 10/18 · 56% | 29.5 |
+| with the Workbench | **20/20 · 100%** | **18/18 · 100%** | 39.9 |
+| bare + one think-harder pass | 9/14 · 64% | 9/14 (no change) | 76.4 |
+
+Split by kind, which is where the shape of it lives:
+
+| | bare | with the Workbench |
+| --- | --- | --- |
+| arithmetic, units, dates (14) | 10/12 · 83% | 14/14 · 100% |
+| over a 400-row CSV (6) | **0/6 · 0%** | **6/6 · 100%** |
+
+The CSV row is the whole argument for the Workbench in one line: not a single one of those six
+questions is answerable without executing something, and every one of them is answerable with it.
+The model used 1–3 tool calls per case. The cost is **+10 seconds a case**.
+
+Deliberation revised 7 of 14 drafts and changed no score — and, importantly, **broke nothing**: no
+case that was right bare became wrong after review. On this suite it is a null result at 2.6× the
+latency, which is worth knowing before recommending it as a default; the cases it might help
+(reasoning, not arithmetic) are not what this suite measures.
+
+Denominators differ because an arm that errored is excluded rather than scored as a failure: six
+calls hit a transport drop, each retried once, and two still failed. The first case pays a cold
+model load (31.6 s against a 28.6 s median).
 
 ## Findings worth keeping
 
