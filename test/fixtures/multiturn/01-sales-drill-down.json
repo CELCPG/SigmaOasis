@@ -1,0 +1,11 @@
+{
+  "data": "sales.csv",
+  "turns": [
+    { "prompt": "Using the attached sales.csv, what is the total revenue (units × unit_price) across all rows? Exact figure to the cent.",
+      "expect": [{ "label": "total revenue", "value": 139306.12, "tolerance": 0.02 }] },
+    { "prompt": "Now just the West region — what is its total revenue?",
+      "expect": [{ "label": "west revenue", "value": 39103.24, "tolerance": 0.02 }] },
+    { "prompt": "And the average units per order in West?",
+      "expect": [{ "label": "west mean units", "value": 19.96, "tolerance": 0.02 }] }
+  ]
+}

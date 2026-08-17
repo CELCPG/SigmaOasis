@@ -1,0 +1,12 @@
+{
+  "data": "expenses.csv",
+  "turns": [
+    { "prompt": "Using the attached expenses.csv, what is the total amount spent across all rows? Exact to the cent.",
+      "expect": [{ "label": "total", "value": 84284.63, "tolerance": 0.02 }] },
+    { "prompt": "How much of that was the software category?",
+      "expect": [{ "label": "software", "value": 13037.87, "tolerance": 0.02 }] },
+    { "prompt": "Which month had the highest spend, and how much?",
+      "expect": [{ "label": "top month spend", "value": 18313.64, "tolerance": 0.02 }],
+      "mustInclude": ["February|2025-02"] }
+  ]
+}

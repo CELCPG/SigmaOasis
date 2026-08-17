@@ -4,6 +4,8 @@ import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import {
   stabilityAcrossPasses,
+  codeReadsData,
+  summarizeMultiTurn,
   citesSource,
   measurementsIn,
   numbersIn,
@@ -204,5 +206,60 @@ describe('stabilityAcrossPasses (v1.7.1)', () => {
     const empty = stabilityAcrossPasses([[p('x', null)], [p('x', null)]])
     assert.equal(empty.stablePass + empty.stableFail + empty.flaky.length, 0)
     assert.equal(empty.of, 1)
+  })
+})
+
+describe('multi-turn suite (v1.8)', () => {
+  test('codeReadsData recognizes readers and data-path opens, not ordinary code', () => {
+    assert.equal(codeReadsData('df = pd.read_csv("/work/sales.csv")'), true)
+    assert.equal(codeReadsData('x = pd.read_excel("book.xlsx")'), true)
+    assert.equal(codeReadsData('rows = list(csv.reader(open("/work/a.csv")))'), true)
+    assert.equal(codeReadsData('west = df[df.region == "West"]\nprint(west.units.mean())'), false)
+    assert.equal(codeReadsData('open("out.txt", "w").write("done")'), false)
+  })
+
+  test('summarizeMultiTurn splits first vs follow-up and counts re-reads per arm', () => {
+    const t = (hit: boolean, reread: boolean, ms = 10_000, toolCalls = 1) => ({
+      prompt: 'p', hit, missing: [], ms, toolCalls, reread
+    })
+    const s = summarizeMultiTurn([
+      { file: 'a', session: [t(true, true), t(true, false), t(true, false)], stateless: [t(true, true), t(false, true), t(true, true)] },
+      { file: 'b', session: [t(false, true), t(true, false), t(true, true)], stateless: [t(true, true), t(true, true), t(false, false)] }
+    ])
+    assert.deepEqual(s.session.first, { hit: 1, of: 2 })
+    assert.deepEqual(s.session.followup, { hit: 4, of: 4 })
+    assert.deepEqual(s.session.followupRereads, { hit: 1, of: 4 })
+    assert.deepEqual(s.stateless.first, { hit: 2, of: 2 })
+    assert.deepEqual(s.stateless.followup, { hit: 2, of: 4 })
+    assert.deepEqual(s.stateless.followupRereads, { hit: 3, of: 4 })
+  })
+
+  test('errored turns are excluded from rates, not counted as misses', () => {
+    const good = { prompt: 'p', hit: true, missing: [], ms: 1000, toolCalls: 1, reread: false }
+    const bad = { ...good, hit: false, error: 'fetch failed' }
+    const s = summarizeMultiTurn([{ file: 'a', session: [good, bad], stateless: [good, good] }])
+    assert.deepEqual(s.session.followup, { hit: 0, of: 0 })
+    assert.deepEqual(s.stateless.followup, { hit: 1, of: 1 })
+  })
+
+  test('the multiturn fixtures are well-formed with computable expectations', () => {
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'multiturn')
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
+    assert.ok(files.length >= 5)
+    for (const f of files) {
+      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as {
+        data?: string
+        turns?: { prompt?: string; expect?: { label?: string; value?: number; tolerance?: number }[] }[]
+      }
+      assert.ok(typeof fx.data === 'string' && fx.data, `${f}: data file`)
+      assert.ok(Array.isArray(fx.turns) && fx.turns.length >= 2, `${f}: at least two turns`)
+      for (const t of fx.turns ?? []) {
+        assert.ok(typeof t.prompt === 'string' && t.prompt, `${f}: prompt`)
+        assert.ok(Array.isArray(t.expect) && t.expect.length > 0, `${f}: expectations`)
+        for (const e of t.expect ?? []) assert.ok(typeof e.value === 'number' && Number.isFinite(e.value), `${f}: numeric value`)
+      }
+      // The referenced data file exists.
+      assert.ok(readdirSync(join(dir, 'data')).includes(fx.data!), `${f}: ${fx.data} present`)
+    }
   })
 })

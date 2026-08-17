@@ -20,7 +20,8 @@
  * identically. Gated behind LMSTUDIO_EVAL=1 so CI stays offline.
  *
  *   LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>
- *   EVAL_SUITES=quant,deliberate   pick suites (default: all)
+ *   EVAL_SUITES=quant,deliberate   pick suites (default: library,quant,deliberate;
+ *                                  'multiturn' — v1.8 sessions vs stateless — is opt-in)
  *   EVAL_CASES=1-5                 1-based inclusive slice, per suite
  *   LMSTUDIO_BASE_URL=…            default http://127.0.0.1:1234/v1
  *
@@ -230,13 +231,134 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
 /** Real Workbench execution for the agent loop — no stubs; that is the point. */
 function workbenchExecutor(dataDir: string) {
   const { workbenchHandlers } = require('../src/main/ipc/toolHandlers/workbench') as typeof import('../src/main/ipc/toolHandlers/workbench')
-  return async (name: string, args: Record<string, unknown>, attachments: { name: string; sourcePath: string }[]) => {
+  return async (
+    name: string,
+    args: Record<string, unknown>,
+    attachments: { name: string; sourcePath: string }[],
+    conversationId?: string
+  ) => {
     const handler = (workbenchHandlers as Record<string, ((a: Record<string, unknown>, c: unknown) => Promise<{ ok: boolean; output?: string; error?: string }>) | undefined>)[name]
     if (!handler) return { ok: false, error: `Unknown tool "${name}"` }
     void dataDir
-    return handler(args, { sender: {} as never, modelId: '', attachments })
+    return handler(args, { sender: {} as never, modelId: '', attachments, conversationId })
   }
 }
+
+interface MultiTurnFixture {
+  file: string
+  data: string
+  turns: { prompt: string; expect: { label: string; value: number; tolerance?: number }[]; mustInclude?: string[] }[]
+}
+
+/**
+ * v1.8: multi-turn analysis, sessions vs. stateless. One conversation per
+ * case: turn 1 loads/aggregates, turns 2+ drill into the same data. Both arms
+ * run the identical fixture through the identical agent loop; the only
+ * differences are the session key on run_python and the tool description
+ * (the stateless arm gets v1.7's "Fresh globals each run" wording, so each
+ * arm's model is told the truth about the sandbox it is talking to).
+ */
+async function runMultiTurnSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').MultiTurnCaseResult[]> {
+  const { scoreQuantitative, codeReadsData } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
+  const { withGrounding } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+
+  const MULTITURN_DIR = join(REPO_ROOT, 'test', 'fixtures', 'multiturn')
+  const sessionTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'run_python' || t.function.name === 'analyze_file')
+  // The stateless arm's schema tells the truth about its sandbox.
+  const statelessTools = sessionTools.map((t) =>
+    t.function.name === 'run_python'
+      ? {
+          ...t,
+          function: {
+            ...t.function,
+            description: t.function.description.replace(
+              /Variables PERSIST[\s\S]*?re-run your setup\. /,
+              'Fresh globals each run. '
+            )
+          }
+        }
+      : t
+  )
+  const exec = workbenchExecutor(join(MULTITURN_DIR, 'data'))
+  const fixtures = slice(loadJson<MultiTurnFixture>(MULTITURN_DIR))
+  const results: import('../src/renderer/src/lib/answerEval').MultiTurnCaseResult[] = []
+
+  for (const [i, fx] of fixtures.entries()) {
+    const attachments = [{ name: fx.data, sourcePath: join(MULTITURN_DIR, 'data', fx.data) }]
+    const caseOut: import('../src/renderer/src/lib/answerEval').MultiTurnCaseResult = { file: fx.file, session: [], stateless: [] }
+
+    for (const arm of ['session', 'stateless'] as const) {
+      const sessionKey = arm === 'session' ? `mt-${fx.file}-${process.pid}-${jobNonce++}` : undefined
+      const tools = arm === 'session' ? sessionTools : statelessTools
+      const messages: Msg[] = [{ role: 'system', content: withGrounding(PERSONA) }]
+
+      for (const [ti, turn] of fx.turns.entries()) {
+        const dataNote = ti === 0 ? `\n\n[Attached file: ${fx.data} — available to run_python and analyze_file at /work/${fx.data}]` : ''
+        messages.push({ role: 'user', content: `${turn.prompt}${dataNote}` })
+        const t0 = Date.now()
+        let toolCalls = 0
+        let reread = false
+        const rounds: string[] = []
+        try {
+          await runAgentLoop({
+            messages: messages as never,
+            tools,
+            records: [],
+            signal: new AbortController().signal,
+            deps: {
+              streamRound: async (msgs, tls) => {
+                const r = await complete(model, msgs as never, tls)
+                if (r.content.trim()) rounds.push(r.content)
+                return { content: r.content, toolCalls: r.toolCalls }
+              },
+              executeTool: async (name, args) => {
+                toolCalls += 1
+                if (name === 'run_python' && typeof args.code === 'string' && codeReadsData(args.code)) reread = true
+                return exec(name, args, attachments, sessionKey)
+              }
+            }
+          })
+          const reply = rounds.join('\n\n')
+          messages.push({ role: 'assistant', content: reply })
+          const q = scoreQuantitative(reply, turn.expect)
+          const missing = [...q.missing]
+          for (const p of turn.mustInclude ?? []) if (!new RegExp(p, 'i').test(reply)) missing.push(p)
+          caseOut[arm].push({
+            prompt: turn.prompt,
+            hit: missing.length === 0,
+            missing,
+            ms: Date.now() - t0,
+            toolCalls,
+            reread,
+            reply: reply.slice(0, 1200)
+          })
+        } catch (err) {
+          messages.push({ role: 'assistant', content: '(error)' })
+          caseOut[arm].push({
+            prompt: turn.prompt,
+            hit: false,
+            missing: [],
+            ms: Date.now() - t0,
+            toolCalls,
+            reread,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+      }
+      const armTurns = caseOut[arm]
+      process.stdout.write(
+        `  ${armTurns.every((t) => t.hit) ? '✓' : '✗'} ${fx.file} [${arm}]  ${armTurns.map((t) => (t.hit ? '✓' : t.error ? '!' : '✗')).join('')}` +
+          `  rereads:${armTurns.filter((t, n) => n > 0 && t.reread).length}/${armTurns.length - 1}  [${i + 1}/${fixtures.length}]\n`
+      )
+    }
+    results.push(caseOut)
+  }
+  return results
+}
+
+let jobNonce = 0
 
 async function runQuantSuite(
   model: string,
@@ -381,7 +503,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -495,6 +617,41 @@ async function main(): Promise<void> {
       report.quant = { passes: quantPasses, stability }
     } else {
       report.quant = { summary: s, runs: quantPasses[0].runs }
+    }
+  }
+
+  if (want.includes('multiturn')) {
+    // Same precondition as quant: never score a dead sandbox.
+    const probe = await wb.runPython({ code: 'print(2 + 2)' })
+    if (!probe.ok || !/^4/m.test(probe.stdout)) {
+      throw new Error(`the Workbench sandbox is not working, so the multi-turn suite cannot be measured:\n  ${probe.error ?? probe.stdout}`)
+    }
+    console.log('multi-turn analysis (sessions vs stateless)')
+    const { summarizeMultiTurn, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const mtPasses: { summary: ReturnType<typeof summarizeMultiTurn>; runs: Awaited<ReturnType<typeof runMultiTurnSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      const runs = await runMultiTurnSuite(model)
+      mtPasses.push({ summary: summarizeMultiTurn(runs), runs })
+    }
+    const s = mtPasses[0].summary
+    const line = (label: string, a: typeof s.session): string =>
+      `  ${label.padEnd(10)} first ${a.first.hit}/${a.first.of} · follow-ups ${a.followup.hit}/${a.followup.of}` +
+      ` · follow-up re-reads ${a.followupRereads.hit}/${a.followupRereads.of}` +
+      ` · ${a.secondsPerTurn.toFixed(1)} s/turn · ${a.toolCallsPerTurn.toFixed(1)} calls/turn`
+    console.log('\n' + line('session', s.session) + '\n' + line('stateless', s.stateless) + '\n')
+    if (passesWanted > 1) {
+      const stability = {
+        session: stabilityAcrossPasses(mtPasses.map((p) => p.runs.flatMap((r) => r.session.map((t, i) => ({ file: `${r.file}#${i + 1}`, pass: t.error ? null : t.hit }))))),
+        stateless: stabilityAcrossPasses(mtPasses.map((p) => p.runs.flatMap((r) => r.stateless.map((t, i) => ({ file: `${r.file}#${i + 1}`, pass: t.error ? null : t.hit })))))
+      }
+      for (const arm of ['session', 'stateless'] as const) {
+        const st = stability[arm]
+        console.log(`  ${arm.padEnd(10)} across ${passesWanted} passes: [${st.perPass.join(', ')}] · median ${st.median} · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.multiturn = { passes: mtPasses, stability }
+    } else {
+      report.multiturn = { summary: s, runs: mtPasses[0].runs }
     }
   }
 

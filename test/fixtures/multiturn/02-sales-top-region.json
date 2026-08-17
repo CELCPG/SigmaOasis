@@ -1,0 +1,12 @@
+{
+  "data": "sales.csv",
+  "turns": [
+    { "prompt": "From the attached sales.csv, which region has the highest total revenue (units × unit_price), and how much is it?",
+      "expect": [{ "label": "top region revenue", "value": 39103.24, "tolerance": 0.02 }],
+      "mustInclude": ["West"] },
+    { "prompt": "What percentage of total revenue does that region represent?",
+      "expect": [{ "label": "share", "value": 28.07, "tolerance": 0.15 }] },
+    { "prompt": "How many orders (rows) does that region have?",
+      "expect": [{ "label": "row count", "value": 113, "tolerance": 0 }] }
+  ]
+}

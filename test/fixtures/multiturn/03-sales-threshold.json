@@ -1,0 +1,11 @@
+{
+  "data": "sales.csv",
+  "turns": [
+    { "prompt": "In the attached sales.csv, how many orders have units greater than 30?",
+      "expect": [{ "label": "count", "value": 99, "tolerance": 0 }] },
+    { "prompt": "What is the combined revenue (units × unit_price) of exactly those orders?",
+      "expect": [{ "label": "combined revenue", "value": 54407.42, "tolerance": 0.02 }] },
+    { "prompt": "And their average unit price?",
+      "expect": [{ "label": "mean unit price", "value": 15.6, "tolerance": 0.02 }] }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "data": "expenses.csv",
+  "turns": [
+    { "prompt": "For the attached expenses.csv, what is the mean transaction amount? Exact to the cent.",
+      "expect": [{ "label": "mean", "value": 468.25, "tolerance": 0.02 }] },
+    { "prompt": "And the median?",
+      "expect": [{ "label": "median", "value": 501.32, "tolerance": 0.02 }] },
+    { "prompt": "What is the largest single transaction?",
+      "expect": [{ "label": "max", "value": 897.61, "tolerance": 0.01 }] }
+  ]
+}

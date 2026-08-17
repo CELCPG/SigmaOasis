@@ -294,6 +294,74 @@ export interface LibrarySummary {
   seconds: number
 }
 
+// ---- multi-turn analysis (v1.8) --------------------------------------------------
+
+/**
+ * One turn of a multi-turn analysis case: the same mechanical scoring as the
+ * quantitative suite, plus what the sessions feature exists to change —
+ * whether the turn's Python re-read the data file, and how many tool calls
+ * the turn cost. A follow-up that filters the dataframe already in the
+ * session needs no re-read; a stateless follow-up must re-read or fail.
+ */
+export interface MultiTurnTurnResult {
+  prompt: string
+  hit: boolean
+  missing: string[]
+  ms: number
+  toolCalls: number
+  /** This turn's executed Python read a data file (read_csv/read_excel/open of a data path). */
+  reread: boolean
+  reply?: string
+  error?: string
+}
+
+export interface MultiTurnCaseResult {
+  file: string
+  session: MultiTurnTurnResult[]
+  stateless: MultiTurnTurnResult[]
+}
+
+export interface MultiTurnArmSummary {
+  /** Turn 1 of each case — sessions cannot help here; a gap would be noise. */
+  first: Rate
+  /** Turns 2+ — where persistent state should show. */
+  followup: Rate
+  /** Follow-up turns whose code re-read the data (lower is the session's win). */
+  followupRereads: Rate
+  secondsPerTurn: number
+  toolCallsPerTurn: number
+}
+
+export interface MultiTurnSummary {
+  session: MultiTurnArmSummary
+  stateless: MultiTurnArmSummary
+}
+
+/** Does executed Python read a tabular data file? Matches pandas readers and open() of a data path. */
+export function codeReadsData(code: string): boolean {
+  return /(?:\bread_csv|\bread_excel)\s*\(|\bopen\s*\(\s*["'][^"']*\.(?:csv|tsv|xlsx|json)\b/.test(code)
+}
+
+function armSummary(turnsOf: (r: MultiTurnCaseResult) => MultiTurnTurnResult[], results: MultiTurnCaseResult[]): MultiTurnArmSummary {
+  const all = results.flatMap((r) => turnsOf(r).map((t, i) => ({ t, i }))).filter(({ t }) => !t.error)
+  const first = all.filter(({ i }) => i === 0)
+  const later = all.filter(({ i }) => i > 0)
+  return {
+    first: rate(first.filter(({ t }) => t.hit).length, first.length),
+    followup: rate(later.filter(({ t }) => t.hit).length, later.length),
+    followupRereads: rate(later.filter(({ t }) => t.reread).length, later.length),
+    secondsPerTurn: mean(all.map(({ t }) => t.ms / 1000)),
+    toolCallsPerTurn: mean(all.map(({ t }) => t.toolCalls))
+  }
+}
+
+export function summarizeMultiTurn(results: MultiTurnCaseResult[]): MultiTurnSummary {
+  return {
+    session: armSummary((r) => r.session, results),
+    stateless: armSummary((r) => r.stateless, results)
+  }
+}
+
 /**
  * v1.7.1: stability across repeated passes of one suite. Motivated by the
  * v1.7 retrieval re-measurement, where three runs at temperature 0 produced
