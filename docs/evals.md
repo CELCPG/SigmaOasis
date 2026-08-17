@@ -15,6 +15,13 @@ reply, the passages retrieved and the ranking mode, so a failure can be *read* r
 at. Fixtures live in `test/fixtures/{library,quant}/`; `test/answerEval.test.ts` pins both the
 scoring and the fixtures' well-formedness.
 
+`EVAL_PASSES=3` (v1.7.1) repeats each suite and reports **per-case stability**: cases that pass in
+every pass, fail in every pass, or flip — with the flaky ones named and a median over passes. This
+exists because three single runs during the v1.7 retrieval work produced mostly-disjoint failure
+sets at temperature 0: cases flipped with *identical retrieval*, so a ±3-case movement between two
+single runs says nothing. Judge a change by the stable set; treat the flaky list as the suite's
+measured noise floor.
+
 ## What each suite judges
 
 **Library grounding** (28 cases across the seven curated packs). The app's own app-initiated

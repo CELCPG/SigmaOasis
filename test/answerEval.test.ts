@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import {
+  stabilityAcrossPasses,
   citesSource,
   measurementsIn,
   numbersIn,
@@ -161,5 +162,47 @@ describe('the fixtures themselves', () => {
         assert.doesNotThrow(() => new RegExp(p, 'i'), `${f}: bad pattern ${p}`)
       }
     }
+  })
+})
+
+describe('stabilityAcrossPasses (v1.7.1)', () => {
+  const p = (file: string, pass: boolean | null): { file: string; pass: boolean | null } => ({ file, pass })
+
+  test('classifies stable-pass, stable-fail and flaky; median over passes', () => {
+    const report = stabilityAcrossPasses([
+      [p('a', true), p('b', false), p('c', true), p('d', true)],
+      [p('a', true), p('b', false), p('c', false), p('d', true)],
+      [p('a', true), p('b', false), p('c', true), p('d', false)]
+    ])
+    assert.equal(report.of, 4)
+    assert.equal(report.stablePass, 1) // a
+    assert.equal(report.stableFail, 1) // b
+    assert.deepEqual(report.flaky, ['c', 'd'])
+    assert.deepEqual(report.perPass, [3, 2, 2])
+    assert.equal(report.median, 2)
+  })
+
+  test('an even pass count takes the mean of the two middles', () => {
+    const report = stabilityAcrossPasses([
+      [p('a', true), p('b', true)],
+      [p('a', true), p('b', false)],
+      [p('a', false), p('b', false)],
+      [p('a', true), p('b', true)]
+    ])
+    assert.deepEqual([...report.perPass].sort(), [0, 1, 2, 2].sort())
+    assert.equal(report.median, 1.5)
+  })
+
+  test('null (errored) outcomes are no-data, not failures', () => {
+    const report = stabilityAcrossPasses([
+      [p('a', true), p('b', null)],
+      [p('a', true), p('b', true)]
+    ])
+    assert.equal(report.stablePass, 2, 'b passed in every pass that has data')
+    assert.deepEqual(report.flaky, [])
+    // A case with no data in any pass is not classified at all.
+    const empty = stabilityAcrossPasses([[p('x', null)], [p('x', null)]])
+    assert.equal(empty.stablePass + empty.stableFail + empty.flaky.length, 0)
+    assert.equal(empty.of, 1)
   })
 })

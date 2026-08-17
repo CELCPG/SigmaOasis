@@ -381,7 +381,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate   EVAL_CASES=1-5'
+        '  EVAL_SUITES=library,quant,deliberate   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -404,10 +404,21 @@ async function main(): Promise<void> {
   mkdirSync(RESULTS_DIR, { recursive: true })
   const report: Record<string, unknown> = { model, baseUrl: BASE_URL, ranAt: new Date().toISOString(), cases: process.env.EVAL_CASES ?? 'all' }
 
+  // v1.7.1: EVAL_PASSES=N repeats each suite and reports per-case stability.
+  // Three single runs during the v1.7 retrieval work produced mostly-disjoint
+  // failure sets at temperature 0 — a change must be judged against the
+  // stable set, with the flaky cases named as the noise floor.
+  const passesWanted = Math.max(1, Math.min(9, Math.round(Number(process.env.EVAL_PASSES ?? '1')) || 1))
+
   if (want.includes('library')) {
     console.log('library grounding')
-    const runs = await runLibrarySuite(model)
-    const s = summarizeLibrary(runs)
+    const allPasses: { summary: ReturnType<typeof summarizeLibrary>; runs: Awaited<ReturnType<typeof runLibrarySuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      const runs = await runLibrarySuite(model)
+      allPasses.push({ summary: summarizeLibrary(runs), runs })
+    }
+    const s = allPasses[0].summary
     console.log(
       `\n  retrieved passages   ${s.retrieved.hit}/${s.retrieved.of}  ${pct(s.retrieved)}\n` +
         `  answered             ${s.answered.hit}/${s.answered.of}  ${pct(s.answered)}\n` +
@@ -415,7 +426,21 @@ async function main(): Promise<void> {
         `  unsupported figures  ${s.unsupported.hit}/${s.unsupported.of}  ${pct(s.unsupported)}  (lower is better)\n` +
         `  ${s.seconds.toFixed(1)} s/case\n`
     )
-    report.library = { summary: s, runs }
+    if (passesWanted > 1) {
+      const { stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+      const stability = stabilityAcrossPasses(
+        allPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.error ? null : (r.score?.answered ?? false) })))
+      )
+      console.log(
+        `  answered across ${passesWanted} passes: [${stability.perPass.join(', ')}] · median ${stability.median}\n` +
+          `  stable-pass ${stability.stablePass} · stable-fail ${stability.stableFail} · flaky ${stability.flaky.length}` +
+          (stability.flaky.length ? ` (${stability.flaky.join(', ')})` : '') +
+          '\n'
+      )
+      report.library = { passes: allPasses, stability }
+    } else {
+      report.library = { summary: s, runs: allPasses[0].runs }
+    }
   }
 
   if (want.includes('quant')) {
@@ -434,8 +459,13 @@ async function main(): Promise<void> {
 
   if (want.includes('quant') || want.includes('deliberate')) {
     console.log('quantitative' + (want.includes('deliberate') ? ' + deliberation' : ''))
-    const runs = await runQuantSuite(model, { workbench: want.includes('quant'), deliberate: want.includes('deliberate') })
-    const s = summarizeQuant(runs)
+    const quantPasses: { summary: ReturnType<typeof summarizeQuant>; runs: Awaited<ReturnType<typeof runQuantSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      const runs = await runQuantSuite(model, { workbench: want.includes('quant'), deliberate: want.includes('deliberate') })
+      quantPasses.push({ summary: summarizeQuant(runs), runs })
+    }
+    const s = quantPasses[0].summary
     console.log(
       `\n  bare (no tools)      ${s.bare.hit}/${s.bare.of}  ${pct(s.bare)}   ${s.seconds.bare.toFixed(1)} s/case\n` +
         (want.includes('quant')
@@ -445,7 +475,27 @@ async function main(): Promise<void> {
           ? `  bare + think harder  ${s.deliberated.hit}/${s.deliberated.of}  ${pct(s.deliberated)}   ${s.seconds.deliberated.toFixed(1)} s/case\n`
           : '')
     )
-    report.quant = { summary: s, runs }
+    if (passesWanted > 1) {
+      const { stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+      const arms: [string, (r: (typeof quantPasses)[0]['runs'][0]) => boolean | null][] = [
+        ['bare', (r) => (r.bare.error ? null : r.bare.hit)],
+        ...(want.includes('quant') ? ([['workbench', (r): boolean | null => (r.workbench ? (r.workbench.error ? null : r.workbench.hit) : null)]] as [string, (r: (typeof quantPasses)[0]['runs'][0]) => boolean | null][]) : []),
+        ...(want.includes('deliberate') ? ([['deliberated', (r): boolean | null => (r.deliberated ? (r.deliberated.error ? null : r.deliberated.hit) : null)]] as [string, (r: (typeof quantPasses)[0]['runs'][0]) => boolean | null][]) : [])
+      ]
+      const stability: Record<string, ReturnType<typeof stabilityAcrossPasses>> = {}
+      for (const [arm, of] of arms) {
+        const st = stabilityAcrossPasses(quantPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: of(r) }))))
+        stability[arm] = st
+        console.log(
+          `  ${arm.padEnd(11)} across ${passesWanted} passes: [${st.perPass.join(', ')}] · median ${st.median} · ` +
+            `stable-pass ${st.stablePass} · stable-fail ${st.stableFail} · flaky ${st.flaky.length}` +
+            (st.flaky.length ? ` (${st.flaky.join(', ')})` : '')
+        )
+      }
+      report.quant = { passes: quantPasses, stability }
+    } else {
+      report.quant = { summary: s, runs: quantPasses[0].runs }
+    }
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)

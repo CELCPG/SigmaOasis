@@ -294,6 +294,61 @@ export interface LibrarySummary {
   seconds: number
 }
 
+/**
+ * v1.7.1: stability across repeated passes of one suite. Motivated by the
+ * v1.7 retrieval re-measurement, where three runs at temperature 0 produced
+ * mostly-disjoint failure sets: cases flipped with identical retrieval, so a
+ * ±3-case movement said nothing. A change should be judged against the
+ * stable set — a case that passes some runs and fails others is measuring
+ * the server's nondeterminism, not the app.
+ */
+export interface StabilityReport {
+  /** Passing count per pass, in run order. */
+  perPass: number[]
+  /** Median of perPass (mean of the two middles for an even count). */
+  median: number
+  /** Cases that passed in every pass with data. */
+  stablePass: number
+  /** Cases that failed in every pass with data. */
+  stableFail: number
+  /** Cases with mixed outcomes — the noise floor, named. */
+  flaky: string[]
+  /** Distinct cases seen. */
+  of: number
+}
+
+/** `passes[i]` is pass i's outcomes; `pass: null` = no data (errored/skipped). */
+export function stabilityAcrossPasses(passes: { file: string; pass: boolean | null }[][]): StabilityReport {
+  const byFile = new Map<string, (boolean | null)[]>()
+  for (const pass of passes) {
+    for (const c of pass) {
+      const arr = byFile.get(c.file) ?? []
+      arr.push(c.pass)
+      byFile.set(c.file, arr)
+    }
+  }
+  let stablePass = 0
+  let stableFail = 0
+  const flaky: string[] = []
+  for (const [file, outcomes] of byFile) {
+    const data = outcomes.filter((o): o is boolean => o !== null)
+    if (data.length === 0) continue
+    if (data.every((o) => o)) stablePass += 1
+    else if (data.every((o) => !o)) stableFail += 1
+    else flaky.push(file)
+  }
+  flaky.sort()
+  const perPass = passes.map((p) => p.filter((c) => c.pass === true).length)
+  const sorted = [...perPass].sort((a, b) => a - b)
+  const median =
+    sorted.length === 0
+      ? 0
+      : sorted.length % 2 === 1
+        ? sorted[(sorted.length - 1) / 2]
+        : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+  return { perPass, median, stablePass, stableFail, flaky, of: byFile.size }
+}
+
 export function summarizeLibrary(results: LibraryCaseResult[]): LibrarySummary {
   const ok = results.filter((r) => !r.error)
   const scored = ok.filter((r) => r.score)
