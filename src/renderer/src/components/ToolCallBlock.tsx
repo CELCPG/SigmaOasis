@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { ToolCallRecord } from '../types'
 import { toolVisualForName } from '../lib/oasisRipple'
 
@@ -48,6 +48,10 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         <div className="px-3 pb-1.5 italic text-neutral-500">
           “{record.preamble}”
         </div>
+      )}
+      {/* v1.7: while the tool runs, a light travels its base in the tool's color. */}
+      {record.status === 'running' && (
+        <div className="tool-scanline" style={{ '--scan-color': visual.color } as CSSProperties} />
       )}
       {open && (
         <div className="space-y-2 p-3">

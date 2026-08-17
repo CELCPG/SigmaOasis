@@ -561,3 +561,245 @@ body {
 
 /* The typing dots and thinking spinner were replaced by the Oasis Ripple
    (see above) — no other loading indicators exist in the app. */
+
+/* ============================================================================
+   v1.7 — the energy layer. The glass system stays; this adds *light in motion*
+   wherever the app is actually working: a scanning arc and orbiting sparks on
+   the thinking core, a live-wire border on the streaming reply, shimmer on the
+   reasoning label, a scanline on running tools, a breathing composer. Motion
+   only ever means "computation in flight" — nothing animates at rest, and
+   prefers-reduced-motion stills all of it (end of file). Every animation is
+   transform/opacity/background-position, so it stays on the compositor.
+   ========================================================================== */
+
+/* Registered so conic-gradient angles interpolate as real angles. */
+@property --oasis-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --live-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+/* -- The scan arc: a thin HUD sweep around the pool rim. Color follows the
+      active tool via --scan-color (set inline by OasisRipple). -------------- */
+.oasis-scan {
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--oasis-angle),
+    transparent 0deg,
+    color-mix(in srgb, var(--scan-color, var(--accent-teal)) 65%, transparent) 26deg,
+    color-mix(in srgb, var(--scan-color, var(--accent-teal)) 20%, transparent) 44deg,
+    transparent 70deg
+  );
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 3px), #fff calc(100% - 1.5px));
+  mask: radial-gradient(closest-side, transparent calc(100% - 3px), #fff calc(100% - 1.5px));
+  animation: oasis-scan-rotate 3.4s linear infinite;
+}
+@keyframes oasis-scan-rotate {
+  to {
+    --oasis-angle: 360deg;
+  }
+}
+
+/* -- Orbiting sparks: two tiny satellites on different radii and periods. -- */
+.oasis-orbit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: oasis-orbit-spin 7s linear infinite;
+}
+.oasis-orbit::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--scan-color, var(--accent-teal));
+  box-shadow: 0 0 6px var(--scan-color, var(--accent-teal));
+  transform: translate(-50%, -50%) translateX(var(--orbit-r, 21px));
+  opacity: 0.75;
+}
+.oasis-orbit--far {
+  animation-duration: 11s;
+  animation-direction: reverse;
+}
+.oasis-orbit--far::before {
+  --orbit-r: 27px;
+  width: 2px;
+  height: 2px;
+  opacity: 0.45;
+}
+@keyframes oasis-orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* -- Live wire: a rotating light runs the border of the streaming reply. --
+      Drawn by a masked conic ring so the bubble's glass stays untouched. */
+.bubble-live::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--live-angle),
+    transparent 0deg,
+    rgba(0, 212, 170, 0.85) 38deg,
+    rgba(167, 139, 250, 0.65) 78deg,
+    transparent 128deg
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: live-rotate 2.8s linear infinite;
+}
+@keyframes live-rotate {
+  to {
+    --live-angle: 360deg;
+  }
+}
+
+/* -- Shimmer: light sweeps through the label of whatever is being thought. -- */
+.shimmer-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--text-tertiary) 25%,
+    var(--accent-teal-glow) 46%,
+    var(--accent-lavender) 54%,
+    var(--text-tertiary) 75%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-sweep 2.2s ease-in-out infinite;
+}
+@keyframes shimmer-sweep {
+  0% {
+    background-position: 130% 0;
+  }
+  100% {
+    background-position: -130% 0;
+  }
+}
+
+/* -- Scanline: a light travels the base of a running tool block. ----------- */
+.tool-scanline {
+  position: relative;
+  overflow: hidden;
+  height: 2px;
+  background: color-mix(in srgb, var(--scan-color, var(--accent-teal)) 14%, transparent);
+}
+.tool-scanline::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -35%;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, var(--scan-color, var(--accent-teal)), transparent);
+  animation: scanline-travel 1.5s ease-in-out infinite;
+}
+@keyframes scanline-travel {
+  to {
+    left: 100%;
+  }
+}
+
+/* -- The composer breathes while a reply is being generated. --------------- */
+.composer-live {
+  animation: composer-breathe 3s var(--ease-settle) infinite;
+}
+@keyframes composer-breathe {
+  0%,
+  100% {
+    border-color: rgba(0, 212, 170, 0.18);
+    box-shadow:
+      inset 0 1px 0 var(--glass-inset),
+      0 0 18px rgba(0, 212, 170, 0.08);
+  }
+  50% {
+    border-color: rgba(0, 212, 170, 0.4);
+    box-shadow:
+      inset 0 1px 0 var(--glass-inset),
+      0 0 34px rgba(0, 212, 170, 0.2);
+  }
+}
+
+/* -- The avatar of the answering model glows in rhythm. -------------------- */
+.sigma-avatar--active {
+  animation: avatar-breathe 2.6s var(--ease-settle) infinite;
+}
+@keyframes avatar-breathe {
+  0%,
+  100% {
+    box-shadow: 0 4px 20px rgba(0, 212, 170, 0.25);
+  }
+  50% {
+    box-shadow: 0 4px 32px rgba(0, 212, 170, 0.55);
+  }
+}
+
+/* -- The ambient orbs drift, glacially — the canvas is alive, not busy. ---- */
+.ambient-orbs::before {
+  animation: orb-drift-a 48s ease-in-out infinite alternate;
+}
+.ambient-orbs::after {
+  animation: orb-drift-b 62s ease-in-out infinite alternate;
+}
+@keyframes orb-drift-a {
+  to {
+    transform: translate(70px, 45px) scale(1.18);
+  }
+}
+@keyframes orb-drift-b {
+  to {
+    transform: translate(-55px, -35px) scale(1.12);
+  }
+}
+
+/* -- Reduced motion: the energy layer goes still, meaning stays. ----------- */
+@media (prefers-reduced-motion: reduce) {
+  .oasis-scan,
+  .oasis-orbit,
+  .oasis-orbit--far {
+    display: none;
+  }
+  .bubble-live::after {
+    animation: none;
+    background: conic-gradient(from 210deg, transparent 0deg, rgba(0, 212, 170, 0.35) 90deg, transparent 180deg);
+  }
+  .shimmer-text {
+    animation: none;
+    background-image: none;
+    color: var(--text-tertiary);
+  }
+  .tool-scanline::after {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.4;
+  }
+  .composer-live,
+  .sigma-avatar--active {
+    animation: none;
+  }
+  .ambient-orbs::before,
+  .ambient-orbs::after {
+    animation: none;
+  }
+}

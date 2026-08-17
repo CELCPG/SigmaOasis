@@ -364,6 +364,40 @@ function sectionAt(doc: LoadedDoc, offset: number, end: number): string {
   return above.toLowerCase() === doc.meta.title.toLowerCase() ? '' : above
 }
 
+/**
+ * v1.7: chunk a document section by section — no chunk ever spans a heading
+ * boundary. The library eval caught why this matters: "### Boiling" is a
+ * 200-character section, chunks were ~1,000 characters, so the chunk covering
+ * it blended boiling with the chlorination section next door. The blended
+ * embedding matched a water-safety question no better than its neighbors, the
+ * lookup surfaced the wrong slice, and the model quoted chlorination's
+ * "30 minutes" for a boiling question. Chunking inside heading bounds keeps
+ * each chunk about one thing: its embedding is crisp, and the passage the
+ * model sees starts with its own heading. A long section still splits into
+ * ~1,000-character pieces within itself; a document with no headings chunks
+ * exactly as before.
+ *
+ * Changing chunk geometry orphans vectors embedded under the old geometry
+ * (attachVectors checks chunkCount and falls back to keyword ranking), so
+ * packs embedded before v1.7 show "Embed" again in Settings → Library.
+ */
+export function chunkDocumentSections(
+  text: string,
+  headings: { offset: number; title: string }[]
+): { text: string; offset: number }[] {
+  const bounds: number[] = [0]
+  for (const h of headings) if (h.offset > bounds[bounds.length - 1]) bounds.push(h.offset)
+  if (text.length > bounds[bounds.length - 1]) bounds.push(text.length)
+  const out: { text: string; offset: number }[] = []
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    const segment = text.slice(bounds[i], bounds[i + 1])
+    // Segments start at a heading's '#' (or the document start), so the
+    // chunker's inner normalize cannot shift offsets by trimming the front.
+    for (const c of chunkTextWithOffsets(segment)) out.push({ text: c.text, offset: bounds[i] + c.offset })
+  }
+  return out
+}
+
 function decodeVectors(b64: string, dims: number, count: number): Float32Array[] | null {
   const buf = Buffer.from(b64, 'base64')
   if (buf.byteLength !== dims * count * 4) return null
@@ -427,7 +461,7 @@ async function loadPack(id: string, model: string | null): Promise<LoadedPack> {
     chars += text.length
     if (chars > MAX_PACK_CHARS) break
     const doc: LoadedDoc = { meta, text, headings: headingsOf(text), chunks: [] }
-    doc.chunks = chunkTextWithOffsets(text).map((c, n) => {
+    doc.chunks = chunkDocumentSections(text, doc.headings).map((c, n) => {
       const terms = tokenize(c.text)
       return { id: `${id}/${meta.id}#${n}`, packId: id, docId: meta.id, n, text: c.text, offset: c.offset, terms, termSet: new Set(terms) }
     })

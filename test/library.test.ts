@@ -155,10 +155,12 @@ describe('lookup', () => {
     assert.equal(top.docTitle, 'First Aid Basics')
     assert.match(top.text, /twenty minutes/)
     assert.equal(top.source, 'https://example.gov/fa')
-    // The chunk starts under the H1 (the document's title); the section is
-    // the first heading inside it, not the title repeated.
-    assert.equal(top.section, 'Bleeding')
-    assert.equal(lib.citationOf(top), 'Pack first-aid › First Aid Basics › Bleeding · 0% in')
+    // v1.7 section-aware chunking: the burn answer lives in its own "Burns"
+    // chunk and is cited as such. (Before, the whole small document was one
+    // chunk labelled by its first inner heading — a burn question came back
+    // citing "Bleeding".)
+    assert.equal(top.section, 'Burns')
+    assert.match(lib.citationOf(top), /^Pack first-aid › First Aid Basics › Burns · \d+% in$/)
     const text = lib.formatLookup(out, 'burn')
     assert.match(text, /\[1\] Pack first-aid › First Aid Basics/)
     assert.match(text, /source: https:\/\/example\.gov\/fa/)
@@ -258,6 +260,79 @@ describe('user packs from a folder', () => {
     const folder = join(root, 'empty-folder')
     mkdirSync(folder, { recursive: true })
     await assert.rejects(lib.createPackFromFolder(folder), /No \.md, \.txt or \.pdf/)
+  })
+})
+
+describe('section-aware chunking (v1.7)', () => {
+  const headingsOf = (text: string): { offset: number; title: string }[] => {
+    const out: { offset: number; title: string }[] = []
+    const re = /^(#{1,6})[ \t]+(.+?)[ \t#]*$/gm
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text))) out.push({ offset: m.index, title: m[2].trim() })
+    return out
+  }
+
+  test('no chunk spans a heading boundary, and offsets are faithful', () => {
+    const text = [
+      '# Water',
+      '',
+      'Intro paragraph about water needs. '.repeat(20).trim(),
+      '',
+      '### Boiling',
+      '',
+      'Bring water to a rolling boil for one full minute. Let it cool before drinking.',
+      '',
+      '### Chlorination',
+      '',
+      'Add bleach and let stand for 30 minutes. '.repeat(30).trim(),
+      '',
+      '## Storage',
+      '',
+      'Replace stored water every six months.'
+    ].join('\n')
+    const headings = headingsOf(text)
+    const chunks = lib.chunkDocumentSections(text, headings)
+    assert.ok(chunks.length >= 4)
+    for (const c of chunks) {
+      assert.equal(text.slice(c.offset, c.offset + c.text.length), c.text, 'offset must locate the chunk text exactly')
+      const end = c.offset + c.text.length
+      for (const h of headings) {
+        assert.ok(!(c.offset < h.offset && h.offset < end), `chunk [${c.offset},${end}) crosses heading "${h.title}" at ${h.offset}`)
+      }
+    }
+    // The tiny Boiling section is its own crisp chunk, not blended into a neighbor.
+    const boiling = chunks.find((c) => c.text.includes('rolling boil'))
+    assert.ok(boiling)
+    assert.match(boiling.text, /^### Boiling/)
+    assert.ok(!boiling.text.includes('30 minutes'), 'boiling must not blend into chlorination')
+  })
+
+  test('a document with no headings chunks exactly as before', () => {
+    const text = 'A sentence about nothing in particular. '.repeat(80).trim()
+    const plain = lib.chunkDocumentSections(text, [])
+    assert.ok(plain.length > 1)
+    assert.equal(plain[0].offset, 0)
+    for (const c of plain) assert.equal(text.slice(c.offset, c.offset + c.text.length), c.text)
+  })
+
+  test('lookup surfaces the small answering section over a wordy neighbor', async () => {
+    const WATER = [
+      '# Water treatment',
+      '',
+      '### Boiling',
+      '',
+      'Boiling is the safest method of treating water. Bring water to a rolling boil for one full minute.',
+      '',
+      '### Chlorination',
+      '',
+      ('You can use household liquid bleach to kill microorganisms in water. Add bleach to the water, stir and ' +
+        'let the water stand for 30 minutes. The water should have a slight bleach odor. ').repeat(6).trim()
+    ].join('\n')
+    await lib.installPackFromDirectory(writePack('prep', [{ id: 'water', title: 'Water', text: WATER }]))
+    const out = await lib.lookupLibrary({ query: 'rolling boil water minute', topK: 1 })
+    assert.match(out.passages[0].text, /rolling boil/)
+    assert.equal(out.passages[0].section, 'Boiling')
+    assert.ok(!out.passages[0].text.includes('30 minutes'))
   })
 })
 

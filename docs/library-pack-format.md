@@ -64,7 +64,10 @@ my-pack/
 - One document ≤ 2,000,000 characters; one pack ≤ 8,000,000 characters. Split a very long
   manual by chapter rather than truncating it.
 - Text is normalized (line endings, trim) at install and chunked at ~1,000 characters on
-  paragraph/sentence boundaries with 150 overlap — the same chunker as memory and fetched pages.
+  paragraph/sentence boundaries with 150 overlap. v1.7: chunking is *section-aware* — no chunk
+  ever spans a Markdown heading boundary, so a short section ("### Boiling") is its own crisp
+  passage instead of blending into its neighbor. Packs embedded before v1.7 need one re-embed
+  (Settings → Library shows "Embed" again); retrieval stays keyword-ranked until then.
 - Prefer sources whose license permits redistribution and say which: the first curated tranche
   is US federal works (public domain). wikiHow (CC-BY-NC-SA) and Red Cross material are not
   redistributable inside an MIT-licensed app and are deliberately excluded.

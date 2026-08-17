@@ -2,10 +2,15 @@
  * The Σ identity avatar: teal gradient glass tile with the sigma glyph,
  * per the Apple Glass style guide (40×40, 14px radius, inner top highlight,
  * teal outer glow). Used on assistant messages in place of a bare name.
+ * `active` (v1.7): the answering model's avatar breathes while it streams.
  */
-export function SigmaAvatar({ size = 40 }: { size?: number }): JSX.Element {
+export function SigmaAvatar({ size = 40, active = false }: { size?: number; active?: boolean }): JSX.Element {
   return (
-    <span className="sigma-avatar" style={{ width: size, height: size }} aria-hidden="true">
+    <span
+      className={`sigma-avatar ${active ? 'sigma-avatar--active' : ''}`}
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
       <svg viewBox="0 0 40 40" width={size} height={size}>
         <defs>
           <linearGradient id="sigma-avatar-bg" x1="0" y1="0" x2="1" y2="1">

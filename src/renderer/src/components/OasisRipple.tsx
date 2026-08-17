@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   MAX_RIPPLES,
   THINKING_VISUAL,
@@ -68,7 +68,10 @@ export function OasisRipple({ state, size = 64 }: { state: OasisState; size?: nu
       aria-live="polite"
       aria-label={`${label.toLowerCase()}${detail}`}
     >
-      <div className="oasis-disc" style={{ width: size, height: size }}>
+      <div
+        className="oasis-disc"
+        style={{ width: size, height: size, '--scan-color': visual.color } as CSSProperties}
+      >
         <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
           <defs>
             <radialGradient id="oasis-pool" cx="0.5" cy="0.5" r="0.5">
@@ -84,6 +87,17 @@ export function OasisRipple({ state, size = 64 }: { state: OasisState; size?: nu
 
         {/* Ambient breathing ring while composing (motion permitting). */}
         {motion.animateAmbient && <span className="oasis-ambient-ring" />}
+
+        {/* v1.7 energy layer: HUD scan arc + two orbiting sparks, in the
+            active tool's color. The CSS is display:none under reduced motion,
+            but not rendering them at all also spares the compositor. */}
+        {motion.animateAmbient && (
+          <>
+            <span className="oasis-scan" />
+            <span className="oasis-orbit" />
+            <span className="oasis-orbit oasis-orbit--far" />
+          </>
+        )}
 
         {/* Center orb — the one element that always pulses, gently. */}
         <span className="oasis-orb" style={{ background: visual.color, boxShadow: `0 0 10px ${visual.color}` }} />
@@ -112,7 +126,10 @@ export function OasisRipple({ state, size = 64 }: { state: OasisState; size?: nu
             <span style={{ color: visual.color }}>{state.tool.icon}</span>
           </span>
         )}
-        <span className="oasis-label" style={{ color: visual.color }}>
+        <span
+          className={`oasis-label ${state.mode === 'ambient' && !reducedMotion ? 'shimmer-text' : ''}`}
+          style={state.mode === 'ambient' && !reducedMotion ? undefined : { color: visual.color }}
+        >
           {label}
           {detail && <span className="oasis-label-detail">{detail}</span>}
         </span>

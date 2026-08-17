@@ -315,7 +315,7 @@ export function InputBar(): JSX.Element {
           onDrop={(e) => void onDrop(e)}
           className={`glass-panel rounded-3xl p-2 transition-all focus-within:border-[rgba(0,212,170,0.35)] focus-within:shadow-[inset_0_1px_0_var(--glass-inset),0_0_24px_rgba(0,212,170,0.12)] ${
             dragOver ? 'border-accent border-dashed' : ''
-          }`}
+          } ${streaming ? 'composer-live' : ''}`}
         >
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 px-1 pb-2">

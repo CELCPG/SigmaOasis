@@ -40,7 +40,8 @@ export function ReasoningBlock({ reasoning, reasoningMs, isStreaming, defaultOpe
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-black/10 dark:hover:bg-white/5"
       >
         <span className={isStreaming ? 'animate-pulse' : ''}>💭</span>
-        <span className="font-medium text-neutral-500">{label}</span>
+        {/* v1.7: light sweeps through "Thinking…" while the thought streams. */}
+        <span className={`font-medium ${isStreaming ? 'shimmer-text' : 'text-neutral-500'}`}>{label}</span>
         <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
       </button>
       {open && (

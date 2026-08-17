@@ -410,8 +410,10 @@ export const MessageBubble = memo(function MessageBubble({
   return (
     <div className="px-4 py-2">
       <div className="mx-auto flex max-w-3xl items-start gap-3">
-        <SigmaAvatar size={32} />
-        <div className="glass-panel min-w-0 flex-1 rounded-3xl rounded-tl-md px-4 py-3">
+        <SigmaAvatar size={32} active={isStreaming} />
+        <div
+          className={`glass-panel min-w-0 flex-1 rounded-3xl rounded-tl-md px-4 py-3 ${isStreaming ? 'bubble-live' : ''}`}
+        >
         {message.roleName && (
           <div className="mb-1.5 flex items-center gap-2">
             <span
