@@ -40,6 +40,14 @@ app.setPath('userData', join(SCRATCH, 'userData'))
 mkdirSync(join(SCRATCH, 'userData'), { recursive: true })
 
 const REPO_ROOT = join(__dirname, '..', '..')
+
+// The Workbench resolves its runtime from app.getAppPath(), which under
+// .eval-build/scripts points at the wrong place. Measured the hard way: a
+// whole 20-case run scored the model against a sandbox that failed in 0 ms,
+// which is worse than no measurement because it looks like one.
+process.env.SIGMA_PYODIDE_DIR = process.env.SIGMA_PYODIDE_DIR || join(REPO_ROOT, 'resources', 'pyodide')
+process.env.SIGMA_WORKBENCH_PRELOAD =
+  process.env.SIGMA_WORKBENCH_PRELOAD || join(__dirname, '..', 'src', 'preload', 'workbench.js')
 const RESULTS_DIR = join(REPO_ROOT, '.eval-results')
 const QUANT_DIR = join(REPO_ROOT, 'test', 'fixtures', 'quant')
 const LIBRARY_DIR = join(REPO_ROOT, 'test', 'fixtures', 'library')
@@ -62,7 +70,7 @@ interface LibraryFixture {
   prompt: string
   pack?: string
   mustInclude: string[]
-  mustNotInclude?: string[]
+  mustNotAssert?: string[]
 }
 
 function slice<T>(items: T[]): T[] {
@@ -79,7 +87,31 @@ function loadJson<T>(dir: string): (T & { file: string })[] {
 
 // ---- transport ---------------------------------------------------------------------
 
+/**
+ * One completion, with a single retry on a *transport* failure only.
+ *
+ * Measured: three of eight cases in one run died on `fetch failed` when the
+ * server dropped a long generation mid-stream, and an excluded case is data
+ * lost. An HTTP status is never retried — that is the server answering, and
+ * re-asking would hide it.
+ */
 async function complete(
+  model: string,
+  messages: Msg[],
+  tools?: unknown[]
+): Promise<{ content: string; toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[] }> {
+  try {
+    return await completeOnce(model, messages, tools)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/^HTTP \d/.test(message)) throw err
+    process.stdout.write(`    (retrying after transport failure: ${message.slice(0, 60)})\n`)
+    await new Promise((r) => setTimeout(r, 3000))
+    return completeOnce(model, messages, tools)
+  }
+}
+
+async function completeOnce(
   model: string,
   messages: Msg[],
   tools?: unknown[]
@@ -175,7 +207,7 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
       out.reply = reply.content.slice(0, 2000)
       out.score = scoreLibrary(reply.content, {
         mustInclude: fx.mustInclude,
-        mustNotInclude: fx.mustNotInclude,
+        mustNotAssert: fx.mustNotAssert,
         passages: lookup.passages.map((p) => p.text).join('\n'),
         titles: [...new Set(lookup.passages.flatMap((p) => [p.docTitle, p.packName]))]
       })
@@ -384,6 +416,20 @@ async function main(): Promise<void> {
         `  ${s.seconds.toFixed(1)} s/case\n`
     )
     report.library = { summary: s, runs }
+  }
+
+  if (want.includes('quant')) {
+    // Refuse to measure a broken subject. A sandbox that cannot run 2+2 makes
+    // the Workbench column meaningless, and a meaningless column that looks
+    // like a measurement is the worst possible output.
+    const probe = await wb.runPython({ code: 'print(2 + 2)' })
+    if (!probe.ok || !/^4/m.test(probe.stdout)) {
+      throw new Error(
+        `the Workbench sandbox is not working, so the quantitative arm cannot be measured:\n  ${probe.error ?? probe.stdout}\n` +
+          `  runtime dir: ${wb.pyodideDir()}\n  (run: bash scripts/fetch-pyodide.sh)`
+      )
+    }
+    process.stdout.write(`  sandbox ready (${(await wb.workbenchStatus()).version}, packages: ${(await wb.bundledPackages()).join(', ') || 'stdlib only'})\n`)
   }
 
   if (want.includes('quant') || want.includes('deliberate')) {

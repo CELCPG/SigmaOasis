@@ -6,7 +6,8 @@
     "cold water",
     "microwave"
   ],
-  "mustNotInclude": [
-    "counter(?!.{0,30}not)|room temperature(?!.{0,30}not)"
+  "mustNotAssert": [
+    "\\bcounter\\b",
+    "room temperature"
   ]
 }

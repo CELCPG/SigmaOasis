@@ -5,7 +5,8 @@
     "cool(ing)? (running )?water|under (cool|cold|running) water",
     "15|20|30"
   ],
-  "mustNotInclude": [
-    "\\bice\\b(?!.{0,40}not)|butter"
+  "mustNotAssert": [
+    "\\bice\\b",
+    "\\bbutter\\b"
   ]
 }

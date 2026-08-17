@@ -21,7 +21,8 @@ if command -v node >/dev/null 2>&1; then TSC=(node); else TSC=(env ELECTRON_RUN_
 "${TSC[@]}" node_modules/typescript/bin/tsc \
   --outDir "$OUT" --rootDir . --module commonjs --target es2022 --moduleResolution node \
   --esModuleInterop --skipLibCheck --strict --types node \
-  scripts/eval-answers.ts
+  scripts/eval-answers.ts \
+  src/preload/workbench.ts
 
 # Electron's default-app launcher ignores a lone script argument, so the model
 # id always follows it; with none given the script prints its usage.

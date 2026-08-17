@@ -70,7 +70,7 @@ describe('measurements and support', () => {
   test('scoreLibrary combines answered / cited / unsupported / forbidden', () => {
     const s = scoreLibrary('Hold it under cool running water for 45 minutes. Do not use ice. — Burns and scalds', {
       mustInclude: ['cool(ing)? (running )?water'],
-      mustNotInclude: ['butter'],
+      mustNotAssert: ['butter'],
       passages: 'Hold the burn under cool running water for 15 to 30 minutes. Do not apply butter.',
       titles: ['Burns and scalds']
     })
@@ -78,6 +78,34 @@ describe('measurements and support', () => {
     assert.equal(s.cited, true)
     assert.deepEqual(s.unsupported, ['45 minutes'])
     assert.deepEqual(s.forbidden, [])
+  })
+})
+
+describe('assertedPatterns — negation-aware "must not"', () => {
+  const { assertedPatterns } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  // The two replies below are verbatim from the 2026-08 run, where the naive
+  // regex form scored both as failures. They are the reason this exists.
+  const thaw =
+    '**Safe ways to thaw frozen food:**\n\n1. **Refrigerator** — safest method.\n2. **Cold water** — faster.\n3. **Microwave** — fastest.\n\nNever thaw food on the counter or at room temperature.'
+  const tornado =
+    'Go to a public shelter if you can\'t stay at home. Stay away from windows, doors, and outside walls. Use your arms to protect your head and neck.'
+  test('a warning against the thing is not an assertion of it', () => {
+    assert.deepEqual(assertedPatterns(thaw, ['\\bcounter\\b', 'room temperature']), [])
+    assert.deepEqual(assertedPatterns(tornado, ['\\bwindows?\\b']), [])
+  })
+  test('recommending it still fails', () => {
+    assert.deepEqual(assertedPatterns('You can thaw it on the counter overnight.', ['\\bcounter\\b']), ['\\bcounter\\b'])
+    assert.deepEqual(assertedPatterns('Open the windows and watch the storm.', ['\\bwindows?\\b']), ['\\bwindows?\\b'])
+  })
+  test('a corrected figure passes, a wrong one does not', () => {
+    assert.deepEqual(assertedPatterns('Cook poultry to 165°F, not 145°F.', ['\\b(?:145|155|175)\\s*°?\\s*F\\b']), [])
+    assert.deepEqual(assertedPatterns('Cook poultry to 145°F.', ['\\b(?:145|155|175)\\s*°?\\s*F\\b']), ['\\b(?:145|155|175)\\s*°?\\s*F\\b'])
+  })
+  test('negation in a neighbouring sentence does not excuse an assertion', () => {
+    assert.deepEqual(
+      assertedPatterns('Do not leave food out. Thaw it on the counter for a few hours.', ['\\bcounter\\b']),
+      ['\\bcounter\\b']
+    )
   })
 })
 
@@ -125,10 +153,11 @@ describe('the fixtures themselves', () => {
     const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
     assert.ok(files.length >= 20, `${files.length} library fixtures`)
     for (const f of files) {
-      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as { prompt?: string; mustInclude?: string[]; mustNotInclude?: string[] }
+      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as { prompt?: string; mustInclude?: string[]; mustNotAssert?: string[]; mustNotInclude?: string[] }
+      assert.equal(fx.mustNotInclude, undefined, `${f}: mustNotInclude was replaced by mustNotAssert`)
       assert.ok(fx.prompt && fx.prompt.length > 15, `${f}: prompt`)
       assert.ok(Array.isArray(fx.mustInclude) && fx.mustInclude.length > 0, `${f}: mustInclude`)
-      for (const p of [...(fx.mustInclude ?? []), ...(fx.mustNotInclude ?? [])]) {
+      for (const p of [...(fx.mustInclude ?? []), ...(fx.mustNotAssert ?? [])]) {
         assert.doesNotThrow(() => new RegExp(p, 'i'), `${f}: bad pattern ${p}`)
       }
     }

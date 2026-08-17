@@ -43,22 +43,26 @@ half of that feature — and the report says so.
   installed — see below, the two differ sharply.
 - The tool-choice suite feeds canned tool results; the answer suites execute for real.
 
-## Measured, 2026-08 (qwythos-9b, cases 1–8, temperature 0)
+## Measured, 2026-08 (qwythos-9b, temperature 0)
 
-| arm | all cases | same cases, both arms | s/case |
-| --- | --- | --- | --- |
-| bare (no tools) | 4/6 · 67% | 4/6 · 67% | 27.8 |
-| with the Workbench | 6/8 · 75% | **5/6 · 83%** | 35.7 |
-| bare + one think-harder pass | 4/5 · 80% | 4/5 · 80% (no change) | 116.1 |
+**Library grounding — all 28 cases, hybrid retrieval:**
 
-Denominators differ because an arm that errored is excluded, never scored as a failure: three
-calls died on a `fetch failed` when LM Studio dropped the connection mid-generation.
+| | result |
+| --- | --- |
+| retrieved passages | 28/28 · 100% |
+| answered (every required fact) | 25/28 · 89% |
+| cited the source | 26/28 · 93% |
+| stated an unsupported measurement | 1/28 · 4% (lower is better) |
+| | 80.6 s/case |
 
-Read the paired column — same cases, both arms. The Workbench turned one miss into a hit
-(a date difference the model got wrong from memory) and cost 8 seconds a case. Deliberation
-revised 3 of 5 drafts and changed **no** score: on this slice the self-review arm found things to
-say and none of them were the error. That is a null result and it is reported as one; the paired
-column is 5 cases wide, which is far too narrow to conclude anything beyond "not visible here".
+Two of the three unanswered cases are the same failure: retrieval found the right *document* and
+spent its five passages on the wrong *sections*. The one unsupported figure ("6%", "30 minutes" on
+a boil-water question) came from the chlorination passage the lookup surfaced instead of the
+boiling one — precisely the class that check exists to catch.
+
+Quantitative numbers are pending a re-run: the first attempt measured a **broken** sandbox (see
+below), and its Workbench column is withdrawn rather than corrected — a column measured against a
+tool that failed in 0 ms is not a smaller number, it is a different experiment.
 
 ## Findings worth keeping
 
@@ -68,6 +72,20 @@ column is 5 cases wide, which is far too narrow to conclude anything beyond "not
   correctly refused to answer from them (the grounding rules working as intended), but the library
   had failed it. With the packs embedded the same question retrieves Burns and scalds and the case
   passes. Measured on a 9B: 1/3 → 2/3 answered and 2/3 → 3/3 cited across the first three cases.
+- **An eval must fail loudly when its subject is absent.** The first full quantitative run scored
+  a Workbench column against a sandbox that was never there: `pyodideDir()` resolves from
+  `app.getAppPath()`, which under `.eval-build/scripts` points at a directory that does not exist,
+  so every `run_python` failed in 0 ms with "Workbench runtime not installed". All six CSV cases
+  failed, one case spent 33 minutes retrying, and the summary still printed a rate. The suite now
+  sets the runtime path explicitly and **refuses to run the quantitative arm unless the sandbox
+  computes `2+2` first**, printing the version and package list it verified.
+- **A "must not" pattern has to know about negation.** Two fixtures scored the model wrong for
+  being right: one forbade "counter" and flagged *"Never thaw food on the counter"*; the other
+  forbade "windows" and flagged *"Stay away from windows"*. More lookaheads is the wrong fix —
+  negation lands on either side of the word. `mustNotAssert` now means "asserted somewhere no
+  negation cue shares its sentence", which also lets "cook to 165°F, **not** 145°F" pass. Both
+  verbatim replies are pinned as tests; re-scoring the completed run drops the flagged cases from
+  2 to 0.
 - **Having the tool is not using it.** On the mortgage-payment case the model called
   `run_python` once and *still* answered from prose algebra — $2,468.46 against a true
   $2,420.82 — in both the bare and Workbench arms. The tool was present, invoked, and ignored.

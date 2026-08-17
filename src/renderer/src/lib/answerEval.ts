@@ -140,6 +140,52 @@ export function citesSource(reply: string, titles: string[]): boolean {
   })
 }
 
+/**
+ * Words that turn a mention into a warning. Deliberately broad: the cost of
+ * missing one is flagging a correct answer, which is the failure mode that
+ * makes an eval worse than useless.
+ */
+const NEGATION_CUES =
+  /\b(?:not|never|no|none|don'?t|doesn'?t|didn'?t|won'?t|shouldn'?t|cannot|can'?t|must not|avoid|avoids|avoiding|unsafe|unsafely|danger|dangerous|risky|away from|instead of|rather than|refrain|discard|throw (?:it )?(?:away|out)|wrong|incorrect|myth)\b/i
+
+/**
+ * The sentence (or list item, or line) a match sits in — the scope negation
+ * actually operates over. "Never thaw on the counter" and "counter thawing is
+ * unsafe" both negate; a character window either side would also drag in the
+ * neighbouring bullet, which is how a fixture starts measuring layout.
+ */
+function scopeAround(text: string, index: number, length: number): string {
+  const before = text.slice(0, index)
+  const after = text.slice(index + length)
+  const start = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('. '), before.lastIndexOf('! '), before.lastIndexOf('? '), before.lastIndexOf('; '))
+  const endCandidates = [after.indexOf('\n'), after.indexOf('. '), after.indexOf('! '), after.indexOf('? ')].filter((i) => i >= 0)
+  const end = endCandidates.length > 0 ? Math.min(...endCandidates) : after.length
+  return text.slice(start + 1, index + length + end + 1)
+}
+
+/**
+ * Patterns the reply *asserts* — matched somewhere no negation cue shares its
+ * sentence. This is what a case means by "must not": a reply that says
+ * "never thaw on the counter" or "cook to 165°F, not 145°F" is correct, and
+ * measured against the naive form both were flagged as failures.
+ */
+export function assertedPatterns(reply: string, patterns: string[]): string[] {
+  const flagged: string[] = []
+  for (const pattern of patterns) {
+    const re = new RegExp(pattern, 'gi')
+    let asserted = false
+    for (const m of reply.matchAll(re)) {
+      const scope = scopeAround(reply, m.index ?? 0, m[0].length)
+      if (!NEGATION_CUES.test(scope)) {
+        asserted = true
+        break
+      }
+    }
+    if (asserted) flagged.push(pattern)
+  }
+  return flagged
+}
+
 export interface LibraryScore {
   /** Every required fact appears in the reply. */
   answered: boolean
@@ -147,16 +193,16 @@ export interface LibraryScore {
   cited: boolean
   /** Measurements the retrieved passages do not support. */
   unsupported: string[]
-  /** The reply said something the case forbids (e.g. a wrong figure). */
+  /** Patterns the reply asserted that the case forbids (a wrong figure, unsafe advice). */
   forbidden: string[]
 }
 
 export function scoreLibrary(
   reply: string,
-  input: { mustInclude: string[]; mustNotInclude?: string[]; passages: string; titles: string[] }
+  input: { mustInclude: string[]; mustNotAssert?: string[]; passages: string; titles: string[] }
 ): LibraryScore {
   const missing = input.mustInclude.filter((p) => !new RegExp(p, 'i').test(reply))
-  const forbidden = (input.mustNotInclude ?? []).filter((p) => new RegExp(p, 'i').test(reply))
+  const forbidden = assertedPatterns(reply, input.mustNotAssert ?? [])
   return {
     answered: missing.length === 0,
     missing,

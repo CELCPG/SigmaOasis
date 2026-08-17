@@ -4,7 +4,7 @@
   "mustInclude": [
     "basement|interior room|lowest (floor|level)|shelter"
   ],
-  "mustNotInclude": [
-    "\\bwindows?\\b(?!.{0,40}(away|avoid|stay))"
+  "mustNotAssert": [
+    "\\bwindows?\\b"
   ]
 }

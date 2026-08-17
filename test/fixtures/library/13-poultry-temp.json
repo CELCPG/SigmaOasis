@@ -4,7 +4,7 @@
   "mustInclude": [
     "165"
   ],
-  "mustNotInclude": [
-    "\\b(145|155|175)\\s*\u00b0?\\s*F\\b"
+  "mustNotAssert": [
+    "\\b(?:145|155|175)\\s*\u00b0?\\s*F\\b"
   ]
 }
