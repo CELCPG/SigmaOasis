@@ -29,7 +29,13 @@ export function attachmentFileRefs(convo: Pick<Conversation, 'messages'>): { nam
 }
 
 /** Attachments the app profiles automatically on the turn they arrive. */
-export const TABULAR_FILE = /\.(csv|tsv|xlsx|xlsm|json|jsonl)$/i
+/**
+ * The one test for "this attachment is data, not prose". Shared by staging
+ * (/work), by playbook selection and by the pre-flight router — it had drifted
+ * into two slightly different copies, which is how a file routes one way and
+ * gets profiled another.
+ */
+export const TABULAR_FILE = /\.(csv|tsv|xlsx|xlsm|json|jsonl|parquet)$/i
 
 /** Tabular attachments on the latest user message, for the automatic analyze_file. */
 export function tabularAttachmentsOnTurn(convo: Pick<Conversation, 'messages'>): string[] {

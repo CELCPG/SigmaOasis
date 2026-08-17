@@ -110,6 +110,15 @@ model load (31.6 s against a 28.6 s median).
   negation cue shares its sentence", which also lets "cook to 165°F, **not** 145°F" pass. Both
   verbatim replies are pinned as tests; re-scoring the completed run drops the flagged cases from
   2 to 0.
+- **The Workbench makes numbers traceable, not meaningful — and nothing here catches the
+  difference.** Routed a 400-row sales file, a 9B answered with every revenue figure exactly right
+  and one figure badly wrong: *"$2,787.2 per unit"*. Its pandas had `.sum()`-ed the `unit_price`
+  column along with units and revenue, then printed it as a per-unit price; the reply repeated its
+  own tool output faithfully. Tool grounding passed it, correctly by its own rule — 2787.2 *is* in
+  the tool output. Provenance checking cannot see a mislabelled aggregation, and no mechanical check
+  in this app can. The mitigation is a rule in the Data Analyst prompt and the data playbook
+  ("never aggregate a price or rate column with sum()"), which is a prompt, which is a preference —
+  so this stays on the list of things only a reader catches.
 - **Withdrawn: "having the tool is not using it."** An earlier run recorded the model calling
   `run_python` on the mortgage case and still answering from prose algebra ($2,468.46 against a
   true $2,420.82), which read as a finding about tool discipline. It was not. That run's sandbox

@@ -1,4 +1,5 @@
 import { referenceDomains } from './grounding'
+import { TABULAR_FILE } from './attachmentRecall'
 import type { ReferenceDomain } from './grounding'
 
 /**
@@ -129,7 +130,8 @@ export const PLAYBOOKS: Record<PlaybookId, Playbook> = {
     steps: [
       'Describe the data before analysing it: rows, columns, types, missing values, obvious anomalies.',
       'Turn the question into a specific computation and compute it exactly — with a tool when one is available. Do not eyeball totals, averages or percentages.',
-      'Report each number with its unit, denominator and caveats (sample size, missing rows).',
+      'Report each number with its unit, denominator and caveats (sample size, missing rows). A summed ' +
+        'price or rate column is meaningless — weight or average it, and say which.',
       'Only then interpret; keep interpretation separate from measurement.'
     ]
   },
@@ -178,8 +180,6 @@ const DOMAIN_TO_PLAYBOOK: Record<ReferenceDomain, PlaybookId | null> = {
   'reference-ask': null // "what does the manual say" — the library answers; no method needed
 }
 
-/** Tabular attachments mean a data question even when the words do not say so. */
-const TABULAR_FILE = /\.(csv|tsv|xlsx?|json|jsonl|parquet)$/i
 const DATA_INTENT =
   /\b(?:csv|spreadsheet|dataset|data ?set|pivot|correlat(?:e|ion)|regression|median|average of|mean of|sum of|group(?:ed)? by|per (?:month|week|day|region|category)|trend|outliers?|analy[sz]e (?:this|the|my|these) (?:data|numbers|table|rows|results|figures))\b/i
 const CODE_SIGNAL =
@@ -188,6 +188,18 @@ const COMPARE_INTENT =
   /\b(?:compare|comparison|versus|vs\.?|which is better|better than|pros and cons|trade-?offs?|should i (?:pick|choose|go with|buy)|difference between)\b/i
 const PLAN_INTENT =
   /\b(?:plan (?:a|my|the|our|for)|make (?:a|me a) plan|itinerary|roadmap|schedule (?:for|out|my)|step[- ]by[- ]step plan|checklist for|how (?:should|do) i (?:organi[sz]e|structure|approach|prepare for))\b/i
+
+/**
+ * Is this data work? A tabular attachment says so outright — that file cannot
+ * be read by eye and needs the Workbench — and otherwise the vocabulary has to
+ * carry it. Shared with the pre-flight router (routing.ts) so a turn that gets
+ * the data playbook and a turn that gets routed to a Data Analyst slot are the
+ * same turn.
+ */
+export function looksLikeDataWork(text: string, attachmentNames: readonly string[] = []): boolean {
+  if (attachmentNames.some((n) => TABULAR_FILE.test(n))) return true
+  return DATA_INTENT.test(text)
+}
 
 /**
  * Choose the playbook for a turn, or null. Reference domains win in their
@@ -201,8 +213,7 @@ export function selectPlaybook(input: { text: string; attachmentNames?: string[]
     const id = DOMAIN_TO_PLAYBOOK[domain]
     if (id) return PLAYBOOKS[id]
   }
-  const tabular = (input.attachmentNames ?? []).some((n) => TABULAR_FILE.test(n))
-  if (tabular || DATA_INTENT.test(text)) return PLAYBOOKS['data-analysis']
+  if (looksLikeDataWork(text, input.attachmentNames ?? [])) return PLAYBOOKS['data-analysis']
   if (CODE_SIGNAL.test(text)) return PLAYBOOKS.coding
   if (COMPARE_INTENT.test(text)) return PLAYBOOKS.compare
   if (PLAN_INTENT.test(text)) return PLAYBOOKS.planning

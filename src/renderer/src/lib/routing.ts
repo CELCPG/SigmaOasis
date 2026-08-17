@@ -7,6 +7,8 @@ import type {
   ModelConfig
 } from '../types'
 import { looksFactual } from './grounding'
+import { looksLikeDataWork } from './playbooks'
+import { TABULAR_FILE } from './attachmentRecall'
 
 /**
  * Layer 2 of the routing/tools strategy: explicit mechanical routing.
@@ -54,7 +56,7 @@ export function mentionTarget(settings: AppSettings, text: string): ModelConfig 
 
 // ---- pre-flight classifier --------------------------------------------------
 
-export type RouteSignal = 'image' | 'code' | 'factual' | 'finance'
+export type RouteSignal = 'image' | 'data' | 'code' | 'factual' | 'finance'
 
 export interface RouteDecision {
   slot: ModelConfig
@@ -95,10 +97,12 @@ function detectCode(text: string): CodeMatch {
 export function preflightRoute(args: {
   text: string
   hasImages: boolean
+  /** File attachment names, so a spreadsheet can route itself (v1.6). */
+  attachmentNames?: readonly string[]
   models: ModelConfig[]
   isVisionCapable?: (modelId: string) => boolean
 }): RouteDecision | null {
-  const { text, hasImages, models, isVisionCapable } = args
+  const { text, hasImages, attachmentNames = [], models, isVisionCapable } = args
   const routable = models.filter((m) => m.enabled && m.modelId)
 
   if (hasImages) {
@@ -106,6 +110,15 @@ export function preflightRoute(args: {
     if (slot) return { slot, signal: 'image', reason: 'image attached' }
     // No vision slot: fall through — abstention beats routing an image to a
     // blind model, and the active slot may itself be vision-capable.
+  }
+
+  // v1.6: a data file is as concrete a requirement as an image — it cannot be
+  // read by eye and needs the Workbench — so it is checked before the text
+  // heuristics. A data question with no file attached is checked after code,
+  // because "analyze the performance of this function" is a coding turn.
+  if (attachmentNames.some((n) => TABULAR_FILE.test(n))) {
+    const slot = routable.find((m) => m.specialty === 'data')
+    if (slot) return { slot, signal: 'data', reason: 'data file attached' }
   }
 
   const code = detectCode(text)
@@ -117,6 +130,11 @@ export function preflightRoute(args: {
   if (FINANCE_VOCAB.test(text)) {
     const slot = routable.find((m) => m.specialty === 'finance')
     if (slot) return { slot, signal: 'finance', reason: 'finance vocabulary' }
+  }
+
+  if (looksLikeDataWork(text)) {
+    const slot = routable.find((m) => m.specialty === 'data')
+    if (slot) return { slot, signal: 'data', reason: 'data analysis vocabulary' }
   }
 
   if (looksFactual(text)) {
@@ -163,6 +181,7 @@ export function routeTargets(
   const decision = preflightRoute({
     text,
     hasImages: Boolean(attachments?.some((a) => a.kind === 'image')),
+    attachmentNames: (attachments ?? []).filter((a) => a.kind === 'file').map((a) => a.name),
     models: settings.models,
     isVisionCapable
   })

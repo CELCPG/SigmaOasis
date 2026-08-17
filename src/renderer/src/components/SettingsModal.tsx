@@ -689,6 +689,7 @@ export function SettingsModal(): JSX.Element | null {
                           <option value="coding">Coding</option>
                           <option value="research">Research</option>
                           <option value="finance">Finance</option>
+                          <option value="data">Data analysis</option>
                         </select>
                       </div>
                     </div>

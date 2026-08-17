@@ -47,7 +47,7 @@ export interface ModelConfig {
    * Structured routing tag (v1.4) the pre-flight classifier matches on.
    * Absent = generalist; the slot is never auto-routed a specialty signal.
    */
-  specialty?: 'coding' | 'research' | 'finance'
+  specialty?: 'coding' | 'research' | 'finance' | 'data'
 }
 
 export interface ToolToggles {

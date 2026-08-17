@@ -22,6 +22,24 @@ v1.5 gave a small model something to read: an offline reference library it cites
 - **Measured, end to end:** asked for a car's out-the-door total "from your head", the 9B model answered **$31,796.25** — wrong. The app recomputed ($2,347.12 tax; **$31,997.12** total), flagged the model's figures against that output, and the revision substituted the correct number. The reply the user saw was right, said what had been checked, and carried no warning — because after correction none was needed.
 - Three small-model failure modes surfaced live and are now guarded mechanically: a recompute program returned without its code fence (accepted by shape); a revision that "fixed" flagged figures by deleting every figure and disclaiming (refused — a flagged answer beats a non-answer); a revision that pasted the checker's own instructions into the chat (refused; the guard shares its markers with the prompt so they cannot drift).
 
+## A Data Analyst role, and routing that reaches it
+
+- **A fifth slot template** (Settings → Models, off by default like the others): a persona that
+  starts from `analyze_file`, computes with `run_python`, reports every figure with its unit and
+  denominator, says which rows it excluded, and keeps measurement apart from interpretation.
+- **A `data` specialty the pre-flight router uses.** Attach a spreadsheet and the turn goes to that
+  slot — *"🔀 routed to Data Analyst — data file attached"* — so a data question can be answered by
+  a different, usually larger model than the one handling chat. A data file outranks a code or
+  finance signal in the same message, because a file genuinely cannot be read by eye; an image still
+  outranks everything, because vision is a harder requirement. With no such slot enabled the router
+  abstains rather than mis-routing, exactly as it does for the other specialties.
+- **Honest limit, found while testing this:** the routed model got every revenue figure in a
+  400-row file exactly right and one figure wrong — it summed a price column and labelled the total
+  a per-unit price. The grounding check passed it, correctly by its own rule: the number *was* in
+  the tool output. Execution makes a figure traceable, not meaningful. There is now a rule against
+  it in the prompt and the playbook, and `docs/evals.md` records that a rule is a preference, not a
+  guarantee.
+
 ## Measured, not asserted
 
 Three eval harnesses ship with this release (`npm run eval:answers`, `npm run eval:tools`), all

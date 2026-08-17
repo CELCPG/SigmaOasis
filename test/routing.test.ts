@@ -25,6 +25,7 @@ const GENERAL = slot({ id: 'g', roleName: 'Assistant' })
 const CODER = slot({ id: 'c', roleName: 'Coder', specialty: 'coding' })
 const RESEARCHER = slot({ id: 'r', roleName: 'Researcher', specialty: 'research' })
 const FINANCE = slot({ id: 'f', roleName: 'Finance Coach', specialty: 'finance' })
+const ANALYST = slot({ id: 'd', roleName: 'Data Analyst', specialty: 'data' })
 const SEER = slot({ id: 'v', roleName: 'Seer' })
 
 function settingsWith(models: ModelConfig[], pipeline: string[] = []): AppSettings {
@@ -312,5 +313,71 @@ describe('escalationCandidate (Layer 2d)', () => {
     const unassigned = slot({ id: 'y', roleName: 'Y', modelId: '' })
     const sizes = { g: 8192, x: 262144, y: 262144 }
     assert.equal(escalationCandidate(GENERAL, [GENERAL, disabled, unassigned], ctx(sizes)), null)
+  })
+})
+
+describe('data routing (v1.6)', () => {
+  const at = (name: string): { kind: 'file'; name: string } => ({ kind: 'file', name })
+
+  test('a spreadsheet attachment routes to the Data Analyst', () => {
+    const d = preflightRoute({
+      text: 'what do you make of this?',
+      hasImages: false,
+      attachmentNames: ['q3-sales.xlsx'],
+      models: [GENERAL, ANALYST]
+    })
+    assert.equal(d?.slot.id, 'd')
+    assert.equal(d?.signal, 'data')
+    assert.match(d?.reason ?? '', /data file attached/)
+  })
+
+  test('a data file beats a code signal in the same message — the file cannot be read by eye', () => {
+    const d = preflightRoute({
+      text: 'refactor this parser, see the stack trace: TypeError: bad',
+      hasImages: false,
+      attachmentNames: ['rows.csv'],
+      models: [GENERAL, CODER, ANALYST]
+    })
+    assert.equal(d?.slot.id, 'd')
+  })
+
+  test('a prose data question routes there too, but only after code', () => {
+    assert.equal(
+      preflightRoute({ text: 'what is the median revenue per region in this dataset?', hasImages: false, models: [GENERAL, ANALYST] })?.slot.id,
+      'd'
+    )
+    // Code wins when both read: "analyze the performance of this function" is a coding turn.
+    assert.equal(
+      preflightRoute({ text: 'analyze this dataset loader\n```python\nx=1\n```', hasImages: false, models: [GENERAL, CODER, ANALYST] })?.slot.id,
+      'c'
+    )
+  })
+
+  test('an image still wins — a vision requirement is harder than a file one', () => {
+    const d = preflightRoute({
+      text: 'chart in this photo vs the numbers',
+      hasImages: true,
+      attachmentNames: ['rows.csv'],
+      models: [GENERAL, ANALYST],
+      isVisionCapable: (id) => id === GENERAL.modelId
+    })
+    assert.equal(d?.signal, 'image')
+  })
+
+  test('no Data Analyst slot abstains rather than mis-routing', () => {
+    assert.equal(preflightRoute({ text: 'sum this csv', hasImages: false, attachmentNames: ['a.csv'], models: [GENERAL] }), null)
+    assert.equal(
+      preflightRoute({ text: 'sum this csv', hasImages: false, attachmentNames: ['a.csv'], models: [GENERAL, slot({ id: 'd', roleName: 'Data Analyst', specialty: 'data', enabled: false })] }),
+      null
+    )
+  })
+
+  test('routeTargets passes file names through, images excluded', () => {
+    const settings = settingsWith([GENERAL, ANALYST])
+    const routed = routeTargets(settings, convo({ activeModelSlotId: GENERAL.id }), 'have a look', [
+      at('sales.csv') as never
+    ])
+    assert.equal(routed.targets[0]?.id, 'd')
+    assert.match(routed.routingNote ?? '', /Data Analyst/)
   })
 })

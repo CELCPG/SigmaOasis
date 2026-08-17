@@ -19,7 +19,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 ## ✨ Features
 
 - **Local & private.** Connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `image_search` / `fetch_webpage` tools (provider of your choice), the image hosts an `image_search` result points at (thumbnails only, fetched by the app so the request carries no cookies, referrer or browser fingerprint), the shopping research tools (`shop_compare` / `price_watch`, which contact retailer and manufacturer pages), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default). All of it is enforced by a built-in egress allowlist, visible in a network activity log with a purpose on every row, and can optionally be routed through **Tor or a VPN** while your LM Studio server stays on a direct loopback connection.
-- **Multi-model roles (up to 3).** Each slot has its own model, role name, system prompt, and color accent.
+- **Multi-model roles.** Five slot templates — Assistant, Researcher, Coder, Finance Coach and **Data Analyst** — each with its own model, role name, system prompt, sampling, tool allowlist and colour accent. A slot can declare a *specialty* (coding, research, finance, data) and the pre-flight router sends matching turns to it: attach a spreadsheet and the Data Analyst answers.
 - **Three ways to use your models**
   - **Independent mode.** Pick the active model in the sidebar's *This chat* section; each conversation keeps its thread.
   - **@mention routing.** Type `@Coder write a sort function` to route a single message to a specific role.

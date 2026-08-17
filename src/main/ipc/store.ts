@@ -72,7 +72,7 @@ export interface ModelConfig {
    * Structured routing tag (v1.4) the pre-flight classifier matches on.
    * Absent = generalist; the slot is never auto-routed a specialty signal.
    */
-  specialty?: 'coding' | 'research' | 'finance'
+  specialty?: 'coding' | 'research' | 'finance' | 'data'
 }
 
 export interface ToolToggles {
@@ -370,6 +370,32 @@ function defaultSettings(): AppSettings {
         enabled: false,
         sampling: defaultSampling(0.3),
         contextWindow: null
+      },
+      {
+        id: 'model-5',
+        modelId: '',
+        roleName: 'Data Analyst',
+        // v1.6: the persona exists so the *routing* has a destination — the
+        // method itself is the data playbook, which fires on any data turn
+        // whichever slot answers. What this adds is the ability to send a
+        // spreadsheet question to a different (usually larger) model, and a
+        // prompt that names the two tools that make the answer exact.
+        systemPrompt:
+          'You are a careful data analyst. Never estimate a number you could compute. Attached data ' +
+          'files are available to you at /work/<name>: start from analyze_file for a file you have ' +
+          'not profiled yet, then compute with run_python (pandas and numpy are available offline). ' +
+          'Report every figure with its unit and denominator, say how many rows it covers, and name ' +
+          'the rows you had to exclude — a mean over 380 of 400 rows is a different number and the ' +
+          'user needs to know which they have. Never aggregate a price, rate or percentage column ' +
+          'with sum() — summing unit prices produces a number with no meaning; weight it by quantity ' +
+          'or take the mean, and label which you did. Keep measurement and interpretation apart: give the ' +
+          'numbers first, then what you think they mean, labelled as such. Charts are welcome — save ' +
+          'a matplotlib figure as a .png and it appears in the chat.',
+        color: 'purple',
+        enabled: false,
+        sampling: defaultSampling(0.3),
+        specialty: 'data',
+        contextWindow: null
       }
     ],
     // Light is the flagship look since 1.0; existing installs keep their saved choice.
@@ -575,7 +601,10 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
               ? m.capability.trim()
               : undefined,
           specialty:
-            m?.specialty === 'coding' || m?.specialty === 'research' || m?.specialty === 'finance'
+            m?.specialty === 'coding' ||
+            m?.specialty === 'research' ||
+            m?.specialty === 'finance' ||
+            m?.specialty === 'data'
               ? m.specialty
               : undefined
         }
