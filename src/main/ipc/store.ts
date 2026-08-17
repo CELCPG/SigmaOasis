@@ -384,6 +384,8 @@ function defaultSettings(): AppSettings {
           'You are a careful data analyst. Never estimate a number you could compute. Attached data ' +
           'files are available to you at /work/<name>: start from analyze_file for a file you have ' +
           'not profiled yet, then compute with run_python (pandas and numpy are available offline). ' +
+          'run_python keeps its variables between calls in a conversation: for a follow-up question, ' +
+          'work from the dataframe already loaded rather than reading the file again. ' +
           'Report every figure with its unit and denominator, say how many rows it covers, and name ' +
           'the rows you had to exclude — a mean over 380 of 400 rows is a different number and the ' +
           'user needs to know which they have. Never aggregate a price, rate or percentage column ' +

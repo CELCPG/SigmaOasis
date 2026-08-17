@@ -261,7 +261,8 @@ interface MultiTurnFixture {
 async function runMultiTurnSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').MultiTurnCaseResult[]> {
   const { scoreQuantitative, codeReadsData } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
   const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
-  const { withGrounding } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
   const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
 
   const MULTITURN_DIR = join(REPO_ROOT, 'test', 'fixtures', 'multiturn')
@@ -296,7 +297,20 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
 
       for (const [ti, turn] of fx.turns.entries()) {
         const dataNote = ti === 0 ? `\n\n[Attached file: ${fx.data} — available to run_python and analyze_file at /work/${fx.data}]` : ''
-        messages.push({ role: 'user', content: `${turn.prompt}${dataNote}` })
+        // The app selects a playbook per turn from the text and the attached
+        // file names — a tabular attachment is data work — and appends it as
+        // turn context. Same here, so the suite measures the app's real turn
+        // (v1.8.1; the first measurement omitted it and so measured a bare
+        // persona rather than the app).
+        const playbook = selectPlaybook({ text: turn.prompt, attachmentNames: [fx.data] })
+        // The stateless arm must not be told variables persist (they do not
+        // there): drop the session step so neither arm is lied to.
+        const armPlaybook =
+          playbook && arm === 'stateless'
+            ? { ...playbook, steps: playbook.steps.filter((s) => !/keeps its variables/.test(s)) }
+            : playbook
+        const turnContext = buildTurnContext(armPlaybook ? [buildPlaybookContext(armPlaybook)] : [])
+        messages.push({ role: 'user', content: `${turn.prompt}${dataNote}${turnContext ?? ''}` })
         const t0 = Date.now()
         let toolCalls = 0
         let reread = false
@@ -531,6 +545,21 @@ async function main(): Promise<void> {
   // failure sets at temperature 0 — a change must be judged against the
   // stable set, with the flaky cases named as the noise floor.
   const passesWanted = Math.max(1, Math.min(9, Math.round(Number(process.env.EVAL_PASSES ?? '1')) || 1))
+
+  // Refuse to measure a dead subject. Measured: a 3-pass multi-turn run whose
+  // very first call hit a stopped LM Studio server ran for 90 minutes, retried
+  // every turn once, and produced 0/0 across the board — correctly excluded,
+  // but an hour and a half to learn what one probe learns in a second.
+  try {
+    const probe = await completeOnce(model, [{ role: 'user', content: 'Reply with the single word: ready' }])
+    if (!probe.content.trim()) throw new Error('empty completion')
+    process.stdout.write(`  model answers (${model})\n`)
+  } catch (err) {
+    throw new Error(
+      `the model is not answering at ${BASE_URL} (${err instanceof Error ? err.message : String(err)}).\n` +
+        '  Start LM Studio\'s local server (Developer → Status: Running) and load the model, then re-run.'
+    )
+  }
 
   if (want.includes('library')) {
     console.log('library grounding')

@@ -75,3 +75,13 @@ describe('selectPlaybook', () => {
     assert.equal(pick('analyze this data: my medications and their side effects', ['meds.csv']), 'health')
   })
 })
+
+describe('data-analysis playbook · sessions (v1.8.1)', () => {
+  test('tells the model run_python state persists and to check the session variables first', () => {
+    const steps = PLAYBOOKS['data-analysis'].steps.join('\n')
+    assert.match(steps, /keeps its variables between calls/)
+    assert.match(steps, /Session variables/)
+    // The wording the eval's stateless arm strips must be recognizable.
+    assert.equal(PLAYBOOKS['data-analysis'].steps.filter((s) => /keeps its variables/.test(s)).length, 1)
+  })
+})

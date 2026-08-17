@@ -132,6 +132,12 @@ export const PLAYBOOKS: Record<PlaybookId, Playbook> = {
       'Turn the question into a specific computation and compute it exactly — with a tool when one is available. Do not eyeball totals, averages or percentages.',
       'Report each number with its unit, denominator and caveats (sample size, missing rows). A summed ' +
         'price or rate column is meaningless — weight or average it, and say which.',
+      // v1.8.1: measured — with sessions on, a 9B still re-read the data file
+      // on 6 of 10 follow-ups out of habit. The capability was there; the
+      // habit was not. Said here because the playbook rides every data turn.
+      'run_python keeps its variables between calls in this conversation. For a follow-up question, ' +
+        'build on the dataframe you already loaded — check the "Session variables" list in the last ' +
+        'result before reading a file again.',
       'Only then interpret; keep interpretation separate from measurement.'
     ]
   },
