@@ -209,7 +209,7 @@ export function LibraryTab(): JSX.Element {
           disabled={busy !== null}
           onClick={() => void addFolder()}
           className={BUTTON}
-          title="Build a pack from a folder of .md, .txt and .pdf files, then embed it. The folder is remembered: when it changes, the pack shows it and updates in place."
+          title="Build a pack from a folder of .md, .txt, .pdf and .docx files, then embed it. The folder is remembered: when it changes, the pack shows it and updates in place."
         >
           Add folder…
         </button>

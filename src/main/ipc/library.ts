@@ -196,7 +196,7 @@ const EMBED_JOB_BATCH = 48
 const PACK_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/
 const DOC_ID_RE = /^[a-z0-9][a-z0-9-]{0,79}$/
 const DOC_EXTENSIONS = new Set(['.md', '.markdown', '.txt'])
-const FOLDER_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf'])
+const FOLDER_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf', '.docx'])
 
 // ---- RAM state -----------------------------------------------------------------
 
@@ -818,7 +818,7 @@ async function stageFolderDocs(
   staging: string
 ): Promise<{ docs: PackDocMeta[]; hashes: Map<string, string>; fileCount: number; skipped: string[] }> {
   const files = await walkFolder(folder)
-  if (files.length === 0) throw new Error('No .md, .txt or .pdf files were found in that folder.')
+  if (files.length === 0) throw new Error('No .md, .txt, .pdf or .docx files were found in that folder.')
   await fs.rm(staging, { recursive: true, force: true })
   await fs.mkdir(join(staging, 'docs'), { recursive: true })
   const docs: PackDocMeta[] = []

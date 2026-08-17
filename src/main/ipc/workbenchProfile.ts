@@ -263,6 +263,53 @@ export interface FileProfile {
 }
 
 /** Build the script for one file. */
+/**
+ * v1.7.1: extract a .docx's text in the sandbox — the same move as XLSX
+ * profiling (a docx is a zip of XML; zipfile + ElementTree read it with no
+ * new dependency, and a malformed file blows up inside the sandbox, not the
+ * main process). Paragraph styles Heading1–6 and Title become Markdown
+ * headings, so a Word document gets real structure for section-aware
+ * chunking and citations. The file is always staged as /work/input.docx.
+ */
+export const DOCX_SCRIPT = String.raw`
+import re, zipfile
+from xml.etree import ElementTree as ET
+W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+z = zipfile.ZipFile('/work/input.docx')
+root = ET.fromstring(z.read('word/document.xml'))
+out = []
+for p in root.iter(W + 'p'):
+    style = ''
+    pPr = p.find(W + 'pPr')
+    if pPr is not None:
+        s = pPr.find(W + 'pStyle')
+        if s is not None:
+            style = s.get(W + 'val') or ''
+    runs = []
+    for node in p.iter():
+        if node.tag == W + 't':
+            runs.append(node.text or '')
+        elif node.tag == W + 'tab':
+            runs.append('\t')
+        elif node.tag == W + 'br':
+            runs.append('\n')
+    text = ''.join(runs).strip()
+    if not text:
+        continue
+    m = re.match(r'^[Hh]eading([1-6])$', style)
+    if m:
+        out.append('#' * int(m.group(1)) + ' ' + text)
+    elif style in ('Title', 'title'):
+        out.append('# ' + text)
+    else:
+        out.append(text)
+print('\n\n'.join(out)[:__MAX_CHARS__])
+`
+
+export function docxScript(maxChars: number): string {
+  return DOCX_SCRIPT.replace('__MAX_CHARS__', String(Math.max(1, Math.floor(maxChars))))
+}
+
 export function profileScript(file: string, sheet: string | null): string {
   return PROFILE_SCRIPT.replace('__FILE__', JSON.stringify(file))
     .replace('__SHEET__', sheet === null ? 'None' : JSON.stringify(sheet))

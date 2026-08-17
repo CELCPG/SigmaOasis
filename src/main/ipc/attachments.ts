@@ -3,6 +3,8 @@ import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { basename, extname } from 'path'
 import { extractPdfText } from './pdf'
+import { runPython, workbenchRuntimePresent } from './workbench'
+import { docxScript } from './workbenchProfile'
 import { indexAttachment, retrieveAttachmentPassages } from './attachmentIndex'
 import type { AttachmentRef } from './attachmentIndex'
 
@@ -97,6 +99,31 @@ export async function readTextDocument(
       text: outcome.text.slice(0, maxChars),
       truncated: outcome.text.length > maxChars
     }
+  }
+
+  // v1.7.1: .docx via the Workbench sandbox — a docx is a zip of XML, and
+  // zipfile + ElementTree read it there with no new dependency, exactly like
+  // XLSX profiling. Heading styles come back as Markdown headings, so Word
+  // documents get real sections for chunking and citations. Refuses fast
+  // when the runtime is not installed instead of paying a cold start to fail.
+  if (ext === '.docx') {
+    if (!workbenchRuntimePresent()) {
+      throw new Error('.docx needs the Workbench runtime, which is not installed (Settings → Tools shows the fix).')
+    }
+    const stat = await fs.stat(path)
+    if (stat.size > MAX_PDF_BYTES) {
+      throw new Error(`Document is larger than ${MAX_PDF_BYTES / 1024 / 1024} MB.`)
+    }
+    const outcome = await runPython({
+      code: docxScript(maxChars + 1),
+      files: [{ name: 'input.docx', data: await fs.readFile(path) }],
+      timeoutMs: 60_000
+    })
+    if (!outcome.ok) {
+      throw new Error(`Could not read the .docx: ${outcome.error || outcome.stderr.trim().split('\n').pop() || 'unknown error'}`)
+    }
+    const text = outcome.stdout.replace(/\n$/, '')
+    return { name, text: text.slice(0, maxChars), truncated: text.length > maxChars }
   }
 
   if (!TEXT_EXTENSIONS.has(ext)) {
@@ -303,7 +330,7 @@ export function registerAttachmentHandlers(): void {
       filters: [
         {
           name: 'Images, text & PDF',
-          extensions: [...Object.keys(IMAGE_MIME), ...TEXT_EXTENSIONS, '.pdf', ...Object.keys(DATA_EXTENSIONS)].map((e) => e.slice(1))
+          extensions: [...Object.keys(IMAGE_MIME), ...TEXT_EXTENSIONS, '.pdf', '.docx', ...Object.keys(DATA_EXTENSIONS)].map((e) => e.slice(1))
         },
         { name: 'Audio (transcribed locally)', extensions: [...AUDIO_EXTENSIONS].map((e) => e.slice(1)) },
         { name: 'All files', extensions: ['*'] }

@@ -105,6 +105,11 @@ function runtimePresent(): boolean {
   return existsSync(join(pyodideDir(), 'pyodide.js')) && existsSync(join(pyodideDir(), 'pyodide.asm.wasm'))
 }
 
+/** Exported for callers that must refuse fast (docx extraction) instead of paying a cold start to fail. */
+export function workbenchRuntimePresent(): boolean {
+  return runtimePresent()
+}
+
 // ---- the page --------------------------------------------------------------------
 
 const PAGE_HTML = `<!doctype html>

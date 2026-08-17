@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatProfile, parseProfile, profileScript } from '../src/main/ipc/workbenchProfile'
+import { docxScript, formatProfile, parseProfile, profileScript } from '../src/main/ipc/workbenchProfile'
 import { formatRun } from '../src/main/ipc/workbenchFormat'
 
 /**
@@ -87,5 +87,19 @@ describe('formatRun', () => {
   })
   test('nothing printed → a hint', () => {
     assert.match(formatRun(base, '').output ?? '', /print\(\) what you want to see/)
+  })
+})
+
+describe('docxScript (v1.7.1)', () => {
+  test('reads /work/input.docx, maps heading styles, and caps output', () => {
+    const script = docxScript(5000)
+    assert.match(script, /\/work\/input\.docx/)
+    assert.match(script, /word\/document\.xml/)
+    assert.match(script, /\[Hh\]eading\(\[1-6\]\)/)
+    assert.match(script, /\[:5000\]/)
+    assert.ok(!script.includes('__MAX_CHARS__'))
+  })
+  test('the cap is floored and never zero', () => {
+    assert.match(docxScript(0.4), /\[:1\]/)
   })
 })

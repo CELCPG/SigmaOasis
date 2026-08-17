@@ -259,7 +259,7 @@ describe('user packs from a folder', () => {
   test('an empty folder is refused', async () => {
     const folder = join(root, 'empty-folder')
     mkdirSync(folder, { recursive: true })
-    await assert.rejects(lib.createPackFromFolder(folder), /No \.md, \.txt or \.pdf/)
+    await assert.rejects(lib.createPackFromFolder(folder), /No \.md, \.txt, \.pdf or \.docx/)
   })
 })
 
@@ -578,5 +578,21 @@ describe('relevance floor', () => {
     await lib.installPackFromDirectory(writePack('first-aid', [{ id: 'basics', title: 'First Aid Basics', text: FIRST_AID }]))
     const out = await lib.lookupLibrary({ query: 'running water burn', topK: 3 })
     assert.ok(out.passages.length > 0)
+  })
+})
+
+describe('.docx in user packs (v1.7.1)', () => {
+  test('without the Workbench runtime, a .docx is skipped with the reason named', async () => {
+    const folder = join(root, 'docx-only')
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'contract.docx'), 'not really a docx')
+    const prev = process.env.SIGMA_PYODIDE_DIR
+    process.env.SIGMA_PYODIDE_DIR = join(root, 'no-runtime-here')
+    try {
+      await assert.rejects(lib.createPackFromFolder(folder), /Workbench runtime/)
+    } finally {
+      if (prev === undefined) delete process.env.SIGMA_PYODIDE_DIR
+      else process.env.SIGMA_PYODIDE_DIR = prev
+    }
   })
 })
