@@ -434,7 +434,7 @@ export interface AppSettings {
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
   /** v1.4.6: revise an answer whose specifics the tools did not support. */
-  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean }
+  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -630,6 +630,8 @@ export interface GroundingReport {
   origins?: string[]
   /** Phone numbers and email addresses backed by no tool output (v1.4.5). */
   contacts?: string[]
+  /** v1.6: the reply's Python failed when run in the sandbox. */
+  code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */
   addresses?: string[]
   /** Tools whose output formed the corpus, named in the disclosure. */
@@ -695,6 +697,8 @@ export interface ChatMessage {
   secondOpinion?: SecondOpinionRecord
   /** v1.5.1: the think-harder pass that ran on this reply, if any. */
   deliberation?: DeliberationRecord
+  /** v1.6: Workbench verification passes that ran on this reply (recompute / code check). */
+  checks?: { kind: 'recompute' | 'code'; ok: boolean; summary: string }[]
   /**
    * The long-term memory chunks injected into the system prompt for this turn
    * (v0.9 visible recall). Display-only — never replayed to a model.

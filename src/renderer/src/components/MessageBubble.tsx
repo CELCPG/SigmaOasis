@@ -536,6 +536,20 @@ export const MessageBubble = memo(function MessageBubble({
           <MemoryContextLine items={message.memoryContext} />
         )}
 
+        {!isStreaming && message.checks && message.checks.length > 0 && (
+          <div className="mt-2 space-y-0.5 text-[11px]">
+            {message.checks.map((c, i) => (
+              <div
+                key={i}
+                className={c.ok ? 'text-neutral-400' : 'text-amber-600 dark:text-amber-400'}
+                title="Workbench verification: the app ran Python in the sandbox to check this reply — recomputing its figures, or running the code it contains. Settings → Models → Workbench checks."
+              >
+                {c.summary}
+              </div>
+            ))}
+          </div>
+        )}
+
         {!isStreaming && message.playbook && (
           <div
             className="mt-2 text-[11px] text-neutral-400"

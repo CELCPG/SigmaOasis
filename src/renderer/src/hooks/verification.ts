@@ -2,6 +2,17 @@ import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
 import {
+  buildRecomputeMessages,
+  buildRecomputeReference,
+  codeFailureFinding,
+  describeRecompute,
+  extractRecomputeProgram,
+  isSelfContained,
+  longestPythonFence
+} from '../lib/workbenchChecks'
+import { parseRanCode } from '../lib/ranCode'
+import type { WorkbenchCheck } from '../lib/workbenchChecks'
+import {
   buildReviewMessages,
   buildRevisionMessages,
   figuresChanged,
@@ -360,9 +371,19 @@ export async function reviseAgainstFindings(
   const findings = describeGroundingFindings(report)
   if (!findings) return ''
 
+  // v1.6: when the app recomputed the figures, hand the revision that output
+  // directly — the correct values exist and the fix is substitution, not
+  // deletion. Measured without this: the revision disclaimed the numbers away
+  // while the right ones sat in a tool record it never looked at.
+  const recompute = [...records]
+    .reverse()
+    .find((r) => r.name === 'run_python' && r.status === 'done' && /recomputing the figures/i.test(r.preamble ?? ''))
+  const recomputeStdout = recompute?.result ? parseRanCode(recompute.result, true).stdout : ''
+  const recomputeBlock = recomputeStdout ? `\n\n${buildRecomputeReference(recomputeStdout)}` : ''
+
   const messages: ApiMessage[] = [
     { role: 'system', content: withGrounding(slot.systemPrompt) },
-    { role: 'user', content: `The answer you just gave:\n\n${answer}\n\n---\n${findings}` }
+    { role: 'user', content: `The answer you just gave:\n\n${answer}\n\n---\n${findings}${recomputeBlock}` }
   ]
 
   let revised = ''
@@ -526,4 +547,113 @@ export async function runDeliberation(
       patchRecord({ status: 'error', note: err instanceof Error ? err.message : String(err) })
     }
   }
+}
+
+/**
+ * v1.6 Workbench verification — recompute (see lib/workbenchChecks.ts).
+ * Asks the answerer for a Python program that recomputes its stated figures,
+ * runs it as a real run_python record (visible as "Ran Python"), and returns
+ * the disclosure line. The grounding pass that follows judges the reply's
+ * figures against that stdout.
+ */
+export async function runRecompute(
+  convo: Conversation,
+  slot: ModelConfig,
+  baseUrl: string,
+  question: string,
+  answer: string,
+  records: ToolCallRecord[],
+  toolContext: { modelId?: string; attachments?: { name: string; sourcePath: string }[] },
+  signal: AbortSignal,
+  onRecords: () => void
+): Promise<WorkbenchCheck> {
+  let text = ''
+  try {
+    await streamChat(
+      baseUrl,
+      slot.modelId,
+      buildRecomputeMessages(slot, question, answer),
+      [],
+      signal,
+      (chunk) => {
+        text += chunk
+      },
+      undefined,
+      { ...slot.sampling, temperature: 0 }
+    )
+  } catch (err) {
+    return describeRecompute({ ran: false, ok: false, note: err instanceof Error ? err.message : String(err) })
+  }
+  if (signal.aborted) return describeRecompute({ ran: false, ok: false, note: 'cancelled' })
+  const code = extractRecomputeProgram(text)
+  if (!code) return describeRecompute({ ran: false, ok: false, note: 'the model did not return a program' })
+  const record: ToolCallRecord = {
+    id: uid(),
+    name: 'run_python',
+    args: { code },
+    status: 'running',
+    preamble: 'App-initiated: recomputing the figures stated in the answer.'
+  }
+  records.push(record)
+  onRecords()
+  const result: { ok: boolean; output?: string; error?: string } = await window.api
+    .executeTool('run_python', { code, timeout_seconds: 30 }, toolContext)
+    .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+  record.status = result.ok ? 'done' : 'error'
+  record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+  onRecords()
+  audit(convo, {
+    kind: 'tool_call',
+    roleName: slot.roleName,
+    modelId: slot.modelId,
+    toolName: 'run_python',
+    ok: result.ok,
+    text: `[recompute] run_python(${JSON.stringify({ code })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+  })
+  return describeRecompute({ ran: true, ok: result.ok, note: result.ok ? undefined : 'the recomputation raised an error' })
+}
+
+/**
+ * v1.6 Workbench verification — code check. Runs the reply's longest
+ * self-contained Python block; returns the finding line for the grounding
+ * report (null when it runs, or when the failure is environmental) and the
+ * run record for the bubble.
+ */
+export async function runCodeCheck(
+  convo: Conversation,
+  slot: ModelConfig,
+  answer: string,
+  records: ToolCallRecord[],
+  toolContext: { modelId?: string; attachments?: { name: string; sourcePath: string }[] },
+  onRecords: () => void
+): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string }> {
+  const code = longestPythonFence(answer)
+  if (!code) return { finding: null, ran: false, ok: false, note: 'no Python block' }
+  if (!isSelfContained(code)) return { finding: null, ran: false, ok: false, note: 'the code needs input, files or the network, so it cannot be checked in the sandbox' }
+  const record: ToolCallRecord = {
+    id: uid(),
+    name: 'run_python',
+    args: { code },
+    status: 'running',
+    preamble: 'App-initiated: running the Python in the answer to check that it works.'
+  }
+  records.push(record)
+  onRecords()
+  const result: { ok: boolean; output?: string; error?: string } = await window.api
+    .executeTool('run_python', { code, timeout_seconds: 20 }, toolContext)
+    .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+  record.status = result.ok ? 'done' : 'error'
+  record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+  onRecords()
+  audit(convo, {
+    kind: 'tool_call',
+    roleName: slot.roleName,
+    modelId: slot.modelId,
+    toolName: 'run_python',
+    ok: result.ok,
+    text: `[code check] run_python(${JSON.stringify({ code })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+  })
+  if (result.ok) return { finding: null, ran: true, ok: true }
+  const finding = codeFailureFinding(result.error ?? '')
+  return { finding, ran: true, ok: false, note: finding ? undefined : 'the failure was environmental, not the code’s' }
 }

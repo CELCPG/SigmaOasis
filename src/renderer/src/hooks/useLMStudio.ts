@@ -74,9 +74,17 @@ import {
   reviseAgainstFindings,
   runAutoCritic,
   runClaimCheck,
+  runCodeCheck,
   runConsultation,
-  runDeliberation
+  runDeliberation,
+  runRecompute
 } from './verification'
+import {
+  describeCodeCheck,
+  looksArithmetic,
+  revisionDropsAllFigures,
+  revisionEchoesScaffolding
+} from '../lib/workbenchChecks'
 import { planApprovals, runPlanTurn } from './planMode'
 
 /**
@@ -706,10 +714,28 @@ async function runTurn(
       .map((m) => m.content)
       .join('\n')
 
-  const groundingReport = (): GroundingReport | null =>
-    checkToolGrounding(assistantMsg.content, allRecords, allUserText(), {
-      expectPricingTool: shoppingTurn
-    })
+  // v1.6: the Workbench's code check joins the report. It is re-run on a
+  // revision, so the gate compares like with like: a revision whose code now
+  // runs has strictly fewer findings; one that merely rewords does not.
+  const workbenchChecksOn =
+    useAppStore.getState().settings?.grounding.workbenchChecks !== false &&
+    slotTools.some((t) => t.function.name === 'run_python')
+  const checks: NonNullable<ChatMessage['checks']> = []
+  const codeCheckMemo = new Map<string, { finding: string | null; ran: boolean; ok: boolean; note?: string }>()
+  const codeFindingFor = async (content: string): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string }> => {
+    if (!workbenchChecksOn) return { finding: null, ran: false, ok: false }
+    const hit = codeCheckMemo.get(content)
+    if (hit) return hit
+    const out = await runCodeCheck(convo, slot, content, allRecords, toolContext, () => patch({ toolCalls: [...allRecords] }))
+    codeCheckMemo.set(content, out)
+    return out
+  }
+  const groundingReport = async (content = assistantMsg.content): Promise<GroundingReport | null> => {
+    const base = checkToolGrounding(content, allRecords, allUserText(), { expectPricingTool: shoppingTurn })
+    const code = await codeFindingFor(content)
+    if (!code.finding) return base
+    return { ...(base ?? { figures: [], links: [], checkedAgainst: ['run_python'] }), code: [code.finding] }
+  }
 
   /**
    * v1.4.6: hand the findings back for one revision, then re-check.
@@ -720,7 +746,39 @@ async function runTurn(
    * the checker is satisfied.
    */
   const checkGrounding = async (): Promise<void> => {
-    const report = groundingReport()
+    // v1.6 code check, disclosed whether or not it found anything.
+    const firstCode = await codeFindingFor(assistantMsg.content)
+    if (firstCode.ran || firstCode.note === 'the code needs input, files or the network, so it cannot be checked in the sandbox') {
+      checks.push(describeCodeCheck({ ran: firstCode.ran, ok: firstCode.ok, finding: firstCode.finding, note: firstCode.note }))
+      patch({ checks: [...checks] })
+    }
+    let report = await groundingReport()
+
+    // v1.6 recompute. Two cases, one action: figures were stated and nothing
+    // computed them (no report can exist yet — the check has no corpus), or a
+    // tool ran and does not support what was stated (measured: a correct
+    // out-the-door price flagged because the model had misused the finance
+    // calculator; the old path then revised the number away). Either way, ask
+    // for a Python recomputation and re-check: figures it supports stop being
+    // findings, and no revision is needed at all.
+    const numericRan = allRecords.some(
+      (r) => (r.name === 'run_python' || r.name === 'finance_calculator' || r.name === 'analyze_file') && r.status === 'done'
+    )
+    if (
+      workbenchChecksOn &&
+      lastUserContent &&
+      !signal.aborted &&
+      looksArithmetic(allUserText(), assistantMsg.content) &&
+      (!numericRan || (report?.figures.length ?? 0) > 0)
+    ) {
+      checks.push(
+        await runRecompute(convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, signal, () =>
+          patch({ toolCalls: [...allRecords] })
+        )
+      )
+      patch({ checks: [...checks] })
+      report = await groundingReport()
+    }
     if (!report) return
     const autoCorrect = useAppStore.getState().settings?.grounding.autoCorrect !== false
     if (!autoCorrect || signal.aborted) {
@@ -753,16 +811,32 @@ async function runTurn(
     // "verified against search results" when nothing had run.
     const original = assistantMsg.content
     assistantMsg.content = revised
-    const after = groundingReport()
-    if (!revisionIsAnImprovement(report, after)) {
+    const after = await groundingReport(revised)
+    // A revision that "fixes" flagged figures by deleting every figure from a
+    // quantitative answer is not an improvement, it is a non-answer (measured:
+    // a correct price replaced by "I could not verify…"). Keep the original,
+    // flagged, and let the badge speak.
+    if (
+      revisionDropsAllFigures(original, revised) ||
+      revisionEchoesScaffolding(revised) ||
+      !revisionIsAnImprovement(report, after)
+    ) {
       assistantMsg.content = original
       patch({ content: original, grounding: report })
       return
     }
+    // The revision's code ran clean where the draft's did not: say so.
+    if (report.code?.length && !after?.code?.length) {
+      const i = checks.findIndex((c) => c.kind === 'code')
+      const line = describeCodeCheck({ ran: true, ok: false, revisedRuns: true })
+      if (i >= 0) checks[i] = line
+      else checks.push(line)
+    }
     patch({
       content: revised,
       corrected: { before: report, at: Date.now() },
-      grounding: after ?? undefined
+      grounding: after ?? undefined,
+      checks: [...checks]
     })
   }
 

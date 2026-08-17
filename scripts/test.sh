@@ -105,6 +105,7 @@ rm -rf "$OUT"
   src/renderer/src/lib/modelProfiles.ts \
   src/renderer/src/lib/deliberation.ts \
   src/renderer/src/lib/ranCode.ts \
+  src/renderer/src/lib/workbenchChecks.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts

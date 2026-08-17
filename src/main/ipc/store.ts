@@ -220,6 +220,12 @@ export interface GroundingSettings {
    * honest. Off = think-harder requires a second slot, like second opinions.
    */
   selfReview: boolean
+  /**
+   * v1.6: Workbench verification — recompute a reply's stated figures in
+   * Python when nothing computed them, and run the Python a reply contains.
+   * Findings go through the same one-revision gate as other grounding.
+   */
+  workbenchChecks: boolean
 }
 
 export interface ClaimCheckSettings {
@@ -447,7 +453,7 @@ function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true, selfReview: true },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -669,7 +675,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     grounding: {
       autoCorrect: settings.grounding?.autoCorrect !== false,
       playbooks: settings.grounding?.playbooks !== false,
-      selfReview: settings.grounding?.selfReview !== false
+      selfReview: settings.grounding?.selfReview !== false,
+      workbenchChecks: settings.grounding?.workbenchChecks !== false
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

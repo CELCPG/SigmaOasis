@@ -52,6 +52,8 @@ export interface GroundingReport {
   addresses?: string[]
   /** Phone numbers and email addresses that appear in no tool output. */
   contacts?: string[]
+  /** v1.6: the reply's Python failed when run in the sandbox (finding lines). */
+  code?: string[]
   /** Tools whose output was used as the corpus, for the disclosure text. */
   checkedAgainst: string[]
 }
@@ -89,7 +91,8 @@ export function groundingFindingCount(report: GroundingReport | null): number {
     report.links.length +
     (report.origins?.length ?? 0) +
     (report.contacts?.length ?? 0) +
-    (report.addresses?.length ?? 0)
+    (report.addresses?.length ?? 0) +
+    (report.code?.length ?? 0)
   )
 }
 
@@ -117,6 +120,7 @@ export function revisionIsAnImprovement(
 
 export function describeGroundingFindings(report: GroundingReport): string {
   const lines: string[] = []
+  if (report.code?.length) lines.push(...report.code)
   if (report.addresses?.length) {
     lines.push(`- Addresses that appear in no result: ${report.addresses.join('; ')}`)
   }

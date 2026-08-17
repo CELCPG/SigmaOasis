@@ -1097,6 +1097,29 @@ export function SettingsModal(): JSX.Element | null {
                       </span>
                     </span>
                   </label>
+
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.grounding.workbenchChecks}
+                      onChange={(e) =>
+                        update({ grounding: { ...draft.grounding, workbenchChecks: e.target.checked } })
+                      }
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Workbench checks — recompute figures, run the code
+                      <span className="mt-0.5 block text-xs text-neutral-500">
+                        When a reply states figures that nothing computed, the model is asked for a
+                        short Python program that recomputes them and the app runs it in the sandbox;
+                        the reply is then checked against that output like any calculator result.
+                        When a reply contains self-contained Python, the app runs it — a syntax error,
+                        an undefined name or a failed assertion is sent back for one revision, kept
+                        only if the revised code runs. Both are disclosed under the reply
+                        (&ldquo;🧮 Recomputed…&rdquo;, &ldquo;🧪 Ran the Python…&rdquo;).
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
             )}
