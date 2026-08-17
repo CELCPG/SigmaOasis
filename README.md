@@ -32,7 +32,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter beneath the composer shows how full the window is. Switch to plain trimming under Settings → General.
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches. New in 0.9: recall is **visible** (each reply shows which memory chunks it used) and **scoped** (a conversation can restrict which sources it recalls from).
-- **Offline reference library — the Almanac (1.5).** Install curated **reference packs** (first aid, health, emergency preparedness, food safety, personal finance & tax, home safety, US civic basics — public-domain / OGL sources, 105 documents in `packs/`) or turn a folder of your own manuals and notes into a pack. Passages are retrieved by relevance (keyword + semantic) with a citation — *pack › document › section*, plus source, license and date — and the app consults the library **before the model answers** first-aid, health, finance, legal, home-repair and food questions, and any factual question while offline. Shown under the reply as **📖 From the library**. Entirely local: nothing about it uses the network.
+- **Offline reference library — the Almanac (1.5).** Install curated **reference packs** (first aid, health, emergency preparedness, food safety, personal finance & tax, home safety, US civic basics — public-domain / OGL sources, 105 documents in `packs/`) or turn a folder of your own manuals and notes into a pack — **tracked** since 1.7: the app notices when the folder changes and updates the pack in place, keeping embeddings for unchanged documents. Passages are retrieved by relevance (keyword + semantic, section-aware since 1.7) with a citation — *pack › document › section*, plus source, license and date — and the app consults the library **before the model answers** first-aid, health, finance, legal, home-repair and food questions, and any factual question while offline. Shown under the reply as **📖 From the library**. Entirely local: nothing about it uses the network.
 - **The Workbench (1.6).** A **Python runtime the model computes with instead of guessing** — sandboxed by construction (CPython in WebAssembly inside a fully sandboxed window: no network, not even loopback; a virtual filesystem; fresh state per run; runaway code killed at its budget). Standard library plus **numpy, pandas and matplotlib**, bundled offline. Attach a CSV/TSV/JSON/XLSX and the app **profiles it mechanically before the model answers** (`analyze_file`: types, nulls, stats, head — computed, not guessed); the file sits at `/work/<name>` for `run_python`; a saved matplotlib figure renders in the chat. The code that ran is shown open by default (**⚡ Ran Python**) with its output — the computation is the evidence.
 - **What that is worth, measured (1.6).** On 20 arithmetic and spreadsheet questions with independently computed answers, a 9B model scored **56% bare and 100% with the Workbench** — including **0/6 → 6/6** on questions requiring a 400-row CSV to be aggregated, for about ten extra seconds a case. On 28 offline reference questions the library retrieved passages for all 28, the model answered 25 and cited a real source in 26, with 1 case stating a figure its passages did not support. Harnesses and caveats: [`docs/evals.md`](docs/evals.md).
 - **Workbench verification (1.6).** The sandbox checks answers, not just questions: figures a reply states with nothing behind them are **recomputed in Python** and judged against that output; **self-contained Python in a reply is run** before you trust it, and a syntax error, undefined name or failed assertion goes back for one gated revision, kept only if the revised code runs. Disclosed under the reply (🧮 / 🧪); measured live catching a 9B model's wrong out-the-door total and correcting it to the exact figure.
@@ -394,6 +394,24 @@ answers.
   (~30 MB, pinned version; CI and releases fetch it themselves). The app never downloads at run
   time. Everything works without it except the two Workbench tools, which report themselves
   unavailable.
+
+---
+
+## 🗂 v1.7: personal packs that stay current, retrieval by sections
+
+A pack built from your own folder is only useful while it stays true to the folder. v1.7 makes
+user packs **tracked**: the Library tab stat-walks each pack's source folder and says when it has
+drifted ("Source folder has changed: 1 edited, 1 new"); **Update** rebuilds the pack in place,
+carrying embedding vectors for every document whose text is unchanged — matched by **content
+hash**, so a renamed file keeps its vectors and editing three files in a 500-document pack costs
+three files. Embedding runs automatically after add and update. The library trigger also learned
+what personal documents are called: *my lease*, *the warranty*, *my insurance policy* now consult
+it. Retrieval itself became **section-aware** — no chunk spans a heading boundary, and a lookup
+spends its passages on distinct sections — which fixed both recorded wrong-section eval failures
+and took unsupported measurements to 0/28 (three-run analysis, including what did *not* improve:
+[`docs/evals.md`](docs/evals.md)). Replies that echo the app's internal turn-notes scaffold are
+now scrubbed and disclosed (🧾), by a guard sharing its marker with the prompt so they cannot
+drift.
 
 ---
 
