@@ -261,6 +261,130 @@ describe('user packs from a folder', () => {
   })
 })
 
+describe('user packs · update from folder (v1.7)', () => {
+  let n = 0
+  /** A fresh folder with two documents; returns paths and the created pack. */
+  async function tracked(): Promise<{ folder: string; id: string }> {
+    const folder = join(root, `tracked-${n++}`)
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'boiler.md'), '# Boiler\n\nThe boiler pilot light relights by holding the ignition button for thirty seconds.')
+    writeFileSync(join(folder, 'lease.txt'), 'The lease permits subletting with sixty days written notice to the landlord.')
+    const summary = await lib.createPackFromFolder(folder, { name: 'Home papers' })
+    return { folder, id: summary.id }
+  }
+  const indexOf = (id: string): { embeddingModel: string; docs: Record<string, { chunkCount: number; vectors: string }> } =>
+    JSON.parse(readFileSync(join(root, 'lib', id, 'index.json'), 'utf-8'))
+
+  test('records the source folder and per-document stat', async () => {
+    const { folder, id } = await tracked()
+    const manifest = JSON.parse(readFileSync(join(root, 'lib', id, 'manifest.json'), 'utf-8'))
+    assert.equal(manifest.sourceFolder, folder)
+    for (const d of manifest.docs) {
+      assert.equal(typeof d.sourceMtime, 'number')
+      assert.equal(typeof d.sourceSize, 'number')
+    }
+  })
+
+  test('update reflects edits; unchanged documents keep their vectors, edited ones lose them', async () => {
+    const { folder, id } = await tracked()
+    await lib.embedPack(id)
+    const before = indexOf(id)
+    assert.equal(Object.keys(before.docs).length, 2)
+
+    writeFileSync(join(folder, 'lease.txt'), 'The lease permits subletting with ninety days written notice to the landlord.')
+    const r = await lib.updatePackFromFolder(id)
+    assert.equal(r.pack.docs, 2)
+    assert.ok(r.carriedChunks > 0, 'the unchanged boiler doc must carry its vectors')
+    assert.ok(r.missingChunks > 0, 'the edited lease must need re-embedding')
+    const after = indexOf(id)
+    assert.deepEqual(Object.keys(after.docs), ['boiler'])
+    assert.equal(after.docs.boiler.vectors, before.docs.boiler.vectors)
+
+    // The library serves the new text at once (keyword), and the summary is honest.
+    const out = await lib.lookupLibrary({ query: 'subletting written notice landlord', topK: 1 })
+    assert.match(out.passages[0].text, /ninety days/)
+    const [pack] = await lib.listPacks()
+    assert.equal(pack.embeddedChunks, r.carriedChunks)
+    // Finishing the embed only has to pay for the edited document.
+    const job = await lib.embedPack(id)
+    assert.equal(job.ok, true, job.error)
+    assert.equal(job.embedded, job.total)
+  })
+
+  test('a renamed file keeps its vectors — matching is by content, not name', async () => {
+    const { folder, id } = await tracked()
+    await lib.embedPack(id)
+    rmSync(join(folder, 'lease.txt'))
+    writeFileSync(join(folder, 'rental-agreement.txt'), 'The lease permits subletting with sixty days written notice to the landlord.')
+    const r = await lib.updatePackFromFolder(id)
+    assert.equal(r.missingChunks, 0, 'identical text under a new name must not need re-embedding')
+    const after = indexOf(id)
+    assert.ok(after.docs['rental-agreement'], 'vectors live under the new doc id')
+    const out = await lib.lookupLibrary({ query: 'subletting written notice landlord', topK: 1 })
+    assert.equal(out.passages[0].docTitle, 'rental-agreement')
+  })
+
+  test('added and removed files are reflected', async () => {
+    const { folder, id } = await tracked()
+    rmSync(join(folder, 'boiler.md'))
+    writeFileSync(join(folder, 'warranty.txt'), 'The dishwasher warranty covers parts and labour for two years from delivery.')
+    const r = await lib.updatePackFromFolder(id)
+    assert.equal(r.pack.docs, 2)
+    const found = await lib.lookupLibrary({ query: 'dishwasher warranty parts labour', topK: 1 })
+    assert.match(found.passages[0].text, /two years/)
+    const gone = await lib.lookupLibrary({ query: 'boiler pilot light ignition', topK: 1 })
+    assert.equal(gone.passages.length, 0)
+  })
+
+  test('refusals: curated packs, untracked packs, a vanished folder', async () => {
+    await lib.installPackFromDirectory(writePack('first-aid', [{ id: 'basics', title: 'B', text: FIRST_AID }]))
+    await assert.rejects(lib.updatePackFromFolder('first-aid'), /curated pack/)
+    // A pre-v1.7 user pack: strip sourceFolder from the manifest.
+    const { folder, id } = await tracked()
+    const mPath = join(root, 'lib', id, 'manifest.json')
+    const m = JSON.parse(readFileSync(mPath, 'utf-8'))
+    delete m.sourceFolder
+    writeFileSync(mPath, JSON.stringify(m))
+    lib.setLibraryDirForTests(join(root, 'lib'))
+    await assert.rejects(lib.updatePackFromFolder(id), /before folder tracking/)
+    // Tracked, but the folder is gone.
+    const second = await tracked()
+    rmSync(second.folder, { recursive: true })
+    await assert.rejects(lib.updatePackFromFolder(second.id), /no longer exists/)
+    void folder
+  })
+
+  test('freshness: fresh after create; edits, additions and removals are counted', async () => {
+    const { folder, id } = await tracked()
+    assert.deepEqual(await lib.checkPackFreshness(id), {
+      supported: true, fresh: true, missingFolder: false, added: 0, removed: 0, changed: 0, examples: []
+    })
+    writeFileSync(join(folder, 'lease.txt'), 'A different lease text entirely, with a different length.')
+    writeFileSync(join(folder, 'new-doc.md'), '# New\n\nA new document.')
+    rmSync(join(folder, 'boiler.md'))
+    const report = await lib.checkPackFreshness(id)
+    assert.equal(report.fresh, false)
+    assert.equal(report.changed, 1)
+    assert.equal(report.added, 1)
+    assert.equal(report.removed, 1)
+    assert.ok(report.examples.length > 0)
+    // After an update the report is clean again.
+    await lib.updatePackFromFolder(id)
+    assert.equal((await lib.checkPackFreshness(id)).fresh, true)
+  })
+
+  test('freshness: unsupported for curated packs, missing folder is named', async () => {
+    await lib.installPackFromDirectory(writePack('first-aid', [{ id: 'basics', title: 'B', text: FIRST_AID }]))
+    assert.equal((await lib.checkPackFreshness('first-aid')).supported, false)
+    const { folder, id } = await tracked()
+    rmSync(folder, { recursive: true })
+    const report = await lib.checkPackFreshness(id)
+    assert.equal(report.supported, true)
+    assert.equal(report.missingFolder, true)
+    assert.equal(report.fresh, false)
+  })
+})
+
 describe('bounds', () => {
   test('a document over the per-document cap is refused at install', async () => {
     const src = writePack('big', [{ id: 'huge', title: 'Huge', text: 'x'.repeat(lib.MAX_DOC_CHARS + 1) }])

@@ -477,6 +477,8 @@ export interface LibraryPackSummary {
   license: string
   kind: 'curated' | 'user'
   sourceNote?: string
+  /** v1.7: the folder a user pack tracks; absent on curated and pre-v1.7 packs. */
+  sourceFolder?: string
   installedAt: string
   docs: number
   chars: number
@@ -531,6 +533,28 @@ export interface LibraryEmbedResult {
   total: number
   model: string | null
   error?: string
+}
+
+/** v1.7: result of updating a user pack from its source folder. */
+export interface LibraryUpdateResult {
+  ok: boolean
+  pack?: LibraryPackSummary
+  /** Chunks whose vectors were carried over (their document's text is unchanged). */
+  carriedChunks?: number
+  /** Chunks that still need embedding after the update. */
+  missingChunks?: number
+  error?: string
+}
+
+/** v1.7: has a user pack's source folder drifted from the snapshot? */
+export interface LibraryFreshness {
+  supported: boolean
+  fresh: boolean
+  missingFolder: boolean
+  added: number
+  removed: number
+  changed: number
+  examples: string[]
 }
 
 /** v1.6: the Workbench's sandboxed Python runtime (main/ipc/workbench.ts). */

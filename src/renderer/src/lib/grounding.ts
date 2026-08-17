@@ -204,8 +204,13 @@ const FOOD_DOMAINS =
   /\b(?:food safety|food poisoning|expir(?:ed|ation|y)|spoiled|refrigerat(?:e|ed|ion)|thaw(?:ing)?|defrost|internal temperature|calories|nutrition|vitamins?|sodium|servings?|leftovers?|fridge|refrigerator|freezer|reheat(?:ing)?|cooked (?:chicken|meat|rice|fish|food|eggs))\b/i
 
 /** Explicit asks to consult installed reference material or the user's own documents. */
+// v1.7 widened for personal packs: the user's own documents are leases,
+// warranties and policies, not just "notes" and "manuals". Nouns must still
+// name a *document* — a false fire costs one local lookup whose relevance
+// floor returns nothing, but a bare word like "policy" ("foreign policy")
+// would fire constantly, so each noun is anchored to a possessive or "the".
 const ASKS_REFERENCE =
-  /\b(?:reference library|reference pack|first aid manual|the manual|my (?:documents|docs|notes|manuals?|files)|according to (?:the|my) (?:manual|guide|handbook|documents?|notes))\b/i
+  /\b(?:reference library|reference pack|first aid manual|the manual|(?:my|our) (?:documents|docs|notes|manuals?|files|paperwork|lease|contract|warranty|policy|policies|agreement|deed|syllabus|handbook|spec|specs)|(?:the|my|our) (?:lease|warranty|rental agreement|insurance policy|owner'?s manual|service manual|employee handbook)|according to (?:the|my|our) (?:manual|guide|handbook|documents?|notes|lease|contract|policy|warranty|agreement|spec))\b/i
 
 /**
  * The reference-book domains a message can fall into. Ordered by how much a

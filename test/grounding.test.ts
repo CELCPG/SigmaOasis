@@ -337,7 +337,13 @@ describe('looksReference (v1.5)', () => {
     'what does the first aid manual say about choking',
     'according to my notes, what is the router password',
     'symptoms of carbon monoxide poisoning',
-    'should I contribute to a roth or traditional ira'
+    'should I contribute to a roth or traditional ira',
+    // v1.7: personal-document nouns (the personal packs trigger)
+    'does my lease allow subletting the second bedroom',
+    'is water damage covered by the warranty',
+    'what does our contract say about late payment',
+    'when does my insurance policy renew',
+    'according to the spec, what is the maximum load'
   ]
   const no = [
     'write a poem about the sea',
@@ -345,7 +351,10 @@ describe('looksReference (v1.5)', () => {
     'what album did Radiohead release in 2007',
     'hi',
     'summarize our conversation so far',
-    'plan a trip to Lisbon in June'
+    'plan a trip to Lisbon in June',
+    // v1.7: document nouns without a document anchor must not fire
+    'what do you think about US foreign policy',
+    'the team updated the spec for the parser'
   ]
   for (const t of yes) test(`yes: ${t}`, () => assert.equal(looksReference(t), true))
   for (const t of no) test(`no: ${t}`, () => assert.equal(looksReference(t), false))

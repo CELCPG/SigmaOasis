@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { LibraryLookupResult, LibraryPackSummary } from '../../types'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { LibraryFreshness, LibraryLookupResult, LibraryPackSummary } from '../../types'
 
 /**
  * Settings → Library (v1.5, the Almanac). Lists installed reference packs,
@@ -28,17 +28,43 @@ export function LibraryTab(): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [embedding, setEmbedding] = useState<{ packId: string; done: number; total: number } | null>(null)
+  const [freshness, setFreshness] = useState<Record<string, LibraryFreshness>>({})
   const [query, setQuery] = useState('')
   const [lookup, setLookup] = useState<LibraryLookupResult | null>(null)
   const [looking, setLooking] = useState(false)
+  const mounted = useRef(true)
 
   const refresh = useCallback(() => {
-    void window.api.libraryList().then(setPacks).catch(() => setPacks([]))
+    void window.api
+      .libraryList()
+      .then(async (list) => {
+        if (!mounted.current) return
+        setPacks(list)
+        // Staleness, per tracked user pack. stat-only in the main process, so
+        // running it on every open keeps "your pack is out of date" ambient
+        // rather than something the user has to think to ask for.
+        const reports: Record<string, LibraryFreshness> = {}
+        for (const p of list) {
+          if (p.kind !== 'user' || !p.sourceFolder) continue
+          try {
+            reports[p.id] = await window.api.libraryCheckFresh(p.id)
+          } catch {
+            // an unreadable folder shows nothing rather than a false alarm
+          }
+        }
+        if (mounted.current) setFreshness(reports)
+      })
+      .catch(() => setPacks([]))
   }, [])
 
   useEffect(() => {
+    mounted.current = true
     refresh()
-    return window.api.onLibraryEmbedProgress((p) => setEmbedding(p))
+    const off = window.api.onLibraryEmbedProgress((p) => setEmbedding(p))
+    return () => {
+      mounted.current = false
+      off()
+    }
   }, [refresh])
 
   const run = async (label: string, action: () => Promise<{ ok: boolean; error?: string; cancelled?: boolean; pack?: LibraryPackSummary }>): Promise<void> => {
@@ -55,21 +81,69 @@ export function LibraryTab(): JSX.Element {
     }
   }
 
-  const embed = async (pack: LibraryPackSummary): Promise<void> => {
+  const embed = async (pack: LibraryPackSummary, opts: { auto?: boolean } = {}): Promise<void> => {
     setBusy(`embed:${pack.id}`)
-    setNotice(null)
+    if (!opts.auto) setNotice(null)
     setEmbedding({ packId: pack.id, done: pack.embeddedChunks, total: pack.chunks })
     try {
       const r = await window.api.libraryEmbed(pack.id)
-      setNotice(
-        r.ok
-          ? `Embedded "${pack.name}": ${r.embedded} of ${r.total} passages with ${r.model}.`
-          : `Embedding "${pack.name}" stopped: ${r.error ?? 'unknown error'} (${r.embedded} of ${r.total} kept).`
-      )
+      if (r.ok) {
+        setNotice(`Embedded "${pack.name}": ${r.embedded} of ${r.total} passages with ${r.model}.`)
+      } else if (opts.auto && (r.error ?? '').includes('No embedding model')) {
+        // The automatic pass after add/update, with no embedding model loaded:
+        // not an error — keyword retrieval already works.
+        setNotice(
+          `"${pack.name}" is ready with keyword search. Load an embedding model in LM Studio and press Embed to add semantic search.`
+        )
+      } else {
+        setNotice(`Embedding "${pack.name}" stopped: ${r.error ?? 'unknown error'} (${r.embedded} of ${r.total} kept).`)
+      }
     } finally {
       setEmbedding(null)
       setBusy(null)
       refresh()
+    }
+  }
+
+  /** Add folder → pack, then embed it without being asked (progress is visible; cancel works). */
+  const addFolder = async (): Promise<void> => {
+    setBusy('add')
+    setNotice(null)
+    try {
+      const r = await window.api.libraryAddFolder()
+      if (r.cancelled) return
+      if (!r.ok || !r.pack) {
+        setNotice(r.error ?? 'Adding the folder failed.')
+        return
+      }
+      setNotice(`Added "${r.pack.name}" — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
+      refresh()
+      if (r.pack.chunks > r.pack.embeddedChunks) await embed(r.pack, { auto: true })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Re-read the tracked folder; unchanged documents keep their embeddings. */
+  const update = async (pack: LibraryPackSummary): Promise<void> => {
+    setBusy(`update:${pack.id}`)
+    setNotice(null)
+    try {
+      const r = await window.api.libraryUpdateFromFolder(pack.id)
+      if (!r.ok || !r.pack) {
+        setNotice(r.error ?? `Updating "${pack.name}" failed.`)
+        return
+      }
+      const carried = r.carriedChunks ?? 0
+      const missing = r.missingChunks ?? 0
+      setNotice(
+        `Updated "${r.pack.name}": ${r.pack.docs} document(s) · ${carried} passage(s) kept their embeddings` +
+          (missing > 0 ? `, ${missing} to embed.` : '.')
+      )
+      refresh()
+      if (missing > 0) await embed(r.pack, { auto: true })
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -113,9 +187,9 @@ export function LibraryTab(): JSX.Element {
         <button
           type="button"
           disabled={busy !== null}
-          onClick={() => void run('Added folder', () => window.api.libraryAddFolder())}
+          onClick={() => void addFolder()}
           className={BUTTON}
-          title="Build a pack from a folder of .md, .txt and .pdf files (a snapshot — copied now, not watched)"
+          title="Build a pack from a folder of .md, .txt and .pdf files, then embed it. The folder is remembered: when it changes, the pack shows it and updates in place."
         >
           Add folder…
         </button>
@@ -148,6 +222,19 @@ export function LibraryTab(): JSX.Element {
           {packs.map((p) => {
             const progress = embedding && embedding.packId === p.id ? embedding : null
             const fully = p.chunks > 0 && p.embeddedChunks === p.chunks
+            const fresh = p.kind === 'user' && p.sourceFolder ? freshness[p.id] : undefined
+            const drift = fresh && !fresh.fresh ? fresh : undefined
+            const driftLine = drift
+              ? drift.missingFolder
+                ? 'The source folder no longer exists — lookups keep working from the copy.'
+                : `Source folder has changed: ${[
+                    drift.changed ? `${drift.changed} edited` : '',
+                    drift.added ? `${drift.added} new` : '',
+                    drift.removed ? `${drift.removed} removed` : ''
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}${drift.examples.length ? ` (${drift.examples.join(', ')}${drift.added + drift.changed + drift.removed > drift.examples.length ? ', …' : ''})` : ''}.`
+              : null
             return (
               <li key={p.id} className="rounded-xl border border-black/10 dark:border-white/10 p-3 text-xs">
                 <div className="flex items-start gap-2">
@@ -171,6 +258,12 @@ export function LibraryTab(): JSX.Element {
                             : 'keyword search only — embed for semantic search'}
                     </p>
                     {p.sourceNote && <p className="mt-1 text-neutral-400 break-all">{p.sourceNote}</p>}
+                    {driftLine && (
+                      <p className="mt-1 text-amber-600 dark:text-amber-400">
+                        {driftLine}
+                        {!drift?.missingFolder && ' Update to bring the pack up to date — unchanged documents keep their embeddings.'}
+                      </p>
+                    )}
                     {progress && (
                       <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-black/10 dark:bg-white/10">
                         <div
@@ -181,6 +274,17 @@ export function LibraryTab(): JSX.Element {
                     )}
                   </div>
                   <div className="flex shrink-0 flex-col gap-1">
+                    {p.kind === 'user' && p.sourceFolder && !drift?.missingFolder && !progress && (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void update(p)}
+                        className={drift ? `${BUTTON} border-amber-500/40 text-amber-600 dark:text-amber-400` : BUTTON}
+                        title="Re-read the folder this pack was built from. Documents whose text is unchanged keep their embeddings; only new and edited ones are re-embedded."
+                      >
+                        Update
+                      </button>
+                    )}
                     {progress ? (
                       <button type="button" onClick={() => void window.api.libraryCancelEmbed()} className={BUTTON}>
                         Cancel

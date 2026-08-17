@@ -67,6 +67,13 @@ export interface PackDocMeta {
   file: string
   /** Characters of normalized text. Filled at install. */
   chars: number
+  /**
+   * stat of the original file when a user pack was built/updated — what the
+   * staleness check compares against, so it never has to read file contents.
+   * Absent on curated packs and on user packs built before v1.7.
+   */
+  sourceMtime?: number
+  sourceSize?: number
 }
 
 export interface PackManifest {
@@ -82,6 +89,13 @@ export interface PackManifest {
   kind: 'curated' | 'user'
   /** Free-text note about sources, freshness, or scope. */
   sourceNote?: string
+  /**
+   * The folder a `user` pack was built from (resolved path) — what "Update
+   * from folder" re-reads and the staleness check walks. Absent on curated
+   * packs and on user packs built before v1.7 (those can be updated only by
+   * re-adding the folder, which replaces them in place).
+   */
+  sourceFolder?: string
   /** ISO timestamp of install/creation on this machine. */
   installedAt: string
   docs: PackDocMeta[]
@@ -128,6 +142,7 @@ export interface PackSummary {
   license: string
   kind: PackManifest['kind']
   sourceNote?: string
+  sourceFolder?: string
   installedAt: string
   docs: number
   chars: number
@@ -260,6 +275,10 @@ function str(v: unknown, fallback = ''): string {
   return typeof v === 'string' ? v : fallback
 }
 
+function num(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
+}
+
 /** Validate a manifest read from disk or supplied by an installer. Throws with a reason. */
 export function validateManifest(raw: unknown): PackManifest {
   const m = (raw ?? {}) as Record<string, unknown>
@@ -291,7 +310,9 @@ export function validateManifest(raw: unknown): PackManifest {
       license: str(doc.license) || undefined,
       date: str(doc.date) || undefined,
       file,
-      chars: typeof doc.chars === 'number' && Number.isFinite(doc.chars) ? doc.chars : 0
+      chars: typeof doc.chars === 'number' && Number.isFinite(doc.chars) ? doc.chars : 0,
+      sourceMtime: num(doc.sourceMtime),
+      sourceSize: num(doc.sourceSize)
     }
   })
   return {
@@ -303,6 +324,7 @@ export function validateManifest(raw: unknown): PackManifest {
     license: str(m.license).trim() || 'unspecified',
     kind: m.kind === 'user' ? 'user' : 'curated',
     sourceNote: str(m.sourceNote) || undefined,
+    sourceFolder: str(m.sourceFolder) || undefined,
     installedAt: str(m.installedAt) || new Date().toISOString(),
     docs
   }
@@ -710,33 +732,36 @@ async function walkFolder(root: string): Promise<string[]> {
   return out
 }
 
+function textHash(text: string): string {
+  return createHash('sha1').update(text).digest('hex')
+}
+
 /**
- * Build a `user` pack from a folder of the user's own files (.md/.txt/.pdf,
- * recursively). A snapshot: text is extracted and copied now; the folder is
- * not watched. Each document's `source` is its original path, which is what
- * the citation shows.
+ * Walk `folder` and stage its documents under `staging/docs`, returning the
+ * doc metadata and each staged document's text hash. Shared by "add folder"
+ * and "update from folder" so the two can never disagree about what a folder
+ * turns into. Extracted text is normalized before hashing, so the hash is
+ * stable across runs and is what vector carry-over keys on.
  */
-export async function createPackFromFolder(
+async function stageFolderDocs(
   folder: string,
-  opts: { name?: string; description?: string } = {}
-): Promise<PackSummary> {
+  staging: string
+): Promise<{ docs: PackDocMeta[]; hashes: Map<string, string>; fileCount: number; skipped: string[] }> {
   const files = await walkFolder(folder)
   if (files.length === 0) throw new Error('No .md, .txt or .pdf files were found in that folder.')
-  const name = (opts.name ?? basename(resolve(folder))).trim() || 'My documents'
-  const hash = createHash('sha1').update(resolve(folder)).digest('hex').slice(0, 6)
-  const id = `${slugify(name)}-${hash}`
-
-  const staging = join(libraryDir(), `.${id}.installing`)
   await fs.rm(staging, { recursive: true, force: true })
   await fs.mkdir(join(staging, 'docs'), { recursive: true })
   const docs: PackDocMeta[] = []
+  const hashes = new Map<string, string>()
   const skipped: string[] = []
   const usedIds = new Set<string>()
   let totalChars = 0
   for (const file of files) {
     let text: string
+    let stat: import('fs').Stats | null = null
     try {
       text = normalizeForChunking((await readTextDocument(file, MAX_DOC_CHARS)).text)
+      stat = await fs.stat(file)
     } catch (err) {
       skipped.push(`${basename(file)}: ${err instanceof Error ? err.message : String(err)}`)
       continue
@@ -752,12 +777,45 @@ export async function createPackFromFolder(
     usedIds.add(docId)
     const outFile = `${docId}${extname(file).toLowerCase() === '.md' || extname(file).toLowerCase() === '.markdown' ? '.md' : '.txt'}`
     await fs.writeFile(join(staging, 'docs', outFile), text, 'utf-8')
-    docs.push({ id: docId, title: basename(file, extname(file)), source: file, file: outFile, chars: text.length })
+    docs.push({
+      id: docId,
+      title: basename(file, extname(file)),
+      source: file,
+      file: outFile,
+      chars: text.length,
+      sourceMtime: stat ? Math.round(stat.mtimeMs) : undefined,
+      sourceSize: stat ? stat.size : undefined
+    })
+    hashes.set(docId, textHash(text))
   }
   if (docs.length === 0) {
     await fs.rm(staging, { recursive: true, force: true })
     throw new Error(`No readable documents in that folder.${skipped.length ? ` (${skipped.slice(0, 3).join('; ')})` : ''}`)
   }
+  return { docs, hashes, fileCount: files.length, skipped }
+}
+
+function folderSourceNote(fileCount: number, folder: string, skipped: string[]): string {
+  return `Snapshot of ${fileCount} file(s) under ${resolve(folder)}${skipped.length ? `; ${skipped.length} skipped` : ''}.`
+}
+
+/**
+ * Build a `user` pack from a folder of the user's own files (.md/.txt/.pdf,
+ * recursively). A snapshot: text is extracted and copied now; the folder is
+ * not watched, but it is remembered (manifest.sourceFolder), so the pack can
+ * be brought up to date later with updatePackFromFolder. Each document's
+ * `source` is its original path, which is what the citation shows.
+ */
+export async function createPackFromFolder(
+  folder: string,
+  opts: { name?: string; description?: string } = {}
+): Promise<PackSummary> {
+  const name = (opts.name ?? basename(resolve(folder))).trim() || 'My documents'
+  const hash = createHash('sha1').update(resolve(folder)).digest('hex').slice(0, 6)
+  const id = `${slugify(name)}-${hash}`
+
+  const staging = join(libraryDir(), `.${id}.installing`)
+  const { docs, fileCount, skipped } = await stageFolderDocs(folder, staging)
   const manifest: PackManifest = {
     formatVersion: PACK_FORMAT_VERSION,
     id,
@@ -766,7 +824,8 @@ export async function createPackFromFolder(
     version: new Date().toISOString().slice(0, 10),
     license: 'private — the user\'s own files',
     kind: 'user',
-    sourceNote: `Snapshot of ${files.length} file(s) under ${resolve(folder)}${skipped.length ? `; ${skipped.length} skipped` : ''}.`,
+    sourceNote: folderSourceNote(fileCount, folder, skipped),
+    sourceFolder: resolve(folder),
     installedAt: new Date().toISOString(),
     docs
   }
@@ -776,6 +835,167 @@ export async function createPackFromFolder(
   packs.delete(id)
   invalidateBm25()
   return (await packSummary(id))!
+}
+
+export interface UpdateOutcome {
+  pack: PackSummary
+  /** Chunks whose vectors were carried over because their document's text is unchanged. */
+  carriedChunks: number
+  /** Chunks that still need embedding after the update. */
+  missingChunks: number
+}
+
+/**
+ * Re-read a user pack's source folder and rebuild the pack from what is there
+ * now — the "Update from folder" behind a stale pack. The expensive part of a
+ * pack is its embedding vectors, so they are not thrown away wholesale:
+ * documents whose extracted text is byte-identical to last time (matched by
+ * content hash, *not* by id or filename — a renamed file keeps its vectors)
+ * carry their index.json entry over. That is sound because chunking is
+ * deterministic from the text, so identical text means identical chunks. Only
+ * changed and new documents are left for the embedder, which is what makes
+ * updating a 500-document pack after editing three files cost three files.
+ */
+export async function updatePackFromFolder(id: string): Promise<UpdateOutcome> {
+  const dir = packDir(id)
+  const raw = await readJson<unknown>(join(dir, 'manifest.json'))
+  if (!raw) throw new Error(`No pack "${id}" is installed.`)
+  const existing = validateManifest(raw)
+  if (existing.kind !== 'user') throw new Error(`"${existing.name}" is a curated pack — reinstall it instead of updating from a folder.`)
+  if (!existing.sourceFolder) {
+    throw new Error(`"${existing.name}" was built before folder tracking existed. Remove it and add its folder again once; updates work from then on.`)
+  }
+  if (!(await pathExists(existing.sourceFolder))) {
+    throw new Error(`The source folder no longer exists (${existing.sourceFolder}).`)
+  }
+
+  // Hash the *stored* documents (already normalized at install) so unchanged
+  // text is recognized however the file was renamed or moved within the folder.
+  const oldHashes = new Map<string, string>() // hash -> old docId
+  for (const meta of existing.docs) {
+    try {
+      const text = await fs.readFile(join(dir, 'docs', meta.file), 'utf-8')
+      oldHashes.set(textHash(text), meta.id)
+    } catch {
+      // an unreadable old doc simply cannot donate vectors
+    }
+  }
+  const oldIndex = await readJson<IndexFile>(join(dir, 'index.json'))
+
+  const staging = join(libraryDir(), `.${id}.installing`)
+  const { docs, hashes, fileCount, skipped } = await stageFolderDocs(existing.sourceFolder, staging)
+  const manifest: PackManifest = {
+    ...existing,
+    version: new Date().toISOString().slice(0, 10),
+    sourceNote: folderSourceNote(fileCount, existing.sourceFolder, skipped),
+    installedAt: new Date().toISOString(),
+    docs
+  }
+  await writeFileAtomic(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2))
+
+  // Carry vectors: new doc → same-hash old doc → its index entry, verbatim.
+  let carriedChunks = 0
+  if (oldIndex && oldIndex.formatVersion === PACK_FORMAT_VERSION && oldIndex.dims > 0) {
+    const carried: IndexFile = { ...oldIndex, docs: {} }
+    for (const doc of docs) {
+      const oldDocId = oldHashes.get(hashes.get(doc.id) ?? '')
+      const entry = oldDocId ? oldIndex.docs[oldDocId] : undefined
+      if (entry) {
+        carried.docs[doc.id] = entry
+        carriedChunks += entry.chunkCount
+      }
+    }
+    if (carriedChunks > 0) await writeFileAtomic(join(staging, 'index.json'), JSON.stringify(carried))
+  }
+
+  await fs.rm(dir, { recursive: true, force: true })
+  await fs.rename(staging, dir)
+  packs.delete(id)
+  invalidateBm25()
+  const pack = (await packSummary(id))!
+  // Against the carried index, not the summary's embeddedChunks: the latter
+  // counts vectors *for the currently resolvable model* and reads 0 whenever
+  // LM Studio is unreachable, which would misreport a fully-carried update.
+  return { pack, carriedChunks, missingChunks: Math.max(0, pack.chunks - carriedChunks) }
+}
+
+export interface FreshnessReport {
+  /** Whether this pack can be checked at all (user pack with a tracked folder that still exists). */
+  supported: boolean
+  /** True when nothing observable changed. Meaningless when !supported. */
+  fresh: boolean
+  missingFolder: boolean
+  /** Files in the folder now that the pack has no document for. */
+  added: number
+  /** Documents whose original file is gone. */
+  removed: number
+  /** Documents whose original file has a different size or mtime. */
+  changed: number
+  /** A few example file names, for the UI line. */
+  examples: string[]
+}
+
+/**
+ * Has a user pack's source folder drifted from the snapshot? stat-only — file
+ * list plus size/mtime against what stageFolderDocs recorded — so it is cheap
+ * enough to run when the Library tab opens. mtime is a hint, not proof: a
+ * touched-but-identical file reads as changed, and the update that follows
+ * resolves it properly by content hash (its vectors carry over regardless).
+ * Documents from packs built before v1.7 have no recorded stat and compare by
+ * existence only.
+ */
+export async function checkPackFreshness(id: string): Promise<FreshnessReport> {
+  const none: FreshnessReport = { supported: false, fresh: true, missingFolder: false, added: 0, removed: 0, changed: 0, examples: [] }
+  const raw = await readJson<unknown>(join(packDir(id), 'manifest.json'))
+  if (!raw) return none
+  let manifest: PackManifest
+  try {
+    manifest = validateManifest(raw)
+  } catch {
+    return none
+  }
+  if (manifest.kind !== 'user' || !manifest.sourceFolder) return none
+  if (!(await pathExists(manifest.sourceFolder))) {
+    return { supported: true, fresh: false, missingFolder: true, added: 0, removed: manifest.docs.length, changed: 0, examples: [] }
+  }
+
+  const current = new Set(await walkFolder(manifest.sourceFolder))
+  const known = new Set(manifest.docs.map((d) => d.source).filter((s): s is string => Boolean(s)))
+  const examples: string[] = []
+  const note = (file: string): void => {
+    if (examples.length < 3) examples.push(basename(file))
+  }
+
+  let added = 0
+  for (const file of current) {
+    if (!known.has(file)) {
+      added += 1
+      note(file)
+    }
+  }
+  let removed = 0
+  let changed = 0
+  for (const doc of manifest.docs) {
+    if (!doc.source) continue
+    if (!current.has(doc.source)) {
+      removed += 1
+      note(doc.source)
+      continue
+    }
+    if (doc.sourceMtime === undefined && doc.sourceSize === undefined) continue // pre-v1.7 doc: existence is all we can compare
+    try {
+      const stat = await fs.stat(doc.source)
+      if ((doc.sourceSize !== undefined && stat.size !== doc.sourceSize) ||
+          (doc.sourceMtime !== undefined && Math.round(stat.mtimeMs) !== doc.sourceMtime)) {
+        changed += 1
+        note(doc.source)
+      }
+    } catch {
+      removed += 1
+      note(doc.source)
+    }
+  }
+  return { supported: true, fresh: added + removed + changed === 0, missingFolder: false, added, removed, changed, examples }
 }
 
 export async function removePack(id: string): Promise<{ removed: boolean }> {
@@ -805,6 +1025,7 @@ async function packSummary(id: string): Promise<PackSummary | null> {
     license: pack.manifest.license,
     kind: pack.manifest.kind,
     sourceNote: pack.manifest.sourceNote,
+    sourceFolder: pack.manifest.sourceFolder,
     installedAt: pack.manifest.installedAt,
     docs: pack.docs.size,
     chars,
@@ -959,6 +1180,16 @@ export function registerLibraryHandlers(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+
+  ipcMain.handle('library:updateFromFolder', async (_e, id: string) => {
+    try {
+      return { ok: true, ...(await updatePackFromFolder(String(id ?? ''))) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('library:checkFresh', (_e, id: string) => checkPackFreshness(String(id ?? '')))
 
   ipcMain.handle('library:embed', async (event, id: string) => {
     if (embedJob) return { ok: false, error: `Already embedding "${embedJob.packId}".` }

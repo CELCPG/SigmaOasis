@@ -47,12 +47,14 @@ my-pack/
 | `name`, `description`, `version`, `license` | Free text; `name` required. `license` is the pack as a whole. |
 | `kind` | `curated` (downloaded/bundled) or `user` (built from the user's folder). Anything else reads as `curated`. |
 | `sourceNote` | Optional free text on sources, freshness, scope. Shown in Settings → Library. |
+| `sourceFolder` | v1.7, written by the app on `user` packs: the folder "Add folder…" read, which "Update" re-reads and the staleness check walks. Pack authors never set it. |
 | `docs[]` | 1–600 entries. |
 | `docs[].id` | `[a-z0-9][a-z0-9-]{0,79}`, unique within the pack. Part of every citation. |
 | `docs[].title` | What the model cites. |
 | `docs[].source`, `license`, `date` | Optional provenance, carried into every passage the model sees. Give them. |
 | `docs[].file` | A bare file name under `docs/` ending `.md`, `.markdown` or `.txt`. No subdirectories. |
 | `docs[].chars` | Filled in at install; ignored on input. |
+| `docs[].sourceMtime`, `sourceSize` | v1.7, written by the app on `user` packs: stat of the original file at build/update, compared by the staleness check so it never reads contents. |
 
 ## Documents
 
@@ -77,8 +79,18 @@ it is specific to the user's embedding model.
 ## Making a pack from a folder
 
 Settings → Library → "Add folder…" builds a `user` pack from `.md`, `.txt` and `.pdf` files
-(recursively, up to 600 files). It is a snapshot: files are extracted and copied at that
-moment. Each document's `source` is its original path.
+(recursively, up to 600 files) and embeds it immediately when an embedding model is loaded.
+It is a snapshot: files are extracted and copied at that moment — but the folder is
+remembered (`sourceFolder`), so the pack is a *tracked* snapshot rather than a dead one:
+
+- Opening Settings → Library stat-walks each tracked folder and shows when it has drifted
+  ("Source folder has changed: 2 edited, 1 new …"). No file contents are read for this.
+- "Update" rebuilds the pack from the folder as it is now. Documents whose extracted text is
+  unchanged keep their embedding vectors — matching is by content hash, so a renamed or moved
+  file keeps its vectors too — and only new or edited documents are re-embedded. Updating a
+  500-document pack after editing three files costs three files.
+- Removing or editing the original files never changes an installed pack until "Update" is
+  pressed; lookups keep working from the copy.
 
 ## The curated tranche (v1.5)
 

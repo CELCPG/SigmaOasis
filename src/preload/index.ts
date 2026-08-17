@@ -8,10 +8,12 @@ import type {
   AuditEntryInput,
   AuditStatus,
   LibraryEmbedResult,
+  LibraryFreshness,
   LibraryLookupResult,
   LibraryPackResult,
   LibraryPackSummary,
   LibraryStats,
+  LibraryUpdateResult,
   Conversation,
   MemorySearchResult,
   MemoryStats,
@@ -171,6 +173,11 @@ const api = {
   libraryAddFolder: (path?: string, name?: string): Promise<LibraryPackResult> =>
     ipcRenderer.invoke('library:addFolder', path, name),
   libraryRemove: (id: string): Promise<{ removed: boolean }> => ipcRenderer.invoke('library:remove', id),
+  /** v1.7: rebuild a user pack from its tracked folder; unchanged documents keep their vectors. */
+  libraryUpdateFromFolder: (id: string): Promise<LibraryUpdateResult> =>
+    ipcRenderer.invoke('library:updateFromFolder', id),
+  /** v1.7: cheap stat-only check — has the tracked folder drifted from the snapshot? */
+  libraryCheckFresh: (id: string): Promise<LibraryFreshness> => ipcRenderer.invoke('library:checkFresh', id),
   libraryEmbed: (id: string): Promise<LibraryEmbedResult> => ipcRenderer.invoke('library:embed', id),
   libraryCancelEmbed: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('library:cancelEmbed'),
   onLibraryEmbedProgress: (
