@@ -533,6 +533,19 @@ export interface LibraryEmbedResult {
   error?: string
 }
 
+/** v1.6: the Workbench's sandboxed Python runtime (main/ipc/workbench.ts). */
+export interface WorkbenchStatus {
+  available: boolean
+  /** Pyodide version, when the runtime is present. */
+  version: string | null
+  /** Why it is unavailable, when it is. */
+  reason?: string
+  /** A sandbox window is alive right now (the next run skips the cold start). */
+  warm: boolean
+  /** Top-level packages bundled offline, e.g. numpy, pandas, matplotlib. */
+  packages: string[]
+}
+
 // ---- Attachments ------------------------------------------------------------
 
 export interface Attachment {

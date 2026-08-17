@@ -29,7 +29,8 @@ import type {
   MemoryStats,
   NetworkActivityEntry,
   ResearchIndexStats,
-  SamplingSettings
+  SamplingSettings,
+  WorkbenchStatus
 } from '../types'
 import { speak } from '../lib/voice'
 
@@ -139,6 +140,8 @@ export function SettingsModal(): JSX.Element | null {
   const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
   const [evalScores, setEvalScores] = useState<EvalScoreSummary[]>([])
+  const [workbench, setWorkbench] = useState<WorkbenchStatus | null>(null)
+  const [warming, setWarming] = useState(false)
   const [evalRun, setEvalRun] = useState<{
     model: string
     modelIndex: number
@@ -211,6 +214,7 @@ export function SettingsModal(): JSX.Element | null {
   // Load measured tool-choice scores when the Models tab opens (Layer 0c).
   useEffect(() => {
     if (tab === 'models') void window.api.evalScores().then(setEvalScores).catch(() => {})
+    if (tab === 'tools') void window.api.workbenchStatus().then(setWorkbench).catch(() => setWorkbench(null))
   }, [tab])
 
   // Load Brave key status when the Search tab opens; reset transient UI state.
@@ -1345,6 +1349,76 @@ export function SettingsModal(): JSX.Element | null {
                     it. Leave empty for unrestricted paths — each write is then confirmed.
                   </p>
                 </div>
+                <div className="rounded-xl border border-black/10 dark:border-white/10 p-3">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${
+                        workbench === null
+                          ? 'bg-neutral-400'
+                          : !workbench.available
+                            ? 'bg-red-500'
+                            : workbench.warm
+                              ? 'bg-green-500'
+                              : 'bg-amber-500'
+                      }`}
+                    />
+                    <span className="text-sm font-medium">Workbench (sandboxed Python)</span>
+                    <span className="text-xs text-neutral-400">
+                      {workbench === null
+                        ? 'checking…'
+                        : !workbench.available
+                          ? 'not installed'
+                          : `Pyodide ${workbench.version ?? '?'} · ${workbench.warm ? 'running' : 'idle'}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWorkbench(null)
+                        void window.api.workbenchStatus().then(setWorkbench).catch(() => setWorkbench(null))
+                      }}
+                      className="ml-auto rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                    >
+                      Refresh
+                    </button>
+                    {workbench?.available && !workbench.warm && (
+                      <button
+                        type="button"
+                        disabled={warming}
+                        onClick={() => {
+                          setWarming(true)
+                          void window.api
+                            .warmWorkbench()
+                            // Loading the runtime takes a second or two; re-read once it can have finished.
+                            .then(() => new Promise((r) => setTimeout(r, 2500)))
+                            .then(() => window.api.workbenchStatus())
+                            .then(setWorkbench)
+                            .catch(() => undefined)
+                            .finally(() => setWarming(false))
+                        }}
+                        className="rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                        title="Load the runtime now so the first run_python of the session does not pay the cold start"
+                      >
+                        {warming ? 'Starting…' : 'Start now'}
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-xs text-neutral-500">
+                    {workbench?.available
+                      ? `Python runs in WebAssembly inside a sandboxed window: no network — not even your LM Studio server — and no access to your disk beyond the files you attach. Available offline: the standard library${
+                          workbench.packages.length > 0 ? ` plus ${workbench.packages.join(', ')}` : ''
+                        }. The sandbox is torn down after ten minutes idle.`
+                      : 'run_python and analyze_file report themselves unavailable until the runtime is installed. Everything else in the app is unaffected.'}
+                  </p>
+                  {workbench && !workbench.available && workbench.reason && (
+                    <p className="mt-2 rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-600 dark:text-amber-400">
+                      {workbench.reason}
+                      <br />
+                      In a checkout, run <code>bash scripts/fetch-pyodide.sh</code>; packaged builds
+                      include it.
+                    </p>
+                  )}
+                </div>
+
                 <div>
                   <div className="mb-2 text-sm font-medium">Enabled tools</div>
                   <div className="space-y-1.5">

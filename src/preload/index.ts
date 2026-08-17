@@ -22,6 +22,7 @@ import type {
   ToolResult,
   ToolSchema,
   UpdateStatus,
+  WorkbenchStatus,
   EvalScoreSummary
 } from '../renderer/src/types'
 import type { EvalFixture } from '../renderer/src/lib/evalRunner'
@@ -179,6 +180,11 @@ const api = {
     ipcRenderer.on('library:embedProgress', listener)
     return () => ipcRenderer.removeListener('library:embedProgress', listener)
   },
+
+  // v1.6 Workbench (main/ipc/workbench.ts) — sandboxed Python runtime status.
+  workbenchStatus: (): Promise<WorkbenchStatus> => ipcRenderer.invoke('workbench:status'),
+  /** Start the sandbox ahead of a likely job; best effort, returns immediately. */
+  warmWorkbench: (): Promise<boolean> => ipcRenderer.invoke('workbench:warm'),
 
   // Voice (main/ipc/voice.ts)
   getSttStatus: (): Promise<SttStatus> => ipcRenderer.invoke('voice:sttStatus'),
