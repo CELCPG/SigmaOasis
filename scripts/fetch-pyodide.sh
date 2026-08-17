@@ -45,7 +45,10 @@ echo "downloading lock file"
 curl -fsSL -o "$DEST/pyodide-lock.json" "$CDN/pyodide-lock.json"
 
 # Resolve the dependency closure and fetch each wheel that is not already here.
-FILES=$("$PY" - "$DEST/pyodide-lock.json" $PACKAGES <<'PY'
+# tr -d '\r': Windows Python writes CRLF on stdout, and a filename carrying a
+# trailing carriage return into a URL is rejected by curl as malformed — which
+# is exactly how the v1.6.0 Windows release job failed.
+FILES=$("$PY" - "$DEST/pyodide-lock.json" $PACKAGES <<'PY' | tr -d '\r'
 import json, sys
 lock = json.load(open(sys.argv[1]))["packages"]
 want = sys.argv[2:]

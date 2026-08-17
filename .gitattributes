@@ -1,0 +1,7 @@
+# Shell scripts must be LF even on Windows: git-bash runs them, and CRLF turns
+# `#!/usr/bin/env bash` into an unfindable interpreter and every command
+# substitution into a value with a trailing carriage return. The v1.6.0 Windows
+# release job failed on exactly that class of bug.
+*.sh text eol=lf
+# Same reasoning for anything else a POSIX shell or a WASM runtime reads verbatim.
+*.mjs text eol=lf
