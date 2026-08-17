@@ -417,6 +417,55 @@ function heldBackToolNameLength(text: string, names: readonly string[]): number 
   return 0
 }
 
+// ---- prose paren-calls (post-round recovery, v1.7.1) ----------------------------
+
+/**
+ * A fifth surface form, measured on qwythos-9b (2026-08-17, library eval case
+ * 07): the model's entire reply was `web_search("hypothermia what to do while
+ * waiting for help nhs")` — a tool call written as function-call prose, with
+ * perfect retrieval already in hand. The turn scored zero.
+ *
+ * Paren syntax is far more dangerous to recognize than `name{json}`: prose
+ * and code are full of `f("x")`. So this form is not handled in the stream
+ * extractor at all — it is recognized only when the *whole finished reply* is
+ * exactly one such call (backticks or a bare fence allowed), the name is an
+ * offered tool, and the tool's schema has an unambiguous single string
+ * parameter to bind the argument to. Anything less stays prose.
+ */
+export function detectProseParenCall(
+  content: string,
+  tools: readonly { type: 'function'; function: { name: string; parameters: Record<string, unknown> } }[]
+): { name: string; args: Record<string, unknown> } | null {
+  let text = content.trim()
+  // Unwrap one layer of backticks or a bare ``` fence around the whole reply.
+  const fence = /^```[a-z]*\n?([\s\S]*?)\n?```$/.exec(text)
+  if (fence) text = fence[1].trim()
+  const ticks = /^`([^`]+)`$/.exec(text)
+  if (ticks) text = ticks[1].trim()
+
+  const m = /^([A-Za-z_][A-Za-z0-9_-]*)\(\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^()'"]{1,300}?))\s*\)$/.exec(text)
+  if (!m) return null
+  const [, name] = m
+  const value = (m[2] ?? m[3] ?? m[4] ?? '').trim()
+  if (!value) return null
+
+  const tool = tools.find((t) => t.function.name === name)
+  if (!tool) return null
+  const params = tool.function.parameters as { properties?: Record<string, { type?: string }>; required?: string[] }
+  const props = Object.entries(params.properties ?? {})
+  const required = (params.required ?? []).filter((r) => props.some(([k]) => k === r))
+  // Unambiguous binding only: exactly one required string property, or —
+  // with nothing required — exactly one property at all, and it is a string.
+  const target =
+    required.length === 1 && props.find(([k]) => k === required[0])?.[1]?.type === 'string'
+      ? required[0]
+      : required.length === 0 && props.length === 1 && props[0][1]?.type === 'string'
+        ? props[0][0]
+        : null
+  if (!target) return null
+  return { name, args: { [target]: value } }
+}
+
 // ---- the stream extractor -------------------------------------------------------
 
 /**

@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { createNativeToolExtractor, parseJsonCallBlob, parseNativeToolCall } from '../src/renderer/src/lib/nativeToolCall'
+import { createNativeToolExtractor, detectProseParenCall, parseJsonCallBlob, parseNativeToolCall } from '../src/renderer/src/lib/nativeToolCall'
 import { createReasoningSplitter } from '../src/renderer/src/lib/reasoning'
 
 /**
@@ -393,5 +393,67 @@ describe('stray tokens — e4b-agentic thought/response delimiters', () => {
   test('<|thought> mid-answer is stripped, not shown', () => {
     const out = run(['Here you go. <|thought>late thought'])
     assert.equal(out.text, 'Here you go. late thought')
+  })
+})
+
+describe('detectProseParenCall (v1.7.1) — the fifth surface form', () => {
+  const TOOLS = [
+    {
+      type: 'function' as const,
+      function: {
+        name: 'web_search',
+        parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
+      }
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'reference_lookup',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' }, pack: { type: 'string' } },
+          required: ['query']
+        }
+      }
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'write_file',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' }, content: { type: 'string' } },
+          required: ['path', 'content']
+        }
+      }
+    }
+  ]
+
+  test('the measured failure binds to the single required string parameter', () => {
+    const got = detectProseParenCall('web_search("hypothermia what to do while waiting for help nhs")', TOOLS)
+    assert.deepEqual(got, { name: 'web_search', args: { query: 'hypothermia what to do while waiting for help nhs' } })
+  })
+
+  test('single quotes, backticks, and a bare fence around the call all unwrap', () => {
+    assert.deepEqual(detectProseParenCall("web_search('x y')", TOOLS)?.args, { query: 'x y' })
+    assert.deepEqual(detectProseParenCall('`web_search("x")`', TOOLS)?.args, { query: 'x' })
+    assert.deepEqual(detectProseParenCall('```\nweb_search("x")\n```', TOOLS)?.args, { query: 'x' })
+  })
+
+  test('one required string among optional others still binds', () => {
+    assert.deepEqual(detectProseParenCall('reference_lookup("burn cooling")', TOOLS), {
+      name: 'reference_lookup',
+      args: { query: 'burn cooling' }
+    })
+  })
+
+  test('prose around the call, unknown tools, and ambiguous schemas stay prose', () => {
+    assert.equal(detectProseParenCall('You could try web_search("x") here.', TOOLS), null)
+    assert.equal(detectProseParenCall('web_search("x") — that would find it.', TOOLS), null)
+    assert.equal(detectProseParenCall('made_up_tool("x")', TOOLS), null)
+    // Two required parameters: no unambiguous binding, never guessed.
+    assert.equal(detectProseParenCall('write_file("notes.txt")', TOOLS), null)
+    assert.equal(detectProseParenCall('web_search()', TOOLS), null)
+    assert.equal(detectProseParenCall('print("hello world")', TOOLS), null)
   })
 })

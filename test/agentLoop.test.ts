@@ -923,3 +923,108 @@ describe('runAgentLoop · display payloads (image_search)', () => {
     assert.equal(records[0].images, undefined)
   })
 })
+
+describe('prose paren-call recovery (v1.7.1)', () => {
+  const SCHEMA_TOOLS: ToolSchema[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'web_search',
+        description: 'Search the web.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
+      }
+    }
+  ]
+
+  test('a reply that IS a prose tool call executes it and answers on the next round', async () => {
+    const { streamRound } = scripted([
+      { content: 'web_search("hypothermia what to do while waiting for help nhs")', toolCalls: [] },
+      { content: 'Keep them warm and dry while waiting.', toolCalls: [] }
+    ])
+    const records: ToolCallRecord[] = []
+    const got: { name: string; args: Record<string, unknown> }[] = []
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: SCHEMA_TOOLS,
+      records,
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async (name, args) => {
+          got.push({ name, args })
+          return { ok: true, output: 'NHS: move them somewhere warm and dry…' }
+        }
+      }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    assert.deepEqual(got, [{ name: 'web_search', args: { query: 'hypothermia what to do while waiting for help nhs' } }])
+    assert.equal(records.length, 1)
+    assert.equal(records[0].status, 'done')
+  })
+
+  test('recovery happens at most once per turn', async () => {
+    const { streamRound } = scripted([
+      { content: 'web_search("first")', toolCalls: [] },
+      { content: 'web_search("second")', toolCalls: [] }
+    ])
+    const records: ToolCallRecord[] = []
+    let executed = 0
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: SCHEMA_TOOLS,
+      records,
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => {
+          executed += 1
+          return { ok: true, output: 'r' }
+        }
+      }
+    })
+    // The second prose call is NOT recovered: the turn completes with it as text.
+    assert.equal(outcome.stopReason, 'completed')
+    assert.equal(executed, 1)
+  })
+
+  test('no recovery on the final permitted round — a following round must exist', async () => {
+    const { streamRound } = scripted([{ content: 'web_search("x")', toolCalls: [] }])
+    let executed = 0
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: SCHEMA_TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      maxIterations: 1,
+      deps: {
+        streamRound,
+        executeTool: async () => {
+          executed += 1
+          return { ok: true, output: 'r' }
+        }
+      }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    assert.equal(executed, 0)
+  })
+
+  test('an ordinary prose reply is untouched', async () => {
+    const { streamRound } = scripted([{ content: 'You can call web_search("query") like this.', toolCalls: [] }])
+    let executed = 0
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: SCHEMA_TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => {
+          executed += 1
+          return { ok: true, output: '' }
+        }
+      }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    assert.equal(executed, 0)
+  })
+})

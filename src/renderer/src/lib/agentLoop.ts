@@ -1,4 +1,5 @@
 import type { ToolCallRecord, ToolResult, ToolSchema } from '../types'
+import { detectProseParenCall } from './nativeToolCall'
 import { validateToolArgs } from './toolArgs'
 
 /**
@@ -255,10 +256,30 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   const executedCounts = new Map<string, number>()
   const previousCalls = new Map<string, ToolResult>()
 
+  // v1.7.1: one recovery per turn for a reply that IS a tool call written as
+  // prose — `web_search("…")` as the entire answer (measured; the turn scored
+  // zero with perfect retrieval in hand). Once, because a model that does it
+  // twice in one turn is not being recovered, it is being puppeted.
+  let proseRecoveryUsed = false
+
   for (let iteration = 0; iteration < iterationCap; iteration++) {
     const round = await deps.streamRound(messages, tools)
     if (signal.aborted) return { stopReason: 'aborted' }
-    if (round.toolCalls.length === 0) return { stopReason: 'completed' }
+    if (round.toolCalls.length === 0) {
+      const prose = !proseRecoveryUsed && iteration + 1 < iterationCap ? detectProseParenCall(round.content, tools) : null
+      if (!prose) return { stopReason: 'completed' }
+      proseRecoveryUsed = true
+      round.toolCalls = [
+        {
+          id: `prose-recovery-${iteration}`,
+          type: 'function',
+          function: { name: prose.name, arguments: JSON.stringify(prose.args) }
+        }
+      ]
+      // Falls through: the synthesized call runs through the same budgets,
+      // repeat detection, execution and feedback as a native one, and the
+      // next round answers with the result. Fully visible in the record list.
+    }
 
     // Record the calls on the wire history, then execute them in order.
     messages.push({ role: 'assistant', content: round.content || null, tool_calls: round.toolCalls })
