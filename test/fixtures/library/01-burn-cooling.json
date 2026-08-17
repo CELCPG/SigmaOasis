@@ -1,0 +1,11 @@
+{
+  "prompt": "I spilled boiling water on my forearm. What should I do right now?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "cool(ing)? (running )?water|under (cool|cold|running) water",
+    "15|20|30"
+  ],
+  "mustNotInclude": [
+    "\\bice\\b(?!.{0,40}not)|butter"
+  ]
+}

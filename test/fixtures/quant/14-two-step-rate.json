@@ -1,0 +1,10 @@
+{
+  "prompt": "A tank holds 1,250 litres and is filling at 18.5 litres per minute while draining at 6.25 litres per minute. Starting empty, how many minutes until it is full? Give one decimal.",
+  "expect": [
+    {
+      "label": "minutes",
+      "value": 102.0,
+      "tolerance": 0.06
+    }
+  ]
+}

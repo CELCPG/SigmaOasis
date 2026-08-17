@@ -1,0 +1,11 @@
+{
+  "prompt": "Using the attached sales.csv, what is the total revenue (units \u00d7 unit_price) across all rows? Give the exact figure to the cent.",
+  "data": "sales.csv",
+  "expect": [
+    {
+      "label": "total revenue",
+      "value": 139306.12,
+      "tolerance": 0.02
+    }
+  ]
+}

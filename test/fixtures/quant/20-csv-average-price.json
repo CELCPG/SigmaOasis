@@ -1,0 +1,11 @@
+{
+  "prompt": "Using the attached sales.csv, what is the mean unit_price across all rows, to four decimal places?",
+  "data": "sales.csv",
+  "expect": [
+    {
+      "label": "mean unit price",
+      "value": 17.6551,
+      "tolerance": 0.0002
+    }
+  ]
+}

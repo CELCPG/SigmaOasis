@@ -1,7 +1,7 @@
 {
   "name": "sigma-oasis",
   "version": "1.4.7",
-  "description": "Sigma Oasis — a private, local-first desktop AI chat powered by LM Studio. Your safe oasis of data protection.",
+  "description": "Sigma Oasis \u2014 a private, local-first desktop AI chat powered by LM Studio. Your safe oasis of data protection.",
   "author": "Colin Long",
   "license": "MIT",
   "private": true,
@@ -28,7 +28,8 @@
     "test": "bash scripts/test.sh",
     "eval:tools": "bash scripts/eval-tools.sh",
     "bench:render": "bash scripts/render-bench.sh",
-    "export:traces": "bash scripts/export-traces.sh"
+    "export:traces": "bash scripts/export-traces.sh",
+    "eval:answers": "bash scripts/eval-answers.sh"
   },
   "dependencies": {
     "dompurify": "^3.4.12",

@@ -1,0 +1,8 @@
+{
+  "prompt": "Should I take the standard deduction or itemize?",
+  "pack": "finance",
+  "mustInclude": [
+    "standard deduction",
+    "itemi[sz]"
+  ]
+}

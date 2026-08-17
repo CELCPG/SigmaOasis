@@ -1,0 +1,9 @@
+{
+  "prompt": "A car costs $28,450 with 8.25% sales tax applied to the car price, plus a $1,200 dealer fee that is not taxed. What is the total out the door? Give the exact figure.",
+  "expect": [
+    {
+      "label": "total",
+      "value": 31997.12
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "prompt": "Using the attached sales.csv, what is the total revenue for the product 'widget' only? To the cent.",
+  "data": "sales.csv",
+  "expect": [
+    {
+      "label": "widget revenue",
+      "value": 46255.93,
+      "tolerance": 0.02
+    }
+  ]
+}

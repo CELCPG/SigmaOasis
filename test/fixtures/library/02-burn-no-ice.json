@@ -1,0 +1,7 @@
+{
+  "prompt": "Should I put ice or butter on a burn?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "do ?n[o']t|never|avoid|not"
+  ]
+}

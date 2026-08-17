@@ -1,0 +1,12 @@
+{
+  "prompt": "What are the safe ways to thaw frozen food?",
+  "pack": "food-safety",
+  "mustInclude": [
+    "refrigerator|fridge",
+    "cold water",
+    "microwave"
+  ],
+  "mustNotInclude": [
+    "counter(?!.{0,30}not)|room temperature(?!.{0,30}not)"
+  ]
+}

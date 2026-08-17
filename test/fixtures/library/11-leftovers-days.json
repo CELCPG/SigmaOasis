@@ -1,0 +1,10 @@
+{
+  "prompt": "How long can I keep cooked leftovers in the fridge?",
+  "pack": "food-safety",
+  "mustInclude": [
+    "3 to 4 days|3-4 days|four days|4 days"
+  ],
+  "mustNotInclude": [
+    "\\b(7|10|14) days\\b"
+  ]
+}

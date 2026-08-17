@@ -1,0 +1,8 @@
+{
+  "prompt": "What temperature should my fridge and freezer be set to?",
+  "pack": "food-safety",
+  "mustInclude": [
+    "40",
+    "\\b0\\b"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "prompt": "I left a cooked casserole out on the counter after dinner. How long is it safe to leave out?",
+  "pack": "food-safety",
+  "mustInclude": [
+    "2 hours|two hours"
+  ]
+}

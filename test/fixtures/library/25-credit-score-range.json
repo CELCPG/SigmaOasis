@@ -1,0 +1,8 @@
+{
+  "prompt": "What range do credit scores fall in and what affects them?",
+  "pack": "finance",
+  "mustInclude": [
+    "300",
+    "850"
+  ]
+}

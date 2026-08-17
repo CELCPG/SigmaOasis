@@ -1,0 +1,10 @@
+{
+  "prompt": "An item is $249.99. Apply a 30% discount, then take a further 15% off the discounted price. What is the final price to the cent?",
+  "expect": [
+    {
+      "label": "final price",
+      "value": 148.74,
+      "tolerance": 0.02
+    }
+  ]
+}

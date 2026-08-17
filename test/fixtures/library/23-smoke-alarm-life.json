@@ -1,0 +1,8 @@
+{
+  "prompt": "How often should smoke alarms be replaced and tested?",
+  "pack": "home-safety",
+  "mustInclude": [
+    "10 years|ten years",
+    "month"
+  ]
+}

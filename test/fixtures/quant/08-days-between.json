@@ -1,0 +1,10 @@
+{
+  "prompt": "How many days are there from 14 March 2026 to 9 January 2027 inclusive of neither endpoint's extra day \u2014 i.e. the simple difference in days?",
+  "expect": [
+    {
+      "label": "days",
+      "value": 301,
+      "tolerance": 0.5
+    }
+  ]
+}

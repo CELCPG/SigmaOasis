@@ -1,0 +1,7 @@
+{
+  "prompt": "A hurricane is forecast for my area in two days. What should I do first?",
+  "pack": "preparedness",
+  "mustInclude": [
+    "evacuat|shelter|local officials|authorities|warning"
+  ]
+}

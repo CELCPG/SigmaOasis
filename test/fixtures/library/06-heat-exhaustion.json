@@ -1,0 +1,8 @@
+{
+  "prompt": "My friend has been in the sun for hours, feels sick and dizzy, and their skin is clammy. What should I do?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "cool",
+    "30 ?min|30 minutes|fluid|water|drink"
+  ]
+}

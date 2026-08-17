@@ -1,0 +1,10 @@
+{
+  "prompt": "$12,500 grows at 4.35% compounded monthly for 7 years and 5 months. What is the final balance, to the cent?",
+  "expect": [
+    {
+      "label": "final balance",
+      "value": 17249.28,
+      "tolerance": 0.05
+    }
+  ]
+}

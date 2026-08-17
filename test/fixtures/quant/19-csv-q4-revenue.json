@@ -1,0 +1,11 @@
+{
+  "prompt": "Using the attached sales.csv, what is the total revenue for October, November and December 2025 combined? To the cent.",
+  "data": "sales.csv",
+  "expect": [
+    {
+      "label": "q4 revenue",
+      "value": 31909.54,
+      "tolerance": 0.02
+    }
+  ]
+}

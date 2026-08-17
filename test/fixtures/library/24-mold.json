@@ -1,0 +1,8 @@
+{
+  "prompt": "I found mould on the bathroom wall. How should I deal with it?",
+  "pack": "home-safety",
+  "mustInclude": [
+    "moisture|water|humidity",
+    "clean|remove|scrub"
+  ]
+}

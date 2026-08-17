@@ -1,0 +1,8 @@
+{
+  "prompt": "My child hit their head on the corner of a table. What are the red flags I should watch for?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "999|911|emergency|a&e|hospital",
+    "vomit|unconscious|conscious|drowsy|seizure|fit"
+  ]
+}

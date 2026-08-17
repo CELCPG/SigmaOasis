@@ -1,0 +1,14 @@
+{
+  "prompt": "Using the attached sales.csv, which region has the highest total revenue (units \u00d7 unit_price), and what is that revenue to the cent?",
+  "data": "sales.csv",
+  "expect": [
+    {
+      "label": "top region revenue",
+      "value": 39103.24,
+      "tolerance": 0.02
+    }
+  ],
+  "mustInclude": [
+    "West"
+  ]
+}

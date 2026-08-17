@@ -1,0 +1,10 @@
+{
+  "prompt": "Revenue went from $148,500 to $172,300. What is the percentage increase, to one decimal place?",
+  "expect": [
+    {
+      "label": "percent increase",
+      "value": 16.0,
+      "tolerance": 0.06
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "prompt": "Using the attached sales.csv, how many units were sold in total across all rows?",
+  "data": "sales.csv",
+  "expect": [
+    {
+      "label": "total units",
+      "value": 8115,
+      "tolerance": 0.5
+    }
+  ]
+}

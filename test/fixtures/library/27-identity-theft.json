@@ -1,0 +1,7 @@
+{
+  "prompt": "I think someone has stolen my identity. What are the first steps?",
+  "pack": "civic",
+  "mustInclude": [
+    "report|credit|freeze|fraud|police|ftc"
+  ]
+}

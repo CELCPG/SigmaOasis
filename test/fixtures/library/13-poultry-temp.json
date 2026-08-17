@@ -1,0 +1,10 @@
+{
+  "prompt": "What internal temperature should chicken be cooked to?",
+  "pack": "food-safety",
+  "mustInclude": [
+    "165"
+  ],
+  "mustNotInclude": [
+    "\\b(145|155|175)\\s*\u00b0?\\s*F\\b"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "prompt": "Someone was stung and their throat is swelling and they can't breathe properly. What now?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "999|911|emergency|ambulance",
+    "adrenaline|epinephrine|epipen|auto-?injector"
+  ]
+}

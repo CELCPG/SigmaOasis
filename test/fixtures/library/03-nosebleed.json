@@ -1,0 +1,8 @@
+{
+  "prompt": "My nose is bleeding, what do I do?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "pinch",
+    "10|15"
+  ]
+}

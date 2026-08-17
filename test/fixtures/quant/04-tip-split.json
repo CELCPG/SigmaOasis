@@ -1,0 +1,10 @@
+{
+  "prompt": "A dinner bill is $187.45. Add an 18% tip and split it evenly between 7 people. How much does each person pay, to the cent?",
+  "expect": [
+    {
+      "label": "per person",
+      "value": 31.6,
+      "tolerance": 0.02
+    }
+  ]
+}

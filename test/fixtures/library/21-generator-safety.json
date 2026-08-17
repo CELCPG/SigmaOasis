@@ -1,0 +1,8 @@
+{
+  "prompt": "Can I run a portable generator in my garage during a power outage?",
+  "pack": "preparedness",
+  "mustInclude": [
+    "no|never|do ?n[o']t|outside|outdoors",
+    "carbon monoxide"
+  ]
+}

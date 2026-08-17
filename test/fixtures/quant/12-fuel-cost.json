@@ -1,0 +1,10 @@
+{
+  "prompt": "A 1,340 mile trip in a car doing 31.5 miles per gallon, with fuel at $3.79 a gallon. What is the fuel cost, to the cent?",
+  "expect": [
+    {
+      "label": "fuel cost",
+      "value": 161.23,
+      "tolerance": 0.03
+    }
+  ]
+}

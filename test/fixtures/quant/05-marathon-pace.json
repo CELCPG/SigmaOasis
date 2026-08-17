@@ -1,0 +1,10 @@
+{
+  "prompt": "A marathon is 42.195 km. If someone runs it in 3 hours 47 minutes, what is their average pace in minutes per mile? Use 1 mile = 1.609344 km. Give minutes as a decimal.",
+  "expect": [
+    {
+      "label": "min per mile",
+      "value": 8.66,
+      "tolerance": 0.03
+    }
+  ]
+}

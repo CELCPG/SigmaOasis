@@ -1,0 +1,10 @@
+{
+  "prompt": "A class has 18 students averaging 74.5 and another class has 25 students averaging 81.2. What is the combined average, to two decimals?",
+  "expect": [
+    {
+      "label": "combined average",
+      "value": 78.4,
+      "tolerance": 0.02
+    }
+  ]
+}

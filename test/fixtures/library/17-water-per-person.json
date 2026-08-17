@@ -1,0 +1,7 @@
+{
+  "prompt": "How much water should I store per person for an emergency?",
+  "pack": "preparedness",
+  "mustInclude": [
+    "one gallon|1 gallon"
+  ]
+}

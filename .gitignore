@@ -16,3 +16,6 @@ homebrew-tap/
 
 # Workbench runtime (fetched by scripts/fetch-pyodide.sh; shipped as an extra resource)
 resources/pyodide/
+
+# Answer-eval library cache (embedded packs; rebuild with scripts/eval-answers.sh)
+.eval-library/

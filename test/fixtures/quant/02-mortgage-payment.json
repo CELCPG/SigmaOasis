@@ -1,0 +1,10 @@
+{
+  "prompt": "What is the monthly payment on a $385,000 mortgage at 6.45% annual interest, 30-year term, standard amortization? Give the payment to the cent.",
+  "expect": [
+    {
+      "label": "monthly payment",
+      "value": 2420.82,
+      "tolerance": 0.05
+    }
+  ]
+}

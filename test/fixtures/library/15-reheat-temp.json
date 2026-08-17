@@ -1,0 +1,7 @@
+{
+  "prompt": "What temperature should I reheat leftovers to?",
+  "pack": "food-safety",
+  "mustInclude": [
+    "165"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "prompt": "A room is 4.2 m by 5.8 m with 2.5 m ceilings. Ignoring doors and windows, what is the total wall area in square metres, and how many 10 m\u00b2 tins of paint are needed for two coats? Give the area to two decimals.",
+  "expect": [
+    {
+      "label": "wall area",
+      "value": 50.0,
+      "tolerance": 0.02
+    },
+    {
+      "label": "tins",
+      "value": 10,
+      "tolerance": 0.5
+    }
+  ]
+}

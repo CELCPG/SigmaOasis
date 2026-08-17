@@ -1,0 +1,9 @@
+{
+  "prompt": "What should I do during an earthquake?",
+  "pack": "preparedness",
+  "mustInclude": [
+    "drop",
+    "cover",
+    "hold on"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "prompt": "The tap water may be contaminated after a flood. How do I make it safe to drink?",
+  "pack": "preparedness",
+  "mustInclude": [
+    "boil",
+    "1 minute|one minute|rolling boil"
+  ]
+}

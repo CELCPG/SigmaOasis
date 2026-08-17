@@ -1,0 +1,10 @@
+{
+  "prompt": "A tornado warning has just been issued. Where should I go?",
+  "pack": "preparedness",
+  "mustInclude": [
+    "basement|interior room|lowest (floor|level)|shelter"
+  ],
+  "mustNotInclude": [
+    "\\bwindows?\\b(?!.{0,40}(away|avoid|stay))"
+  ]
+}

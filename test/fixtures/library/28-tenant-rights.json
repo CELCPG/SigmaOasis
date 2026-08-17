@@ -1,0 +1,8 @@
+{
+  "prompt": "My landlord is refusing to fix the heating. What are my options?",
+  "pack": "civic",
+  "mustInclude": [
+    "landlord|tenant",
+    "state|local|agency|housing|complaint|right"
+  ]
+}

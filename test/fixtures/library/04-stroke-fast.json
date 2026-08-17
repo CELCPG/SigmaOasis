@@ -1,0 +1,10 @@
+{
+  "prompt": "How do I tell if someone is having a stroke?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "face",
+    "arms?",
+    "speech",
+    "999|911|emergency"
+  ]
+}

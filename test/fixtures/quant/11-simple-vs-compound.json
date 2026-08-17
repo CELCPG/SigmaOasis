@@ -1,0 +1,15 @@
+{
+  "prompt": "$8,000 for 6 years at 5% per year. How much interest is earned with simple interest, and how much with annual compounding? Give both to the cent.",
+  "expect": [
+    {
+      "label": "simple interest",
+      "value": 2400.0,
+      "tolerance": 0.02
+    },
+    {
+      "label": "compound interest",
+      "value": 2720.77,
+      "tolerance": 0.05
+    }
+  ]
+}

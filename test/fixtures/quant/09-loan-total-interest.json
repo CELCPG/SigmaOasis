@@ -1,0 +1,10 @@
+{
+  "prompt": "A $24,000 car loan at 7.9% annual interest over 60 months: what is the total interest paid over the life of the loan, to the nearest dollar?",
+  "expect": [
+    {
+      "label": "total interest",
+      "value": 5129,
+      "tolerance": 3
+    }
+  ]
+}

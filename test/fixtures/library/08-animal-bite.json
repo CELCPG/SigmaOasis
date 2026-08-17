@@ -1,0 +1,8 @@
+{
+  "prompt": "A dog bit my hand and broke the skin. What should I do?",
+  "pack": "first-aid",
+  "mustInclude": [
+    "wash|clean",
+    "doctor|gp|medical|111|advice"
+  ]
+}
