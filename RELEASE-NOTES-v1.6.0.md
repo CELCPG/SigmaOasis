@@ -89,6 +89,6 @@ first. `docs/evals.md` has the tables, the caveats and the withdrawals.
 - **New tools, on by default:** `run_python` and `analyze_file` (Settings → Tools) — sandboxed, local, no network. **New setting, on by default:** *Workbench checks* (Settings → Models). Off switches exist for all of it.
 - **Building from source:** run `bash scripts/fetch-pyodide.sh` once (CI and the release workflow do this themselves). The evals are developer-facing and need a live LM Studio: `LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>`. Without the runtime the tools report themselves unavailable and the check suite self-skips; nothing else changes.
 - **Disk/size:** the runtime adds ~30 MB to the installed app, loaded into memory only while the sandbox is warm and freed after ten idle minutes.
-- **macOS:** signed and notarized; Apple Silicon and Intel DMGs. Also `brew tap CELCPG/tap && brew install --cask sigma-oasis`. **Windows:** unsigned installer, SmartScreen will warn. **Auto-update** from v1.5.x.
+- **macOS:** signed and notarized; Apple Silicon and Intel DMGs. Also `brew tap CELCPG/tap && brew install --cask sigma-oasis`. **Windows:** unsigned installer, SmartScreen will warn. **Auto-update:** if you are running **v1.4.7** — the last released build — this appears as an update automatically. v1.4.8, v1.5.0 and v1.5.1 were developed but never cut as releases; everything in their notes ships here.
 
-**Full changelog:** https://github.com/CELCPG/SigmaOasis/compare/v1.5.1...v1.6.0
+**Full changelog:** https://github.com/CELCPG/SigmaOasis/compare/v1.4.7...v1.6.0
