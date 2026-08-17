@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "final price",
-      "value": 148.74,
+      "value": 148.74405,
       "tolerance": 0.02
     }
   ]

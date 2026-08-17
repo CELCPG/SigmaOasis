@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "fuel cost",
-      "value": 161.23,
+      "value": 161.2253968253968,
       "tolerance": 0.03
     }
   ]

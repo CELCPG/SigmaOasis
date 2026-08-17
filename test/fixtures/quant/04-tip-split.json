@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "per person",
-      "value": 31.6,
+      "value": 31.598714285714284,
       "tolerance": 0.02
     }
   ]

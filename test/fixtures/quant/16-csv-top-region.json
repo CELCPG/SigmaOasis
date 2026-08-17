@@ -4,7 +4,7 @@
   "expect": [
     {
       "label": "top region revenue",
-      "value": 39103.24,
+      "value": 39103.240000000005,
       "tolerance": 0.02
     }
   ],

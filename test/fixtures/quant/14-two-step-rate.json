@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "minutes",
-      "value": 102.0,
+      "value": 102.04081632653062,
       "tolerance": 0.06
     }
   ]

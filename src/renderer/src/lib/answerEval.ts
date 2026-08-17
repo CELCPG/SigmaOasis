@@ -37,9 +37,16 @@ export function numbersIn(text: string): number[] {
  * "1,436.05" and "1436.0483" are the same answer stated differently, and an
  * eval that failed the second would be measuring formatting, not arithmetic.
  */
+/**
+ * Binary floating point makes `|31997.13 - 31997.12| <= 0.01` false by 2e-12.
+ * Measured: it failed a model that had answered correctly, which is the one
+ * thing an eval must never do.
+ */
+const FLOAT_SLOP = 1e-9
+
 export function statesValue(reply: string, value: number, tolerance = 0.01): boolean {
   const found = numbersIn(reply)
-  if (found.some((n) => Math.abs(n - value) <= tolerance)) return true
+  if (found.some((n) => Math.abs(n - value) <= tolerance + FLOAT_SLOP)) return true
   // Percentages written as "25.6%" against an expected 25.6 already match
   // above; this covers a reply that rounded harder than the tolerance allows
   // only when the expectation itself is a round number.
@@ -183,6 +190,8 @@ export interface QuantCaseResult {
   bare: { hit: boolean; missing: string[]; ms: number; error?: string }
   /** With run_python / analyze_file available and really executed. */
   workbench?: { hit: boolean; missing: string[]; ms: number; toolCalls: number; error?: string }
+  /** What the model actually ran, so a miss can be read rather than re-run. */
+  tools?: { name: string; code?: string; result?: string }[]
   /** The bare draft after one think-harder pass. */
   deliberated?: { hit: boolean; missing: string[]; ms: number; revised: boolean; error?: string }
 }

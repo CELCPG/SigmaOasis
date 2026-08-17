@@ -87,7 +87,7 @@ async function complete(
   const res = await fetch(`${BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(300_000),
+    signal: AbortSignal.timeout(420_000),
     body: JSON.stringify({
       model,
       messages,
@@ -228,7 +228,8 @@ async function runQuantSuite(
       file: fx.file,
       prompt: fx.prompt,
       bare: { hit: false, missing: [], ms: 0 },
-      replies: {}
+      replies: {},
+      tools: []
     }
     const scoreOf = (reply: string): { hit: boolean; missing: string[] } => {
       const q = scoreQuantitative(reply, fx.expect)
@@ -261,7 +262,12 @@ async function runQuantSuite(
           { role: 'system', content: withGrounding(PERSONA) },
           { role: 'user', content: `${fx.prompt}${dataNote}` }
         ]
-        let final = ''
+        // Every round's text, concatenated — which is what the app shows: the
+        // tool loop streams each round into the same assistant message, so a
+        // preamble in round 1 and the answer in round 3 are one reply. Scoring
+        // only the last non-empty round measured the preamble whenever the
+        // model ended on a tool call, which is a harness artifact, not a miss.
+        const rounds: string[] = []
         await runAgentLoop({
           messages: messages as never,
           tools: wbTools,
@@ -270,16 +276,23 @@ async function runQuantSuite(
           deps: {
             streamRound: async (msgs, tools) => {
               const r = await complete(model, msgs as never, tools)
-              final = r.content || final
+              if (r.content.trim()) rounds.push(r.content)
               return { content: r.content, toolCalls: r.toolCalls }
             },
             executeTool: async (name, args) => {
               toolCalls += 1
-              return exec(name, args, attachments)
+              const r = await exec(name, args, attachments)
+              out.tools!.push({
+                name,
+                code: typeof args.code === 'string' ? args.code.slice(0, 800) : undefined,
+                result: (r.ok ? r.output : r.error)?.slice(0, 800)
+              })
+              return r
             }
           }
         })
-        out.replies!.workbench = final.slice(0, 1500)
+        const final = rounds.join('\n\n')
+        out.replies!.workbench = final.slice(-1500)
         out.workbench = { ...scoreOf(final), ms: Date.now() - t0, toolCalls }
       } catch (err) {
         out.workbench = { hit: false, missing: [], ms: Date.now() - t0, toolCalls, error: err instanceof Error ? err.message : String(err) }

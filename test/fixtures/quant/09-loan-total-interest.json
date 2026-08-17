@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "total interest",
-      "value": 5129,
+      "value": 5129.140370958878,
       "tolerance": 3
     }
   ]

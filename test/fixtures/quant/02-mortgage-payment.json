@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "monthly payment",
-      "value": 2420.82,
+      "value": 2420.8159425014155,
       "tolerance": 0.05
     }
   ]

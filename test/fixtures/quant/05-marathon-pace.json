@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "min per mile",
-      "value": 8.66,
+      "value": 8.657923640241735,
       "tolerance": 0.03
     }
   ]

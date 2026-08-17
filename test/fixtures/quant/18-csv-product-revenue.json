@@ -4,7 +4,7 @@
   "expect": [
     {
       "label": "widget revenue",
-      "value": 46255.93,
+      "value": 46255.93000000001,
       "tolerance": 0.02
     }
   ]

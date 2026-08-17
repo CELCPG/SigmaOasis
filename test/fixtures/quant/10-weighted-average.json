@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "combined average",
-      "value": 78.4,
+      "value": 78.3953488372093,
       "tolerance": 0.02
     }
   ]

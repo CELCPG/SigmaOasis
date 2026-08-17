@@ -4,7 +4,7 @@
   "expect": [
     {
       "label": "mean unit price",
-      "value": 17.6551,
+      "value": 17.655149999999963,
       "tolerance": 0.0002
     }
   ]

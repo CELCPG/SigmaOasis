@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "final balance",
-      "value": 17249.28,
+      "value": 17249.278143178977,
       "tolerance": 0.05
     }
   ]

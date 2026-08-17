@@ -23,6 +23,16 @@ describe('numbers and values', () => {
   test('reads separators and currency, ignores word-joined digits', () => {
     assert.deepEqual(numbersIn('$31,997.12 and 1436.05 plus 7 items (v2 build)'), [31997.12, 1436.05, 7])
   })
+  test('a difference of exactly the tolerance passes despite binary floating point', () => {
+    // |31997.13 - 31997.12| is 0.010000000002 in binary: the naive compare
+    // failed a model that had answered correctly (measured, v1.6).
+    assert.equal(statesValue('The total out the door is $31,997.13.', 31997.12, 0.01), true)
+    assert.equal(statesValue('The total out the door is $31,997.13.', 31997.125, 0.01), true)
+    assert.equal(statesValue('The total out the door is $31,997.12.', 31997.125, 0.01), true)
+    // Still strict past the tolerance.
+    assert.equal(statesValue('The total out the door is $31,997.99.', 31997.125, 0.01), false)
+  })
+
   test('statesValue tolerates formatting and rounding, not wrong answers', () => {
     assert.equal(statesValue('The total is $31,997.12.', 31997.12), true)
     assert.equal(statesValue('about 1436.0483 a month', 1436.05, 0.05), true)

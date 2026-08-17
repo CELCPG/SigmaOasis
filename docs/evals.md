@@ -43,6 +43,23 @@ half of that feature — and the report says so.
   installed — see below, the two differ sharply.
 - The tool-choice suite feeds canned tool results; the answer suites execute for real.
 
+## Measured, 2026-08 (qwythos-9b, cases 1–8, temperature 0)
+
+| arm | all cases | same cases, both arms | s/case |
+| --- | --- | --- | --- |
+| bare (no tools) | 4/6 · 67% | 4/6 · 67% | 27.8 |
+| with the Workbench | 6/8 · 75% | **5/6 · 83%** | 35.7 |
+| bare + one think-harder pass | 4/5 · 80% | 4/5 · 80% (no change) | 116.1 |
+
+Denominators differ because an arm that errored is excluded, never scored as a failure: three
+calls died on a `fetch failed` when LM Studio dropped the connection mid-generation.
+
+Read the paired column — same cases, both arms. The Workbench turned one miss into a hit
+(a date difference the model got wrong from memory) and cost 8 seconds a case. Deliberation
+revised 3 of 5 drafts and changed **no** score: on this slice the self-review arm found things to
+say and none of them were the error. That is a null result and it is reported as one; the paired
+column is 5 cases wide, which is far too narrow to conclude anything beyond "not visible here".
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
@@ -51,6 +68,10 @@ half of that feature — and the report says so.
   correctly refused to answer from them (the grounding rules working as intended), but the library
   had failed it. With the packs embedded the same question retrieves Burns and scalds and the case
   passes. Measured on a 9B: 1/3 → 2/3 answered and 2/3 → 3/3 cited across the first three cases.
+- **Having the tool is not using it.** On the mortgage-payment case the model called
+  `run_python` once and *still* answered from prose algebra — $2,468.46 against a true
+  $2,420.82 — in both the bare and Workbench arms. The tool was present, invoked, and ignored.
+  This is the failure the tool-choice eval cannot see, because that suite scores the *choice*.
 - **A retrieved document is not a retrieved answer.** "My nose is bleeding, what do I do?" pulls
   five passages from the right document — but MMR's diversity spent them on *Go to A&E if*, the
   video caption and aftercare, crowding out the section that says to pinch for 10–15 minutes. The

@@ -3,7 +3,7 @@
   "expect": [
     {
       "label": "percent increase",
-      "value": 16.0,
+      "value": 16.026936026936024,
       "tolerance": 0.06
     }
   ]
