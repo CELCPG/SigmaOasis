@@ -402,6 +402,33 @@ export function buildTurnContext(blocks: string[]): string | null {
   return `\n\n---\n${TURN_CONTEXT_HEADER}\n\n${used.join('\n\n')}`
 }
 
+/**
+ * v1.7: a small model occasionally opens its reply by echoing the turn-notes
+ * scaffold verbatim (measured: a 9B pasted the header sentence, a horizontal
+ * rule and all, before its actual answer — the same failure class the v1.6
+ * revision guard caught for recompute scaffolding). The header is defined
+ * three functions up, so the guard and the prompt cannot drift.
+ *
+ * The header sentence is a fixed 150-character string, so removing exactly it
+ * (plus a directly attached `---` rule) is safe anywhere in the reply. When
+ * nothing but the scaffold survives, the text is left alone — an empty bubble
+ * is worse than a disclosed echo — and `echoed` still reports it.
+ */
+export function stripTurnNotesEcho(reply: string): { text: string; echoed: boolean } {
+  if (!reply.includes(TURN_CONTEXT_HEADER)) return { text: reply, echoed: false }
+  const stripped = reply
+    .split(TURN_CONTEXT_HEADER)
+    .map((part, i, all) => {
+      // Drop a `---` rule that immediately preceded the echoed header.
+      if (i < all.length - 1) return part.replace(/(?:^|\n)[ \t]*-{3,}[ \t]*\n?$/, '\n')
+      return part
+    })
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { text: stripped.length > 0 ? stripped : reply, echoed: true }
+}
+
 // ---- Source-consultation check ------------------------------------------------
 
 /**

@@ -47,10 +47,10 @@ The symptoms of a stroke often happen quickly. They include:
 
 The F.A.S.T. test can help you remember what to look for if you think someone is having a stroke. Think "FAST" and look for:
 
-- F ace drooping on one side when smiling.
-- A rm weakness occurs when the arms are raised, and one arm drifts downward.
-- S peech is slurred or strange.
-- T ime to call 911.
+- Face drooping on one side when smiling.
+- Arm weakness occurs when the arms are raised, and one arm drifts downward.
+- Speech is slurred or strange.
+- Time to call 911.
 
 If you think that you or someone else is having a stroke, call 911 right away. Every minute counts during a stroke.
 

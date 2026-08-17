@@ -8,6 +8,7 @@ import {
   consultedSources,
   looksFactual,
   looksReference,
+  stripTurnNotesEcho,
   withGrounding,
   withToolCallPreamble,
   BREVITY_RULES,
@@ -320,6 +321,46 @@ describe('grounding block · offline (v1.5)', () => {
   test('withGrounding threads the option through', () => {
     assert.match(withGrounding('persona', new Date(), { offline: true }), /You are OFFLINE/)
     assert.doesNotMatch(withGrounding('persona', new Date()), /You are OFFLINE/)
+  })
+})
+
+describe('stripTurnNotesEcho (v1.7)', () => {
+  const HEADER = TURN_CONTEXT_HEADER
+
+  test('an ordinary reply passes through untouched', () => {
+    const r = stripTurnNotesEcho('The standard deduction for 2025 is $15,000.')
+    assert.equal(r.echoed, false)
+    assert.equal(r.text, 'The standard deduction for 2025 is $15,000.')
+  })
+
+  test('the measured failure: leading rule + header before the answer', () => {
+    const r = stripTurnNotesEcho(`---\n${HEADER}\n\nI need your filing status to answer.`)
+    assert.equal(r.echoed, true)
+    assert.equal(r.text, 'I need your filing status to answer.')
+  })
+
+  test('a mid-reply echo is removed without touching the surrounding answer', () => {
+    const r = stripTurnNotesEcho(`The deduction is $15,000.\n\n---\n${HEADER}\n\nSee Topic 551.`)
+    assert.equal(r.echoed, true)
+    assert.match(r.text, /^The deduction is \$15,000\./)
+    assert.match(r.text, /See Topic 551\.$/)
+    assert.ok(!r.text.includes(HEADER))
+    assert.ok(!/---/.test(r.text))
+  })
+
+  test('a reply that is nothing but scaffold is flagged, not blanked', () => {
+    const original = `---\n${HEADER}`
+    const r = stripTurnNotesEcho(original)
+    assert.equal(r.echoed, true)
+    assert.equal(r.text, original, 'an empty bubble is worse than a disclosed echo')
+  })
+
+  test('the guard shares its marker with the prompt builder', () => {
+    // buildTurnContext emits the exact string the guard looks for — the v1.6
+    // lesson: one source for both, so prompt and guard cannot drift.
+    const ctx = buildTurnContext(['some note'])
+    assert.ok(ctx && ctx.includes(HEADER))
+    assert.equal(stripTurnNotesEcho(`x${ctx}`).echoed, true)
   })
 })
 

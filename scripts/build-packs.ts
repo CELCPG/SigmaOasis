@@ -91,7 +91,12 @@ const CONVERT_SCRIPT = String.raw`
     const tag = node.tagName.toLowerCase()
     if (/^h[1-6]$/.test(tag)) { const t = inlineText(node); if (t) { blank(); push('#'.repeat(Number(tag[1])) + ' ' + t); blank() } return }
     if (tag === 'p') { const t = inlineText(node); if (t) { blank(); push(t); blank() } return }
-    if (tag === 'li') { const own = clean([...node.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE || !/^(ul|ol)$/.test((n.tagName||'').toLowerCase())).map((n) => n.textContent).join(' ')); if (own) push((listPrefix || '- ') + own); [...node.children].filter((c) => /^(ul|ol)$/.test(c.tagName.toLowerCase())).forEach((c) => walk(c, '  - ')); return }
+    // The li's own text is its textContent minus any nested lists — taken from
+    // a pruned clone, NOT childNodes joined with spaces: that join split words
+    // whose first letter is a styled element ("<b>F</b>ace" became "F ace" in
+    // the stroke FAST mnemonic, v1.7). textContent concatenates exactly as the
+    // source does; whitespace between runs is the document's own.
+    if (tag === 'li') { const own = node.cloneNode(true); own.querySelectorAll('ul, ol').forEach((el) => el.remove()); const t = clean(own.textContent || ''); if (t) push((listPrefix || '- ') + t); [...node.children].filter((c) => /^(ul|ol)$/.test(c.tagName.toLowerCase())).forEach((c) => walk(c, '  - ')); return }
     if (tag === 'ul' || tag === 'ol') { blank(); let i = 0; [...node.children].forEach((c) => { i += 1; walk(c, tag === 'ol' ? (listPrefix ? listPrefix : '') + i + '. ' : (listPrefix || '- ')) }); blank(); return }
     if (tag === 'table') {
       blank()

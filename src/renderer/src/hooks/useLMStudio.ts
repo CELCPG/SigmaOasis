@@ -12,6 +12,8 @@ import {
   consultedSources,
   looksFactual,
   looksReference,
+  stripTurnNotesEcho,
+  TURN_CONTEXT_HEADER,
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
@@ -721,6 +723,25 @@ async function runTurn(
     useAppStore.getState().settings?.grounding.workbenchChecks !== false &&
     slotTools.some((t) => t.function.name === 'run_python')
   const checks: NonNullable<ChatMessage['checks']> = []
+
+  // v1.7: scrub a verbatim echo of the turn-notes scaffold before any check
+  // reads the content (the eval caught a 9B opening its reply with the header
+  // sentence). Mechanical, disclosed, and shares its marker with the prompt.
+  {
+    const scrub = stripTurnNotesEcho(assistantMsg.content)
+    if (scrub.echoed) {
+      if (scrub.text !== assistantMsg.content) {
+        assistantMsg.content = scrub.text
+        patch({ content: scrub.text })
+      }
+      checks.push({
+        kind: 'echo',
+        ok: scrub.text !== '' && !scrub.text.includes(TURN_CONTEXT_HEADER),
+        summary: '🧾 The reply echoed the app’s internal turn notes; the echo was removed.'
+      })
+      patch({ checks: [...checks] })
+    }
+  }
   const codeCheckMemo = new Map<string, { finding: string | null; ran: boolean; ok: boolean; note?: string }>()
   const codeFindingFor = async (content: string): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string }> => {
     if (!workbenchChecksOn) return { finding: null, ran: false, ok: false }
