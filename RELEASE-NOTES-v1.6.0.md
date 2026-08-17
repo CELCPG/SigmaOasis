@@ -1,6 +1,6 @@
 # Sigma Oasis v1.6.0 — the Workbench
 
-v1.5 gave a small model something to read: an offline reference library it cites instead of guessing. This release gives it something to **compute with** — and then turns that against its own answers. A 9–30B model is unreliable at arithmetic and exact at writing the program that does the arithmetic; the Workbench closes that gap with a Python runtime that is sandboxed by construction, wired into attachments, disclosed in the chat, and used by the app as a *verifier*, not just a tool. Every claim below was verified in the built app against a 9B model; pinned by 1,257 node checks (85 new since v1.5.1) plus 29 new real-window Workbench checks.
+v1.5 gave a small model something to read: an offline reference library it cites instead of guessing. This release gives it something to **compute with** — and then turns that against its own answers. A 9–30B model is unreliable at arithmetic and exact at writing the program that does the arithmetic; the Workbench closes that gap with a Python runtime that is sandboxed by construction, wired into attachments, disclosed in the chat, and used by the app as a *verifier*, not just a tool. Every claim below was verified in the built app against a 9B model, and this time there is a number: on 20 quantitative questions that model went from **56% to 100%** with the Workbench, and from **0/6 to 6/6** on the ones that need a 400-row spreadsheet aggregated. Pinned by 1,273 node checks (101 new since v1.5.1) plus 29 real-window Workbench checks.
 
 ## Python, sandboxed by construction
 
@@ -21,6 +21,44 @@ v1.5 gave a small model something to read: an offline reference library it cites
 - **Measured, end to end:** asked for a car's out-the-door total "from your head", the 9B model answered **$31,796.25** — wrong. The app recomputed ($2,347.12 tax; **$31,997.12** total), flagged the model's figures against that output, and the revision substituted the correct number. The reply the user saw was right, said what had been checked, and carried no warning — because after correction none was needed.
 - Three small-model failure modes surfaced live and are now guarded mechanically: a recompute program returned without its code fence (accepted by shape); a revision that "fixed" flagged figures by deleting every figure and disclaiming (refused — a flagged answer beats a non-answer); a revision that pasted the checker's own instructions into the chat (refused; the guard shares its markers with the prompt so they cannot drift).
 
+## Measured, not asserted
+
+Three eval harnesses ship with this release (`npm run eval:answers`, `npm run eval:tools`), all
+scored mechanically — no model grades another model's answer. Against a 9B, temperature 0:
+
+**The Workbench, on 20 questions whose answers were computed independently when the fixtures were written:**
+
+| arm | result | s/case |
+| --- | --- | --- |
+| bare — no tools | 10/18 · 56% | 29.5 |
+| **with the Workbench** | **20/20 · 100%** | 39.9 |
+| bare + one think-harder pass | 9/14 · 64% | 76.4 |
+
+| | bare | with the Workbench |
+| --- | --- | --- |
+| arithmetic, units, dates (14) | 10/12 · 83% | 14/14 · 100% |
+| over a 400-row CSV (6) | **0/6 · 0%** | **6/6 · 100%** |
+
+The CSV row is this release in one line: not one of those six questions is answerable without
+executing something — the model cannot sum four hundred rows from memory and did not pretend to —
+and all six are answerable with it, at one to three tool calls and **ten extra seconds a case**.
+
+**The Almanac, on 28 offline reference questions across the seven curated packs:** passages
+retrieved for 28/28, every required fact present in 25/28, a real source cited in 26/28, and
+exactly **1 case in 28** stated a measurement its passages did not support — the class where an
+invented dose or duration is worse than no answer at all.
+
+**Think harder is reported as the null result it was here:** 7 of 14 drafts revised, no score
+changed, and nothing broken — no correct draft became wrong. At 2.6× the latency that is worth
+knowing before leaving it on, and this suite measures arithmetic, which is not what a review pass
+is for.
+
+Both suites also found faults in *themselves*, which is the point of running them rather than
+describing them: a floating-point tolerance that failed a model for answering correctly, a
+"must not" pattern that flagged *"Never thaw food on the counter"*, and a whole run scored against
+a sandbox that was never loaded — the suite now refuses to start unless it can compute `2+2`
+first. `docs/evals.md` has the tables, the caveats and the withdrawals.
+
 ## Also in this release (from the v1.5.1 line)
 
 - **🧠 Think harder** — draft → review by a different role (or labelled self-review) → one gated revision, on demand from the composer or any reply.
@@ -30,7 +68,7 @@ v1.5 gave a small model something to read: an offline reference library it cites
 ## Upgrade notes
 
 - **New tools, on by default:** `run_python` and `analyze_file` (Settings → Tools) — sandboxed, local, no network. **New setting, on by default:** *Workbench checks* (Settings → Models). Off switches exist for all of it.
-- **Building from source:** run `bash scripts/fetch-pyodide.sh` once (CI and the release workflow do this themselves). Without the runtime the tools report themselves unavailable and the check suite self-skips; nothing else changes.
+- **Building from source:** run `bash scripts/fetch-pyodide.sh` once (CI and the release workflow do this themselves). The evals are developer-facing and need a live LM Studio: `LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>`. Without the runtime the tools report themselves unavailable and the check suite self-skips; nothing else changes.
 - **Disk/size:** the runtime adds ~30 MB to the installed app, loaded into memory only while the sandbox is warm and freed after ten idle minutes.
 - **macOS:** signed and notarized; Apple Silicon and Intel DMGs. Also `brew tap CELCPG/tap && brew install --cask sigma-oasis`. **Windows:** unsigned installer, SmartScreen will warn. **Auto-update** from v1.5.x.
 

@@ -110,10 +110,13 @@ model load (31.6 s against a 28.6 s median).
   negation cue shares its sentence", which also lets "cook to 165°F, **not** 145°F" pass. Both
   verbatim replies are pinned as tests; re-scoring the completed run drops the flagged cases from
   2 to 0.
-- **Having the tool is not using it.** On the mortgage-payment case the model called
-  `run_python` once and *still* answered from prose algebra — $2,468.46 against a true
-  $2,420.82 — in both the bare and Workbench arms. The tool was present, invoked, and ignored.
-  This is the failure the tool-choice eval cannot see, because that suite scores the *choice*.
+- **Withdrawn: "having the tool is not using it."** An earlier run recorded the model calling
+  `run_python` on the mortgage case and still answering from prose algebra ($2,468.46 against a
+  true $2,420.82), which read as a finding about tool discipline. It was not. That run's sandbox
+  was the broken one below: the call returned "runtime not installed" in 0 ms, so falling back to
+  prose was the *correct* response to a dead tool. With a working sandbox the same case computes
+  $2,420.82. Recorded here because a flattering-sounding lesson that the evidence does not support
+  is exactly what an eval exists to prevent.
 - **A retrieved document is not a retrieved answer.** "My nose is bleeding, what do I do?" pulls
   five passages from the right document — but MMR's diversity spent them on *Go to A&E if*, the
   video caption and aftercare, crowding out the section that says to pinch for 10–15 minutes. The
