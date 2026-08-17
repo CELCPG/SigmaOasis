@@ -22,6 +22,15 @@ asar: true
 extraResources:
   - from: resources/pyodide
     to: pyodide
+  # The curated reference packs (v1.7.1): ~700K of public-domain text. Bundled
+  # so an installed app can populate the Almanac with one click and no network
+  # — before this, the curated tranche only existed for people who cloned the
+  # repo. sources/ holds build specs, not documents; users never need it.
+  - from: packs
+    to: packs
+    filter:
+      - '**/*'
+      - '!sources/**'
 mac:
   category: public.app-category.productivity
   # Both architectures, so Intel Macs get a native build rather than Rosetta.

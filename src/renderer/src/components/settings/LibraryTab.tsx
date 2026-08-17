@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { LibraryFreshness, LibraryLookupResult, LibraryPackSummary } from '../../types'
+import type { LibraryBundledPack, LibraryFreshness, LibraryLookupResult, LibraryPackSummary } from '../../types'
 
 /**
  * Settings → Library (v1.5, the Almanac). Lists installed reference packs,
@@ -25,6 +25,7 @@ function kb(chars: number): string {
 
 export function LibraryTab(): JSX.Element {
   const [packs, setPacks] = useState<LibraryPackSummary[] | null>(null)
+  const [bundled, setBundled] = useState<LibraryBundledPack[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [embedding, setEmbedding] = useState<{ packId: string; done: number; total: number } | null>(null)
@@ -35,6 +36,7 @@ export function LibraryTab(): JSX.Element {
   const mounted = useRef(true)
 
   const refresh = useCallback(() => {
+    void window.api.libraryBundled().then((b) => { if (mounted.current) setBundled(b) }).catch(() => {})
     void window.api
       .libraryList()
       .then(async (list) => {
@@ -117,6 +119,24 @@ export function LibraryTab(): JSX.Element {
         return
       }
       setNotice(`Added "${r.pack.name}" — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
+      refresh()
+      if (r.pack.chunks > r.pack.embeddedChunks) await embed(r.pack, { auto: true })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Install a curated pack shipped inside the app — disk to disk, then embed. */
+  const installBundled = async (b: LibraryBundledPack): Promise<void> => {
+    setBusy(`bundled:${b.id}`)
+    setNotice(null)
+    try {
+      const r = await window.api.libraryInstallBundled(b.id)
+      if (!r.ok || !r.pack) {
+        setNotice(r.error ?? `Installing "${b.name}" failed.`)
+        return
+      }
+      setNotice(`Installed "${r.pack.name}" — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
       refresh()
       if (r.pack.chunks > r.pack.embeddedChunks) await embed(r.pack, { auto: true })
     } finally {
@@ -213,9 +233,9 @@ export function LibraryTab(): JSX.Element {
         <p className={NOTE}>Loading…</p>
       ) : packs.length === 0 ? (
         <p className={NOTE}>
-          No packs installed. Add a folder of your own documents, or install a reference pack. Packs
-          are plain folders — see <code>docs/library-pack-format.md</code> in the repository for the
-          format, and the release notes for the curated public-domain packs.
+          No packs installed yet. Install the curated packs below with one click, or add a folder of
+          your own documents. Packs are plain folders — <code>docs/library-pack-format.md</code> in
+          the repository describes the format.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -317,6 +337,53 @@ export function LibraryTab(): JSX.Element {
           {totalEmbedded === totalChunks ? 'all embedded' : `${totalEmbedded} embedded`}. Stored under the app&apos;s
           data folder; the original files you added are never modified.
         </p>
+      )}
+
+      {/* Curated packs shipped inside the app (v1.7.1) */}
+      {bundled.length > 0 && (
+        <div className="border-t border-black/10 dark:border-white/10 pt-4">
+          <div className="text-sm font-medium">Curated packs</div>
+          <p className="mt-1 text-xs text-neutral-500">
+            Reference packs bundled with this build — first aid, health, preparedness, food safety,
+            finance, home safety, civics. Installing copies them into your library and uses no
+            network.
+          </p>
+          {bundled.every((b) => b.installed && b.installedVersion === b.version) ? (
+            <p className={`${NOTE} mt-2`}>
+              All {bundled.length} curated packs are installed and current.
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-1.5">
+              {bundled.map((b) => {
+                const updatable = b.installed && b.installedVersion !== b.version
+                return (
+                  <li key={b.id} className="flex items-center gap-2 rounded-xl border border-black/10 dark:border-white/10 p-2.5 text-xs">
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{b.name}</span>{' '}
+                      <span className="text-neutral-400">
+                        · {b.docs} document{b.docs === 1 ? '' : 's'} · v{b.version} · {b.license}
+                      </span>
+                      {b.description && <p className="mt-0.5 text-neutral-500">{b.description}</p>}
+                    </div>
+                    {b.installed && !updatable ? (
+                      <span className="shrink-0 text-neutral-400">✓ installed</span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void installBundled(b)}
+                        className={`${BUTTON} shrink-0`}
+                        title={updatable ? `Installed v${b.installedVersion}; this build ships v${b.version}.` : 'Copy this pack into your library and embed it.'}
+                      >
+                        {updatable ? `Update to v${b.version}` : 'Install'}
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
       )}
 
       {/* Try it */}

@@ -7,6 +7,7 @@ import type {
   AttachmentRef,
   AuditEntryInput,
   AuditStatus,
+  LibraryBundledPack,
   LibraryEmbedResult,
   LibraryFreshness,
   LibraryLookupResult,
@@ -173,6 +174,10 @@ const api = {
   libraryAddFolder: (path?: string, name?: string): Promise<LibraryPackResult> =>
     ipcRenderer.invoke('library:addFolder', path, name),
   libraryRemove: (id: string): Promise<{ removed: boolean }> => ipcRenderer.invoke('library:remove', id),
+  /** v1.7.1: curated packs shipped inside this build, installable offline with one click. */
+  libraryBundled: (): Promise<LibraryBundledPack[]> => ipcRenderer.invoke('library:bundled'),
+  libraryInstallBundled: (id: string): Promise<LibraryPackResult> =>
+    ipcRenderer.invoke('library:installBundled', id),
   /** v1.7: rebuild a user pack from its tracked folder; unchanged documents keep their vectors. */
   libraryUpdateFromFolder: (id: string): Promise<LibraryUpdateResult> =>
     ipcRenderer.invoke('library:updateFromFolder', id),

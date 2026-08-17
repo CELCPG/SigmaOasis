@@ -535,6 +535,18 @@ export interface LibraryEmbedResult {
   error?: string
 }
 
+/** v1.7.1: a curated pack shipped inside the app, installable offline. */
+export interface LibraryBundledPack {
+  id: string
+  name: string
+  description: string
+  version: string
+  license: string
+  docs: number
+  installed: boolean
+  installedVersion: string | null
+}
+
 /** v1.7: result of updating a user pack from its source folder. */
 export interface LibraryUpdateResult {
   ok: boolean

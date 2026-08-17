@@ -120,8 +120,8 @@ The `Release` workflow runs five jobs:
 - **Windows** — builds the unsigned NSIS installer.
 - **Linux** — builds the AppImage.
 - **Attach the installers to the release** — the only job that writes to the
-  release: it creates one draft, uploads all nine assets, and then fails if any
-  of them is missing. The three build jobs deliberately hold no write
+  release: it creates one draft, uploads every expected asset, and then fails if
+  any of them is missing. The three build jobs deliberately hold no write
   permission. This exists because v1.6.0 shipped with the DMGs and the AppImage
   on *two different* draft releases — see the comment on the job.
 - **Homebrew cask bump** — updates version + SHA-256s in `CELCPG/homebrew-tap`
@@ -135,6 +135,7 @@ verified the asset list, so the page should show exactly:
 - `Sigma-Oasis-1.0.0-mac-x64.dmg` (+ `.blockmap`)
 - `Sigma-Oasis-1.0.0-setup.exe` (+ `.blockmap`)
 - `Sigma-Oasis-1.0.0-linux.AppImage`
+- `packs.zip` (the curated reference packs, standalone)
 - `latest-mac.yml` / `latest.yml` / `latest-linux.yml` (auto-update metadata)
 
 Dashes, not spaces: `latest*.yml` points the auto-updater at the dashed name, so

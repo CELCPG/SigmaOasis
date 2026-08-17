@@ -21,7 +21,7 @@ name: Release
 #
 # Shape of the run: guard → {macOS, Windows, Linux} build in parallel with
 # `--publish never` and upload their installers as workflow artifacts → a single
-# `publish` job creates one draft release and attaches all nine assets → the
+# `publish` job creates one draft release and attaches every asset → the
 # Homebrew cask bump reads that release by id. Only `publish` holds
 # `contents: write`. Letting each platform job publish for itself is what gave
 # v1.6.0 two draft releases with the assets split across them; the long comment
@@ -310,12 +310,23 @@ jobs:
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
     steps:
+      # Checkout precedes the artifact download: actions/checkout cleans the
+      # workspace and would eat an assets/ directory that arrived first.
+      - uses: actions/checkout@v4
+
       - name: Collect every platform's installers
         uses: actions/download-artifact@v4
         with:
           pattern: installers-*
           merge-multiple: true
           path: assets
+
+      # The curated packs as a standalone download (v1.7.1) — for people who
+      # want the reference library without (or before) the app, and for
+      # anything else that can read the documented pack format. sources/ holds
+      # build specs, not documents.
+      - name: Zip the curated packs
+        run: zip -r -q assets/packs.zip packs -x "packs/sources/*"
 
       - name: Create or reuse the draft release, then upload
         id: release
@@ -388,8 +399,9 @@ jobs:
 
       # Prints the finished asset list, so "the release is missing the DMGs" is
       # visible in the run that caused it rather than days later on the release
-      # page. Both DMGs, the installer, the AppImage and three update manifests.
-      - name: Verify the release carries all nine assets
+      # page. Both DMGs, the installer, the AppImage, the packs archive and the
+      # three update manifests.
+      - name: Verify the release carries every expected asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -404,6 +416,7 @@ jobs:
             "Sigma-Oasis-${VERSION}-mac-x64.dmg" \
             "Sigma-Oasis-${VERSION}-setup.exe" \
             "Sigma-Oasis-${VERSION}-linux.AppImage" \
+            packs.zip \
             latest-mac.yml latest.yml latest-linux.yml; do
             printf '%s\n' "$names" | grep -qxF "$want" || missing+=("$want")
           done

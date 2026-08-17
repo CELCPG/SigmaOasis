@@ -263,6 +263,62 @@ describe('user packs from a folder', () => {
   })
 })
 
+describe('bundled curated packs (v1.7.1)', () => {
+  // Two levels up: tests compile into .test-build/test/, not test/.
+  const repoPacks = join(__dirname, '..', '..', 'packs')
+
+  test('lists the real bundled tranche with install state', async () => {
+    lib.setBundledPacksDirForTests(repoPacks)
+    try {
+      const bundled = await lib.listBundledPacks()
+      assert.ok(bundled.length >= 7, `expected the 7-pack tranche, got ${bundled.length}`)
+      assert.ok(bundled.every((b) => !b.installed), 'nothing is installed in a fresh library')
+      assert.ok(bundled.some((b) => b.id === 'first-aid'))
+      // sources/ is build specs, never a pack.
+      assert.ok(!bundled.some((b) => b.id === 'sources'))
+    } finally {
+      lib.setBundledPacksDirForTests(null)
+    }
+  })
+
+  test('installs a bundled pack, reports it installed, and serves lookups', async () => {
+    lib.setBundledPacksDirForTests(repoPacks)
+    try {
+      const summary = await lib.installBundledPack('first-aid')
+      assert.equal(summary.kind, 'curated')
+      assert.ok(summary.docs > 0)
+      const bundled = await lib.listBundledPacks()
+      const fa = bundled.find((b) => b.id === 'first-aid')
+      assert.equal(fa?.installed, true)
+      assert.equal(fa?.installedVersion, fa?.version)
+      const out = await lib.lookupLibrary({ query: 'how long to cool a burn under running water', topK: 2 })
+      assert.equal(out.passages.length > 0, true)
+      assert.equal(out.passages[0].packId, 'first-aid')
+      // Re-install replaces in place rather than erroring.
+      const again = await lib.installBundledPack('first-aid')
+      assert.equal(again.docs, summary.docs)
+    } finally {
+      lib.setBundledPacksDirForTests(null)
+    }
+  })
+
+  test('refuses an unknown or invalid id, and an empty dir lists nothing', async () => {
+    lib.setBundledPacksDirForTests(repoPacks)
+    try {
+      await assert.rejects(lib.installBundledPack('no-such-pack'), /No bundled pack/)
+      await assert.rejects(lib.installBundledPack('../escape'), /Invalid pack id/)
+    } finally {
+      lib.setBundledPacksDirForTests(null)
+    }
+    lib.setBundledPacksDirForTests(join(root, 'no-bundled-dir'))
+    try {
+      assert.deepEqual(await lib.listBundledPacks(), [])
+    } finally {
+      lib.setBundledPacksDirForTests(null)
+    }
+  })
+})
+
 describe('section-aware chunking (v1.7)', () => {
   const headingsOf = (text: string): { offset: number; title: string }[] => {
     const out: { offset: number; title: string }[] = []

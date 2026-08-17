@@ -1,6 +1,6 @@
 import { app, dialog, ipcMain } from 'electron'
 import { hostWindow } from './hostWindow'
-import { promises as fs } from 'fs'
+import { existsSync, promises as fs } from 'fs'
 import { createHash } from 'crypto'
 import { basename, extname, join, resolve } from 'path'
 import { writeFileAtomic } from './fsAtomic'
@@ -1068,6 +1068,96 @@ export async function checkPackFreshness(id: string): Promise<FreshnessReport> {
   return { supported: true, fresh: added + removed + changed === 0, missingFolder: false, added, removed, changed, examples }
 }
 
+// ---- bundled curated packs (v1.7.1) ---------------------------------------------
+
+/** A curated pack shipped inside the app, not yet necessarily installed. */
+export interface BundledPackInfo {
+  id: string
+  name: string
+  description: string
+  version: string
+  license: string
+  docs: number
+  /** Is a pack with this id currently installed in the library? */
+  installed: boolean
+  /** The installed copy's version, when it differs it shows as updatable. */
+  installedVersion: string | null
+}
+
+let bundledDirOverride: string | null = null
+
+export function setBundledPacksDirForTests(dir: string | null): void {
+  bundledDirOverride = dir
+}
+
+/**
+ * Where the curated packs shipped with the app live. Same resolution story as
+ * the Pyodide runtime (workbench.ts): resourcesPath when packaged, and a
+ * candidate list in dev — app.getAppPath() is not the repo when the built
+ * main is loaded by a wrapper, which is exactly how the CDP verification
+ * harness runs it, so __dirname/../.. (out/main → repo root) is the fallback.
+ * Before v1.7.1 the curated tranche existed only in the repo — an installed
+ * app had an empty Almanac and no offline way to fill it.
+ */
+export function bundledPacksDir(): string {
+  if (bundledDirOverride) return bundledDirOverride
+  if (app.isPackaged) return join(process.resourcesPath, 'packs')
+  const candidates = [join(app.getAppPath(), 'packs'), join(__dirname, '..', '..', 'packs')]
+  for (const c of candidates) if (existsSync(join(c, 'first-aid', 'manifest.json'))) return c
+  return candidates[0]
+}
+
+export async function listBundledPacks(): Promise<BundledPackInfo[]> {
+  let entries: import('fs').Dirent[]
+  try {
+    entries = await fs.readdir(bundledPacksDir(), { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const out: BundledPackInfo[] = []
+  for (const e of entries) {
+    if (!e.isDirectory() || !PACK_ID_RE.test(e.name)) continue
+    const raw = await readJson<unknown>(join(bundledPacksDir(), e.name, 'manifest.json'))
+    if (!raw) continue
+    let manifest: PackManifest
+    try {
+      manifest = validateManifest(raw)
+    } catch {
+      continue
+    }
+    const installedManifest = await readJson<unknown>(join(packDir(manifest.id), 'manifest.json'))
+    let installedVersion: string | null = null
+    if (installedManifest) {
+      try {
+        installedVersion = validateManifest(installedManifest).version
+      } catch {
+        installedVersion = 'unknown'
+      }
+    }
+    out.push({
+      id: manifest.id,
+      name: manifest.name,
+      description: manifest.description,
+      version: manifest.version,
+      license: manifest.license,
+      docs: manifest.docs.length,
+      installed: installedManifest !== null,
+      installedVersion
+    })
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Install (or update) one bundled pack into the library. Local disk to local disk. */
+export async function installBundledPack(id: string): Promise<PackSummary> {
+  if (!PACK_ID_RE.test(id)) throw new Error(`Invalid pack id "${id}".`)
+  const dir = join(bundledPacksDir(), id)
+  if (!(await pathExists(join(dir, 'manifest.json')))) {
+    throw new Error(`No bundled pack "${id}" in this build.`)
+  }
+  return installPackFromDirectory(dir, { replace: true })
+}
+
 export async function removePack(id: string): Promise<{ removed: boolean }> {
   if (!PACK_ID_RE.test(id)) return { removed: false }
   const dir = packDir(id)
@@ -1246,6 +1336,16 @@ export function registerLibraryHandlers(): void {
     }
     try {
       return { ok: true, pack: await createPackFromFolder(dir, { name: typeof name === 'string' ? name : undefined }) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('library:bundled', () => listBundledPacks())
+
+  ipcMain.handle('library:installBundled', async (_e, id: string) => {
+    try {
+      return { ok: true, pack: await installBundledPack(String(id ?? '')) }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
