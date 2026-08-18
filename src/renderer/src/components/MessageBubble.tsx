@@ -12,7 +12,7 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { RanCodeBlock } from './RanCodeBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
-import { describeDeliberation } from '../lib/deliberation'
+import { describeDeliberation, thinkHarderNote } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { OasisRipple } from './OasisRipple'
@@ -473,7 +473,12 @@ export const MessageBubble = memo(function MessageBubble({
                 onClick={() => void deliberate(message.id)}
                 disabled={streaming}
                 className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
-                title="Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible."
+                title={
+                  'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
+                  // v1.9.1: on a model that already reasons internally, say what
+                  // the reasoning suite measured rather than implying a benefit.
+                  (thinkHarderNote(message.modelId ?? '') ? `\n\n${thinkHarderNote(message.modelId ?? '')}` : '')
+                }
               >
                 🧠 Think harder
               </button>

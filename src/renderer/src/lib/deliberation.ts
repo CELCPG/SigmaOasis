@@ -1,3 +1,4 @@
+import { isLikelyReasoningModel } from './reasoning'
 import type { DeliberationRecord, ModelConfig } from '../types'
 import { pickCritic } from './secondOpinion'
 import { BREVITY_RULES } from './grounding'
@@ -127,6 +128,34 @@ export function figuresChanged(draft: string, revision: string): { added: string
 }
 
 /** One line for the bubble. */
+/**
+ * v1.9.1: what the reasoning suite actually measured, said where the feature
+ * is offered.
+ *
+ * The pass was measured twice. On arithmetic (v1.6) it was a null result at
+ * 2.6x the latency. On its own ground — 14 multi-step reasoning problems with
+ * one checkable answer, including two whose correct answer is IMPOSSIBLE —
+ * a reasoning model got 14/14 right first time, no revision broke a correct
+ * answer, and the pass changed nothing at 1.6-1.9x the latency. The mechanism
+ * is plain: a reasoning model spends its own tokens deliberating before it
+ * answers (124 of 128 on a one-word reply, measured), so the internal
+ * deliberation IS this pass.
+ *
+ * The affordance stays — one model and fourteen cases is evidence, not a law,
+ * and the review is still visible and still catches nothing harmful. What
+ * changes is that it stops implying a benefit that was looked for and not
+ * found. Non-reasoning models get the original wording, because for them the
+ * question is genuinely open (docs/evals.md records that gap too).
+ */
+export function thinkHarderNote(modelId: string): string | null {
+  if (!isLikelyReasoningModel(modelId)) return null
+  return (
+    'Measured on this kind of model: it already reasons before answering, and a review pass ' +
+    'changed no answer across 14 reasoning problems while costing about 1.7x the time. It is ' +
+    'still here, and the review stays visible — but expect no change more often than not.'
+  )
+}
+
 export function describeDeliberation(d: DeliberationRecord): string {
   const who = d.self ? 'reviewed its own draft' : `reviewed by ${d.reviewerRole}`
   if (d.status === 'reviewing') return `🧠 Thinking harder — ${d.self ? 'self-review' : `review by ${d.reviewerRole}`} in progress…`

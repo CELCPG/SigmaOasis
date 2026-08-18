@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  thinkHarderNote,
   buildReviewMessages,
   buildRevisionMessages,
   describeDeliberation,
@@ -106,5 +107,28 @@ describe('describeDeliberation', () => {
     assert.match(describeDeliberation({ ...base, note: 'Figures changed: 381 → 391.' }), /Figures changed: 381 → 391/)
     assert.match(describeDeliberation({ ...base, status: 'reviewing' }), /in progress/)
     assert.match(describeDeliberation({ ...base, status: 'error', note: 'boom' }), /failed: boom/)
+  })
+})
+
+describe('thinkHarderNote (v1.9.1)', () => {
+  test('a reasoning model gets the measured note; a non-reasoning model gets none', () => {
+    for (const id of ['qwen3.8-9b', 'deepseek-r1-distill-8b', 'google/gemma-4-12b-qat']) {
+      const note = thinkHarderNote(id)
+      assert.ok(note, `${id} should carry the note`)
+      assert.match(note!, /already reasons before answering/)
+      assert.match(note!, /changed no answer across 14 reasoning problems/)
+      assert.match(note!, /1\.7x/)
+    }
+    // The question is genuinely open for models that do not reason internally,
+    // so they must not be told a result that was never measured for them.
+    for (const id of ['llama-3.1-8b-instruct', 'mistral-7b-instruct', '']) {
+      assert.equal(thinkHarderNote(id), null, `${id} must not carry a note`)
+    }
+  })
+
+  test('the note says the feature stays available, not that it is useless', () => {
+    const note = thinkHarderNote('qwen3.8-9b')!
+    assert.match(note, /still here/)
+    assert.doesNotMatch(note, /useless|pointless|never/i)
   })
 })

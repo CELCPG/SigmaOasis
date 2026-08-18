@@ -4,6 +4,7 @@ import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
 import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
 import { conversationContextUsage } from '../lib/contextBudget'
+import { thinkHarderNote } from '../lib/deliberation'
 import type { Attachment } from '../types'
 
 type MicState = 'idle' | 'recording' | 'transcribing'
@@ -429,9 +430,12 @@ export function InputBar(): JSX.Element {
                   : GHOST_BUTTON
               }
               title={
-                deliberate
+                (deliberate
                   ? 'Think harder on — the reply is reviewed by another role (or by itself, labelled) and revised once before you see the final version'
-                  : 'Think harder — draft, review, revise: one extra pass that catches arithmetic slips and skipped steps. Costs two more model calls.'
+                  : 'Think harder — draft, review, revise: one extra pass that catches arithmetic slips and skipped steps. Costs two more model calls.') +
+                // v1.9.1: on a model that already reasons internally, say what was
+                // measured rather than implying a benefit that was not found.
+                (thinkHarderNote(activeSlot?.modelId ?? '') ? `\n\n${thinkHarderNote(activeSlot?.modelId ?? '')}` : '')
               }
             >
               {deliberate ? '🧠 Think harder' : '🧠'}
