@@ -168,31 +168,50 @@ check the Session variables list before reading a file again") and measured it p
   produced 0/0 across the board — correctly excluded, but an hour and a half to learn what one
   probe learns in a second.
 
-**Conversation ledger (v1.9) — 3 cases × 5 turns, ledger vs. bare, three passes:**
+**Conversation ledger (v1.9) — ledger vs. bare, three passes each, two regimes.**
 
-Turn 1 establishes a fact with `run_python`, two off-topic turns bury it, then one or two turns
-ask for it back — or for arithmetic on it — without restating it. Both arms are identical
-(sessions on, playbook on) except that one receives the ledger block from the fourth turn.
+Turn 1 establishes a fact with a tool (a total via `run_python` or `analyze_file`; or a stated
+budget and deadline), off-topic turns bury it, then one or two turns ask for it back — or for
+arithmetic on it — without restating it. Both arms are identical (sessions on, playbook on) except
+that one receives the ledger block from the fourth turn on. Only `recall` turns are scored, and
+only where the fact was actually established.
 
-| arm | fact established | recall | recall turns answered directly (no code) |
+*Short regime* (5 turns, the establishing turn still in the wire history): **15/15 vs 15/15** —
+a null result, and the reason it was null taught the regime: the bare model reads the turn-1 tool
+result back out of history, or simply re-runs the Python. Nothing was lost, so there was nothing
+to fix. Kept as the do-no-harm pin.
+
+*Long regime*: six filler turns, and before each recall turn the runner applies the **app's own
+`planHistory`** with a budget that fits everything after the establishing exchange and nothing
+before it, and asserts the establishing exchange landed in `drop` — the fact is genuinely gone
+from what the model can see, exactly as compaction does it. The ledger, as in the app, is built
+from the full conversation and is never truncated. That is the property under test.
+
+| long regime, 3 cases × 3 passes | established | recall | stable across passes |
 | --- | --- | --- | --- |
-| ledger | 9/9 | **15/15** | 9/15 |
-| bare | 9/9 | **15/15** | 6/15 |
+| **ledger** | 9/9 | **15/15 · 100%** | 5/5 stable-pass, 0 flaky |
+| bare | 9/9 | **3/15 · 20%** | 0 stable-pass, 2 flaky |
 
-Stable across all three passes (0 flaky in either arm) — and, for correctness, a **null result**.
-The bare arm recalled everything too, and the results file shows why: five turns is short enough
-that the turn-1 tool result (`total revenue: 139306.12`) is still sitting in the wire history, so
-the model reads it back or simply re-runs the Python (41 s on that turn vs 17 s for the ledger
-arm, which answered from the block). The ledger arm answered directly more often and faster on
-recall turns; on correctness it had nothing to fix, because nothing was lost.
+Bare's three successes are all case 04 in one pass, and they are not memory: it re-ran the Python
+against the still-attached `sales.csv` (69 s on that turn) — a recomputable fact survives
+compaction through the *file*, not the history. Where nothing is recomputable (case 06, a stated
+budget and deadline) bare said *"I don't have any record of a project with a budget or deadline
+in this conversation"* three passes out of three, while the ledger arm said *"You told me at the
+start that your budget for this analysis project is $2,000 and the deadline is Friday."*
 
-Which is the honest finding: **this suite measures the wrong regime.** The ledger's claim is
-about conversations long enough for a small model to have *lost* the fact — either compacted out
-of the window or drowned in twenty turns of other material. Five turns tests neither. The suite
-stays (it pins that the ledger does no harm and that the wiring reaches the model), and a
-long-regime variant — enough filler to force compaction, so the establishing turn is genuinely
-gone from history — is the measurement that would actually decide the feature's value. Recorded
-here rather than quietly re-fixtured until it flatters.
+The first long-regime run scored the ledger 12/15, and reading its one stable miss found a real
+gap rather than noise: on the expenses data the 9B never ran Python — it read the total off
+`analyze_file`'s profile (`sum 84,284.63`) — and the ledger, which read only `run_python` and
+the calculators, recorded no fact. On the recall turn the model then said, truthfully about its
+own ledger, "I haven't computed any totals." That the model told the truth about an empty ledger
+instead of inventing is the design working; the extractor was too narrow. `analyze_file`'s
+per-column stats are now facts, and the re-measurement above is with that fix. The harness also
+now stores the injected block and every turn's tool results, because that miss could only be
+inferred, not read.
+
+**What the ledger is worth, in one line:** on conversations long enough for the establishing
+turn to have been compacted away, a 9B recalls established facts **100% vs 20%** — and the 20%
+is recomputation, not memory.
 
 ## Findings worth keeping
 
