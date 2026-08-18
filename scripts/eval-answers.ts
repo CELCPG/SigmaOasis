@@ -461,7 +461,7 @@ async function runResearchSuite(model: string): Promise<import('../src/renderer/
   storeMod.writeSettings({
     ...prev,
     search: { ...prev.search, provider: 'searxng', searxngUrl: origin, confirmBeforeSearch: false },
-    research: { ...prev.research, depth: 'standard', confirmPlan: false }
+    research: { ...prev.research, depth: 'thorough', confirmPlan: false }
   })
 
   const dr = require('../src/main/ipc/deepResearch') as typeof import('../src/main/ipc/deepResearch')
@@ -476,12 +476,14 @@ async function runResearchSuite(model: string): Promise<import('../src/renderer/
         process.env.SIGMA_RESEARCH_GROUNDING = arm === 'checked' ? '1' : '0'
         const t0 = Date.now()
         try {
-          // 'standard', not 'quick': quick's 20 s synthesis reserve is not enough
-          // for a 9B to write a brief on this hardware — measured: both arms
-          // came back empty at exactly the 60 s wall clock, which measures the
-          // budget, not the rung. Standard gives synthesis 45 s and the check's
-          // revision half of whatever is left.
-          const outcome = await dr.runDeepResearch({ question: fx.question, depth: 'standard', modelId: model })
+          // 'thorough': the wall clock must not be what the suite measures. On
+          // this hardware a 9B plans in ~17 s and synthesizes in ~45 s, and the
+          // rung's revision is another synthesis-sized call; quick (60 s) and
+          // standard (150 s) both produced empty briefs at the wall clock in
+          // most arms — measuring the budget, not the rung. Thorough gives 300 s
+          // with a 60 s synthesis reserve. Retrieval against the fixture server
+          // is instantaneous, so all of it is model time.
+          const outcome = await dr.runDeepResearch({ question: fx.question, depth: 'thorough', modelId: model })
           const brief = outcome.brief ?? ''
           const sources = outcome.sources ?? []
           // Independent re-check of whatever brief came out, for the score —

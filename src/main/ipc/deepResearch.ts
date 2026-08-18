@@ -859,6 +859,19 @@ export async function runDeepResearch(options: {
     // --- reflect ---
     coverage = assessCoverage(plan.subQuestions, sources)
     if (coverage.every((c) => c.covered)) break
+    // v1.9: a round that surfaced no fresh candidate at all means the
+    // provider is exhausted for these sub-questions — another replan re-asks
+    // a question that has already been answered "nothing", and each replan
+    // is a model call (~25 s on a 9B) taken straight out of the synthesis
+    // budget. Measured against a fixed corpus: two empty replan rounds spent
+    // 50 s to find zero pages and left synthesis crammed into what remained.
+    // On the live web an empty round is rare; when it happens, the same
+    // logic holds. Stop and write the brief from what exists.
+    if (fresh.length === 0) {
+      tracker.limitsHit.push('no new sources')
+      progress('reflecting', 'No new sources found this round — synthesizing from what was read')
+      break
+    }
     progress('reflecting', `${coverage.filter((c) => !c.covered).length} sub-question(s) still open`)
   }
 
