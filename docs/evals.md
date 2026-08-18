@@ -9,6 +9,7 @@ so CI stays offline. Scoring is mechanical in every one: no model grades another
 | Library grounding (v1.6) | does an offline reference question get answered from the retrieved passages, cited, with no invented measurement | `LMSTUDIO_EVAL=1 EVAL_SUITES=library npm run eval:answers -- <model>` |
 | Quantitative + deliberation (v1.6) | the number right or wrong, **bare vs. with the Workbench**, and the same draft after one think-harder pass | `LMSTUDIO_EVAL=1 EVAL_SUITES=quant,deliberate npm run eval:answers -- <model>` |
 | Deep research (v1.9) | the research brief checked against the passages it was synthesized from — figures, measurements, citations — **rung on vs. off**, against a loopback fixture corpus, never the live web | `LMSTUDIO_EVAL=1 EVAL_SUITES=research npm run eval:answers -- <model>` |
+| Reasoning + think-harder (v1.9.1) | multi-step problems with one checkable answer, no tools: **draft vs the same draft after review-and-revise**, counting how often review *fixed* a wrong draft and how often it *broke* a right one | `LMSTUDIO_EVAL=1 EVAL_SUITES=reasoning npm run eval:answers -- <model>` |
 | Multi-turn analysis (v1.8) | follow-up questions over one dataset, **sessions vs. stateless**: per-turn correctness, whether follow-ups re-read the file, calls and seconds per turn | `LMSTUDIO_EVAL=1 EVAL_SUITES=multiturn npm run eval:answers -- <model>` |
 
 `EVAL_CASES=1-8` runs a 1-based inclusive slice, so a slow model can be evaluated in chunks that
@@ -329,6 +330,49 @@ builds keyword terms, and a run where every query was refused says so. That bug 
 because the eval's model changed underneath it — which is an argument for running these suites on
 whatever model is actually loaded, not only the one they were written against.
 
+
+**Think-harder, measured where it is actually for (v1.9.1).**
+
+The v1.6 quantitative suite found deliberation a null result at 2.6x the latency and said outright
+that "the cases it might help (reasoning, not arithmetic) are not what this suite measures". It has
+shipped that whole time, unmeasured on its own ground. This suite is that ground: 14 multi-step
+problems with one checkable answer and **no tools** — comparison chains, state tracking, a rule
+with an exception, deduction from negatives, set overlap, elimination, constraint satisfaction,
+ordering, a relation across time, systematic enumeration, and two traps whose correct answer is
+**IMPOSSIBLE** (an over-constrained seating, and a modified river-crossing where the wolf also eats
+the cabbage — written to defeat recall of the classic's "7 crossings"). Both arms share one draft,
+so the delta is exactly what the pass adds. Every fixture stores the canonical ANSWER line, and a
+test asserts each answer pattern matches it while no distractor does — the discipline that would
+have caught the "5 minutes" bug at write time.
+
+Measured on `qwen3.8-9b`, a **reasoning** model:
+
+| | result |
+| --- | --- |
+| draft correct | **14/14** |
+| after review | 14/14 |
+| review fixed a wrong draft | 0/0 — no wrong drafts to fix |
+| review **broke** a right draft | **0/14** |
+| reviewer found problems | 1/14 (its revision kept the answer correct) |
+| cost | 1.6–1.9x latency for zero change |
+
+It got every case right first time, including both IMPOSSIBLE traps and the modified classic. So
+the suite reports two things and refuses to report a third:
+
+- **No harm, measured.** 0/14 revisions broke a correct answer. That is real evidence, and it is
+  what the v1.6 run also found on arithmetic.
+- **No benefit available to measure on this model class, and the mechanism is clear.** A reasoning
+  model spends its own tokens deliberating before it answers — 124 of 128 completion tokens on a
+  one-word reply, measured. The internal deliberation *is* the think-harder pass, so an external
+  one has nothing left to add. Two suites on two model classes' worth of questions now agree.
+- **What remains unmeasured:** whether review helps a *non-reasoning* model, which is the case the
+  feature was designed for. That needs a non-reasoning model loaded (the app already distinguishes
+  them — `looksLikeReasoningModel` in lib/reasoning.ts), and is the measurement that would decide
+  whether think-harder should be recommended, defaulted, or discouraged per model.
+
+The product conclusion available today: **think-harder costs ~1.7x latency for a measured zero on a
+reasoning model.** Offering it there without saying so is the kind of thing this project measures
+in order not to do.
 
 ## Findings worth keeping
 

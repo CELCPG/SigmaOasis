@@ -1,0 +1,7 @@
+{
+  "kind": "over-constrained (no solution)",
+  "prompt": "Ana, Ben, Cara and Dan must sit in a row of four seats, one each. Ana must sit next to Ben. Cara must sit next to Dan. Neither Ana nor Ben may sit next to Cara or Dan. Can all four be seated under these rules?\n\nIf a seating exists, end your reply with a single final line: ANSWER: seat1, seat2, seat3, seat4\nIf no seating is possible, end your reply with exactly: ANSWER: IMPOSSIBLE",
+  "canonical": "ANSWER: IMPOSSIBLE",
+  "answer": ["ANSWER:\\s*IMPOSSIBLE"],
+  "distractors": ["ANSWER:[^\\n]*\\bAna\\b", "ANSWER:[^\\n]*\\bBen\\b", "ANSWER:[^\\n]*\\bCara\\b", "ANSWER:[^\\n]*\\bDan\\b"]
+}

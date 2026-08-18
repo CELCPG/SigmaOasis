@@ -1,0 +1,7 @@
+{
+  "kind": "deduction from negatives",
+  "prompt": "Ana, Ben, Cara and Dan sit in seats 1 to 4, left to right, one person per seat. Ana is not in seat 1 or seat 4. Ben is in seat 4. Cara is not in seat 2. Dan sits immediately to the right of Cara. Who sits in each seat?\n\nEnd your reply with a single final line in exactly this form: ANSWER: seat1, seat2, seat3, seat4",
+  "canonical": "ANSWER: Cara, Dan, Ana, Ben",
+  "answer": ["ANSWER:\\s*Cara,\\s*Dan,\\s*Ana,\\s*Ben"],
+  "distractors": ["ANSWER:\\s*Cara,\\s*Ana", "ANSWER:\\s*Ana,", "ANSWER:\\s*Dan,", "ANSWER:\\s*Ben,"]
+}

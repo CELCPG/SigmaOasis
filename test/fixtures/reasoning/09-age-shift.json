@@ -1,0 +1,7 @@
+{
+  "kind": "relation across time",
+  "prompt": "Maya is 3 times as old as her son. In 12 years she will be twice as old as he is then. How old is Maya now?\n\nEnd your reply with a single final line in exactly this form: ANSWER: <number>",
+  "canonical": "ANSWER: 36",
+  "answer": ["ANSWER:\\s*36(?![\\d.])"],
+  "distractors": ["ANSWER:\\s*24(?![\\d.])", "ANSWER:\\s*18(?![\\d.])", "ANSWER:\\s*12(?![\\d.])", "ANSWER:\\s*48(?![\\d.])"]
+}

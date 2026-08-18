@@ -1,0 +1,7 @@
+{
+  "kind": "systematic enumeration",
+  "prompt": "How many times does the digit 3 appear in total when you write out every integer from 1 to 250 inclusive?\n\nEnd your reply with a single final line in exactly this form: ANSWER: <number>",
+  "canonical": "ANSWER: 55",
+  "answer": ["ANSWER:\\s*55(?![\\d.])"],
+  "distractors": ["ANSWER:\\s*25(?![\\d.])", "ANSWER:\\s*30(?![\\d.])", "ANSWER:\\s*50(?![\\d.])", "ANSWER:\\s*26(?![\\d.])", "ANSWER:\\s*35(?![\\d.])"]
+}

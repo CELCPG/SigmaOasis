@@ -1,0 +1,7 @@
+{
+  "kind": "state tracking",
+  "prompt": "Box X holds 6 balls, box Y holds 3, box Z holds 0. Then, in order: (1) move half of the balls in X to Z; (2) move 2 balls from Y to X; (3) move all of Z's balls to Y. How many balls are in each box at the end?\n\nEnd your reply with a single final line in exactly this form: ANSWER: X=<n>, Y=<n>, Z=<n>",
+  "canonical": "ANSWER: X=5, Y=4, Z=0",
+  "answer": ["ANSWER:\\s*X\\s*=\\s*5,\\s*Y\\s*=\\s*4,\\s*Z\\s*=\\s*0"],
+  "distractors": ["ANSWER:\\s*X\\s*=\\s*3", "ANSWER:[^\\n]*Y\\s*=\\s*1", "ANSWER:[^\\n]*Z\\s*=\\s*3"]
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "ordering with constraints",
+  "prompt": "A shelf holds four items left to right: a novel, an atlas, a diary and a manual, in some order. The diary is immediately to the right of the atlas. The novel is not at either end. The manual is at one end. The atlas is not first. What is the order from left to right?\n\nEnd your reply with a single final line in exactly this form: ANSWER: first, second, third, fourth",
+  "canonical": "ANSWER: manual, novel, atlas, diary",
+  "answer": ["ANSWER:\\s*manual,\\s*novel,\\s*atlas,\\s*diary"],
+  "distractors": ["ANSWER:\\s*atlas", "ANSWER:\\s*novel,", "ANSWER:\\s*diary,"]
+}

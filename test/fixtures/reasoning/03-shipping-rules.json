@@ -1,0 +1,7 @@
+{
+  "kind": "rule application with exception",
+  "prompt": "A shop's rules: standard shipping is $5. Orders over $50 ship free. Any order containing a fragile item adds $8 handling, and the free-shipping rule does not waive handling. An order totals $60 and contains one fragile item. What is the total of shipping plus handling for it?\n\nEnd your reply with a single final line in exactly this form: ANSWER: $<amount>",
+  "canonical": "ANSWER: $8",
+  "answer": ["ANSWER:\\s*\\$?8(?![\\d.])"],
+  "distractors": ["ANSWER:\\s*\\$?0(?![\\d.])", "ANSWER:\\s*\\$?13(?![\\d.])", "ANSWER:\\s*\\$?5(?![\\d.])"]
+}

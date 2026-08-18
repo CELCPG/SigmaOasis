@@ -1,0 +1,7 @@
+{
+  "kind": "constraint satisfaction",
+  "prompt": "Five workshops are on offer: Robotics, Coding, Art, Music and Drama. You must pick exactly three. If you pick Robotics you must also pick Coding. You cannot pick both Coding and Art, because they clash. You must pick Art. Which three workshops do you end up with?\n\nEnd your reply with a single final line in exactly this form: ANSWER: <three workshops, comma separated>",
+  "canonical": "ANSWER: Art, Music, Drama",
+  "answer": ["ANSWER:[^\\n]*\\bArt\\b", "ANSWER:[^\\n]*\\bMusic\\b", "ANSWER:[^\\n]*\\bDrama\\b"],
+  "distractors": ["ANSWER:[^\\n]*\\bRobotics\\b", "ANSWER:[^\\n]*\\bCoding\\b"]
+}

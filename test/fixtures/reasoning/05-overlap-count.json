@@ -1,0 +1,7 @@
+{
+  "kind": "set overlap",
+  "prompt": "In a class of 30 students, 18 play football and 15 play chess. 5 students play neither. How many students play both football and chess?\n\nEnd your reply with a single final line in exactly this form: ANSWER: <number>",
+  "canonical": "ANSWER: 8",
+  "answer": ["ANSWER:\\s*8(?![\\d.])"],
+  "distractors": ["ANSWER:\\s*3(?![\\d.])", "ANSWER:\\s*5(?![\\d.])", "ANSWER:\\s*33(?![\\d.])", "ANSWER:\\s*25(?![\\d.])"]
+}

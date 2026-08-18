@@ -1,0 +1,7 @@
+{
+  "kind": "logic grid (5)",
+  "prompt": "Ana, Ben, Cara, Dan and Eve finished a race in distinct positions 1st to 5th. Ben was neither first nor last. Cara finished immediately after Ana. Dan finished before Eve. Eve was not last. Ana was not first. Ben finished immediately before Eve. What was the finishing order?\n\nEnd your reply with a single final line in exactly this form: ANSWER: first, second, third, fourth, fifth",
+  "canonical": "ANSWER: Dan, Ben, Eve, Ana, Cara",
+  "answer": ["ANSWER:\\s*Dan,\\s*Ben,\\s*Eve,\\s*Ana,\\s*Cara"],
+  "distractors": ["ANSWER:\\s*Ana,", "ANSWER:\\s*Ben,", "ANSWER:\\s*Cara,", "ANSWER:\\s*Eve,"]
+}

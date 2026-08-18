@@ -1,0 +1,7 @@
+{
+  "kind": "rule chain with a non-firing conditional",
+  "prompt": "Delivery rules: (a) a package over 20 kg needs two handlers; (b) a package marked fragile needs a signature on delivery; (c) packages needing two handlers are never delivered on Saturdays; (d) signature deliveries are made on weekdays only. A package weighs 18 kg and is marked fragile. Which single statement is true of it?\n\nEnd your reply with a single final line that is exactly one of these:\nANSWER: TWO_HANDLERS\nANSWER: SATURDAY_OK\nANSWER: SIGNATURE_WEEKDAY",
+  "canonical": "ANSWER: SIGNATURE_WEEKDAY",
+  "answer": ["ANSWER:\\s*SIGNATURE_WEEKDAY"],
+  "distractors": ["ANSWER:\\s*TWO_HANDLERS", "ANSWER:\\s*SATURDAY_OK"]
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "modified classic (defeats recall)",
+  "prompt": "A farmer must cross a river with a wolf, a goat and a cabbage. The boat carries the farmer and at most one item. If left alone together, the wolf eats the goat, and the goat eats the cabbage. In this version, the wolf also eats the cabbage if they are left alone together. What is the minimum number of crossings needed to get everything across safely?\n\nIf it can be done, end your reply with a single final line: ANSWER: <number of crossings>\nIf it cannot be done, end your reply with exactly: ANSWER: IMPOSSIBLE",
+  "canonical": "ANSWER: IMPOSSIBLE",
+  "answer": ["ANSWER:\\s*IMPOSSIBLE"],
+  "distractors": ["ANSWER:\\s*7(?![\\d.])", "ANSWER:\\s*3(?![\\d.])", "ANSWER:\\s*5(?![\\d.])", "ANSWER:\\s*9(?![\\d.])"]
+}

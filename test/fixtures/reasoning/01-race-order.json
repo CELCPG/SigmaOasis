@@ -1,0 +1,7 @@
+{
+  "kind": "comparison chain",
+  "prompt": "Four runners finished a race in distinct positions. Ben finished ahead of Ana. Cara finished behind Dan. Dan finished behind Ana. Work out the finishing order from first to last.\n\nEnd your reply with a single final line in exactly this form: ANSWER: first, second, third, fourth",
+  "canonical": "ANSWER: Ben, Ana, Dan, Cara",
+  "answer": ["ANSWER:\\s*Ben,\\s*Ana,\\s*Dan,\\s*Cara"],
+  "distractors": ["ANSWER:\\s*Ben,\\s*Dan", "ANSWER:\\s*Ana,", "ANSWER:\\s*Dan,", "ANSWER:\\s*Cara,"]
+}

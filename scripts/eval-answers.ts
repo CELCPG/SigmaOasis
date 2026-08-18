@@ -397,6 +397,100 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
 
 let jobNonce = 0
 
+interface ReasoningFixture {
+  file: string
+  kind: string
+  prompt: string
+  /** The exact ANSWER line a correct reply ends with — every pattern must match it. */
+  canonical: string
+  answer: string[]
+  distractors?: string[]
+}
+
+/**
+ * v1.9.1: think-harder measured where it is actually for.
+ *
+ * The v1.6 quantitative suite found it a null result at 2.6x the latency and
+ * said outright that "the cases it might help (reasoning, not arithmetic) are
+ * not what this suite measures". Nothing measured it since, and it has shipped
+ * that whole time. These are multi-step problems with one checkable answer and
+ * no tools: a comparison chain, state tracking, a rule with an exception,
+ * deduction from negatives, set overlap, elimination, constraint satisfaction,
+ * ordering. Both arms share one draft, so the delta is exactly what the review
+ * pass adds — and the two counts that matter are directed: how often it FIXED
+ * a wrong draft, and how often it BROKE a right one.
+ */
+async function runReasoningSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').ReasoningCaseResult[]> {
+  const { assertedPatterns } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  const { withGrounding } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const del = require('../src/renderer/src/lib/deliberation') as typeof import('../src/renderer/src/lib/deliberation')
+
+  const fixtures = slice(loadJson<ReasoningFixture>(join(REPO_ROOT, 'test', 'fixtures', 'reasoning')))
+  const results: import('../src/renderer/src/lib/answerEval').ReasoningCaseResult[] = []
+  const slot: import('../src/renderer/src/types').ModelConfig = {
+    id: 'a',
+    modelId: model,
+    roleName: 'Assistant',
+    systemPrompt: PERSONA,
+    color: 'blue' as import('../src/renderer/src/types').ModelConfig['color'],
+    enabled: true,
+    sampling: { temperature: 0, topP: 1, maxTokens: -1, seed: null, topK: -1, minP: -1 },
+    contextWindow: null
+  }
+
+  for (const [i, fx] of fixtures.entries()) {
+    const score = (reply: string, ms: number): import('../src/renderer/src/lib/answerEval').ReasoningTurnResult => {
+      const missing = fx.answer.filter((p) => !new RegExp(p, 'i').test(reply))
+      const asserted = assertedPatterns(reply, fx.distractors ?? [])
+      return {
+        correct: missing.length === 0 && asserted.length === 0,
+        missing,
+        asserted,
+        empty: reply.trim().length === 0,
+        ms,
+        reply: reply.slice(0, 900)
+      }
+    }
+    try {
+      const t0 = Date.now()
+      const draftR = await complete(model, [
+        { role: 'system', content: withGrounding(PERSONA) },
+        { role: 'user', content: fx.prompt }
+      ])
+      const draft = score(draftR.content, Date.now() - t0)
+
+      // The app's own path: review, and revise only if the review found
+      // something. A self-review, because one model is loaded — the weaker arm
+      // of the feature, and labelled as such in the report.
+      const t1 = Date.now()
+      const review = await complete(model, del.buildReviewMessages(slot, fx.prompt, draftR.content, 'Assistant', true) as never)
+      const found = del.reviewFoundProblems(review.content)
+      let finalText = draftR.content
+      let revised = false
+      if (found) {
+        const rev = await complete(model, del.buildRevisionMessages(slot, fx.prompt, draftR.content, review.content) as never)
+        if (rev.content.trim()) {
+          finalText = rev.content
+          revised = true
+        }
+      }
+      const final = score(finalText, Date.now() - t1)
+      results.push({ file: fx.file, kind: fx.kind, draft, final, reviewFoundProblems: found, revised, reviewMs: Date.now() - t1 })
+      const arrow = draft.correct === final.correct ? '=' : draft.correct ? '✗ BROKE' : '✓ FIXED'
+      process.stdout.write(
+        `  ${fx.file.padEnd(30)} draft ${draft.correct ? '✓' : '✗'} → final ${final.correct ? '✓' : '✗'}  ${arrow}` +
+          `  review:${found ? 'found' : 'clean'}${revised ? '/revised' : ''}  ${(draft.ms / 1000).toFixed(0)}s+${(Date.now() - t1) / 1000 | 0}s` +
+          `${draft.empty || final.empty ? '  [EMPTY REPLY]' : ''}  [${i + 1}/${fixtures.length}]\n`
+      )
+    } catch (err) {
+      const zero = { correct: false, missing: [], asserted: [], empty: true, ms: 0 }
+      results.push({ file: fx.file, kind: fx.kind, draft: zero, final: zero, reviewFoundProblems: false, revised: false, reviewMs: 0, error: err instanceof Error ? err.message : String(err) })
+      process.stdout.write(`  ${fx.file.padEnd(30)} ! ${err instanceof Error ? err.message.slice(0, 70) : ''}  [${i + 1}/${fixtures.length}]\n`)
+    }
+  }
+  return results
+}
+
 interface ResearchFixture {
   file: string
   question: string
@@ -882,7 +976,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,research   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -1125,6 +1219,38 @@ async function main(): Promise<void> {
       report.research = { passes: rsPasses, stability }
     } else {
       report.research = { summary: s, runs: rsPasses[0].runs }
+    }
+  }
+
+  if (want.includes('reasoning')) {
+    console.log('reasoning: draft vs draft + one think-harder pass (self-review, no tools)')
+    const { summarizeReasoning, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const rnPasses: { runs: Awaited<ReturnType<typeof runReasoningSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      rnPasses.push({ runs: await runReasoningSuite(model) })
+    }
+    const s = summarizeReasoning(rnPasses.flatMap((p) => p.runs))
+    console.log(
+      `\n  draft correct        ${s.draftCorrect.hit}/${s.draftCorrect.of}\n` +
+        `  after review         ${s.finalCorrect.hit}/${s.finalCorrect.of}\n` +
+        `  review FIXED a wrong draft   ${s.fixed.hit}/${s.fixed.of}\n` +
+        `  review BROKE a right draft   ${s.broke.hit}/${s.broke.of}\n` +
+        `  reviewer found problems      ${s.reviewFoundProblems.hit}/${s.reviewFoundProblems.of} · revised ${s.revised.hit}/${s.revised.of}\n` +
+        `  ${s.secondsDraft.toFixed(1)} s draft · +${s.secondsReview.toFixed(1)} s for the pass (${(1 + s.secondsReview / Math.max(0.1, s.secondsDraft)).toFixed(1)}x)\n`
+    )
+    if (passesWanted > 1) {
+      const stability = {
+        draft: stabilityAcrossPasses(rnPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.error ? null : r.draft.correct })))),
+        final: stabilityAcrossPasses(rnPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.error ? null : r.final.correct }))))
+      }
+      for (const arm of ['draft', 'final'] as const) {
+        const st = stability[arm]
+        console.log(`  ${arm.padEnd(6)} across ${passesWanted} passes: [${st.perPass.join(', ')}] · median ${st.median} · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.reasoning = { passes: rnPasses, stability, summary: s }
+    } else {
+      report.reasoning = { summary: s, runs: rnPasses[0].runs }
     }
   }
 

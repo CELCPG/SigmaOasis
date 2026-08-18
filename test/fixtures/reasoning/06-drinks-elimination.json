@@ -1,0 +1,7 @@
+{
+  "kind": "elimination",
+  "prompt": "Mia, Noah and Owen each ordered a different drink: tea, coffee or juice. Mia did not order coffee. Owen ordered tea. Who ordered the coffee?\n\nEnd your reply with a single final line in exactly this form: ANSWER: <name>",
+  "canonical": "ANSWER: Noah",
+  "answer": ["ANSWER:\\s*Noah"],
+  "distractors": ["ANSWER:\\s*Mia", "ANSWER:\\s*Owen"]
+}

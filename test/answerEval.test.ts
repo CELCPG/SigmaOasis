@@ -7,6 +7,7 @@ import {
   codeReadsData,
   summarizeMultiTurn,
   summarizeLedger,
+  summarizeReasoning,
   citesSource,
   measurementsIn,
   numbersIn,
@@ -355,6 +356,63 @@ describe('research fixtures (v1.9)', () => {
       // minutes" matching "3.5 minutes" lesson.
       for (const d of fx.decoys ?? []) {
         assert.ok(!new RegExp(d, 'i').test(corpus), `${f}: decoy /${d}/ matches the corpus — it would flag a correct brief`)
+      }
+    }
+  })
+})
+
+describe('reasoning suite (v1.9.1)', () => {
+  const turn = (correct: boolean, empty = false) => ({ correct, missing: [], asserted: [], empty, ms: 20_000 })
+  const c = (file: string, draft: boolean, final: boolean, extra: Record<string, unknown> = {}) => ({
+    file, kind: 'k', draft: turn(draft), final: turn(final), reviewFoundProblems: draft !== final, revised: draft !== final, reviewMs: 30_000, ...extra
+  })
+
+  test('fixed and broke are directed counts over the right denominators', () => {
+    const s = summarizeReasoning([
+      c('a', false, true),   // fixed
+      c('b', true, false),   // broke
+      c('c', true, true),    // held
+      c('d', false, false)   // still wrong
+    ])
+    assert.deepEqual(s.draftCorrect, { hit: 2, of: 4 })
+    assert.deepEqual(s.finalCorrect, { hit: 2, of: 4 })
+    assert.deepEqual(s.fixed, { hit: 1, of: 2 }, 'fixed is over wrong drafts, not all cases')
+    assert.deepEqual(s.broke, { hit: 1, of: 2 }, 'broke is over right drafts')
+  })
+
+  test('errored cases are excluded and an empty reply never counts as a fix', () => {
+    const s = summarizeReasoning([
+      { ...c('a', false, false), error: 'fetch failed' },
+      { file: 'b', kind: 'k', draft: turn(false), final: turn(true, true), reviewFoundProblems: true, revised: true, reviewMs: 1 }
+    ])
+    assert.deepEqual(s.draftCorrect, { hit: 0, of: 1 })
+    assert.deepEqual(s.fixed, { hit: 0, of: 0 }, 'a case with an empty reply is not evidence either way')
+  })
+
+  test('the cost multiplier is derivable from the reported seconds', () => {
+    const s = summarizeReasoning([c('a', true, true)])
+    assert.equal(s.secondsDraft, 20)
+    assert.equal(s.secondsReview, 30)
+  })
+
+  test('every reasoning fixture is self-consistent against its own canonical answer', () => {
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'reasoning')
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
+    assert.ok(files.length >= 8)
+    for (const f of files) {
+      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as {
+        kind?: string; prompt?: string; canonical?: string; answer?: string[]; distractors?: string[]
+      }
+      assert.ok(fx.kind && fx.prompt && fx.canonical, `${f}: kind, prompt, canonical`)
+      assert.ok((fx.answer?.length ?? 0) > 0, `${f}: answer patterns`)
+      assert.match(fx.prompt!, /ANSWER:/, `${f}: the prompt must fix the answer format`)
+      // The discipline that would have caught the "5 minutes" bug at write time:
+      // every answer pattern matches the canonical line, no distractor does.
+      for (const a of fx.answer!) {
+        assert.ok(new RegExp(a, 'i').test(fx.canonical!), `${f}: answer /${a}/ does not match its canonical ${fx.canonical}`)
+      }
+      for (const d of fx.distractors ?? []) {
+        assert.ok(!new RegExp(d, 'i').test(fx.canonical!), `${f}: distractor /${d}/ matches the CORRECT answer`)
       }
     }
   })

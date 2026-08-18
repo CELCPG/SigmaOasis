@@ -364,6 +364,75 @@ export function summarizeMultiTurn(results: MultiTurnCaseResult[]): MultiTurnSum
   }
 }
 
+// ---- reasoning: think-harder where it is actually for (v1.9.1) ---------------------
+
+/**
+ * The v1.6 quantitative suite measured think-harder on arithmetic and found a
+ * null result at 2.6x the latency — and said so, adding that "the cases it
+ * might help (reasoning, not arithmetic) are not what this suite measures".
+ * This is that suite: multi-step problems with one checkable answer, where a
+ * 9B makes a single wrong inference and everything after it follows. No tools
+ * — computation is the Workbench's job, and tools here would confound.
+ *
+ * The comparison is draft vs the same draft after review-and-revise, so the
+ * two arms share a draft and the delta is exactly what the pass adds. What
+ * matters is not the totals but the two directed counts: how often review
+ * FIXED a wrong draft, and how often it BROKE a right one.
+ */
+export interface ReasoningTurnResult {
+  correct: boolean
+  /** Answer patterns absent from the reply. */
+  missing: string[]
+  /** Distractor answers the reply asserted (negation-aware). */
+  asserted: string[]
+  /** The model replied with no content at all (reasoning-only response). */
+  empty: boolean
+  ms: number
+  reply?: string
+}
+
+export interface ReasoningCaseResult {
+  file: string
+  kind: string
+  draft: ReasoningTurnResult
+  final: ReasoningTurnResult
+  /** The reviewer said something was wrong. */
+  reviewFoundProblems: boolean
+  /** A revision was produced and replaced the draft. */
+  revised: boolean
+  reviewMs: number
+  error?: string
+}
+
+export interface ReasoningSummary {
+  draftCorrect: Rate
+  finalCorrect: Rate
+  /** Wrong draft -> right final. The reason the feature exists. */
+  fixed: Rate
+  /** Right draft -> wrong final. The reason it might not be worth it. */
+  broke: Rate
+  reviewFoundProblems: Rate
+  revised: Rate
+  secondsDraft: number
+  /** Review + revision, i.e. what the pass costs on top of the draft. */
+  secondsReview: number
+}
+
+export function summarizeReasoning(results: ReasoningCaseResult[]): ReasoningSummary {
+  const ok = results.filter((r) => !r.error)
+  const both = ok.filter((r) => !r.draft.empty && !r.final.empty)
+  return {
+    draftCorrect: rate(ok.filter((r) => r.draft.correct).length, ok.length),
+    finalCorrect: rate(ok.filter((r) => r.final.correct).length, ok.length),
+    fixed: rate(both.filter((r) => !r.draft.correct && r.final.correct).length, both.filter((r) => !r.draft.correct).length),
+    broke: rate(both.filter((r) => r.draft.correct && !r.final.correct).length, both.filter((r) => r.draft.correct).length),
+    reviewFoundProblems: rate(ok.filter((r) => r.reviewFoundProblems).length, ok.length),
+    revised: rate(ok.filter((r) => r.revised).length, ok.length),
+    secondsDraft: mean(ok.map((r) => r.draft.ms / 1000)),
+    secondsReview: mean(ok.map((r) => r.reviewMs / 1000))
+  }
+}
+
 // ---- deep research under the ladder (v1.9) ----------------------------------------
 
 export interface ResearchArmResult {
