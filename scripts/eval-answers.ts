@@ -400,6 +400,13 @@ let jobNonce = 0
 interface ResearchFixture {
   file: string
   question: string
+  /**
+   * Which corpus serves this case. 'clean' (default) is six pages of
+   * unambiguous facts; 'thin' is the regime the rung exists for — a question
+   * the pages only partly answer, and two sources that disagree on a figure,
+   * where a model reconciling helpfully invents the average.
+   */
+  corpus?: 'clean' | 'thin'
   /** Facts the brief must state (regex, any alternative). */
   mustInclude: string[]
   /** Figures NOT in the corpus that a model tempted to fill gaps might state (regex). */
@@ -421,15 +428,19 @@ interface ResearchFixture {
 async function runResearchSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').ResearchCaseResult[]> {
   const http = require('http') as typeof import('http')
   const RESEARCH_DIR = join(REPO_ROOT, 'test', 'fixtures', 'research')
-  const corpusDir = join(RESEARCH_DIR, 'corpus')
-  const pages = readdirSync(corpusDir)
-    .filter((f) => f.endsWith('.html'))
-    .map((f) => {
-      const html = readFileSync(join(corpusDir, f), 'utf-8')
-      const title = /<title>([^<]*)<\/title>/i.exec(html)?.[1] ?? f
-      const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase()
-      return { file: f, title, html, text }
-    })
+  const loadCorpus = (dir: string, corpus: 'clean' | 'thin'): { file: string; corpus: 'clean' | 'thin'; title: string; html: string; text: string }[] =>
+    readdirSync(join(RESEARCH_DIR, dir))
+      .filter((f) => f.endsWith('.html'))
+      .map((f) => {
+        const html = readFileSync(join(RESEARCH_DIR, dir, f), 'utf-8')
+        const title = /<title>([^<]*)<\/title>/i.exec(html)?.[1] ?? f
+        const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase()
+        return { file: f, corpus, title, html, text }
+      })
+  const pages = [...loadCorpus('corpus', 'clean'), ...loadCorpus('corpus-thin', 'thin')]
+  // Set per case: search only ever offers the case's own corpus, so a thin-regime
+  // question cannot be rescued by a clean page that happens to share a word.
+  let activeCorpus: 'clean' | 'thin' = 'clean'
 
   // Keyword-match search: score = distinct query terms present in the page.
   const server = http.createServer((req, res) => {
@@ -438,6 +449,7 @@ async function runResearchSuite(model: string): Promise<import('../src/renderer/
       const q = (u.searchParams.get('q') ?? '').toLowerCase()
       const terms = q.split(/[^a-z0-9%.]+/).filter((t) => t.length >= 3)
       const scored = pages
+        .filter((p) => p.corpus === activeCorpus)
         .map((p) => ({ p, score: terms.filter((t) => p.text.includes(t)).length }))
         .filter((x) => x.score > 0)
         .sort((a, b) => b.score - a.score)
@@ -471,7 +483,8 @@ async function runResearchSuite(model: string): Promise<import('../src/renderer/
 
   try {
     for (const [i, fx] of fixtures.entries()) {
-      const caseOut: import('../src/renderer/src/lib/answerEval').ResearchCaseResult = { file: fx.file, question: fx.question, checked: null as never, unchecked: null as never }
+      activeCorpus = fx.corpus ?? 'clean'
+      const caseOut: import('../src/renderer/src/lib/answerEval').ResearchCaseResult = { file: fx.file, question: fx.question, regime: activeCorpus, checked: null as never, unchecked: null as never }
       for (const arm of ['checked', 'unchecked'] as const) {
         process.env.SIGMA_RESEARCH_GROUNDING = arm === 'checked' ? '1' : '0'
         const t0 = Date.now()
@@ -494,6 +507,7 @@ async function runResearchSuite(model: string): Promise<import('../src/renderer/
           const decoysStated = (fx.decoys ?? []).filter((p) => new RegExp(p, 'i').test(brief))
           caseOut[arm] = {
             ok: outcome.ok && brief.trim().length > 0,
+            error: outcome.ok ? undefined : outcome.error,
             sources: sources.length,
             factsStated: stated.length,
             factsOf: fx.mustInclude.length,
@@ -514,7 +528,7 @@ async function runResearchSuite(model: string): Promise<import('../src/renderer/
           `  ${a.ok && a.factsStated === a.factsOf && a.decoysStated.length === 0 && a.unsupportedFigures === 0 && a.badCitations === 0 ? '✓' : '✗'} ${fx.file} [${arm}]  ` +
             `facts ${a.factsStated}/${a.factsOf} · decoys ${a.decoysStated.length} · unsupported ${a.unsupportedFigures} · bad cites ${a.badCitations}` +
             (arm === 'checked' ? ` · flagged ${a.flaggedBefore}${a.revised ? ' → revised' : ''}` : '') +
-            ` · ${a.sources} src · ${(a.ms / 1000).toFixed(0)}s${a.error ? `  ! ${a.error.slice(0, 60)}` : ''}  [${i + 1}/${fixtures.length}]\n`
+            ` · ${a.sources} src · ${(a.ms / 1000).toFixed(0)}s${a.error ? `  ! ${a.error.slice(0, 60)}` : ''}  [${activeCorpus}] [${i + 1}/${fixtures.length}]\n`
         )
       }
       results.push(caseOut)
@@ -1090,7 +1104,13 @@ async function main(): Promise<void> {
     const line = (label: string, a: typeof s.unchecked): string =>
       `  ${label.padEnd(9)} ran ${a.ran.hit}/${a.ran.of} · complete ${a.complete.hit}/${a.complete.of} · stated a decoy ${a.statedDecoy.hit}/${a.statedDecoy.of}` +
       ` · unsupported figure ${a.unsupported.hit}/${a.unsupported.of} · fabricated citation ${a.fabricatedCitation.hit}/${a.fabricatedCitation.of} · ${a.secondsPerCase.toFixed(0)} s/case`
-    console.log('\n' + line('checked', s.checked) + `\n            (rung flagged the first draft in ${s.checked.flaggedFirstDraft.hit}/${s.checked.flaggedFirstDraft.of}; revision kept in ${s.checked.revised.hit}/${s.checked.revised.of})\n` + line('unchecked', s.unchecked) + '\n')
+    console.log('\n' + line('checked', s.checked) + `\n            (rung flagged the first draft in ${s.checked.flaggedFirstDraft.hit}/${s.checked.flaggedFirstDraft.of}; revision kept in ${s.checked.revised.hit}/${s.checked.revised.of})\n` + line('unchecked', s.unchecked))
+    for (const regime of ['clean', 'thin'] as const) {
+      const r = s.byRegime[regime]
+      if (r.cases === 0) continue
+      console.log(`  — ${regime} corpus (${r.cases} case-run(s)) —\n` + line('checked', r.checked) + `\n            (flagged ${r.checked.flaggedFirstDraft.hit}/${r.checked.flaggedFirstDraft.of}; revised ${r.checked.revised.hit}/${r.checked.revised.of})\n` + line('unchecked', r.unchecked))
+    }
+    console.log('')
     if (passesWanted > 1) {
       const clean = (a: import('../src/renderer/src/lib/answerEval').ResearchArmResult): boolean | null =>
         a.error ? null : a.ok && a.factsStated === a.factsOf && a.decoysStated.length === 0 && a.unsupportedFigures === 0 && a.badCitations === 0

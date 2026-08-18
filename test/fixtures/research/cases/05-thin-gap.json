@@ -1,0 +1,6 @@
+{
+  "corpus": "thin",
+  "question": "What does a heat pump warranty cover, and what is the annual field failure rate for these units?",
+  "mustInclude": ["10 year|10-year", "do not publish|not publish|no (?:published )?failure|not (?:given|stated|available|published|provided)"],
+  "decoys": ["failure rate of \\d", "\\d+(?:\\.\\d+)?% (?:annual |field )?failure", "\\d+ in \\d+ units"]
+}

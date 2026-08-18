@@ -1,0 +1,6 @@
+{
+  "corpus": "thin",
+  "question": "How many charge cycles is a home battery warranted for, and how many years of calendar life should I expect?",
+  "mustInclude": ["6,000|6000", "not|does not|only|no (?:figure|data)"],
+  "decoys": ["\\d+ years? of calendar", "calendar life of \\d", "(?<![\\d.])15 years", "(?<![\\d.])20 years"]
+}

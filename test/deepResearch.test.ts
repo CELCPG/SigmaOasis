@@ -782,3 +782,43 @@ describe('structured planning and adaptive rounds', () => {
     assert.deepEqual(queries, [['new a', 'new b'], ['old two']])
   })
 })
+
+describe('planning fallback produces search terms, not a sentence (v1.9.1)', () => {
+  test('keywordQueryFor strips first-person framing and question words', () => {
+    assert.equal(
+      research.keywordQueryFor('What coffee-to-water ratio and water temperature should I use for pour-over, and how long should it take?'),
+      'coffee-to-water ratio water temperature pour-over long take'
+    )
+    assert.equal(research.keywordQueryFor('How many charge cycles should I expect from a home battery?'), 'many charge cycles home battery')
+    // Nothing but stopwords: the original stands rather than an empty query.
+    assert.equal(research.keywordQueryFor('what should I do?'), 'what should I do?')
+  })
+
+  test('the fallback query survives the privacy filter that refused the raw question', async () => {
+    const { minimizeQuery } = require('../src/main/ipc/search') as typeof import('../src/main/ipc/search')
+    const raw = 'What coffee-to-water ratio and water temperature should I use for pour-over, and how long should it take?'
+    // The measured bug: the raw question is refused, so nothing was ever sent.
+    assert.ok(minimizeQuery(raw).refusal, 'the raw question must still be refused — that guarantee is not being weakened')
+    assert.equal(minimizeQuery(research.keywordQueryFor(raw)).refusal, undefined)
+  })
+
+  test('a run whose every query was refused says so instead of blaming the provider', async () => {
+    // A plan whose queries are first-person sentences: the sanitizer refuses
+    // each one, so no provider is ever contacted.
+    const REFUSED_QUERY = 'my landlord kept my deposit after I moved out of the flat in June and I want to know what my options are now'
+    // Precondition, asserted rather than assumed: a test that stops exercising
+    // the refusal path must fail, not quietly pass.
+    const { minimizeQuery } = require('../src/main/ipc/search') as typeof import('../src/main/ipc/search')
+    assert.ok(minimizeQuery(REFUSED_QUERY).refusal, 'the crafted query must actually be refused')
+    state.completions = [
+      JSON.stringify({ subQuestions: [{ question: 'q', queries: [REFUSED_QUERY] }] })
+    ]
+    state.responses = []
+    const outcome = await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    assert.equal(outcome.ok, false)
+    assert.match(outcome.error!, /No search was sent/i)
+    assert.match(outcome.error!, /refused by the privacy filter/i)
+    assert.match(outcome.error!, /Nothing was contacted/i)
+    assert.doesNotMatch(outcome.error!, /provider may have returned nothing/i)
+  })
+})

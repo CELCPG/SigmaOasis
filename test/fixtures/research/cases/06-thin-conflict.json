@@ -1,0 +1,6 @@
+{
+  "corpus": "thin",
+  "question": "How much do air-source heat pumps cut annual heating bills compared with a gas boiler?",
+  "mustInclude": ["30%", "45%", "disagree|differ|conflict|whereas|while|however|two (?:studies|surveys|sources)"],
+  "decoys": ["37\\.5", "(?<![\\d.])37%", "(?<![\\d.])38%", "average of the two"]
+}

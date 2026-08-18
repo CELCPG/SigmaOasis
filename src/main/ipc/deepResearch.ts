@@ -360,9 +360,53 @@ export function parsePlan(raw: unknown, fallbackQuestion: string): ResearchPlan 
     if (!question) return null
     // Planning failed outright. One round on the original question still beats
     // returning nothing, and the caller is told the plan was a fallback.
-    return { subQuestions: [{ question, queries: [question] }] }
+    return { subQuestions: [{ question, queries: [keywordQueryFor(question)] }] }
   }
   return { subQuestions }
+}
+
+/**
+ * Search *terms* for a question, when planning did not produce any.
+ *
+ * Measured (v1.9.1, on a reasoning model): the planner's structured-output
+ * call came back with everything in `reasoning_content` and an empty
+ * `content`, so parsing failed and the plan fell back to using the raw
+ * question as the query. Most questions are first-person ("what ratio should
+ * I use…"), and the privacy sanitizer refuses a first-person sentence as a
+ * query — correctly; that is a guarantee, not a heuristic. So zero queries
+ * were sent, zero sources were found, and the run reported "the search
+ * provider may have returned nothing". Every link was individually right and
+ * the composite silently failed every first-person question.
+ *
+ * The fallback now produces what the sanitizer wants in the first place: the
+ * question's content words, no first-person framing, no question words,
+ * capped at the provider-sane length. "What coffee-to-water ratio and water
+ * temperature should I use for pour-over, and how long should it take?"
+ * becomes "coffee-to-water ratio water temperature pour-over long take".
+ */
+const QUESTION_WORDS = new Set([
+  'what', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'how', 'is', 'are', 'was', 'were',
+  'do', 'does', 'did', 'can', 'could', 'would', 'will', 'shall', 'should', 'may', 'might', 'must',
+  'i', 'me', 'my', 'mine', 'we', 'us', 'our', 'ours', 'you', 'your', 'yours',
+  'a', 'an', 'the', 'of', 'for', 'to', 'in', 'on', 'at', 'by', 'with', 'from', 'about', 'into',
+  'and', 'or', 'but', 'if', 'then', 'than', 'that', 'this', 'these', 'those', 'it', 'its',
+  'be', 'been', 'being', 'have', 'has', 'had', 'get', 'use', 'expect', 'need', 'want', 'please',
+  'tell', 'show', 'give', 'find', 'look', 'search'
+])
+
+export function keywordQueryFor(question: string): string {
+  const words = question
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s./%-]+/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => !QUESTION_WORDS.has(w))
+  // Capped below the sanitizer's own limit so the fallback is never the thing
+  // that trips it. Empty (a question made only of stopwords) keeps the
+  // original: a refused query is better than no query at all, and the refusal
+  // is now reported rather than swallowed.
+  const kept = words.slice(0, 12)
+  return kept.length > 0 ? kept.join(' ') : question.trim()
 }
 
 async function makePlan(
@@ -394,7 +438,7 @@ async function makePlan(
   } catch {
     // Fall through to the unplanned path.
   }
-  return { plan: { subQuestions: [{ question, queries: [question] }] }, planned: false }
+  return { plan: { subQuestions: [{ question, queries: [keywordQueryFor(question)] }] }, planned: false }
 }
 
 // ---- adaptive re-planning ----------------------------------------------------
@@ -730,6 +774,7 @@ export async function runDeepResearch(options: {
   }
 
   const sentQueries: string[] = []
+  const refusedQueries: string[] = []
   const redactions = new Set<string>()
   const sources: ReadSource[] = []
   const readUrls = new Set<string>()
@@ -790,6 +835,10 @@ export async function runDeepResearch(options: {
         const outcome = await runWebSearch(job.query)
         if (outcome.sentQuery) sentQueries.push(outcome.sentQuery)
         for (const r of outcome.redactions) redactions.add(r)
+        // A query the privacy filter refused never reached a provider. Keep it
+        // so the run can say that, instead of blaming the provider for our own
+        // refusal (v1.9.1).
+        if (!outcome.ok && outcome.error && /not sent|subject only/i.test(outcome.error)) refusedQueries.push(job.query)
         if (outcome.ok) {
           for (const result of outcome.results as SearchResult[]) {
             candidates.push({
@@ -883,8 +932,13 @@ export async function runDeepResearch(options: {
       redactions: [...redactions],
       ledger: tracker.ledger(),
       error:
-        'No usable sources were found. The search provider may have returned nothing, or every ' +
-        'candidate page failed to yield readable text.'
+        refusedQueries.length > 0 && sentQueries.length === 0
+          ? 'No search was sent: every query this run built was refused by the privacy filter for ' +
+            `reading as a sentence about you rather than search terms (${refusedQueries.length} ` +
+            'refused). Nothing was contacted. Ask again with the subject terms, or rephrase the ' +
+            'question without first-person framing.'
+          : 'No usable sources were found. The search provider may have returned nothing, or every ' +
+            'candidate page failed to yield readable text.'
     }
   }
 

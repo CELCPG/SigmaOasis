@@ -388,6 +388,8 @@ export interface ResearchArmResult {
 export interface ResearchCaseResult {
   file: string
   question: string
+  /** Which corpus served the case: 'thin' is the regime the rung exists for. */
+  regime?: 'clean' | 'thin'
   checked: ResearchArmResult
   unchecked: ResearchArmResult
 }
@@ -408,6 +410,8 @@ export interface ResearchArmSummary {
 export interface ResearchSummary {
   checked: ResearchArmSummary & { flaggedFirstDraft: Rate; revised: Rate }
   unchecked: ResearchArmSummary
+  /** Per regime — 'thin' is where the rung has something to catch. */
+  byRegime: Record<'clean' | 'thin', { checked: ResearchArmSummary & { flaggedFirstDraft: Rate; revised: Rate }; unchecked: ResearchArmSummary; cases: number }>
 }
 
 function researchArm(results: ResearchCaseResult[], arm: 'checked' | 'unchecked'): ResearchArmSummary & { flaggedFirstDraft: Rate; revised: Rate } {
@@ -428,7 +432,12 @@ function researchArm(results: ResearchCaseResult[], arm: 'checked' | 'unchecked'
 export function summarizeResearch(results: ResearchCaseResult[]): ResearchSummary {
   const checked = researchArm(results, 'checked')
   const { flaggedFirstDraft: _f, revised: _r, ...unchecked } = researchArm(results, 'unchecked')
-  return { checked, unchecked }
+  const of = (regime: 'clean' | 'thin'): ResearchSummary['byRegime']['clean'] => {
+    const subset = results.filter((r) => (r.regime ?? 'clean') === regime)
+    const { flaggedFirstDraft: _a, revised: _b, ...un } = researchArm(subset, 'unchecked')
+    return { checked: researchArm(subset, 'checked'), unchecked: un, cases: subset.length }
+  }
+  return { checked, unchecked, byRegime: { clean: of('clean'), thin: of('thin') } }
 }
 
 // ---- conversation ledger (v1.9) ----------------------------------------------------
