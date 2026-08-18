@@ -370,6 +370,43 @@ the suite reports two things and refuses to report a third:
   them — `looksLikeReasoningModel` in lib/reasoning.ts), and is the measurement that would decide
   whether think-harder should be recommended, defaulted, or discouraged per model.
 
+**Confirmed on a second family, and a sharper reason (v1.9.1).** Re-run on `gemma-4-12b-qat`, a
+different family and size that also reasons internally (38 of 44 tokens on a one-word reply):
+**10/10 completed cases correct on the draft, 0 fixed, 0 broken, 1.7x cost** — the same result as
+qwen3.8-9b. Two families now agree.
+
+The four cases that did not complete are the more interesting half. They were the hardest ones
+(the 5-person grid, the over-constrained seating, the bookshelf ordering, the digit count), and
+they came back as opaque `fetch failed` transport errors. They were not transport errors. Capping
+generation and re-asking one of them showed what actually happens: **1497 of 1500 tokens went to
+reasoning, `finish_reason: length`, and the answer was empty.** The model does not finish thinking.
+Uncapped, it runs until the connection drops.
+
+So on this hardware a 12B reasoning model has two states on these problems and an external review
+pass improves neither:
+
+- On easy and middling problems it is right first time — nothing to fix.
+- On the hardest ones it produces **no draft at all** — nothing to review.
+
+That strengthens rather than softens the conclusion: think-harder is not the lever for a reasoning
+model. The lever for the second state is a *budget* — the app already caps and reports elsewhere
+(deep research passes `thinking: false` for exactly this reason, after the same lesson) — not a
+second pass over a draft that was never produced.
+
+Two harness changes came out of it, both the same principle as the liveness probe: an empty answer
+is reported as *"the model produced no answer: 1997 of 2000 completion tokens went to reasoning"*
+rather than as a transport failure — and is not retried, because asking again at temperature 0
+spends the same minutes to fail the same way — and completions are capped so a runaway generation
+cannot present as a network fault.
+
+The cap took two attempts, and the reason is worth keeping. The first was 4000 tokens, chosen
+against the model's context; it changed nothing, because **the binding limit is the transport, not
+the context**. These requests are non-streaming, so no bytes flow until generation ends, and
+undici's ~300 s body timeout fires long before any abort signal — a 4000-token cap on a ~12 tok/s
+model still failed as `fetch failed`, which is the exact symptom the cap existed to remove. 2000
+finishes inside that window on a slow local model, and every real answer in every suite is far
+shorter: the longest reasoning draft measured was 179 characters.
+
 The product conclusion available today: **think-harder costs ~1.7x latency for a measured zero on a
 reasoning model.** Offering it there without saying so is the kind of thing this project measures
 in order not to do.

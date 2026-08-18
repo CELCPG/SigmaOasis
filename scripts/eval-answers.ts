@@ -107,6 +107,9 @@ async function complete(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (/^HTTP \d/.test(message)) throw err
+    // Nor is "it never reached an answer" transient: asking again at
+    // temperature 0 spends the same minutes to fail the same way.
+    if (/produced no answer/.test(message)) throw err
     process.stdout.write(`    (retrying after transport failure: ${message.slice(0, 60)})\n`)
     await new Promise((r) => setTimeout(r, 3000))
     return completeOnce(model, messages, tools)
@@ -127,6 +130,20 @@ async function completeOnce(
       messages,
       stream: false,
       temperature: 0,
+      // v1.9.1: a cap, because uncapped generation on a small reasoning model
+      // does not always terminate. Measured on gemma-4-12b-qat: the hardest
+      // reasoning cases spent 1497 of 1500 tokens on reasoning and emitted an
+      // EMPTY answer; uncapped, the connection eventually dropped and the
+      // suite recorded four opaque "fetch failed" transport errors.
+      //
+      // 2000, not 4000: the binding limit is the TRANSPORT, not the context.
+      // These requests are non-streaming, so no bytes flow until generation
+      // ends, and undici's ~300 s body timeout fires first — measured, a 4000
+      // cap still failed as "fetch failed" on a ~12 tok/s model, which is the
+      // very symptom this cap exists to remove. 2000 finishes inside that
+      // window on a slow local model, and every real answer in every suite is
+      // far shorter (the longest reasoning draft measured was 179 characters).
+      max_tokens: 2000,
       ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
     })
   })
@@ -135,7 +152,20 @@ async function completeOnce(
     choices?: { message?: { content?: string | null; tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[] } }[]
   }
   const { parseCompletionMessage } = require('../src/renderer/src/lib/evalRunner') as typeof import('../src/renderer/src/lib/evalRunner')
+  const choice = json.choices?.[0] as { finish_reason?: string; message?: Record<string, unknown> } | undefined
   const parsed = parseCompletionMessage(json.choices?.[0]?.message ?? {})
+  // A reply that is only thinking is not a transport problem and must not be
+  // reported as one: say the model never reached an answer, and with what.
+  if (!parsed.content.trim() && parsed.toolCalls.length === 0) {
+    const usage = (json as { usage?: { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } } }).usage
+    const reasoning = usage?.completion_tokens_details?.reasoning_tokens ?? 0
+    if (reasoning > 0 || choice?.finish_reason === 'length') {
+      throw new Error(
+        `the model produced no answer: ${reasoning} of ${usage?.completion_tokens ?? 0} completion tokens went to reasoning ` +
+          `(finish_reason: ${choice?.finish_reason ?? 'unknown'}). It did not finish thinking within its budget.`
+      )
+    }
+  }
   return { content: parsed.content, toolCalls: parsed.toolCalls }
 }
 
