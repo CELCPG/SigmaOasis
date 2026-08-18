@@ -434,7 +434,7 @@ export interface AppSettings {
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
   /** v1.4.6: revise an answer whose specifics the tools did not support. */
-  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean }
+  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -765,6 +765,8 @@ export interface ChatMessage {
   offline?: boolean
   /** v1.5: name of the playbook (method) the app injected for this reply. */
   playbook?: string
+  /** v1.9: the conversation ledger disclosure line, when the ledger rode this turn. */
+  ledger?: string
   /**
    * v1.1 grounding: a factual-looking question was answered without any web
    * source being consulted (auto-search disabled/failed and the model never

@@ -20,6 +20,7 @@ import {
 import { checkToolGrounding, revisionIsAnImprovement } from '../lib/toolGrounding'
 import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
 import { buildPlaybookContext, selectPlaybook } from '../lib/playbooks'
+import { buildLedger, buildLedgerContext, describeLedger, shouldInjectLedger } from '../lib/ledger'
 import {
   LIBRARY_PASSAGES_PER_TURN,
   buildLibraryContext,
@@ -313,6 +314,20 @@ async function runTurn(
     if (playbook) {
       turnContext.push(buildPlaybookContext(playbook))
       patch({ playbook: playbook.name })
+    }
+  }
+
+  // v1.9 conversation ledger: what this conversation has established, from
+  // tool results and the user's own words — never from earlier replies —
+  // once it is long enough for a small model to have lost the thread. Rides
+  // the turn notes like everything above; disclosed under the reply.
+  if (useAppStore.getState().settings?.grounding.ledger !== false) {
+    // The assistant message being written is already appended; the ledger
+    // is built from everything before it.
+    const ledger = buildLedger(convo.messages.filter((m) => m.id !== assistantMsg.id))
+    if (shouldInjectLedger(ledger)) {
+      turnContext.push(buildLedgerContext(ledger))
+      patch({ ledger: describeLedger(ledger) })
     }
   }
 

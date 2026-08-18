@@ -226,6 +226,14 @@ export interface GroundingSettings {
    * Findings go through the same one-revision gate as other grounding.
    */
   workbenchChecks: boolean
+  /**
+   * v1.9: the conversation ledger — a mechanical record of computed facts,
+   * attached files, session state and the user's stated constraints, built
+   * from tool results and the user's own words (never earlier replies) and
+   * handed to the model as turn notes once a conversation is long enough for
+   * a small model to have lost the thread. Disclosed under the reply.
+   */
+  ledger: boolean
 }
 
 export interface ClaimCheckSettings {
@@ -481,7 +489,7 @@ function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -707,7 +715,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       autoCorrect: settings.grounding?.autoCorrect !== false,
       playbooks: settings.grounding?.playbooks !== false,
       selfReview: settings.grounding?.selfReview !== false,
-      workbenchChecks: settings.grounding?.workbenchChecks !== false
+      workbenchChecks: settings.grounding?.workbenchChecks !== false,
+      ledger: settings.grounding?.ledger !== false
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

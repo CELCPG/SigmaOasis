@@ -1,0 +1,15 @@
+{
+  "data": "sales.csv",
+  "turns": [
+    { "prompt": "Using the attached sales.csv, compute the total revenue (units × unit_price) across all rows and print it as 'total revenue: <value>'. Exact to the cent.",
+      "expect": [{ "label": "total revenue", "value": 139306.12, "tolerance": 0.02 }] },
+    { "prompt": "Unrelated: in one sentence, what does 'median' mean?", "expect": [], "filler": true },
+    { "prompt": "Also unrelated: name three common CSV pitfalls, briefly.", "expect": [], "filler": true },
+    { "prompt": "Back to the sales figure you computed earlier — what was that total revenue, exactly? Do not recompute it; just tell me the number.",
+      "expect": [{ "label": "recalled total", "value": 139306.12, "tolerance": 0.02 }],
+      "recall": true },
+    { "prompt": "What is 15% of that total? Show the figure.",
+      "expect": [{ "label": "15 percent", "value": 20895.92, "tolerance": 0.05 }],
+      "recall": true }
+  ]
+}

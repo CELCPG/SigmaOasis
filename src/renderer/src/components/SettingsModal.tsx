@@ -1125,6 +1125,26 @@ export function SettingsModal(): JSX.Element | null {
                       </span>
                     </span>
                   </label>
+
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.grounding.ledger}
+                      onChange={(e) => update({ grounding: { ...draft.grounding, ledger: e.target.checked } })}
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      Conversation ledger — the app remembers what was established
+                      <span className="mt-0.5 block text-xs text-neutral-500">
+                        From the fourth turn on, the model is handed a mechanical record of what this
+                        conversation has established: figures a tool computed, files attached, Python
+                        session variables, and constraints you stated (&ldquo;budget is $2,000&rdquo;) —
+                        exact strings from tool results and your own words, never from earlier
+                        replies, so a small model refers back instead of re-remembering. Disclosed
+                        under the reply (&ldquo;📒 Ledger&rdquo;).
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
             )}

@@ -1,0 +1,15 @@
+{
+  "data": "expenses.csv",
+  "turns": [
+    { "prompt": "From the attached expenses.csv, compute the total amount across all rows and print it as 'total: <value>'. Exact to the cent.",
+      "expect": [{ "label": "total", "value": 84284.63, "tolerance": 0.02 }] },
+    { "prompt": "Side question: what's the difference between mean and median, in a sentence?", "expect": [], "filler": true },
+    { "prompt": "And briefly, when would you use a bar chart over a line chart?", "expect": [], "filler": true },
+    { "prompt": "Going back to the expenses total you computed at the start — what was it? Just the number, no recomputation.",
+      "expect": [{ "label": "recalled total", "value": 84284.63, "tolerance": 0.02 }],
+      "recall": true },
+    { "prompt": "If we split that total evenly across 6 months, what's the monthly average?",
+      "expect": [{ "label": "monthly average", "value": 14047.44, "tolerance": 0.05 }],
+      "recall": true }
+  ]
+}

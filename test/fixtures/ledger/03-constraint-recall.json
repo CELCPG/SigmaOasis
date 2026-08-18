@@ -1,0 +1,13 @@
+{
+  "data": "sales.csv",
+  "turns": [
+    { "prompt": "My budget for this analysis project is $2,000 and the deadline is Friday. First: using the attached sales.csv, how many rows are there? Print 'rows: <n>'.",
+      "expect": [{ "label": "rows", "value": 400, "tolerance": 0 }] },
+    { "prompt": "Unrelated: what's a good rule of thumb for chart colours?", "expect": [], "filler": true },
+    { "prompt": "Also, in one line, what is a pivot table?", "expect": [], "filler": true },
+    { "prompt": "Remind me — what budget and deadline did I give you for this project at the start?",
+      "expect": [{ "label": "budget", "value": 2000, "tolerance": 0 }],
+      "mustInclude": ["Friday"],
+      "recall": true }
+  ]
+}

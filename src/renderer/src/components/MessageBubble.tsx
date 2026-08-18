@@ -561,6 +561,15 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
+        {!isStreaming && message.ledger && (
+          <div
+            className="mt-2 text-[11px] text-neutral-400"
+            title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. Settings → Models → Conversation ledger."
+          >
+            {message.ledger}
+          </div>
+        )}
+
         {!isStreaming && message.libraryContext && message.libraryContext.length > 0 && (
           <MemoryContextLine
             items={message.libraryContext}

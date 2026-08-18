@@ -21,7 +21,8 @@
  *
  *   LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>
  *   EVAL_SUITES=quant,deliberate   pick suites (default: library,quant,deliberate;
- *                                  'multiturn' — v1.8 sessions vs stateless — is opt-in)
+ *                                  'multiturn' — v1.8 sessions vs stateless — and
+ *                                  'ledger' — v1.9 recall of established facts — are opt-in)
  *   EVAL_CASES=1-5                 1-based inclusive slice, per suite
  *   LMSTUDIO_BASE_URL=…            default http://127.0.0.1:1234/v1
  *
@@ -374,6 +375,141 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
 
 let jobNonce = 0
 
+interface LedgerFixture {
+  file: string
+  data: string
+  turns: {
+    prompt: string
+    expect: { label: string; value: number; tolerance?: number }[]
+    mustInclude?: string[]
+    /** Off-topic turn whose only job is to push the fact further back. */
+    filler?: boolean
+    /** The turn that must recall something established earlier without restating it. */
+    recall?: boolean
+  }[]
+}
+
+/**
+ * v1.9: the conversation ledger, measured. Each case establishes a fact with
+ * a tool on turn 1, buries it under off-topic filler, then asks for it back
+ * (or for arithmetic on it) without restating it. Two arms, identical in
+ * every way — same sessions, same playbook, same tools — except that one
+ * receives the ledger as turn context from the fourth turn on. Only the
+ * `recall` turns are scored; the establishing turn is reported so a case
+ * whose fact was never computed is not mistaken for a recall failure.
+ */
+async function runLedgerSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').LedgerCaseResult[]> {
+  const { scoreQuantitative } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
+  const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
+  const { buildLedger, buildLedgerContext, shouldInjectLedger } = require('../src/renderer/src/lib/ledger') as typeof import('../src/renderer/src/lib/ledger')
+  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+
+  const LEDGER_DIR = join(REPO_ROOT, 'test', 'fixtures', 'ledger')
+  const tools = TOOL_SCHEMAS.filter((t) => t.function.name === 'run_python' || t.function.name === 'analyze_file')
+  const exec = workbenchExecutor(join(LEDGER_DIR, 'data'))
+  const fixtures = slice(loadJson<LedgerFixture>(LEDGER_DIR))
+  const results: import('../src/renderer/src/lib/answerEval').LedgerCaseResult[] = []
+
+  for (const [i, fx] of fixtures.entries()) {
+    const attachments = [{ name: fx.data, sourcePath: join(LEDGER_DIR, 'data', fx.data) }]
+    const caseOut: import('../src/renderer/src/lib/answerEval').LedgerCaseResult = { file: fx.file, ledger: [], bare: [] }
+
+    for (const arm of ['ledger', 'bare'] as const) {
+      const sessionKey = `lg-${fx.file}-${arm}-${process.pid}-${jobNonce++}`
+      const messages: Msg[] = [{ role: 'system', content: withGrounding(PERSONA) }]
+      // The app-shaped history the ledger is built from: user turns with the
+      // attachment on turn 1, assistant turns carrying their tool records.
+      const appHistory: import('../src/renderer/src/types').ChatMessage[] = []
+
+      for (const [ti, turn] of fx.turns.entries()) {
+        const dataNote = ti === 0 ? `\n\n[Attached file: ${fx.data} — available to run_python and analyze_file at /work/${fx.data}]` : ''
+        const userMsg = {
+          id: `u${ti}`,
+          role: 'user' as const,
+          content: turn.prompt,
+          attachments: ti === 0 ? ([{ id: 'a0', kind: 'file', name: fx.data, sourcePath: attachments[0].sourcePath }] as never) : undefined,
+          createdAt: 0
+        } as import('../src/renderer/src/types').ChatMessage
+        appHistory.push(userMsg)
+
+        const blocks: string[] = []
+        const playbook = selectPlaybook({ text: turn.prompt, attachmentNames: [fx.data] })
+        if (playbook) blocks.push(buildPlaybookContext(playbook))
+        let ledgerInjected = false
+        if (arm === 'ledger') {
+          const ledger = buildLedger(appHistory)
+          if (shouldInjectLedger(ledger)) {
+            blocks.push(buildLedgerContext(ledger))
+            ledgerInjected = true
+          }
+        }
+        const turnContext = buildTurnContext(blocks)
+        messages.push({ role: 'user', content: `${turn.prompt}${dataNote}${turnContext ?? ''}` })
+
+        const t0 = Date.now()
+        const records: import('../src/renderer/src/types').ToolCallRecord[] = []
+        const rounds: string[] = []
+        try {
+          await runAgentLoop({
+            messages: messages as never,
+            tools,
+            records,
+            signal: new AbortController().signal,
+            deps: {
+              streamRound: async (msgs, tls) => {
+                const r = await complete(model, msgs as never, tls)
+                if (r.content.trim()) rounds.push(r.content)
+                return { content: r.content, toolCalls: r.toolCalls }
+              },
+              executeTool: async (name, args) => exec(name, args, attachments, sessionKey)
+            }
+          })
+          const reply = rounds.join('\n\n')
+          messages.push({ role: 'assistant', content: reply })
+          appHistory.push({ id: `a${ti}`, role: 'assistant', content: reply, toolCalls: records, createdAt: 0 } as import('../src/renderer/src/types').ChatMessage)
+          const q = scoreQuantitative(reply, turn.expect)
+          const missing = [...q.missing]
+          for (const p of turn.mustInclude ?? []) if (!new RegExp(p, 'i').test(reply)) missing.push(p)
+          caseOut[arm].push({
+            prompt: turn.prompt,
+            kind: turn.recall ? 'recall' : turn.filler ? 'filler' : 'establish',
+            hit: missing.length === 0,
+            missing,
+            ms: Date.now() - t0,
+            ledgerInjected,
+            reply: reply.slice(0, 1200)
+          })
+        } catch (err) {
+          messages.push({ role: 'assistant', content: '(error)' })
+          appHistory.push({ id: `a${ti}`, role: 'assistant', content: '(error)', toolCalls: records, createdAt: 0 } as import('../src/renderer/src/types').ChatMessage)
+          caseOut[arm].push({
+            prompt: turn.prompt,
+            kind: turn.recall ? 'recall' : turn.filler ? 'filler' : 'establish',
+            hit: false,
+            missing: [],
+            ms: Date.now() - t0,
+            ledgerInjected,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+      }
+      const armTurns = caseOut[arm]
+      const recalls = armTurns.filter((t) => t.kind === 'recall')
+      process.stdout.write(
+        `  ${recalls.every((t) => t.hit) ? '✓' : '✗'} ${fx.file} [${arm}]  ` +
+          `establish:${armTurns.find((t) => t.kind === 'establish')?.hit ? '✓' : '✗'} ` +
+          `recall:${recalls.map((t) => (t.hit ? '✓' : t.error ? '!' : '✗')).join('')}` +
+          (arm === 'ledger' ? `  injected on ${armTurns.filter((t) => t.ledgerInjected).length} turn(s)` : '') +
+          `  [${i + 1}/${fixtures.length}]\n`
+      )
+    }
+    results.push(caseOut)
+  }
+  return results
+}
+
 async function runQuantSuite(
   model: string,
   arms: { workbench: boolean; deliberate: boolean }
@@ -517,7 +653,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -684,6 +820,38 @@ async function main(): Promise<void> {
       report.multiturn = { passes: mtPasses, stability }
     } else {
       report.multiturn = { summary: s, runs: mtPasses[0].runs }
+    }
+  }
+
+  if (want.includes('ledger')) {
+    const probe = await wb.runPython({ code: 'print(2 + 2)' })
+    if (!probe.ok || !/^4/m.test(probe.stdout)) {
+      throw new Error(`the Workbench sandbox is not working, so the ledger suite cannot be measured:\n  ${probe.error ?? probe.stdout}`)
+    }
+    console.log('conversation ledger (ledger vs bare, recall of established facts)')
+    const { summarizeLedger, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const lgPasses: { summary: ReturnType<typeof summarizeLedger>; runs: Awaited<ReturnType<typeof runLedgerSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      const runs = await runLedgerSuite(model)
+      lgPasses.push({ summary: summarizeLedger(runs), runs })
+    }
+    const s = summarizeLedger(lgPasses.flatMap((p) => p.runs))
+    const line = (label: string, a: typeof s.ledger): string =>
+      `  ${label.padEnd(7)} established ${a.established.hit}/${a.established.of} · recall ${a.recall.hit}/${a.recall.of} · ${a.secondsPerTurn.toFixed(1)} s/turn`
+    console.log('\n' + line('ledger', s.ledger) + '\n' + line('bare', s.bare) + '\n')
+    if (passesWanted > 1) {
+      const stability = {
+        ledger: stabilityAcrossPasses(lgPasses.map((p) => p.runs.flatMap((r) => r.ledger.filter((t) => t.kind === 'recall').map((t, i) => ({ file: `${r.file}#r${i + 1}`, pass: t.error ? null : t.hit }))))),
+        bare: stabilityAcrossPasses(lgPasses.map((p) => p.runs.flatMap((r) => r.bare.filter((t) => t.kind === 'recall').map((t, i) => ({ file: `${r.file}#r${i + 1}`, pass: t.error ? null : t.hit })))))
+      }
+      for (const arm of ['ledger', 'bare'] as const) {
+        const st = stability[arm]
+        console.log(`  ${arm.padEnd(7)} recall across ${passesWanted} passes: [${st.perPass.join(', ')}] · median ${st.median} · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.ledger = { passes: lgPasses, stability }
+    } else {
+      report.ledger = { summary: s, runs: lgPasses[0].runs }
     }
   }
 

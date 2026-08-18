@@ -6,6 +6,7 @@ import {
   stabilityAcrossPasses,
   codeReadsData,
   summarizeMultiTurn,
+  summarizeLedger,
   citesSource,
   measurementsIn,
   numbersIn,
@@ -260,6 +261,43 @@ describe('multi-turn suite (v1.8)', () => {
       }
       // The referenced data file exists.
       assert.ok(readdirSync(join(dir, 'data')).includes(fx.data!), `${f}: ${fx.data} present`)
+    }
+  })
+})
+
+describe('ledger suite (v1.9)', () => {
+  const t = (kind: 'establish' | 'filler' | 'recall', hit: boolean, error?: string) => ({
+    prompt: 'p', kind, hit, missing: [], ms: 5000, ledgerInjected: kind === 'recall', ...(error ? { error } : {})
+  })
+
+  test('recall is judged only where the fact was established; filler never counts', () => {
+    const s = summarizeLedger([
+      { file: 'a', ledger: [t('establish', true), t('filler', false), t('recall', true), t('recall', true)], bare: [t('establish', true), t('filler', false), t('recall', false), t('recall', true)] },
+      { file: 'b', ledger: [t('establish', false), t('filler', false), t('recall', true)], bare: [t('establish', true), t('filler', false), t('recall', false)] }
+    ])
+    assert.deepEqual(s.ledger.established, { hit: 1, of: 2 })
+    assert.deepEqual(s.ledger.recall, { hit: 2, of: 2 }, "b's recall is not counted: nothing was established to recall")
+    assert.deepEqual(s.bare.established, { hit: 2, of: 2 })
+    assert.deepEqual(s.bare.recall, { hit: 1, of: 3 })
+  })
+
+  test('errored turns are excluded, not failed', () => {
+    const s = summarizeLedger([{ file: 'a', ledger: [t('establish', true), t('recall', false, 'fetch failed'), t('recall', true)], bare: [t('establish', true), t('recall', true)] }])
+    assert.deepEqual(s.ledger.recall, { hit: 1, of: 1 })
+  })
+
+  test('the ledger fixtures are well-formed: an establishing turn, filler, and recall turns', () => {
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'ledger')
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
+    assert.ok(files.length >= 3)
+    for (const f of files) {
+      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as { data?: string; turns?: { recall?: boolean; filler?: boolean; expect?: unknown[] }[] }
+      assert.ok(fx.data && readdirSync(join(dir, 'data')).includes(fx.data), `${f}: data present`)
+      const turns = fx.turns ?? []
+      assert.ok(turns.length >= 4, `${f}: enough turns to bury the fact`)
+      assert.ok(!turns[0].recall && !turns[0].filler && (turns[0].expect?.length ?? 0) > 0, `${f}: turn 1 establishes`)
+      assert.ok(turns.some((x) => x.filler), `${f}: has filler`)
+      assert.ok(turns.some((x) => x.recall && (x.expect?.length ?? 0) > 0), `${f}: has a scored recall`)
     }
   })
 })

@@ -362,6 +362,68 @@ export function summarizeMultiTurn(results: MultiTurnCaseResult[]): MultiTurnSum
   }
 }
 
+// ---- conversation ledger (v1.9) ----------------------------------------------------
+
+export interface LedgerTurnResult {
+  prompt: string
+  /** establish = turn 1 computes the fact; filler = off-topic; recall = must refer back. */
+  kind: 'establish' | 'filler' | 'recall'
+  hit: boolean
+  missing: string[]
+  ms: number
+  /** The ledger block rode this turn (ledger arm only). */
+  ledgerInjected: boolean
+  reply?: string
+  error?: string
+}
+
+export interface LedgerCaseResult {
+  file: string
+  ledger: LedgerTurnResult[]
+  bare: LedgerTurnResult[]
+}
+
+export interface LedgerArmSummary {
+  /** Did turn 1 establish the fact? A recall cannot be judged if not. */
+  established: Rate
+  /** Recall turns answered, over cases whose fact was established. */
+  recall: Rate
+  secondsPerTurn: number
+}
+
+export interface LedgerSummary {
+  ledger: LedgerArmSummary
+  bare: LedgerArmSummary
+}
+
+function ledgerArm(turnsOf: (r: LedgerCaseResult) => LedgerTurnResult[], results: LedgerCaseResult[]): LedgerArmSummary {
+  let estHit = 0
+  let estOf = 0
+  let recHit = 0
+  let recOf = 0
+  const secs: number[] = []
+  for (const r of results) {
+    const turns = turnsOf(r)
+    const est = turns.find((t) => t.kind === 'establish')
+    if (!est || est.error) continue
+    estOf += 1
+    if (!est.hit) continue // no fact to recall — not a recall failure
+    estHit += 1
+    for (const t of turns) {
+      if (t.error) continue
+      secs.push(t.ms / 1000)
+      if (t.kind !== 'recall') continue
+      recOf += 1
+      if (t.hit) recHit += 1
+    }
+  }
+  return { established: rate(estHit, estOf), recall: rate(recHit, recOf), secondsPerTurn: mean(secs) }
+}
+
+export function summarizeLedger(results: LedgerCaseResult[]): LedgerSummary {
+  return { ledger: ledgerArm((r) => r.ledger, results), bare: ledgerArm((r) => r.bare, results) }
+}
+
 /**
  * v1.7.1: stability across repeated passes of one suite. Motivated by the
  * v1.7 retrieval re-measurement, where three runs at temperature 0 produced
