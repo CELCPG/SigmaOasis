@@ -1,5 +1,14 @@
 {
   "question": "What coffee-to-water ratio and water temperature should I use for pour-over, and how long should it take?",
-  "mustInclude": ["1:16|15 g|240", "92|96", "2\\.5|3\\.5"],
-  "decoys": ["100°C|100 °C|boiling", "1:10", "5 minutes"]
+  "mustInclude": [
+    "1:16|15 g|240",
+    "92|96",
+    "2\\.5|3\\.5"
+  ],
+  "decoys": [
+    "100\u00b0C|100 \u00b0C|boiling point",
+    "1:10",
+    "(?<![\\d.])5 minutes",
+    "(?<![\\d.])4 minutes"
+  ]
 }

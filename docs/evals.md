@@ -8,6 +8,7 @@ so CI stays offline. Scoring is mechanical in every one: no model grades another
 | Tool choice (v1.3) | correct-tool, spurious-call, arg-validity, loop rates over 24 fixtures | `LMSTUDIO_EVAL=1 npm run eval:tools -- <model>` |
 | Library grounding (v1.6) | does an offline reference question get answered from the retrieved passages, cited, with no invented measurement | `LMSTUDIO_EVAL=1 EVAL_SUITES=library npm run eval:answers -- <model>` |
 | Quantitative + deliberation (v1.6) | the number right or wrong, **bare vs. with the Workbench**, and the same draft after one think-harder pass | `LMSTUDIO_EVAL=1 EVAL_SUITES=quant,deliberate npm run eval:answers -- <model>` |
+| Deep research (v1.9) | the research brief checked against the passages it was synthesized from — figures, measurements, citations — **rung on vs. off**, against a loopback fixture corpus, never the live web | `LMSTUDIO_EVAL=1 EVAL_SUITES=research npm run eval:answers -- <model>` |
 | Multi-turn analysis (v1.8) | follow-up questions over one dataset, **sessions vs. stateless**: per-turn correctness, whether follow-ups re-read the file, calls and seconds per turn | `LMSTUDIO_EVAL=1 EVAL_SUITES=multiturn npm run eval:answers -- <model>` |
 
 `EVAL_CASES=1-8` runs a 1-based inclusive slice, so a slow model can be evaluated in chunks that
@@ -233,6 +234,54 @@ anything in this session."*
 **What the ledger is worth, in one line:** on conversations long enough for the establishing
 turn to have been compacted away, a 9B recalls established facts **100% vs 20%** — and the 20%
 is recomputation, not memory.
+
+**Deep research under the ladder (v1.9) — 4 cases × 2 arms × 3 passes, fixture corpus.**
+
+`deep_research` writes its brief with a model from the passages it read, and that brief then
+becomes tool output — which every downstream check trusts as its corpus. So a figure the
+synthesizer invented passed tool grounding, passed recompute, passed the claim check, and reached
+the user wearing a citation. The new rung checks the brief mechanically against its own evidence
+inside the tool: every figure, measurement and `[n]` must appear in a passage the run read; one
+revision; disclosed first among the tool's notes.
+
+Measured without the live web: a loopback server answers `/search` SearXNG-style over six fixed
+pages and serves them; the app's search provider is pointed at it, and its origin is named in
+`SIGMA_RESEARCH_FIXTURE_ORIGIN` — the one explicit seam the fetch guards recognize (exact origin,
+inert when unset). Everything else is the real pipeline. Cases carry required facts and *decoy*
+figures absent from the corpus.
+
+| arm | ran | all facts stated | stated a decoy | unsupported figure | fabricated citation | s/case |
+| --- | --- | --- | --- | --- | --- | --- |
+| rung on | 12/12 | 12/12 | 0/12 | 0/12 | 0/12 | 125 |
+| rung off | 12/12 | 12/12 | 0/12 | 0/12 | 0/12 | 136 |
+
+Stable across all three passes (0 flaky either arm) — and, on this corpus, a **null result on
+correctness**: the 9B synthesizer, told to cite only from numbered sources, invented nothing in
+24 briefs. The rung flagged 0/12 first drafts because there was nothing to flag. Recorded as
+that, not spun: on a six-page corpus of clean facts a well-instructed synthesizer stays honest,
+and the rung's value — like the ledger's before its long-regime suite — is in the regime this
+suite does not reach: thin or contradictory sources, a model tempted to fill a gap. It is now
+*measurable* there, which it was not before, and its unit tests pin exactly what it catches
+(invented figures, invented doses, `[7]` when only `[1]`–`[4]` were read).
+
+What the suite *did* find, both real:
+
+- **A product bug in deep research itself.** Instrumenting a run phase by phase: retrieval was
+  instantaneous, and 50 of 112 s were two replan rounds that re-asked a sub-question the provider
+  had already answered "nothing" — zero fresh candidates each, each a full 9B call taken out of
+  the synthesis budget. A round with no new sources now ends the loop and synthesizes from what
+  was read (`no new sources` in the disclosure). Same run afterwards: one round, six pages, 92 s.
+  On the live web an empty round is rarer; when it happens the same waste applied.
+- **A fixture bug, caught by reading a "failure".** Case 04 flagged decoy `5 minutes` in every
+  arm, every pass — while the rung said "all supported". The brief said *"2.5 to 3.5 minutes"*,
+  verbatim from the corpus; the decoy regex matched the tail of `3.5`. The rung was right and the
+  scorer was wrong — the same class as v1.6's "Never thaw on the counter". Decoys are now
+  boundary-anchored, and a fixture test fails if any decoy regex matches the corpus itself.
+
+The first two full runs were void — 16 of 24 arms produced no brief, clustered at the wall
+clock — because `quick` and `standard` depth leave a 9B on this hardware no room for three model
+calls (plan, synthesize, revise). The suite runs `thorough`; the wall clock must not be what it
+measures.
 
 ## Findings worth keeping
 

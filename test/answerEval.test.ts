@@ -331,3 +331,23 @@ describe('ledger suite · long regime (v1.9)', () => {
     }
   })
 })
+
+describe('research fixtures (v1.9)', () => {
+  test('cases are well-formed and every decoy regex misses the corpus facts it sits beside', () => {
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'research')
+    const corpus = readdirSync(join(dir, 'corpus')).filter((f) => f.endsWith('.html'))
+      .map((f) => readFileSync(join(dir, 'corpus', f), 'utf-8').replace(/<[^>]+>/g, ' ')).join('\n')
+    const files = readdirSync(join(dir, 'cases')).filter((f) => f.endsWith('.json'))
+    assert.ok(files.length >= 4)
+    for (const f of files) {
+      const fx = JSON.parse(readFileSync(join(dir, 'cases', f), 'utf-8')) as { question?: string; mustInclude?: string[]; decoys?: string[] }
+      assert.ok(fx.question && (fx.mustInclude?.length ?? 0) > 0, `${f}: question + facts`)
+      // A decoy is a figure the corpus does NOT contain. If a decoy regex
+      // matches the corpus itself, it will flag a *correct* brief — the "5
+      // minutes" matching "3.5 minutes" lesson.
+      for (const d of fx.decoys ?? []) {
+        assert.ok(!new RegExp(d, 'i').test(corpus), `${f}: decoy /${d}/ matches the corpus — it would flag a correct brief`)
+      }
+    }
+  })
+})

@@ -736,8 +736,15 @@ describe('structured planning and adaptive rounds', () => {
     })
     assert.equal(outcome.ok, false)
     assert.match(outcome.error!, /No usable sources/i)
-    // Standard depth now allows three coverage-driven rounds, and all three ran.
-    assert.equal(outcome.ledger!.rounds, 3)
+    // v1.9: the provider returns nothing every round here, so round 1 finds no
+    // fresh candidate — and a round with nothing new ends the loop rather than
+    // spending another model call to re-ask an exhausted question. Measured
+    // against a fixed corpus: two empty replan rounds cost 50 s and found zero
+    // pages. Round 2 still ran (round 1's *reflect* saw the empty result and
+    // stopped, but the loop had already replanned once before that), which is
+    // what pins that reformulation happens at all.
+    assert.equal(outcome.ledger!.rounds, 2)
+    assert.ok(outcome.ledger!.limitsHit.includes('no new sources'))
     // Round two searched the reformulated angle, not just the failed query again.
     assert.ok(outgoingQueries().includes('retry backoff strategy'))
     assert.ok(outgoingQueries().includes('cache eviction policy'))
