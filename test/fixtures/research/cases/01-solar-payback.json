@@ -1,0 +1,5 @@
+{
+  "question": "How efficient are typical residential solar panels in 2025, and what does the federal credit cover?",
+  "mustInclude": ["20|22", "30%"],
+  "decoys": ["25%", "\\$3\\.00", "\\$3,000"]
+}

@@ -10,6 +10,13 @@ import type { SearchResult } from './search'
 import { embedTexts, toUnitVector, unitDot } from './embeddings'
 import { Bm25Index, normalizeScores, tokenize } from './retrieval'
 import { isLowProvenance } from './sourceTiers'
+import {
+  buildResearchRevision,
+  checkResearchGrounding,
+  describeResearchGrounding,
+  researchGroundingIsClean,
+  type ResearchGroundingReport
+} from './researchGrounding'
 
 /**
  * Multi-step research, as one tool call.
@@ -125,6 +132,12 @@ export interface ResearchOutcome {
   /** Queries actually sent, after redaction. */
   sentQueries?: string[]
   redactions?: string[]
+  /**
+   * v1.9: the brief checked against its own evidence — what was flagged,
+   * whether a revision was kept, what still stands. Rendered by the handler
+   * into the tool result so the outer model carries the disclosure.
+   */
+  grounding?: { before: ResearchGroundingReport; after: ResearchGroundingReport | null; revised: boolean; note: string }
   error?: string
 }
 
@@ -910,6 +923,55 @@ export async function runDeepResearch(options: {
     }
   }
 
+  // v1.9: the brief under the grounding ladder. The synthesizer wrote it from
+  // `sources[].passages`; check every figure, measurement and citation in it
+  // against exactly those passages, hand the findings back for one revision,
+  // re-check, and disclose. Before this, an invented figure in the brief
+  // became tool output — the corpus every downstream check trusts — and
+  // reached the user wearing a citation. See researchGrounding.ts.
+  let grounding: { before: ResearchGroundingReport; after: ResearchGroundingReport | null; revised: boolean } | undefined
+  // SIGMA_RESEARCH_GROUNDING=0 is the eval's baseline arm — the brief as it
+  // was before this rung existed. Unset (every real run) means on.
+  if (brief.trim() && sources.length > 0 && process.env.SIGMA_RESEARCH_GROUNDING !== '0') {
+    const before = checkResearchGrounding(brief, sources)
+    grounding = { before, after: null, revised: false }
+    if (!researchGroundingIsClean(before) && !options.signal?.aborted) {
+      progress('checking', `Brief states specifics its sources do not contain — asking for one revision`)
+      try {
+        const revised = await chatCompleteStream({
+          model,
+          messages: [
+            { role: 'system', content: SYNTH_SYSTEM },
+            { role: 'user', content: `Question: ${question}\n\nSources:\n\n${buildEvidence(sources)}` },
+            { role: 'assistant', content: brief },
+            { role: 'user', content: buildResearchRevision(before) }
+          ],
+          temperature: 0.2,
+          maxTokens: 1400,
+          thinking: false,
+          timeoutMs: Math.max(20_000, Math.floor(tracker.synthesisBudgetMs / 2)),
+          signal: options.signal
+        })
+        const after = checkResearchGrounding(revised, sources)
+        // Keep the revision only if it is strictly better on what was flagged
+        // and did not become a non-answer — the same rule as every other rung.
+        const better =
+          after.figures.length + after.measurements.length + after.badCitations.length <
+            before.figures.length + before.measurements.length + before.badCitations.length &&
+          revised.trim().length > Math.min(200, brief.trim().length * 0.4)
+        if (better) {
+          brief = revised
+          grounding = { before, after, revised: true }
+        } else {
+          grounding = { before, after: null, revised: false }
+        }
+      } catch {
+        // A failed revision leaves the original standing, flagged.
+        grounding = { before, after: null, revised: false }
+      }
+    }
+  }
+
   // An empty brief with sources in hand is still a usable result — the caller
   // reports it as retrieved-but-unsynthesized rather than as a failed run.
   if (!brief.trim() && !synthesisNote) {
@@ -930,6 +992,7 @@ export async function runDeepResearch(options: {
     coverage,
     sentQueries,
     redactions: [...redactions],
+    grounding: grounding ? { ...grounding, note: describeResearchGrounding(grounding) } : undefined,
     ledger: tracker.ledger()
   }
 }

@@ -397,6 +397,134 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
 
 let jobNonce = 0
 
+interface ResearchFixture {
+  file: string
+  question: string
+  /** Facts the brief must state (regex, any alternative). */
+  mustInclude: string[]
+  /** Figures NOT in the corpus that a model tempted to fill gaps might state (regex). */
+  decoys?: string[]
+}
+
+/**
+ * v1.9: deep research under the ladder, measured — against a fixture corpus,
+ * not the live web. A loopback HTTP server serves (a) a SearXNG-shaped
+ * /search endpoint answered by keyword match over the corpus and (b) the
+ * corpus pages themselves; the eval points the app's search provider at it
+ * and names its origin in SIGMA_RESEARCH_FIXTURE_ORIGIN, the one explicit
+ * seam the fetch guards recognize. Everything else is the real pipeline: plan
+ * → search → select → read → synthesize → GROUND → the tool result the outer
+ * model would receive. Two arms: the check on (production) and off — same
+ * corpus, same model, same budget — scored on facts stated, decoys stated,
+ * fabricated citations, and what the grounding rung caught.
+ */
+async function runResearchSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').ResearchCaseResult[]> {
+  const http = require('http') as typeof import('http')
+  const RESEARCH_DIR = join(REPO_ROOT, 'test', 'fixtures', 'research')
+  const corpusDir = join(RESEARCH_DIR, 'corpus')
+  const pages = readdirSync(corpusDir)
+    .filter((f) => f.endsWith('.html'))
+    .map((f) => {
+      const html = readFileSync(join(corpusDir, f), 'utf-8')
+      const title = /<title>([^<]*)<\/title>/i.exec(html)?.[1] ?? f
+      const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase()
+      return { file: f, title, html, text }
+    })
+
+  // Keyword-match search: score = distinct query terms present in the page.
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url ?? '/', 'http://127.0.0.1')
+    if (u.pathname === '/search') {
+      const q = (u.searchParams.get('q') ?? '').toLowerCase()
+      const terms = q.split(/[^a-z0-9%.]+/).filter((t) => t.length >= 3)
+      const scored = pages
+        .map((p) => ({ p, score: terms.filter((t) => p.text.includes(t)).length }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 6)
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ results: scored.map(({ p }) => ({ title: p.title, url: `${origin}/${p.file}`, content: p.text.slice(0, 300) })) }))
+      return
+    }
+    const page = pages.find((p) => `/${p.file}` === u.pathname)
+    if (!page) { res.statusCode = 404; res.end('not found'); return }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.end(page.html)
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const port = (server.address() as { port: number }).port
+  const origin = `http://127.0.0.1:${port}`
+  process.env.SIGMA_RESEARCH_FIXTURE_ORIGIN = origin
+
+  const storeMod = require('../src/main/ipc/store') as typeof import('../src/main/ipc/store')
+  const prev = storeMod.getSettings()
+  storeMod.writeSettings({
+    ...prev,
+    search: { ...prev.search, provider: 'searxng', searxngUrl: origin, confirmBeforeSearch: false },
+    research: { ...prev.research, depth: 'standard', confirmPlan: false }
+  })
+
+  const dr = require('../src/main/ipc/deepResearch') as typeof import('../src/main/ipc/deepResearch')
+  const rg = require('../src/main/ipc/researchGrounding') as typeof import('../src/main/ipc/researchGrounding')
+  const fixtures = slice(loadJson<ResearchFixture>(join(RESEARCH_DIR, 'cases')))
+  const results: import('../src/renderer/src/lib/answerEval').ResearchCaseResult[] = []
+
+  try {
+    for (const [i, fx] of fixtures.entries()) {
+      const caseOut: import('../src/renderer/src/lib/answerEval').ResearchCaseResult = { file: fx.file, question: fx.question, checked: null as never, unchecked: null as never }
+      for (const arm of ['checked', 'unchecked'] as const) {
+        process.env.SIGMA_RESEARCH_GROUNDING = arm === 'checked' ? '1' : '0'
+        const t0 = Date.now()
+        try {
+          // 'standard', not 'quick': quick's 20 s synthesis reserve is not enough
+          // for a 9B to write a brief on this hardware — measured: both arms
+          // came back empty at exactly the 60 s wall clock, which measures the
+          // budget, not the rung. Standard gives synthesis 45 s and the check's
+          // revision half of whatever is left.
+          const outcome = await dr.runDeepResearch({ question: fx.question, depth: 'standard', modelId: model })
+          const brief = outcome.brief ?? ''
+          const sources = outcome.sources ?? []
+          // Independent re-check of whatever brief came out, for the score —
+          // the same function, but the arm's own report is what the *app*
+          // would have disclosed.
+          const audit = rg.checkResearchGrounding(brief, sources)
+          const stated = fx.mustInclude.filter((p) => new RegExp(p, 'i').test(brief))
+          const decoysStated = (fx.decoys ?? []).filter((p) => new RegExp(p, 'i').test(brief))
+          caseOut[arm] = {
+            ok: outcome.ok && brief.trim().length > 0,
+            sources: sources.length,
+            factsStated: stated.length,
+            factsOf: fx.mustInclude.length,
+            decoysStated,
+            unsupportedFigures: audit.figures.length + audit.measurements.length,
+            badCitations: audit.badCitations.length,
+            revised: outcome.grounding?.revised ?? false,
+            flaggedBefore: outcome.grounding ? outcome.grounding.before.figures.length + outcome.grounding.before.measurements.length + outcome.grounding.before.badCitations.length : 0,
+            ms: Date.now() - t0,
+            brief: brief.slice(0, 1500),
+            note: outcome.grounding?.note
+          }
+        } catch (err) {
+          caseOut[arm] = { ok: false, sources: 0, factsStated: 0, factsOf: fx.mustInclude.length, decoysStated: [], unsupportedFigures: 0, badCitations: 0, revised: false, flaggedBefore: 0, ms: Date.now() - t0, error: err instanceof Error ? err.message : String(err) }
+        }
+        const a = caseOut[arm]
+        process.stdout.write(
+          `  ${a.ok && a.factsStated === a.factsOf && a.decoysStated.length === 0 && a.unsupportedFigures === 0 && a.badCitations === 0 ? '✓' : '✗'} ${fx.file} [${arm}]  ` +
+            `facts ${a.factsStated}/${a.factsOf} · decoys ${a.decoysStated.length} · unsupported ${a.unsupportedFigures} · bad cites ${a.badCitations}` +
+            (arm === 'checked' ? ` · flagged ${a.flaggedBefore}${a.revised ? ' → revised' : ''}` : '') +
+            ` · ${a.sources} src · ${(a.ms / 1000).toFixed(0)}s${a.error ? `  ! ${a.error.slice(0, 60)}` : ''}  [${i + 1}/${fixtures.length}]\n`
+        )
+      }
+      results.push(caseOut)
+    }
+  } finally {
+    delete process.env.SIGMA_RESEARCH_GROUNDING
+    storeMod.writeSettings(prev)
+    server.close()
+  }
+  return results
+}
+
 interface LedgerFixture {
   file: string
   data: string
@@ -738,7 +866,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,research   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -944,6 +1072,37 @@ async function main(): Promise<void> {
       report.ledger = { passes: lgPasses, stability }
     } else {
       report.ledger = { summary: s, runs: lgPasses[0].runs }
+    }
+  }
+
+  if (want.includes('research')) {
+    console.log('deep research under the ladder (checked vs unchecked, fixture corpus)')
+    const { summarizeResearch, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const rsPasses: { summary: ReturnType<typeof summarizeResearch>; runs: Awaited<ReturnType<typeof runResearchSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      const runs = await runResearchSuite(model)
+      rsPasses.push({ summary: summarizeResearch(runs), runs })
+    }
+    const s = summarizeResearch(rsPasses.flatMap((p) => p.runs))
+    const line = (label: string, a: typeof s.unchecked): string =>
+      `  ${label.padEnd(9)} ran ${a.ran.hit}/${a.ran.of} · complete ${a.complete.hit}/${a.complete.of} · stated a decoy ${a.statedDecoy.hit}/${a.statedDecoy.of}` +
+      ` · unsupported figure ${a.unsupported.hit}/${a.unsupported.of} · fabricated citation ${a.fabricatedCitation.hit}/${a.fabricatedCitation.of} · ${a.secondsPerCase.toFixed(0)} s/case`
+    console.log('\n' + line('checked', s.checked) + `\n            (rung flagged the first draft in ${s.checked.flaggedFirstDraft.hit}/${s.checked.flaggedFirstDraft.of}; revision kept in ${s.checked.revised.hit}/${s.checked.revised.of})\n` + line('unchecked', s.unchecked) + '\n')
+    if (passesWanted > 1) {
+      const clean = (a: import('../src/renderer/src/lib/answerEval').ResearchArmResult): boolean | null =>
+        a.error ? null : a.ok && a.factsStated === a.factsOf && a.decoysStated.length === 0 && a.unsupportedFigures === 0 && a.badCitations === 0
+      const stability = {
+        checked: stabilityAcrossPasses(rsPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: clean(r.checked) })))),
+        unchecked: stabilityAcrossPasses(rsPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: clean(r.unchecked) }))))
+      }
+      for (const arm of ['checked', 'unchecked'] as const) {
+        const st = stability[arm]
+        console.log(`  ${arm.padEnd(9)} clean across ${passesWanted} passes: [${st.perPass.join(', ')}] · median ${st.median} · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.research = { passes: rsPasses, stability }
+    } else {
+      report.research = { summary: s, runs: rsPasses[0].runs }
     }
   }
 

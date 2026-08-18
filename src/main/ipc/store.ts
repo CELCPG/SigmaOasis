@@ -841,7 +841,8 @@ function readSettings(): AppSettings {
   return settingsCache
 }
 
-function writeSettings(settings: AppSettings): void {
+/** Exported for the eval harness, which runs against an isolated userData and must point search at its fixture server. */
+export function writeSettings(settings: AppSettings): void {
   store.set('settings', settings)
   // Re-read rather than trusting the argument: conf's own serialization is
   // the source of truth for what a later cold start will see.

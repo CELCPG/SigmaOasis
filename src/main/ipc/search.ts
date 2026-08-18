@@ -995,6 +995,7 @@ function literalAddress(hostname: string): { address: string; family: number } |
  */
 async function assertPublicHost(url: URL): Promise<void> {
   const hostname = url.hostname
+  if (isResearchFixtureOrigin(url)) return
   if (isLoopbackHostname(hostname)) {
     // Shared by fetch_webpage, shopping and image thumbnails, so the message
     // names the rule rather than one of the three callers.
@@ -1082,6 +1083,19 @@ function failedPage(url: string, error: string): WebpageOutcome {
  * fetches pass 'shop' so the user can tell a page they asked to read from a
  * retailer the app contacted on their behalf.
  */
+/**
+ * The one hole in the fetch guards, and it is a test seam: SIGMA_RESEARCH_FIXTURE_ORIGIN
+ * names an exact loopback origin (e.g. http://127.0.0.1:41234) that the deep
+ * research eval serves a fixed corpus from, so the whole pipeline — search,
+ * fetch, read, synthesize, ground — runs for real against known pages instead
+ * of the live web. Unset in the shipped app; an unset seam recognizes nothing.
+ * Compared as a whole origin, never a prefix, so it cannot widen.
+ */
+function isResearchFixtureOrigin(url: URL): boolean {
+  const seam = process.env.SIGMA_RESEARCH_FIXTURE_ORIGIN
+  return Boolean(seam) && url.origin === seam
+}
+
 export async function fetchWebpage(
   rawUrl: string,
   purpose: 'webpage' | 'shop' = 'webpage'
@@ -1092,7 +1106,7 @@ export async function fetchWebpage(
   } catch {
     return failedPage('', 'Unparseable URL.')
   }
-  if (url.protocol !== 'https:') {
+  if (url.protocol !== 'https:' && !isResearchFixtureOrigin(url)) {
     return failedPage(
       url.toString(),
       `Refused: only HTTPS URLs can be fetched (got ${url.protocol}).`

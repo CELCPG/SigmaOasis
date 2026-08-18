@@ -1,0 +1,5 @@
+{
+  "question": "What range and lifespan should I expect from a typical commuter e-bike battery, and how should I charge it safely?",
+  "mustInclude": ["500|400|700", "cycles|1,000|1000", "unattended|overnight|supplied"],
+  "decoys": ["100 km", "2,000 cycles|2000 cycles", "30 minutes"]
+}

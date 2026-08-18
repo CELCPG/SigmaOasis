@@ -100,6 +100,10 @@ export function formatResearch(outcome: ResearchOutcome): ToolResult {
   if (ledger && ledger.hosts.length > 0) {
     notes.push(`Domains contacted: ${ledger.hosts.join(', ')}.`)
   }
+  // v1.9: the brief's own grounding, first among the notes because it is the
+  // one the outer model must act on — an unsupported specific reaches the
+  // user flagged, never as a finding.
+  if (outcome.grounding) notes.unshift(`Grounding: ${outcome.grounding.note}`)
 
   return {
     ok: true,

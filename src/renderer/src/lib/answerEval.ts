@@ -364,6 +364,73 @@ export function summarizeMultiTurn(results: MultiTurnCaseResult[]): MultiTurnSum
   }
 }
 
+// ---- deep research under the ladder (v1.9) ----------------------------------------
+
+export interface ResearchArmResult {
+  ok: boolean
+  sources: number
+  factsStated: number
+  factsOf: number
+  /** Decoy figures (absent from the corpus) the brief nonetheless stated. */
+  decoysStated: string[]
+  /** Independent audit of the final brief: figures+measurements in no passage. */
+  unsupportedFigures: number
+  badCitations: number
+  /** Checked arm only: what the rung flagged on the first draft, and whether a revision was kept. */
+  flaggedBefore: number
+  revised: boolean
+  ms: number
+  brief?: string
+  note?: string
+  error?: string
+}
+
+export interface ResearchCaseResult {
+  file: string
+  question: string
+  checked: ResearchArmResult
+  unchecked: ResearchArmResult
+}
+
+export interface ResearchArmSummary {
+  ran: Rate
+  /** Cases where every required fact was stated. */
+  complete: Rate
+  /** Cases stating at least one decoy. */
+  statedDecoy: Rate
+  /** Cases whose final brief carries an unsupported figure or measurement. */
+  unsupported: Rate
+  /** Cases with a citation to a source the run never read. */
+  fabricatedCitation: Rate
+  secondsPerCase: number
+}
+
+export interface ResearchSummary {
+  checked: ResearchArmSummary & { flaggedFirstDraft: Rate; revised: Rate }
+  unchecked: ResearchArmSummary
+}
+
+function researchArm(results: ResearchCaseResult[], arm: 'checked' | 'unchecked'): ResearchArmSummary & { flaggedFirstDraft: Rate; revised: Rate } {
+  const all = results.map((r) => r[arm]).filter((a) => a && !a.error)
+  const ok = all.filter((a) => a.ok)
+  return {
+    ran: rate(ok.length, all.length),
+    complete: rate(ok.filter((a) => a.factsStated === a.factsOf).length, ok.length),
+    statedDecoy: rate(ok.filter((a) => a.decoysStated.length > 0).length, ok.length),
+    unsupported: rate(ok.filter((a) => a.unsupportedFigures > 0).length, ok.length),
+    fabricatedCitation: rate(ok.filter((a) => a.badCitations > 0).length, ok.length),
+    flaggedFirstDraft: rate(ok.filter((a) => a.flaggedBefore > 0).length, ok.length),
+    revised: rate(ok.filter((a) => a.revised).length, ok.length),
+    secondsPerCase: mean(ok.map((a) => a.ms / 1000))
+  }
+}
+
+export function summarizeResearch(results: ResearchCaseResult[]): ResearchSummary {
+  const checked = researchArm(results, 'checked')
+  const { flaggedFirstDraft: _f, revised: _r, ...unchecked } = researchArm(results, 'unchecked')
+  return { checked, unchecked }
+}
+
 // ---- conversation ledger (v1.9) ----------------------------------------------------
 
 export interface LedgerTurnResult {

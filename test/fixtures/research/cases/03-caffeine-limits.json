@@ -1,0 +1,5 @@
+{
+  "question": "How much caffeine is in a cup of coffee versus a shot of espresso, and what is the commonly cited daily limit for adults and in pregnancy?",
+  "mustInclude": ["95", "63", "400", "200"],
+  "decoys": ["150 mg", "300 mg", "500 mg", "1,000 mg"]
+}
