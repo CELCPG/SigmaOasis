@@ -222,6 +222,14 @@ per-column stats are now facts, and the re-measurement above is with that fix. T
 now stores the injected block and every turn's tool results, because that miss could only be
 inferred, not read.
 
+*Decisions* (v1.8.1): the ledger also records the user's choices — "use the median", "go with
+West" — verbatim, superseding on the same subject. A long-regime case establishes two decisions
+on turn 1 and, after compaction, asks for them back; nothing is recomputable, so bare has no
+fallback of any kind. Three passes: **ledger 3/3, bare 0/3**, both perfectly stable. Ledger:
+*"You chose to use the median rather than the mean for every summary statistic, and you selected
+the West region as the focus."* Bare: *"Nothing yet — I haven't loaded any CSV or computed
+anything in this session."*
+
 **What the ledger is worth, in one line:** on conversations long enough for the establishing
 turn to have been compacted away, a 9B recalls established facts **100% vs 20%** — and the 20%
 is recomputation, not memory.
