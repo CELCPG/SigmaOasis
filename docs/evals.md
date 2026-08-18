@@ -168,6 +168,32 @@ check the Session variables list before reading a file again") and measured it p
   produced 0/0 across the board — correctly excluded, but an hour and a half to learn what one
   probe learns in a second.
 
+**Conversation ledger (v1.9) — 3 cases × 5 turns, ledger vs. bare, three passes:**
+
+Turn 1 establishes a fact with `run_python`, two off-topic turns bury it, then one or two turns
+ask for it back — or for arithmetic on it — without restating it. Both arms are identical
+(sessions on, playbook on) except that one receives the ledger block from the fourth turn.
+
+| arm | fact established | recall | recall turns answered directly (no code) |
+| --- | --- | --- | --- |
+| ledger | 9/9 | **15/15** | 9/15 |
+| bare | 9/9 | **15/15** | 6/15 |
+
+Stable across all three passes (0 flaky in either arm) — and, for correctness, a **null result**.
+The bare arm recalled everything too, and the results file shows why: five turns is short enough
+that the turn-1 tool result (`total revenue: 139306.12`) is still sitting in the wire history, so
+the model reads it back or simply re-runs the Python (41 s on that turn vs 17 s for the ledger
+arm, which answered from the block). The ledger arm answered directly more often and faster on
+recall turns; on correctness it had nothing to fix, because nothing was lost.
+
+Which is the honest finding: **this suite measures the wrong regime.** The ledger's claim is
+about conversations long enough for a small model to have *lost* the fact — either compacted out
+of the window or drowned in twenty turns of other material. Five turns tests neither. The suite
+stays (it pins that the ledger does no harm and that the wiring reaches the model), and a
+long-regime variant — enough filler to force compaction, so the establishing turn is genuinely
+gone from history — is the measurement that would actually decide the feature's value. Recorded
+here rather than quietly re-fixtured until it flatters.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
