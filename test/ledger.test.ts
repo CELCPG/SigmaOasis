@@ -153,3 +153,35 @@ describe('shouldInjectLedger / buildLedgerContext', () => {
     assert.equal(buildLedgerContext(buildLedger(msgs)), buildLedgerContext(buildLedger(msgs)))
   })
 })
+
+describe('factsFromToolOutput · analyze_file profiles (v1.9)', () => {
+  test('per-column stats become `<column> <stat>: <value>` facts', () => {
+    const profile = [
+      'Profile of /work/expenses.csv — delimited text (","-separated): 180 data row(s) × 3 column(s).',
+      '',
+      'Columns:',
+      '- date: date · 180 non-null · from 2025-01-01 to 2025-06-28',
+      '- category: text · 180 non-null · 5 distinct · top: "travel" ×45',
+      '- amount: number · 180 non-null · min 14.41 · max 897.61 · mean 468.2479 · median 501.32 · sum 84,284.63',
+      '',
+      'First 5 row(s):'
+    ].join('\n')
+    const facts = factsFromToolOutput(profile, 'analyze_file', 1)
+    assert.deepEqual(
+      facts.map((f) => [f.label, f.value]),
+      [['amount min', '14.41'], ['amount max', '897.61'], ['amount mean', '468.2479'], ['amount median', '501.32'], ['amount sum', '84,284.63']]
+    )
+    assert.ok(facts.every((f) => f.via === 'analyze_file'))
+  })
+  test('text and date columns contribute nothing; the profile header is not a fact', () => {
+    const facts = factsFromToolOutput('- date: date · 180 non-null · from 2025-01-01 to 2025-06-28\n- category: text · 5 distinct', 'analyze_file', 1)
+    assert.deepEqual(facts, [])
+  })
+  test('the measured case: a total read off the profile is in the ledger', () => {
+    const l = buildLedger([
+      user('total please', [{ name: 'expenses.csv' }]),
+      assistant('total: 84,284.63', [rec('analyze_file', '- amount: number · 180 non-null · min 14.41 · max 897.61 · mean 468.2479 · median 501.32 · sum 84,284.63')])
+    ])
+    assert.ok(l.facts.some((f) => f.label === 'amount sum' && f.value === '84,284.63'))
+  })
+})

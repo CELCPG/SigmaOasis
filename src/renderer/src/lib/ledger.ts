@@ -65,7 +65,20 @@ export interface Ledger {
 }
 
 /** Tools whose output the ledger trusts as established. Same family as consultedSources. */
-const FACT_TOOLS = new Set(['run_python', 'finance_calculator', 'date_calculator', 'unit_converter', 'calculator'])
+const FACT_TOOLS = new Set(['run_python', 'finance_calculator', 'date_calculator', 'unit_converter', 'calculator', 'analyze_file'])
+
+/**
+ * analyze_file's profile is not `label: value` lines; its per-column stats are
+ * ("- amount: number · 180 non-null · min 14.41 · max 897.61 · mean 468.2479 ·
+ * median 501.32 · sum 84,284.63"). Measured (ledger eval, case 05): a 9B read
+ * the total straight off the profile, never ran Python, and the ledger — which
+ * only read run_python — recorded no fact; on the recall turn it then said,
+ * truthfully about its own ledger, "nothing computed". The profile's stats are
+ * exactly the computed facts worth remembering, so they are read here as
+ * `<column> <stat>: <value>`.
+ */
+const PROFILE_COLUMN_LINE = /^-\s+([A-Za-z_][\w .()/-]{0,60}?):\s+number\s*·\s*(.+)$/
+const PROFILE_STAT = /\b(min|max|mean|median|sum)\s+(-?[$€£]?\d[\d,]*(?:\.\d+)?)/g
 
 /** Turn context is added from this many user turns onward — below it the model can still see everything. */
 export const LEDGER_MIN_TURNS = 4
@@ -98,15 +111,7 @@ function splitSentences(text: string): string[] {
 export function factsFromToolOutput(output: string, via: string, turn: number): LedgerFact[] {
   const out: LedgerFact[] = []
   const seen = new Set<string>()
-  for (const raw of output.split('\n')) {
-    const line = raw.trim()
-    if (!line || FACT_LINE_SKIP.test(line)) continue
-    const m = FACT_LINE.exec(line)
-    if (!m) continue
-    const label = m[1].trim()
-    const value = m[2].trim()
-    // Two lines with the same label in one output: the last one wins (a
-    // program that prints a running total prints the final one last).
+  const push = (label: string, value: string): void => {
     const key = label.toLowerCase()
     if (seen.has(key)) {
       const idx = out.findIndex((f) => f.label.toLowerCase() === key)
@@ -114,6 +119,22 @@ export function factsFromToolOutput(output: string, via: string, turn: number): 
     }
     seen.add(key)
     out.push({ label, value, turn, via })
+  }
+  for (const raw of output.split('\n')) {
+    const line = raw.trim()
+    if (!line || FACT_LINE_SKIP.test(line)) continue
+    if (via === 'analyze_file') {
+      const col = PROFILE_COLUMN_LINE.exec(line)
+      if (col) {
+        for (const st of col[2].matchAll(PROFILE_STAT)) push(`${col[1].trim()} ${st[1]}`, st[2])
+      }
+      continue
+    }
+    const m = FACT_LINE.exec(line)
+    if (!m) continue
+    // Two lines with the same label in one output: the last one wins (a
+    // program that prints a running total prints the final one last).
+    push(m[1].trim(), m[2].trim())
   }
   return out
 }

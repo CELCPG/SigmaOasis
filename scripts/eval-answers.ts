@@ -448,10 +448,12 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
         const playbook = selectPlaybook({ text: turn.prompt, attachmentNames: [fx.data] })
         if (playbook) blocks.push(buildPlaybookContext(playbook))
         let ledgerInjected = false
+        let ledgerBlock: string | undefined
         if (arm === 'ledger') {
           const ledger = buildLedger(appHistory)
           if (shouldInjectLedger(ledger)) {
-            blocks.push(buildLedgerContext(ledger))
+            ledgerBlock = buildLedgerContext(ledger)
+            blocks.push(ledgerBlock)
             ledgerInjected = true
           }
         }
@@ -536,6 +538,8 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
             ms: Date.now() - t0,
             ledgerInjected,
             compacted,
+            ledgerBlock,
+            toolResults: records.map((rc) => ({ name: rc.name, result: (rc.result ?? '').slice(0, 600) })),
             reply: reply.slice(0, 1200)
           })
         } catch (err) {

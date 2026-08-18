@@ -375,6 +375,10 @@ export interface LedgerTurnResult {
   ledgerInjected: boolean
   /** Long regime: the wire history was compacted before this turn and the establishing turn dropped. */
   compacted?: boolean
+  /** The ledger block as injected (ledger arm), so a miss can be read against what the model saw. */
+  ledgerBlock?: string
+  /** Tool results this turn produced — what the ledger is built from. */
+  toolResults?: { name: string; result: string }[]
   reply?: string
   error?: string
 }
