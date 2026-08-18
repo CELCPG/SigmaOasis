@@ -365,10 +365,11 @@ the suite reports two things and refuses to report a third:
   model spends its own tokens deliberating before it answers — 124 of 128 completion tokens on a
   one-word reply, measured. The internal deliberation *is* the think-harder pass, so an external
   one has nothing left to add. Two suites on two model classes' worth of questions now agree.
-- **What remains unmeasured:** whether review helps a *non-reasoning* model, which is the case the
+- **What this leaves open:** whether review helps a *non-reasoning* model, which is the case the
   feature was designed for. That needs a non-reasoning model loaded (the app already distinguishes
   them — `looksLikeReasoningModel` in lib/reasoning.ts), and is the measurement that would decide
-  whether think-harder should be recommended, defaulted, or discouraged per model.
+  whether think-harder should be recommended, defaulted, or discouraged per model. **It is measured
+  below**, and it is the one place in this document where the answer is yes.
 
 **Confirmed on a second family, and a sharper reason (v1.9.1).** Re-run on `gemma-4-12b-qat`, a
 different family and size that also reasons internally (38 of 44 tokens on a one-word reply):
@@ -407,9 +408,49 @@ model still failed as `fetch failed`, which is the exact symptom the cap existed
 finishes inside that window on a slow local model, and every real answer in every suite is far
 shorter: the longest reasoning draft measured was 179 characters.
 
-The product conclusion available today: **think-harder costs ~1.7x latency for a measured zero on a
-reasoning model.** Offering it there without saying so is the kind of thing this project measures
-in order not to do.
+### The model class the feature was built for (v1.9.1)
+
+`mistralai/mistral-7b-instruct-v0.3` — verified genuinely non-reasoning before it was used as
+evidence: **0 reasoning tokens**, and the app's own classifier agrees, so it does not get the
+reasoning-model note. Three passes, identical in all three:
+
+| mistral-7b-instruct-v0.3 · 3 passes · 14 problems | |
+| --- | --- |
+| draft correct | **6/42** · 14% — [2, 2, 2], 0 flaky |
+| after one think-harder pass | **15/42** · 36% — [5, 5, 5], 0 flaky |
+| review **fixed** a wrong draft | **9/36** · 25% |
+| review **broke** a right draft | **0/6** |
+| reviewer found problems | 39/42 · revised 39/42 |
+| cost | 3.2 s draft, +12.3 s for the pass (4.8x) |
+
+Correctness went from 14% to 36% and nothing broke. Both arms were bit-stable across three passes
+with zero flaky cases, which matters because a 3-of-12 single-pass result is exactly the size that
+this project has repeatedly found to be noise. It is not noise here.
+
+Two honest qualifications, both visible in the same numbers:
+
+- **The reviewer is not discriminating.** It found problems in 39 of 42 drafts and revised 39 —
+  including the correct ones. It is revising by default and happening to help a quarter of the
+  time. That it *broke* nothing across 6 correct drafts is the reassuring half, and it held for
+  three passes, but the mechanism is "rewrite everything, sometimes better", not "detect errors".
+- **The multiplier is worse than on the reasoning models — 4.8x vs 1.7x — for an arithmetic
+  reason.** Mistral drafts in 3.2 s, so the fixed cost of review-and-revise dominates. In absolute
+  terms it is ~16 s versus ~3 s, which is a smaller sacrifice than 4.8x makes it sound.
+
+**Three model classes, one feature:**
+
+| | draft correct | after review | fixed | broke | cost |
+| --- | --- | --- | --- | --- | --- |
+| qwen3.8-9b (reasons internally) | 14/14 | 14/14 | 0 | 0/14 | 1.7x |
+| gemma-4-12b-qat (reasons internally) | 10/10 completed | 10/10 | 0 | 0/10 | 1.7x |
+| mistral-7b-instruct (does not) | 6/42 · 14% | 15/42 · 36% | **9/36** | **0/6** | 4.8x |
+
+The product conclusion, and the reason the whole ladder of null results was worth running:
+**think-harder costs ~1.7x for a measured zero on a model that already reasons, and ~4.8x to fix
+about a quarter of wrong answers on one that does not.** So `thinkHarderNote` now says a different,
+measured thing on each branch instead of staying silent on the branch where the feature actually
+works. Offering an affordance without saying which of those two it will be is the kind of thing
+this project measures in order not to do.
 
 ## Findings worth keeping
 

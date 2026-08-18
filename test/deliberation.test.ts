@@ -119,11 +119,19 @@ describe('thinkHarderNote (v1.9.1)', () => {
       assert.match(note!, /changed no answer across 14 reasoning problems/)
       assert.match(note!, /1\.7x/)
     }
-    // The question is genuinely open for models that do not reason internally,
-    // so they must not be told a result that was never measured for them.
-    for (const id of ['llama-3.1-8b-instruct', 'mistral-7b-instruct', '']) {
-      assert.equal(thinkHarderNote(id), null, `${id} must not carry a note`)
+    // v1.9.1: measured on mistral-7b-instruct-v0.3 — the class that does not
+    // deliberate internally is where the pass actually pays.
+    for (const id of ['mistralai/mistral-7b-instruct-v0.3', 'llama-3.1-8b-instruct']) {
+      const note = thinkHarderNote(id)
+      assert.ok(note, `${id} should carry the non-reasoning note`)
+      assert.match(note!, /answers without deliberating first/)
+      assert.match(note!, /quarter of wrong answers/)
+      assert.match(note!, /breaking none/)
+      assert.match(note!, /Worth it/)
     }
+    // An unrecognised model is not evidence: claim nothing.
+    assert.equal(thinkHarderNote(''), null)
+    assert.equal(thinkHarderNote('   '), null)
   })
 
   test('the note says the feature stays available, not that it is useless', () => {

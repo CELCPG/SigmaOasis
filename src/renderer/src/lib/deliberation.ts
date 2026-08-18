@@ -148,11 +148,22 @@ export function figuresChanged(draft: string, revision: string): { added: string
  * question is genuinely open (docs/evals.md records that gap too).
  */
 export function thinkHarderNote(modelId: string): string | null {
-  if (!isLikelyReasoningModel(modelId)) return null
+  // An unrecognised name is not evidence of anything. The classifier is a name
+  // heuristic whose documented failure direction is "unknown reads as
+  // non-reasoning", which is safe for an additive prompt but not for a claim
+  // about what was measured — so say nothing rather than something unearned.
+  if (!modelId.trim()) return null
+  if (isLikelyReasoningModel(modelId)) {
+    return (
+      'Measured on this kind of model: it already reasons before answering, and a review pass ' +
+      'changed no answer across 14 reasoning problems while costing about 1.7x the time. It is ' +
+      'still here, and the review stays visible — but expect no change more often than not.'
+    )
+  }
   return (
-    'Measured on this kind of model: it already reasons before answering, and a review pass ' +
-    'changed no answer across 14 reasoning problems while costing about 1.7x the time. It is ' +
-    'still here, and the review stays visible — but expect no change more often than not.'
+    'Measured on this kind of model: it answers without deliberating first, and a review pass ' +
+    'fixed about a quarter of wrong answers (9 of 36 across three runs) while breaking none of ' +
+    'the correct ones — for roughly 5x the time. Worth it on a hard question.'
   )
 }
 
