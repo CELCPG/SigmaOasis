@@ -1,0 +1,70 @@
+{
+  "data": "expenses.csv",
+  "regime": "long",
+  "turns": [
+    {
+      "prompt": "From the attached expenses.csv, compute the total amount across all rows and print it as 'total: <value>'. Exact to the cent.",
+      "expect": [
+        {
+          "label": "total",
+          "value": 84284.63,
+          "tolerance": 0.02
+        }
+      ]
+    },
+    {
+      "prompt": "Unrelated: in two sentences, what does 'median' mean and when is it preferable to the mean?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Also unrelated: name three common pitfalls when parsing CSV files, one line each.",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Different topic: briefly, what is a pivot table and what is it good for?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "One more: what's a sensible rule of thumb for choosing colours in a bar chart?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Side question: in a paragraph, how does a hash map achieve O(1) average lookup?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "And: what's the difference between a left join and an inner join? Keep it short.",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Going back to the expenses total you computed at the start of this conversation \u2014 what was it? Just the number, no recomputation.",
+      "expect": [
+        {
+          "label": "recalled total",
+          "value": 84284.63,
+          "tolerance": 0.02
+        }
+      ],
+      "recall": true,
+      "compact": true
+    },
+    {
+      "prompt": "If we split that total evenly across 6 months, what's the monthly average?",
+      "expect": [
+        {
+          "label": "monthly average",
+          "value": 14047.44,
+          "tolerance": 0.05
+        }
+      ],
+      "recall": true,
+      "compact": true
+    }
+  ]
+}

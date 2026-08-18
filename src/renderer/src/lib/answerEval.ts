@@ -373,12 +373,16 @@ export interface LedgerTurnResult {
   ms: number
   /** The ledger block rode this turn (ledger arm only). */
   ledgerInjected: boolean
+  /** Long regime: the wire history was compacted before this turn and the establishing turn dropped. */
+  compacted?: boolean
   reply?: string
   error?: string
 }
 
 export interface LedgerCaseResult {
   file: string
+  /** 'long' = the establishing turn is compacted out before recall — the regime the ledger exists for. */
+  regime?: 'short' | 'long'
   ledger: LedgerTurnResult[]
   bare: LedgerTurnResult[]
 }
@@ -394,6 +398,9 @@ export interface LedgerArmSummary {
 export interface LedgerSummary {
   ledger: LedgerArmSummary
   bare: LedgerArmSummary
+  /** The same, restricted to long-regime cases (establishing turn compacted out). */
+  long: { ledger: LedgerArmSummary; bare: LedgerArmSummary; cases: number }
+  short: { ledger: LedgerArmSummary; bare: LedgerArmSummary; cases: number }
 }
 
 function ledgerArm(turnsOf: (r: LedgerCaseResult) => LedgerTurnResult[], results: LedgerCaseResult[]): LedgerArmSummary {
@@ -421,7 +428,14 @@ function ledgerArm(turnsOf: (r: LedgerCaseResult) => LedgerTurnResult[], results
 }
 
 export function summarizeLedger(results: LedgerCaseResult[]): LedgerSummary {
-  return { ledger: ledgerArm((r) => r.ledger, results), bare: ledgerArm((r) => r.bare, results) }
+  const long = results.filter((r) => r.regime === 'long')
+  const short = results.filter((r) => r.regime !== 'long')
+  return {
+    ledger: ledgerArm((r) => r.ledger, results),
+    bare: ledgerArm((r) => r.bare, results),
+    long: { ledger: ledgerArm((r) => r.ledger, long), bare: ledgerArm((r) => r.bare, long), cases: long.length },
+    short: { ledger: ledgerArm((r) => r.ledger, short), bare: ledgerArm((r) => r.bare, short), cases: short.length }
+  }
 }
 
 /**

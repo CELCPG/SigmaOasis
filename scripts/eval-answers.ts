@@ -386,7 +386,17 @@ interface LedgerFixture {
     filler?: boolean
     /** The turn that must recall something established earlier without restating it. */
     recall?: boolean
+    /**
+     * Long regime (v1.9): before sending this turn, apply the app's own history
+     * planner with a budget tight enough that the establishing turn is dropped
+     * from the wire history — the fact is genuinely gone from what the model
+     * can see, exactly as compaction does it in a real long conversation. The
+     * runner asserts the drop; a run that failed to reach the regime fails.
+     */
+    compact?: boolean
   }[]
+  /** 'long' cases are reported separately: they are the regime the ledger exists for. */
+  regime?: 'short' | 'long'
 }
 
 /**
@@ -414,7 +424,7 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
 
   for (const [i, fx] of fixtures.entries()) {
     const attachments = [{ name: fx.data, sourcePath: join(LEDGER_DIR, 'data', fx.data) }]
-    const caseOut: import('../src/renderer/src/lib/answerEval').LedgerCaseResult = { file: fx.file, ledger: [], bare: [] }
+    const caseOut: import('../src/renderer/src/lib/answerEval').LedgerCaseResult = { file: fx.file, regime: fx.regime ?? 'short', ledger: [], bare: [] }
 
     for (const arm of ['ledger', 'bare'] as const) {
       const sessionKey = `lg-${fx.file}-${arm}-${process.pid}-${jobNonce++}`
@@ -448,6 +458,52 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
         const turnContext = buildTurnContext(blocks)
         messages.push({ role: 'user', content: `${turn.prompt}${dataNote}${turnContext ?? ''}` })
 
+        // Long regime: compact the WIRE history with the app's own planner so
+        // the establishing turn is provably gone. The ledger, like the app's,
+        // is built from the full conversation (appHistory) — never truncated —
+        // which is precisely the property under test. The budget is chosen per
+        // turn: everything after the establishing exchange must still fit, so
+        // filler is visible and only the fact's turn (and its tool round) is
+        // what falls off the front.
+        let compacted = false
+        if (turn.compact) {
+          const { planHistory, estimateMessageTokens } = require('../src/renderer/src/lib/contextBudget') as typeof import('../src/renderer/src/lib/contextBudget')
+          const system = messages[0]
+          const history = messages.slice(1)
+          // Wire history as ChatMessage-shaped for the planner. Tool-role
+          // messages and assistant tool_calls rounds are part of the
+          // establishing exchange's cost, so every wire message is shaped —
+          // the planner sees the same sequence the model would.
+          const shaped = history.map((m, k) => ({
+            id: `w${k}`,
+            role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+            content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
+            createdAt: 0
+          })) as import('../src/renderer/src/types').ChatMessage[]
+          // The establishing exchange is everything before the second *real*
+          // user turn (wire index of the second fixture prompt).
+          let userSeen = 0
+          let secondUserIdx = -1
+          for (let k = 0; k < history.length; k++) {
+            if (history[k].role === 'user') {
+              userSeen += 1
+              if (userSeen === 2) { secondUserIdx = k; break }
+            }
+          }
+          if (secondUserIdx < 0) throw new Error(`${fx.file}: no second user turn to compact against`)
+          const establishing = shaped.slice(0, secondUserIdx)
+          const rest = shaped.slice(secondUserIdx)
+          // Same estimator the planner uses, so "fits the rest exactly" is exact.
+          const restTokens = rest.reduce((n, m) => n + estimateMessageTokens(m), 0)
+          const plan = planHistory(shaped, restTokens)
+          const droppedEstablishing = establishing.length > 0 && establishing.every((m) => plan.drop.includes(m))
+          if (!droppedEstablishing) {
+            throw new Error(`${fx.file}: long-regime compaction did not drop the establishing turn (kept ${plan.keep.length}/${shaped.length}, establishing ${establishing.length}); the fixture does not reach the regime it claims`)
+          }
+          messages.splice(0, messages.length, system, ...history.slice(shaped.length - plan.keep.length))
+          compacted = true
+        }
+
         const t0 = Date.now()
         const records: import('../src/renderer/src/types').ToolCallRecord[] = []
         const rounds: string[] = []
@@ -479,6 +535,7 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
             missing,
             ms: Date.now() - t0,
             ledgerInjected,
+            compacted,
             reply: reply.slice(0, 1200)
           })
         } catch (err) {
@@ -491,6 +548,7 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
             missing: [],
             ms: Date.now() - t0,
             ledgerInjected,
+            compacted,
             error: err instanceof Error ? err.message : String(err)
           })
         }
@@ -502,6 +560,7 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
           `establish:${armTurns.find((t) => t.kind === 'establish')?.hit ? '✓' : '✗'} ` +
           `recall:${recalls.map((t) => (t.hit ? '✓' : t.error ? '!' : '✗')).join('')}` +
           (arm === 'ledger' ? `  injected on ${armTurns.filter((t) => t.ledgerInjected).length} turn(s)` : '') +
+          (armTurns.some((t) => t.compacted) ? '  [compacted]' : '') +
           `  [${i + 1}/${fixtures.length}]\n`
       )
     }
@@ -839,7 +898,14 @@ async function main(): Promise<void> {
     const s = summarizeLedger(lgPasses.flatMap((p) => p.runs))
     const line = (label: string, a: typeof s.ledger): string =>
       `  ${label.padEnd(7)} established ${a.established.hit}/${a.established.of} · recall ${a.recall.hit}/${a.recall.of} · ${a.secondsPerTurn.toFixed(1)} s/turn`
-    console.log('\n' + line('ledger', s.ledger) + '\n' + line('bare', s.bare) + '\n')
+    console.log('\n' + line('ledger', s.ledger) + '\n' + line('bare', s.bare))
+    if (s.long.cases > 0) {
+      console.log(`  — long regime (establishing turn compacted out; ${s.long.cases} case(s)) —\n` + line('ledger', s.long.ledger) + '\n' + line('bare', s.long.bare))
+    }
+    if (s.short.cases > 0 && s.long.cases > 0) {
+      console.log(`  — short regime (${s.short.cases} case(s)) —\n` + line('ledger', s.short.ledger) + '\n' + line('bare', s.short.bare))
+    }
+    console.log('')
     if (passesWanted > 1) {
       const stability = {
         ledger: stabilityAcrossPasses(lgPasses.map((p) => p.runs.flatMap((r) => r.ledger.filter((t) => t.kind === 'recall').map((t, i) => ({ file: `${r.file}#r${i + 1}`, pass: t.error ? null : t.hit }))))),

@@ -301,3 +301,33 @@ describe('ledger suite (v1.9)', () => {
     }
   })
 })
+
+describe('ledger suite · long regime (v1.9)', () => {
+  const t = (kind: 'establish' | 'filler' | 'recall', hit: boolean, compacted = false) => ({
+    prompt: 'p', kind, hit, missing: [], ms: 5000, ledgerInjected: kind === 'recall', compacted
+  })
+  test('summary splits short and long regimes; long is where the arms may differ', () => {
+    const s = summarizeLedger([
+      { file: 'short', regime: 'short', ledger: [t('establish', true), t('recall', true)], bare: [t('establish', true), t('recall', true)] },
+      { file: 'long', regime: 'long', ledger: [t('establish', true), t('recall', true, true)], bare: [t('establish', true), t('recall', false, true)] }
+    ])
+    assert.equal(s.long.cases, 1)
+    assert.equal(s.short.cases, 1)
+    assert.deepEqual(s.long.ledger.recall, { hit: 1, of: 1 })
+    assert.deepEqual(s.long.bare.recall, { hit: 0, of: 1 })
+    assert.deepEqual(s.short.bare.recall, { hit: 1, of: 1 })
+    assert.deepEqual(s.ledger.recall, { hit: 2, of: 2 })
+  })
+  test('the long fixtures mark their recall turns compact and declare the regime', () => {
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'ledger')
+    const longs = readdirSync(dir).filter((f) => f.endsWith('-long.json'))
+    assert.ok(longs.length >= 3)
+    for (const f of longs) {
+      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as { regime?: string; turns?: { recall?: boolean; compact?: boolean; filler?: boolean }[] }
+      assert.equal(fx.regime, 'long', `${f}: regime`)
+      const turns = fx.turns ?? []
+      assert.ok(turns.filter((x) => x.filler).length >= 5, `${f}: enough filler to bury the fact`)
+      for (const x of turns) if (x.recall) assert.equal(x.compact, true, `${f}: recall turns compact`)
+    }
+  })
+})

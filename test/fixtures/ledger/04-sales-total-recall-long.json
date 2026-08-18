@@ -1,0 +1,70 @@
+{
+  "data": "sales.csv",
+  "regime": "long",
+  "turns": [
+    {
+      "prompt": "Using the attached sales.csv, compute the total revenue (units \u00d7 unit_price) across all rows and print it as 'total revenue: <value>'. Exact to the cent.",
+      "expect": [
+        {
+          "label": "total revenue",
+          "value": 139306.12,
+          "tolerance": 0.02
+        }
+      ]
+    },
+    {
+      "prompt": "Unrelated: in two sentences, what does 'median' mean and when is it preferable to the mean?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Also unrelated: name three common pitfalls when parsing CSV files, one line each.",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Different topic: briefly, what is a pivot table and what is it good for?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "One more: what's a sensible rule of thumb for choosing colours in a bar chart?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Side question: in a paragraph, how does a hash map achieve O(1) average lookup?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "And: what's the difference between a left join and an inner join? Keep it short.",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Back to the sales figure you computed at the very start of our conversation \u2014 what was that total revenue, exactly? Do not recompute it; just tell me the number you got.",
+      "expect": [
+        {
+          "label": "recalled total",
+          "value": 139306.12,
+          "tolerance": 0.02
+        }
+      ],
+      "recall": true,
+      "compact": true
+    },
+    {
+      "prompt": "What is 15% of that total? Show the figure.",
+      "expect": [
+        {
+          "label": "15 percent",
+          "value": 20895.92,
+          "tolerance": 0.05
+        }
+      ],
+      "recall": true,
+      "compact": true
+    }
+  ]
+}

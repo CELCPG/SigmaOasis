@@ -1,0 +1,61 @@
+{
+  "data": "sales.csv",
+  "regime": "long",
+  "turns": [
+    {
+      "prompt": "My budget for this analysis project is $2,000 and the deadline is Friday. First: using the attached sales.csv, how many rows are there? Print 'rows: <n>'.",
+      "expect": [
+        {
+          "label": "rows",
+          "value": 400,
+          "tolerance": 0
+        }
+      ]
+    },
+    {
+      "prompt": "Unrelated: in two sentences, what does 'median' mean and when is it preferable to the mean?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Also unrelated: name three common pitfalls when parsing CSV files, one line each.",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Different topic: briefly, what is a pivot table and what is it good for?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "One more: what's a sensible rule of thumb for choosing colours in a bar chart?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Side question: in a paragraph, how does a hash map achieve O(1) average lookup?",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "And: what's the difference between a left join and an inner join? Keep it short.",
+      "expect": [],
+      "filler": true
+    },
+    {
+      "prompt": "Remind me \u2014 what budget and deadline did I give you for this project at the very start of our conversation?",
+      "expect": [
+        {
+          "label": "budget",
+          "value": 2000,
+          "tolerance": 0
+        }
+      ],
+      "mustInclude": [
+        "Friday"
+      ],
+      "recall": true,
+      "compact": true
+    }
+  ]
+}
