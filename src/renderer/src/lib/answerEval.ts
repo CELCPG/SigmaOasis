@@ -311,6 +311,8 @@ export interface MultiTurnTurnResult {
   toolCalls: number
   /** This turn's executed Python read a data file (read_csv/read_excel/open of a data path). */
   reread: boolean
+  /** What ran, so a re-read can be read: did the earlier turn even define a variable to reuse? */
+  toolResults?: { name: string; code?: string; result: string }[]
   reply?: string
   error?: string
 }

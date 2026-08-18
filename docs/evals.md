@@ -162,6 +162,19 @@ check the Session variables list before reading a file again") and measured it p
   ("describe the data before analysing it") reads to a 9B as "re-profile every turn"; the new
   session step counters it. Net: the playbook was roughly neutral for this suite without the
   step and positive with it. The v1.8.0 table is superseded by the one above.
+- **v1.8.1 tried the mechanical lever too, and it did not move.** With session variables present
+  the ledger now rides from turn 2, leads with the variables, and says plainly: *use them
+  directly; do not read the data file again unless a variable you need is missing.* Three
+  passes: session follow-up re-reads **22/30 · 73%** (vs 67% with the playbook step alone —
+  within noise, not an improvement). Reading the code that ran settled it: turn 1 defined `df`,
+  the ledger listed it, and on turns 2 and 3 the model — with "you have `df`, do not read the
+  file again" in front of it — still wrote `df = pd.read_csv("/work/expenses.csv")`. Turn 2's
+  run took **22 ms**: pandas cached the read, so the re-read costs the model nothing observable,
+  and nothing observable is what a habit answers to. Instruction and mechanical nudge have both
+  been measured against it now; the honest conclusion is that a 9B's re-read on follow-up is not
+  a prompting problem, and the ledger's session line stays because it is *true* (and it is what
+  lets a recall turn answer directly), not because it changes this number. The multi-turn runner
+  now records each turn's tool code and results so this kind of finding is read, not inferred.
 - Denominators vary because errored turns (transport drops, retried once) are excluded, never
   scored as misses. The eval also now **refuses to start** unless the model answers a probe: a
   3-pass baseline whose first call hit a stopped LM Studio server ran for 90 minutes and

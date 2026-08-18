@@ -367,6 +367,7 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
             ms: Date.now() - t0,
             toolCalls,
             reread,
+            toolResults: records.map((rc) => ({ name: rc.name, code: typeof rc.args.code === 'string' ? rc.args.code.slice(0, 500) : undefined, result: (rc.result ?? '').slice(0, 400) })),
             reply: reply.slice(0, 1200)
           })
         } catch (err) {
