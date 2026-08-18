@@ -283,6 +283,53 @@ clock — because `quick` and `standard` depth leave a 9B on this hardware no ro
 calls (plan, synthesize, revise). The suite runs `thorough`; the wall clock must not be what it
 measures.
 
+### v1.9.1: the thin-sources regime, and what switching models found
+
+The claim above — that the rung's value lies in *thin or contradictory* sources — was unmeasured,
+so a second corpus was built for it: a question the pages only partly answer (warranty terms
+present, field failure rates explicitly absent), and **two sources that disagree** (30% vs 45%
+savings), where a model reconciling helpfully produces 37.5% — a figure in no source, and the
+decoy. Each case names its corpus; search only ever offers that corpus.
+
+Measured on `qwen3.8-9b` (the model that was loaded; ~13 s a case against the fixture server
+rather than ~130 s, so 3 passes cost minutes). Both corpora, same model, 3 passes:
+
+| corpus | arm | ran | all facts | stated a decoy | unsupported figure | fabricated citation |
+| --- | --- | --- | --- | --- | --- | --- |
+| clean | rung on | 12/12 | 12/12 | 0/12 | 0/12 | 0/12 |
+| clean | rung off | 12/12 | 12/12 | 0/12 | 0/12 | 0/12 |
+| **thin** | rung on | 9/9 | **9/9** | 0/9 | 0/9 | 0/9 |
+| **thin** | rung off | 9/9 | 8/9 | 0/9 | 0/9 | 0/9 |
+
+**Null again, and now for a reason worth stating.** The thin corpus did not tempt this model into
+inventing anything. Reading the briefs shows why: on the conflicting sources it named both studies,
+gave both figures with their sample sizes, and wrote *"The sources do not provide a single
+definitive figure"* — the correct behaviour, unprompted. On the gap case it listed every warranty
+term and then reported the absence rather than filling it. The rung flagged 0/21 first drafts
+because a synthesizer constrained to numbered sources, on a corpus of clean prose, does not
+fabricate. Two models and two corpora now agree on that.
+
+That is a real finding about the *synthesis prompt*, not a failure of the check: `SYNTH_SYSTEM`'s
+"ONLY the numbered sources / every factual claim needs a citation / say plainly if the sources do
+not answer" is doing the work the rung was built to backstop. The rung remains as the backstop it
+is — a guarantee that does not depend on a prompt continuing to hold, on a model that ignores it,
+or on a future corpus that reads less like a reference page — and its unit tests pin what it
+catches. What has *not* been demonstrated, after two attempts in two regimes, is a case where it
+catches something in the wild. Recorded as unproven rather than asserted.
+
+**What the regime switch did find — a deterministic bug, not a flaky one.** Three of seven cases
+returned "no usable sources" in 100 ms. Each link was individually correct: the planner's
+structured-output call on a reasoning model returns everything in `reasoning_content` with an empty
+`content`, so parsing fails and the plan falls back → the fallback used the **raw question** as the
+search query → most questions are first-person, and the privacy sanitizer refuses a first-person
+sentence as a query (a guarantee, not a heuristic) → so nothing was sent, and the run blamed *the
+search provider* for the app's own refusal. The three failures were exactly the three questions
+containing "I". On a reasoning model this is every first-person research question. The fallback now
+builds keyword terms, and a run where every query was refused says so. That bug was reachable only
+because the eval's model changed underneath it — which is an argument for running these suites on
+whatever model is actually loaded, not only the one they were written against.
+
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
