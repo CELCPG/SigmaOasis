@@ -4,6 +4,7 @@ import {
   buildLedger,
   buildLedgerContext,
   constraintsFrom,
+  decisionsFrom,
   describeLedger,
   factsFromToolOutput,
   LEDGER_MIN_TURNS,
@@ -183,5 +184,52 @@ describe('factsFromToolOutput · analyze_file profiles (v1.9)', () => {
       assistant('total: 84,284.63', [rec('analyze_file', '- amount: number · 180 non-null · min 14.41 · max 897.61 · mean 468.2479 · median 501.32 · sum 84,284.63')])
     ])
     assert.ok(l.facts.some((f) => f.label === 'amount sum' && f.value === '84,284.63'))
+  })
+})
+
+describe('shouldInjectLedger · session floor (v1.8.1)', () => {
+  test('with session variables the ledger rides from the second user turn', () => {
+    const l = buildLedger([
+      user('load it', [{ name: 'sales.csv' }]),
+      assistant('', [rec('run_python', 'total: 139306.12\nSession variables (persist in this conversation): df, total.')]),
+      user('and west?')
+    ])
+    assert.equal(l.turns, 2)
+    assert.equal(shouldInjectLedger(l), true)
+    const block = buildLedgerContext(l)
+    assert.match(block, /session variables still defined: df, total/)
+    assert.match(block, /do not read the data file again unless a variable you need is missing/)
+  })
+  test('without session variables the ordinary floor still applies', () => {
+    const l = buildLedger([user('q1'), assistant('', [rec('finance_calculator', 'payment: 1436.05')]), user('q2')])
+    assert.equal(shouldInjectLedger(l), false)
+  })
+})
+
+describe('decisions (v1.8.1)', () => {
+  test('captures choices verbatim; requests and questions are not decisions', () => {
+    const d = decisionsFrom("Let's use the median for this. Go with the West region cut. Can you compute the mean? Please show me option 2.", 3)
+    assert.deepEqual(d.map((x) => x.text), ["Let's use the median for this.", 'Go with the West region cut.'])
+  })
+  test('a later decision on the same subject supersedes the earlier one', () => {
+    const l = buildLedger([
+      user('Use the median for the summary.'), assistant(''),
+      user('unrelated'), assistant(''),
+      user('Actually, use the mean for the summary instead.'), assistant('')
+    ])
+    assert.deepEqual(l.decisions.map((x) => [x.text, x.turn]), [['Actually, use the mean for the summary instead.', 3]])
+  })
+  test('decisions on different subjects both stand, in order', () => {
+    const l = buildLedger([user('Use the median.'), assistant(''), user('Go with the West region.'), assistant('')])
+    assert.deepEqual(l.decisions.map((x) => x.text), ['Use the median.', 'Go with the West region.'])
+  })
+  test('the block lists decisions with the latest-stands rule, and describeLedger counts them', () => {
+    const l = buildLedger([
+      user('Use the median.'), assistant('', [rec('run_python', 'x: 1')]),
+      user('q2'), assistant(''), user('q3'), assistant(''), user('q4'), assistant('')
+    ])
+    const block = buildLedgerContext(l)
+    assert.match(block, /Decisions the user made \(latest on a subject stands\):\n- \(turn 1\) Use the median\./)
+    assert.match(describeLedger(l), /1 decision/)
   })
 })

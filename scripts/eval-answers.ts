@@ -264,6 +264,7 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
   const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
   const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
   const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
+  const { buildLedger, buildLedgerContext, shouldInjectLedger } = require('../src/renderer/src/lib/ledger') as typeof import('../src/renderer/src/lib/ledger')
   const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
 
   const MULTITURN_DIR = join(REPO_ROOT, 'test', 'fixtures', 'multiturn')
@@ -295,9 +296,21 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
       const sessionKey = arm === 'session' ? `mt-${fx.file}-${process.pid}-${jobNonce++}` : undefined
       const tools = arm === 'session' ? sessionTools : statelessTools
       const messages: Msg[] = [{ role: 'system', content: withGrounding(PERSONA) }]
+      // v1.8.1: the app-shaped history the ledger reads. The ledger rides the
+      // session arm exactly as in the app (from turn 2 once session variables
+      // exist); the stateless arm has no session, so it never gets one — which
+      // is the app's own behavior for a sandbox with fresh globals.
+      const appHistory: import('../src/renderer/src/types').ChatMessage[] = []
 
       for (const [ti, turn] of fx.turns.entries()) {
         const dataNote = ti === 0 ? `\n\n[Attached file: ${fx.data} — available to run_python and analyze_file at /work/${fx.data}]` : ''
+        appHistory.push({
+          id: `u${ti}`,
+          role: 'user',
+          content: turn.prompt,
+          attachments: ti === 0 ? ([{ id: 'a0', kind: 'file', name: fx.data, sourcePath: attachments[0].sourcePath }] as never) : undefined,
+          createdAt: 0
+        } as import('../src/renderer/src/types').ChatMessage)
         // The app selects a playbook per turn from the text and the attached
         // file names — a tabular attachment is data work — and appends it as
         // turn context. Same here, so the suite measures the app's real turn
@@ -310,17 +323,23 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
           playbook && arm === 'stateless'
             ? { ...playbook, steps: playbook.steps.filter((s) => !/keeps its variables/.test(s)) }
             : playbook
-        const turnContext = buildTurnContext(armPlaybook ? [buildPlaybookContext(armPlaybook)] : [])
+        const blocks: string[] = armPlaybook ? [buildPlaybookContext(armPlaybook)] : []
+        if (arm === 'session') {
+          const ledger = buildLedger(appHistory)
+          if (shouldInjectLedger(ledger)) blocks.push(buildLedgerContext(ledger))
+        }
+        const turnContext = buildTurnContext(blocks)
         messages.push({ role: 'user', content: `${turn.prompt}${dataNote}${turnContext ?? ''}` })
         const t0 = Date.now()
         let toolCalls = 0
         let reread = false
         const rounds: string[] = []
+        const records: import('../src/renderer/src/types').ToolCallRecord[] = []
         try {
           await runAgentLoop({
             messages: messages as never,
             tools,
-            records: [],
+            records,
             signal: new AbortController().signal,
             deps: {
               streamRound: async (msgs, tls) => {
@@ -337,6 +356,7 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
           })
           const reply = rounds.join('\n\n')
           messages.push({ role: 'assistant', content: reply })
+          appHistory.push({ id: `a${ti}`, role: 'assistant', content: reply, toolCalls: records, createdAt: 0 } as import('../src/renderer/src/types').ChatMessage)
           const q = scoreQuantitative(reply, turn.expect)
           const missing = [...q.missing]
           for (const p of turn.mustInclude ?? []) if (!new RegExp(p, 'i').test(reply)) missing.push(p)
@@ -351,6 +371,7 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
           })
         } catch (err) {
           messages.push({ role: 'assistant', content: '(error)' })
+          appHistory.push({ id: `a${ti}`, role: 'assistant', content: '(error)', toolCalls: records, createdAt: 0 } as import('../src/renderer/src/types').ChatMessage)
           caseOut[arm].push({
             prompt: turn.prompt,
             hit: false,

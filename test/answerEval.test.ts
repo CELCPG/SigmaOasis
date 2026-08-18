@@ -297,7 +297,7 @@ describe('ledger suite (v1.9)', () => {
       assert.ok(turns.length >= 4, `${f}: enough turns to bury the fact`)
       assert.ok(!turns[0].recall && !turns[0].filler && (turns[0].expect?.length ?? 0) > 0, `${f}: turn 1 establishes`)
       assert.ok(turns.some((x) => x.filler), `${f}: has filler`)
-      assert.ok(turns.some((x) => x.recall && (x.expect?.length ?? 0) > 0), `${f}: has a scored recall`)
+      assert.ok(turns.some((x) => x.recall && ((x.expect?.length ?? 0) > 0 || ((x as { mustInclude?: string[] }).mustInclude?.length ?? 0) > 0)), `${f}: has a scored recall`)
     }
   })
 })

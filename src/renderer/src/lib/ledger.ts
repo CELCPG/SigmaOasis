@@ -55,11 +55,24 @@ export interface LedgerConstraint {
   turn: number
 }
 
+/**
+ * v1.8.1: a decision — the user selecting among alternatives ("use the
+ * median", "go with West", "let's do option 2"). Verbatim, like a constraint,
+ * but a decision can be superseded: a later decision on the same subject
+ * replaces the earlier one, because "actually, use the mean" is what the
+ * user now wants and a ledger that still says "median" is worse than none.
+ */
+export interface LedgerDecision {
+  text: string
+  turn: number
+}
+
 export interface Ledger {
   facts: LedgerFact[]
   files: LedgerFile[]
   sessionVars: string[]
   constraints: LedgerConstraint[]
+  decisions: LedgerDecision[]
   /** How many user turns the conversation has. */
   turns: number
 }
@@ -162,6 +175,64 @@ export function constraintsFrom(text: string, turn: number): LedgerConstraint[] 
   return out
 }
 
+export const LEDGER_MAX_DECISIONS = 8
+
+/**
+ * A user sentence that reads as a choice: a selecting verb ("use", "go with",
+ * "pick", "let's do", "stick with", "switch to") or an explicit choice frame
+ * ("option 2", "the second one", "instead"). Not a question, not a request
+ * for information — a decision states what to do. Verbatim capture.
+ */
+const DECISION_VERB =
+  /\b(?:use|go with|pick|choose|let'?s (?:do|use|go with|take)|stick with|switch to|prefer|we'?ll (?:use|go with|take)|i'?ll (?:take|go with))\b/i
+const DECISION_FRAME = /\b(?:option \d|the (?:first|second|third|last) (?:one|option)|instead(?: of)?|rather than|not the)\b/i
+const REQUEST_LIKE = /^\s*(?:please\s+)?(?:can|could|would|will|should|show|tell|give|explain|compute|calculate|find|list|what|how|why|is|are|do|does)\b/i
+
+export function decisionsFrom(text: string, turn: number): LedgerDecision[] {
+  const out: LedgerDecision[] = []
+  for (const s of splitSentences(text)) {
+    if (s.length > CONSTRAINT_MAX_CHARS || s.length < 6) continue
+    if (QUESTION_LIKE.test(s) || REQUEST_LIKE.test(s)) continue
+    if (!DECISION_VERB.test(s) && !DECISION_FRAME.test(s)) continue
+    out.push({ text: s, turn })
+  }
+  return out
+}
+
+/**
+ * Two decisions are "about the same subject" when they share a content word
+ * (≥ 4 letters, not a decision verb). Coarse on purpose: the cost of a false
+ * supersede is dropping an older decision the user may still hold; the cost
+ * of no supersede is a stale one standing. Both are shown with their turn,
+ * so the model and the user can see the order either way.
+ */
+const DECISION_STOP = new Set(['with', 'that', 'this', 'then', 'them', 'they', 'from', 'into', 'just', 'lets', 'will', 'shall', 'should', 'would', 'could', 'instead', 'rather', 'than', 'option', 'first', 'second', 'third', 'last', 'please', 'actually'])
+function decisionSubject(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !DECISION_STOP.has(w) && !DECISION_VERB.test(w))
+  )
+}
+
+function supersede(decisions: LedgerDecision[]): LedgerDecision[] {
+  const out: LedgerDecision[] = []
+  for (const d of decisions) {
+    const subj = decisionSubject(d.text)
+    // Drop any earlier decision that shares a subject word with this one.
+    for (let i = out.length - 1; i >= 0; i--) {
+      const prev = decisionSubject(out[i].text)
+      let shared = false
+      for (const w of subj) if (prev.has(w)) { shared = true; break }
+      if (shared || out[i].text.toLowerCase() === d.text.toLowerCase()) out.splice(i, 1)
+    }
+    out.push(d)
+  }
+  return out
+}
+
 /**
  * Rebuild the ledger from the conversation as it stands. Pure: the same
  * messages always give the same ledger, and nothing here reads the store.
@@ -170,6 +241,7 @@ export function buildLedger(messages: readonly ChatMessage[]): Ledger {
   const facts: LedgerFact[] = []
   const files: LedgerFile[] = []
   const constraints: LedgerConstraint[] = []
+  const decisions: LedgerDecision[] = []
   let sessionVars: string[] = []
   let turn = 0
 
@@ -180,6 +252,7 @@ export function buildLedger(messages: readonly ChatMessage[]): Ledger {
         if (a.name && !files.some((f) => f.name === a.name)) files.push({ name: a.name, turn })
       }
       constraints.push(...constraintsFrom(m.content, turn))
+      decisions.push(...decisionsFrom(m.content, turn))
       continue
     }
     for (const rec of m.toolCalls ?? []) {
@@ -204,6 +277,7 @@ export function buildLedger(messages: readonly ChatMessage[]): Ledger {
     files,
     sessionVars,
     constraints: dedupeConstraints(constraints).slice(-LEDGER_MAX_CONSTRAINTS),
+    decisions: supersede(decisions).slice(-LEDGER_MAX_DECISIONS),
     turns: turn
   }
 }
@@ -222,16 +296,29 @@ function dedupeConstraints(items: LedgerConstraint[]): LedgerConstraint[] {
 
 /** Nothing worth saying: no facts, no files, no constraints, no session. */
 export function ledgerIsEmpty(l: Ledger): boolean {
-  return l.facts.length === 0 && l.files.length === 0 && l.constraints.length === 0 && l.sessionVars.length === 0
+  return l.facts.length === 0 && l.files.length === 0 && l.constraints.length === 0 && l.sessionVars.length === 0 && l.decisions.length === 0
 }
 
 /**
  * Should the ledger ride this turn? Long enough that a small model may have
  * lost track, and with something to record. Below the floor the model can
- * still see the whole conversation and the block would be dead weight.
+ * still see the whole conversation and the block would be dead weight —
+ *
+ * — with one exception (v1.8.1, measured): a live Python session. The
+ * multi-turn suite showed a 9B on turn 2 restating turn 1's computed total
+ * as $139,356.00 (true: 139,306.12) while re-reading the file it already
+ * held. Paraphrase drift and the re-read habit, both on the very next turn.
+ * Session state is the one kind of established fact the model needs
+ * *immediately* — "you have `df` and `total: 139306.12`" is worth a block
+ * on turn 2. So with session variables present the ledger rides from the
+ * second user turn.
  */
+export const LEDGER_MIN_TURNS_WITH_SESSION = 2
+
 export function shouldInjectLedger(l: Ledger): boolean {
-  return l.turns >= LEDGER_MIN_TURNS && !ledgerIsEmpty(l)
+  if (ledgerIsEmpty(l)) return false
+  const floor = l.sessionVars.length > 0 ? LEDGER_MIN_TURNS_WITH_SESSION : LEDGER_MIN_TURNS
+  return l.turns >= floor
 }
 
 /**
@@ -251,6 +338,10 @@ export function buildLedgerContext(l: Ledger): string {
     lines.push('', 'Constraints the user stated:')
     for (const c of l.constraints) lines.push(`- (turn ${c.turn}) ${c.text}`)
   }
+  if (l.decisions.length > 0) {
+    lines.push('', 'Decisions the user made (latest on a subject stands):')
+    for (const d of l.decisions) lines.push(`- (turn ${d.turn}) ${d.text}`)
+  }
   if (l.files.length > 0) {
     lines.push('', 'Files attached:')
     for (const f of l.files) lines.push(`- ${f.name} (turn ${f.turn}; available at /work/${f.name})`)
@@ -260,7 +351,11 @@ export function buildLedgerContext(l: Ledger): string {
     for (const f of l.facts) lines.push(`- ${f.label}: ${f.value} — ${f.via}, turn ${f.turn}`)
   }
   if (l.sessionVars.length > 0) {
-    lines.push('', `Python session variables still defined: ${l.sessionVars.join(', ')}`)
+    lines.push(
+      '',
+      `Python session variables still defined: ${l.sessionVars.join(', ')}. ` +
+        'They persist in run_python — use them directly for a follow-up; do not read the data file again unless a variable you need is missing from this list.'
+    )
   }
   return lines.join('\n')
 }
@@ -271,6 +366,7 @@ export function describeLedger(l: Ledger): string {
   if (l.facts.length) parts.push(`${l.facts.length} computed fact${l.facts.length === 1 ? '' : 's'}`)
   if (l.files.length) parts.push(`${l.files.length} file${l.files.length === 1 ? '' : 's'}`)
   if (l.constraints.length) parts.push(`${l.constraints.length} constraint${l.constraints.length === 1 ? '' : 's'}`)
+  if (l.decisions.length) parts.push(`${l.decisions.length} decision${l.decisions.length === 1 ? '' : 's'}`)
   if (l.sessionVars.length) parts.push(`${l.sessionVars.length} session variable${l.sessionVars.length === 1 ? '' : 's'}`)
   return `📒 Ledger: ${parts.join(', ')} from ${l.turns} turns`
 }
