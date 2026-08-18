@@ -569,7 +569,10 @@ async function main(): Promise<void> {
       const runs = await runLibrarySuite(model)
       allPasses.push({ summary: summarizeLibrary(runs), runs })
     }
-    const s = allPasses[0].summary
+    // Aggregate over every pass, not pass 1: with EVAL_PASSES=3 the headline
+    // must be what was measured (found when a 3-pass run's headline disagreed
+    // with the hand-aggregated numbers).
+    const s = summarizeLibrary(allPasses.flatMap((p) => p.runs))
     console.log(
       `\n  retrieved passages   ${s.retrieved.hit}/${s.retrieved.of}  ${pct(s.retrieved)}\n` +
         `  answered             ${s.answered.hit}/${s.answered.of}  ${pct(s.answered)}\n` +
@@ -616,7 +619,7 @@ async function main(): Promise<void> {
       const runs = await runQuantSuite(model, { workbench: want.includes('quant'), deliberate: want.includes('deliberate') })
       quantPasses.push({ summary: summarizeQuant(runs), runs })
     }
-    const s = quantPasses[0].summary
+    const s = summarizeQuant(quantPasses.flatMap((p) => p.runs))
     console.log(
       `\n  bare (no tools)      ${s.bare.hit}/${s.bare.of}  ${pct(s.bare)}   ${s.seconds.bare.toFixed(1)} s/case\n` +
         (want.includes('quant')
@@ -663,7 +666,7 @@ async function main(): Promise<void> {
       const runs = await runMultiTurnSuite(model)
       mtPasses.push({ summary: summarizeMultiTurn(runs), runs })
     }
-    const s = mtPasses[0].summary
+    const s = summarizeMultiTurn(mtPasses.flatMap((p) => p.runs))
     const line = (label: string, a: typeof s.session): string =>
       `  ${label.padEnd(10)} first ${a.first.hit}/${a.first.of} · follow-ups ${a.followup.hit}/${a.followup.of}` +
       ` · follow-up re-reads ${a.followupRereads.hit}/${a.followupRereads.of}` +

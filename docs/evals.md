@@ -129,25 +129,44 @@ Denominators differ because an arm that errored is excluded rather than scored a
 calls hit a transport drop, each retried once, and two still failed. The first case pays a cold
 model load (31.6 s against a 28.6 s median).
 
-**Multi-turn analysis (v1.8) — 5 cases × 3 turns, sessions vs. stateless, one pass:**
+**Multi-turn analysis (v1.8) — 5 cases × 3 turns, sessions vs. stateless.**
 
-Both arms run identical fixtures through the identical agent loop; the only differences are the
-`run_python` session key and a truth-telling tool description per arm (the stateless arm's schema
-says "Fresh globals each run").
+Both arms run identical fixtures through the identical agent loop, with the app's data-analysis
+playbook injected per turn exactly as the app does it; the only differences are the `run_python`
+session key and a truth-telling tool description per arm (the stateless arm's schema says "Fresh
+globals each run", and its playbook omits the session step). Three passes each; every figure
+below is aggregated over all three.
 
-| arm | first turn | follow-ups | follow-up re-reads | s/turn | calls/turn |
+The v1.8.0 first measurement (one pass, and — corrected since — *without* the playbook, so it
+measured a bare persona rather than the app) found session follow-ups re-reading the data file
+6/10 times. v1.8.1 addressed that habit with one playbook step ("run_python keeps its variables …
+check the Session variables list before reading a file again") and measured it properly:
+
+| | first turn | follow-ups | follow-up re-reads | s/turn | calls/turn |
 | --- | --- | --- | --- | --- | --- |
-| session | 5/5 | 10/10 | **6/10** | **30.3** | 1.3 |
-| stateless | 5/5 | 9/10 | 10/10 | 40.1 | 1.5 |
+| session, before the step | 12/15 | 30/30 | **30/30 · 100%** | 48.5 | 1.58 |
+| session, with the step | 14/14 | 26/27 | **18/27 · 67%** | 47.0 | 1.49 |
+| stateless (control), before | 13/15 | 28/29 | 29/29 · 100% | 46.9 | 1.52 |
+| stateless (control), after | 10/12 | 29/29 | 29/29 · 100% | 43.1 | 1.44 |
 
-Read it carefully rather than triumphantly. Correctness moved by one turn, which a single pass
-cannot distinguish from noise (run with `EVAL_PASSES` before claiming it). The solid findings are
-the other columns: follow-up turns ran **24% faster** with fewer tool calls, and where the model
-actually leaned on the session (two cases re-read nothing at all on follow-ups) the win is exactly
-the one the feature was built for. The uncomfortable finding is the 6/10: a 9B told plainly that
-variables persist still re-reads the file out of habit more often than not. Sessions *enable*
-building on state; they do not force it — that gap between capability and habit is now a measured
-number, and prompting at it is future work this suite can judge.
+- **The step works and the effect is the step's**: session follow-up re-reads fell from 100% to
+  67% while the stateless control stayed at 100% in both runs. In the "after" run one case
+  re-read nothing on any follow-up and another re-read once.
+- **Nothing broke**: 26/27 follow-ups vs 30/30 is one turn, and the stability report names it
+  flaky (`04-expenses-drill.json#3`) — the ±1 that multi-pass measurement exists to catch.
+- **The habit is narrowed, not closed.** 67% is not 0%: two of five cases still re-read on every
+  follow-up when told not to. Instruction beat habit about a third of the time. That remains
+  the honest headline, and the suite is now the arbiter for the next attempt at it.
+- **A finding about the playbook itself.** With the playbook injected, the *baseline* session
+  arm re-read 100% — worse than the playbook-less 60% of the first measurement. Its first step
+  ("describe the data before analysing it") reads to a 9B as "re-profile every turn"; the new
+  session step counters it. Net: the playbook was roughly neutral for this suite without the
+  step and positive with it. The v1.8.0 table is superseded by the one above.
+- Denominators vary because errored turns (transport drops, retried once) are excluded, never
+  scored as misses. The eval also now **refuses to start** unless the model answers a probe: a
+  3-pass baseline whose first call hit a stopped LM Studio server ran for 90 minutes and
+  produced 0/0 across the board — correctly excluded, but an hour and a half to learn what one
+  probe learns in a second.
 
 ## Findings worth keeping
 
