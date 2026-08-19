@@ -478,44 +478,93 @@ and flagging it would be the noise that teaches someone to ignore the badge. Gat
 computation tool having actually run, like percentages: with nothing computed there is no corpus,
 and "about 20 minutes from the venue" is not a claim the tools could have backed.
 
-### The measurement, and why it does not say much
+### The measurement, in four runs
 
 The number that decides whether a checker is worth having is how often it fires on answers that
-are *right*. The quantitative suite scores correctness independently of the ladder, so it should
-have been the place to measure that. Result on qwen3.8-9b:
+are *right*. The quantitative suite scores correctness independently of the ladder, so it is the
+place to measure that. It took four runs on qwen3.8-9b, and the middle two are the reason this
+rung is worth trusting:
 
-| | |
-| --- | --- |
-| Workbench answers the rung was armed on | **7** |
-| quantity findings | **0** |
-| of those, on answers scored CORRECT (false positives) | **0** |
+| run | what changed | Workbench correct | rung fired | of those, FALSE POSITIVES |
+| --- | --- | --- | --- | --- |
+| 1 | first version | 6/7 (13 cases never answered) | 0/7 | 0 |
+| 2 | empty-round recovery, so every case answers | **19/20** | 2/20 | **2** |
+| 3 | compare like with like (same unit only) | 19/20 | 1/20 | **1** |
+| 4 | armed by computation, not by the user's phrasing | 19/20 | **0/20** | **0** |
 
-Zero false positives, and also zero true positives — because **the suite cannot exercise this
-rung**. Its twenty fixtures are money and percentage problems: a tip split, a mortgage payment, a
-compound-interest balance, six CSV revenue questions. Those are precisely the cases the old check
-already covered, which is the same reason the gap survived four minor versions without anyone
-noticing it. A rung for unit-bearing quantities needs a regime that states unit-bearing
-quantities, and that regime does not exist yet. Recorded as thin rather than dressed up as
-support: it is evidence of no false positives in the money regime and nothing more.
+**Run 1 measured almost nothing**, because 13 of 20 Workbench arms never produced an answer at all
+(see below). Fixing that is what made the suite able to say anything.
 
-Two things the run did surface, neither of them what it was looking for:
+**Run 2 is the important one.** With every case answering, the rung fired twice — and both were on
+answers scored CORRECT. `227 minutes`, where the tool had printed the same time as `3:47`. `42.54
+gallons`, an intermediate Python computed and never printed. Both were the model showing its
+working. A checker whose only findings are against right answers is worse than no checker: it
+teaches the next reader to dismiss the badge on the turn it matters.
 
-- **The money rung fires on correct answers.** Of the 7 completed arms, 2 were scored correct and
-  still carried figure findings (`$320.77`; `$2, $20, $100`). That is a pre-existing false-positive
-  rate in the v1.4.5 check, visible here only because this was the first run to record what the
-  ladder said case by case. Worth its own measurement before anyone tightens anything.
-- **13 of 20 Workbench arms never produced an answer at all** — and every one of the 13 failed the
-  same way, on the round *after* a tool had already returned the right numbers: the model emitted a
-  thinking block, no content and no further tool call, and ended the turn with
-  `finish_reason: stop`. The tool worked; the model then declined to say so. In the app the same
-  round ends a turn with an empty reply, so this is a user-visible failure and not a harness
-  artifact.
+Two narrowings followed, each one a principle rather than a patch, and the motivating case — the
+3,015-versus-3,755 contradiction — survives both, pinned by tests:
 
-That last one also caught a bug in the v1.9.1 diagnosis written two releases ago. It reported
-every empty answer as *"It did not finish thinking within its budget"* — true of `finish_reason:
-length`, and flatly wrong for the 13 cases here, which stopped on purpose. An error message that
-names the wrong cause sends the reader after the wrong fix, which is the one thing a diagnosis
-must not do. The two cases now read differently.
+- **Compare like with like.** A quantity is judged only against quantities of the same kind that
+  the tools produced. A pace in *minutes per mile* is not a duration in *minutes*, so the unit
+  carries its rate suffix. If the tools computed no duration at all, the answer's duration is
+  working-out, not a disagreement. This also exposed a plain bug: the pattern allowed a line break
+  between number and unit, so `Total time: 3:47` followed by `Miles run:` produced a phantom
+  "47 miles" in the corpus and turned a correct distance into a finding.
+- **Only a computation can arm the check.** Run 3 still fired on the marathon case, because the
+  *prompt* said "1 mile = 1.609344 km" and "3 hours 47 minutes" — arming `mile` with the value 1
+  and `minute` with 47. A unit the user used in passing is not a computation. Arming now comes from
+  tool output alone; once armed, a value is still supported by either corpus, because a measurement
+  the user gave is theirs to restate.
+
+Where that leaves it, stated plainly: on this suite the rung is **silent, correctly** — 0 findings
+across 20 answers, 19 of them right. It has no demonstrated true positive in a live run, because
+the suite still contains no case where a model contradicts a computed measurement. Its one proven
+catch is the transcript that motivated it, and that lives in the unit tests. Silent-where-it-should-
+be-silent is what a checker has to earn first; the true-positive rate needs a regime that does not
+exist yet.
+
+One thing the runs surfaced that nobody was looking for: **the money rung fires on correct
+answers.** In run 1, 2 of the 7 completed arms were scored correct and still carried figure
+findings (`$320.77`; `$2, $20, $100`). That is a pre-existing false-positive rate in the v1.4.5
+check, visible only because this was the first run to record what the ladder said case by case.
+Unmeasured properly, and worth its own pass before anyone tightens anything.
+
+## The answer that went to the wrong channel (v1.9.2)
+
+13 of 20 Workbench cases in run 1 never produced an answer, and all 13 failed identically: on the
+round *after* a tool had returned the right numbers, `finish_reason: stop`, no content, no further
+tool call, **88 of 89 completion tokens classified as reasoning**.
+
+Reproduced directly against the model and deterministic across repeats. The answer was never
+missing:
+
+```
+content   : ""
+reasoning : "The total comes to **$31,997.12**.\n\nBreakdown:\n- Car price: $28,450.00
+             - Sales tax (8.25%): $2,347.12 - Dealer fee: $1,200.00
+             - **Total out the door: $31,997.12**"
+```
+
+A complete, correct, formatted answer — on the channel this app deliberately does not show. The
+model opens a `<think>` block after the tool result, writes the finished answer inside it, and
+never closes it; the server then files the whole reply as reasoning. Confirmed on the streaming
+path the app itself uses, which is the one that matters: every token arrived as
+`delta.reasoning_content`, so the reply bubble would have been **empty after a visibly successful
+computation**.
+
+The fix is the trick `applyThinking` has used in the main process since v1.5, applied where it was
+missing: hand the model a turn that *starts* with thinking already closed. Measured on the same
+failing round — 0 reasoning tokens, the answer in `content`. In the agent loop it is one recovery
+per turn, like the v1.7.1 prose-call recovery, and it fires only after a tool has already produced
+something: an empty *first* round is a model with nothing to say, not a lost answer.
+
+**Workbench correctness went 6/7-with-13-dead to 19/20 (95%), at +1.3 s per case** — the retry
+costs a round only on the turns that need one.
+
+The harness had to give this up to measure it. Its `complete()` treated an empty round as terminal
+— correct for the reasoning suite, which has no tools and no loop to recover — and that throw
+pre-empted the very recovery being tested. It now defers when tools are in play, because reporting
+a failure the app does not have is the same error as missing one it does.
 
 ## Findings worth keeping
 

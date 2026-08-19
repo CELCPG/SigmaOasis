@@ -1,6 +1,7 @@
 import type { ToolCallRecord, ToolResult, ToolSchema } from '../types'
 import { detectProseParenCall } from './nativeToolCall'
 import { validateToolArgs } from './toolArgs'
+import { CLOSED_THINK_PREFILL } from '../../../shared/thinking'
 
 /**
  * The agentic tool-call loop, lifted out of the useLMStudio hook so the
@@ -262,9 +263,53 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   // twice in one turn is not being recovered, it is being puppeted.
   let proseRecoveryUsed = false
 
+  /**
+   * v1.9.2: one recovery per turn for a round that answered into the wrong
+   * channel.
+   *
+   * Measured on qwen3.8-9b, 2026-08-18, deterministic across repeats. The tool
+   * runs, returns the right numbers, and the next round comes back
+   * `finish_reason: stop` with **no content, no tool call, and 88 of 89 tokens
+   * classified as reasoning** — because the model opened a `<think>` block,
+   * wrote the finished answer inside it, and never closed it. The server then
+   * files the whole reply as reasoning and the answer never reaches `content`.
+   * It is not lost in transit and it is not a refusal: the text is a complete,
+   * correct, formatted answer sitting on the channel this app deliberately
+   * does not show.
+   *
+   * 13 of 20 Workbench cases in the quantitative suite ended this way, every
+   * one of them on the round after a successful tool call — so the user watches
+   * a computation succeed and then gets an empty bubble.
+   *
+   * Handing the model a turn that *starts* with thinking already closed is what
+   * fixes it — the same trick `applyThinking` uses in the main process, and
+   * measured here on the same failing round: 0 reasoning tokens, the answer in
+   * `content`. Once per turn, like the prose recovery above: a model that does
+   * this twice is not being recovered, it is being puppeted.
+   */
+  let thinkChannelRecoveryUsed = false
+  const answeredIntoThinking = (round: { content: string; toolCalls: ApiToolCall[] }): boolean =>
+    !round.content.trim() &&
+    round.toolCalls.length === 0 &&
+    !thinkChannelRecoveryUsed &&
+    // Narrow to the measured case: a tool has already produced something this
+    // turn, so an empty round is a lost answer rather than a model with
+    // nothing to say.
+    messages.some((m) => (m as { role?: string }).role === 'tool')
+
   for (let iteration = 0; iteration < iterationCap; iteration++) {
-    const round = await deps.streamRound(messages, tools)
+    let round = await deps.streamRound(messages, tools)
     if (signal.aborted) return { stopReason: 'aborted' }
+
+    if (answeredIntoThinking(round)) {
+      thinkChannelRecoveryUsed = true
+      messages.push({ role: 'assistant', content: CLOSED_THINK_PREFILL } as never)
+      round = await deps.streamRound(messages, tools)
+      // The prefill is scaffolding for one request, not conversation history.
+      messages.pop()
+      if (signal.aborted) return { stopReason: 'aborted' }
+    }
+
     if (round.toolCalls.length === 0) {
       const prose = !proseRecoveryUsed && iteration + 1 < iterationCap ? detectProseParenCall(round.content, tools) : null
       if (!prose) return { stopReason: 'completed' }

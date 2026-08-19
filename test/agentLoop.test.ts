@@ -1028,3 +1028,90 @@ describe('prose paren-call recovery (v1.7.1)', () => {
     assert.equal(executed, 0)
   })
 })
+
+/**
+ * v1.9.2. Reproduced against qwen3.8-9b on 2026-08-18 and deterministic across
+ * repeats: after a tool returns, the model writes a complete answer inside an
+ * unclosed `<think>` block, the server files all of it as reasoning, and the
+ * round arrives with no content and no tool call. The answer exists; it is on
+ * the channel the app does not show. 13 of 20 Workbench cases ended this way.
+ */
+describe('runAgentLoop · an answer written into the thinking channel', () => {
+  const searchCall = [call('c1', 'web_search', { query: 'x' })]
+
+  test('the empty round after a tool result is retried, and the answer recovered', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: searchCall },
+      { content: '', toolCalls: [] }, // the answer went to reasoning
+      { content: 'The total is $31,997.12.', toolCalls: [] }
+    ])
+    const records: ToolCallRecord[] = []
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records,
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: 'result text' }) }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    // The retry carried a turn that starts with thinking already closed.
+    const retryPrompt = seen[2]
+    const last = retryPrompt[retryPrompt.length - 1]
+    assert.equal(last.role, 'assistant')
+    assert.match(String(last.content), /^<think>\s*<\/think>/)
+  })
+
+  test('the prefill is scaffolding, not history', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: searchCall },
+      { content: '', toolCalls: [] },
+      { content: '', toolCalls: [call('c2', 'web_search', { query: 'y' })] },
+      { content: 'done', toolCalls: [] }
+    ])
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: 'result text' }) }
+    })
+    // The round after the recovery must not still be carrying the prefill.
+    const later = seen[3]
+    assert.ok(
+      !later.some((m) => typeof m.content === 'string' && m.content.startsWith('<think>')),
+      'the prefill should have been popped once it had done its job'
+    )
+  })
+
+  test('once per turn — a model doing it twice is not being recovered', async () => {
+    const { streamRound } = scripted([
+      { content: '', toolCalls: searchCall },
+      { content: '', toolCalls: [] },
+      { content: '', toolCalls: [] }
+    ])
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: 'result text' }) }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+  })
+
+  test('an empty first round is left alone — no tool has answered yet', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [] },
+      { content: 'should not be reached', toolCalls: [] }
+    ])
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: '' }) }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    assert.equal(seen.length, 1, 'a model with nothing to say is not a lost answer')
+  })
+})

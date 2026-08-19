@@ -630,6 +630,67 @@ describe('unsourcedQuantities', () => {
     assert.deepEqual(unsourcedQuantities('1900 miles over two days', 'Leg 1: 950 miles'), [])
   })
 
+  /**
+   * The two false positives the quantitative suite produced on 2026-08-19,
+   * both on answers scored CORRECT, both the model showing its working.
+   * Transcribed exactly.
+   */
+  test('a duration is not judged against tools that computed no duration', () => {
+    const pace = `Total distance: 42.195 km
+Total time: 3:47
+Miles run: 26.218757
+Pace: 8.6579 minutes per mile`
+    const answer =
+      "The runner's average pace is **8.6579 minutes per mile**. This comes from converting " +
+      '42.195 km to ~26.2188 miles, then dividing the total time of 227 minutes (3h 47m) by it.'
+    assert.deepEqual(unsourcedQuantities(answer, pace), [])
+  })
+
+  test('an intermediate the code computed but never printed is not an invention', () => {
+    const answer =
+      'The fuel cost is **$161.23**. This comes from dividing 1,340 miles by 31.5 mpg to get ' +
+      '~42.54 gallons needed, then multiplying by $3.79 per gallon.'
+    assert.deepEqual(unsourcedQuantities(answer, 'stdout:\n161.23'), [])
+  })
+
+  test('a pace is a different kind of thing from a duration', () => {
+    // Same unit word, different quantity — comparing them reports a
+    // disagreement between two things that were never the same measurement.
+    assert.deepEqual(unsourcedQuantities('It took 227 minutes.', 'Pace: 8.66 minutes per mile'), [])
+  })
+
+  test('but a distance IS judged when the tools computed distances', () => {
+    // The motivating case survives the narrowing: this is the whole point.
+    const flagged = unsourcedQuantities('Total: ~3,015 miles.', ROUTE_TOOL_OUTPUT)
+    assert.ok(flagged.some((f) => f.includes('3,015')), JSON.stringify(flagged))
+  })
+
+  test('a number ending a line does not marry the next line\'s first word', () => {
+    // "Total time: 3:47" + "Miles run:" must not become "47 Miles" in the
+    // corpus. It did, and it turned a correct distance into a finding.
+    assert.deepEqual(
+      unsourcedQuantities('The run was 26.2188 miles.', 'Total time: 3:47\nMiles run: 26.218757'),
+      []
+    )
+  })
+
+  test('a unit the user only mentioned in passing arms nothing', () => {
+    // The marathon prompt, verbatim. "1 mile = 1.609344 km" armed `mile` with
+    // the value 1, and "3 hours 47 minutes" armed `minute` with 47; a correct
+    // 26.219 miles and a correct 227 minutes were then both reported.
+    const prompt =
+      'A marathon is 42.195 km. If someone runs it in 3 hours 47 minutes, what is their ' +
+      'average pace in minutes per mile? Use 1 mile = 1.609344 km.'
+    const tool = `Total distance: 42.195 km
+Total time: 3:47
+Miles run: 26.218757
+Pace: 8.6579 minutes per mile`
+    const answer =
+      'The pace is 8.6579 minutes per mile, converting 42.195 km to ~26.219 miles then ' +
+      'dividing the total time of 227 minutes (3h 47m) by that distance.'
+    assert.deepEqual(unsourcedQuantities(answer, tool, prompt), [])
+  })
+
   test('money and bare counts stay with the checks that own them', () => {
     assert.deepEqual(unsourcedQuantities('It costs $4,200 and has 8 shows.', 'nothing'), [])
   })

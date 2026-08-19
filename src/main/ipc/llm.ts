@@ -1,5 +1,6 @@
 import { auditedFetch } from './net'
 import { pinChatModel } from './modelPin'
+import { CLOSED_THINK_PREFILL, THINK_TAG_MODELS } from '../../shared/thinking'
 import { getSettings } from './store'
 
 /**
@@ -97,14 +98,10 @@ export interface CompleteOptions {
  * there at 2000, after 69 seconds. Thinking length does not converge, so a
  * budget large enough to always contain it is a budget nothing can afford.
  */
-const CLOSED_THINK_PREFILL = '<think>\n\n</think>\n\n'
-/**
- * Families whose chain-of-thought is delimited by `<think>` tags, so a closed
- * block is a valid thing to hand them. Gemma 4 is deliberately absent: it
- * marks thinking with its own control tokens, and feeding it another family's
- * tags would put literal markup in the answer rather than suppress anything.
- */
-const THINK_TAG_MODELS = /qwen[-_]?3|deepseek[-_]?r1|r1[-_]?distill|magistral/i
+// CLOSED_THINK_PREFILL and THINK_TAG_MODELS live in shared/thinking.ts as of
+// v1.9.2 — the renderer's agent loop needs the same prefill for the same
+// reason, and two copies of a string this load-bearing would drift.
+
 
 /** Inline `<think>…</think>`, in the spellings lib/reasoning.ts also handles. */
 const THINK_BLOCK = /<(think|thinking|reason|reasoning)>[\s\S]*?<\/\1>\s*/gi

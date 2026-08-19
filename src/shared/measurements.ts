@@ -36,8 +36,52 @@ export const MEASUREMENT_UNITS =
  * `lastIndex`, and a module-level one shared between two checks in the same
  * turn is a bug waiting for the day someone reaches for `.test()`.
  *
- * Group 1 is the number, group 2 the unit.
+ * Group 1 is the number, group 2 the unit, group 3 the rate suffix if there is
+ * one. The suffix matters: "8.66 minutes per mile" is not a duration, and a
+ * check that treats it as one will compare a pace against a running time and
+ * report a disagreement between two things that were never the same quantity.
  */
 export function measurementPattern(): RegExp {
-  return new RegExp(`(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)\\s*(${MEASUREMENT_UNITS})`, 'gi')
+  // Horizontal space only, never a line break. A number ending one line and a
+  // word beginning the next are not a measurement: tool output reading
+  // "Total time: 3:47\nMiles run: 26.2" would otherwise yield "47 Miles" and
+  // put a distance into the corpus that nothing ever computed. Caught by test,
+  // and the same trap the address check documents.
+  return new RegExp(
+    `(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)[ \\t]*(${MEASUREMENT_UNITS})([ \\t]*(?:per|/)[ \\t]*[a-z]+\\b)?`,
+    'gi'
+  )
+}
+
+/** One measurement found in text: its value, and the kind of thing it measures. */
+export interface Measurement {
+  value: number
+  /** Lower-cased, singularised, rate suffix included: `mile`, `minute per mile`. */
+  unit: string
+  /** Exactly as written, for reporting. */
+  raw: string
+}
+
+/**
+ * Canonical name for a unit as written, so `miles`, `Mile` and `mi` are one
+ * kind of thing and `minutes per mile` is a different kind from `minutes`.
+ * Deliberately shallow: it folds case, plurals and spacing, and does NOT
+ * convert between units — a check that silently equates kilometres and miles
+ * would hide exactly the disagreement it is looking for.
+ */
+export function normaliseUnit(unit: string, suffix?: string): string {
+  const base = unit.trim().toLowerCase().replace(/\s+/g, ' ').replace(/s$/, '')
+  const rate = (suffix ?? '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/^\//, 'per ')
+  return rate ? `${base} ${rate.replace(/s$/, '')}` : base
+}
+
+/** Every measurement in a body of text. */
+export function measurementsIn(text: string): Measurement[] {
+  const out: Measurement[] = []
+  for (const m of text.matchAll(measurementPattern())) {
+    const value = Number(m[1].replace(/,/g, ''))
+    if (!Number.isFinite(value)) continue
+    out.push({ value, unit: normaliseUnit(m[2], m[3]), raw: m[0].trim().replace(/\s+/g, ' ') })
+  }
+  return out
 }

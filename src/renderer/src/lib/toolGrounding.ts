@@ -1,5 +1,5 @@
 import type { ToolCallRecord } from '../types'
-import { measurementPattern } from '../../../shared/measurements'
+import { measurementsIn } from '../../../shared/measurements'
 
 /**
  * v1.3 tool grounding: did the answer actually use what the tools returned?
@@ -302,22 +302,52 @@ export function unsourcedFigures(answer: string, corpus: string): string[] {
  * *number*, and demanding matching labels would flag a reply for converting
  * "0.5 hours" into "30 minutes".
  */
-export function unsourcedQuantities(answer: string, corpus: string): string[] {
-  const known = numbersIn(corpus)
-  const bases = [...new Set(known)].slice(0, MAX_DERIVATION_BASES)
+export function unsourcedQuantities(answer: string, toolOutput: string, userText = ''): string[] {
+  // Only ever judged against measurements of the same kind. If the tools
+  // computed distances and the answer states a distance none of them support,
+  // that is a disagreement with the app's own arithmetic — the case this rung
+  // exists for. If the tools produced no duration at all, the answer's
+  // duration is working-out or restated context, and there is nothing to
+  // disagree with.
+  //
+  // Measured, and this is why the rule is shaped this way. The first version
+  // compared every quantity against every number anywhere in the corpus, and
+  // on the quantitative suite it fired twice, both times on answers scored
+  // CORRECT: "227 minutes" (the tool printed the same time as "3:47") and
+  // "42.54 gallons" (an intermediate Python computed but never printed). Both
+  // were the model showing its work. A checker whose only findings are against
+  // right answers is worse than no checker, because the next person to see the
+  // badge has been taught to dismiss it.
+  // Two corpora, two jobs, and conflating them is what defeated the previous
+  // version. Only a *computation* can arm the check — if the tools worked in
+  // miles and the answer states a distance they do not support, that is a
+  // disagreement with the app's own arithmetic. A unit the user merely used in
+  // passing arms nothing: the marathon prompt says "1 mile = 1.609344 km" and
+  // "3 hours 47 minutes", which armed `mile` with the value 1 and `minute`
+  // with 47, and then reported a correct 26.219 miles and a correct 227
+  // minutes as unsupported. Measured 2026-08-19, on an answer scored correct.
+  //
+  // But once armed, a value is supported by either corpus — a measurement the
+  // user gave is theirs to restate, and always has been here.
+  const armed = new Set(measurementsIn(toolOutput).map((m) => m.unit))
+  const byUnit = new Map<string, number[]>()
+  for (const m of [...measurementsIn(toolOutput), ...measurementsIn(userText)]) {
+    const list = byUnit.get(m.unit)
+    if (list) list.push(m.value)
+    else byUnit.set(m.unit, [m.value])
+  }
   const flagged: string[] = []
   const seen = new Set<string>()
-  for (const match of answer.matchAll(measurementPattern())) {
-    const raw = match[1]
-    const value = Number(raw.replace(/,/g, ''))
-    if (!Number.isFinite(value)) continue
-    const decimals = precisionOf(raw)
-    if (known.some((k) => roundTo(k, decimals) === value)) continue
-    if (isDerivable(value, decimals, bases)) continue
-    const label = match[0].trim().replace(/\s+/g, ' ')
-    if (seen.has(label)) continue
-    seen.add(label)
-    flagged.push(label)
+  for (const m of measurementsIn(answer)) {
+    if (!armed.has(m.unit)) continue
+    const known = byUnit.get(m.unit)
+    if (!known || known.length === 0) continue
+    const decimals = precisionOf(String(m.value))
+    if (known.some((k) => roundTo(k, decimals) === m.value)) continue
+    if (isDerivable(m.value, decimals, known.slice(0, MAX_DERIVATION_BASES))) continue
+    if (seen.has(m.raw)) continue
+    seen.add(m.raw)
+    flagged.push(m.raw)
   }
   return flagged
 }
@@ -657,7 +687,10 @@ export function checkToolGrounding(
   // Same gate as percentages, for the same reason: with nothing computed there
   // is no corpus to check against, and a reply that says "about 20 minutes"
   // from general knowledge is not making a claim the tools could have backed.
-  const quantities = numericRecords.length > 0 ? unsourcedQuantities(answer, figureCorpus) : []
+  const quantities =
+    numericRecords.length > 0
+      ? unsourcedQuantities(answer, outputOf(records, (n) => NUMERIC_TOOLS.has(n), true), userText)
+      : []
 
   const sourceCorpus = outputOf(records, (n) => SOURCE_TOOLS.has(n))
   const links = sourceRecords.length > 0 ? unsourcedLinks(answer, sourceCorpus) : []

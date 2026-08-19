@@ -156,7 +156,11 @@ async function completeOnce(
   const parsed = parseCompletionMessage(json.choices?.[0]?.message ?? {})
   // A reply that is only thinking is not a transport problem and must not be
   // reported as one: say the model never reached an answer, and with what.
-  if (!parsed.content.trim() && parsed.toolCalls.length === 0) {
+  // v1.9.2: only terminal when nothing downstream can rescue it. With tools in
+  // play the agent loop owns this case — it retries the round with a closed
+  // thinking block, which is measured to recover the answer — so throwing here
+  // would report a failure the app does not actually have.
+  if (!parsed.content.trim() && parsed.toolCalls.length === 0 && !(tools && tools.length > 0)) {
     const usage = (json as { usage?: { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } } }).usage
     const reasoning = usage?.completion_tokens_details?.reasoning_tokens ?? 0
     if (reasoning > 0 || choice?.finish_reason === 'length') {
