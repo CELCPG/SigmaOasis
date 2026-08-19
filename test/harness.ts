@@ -69,6 +69,16 @@ export interface HarnessState {
   failCompletions: boolean
   /** Make the FIRST /chat/completions call return HTTP 400, then recover. */
   completionOnce400: boolean
+  /**
+   * Model LM Studio's actual behaviour: reject BOTH constrained response
+   * formats and serve only unconstrained requests. A grammar collides with a
+   * prefilled assistant turn ("Failed to initialize samplers"), and json_object
+   * is refused outright — so a caller that steps down only one rung never gets
+   * an answer. Measured against a live server, 2026-08-18.
+   */
+  rejectConstrainedFormats: boolean
+  /** `response_format.type` of every /chat/completions call, in order. */
+  completionFormats: (string | undefined)[]
   /** Bodies received by /api/v0/models/load, in order. */
   pinCalls: { model?: string; ttl?: number }[]
   /** Bodies received by the legacy /api/v1/models/load, in order. */
@@ -126,6 +136,8 @@ export const state: HarnessState = {
   completionBodies: [],
   failCompletions: false,
   completionOnce400: false,
+  rejectConstrainedFormats: false,
+  completionFormats: [],
   pinCalls: [],
   legacyPinCalls: [],
   unloadCalls: [],
@@ -157,6 +169,8 @@ export function resetState(): void {
   state.completionBodies = []
   state.failCompletions = false
   state.completionOnce400 = false
+  state.rejectConstrainedFormats = false
+  state.completionFormats = []
   state.pinCalls = []
   state.legacyPinCalls = []
   state.unloadCalls = []
@@ -323,6 +337,24 @@ const netStub = {
     }
     if (url.endsWith('/chat/completions')) {
       if (state.failCompletions) throw new Error('simulated completion failure')
+      const format = (JSON.parse(init!.body!) as { response_format?: { type?: string } })
+        .response_format?.type
+      state.completionFormats.push(format)
+      if (state.rejectConstrainedFormats && format === 'json_schema') {
+        return makeResponse(
+          '{"error":"Engine protocol predict request returned 400: ' +
+            'Failed to initialize samplers: std::exception"}',
+          'application/json',
+          400
+        )
+      }
+      if (state.rejectConstrainedFormats && format === 'json_object') {
+        return makeResponse(
+          `{"error":"'response_format.type' must be 'json_schema' or 'text'"}`,
+          'application/json',
+          400
+        )
+      }
       if (state.completionOnce400) {
         state.completionOnce400 = false
         return makeResponse(

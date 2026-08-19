@@ -186,6 +186,37 @@ const TRAILING_CONTEXT =
 /** Above this, a query has stopped being search terms and become a paragraph. */
 const MAX_QUERY_WORDS = 16
 
+/**
+ * Words that cannot be the subject of a search on their own: question frames,
+ * determiners, auxiliaries, prepositions, and the generic nouns and adjectives
+ * a request is built out of. Nothing here is a thing anyone looks up.
+ *
+ * Only ever consulted about a query stripping has already shortened — an
+ * untouched query is the model's own phrasing and is left alone.
+ */
+const GENERIC_TERMS = new Set(
+  (
+    'what which who whom whose where when why how ' +
+    'a an the this that these those some any each every no ' +
+    'is are was were be been being am do does did done ' +
+    'can could will would shall should may might must have has had ' +
+    'to of in on at by for from with about into onto over under as and or but than then ' +
+    'there here it its out up off near around between ' +
+    'way ways thing things stuff option options choice choices idea ideas tip tips advice ' +
+    'best better good great top nice cheap cheapest easy easiest fast fastest quick quickest ' +
+    'most more less least much many very really just ' +
+    'get getting go going make making take taking use using find finding ' +
+    'need needs want help please ok okay info information detail details recommendation ' +
+    'recommendations suggestion suggestions'
+  ).split(' ')
+)
+
+/** True when every word left is scaffolding — there is no subject to look up. */
+function hasNoSubject(text: string): boolean {
+  const words = wordsOf(text).map((w) => w.replace(/[^\w'-]/g, '').toLowerCase()).filter(Boolean)
+  return words.length === 0 || words.every((w) => GENERIC_TERMS.has(w))
+}
+
 export interface MinimizedQuery {
   query: string
   /** True when framing was stripped, for the redaction note. */
@@ -245,6 +276,29 @@ export function minimizeQuery(query: string): MinimizedQuery {
 
   // Stripping must never produce an empty or gutted query; fall back whole.
   if (wordsOf(working).length === 0) working = original
+
+  // v1.9.2: the subject can be *inside* the framing, in which case stripping
+  // takes it with it. "What is the best way for me to get from Miami to San
+  // Diego?" loses everything from "for me" onward and goes out as "What is the
+  // best way" — which leaks nothing and searches for nothing: measured, it
+  // returned eight results about public transport in Vienna, and the model
+  // answered over the top of them.
+  //
+  // That is the same failure the length rule above exists to prevent, reached
+  // by the other route, so it gets the same answer. Refusing costs one round
+  // trip and gets a query that works; sending scaffolding costs a search slot
+  // and furnishes the model with noise it will treat as evidence.
+  if (working !== original && hasNoSubject(working)) {
+    return {
+      query: working,
+      dropped: true,
+      refusal:
+        'Removing the personal framing from that query left nothing to look up — the subject ' +
+        'was inside it. Nothing was sent. Call the tool again with the subject as terms (for ' +
+        'example "Miami to San Diego travel options" rather than "what is the best way for me ' +
+        'to get from Miami to San Diego"). Split separate subjects into separate searches.'
+    }
+  }
 
   const words = wordsOf(working)
   const stillPersonal = FIRST_PERSON.test(working)

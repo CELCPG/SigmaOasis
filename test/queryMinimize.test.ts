@@ -88,6 +88,51 @@ describe('minimizeQuery · refusal', () => {
     assert.equal(out.refusal, undefined)
   })
 
+  /**
+   * v1.9.2, from a real session: the trailing-context rule matched "for me"
+   * and took the subject with it, so "What is the best way for me to get from
+   * Miami to San Diego?" went to the provider as "What is the best way" and
+   * came back with eight results about Vienna.
+   */
+  test('a query stripping has gutted is refused, not sent as scaffolding', () => {
+    const out = minimizeQuery('What is the best way for me to get from Miami to San Diego?')
+    assert.ok(out.refusal, 'expected a refusal')
+    assert.match(out.refusal!, /nothing to look up/i)
+    assert.match(out.refusal!, /call the tool again/i)
+  })
+
+  test('the same shape, other phrasings', () => {
+    for (const query of [
+      'what are the best options for me to get to the airport',
+      'which is the better choice for my situation',
+      'can you tell me the fastest way for me to get to Denver'
+    ]) {
+      assert.ok(minimizeQuery(query).refusal, `expected a refusal for: ${query}`)
+    }
+  })
+
+  test('a subject that survives stripping is still sent', () => {
+    // The rule must not fire whenever a trailing clause is removed — only when
+    // what is left could not be looked up by anyone.
+    for (const [query, subject] of [
+      ['best gift for my mom', 'gift'],
+      ['organic cotton sheets for my apartment', 'cotton'],
+      ['tallest mountains in Japan for my trip', 'mountains']
+    ] as const) {
+      const out = minimizeQuery(query)
+      assert.equal(out.refusal, undefined, `should not refuse: ${query}`)
+      assert.match(out.query, new RegExp(subject, 'i'))
+    }
+  })
+
+  test('an untouched query is never judged for subject — it is the model\'s own', () => {
+    // No first-person framing means no stripping, so nothing was lost and
+    // there is nothing to second-guess.
+    const out = minimizeQuery('what is the best way to remove rust')
+    assert.equal(out.refusal, undefined)
+    assert.equal(out.query, 'what is the best way to remove rust')
+  })
+
   test('an empty query is left alone for the caller to reject', () => {
     assert.deepEqual(minimizeQuery('   '), { query: '', dropped: false })
   })

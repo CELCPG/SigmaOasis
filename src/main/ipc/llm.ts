@@ -148,6 +148,15 @@ export function applyThinking(options: CompleteOptions): {
   // Kept although it does nothing here: it is the parameter the API documents,
   // it costs one field, and a server that honors it needs no prefill at all.
   const body = { chat_template_kwargs: { enable_thinking: false } }
+  // A grammar and a prefilled assistant turn cannot be combined: LM Studio
+  // fails to construct the sampler and rejects the whole request with
+  // `Failed to initialize samplers: std::exception` (HTTP 400, measured on
+  // qwen3.8-9b, 2026-08-18). That took out every planned turn on the qwen3
+  // family — plan.ts asks for both at once — and the retry below then failed
+  // for a second, unrelated reason, so the error the user saw named neither
+  // cause. The prefill buys nothing here anyway: a grammar that permits only
+  // the schema already makes a `<think>` block unemittable.
+  if (options.jsonSchema) return { messages: options.messages, body }
   if (!THINK_TAG_MODELS.test(options.model)) return { messages: options.messages, body }
   return {
     messages: [...options.messages, { role: 'assistant', content: CLOSED_THINK_PREFILL }],
@@ -501,19 +510,32 @@ export function extractJson(text: string): unknown | null {
 
 /** A completion parsed as JSON, or null when the model produced nothing usable. */
 export async function chatCompleteJson<T>(options: CompleteOptions): Promise<T | null> {
+  const isRejection = (err: unknown): boolean =>
+    err instanceof Error && err.message.includes('HTTP 400')
   try {
     const text = await chatComplete({ ...options, json: true })
     return extractJson(text) as T | null
   } catch (err) {
-    // A schema-constrained request a server cannot honor fails with HTTP 400.
-    // Retry once without the constraint: grammar enforcement is a bonus, not
-    // a requirement, and the tolerant parser below is the safety net either way.
-    if (options.jsonSchema && err instanceof Error && err.message.includes('HTTP 400')) {
-      const { jsonSchema: _dropped, ...rest } = options
-      const text = await chatComplete({ ...rest, json: true })
+    if (!options.jsonSchema || !isRejection(err)) throw err
+    // A constraint the server cannot honor fails with HTTP 400, so step down
+    // one rung at a time: grammar, then JSON mode, then nothing. Both are a
+    // bonus — every caller's prompt asks for JSON in words, and `extractJson`
+    // is the tolerant parser that has to work regardless.
+    //
+    // The second rung is why this needs two catches rather than one. Through
+    // v1.9.1 the fallback went straight to `json_object`, which LM Studio
+    // itself rejects (`'response_format.type' must be 'json_schema' or
+    // 'text'`) — so the recovery path threw a fresh 400, and that second
+    // error, about a format the caller never chose, was the one shown.
+    const { jsonSchema: _grammar, json: _mode, ...plain } = options
+    try {
+      const text = await chatComplete({ ...plain, json: true })
+      return extractJson(text) as T | null
+    } catch (retryErr) {
+      if (!isRejection(retryErr)) throw retryErr
+      const text = await chatComplete(plain)
       return extractJson(text) as T | null
     }
-    throw err
   }
 }
 

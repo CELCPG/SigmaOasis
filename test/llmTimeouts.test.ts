@@ -1,6 +1,6 @@
-import { test, describe } from 'node:test'
+import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { load } from './harness'
+import { load, resetState, state } from './harness'
 
 const llm = load<typeof import('../src/main/ipc/llm')>('llm')
 
@@ -222,6 +222,31 @@ describe('applyThinking', () => {
     assert.deepEqual(out.body, { chat_template_kwargs: { enable_thinking: false } })
   })
 
+  /**
+   * The v1.9.1 planner failure, pinned. plan.ts asks for a grammar and for
+   * thinking off at once; on the qwen3 family that used to append a prefilled
+   * assistant turn, and LM Studio cannot build a sampler for a constrained
+   * request that already has one — HTTP 400, every planned turn, measured
+   * 2026-08-18. The grammar makes the prefill redundant anyway.
+   */
+  test('a grammar-constrained request gets no prefill, whatever the family', () => {
+    for (const model of ['qwen3.5-9b-mlx', 'qwen3.8-9b', 'deepseek-r1-distill-qwen-7b']) {
+      const out = llm.applyThinking({
+        model,
+        messages,
+        thinking: false,
+        jsonSchema: { name: 'task_plan', schema: { type: 'object' } }
+      })
+      assert.deepEqual(out.messages, messages, `${model} must not be prefilled under a grammar`)
+      assert.deepEqual(out.body, { chat_template_kwargs: { enable_thinking: false } })
+    }
+  })
+
+  test('without a grammar the prefill is still there — it is what works', () => {
+    const out = llm.applyThinking({ model: 'qwen3.8-9b', messages, thinking: false })
+    assert.equal(out.messages.length, messages.length + 1)
+  })
+
   test('a request with no system message is still handled', () => {
     const out = llm.applyThinking({
       model: 'qwen3.5-9b-mlx',
@@ -239,5 +264,61 @@ describe('PartialCompletionError', () => {
     assert.equal(err.partial, 'four paragraphs')
     assert.equal(err.name, 'PartialCompletionError')
     assert.ok(err instanceof Error)
+  })
+})
+
+/**
+ * The v1.9.1 failure end to end, against a stub that behaves the way the live
+ * server actually behaves. Three chats exported on 2026-08-18 opened with
+ * `📋 Planning failed (HTTP 400: 'response_format.type' must be 'json_schema'
+ * or 'text')` — an error about a format the caller never asked for, because
+ * the recovery path had substituted it and hit a second, unrelated rejection.
+ */
+describe('chatCompleteJson · stepping down when a server refuses a constraint', () => {
+  beforeEach(() => resetState())
+
+  test('an answer still comes back when both constrained formats are refused', async () => {
+    state.rejectConstrainedFormats = true
+    state.completions = ['{"steps":[{"title":"Find the venues","detail":"Search the tour page."}]}']
+    const out = await llm.chatCompleteJson<{ steps: { title: string }[] }>({
+      model: 'qwen3.8-9b',
+      messages: [{ role: 'user', content: 'Plan it.' }],
+      thinking: false,
+      jsonSchema: { name: 'task_plan', schema: { type: 'object' } }
+    })
+    assert.equal(out?.steps[0].title, 'Find the venues')
+  })
+
+  test('it steps down one rung at a time, and no further than it must', async () => {
+    state.rejectConstrainedFormats = true
+    state.completions = ['{"ok":true}']
+    await llm.chatCompleteJson({
+      model: 'qwen3.8-9b',
+      messages: [{ role: 'user', content: 'Plan it.' }],
+      jsonSchema: { name: 'task_plan', schema: { type: 'object' } }
+    })
+    assert.deepEqual(state.completionFormats, ['json_schema', 'json_object', undefined])
+  })
+
+  test('a server that accepts the grammar is never asked twice', async () => {
+    state.completions = ['{"ok":true}']
+    await llm.chatCompleteJson({
+      model: 'qwen3.8-9b',
+      messages: [{ role: 'user', content: 'Plan it.' }],
+      jsonSchema: { name: 'task_plan', schema: { type: 'object' } }
+    })
+    assert.deepEqual(state.completionFormats, ['json_schema'])
+  })
+
+  test('the planner request carries no assistant prefill to collide with', async () => {
+    state.completions = ['{"steps":[]}']
+    await llm.chatCompleteJson({
+      model: 'qwen3.8-9b',
+      messages: [{ role: 'user', content: 'Plan it.' }],
+      thinking: false,
+      jsonSchema: { name: 'task_plan', schema: { type: 'object' } }
+    })
+    const sent = state.completionBodies[0] as { messages: { role: string }[] }
+    assert.equal(sent.messages[sent.messages.length - 1].role, 'user')
   })
 })
