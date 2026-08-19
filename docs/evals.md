@@ -452,6 +452,71 @@ measured thing on each branch instead of staying silent on the branch where the 
 works. Offering an affordance without saying which of those two it will be is the kind of thing
 this project measures in order not to do.
 
+## The grounding ladder reaches quantities (v1.9.2)
+
+Four real sessions, read end to end on 2026-08-18. One of them contained this, in a single
+assistant message: `run_python` printed **"Grand total: 3755 miles"** under the standing
+instruction to state computed numbers exactly as shown; the reply's leg tables summed to 3,755;
+and the headline above them read **"Total: ~3,015 miles"**. A figure contradicting the app's own
+arithmetic, in the same breath as the arithmetic, and every rung passed it.
+
+The reason is one line of code rather than a subtle failure: `unsourcedFigures` iterates a
+currency pattern and `unsourcedPercentages` iterates a percent pattern. A quantity with any other
+unit — miles, minutes, milligrams, degrees — was checked by nothing.
+
+What makes that indefensible rather than merely missing is the asymmetry. Since v1.9,
+`researchGrounding` has treated a number with a unit as the *dangerous class* — a dose, a
+duration, a temperature — and checked every one of them in a research brief against the passages
+it was written from. The same invention in an ordinary reply went unremarked. Both rungs now share
+one vocabulary (`src/shared/measurements.ts`), so a unit either counts as a measurement everywhere
+or nowhere.
+
+The rules are the ones money has had since v1.4.5: supported if the corpus states the value at the
+precision the answer used, or if it is simple arithmetic on something the corpus states. Units are
+deliberately not compared — converting a computed `0.5 hours` into `30 minutes` is restatement,
+and flagging it would be the noise that teaches someone to ignore the badge. Gated on a
+computation tool having actually run, like percentages: with nothing computed there is no corpus,
+and "about 20 minutes from the venue" is not a claim the tools could have backed.
+
+### The measurement, and why it does not say much
+
+The number that decides whether a checker is worth having is how often it fires on answers that
+are *right*. The quantitative suite scores correctness independently of the ladder, so it should
+have been the place to measure that. Result on qwen3.8-9b:
+
+| | |
+| --- | --- |
+| Workbench answers the rung was armed on | **7** |
+| quantity findings | **0** |
+| of those, on answers scored CORRECT (false positives) | **0** |
+
+Zero false positives, and also zero true positives — because **the suite cannot exercise this
+rung**. Its twenty fixtures are money and percentage problems: a tip split, a mortgage payment, a
+compound-interest balance, six CSV revenue questions. Those are precisely the cases the old check
+already covered, which is the same reason the gap survived four minor versions without anyone
+noticing it. A rung for unit-bearing quantities needs a regime that states unit-bearing
+quantities, and that regime does not exist yet. Recorded as thin rather than dressed up as
+support: it is evidence of no false positives in the money regime and nothing more.
+
+Two things the run did surface, neither of them what it was looking for:
+
+- **The money rung fires on correct answers.** Of the 7 completed arms, 2 were scored correct and
+  still carried figure findings (`$320.77`; `$2, $20, $100`). That is a pre-existing false-positive
+  rate in the v1.4.5 check, visible here only because this was the first run to record what the
+  ladder said case by case. Worth its own measurement before anyone tightens anything.
+- **13 of 20 Workbench arms never produced an answer at all** — and every one of the 13 failed the
+  same way, on the round *after* a tool had already returned the right numbers: the model emitted a
+  thinking block, no content and no further tool call, and ended the turn with
+  `finish_reason: stop`. The tool worked; the model then declined to say so. In the app the same
+  round ends a turn with an empty reply, so this is a user-visible failure and not a harness
+  artifact.
+
+That last one also caught a bug in the v1.9.1 diagnosis written two releases ago. It reported
+every empty answer as *"It did not finish thinking within its budget"* — true of `finish_reason:
+length`, and flatly wrong for the 13 cases here, which stopped on purpose. An error message that
+names the wrong cause sends the reader after the wrong fix, which is the one thing a diagnosis
+must not do. The two cases now read differently.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

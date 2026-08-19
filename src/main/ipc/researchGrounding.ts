@@ -38,6 +38,8 @@
  * flagged, never laundered.
  */
 
+import { measurementPattern } from '../../shared/measurements'
+
 export interface ResearchGroundingReport {
   /** Figures in the brief that appear in no passage. */
   figures: string[]
@@ -56,8 +58,9 @@ const FIGURE =
   /(?<![\w.\[])(?:\$|€|£)?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|(?<![\w.\[])(?:\$|€|£)\d+(?:\.\d+)?|(?<![\w.\[])\d+\.\d+%?|(?<![\w.\[])\d+%|(?<![\w.\[])\d{4,}(?![\w.\]])/g
 const YEAR = /^(?:1[89]|20)\d{2}$/
 
-const MEASUREMENT =
-  /(?<![\w.])(\d[\d,]*(?:\.\d+)?)\s*(°\s?[cf]\b|degrees?\b|minutes?\b|mins?\b|hours?\b|hrs?\b|days?\b|weeks?\b|months?\b|years?\b|seconds?\b|secs?\b|mg\b|mcg\b|µg\b|ml\b|grams?\b|g\b|kg\b|litres?\b|liters?\b|l\b|gallons?\b|ounces?\b|oz\b|pounds?\b|lbs?\b|cm\b|mm\b|metres?\b|meters?\b|m\b|inches?\b|feet\b|ft\b|miles?\b|km\b|mph\b|km\/h\b|kwh\b|watts?\b|volts?\b|amps?\b|calories\b|kcal\b)/gi
+// v1.9.2: the vocabulary moved to shared/, because the reply-level check now
+// needs the same answer to "is this a measurement?". See that file for why.
+const MEASUREMENT = measurementPattern()
 
 const CITATION = /\[(\d{1,3})\]/g
 

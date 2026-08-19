@@ -240,6 +240,15 @@ export interface QuantCaseResult {
   tools?: { name: string; code?: string; result?: string }[]
   /** The bare draft after one think-harder pass. */
   deliberated?: { hit: boolean; missing: string[]; ms: number; revised: boolean; error?: string }
+  /**
+   * v1.9.2: what the grounding ladder said about the Workbench reply.
+   *
+   * Recorded so the checker can be measured on the arm where it is armed —
+   * a computation tool really ran, and the case was scored correct or not
+   * independently of it. A finding on a *correct* answer is a false positive,
+   * which is the number that decides whether a rung is worth having.
+   */
+  grounding?: { quantities: string[]; figures: string[] }
 }
 
 export interface QuantSummary {

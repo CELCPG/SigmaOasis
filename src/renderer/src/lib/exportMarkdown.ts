@@ -70,6 +70,9 @@ export function conversationToMarkdown(convo: Conversation): string {
         const g = m.grounding
         const parts: string[] = []
         if (g.figures.length > 0) parts.push(`figures not in tool output: ${g.figures.join(', ')}`)
+        if (g.quantities?.length) {
+          parts.push(`measurements not in tool output: ${g.quantities.join(', ')}`)
+        }
         if (g.links.length > 0) parts.push(`links not in tool output: ${g.links.join(', ')}`)
         lines.push(
           `> ⚠️ Not backed by this turn's tools (checked against ${g.checkedAgainst.join(', ')}) — ${parts.join('; ')}.`,

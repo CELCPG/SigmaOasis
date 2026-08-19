@@ -675,6 +675,8 @@ export interface GroundingReport {
   figures: string[]
   /** Links in the reply that appear in no tool output. */
   links: string[]
+  /** v1.9.2: quantities with units backed by no tool output or user statement. */
+  quantities?: string[]
   /** Countries the reply names that the consulted sources never mention (v1.4.5). */
   origins?: string[]
   /** Phone numbers and email addresses backed by no tool output (v1.4.5). */

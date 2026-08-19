@@ -1,4 +1,5 @@
 import type { ToolCallRecord } from '../types'
+import { measurementPattern } from '../../../shared/measurements'
 
 /**
  * v1.3 tool grounding: did the answer actually use what the tools returned?
@@ -44,6 +45,12 @@ const MAX_REPORTED = 6
 export interface GroundingReport {
   /** Money figures in the reply that no tool output or user message contains. */
   figures: string[]
+  /**
+   * v1.9.2: quantities with units — miles, minutes, milligrams — that nothing
+   * computed or retrieved supports. Money and percentages were checked from
+   * v1.4.5 and v1.6; everything measured in any other unit was not.
+   */
+  quantities?: string[]
   /** Links in the reply that appear in no tool output. */
   links: string[]
   /** Countries the reply names that contradict the geography the sources gave. */
@@ -89,6 +96,7 @@ export function groundingFindingCount(report: GroundingReport | null): number {
   return (
     report.figures.length +
     report.links.length +
+    (report.quantities?.length ?? 0) +
     (report.origins?.length ?? 0) +
     (report.contacts?.length ?? 0) +
     (report.addresses?.length ?? 0) +
@@ -132,6 +140,12 @@ export function describeGroundingFindings(report: GroundingReport): string {
   }
   if (report.figures.length) {
     lines.push(`- Figures nothing retrieved or computed supports: ${report.figures.join(', ')}`)
+  }
+  if (report.quantities?.length) {
+    lines.push(
+      '- Measurements nothing computed or retrieved supports: ' +
+        `${report.quantities.join(', ')}. If a tool computed a different number, use that one.`
+    )
   }
   if (report.origins?.length) {
     lines.push(
@@ -255,6 +269,52 @@ export function unsourcedFigures(answer: string, corpus: string): string[] {
       known.some((k) => roundTo(k, decimals) === value) || isDerivable(value, decimals, bases)
     if (supported) continue
     const label = `$${raw}`
+    if (seen.has(label)) continue
+    seen.add(label)
+    flagged.push(label)
+  }
+  return flagged
+}
+
+/**
+ * v1.9.2: quantities with units, checked only when a computation tool ran.
+ *
+ * The gap this closes, from a real session. Asked to sketch a cycling route,
+ * the model called `run_python`, which added the legs and printed
+ * "Grand total: 3755 miles" — with the standing instruction to state computed
+ * numbers exactly as shown. The reply's own leg tables summed to 3,755, and
+ * its headline said **"Total: ~3,015 miles"**. A figure contradicting the
+ * app's own arithmetic, in the same message, and every rung of the ladder
+ * passed it: `unsourcedFigures` iterates currency, `unsourcedPercentages`
+ * iterates percents, and 3,015 miles is neither.
+ *
+ * The asymmetry is what makes this worth fixing rather than debating: a
+ * measurement invented inside a *research brief* has been caught since v1.9,
+ * because `researchGrounding` treats a number with a unit as the dangerous
+ * class. The same invention in an ordinary reply went unremarked. Both rungs
+ * now share one vocabulary — see shared/measurements.ts.
+ *
+ * Supported means what it means everywhere else here: the corpus contains the
+ * value, at the precision the answer stated it ("about 20 minutes" for 19.6),
+ * or it is simple arithmetic on something the corpus contains. Unit strings
+ * are not compared — "3755 miles" is supported by a corpus that computed 3755
+ * however it labelled it, because the failure being caught is an invented
+ * *number*, and demanding matching labels would flag a reply for converting
+ * "0.5 hours" into "30 minutes".
+ */
+export function unsourcedQuantities(answer: string, corpus: string): string[] {
+  const known = numbersIn(corpus)
+  const bases = [...new Set(known)].slice(0, MAX_DERIVATION_BASES)
+  const flagged: string[] = []
+  const seen = new Set<string>()
+  for (const match of answer.matchAll(measurementPattern())) {
+    const raw = match[1]
+    const value = Number(raw.replace(/,/g, ''))
+    if (!Number.isFinite(value)) continue
+    const decimals = precisionOf(raw)
+    if (known.some((k) => roundTo(k, decimals) === value)) continue
+    if (isDerivable(value, decimals, bases)) continue
+    const label = match[0].trim().replace(/\s+/g, ' ')
     if (seen.has(label)) continue
     seen.add(label)
     flagged.push(label)
@@ -594,6 +654,10 @@ export function checkToolGrounding(
   // when a stated share had a source it should have used.
   const percentages = numericRecords.length > 0 ? unsourcedPercentages(answer, figureCorpus) : []
   const figures = [...(checkFigures ? stated : []), ...percentages]
+  // Same gate as percentages, for the same reason: with nothing computed there
+  // is no corpus to check against, and a reply that says "about 20 minutes"
+  // from general knowledge is not making a claim the tools could have backed.
+  const quantities = numericRecords.length > 0 ? unsourcedQuantities(answer, figureCorpus) : []
 
   const sourceCorpus = outputOf(records, (n) => SOURCE_TOOLS.has(n))
   const links = sourceRecords.length > 0 ? unsourcedLinks(answer, sourceCorpus) : []
@@ -607,6 +671,7 @@ export function checkToolGrounding(
 
   if (
     figures.length === 0 &&
+    quantities.length === 0 &&
     links.length === 0 &&
     origins.length === 0 &&
     contacts.length === 0 &&
@@ -621,6 +686,7 @@ export function checkToolGrounding(
   return {
     figures: figures.slice(0, MAX_REPORTED),
     links: links.slice(0, MAX_REPORTED),
+    ...(quantities.length > 0 ? { quantities: quantities.slice(0, MAX_REPORTED) } : {}),
     ...(origins.length > 0 ? { origins: origins.slice(0, MAX_REPORTED) } : {}),
     ...(contacts.length > 0 ? { contacts: contacts.slice(0, MAX_REPORTED) } : {}),
     ...(addresses.length > 0 ? { addresses: addresses.slice(0, MAX_REPORTED) } : {}),

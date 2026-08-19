@@ -9,7 +9,8 @@ import {
   unsourcedAddresses,
   unsourcedContacts,
   unsourcedFigures,
-  unsourcedLinks
+  unsourcedLinks,
+  unsourcedQuantities
 } from '../src/renderer/src/lib/toolGrounding'
 import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 
@@ -572,5 +573,112 @@ describe('errored numeric records still count as evidence (v1.6)', () => {
     const rec: ToolCallRecord = { id: 'r', name: 'run_python', args: {}, status: 'error', result: 'stdout before the error:\nEast 37907.39\n\nerror: Traceback…' }
     const done: ToolCallRecord = { id: 's', name: 'run_python', args: {}, status: 'done', result: 'files written: chart.png' }
     assert.equal(checkToolGrounding('East: $37,907.39.', [rec, done], 'q'), null)
+  })
+})
+
+/**
+ * v1.9.2, transcribed from a real session on 2026-08-18 the same way the
+ * finance case above was. The Python is what `run_python` actually printed;
+ * the answer is what the model actually told the user, in the same message,
+ * directly above leg tables that themselves summed to 3,755.
+ */
+const ROUTE_TOOL_OUTPUT = `Python ran in 4 ms.
+
+stdout:
+Leg 1 (Miami -> Pensacola): 950 miles
+Leg 2 (Pensacola -> Houston): 760 miles
+Leg 3 (Houston -> El Paso): 760 miles
+Leg 4 (El Paso -> Tucson): 520 miles
+Leg 5 (Tucson -> San Diego): 765 miles
+Grand total: 3755 miles
+
+Numbers above were computed, not recalled: state them exactly as shown.`
+
+describe('unsourcedQuantities', () => {
+  test('the headline that contradicted the app\'s own arithmetic', () => {
+    const flagged = unsourcedQuantities(
+      'Miami to San Diego: Bicycle Route Sketch. Total: ~3,015 miles.',
+      ROUTE_TOOL_OUTPUT
+    )
+    assert.ok(
+      flagged.some((f) => f.includes('3,015')),
+      `expected 3,015 miles to be flagged, got: ${JSON.stringify(flagged)}`
+    )
+  })
+
+  test('the numbers the tool did compute are left alone', () => {
+    const flagged = unsourcedQuantities(
+      'Leg 1 is 950 miles, leg 4 is 520 miles, and the grand total is 3755 miles.',
+      ROUTE_TOOL_OUTPUT
+    )
+    assert.deepEqual(flagged, [])
+  })
+
+  test('units are not compared — only the number has to be supported', () => {
+    // Converting a computed value into another unit is restatement, not
+    // invention, and flagging it would be the kind of noise that teaches
+    // someone to ignore the badge.
+    assert.deepEqual(unsourcedQuantities('That is 30 minutes of riding.', 'elapsed: 30'), [])
+  })
+
+  test('a rounded restatement passes at the precision it was stated', () => {
+    assert.deepEqual(unsourcedQuantities('about 20 minutes', 'duration 19.6'), [])
+  })
+
+  test('simple arithmetic on a computed number is not an invention', () => {
+    // 950 * 2: the same rule money has had since v1.4.5.
+    assert.deepEqual(unsourcedQuantities('1900 miles over two days', 'Leg 1: 950 miles'), [])
+  })
+
+  test('money and bare counts stay with the checks that own them', () => {
+    assert.deepEqual(unsourcedQuantities('It costs $4,200 and has 8 shows.', 'nothing'), [])
+  })
+})
+
+describe('quantities in the report', () => {
+  const ROUTE_ANSWER = 'Total: ~3,015 miles at 20 mi/day is about 151 days of riding.'
+
+  test('a computed contradiction now produces a report at all', () => {
+    const report = checkToolGrounding(ROUTE_ANSWER, [rec('run_python', ROUTE_TOOL_OUTPUT)], '')
+    assert.ok(report, 'expected a report — this returned null through v1.9.1')
+    assert.ok(report!.quantities?.some((q) => q.includes('3,015')))
+  })
+
+  test('the disclosure names them and says what to do', () => {
+    const report = checkToolGrounding(ROUTE_ANSWER, [rec('run_python', ROUTE_TOOL_OUTPUT)], '')
+    const text = describeGroundingFindings(report!)
+    assert.match(text, /Measurements nothing computed or retrieved supports/)
+    assert.match(text, /3,015 miles/)
+    assert.match(text, /use that one/)
+  })
+
+  test('fixing the number counts as an improvement, so the revision is kept', () => {
+    const before = checkToolGrounding(ROUTE_ANSWER, [rec('run_python', ROUTE_TOOL_OUTPUT)], '')
+    const after = checkToolGrounding(
+      'Total: 3755 miles at 20 mi/day.',
+      [rec('run_python', ROUTE_TOOL_OUTPUT)],
+      ''
+    )
+    assert.ok(groundingFindingCount(before) > 0)
+    assert.ok(revisionIsAnImprovement(before!, after))
+  })
+
+  test('with nothing computed, a measurement is not a claim the tools could back', () => {
+    // The gate: no numeric tool ran, so there is no corpus and no finding.
+    const report = checkToolGrounding(
+      'The venue is about 20 minutes from downtown.',
+      [rec('web_search', 'Some search results about the venue.')],
+      ''
+    )
+    assert.equal(report?.quantities ?? undefined, undefined)
+  })
+
+  test("the user's own measurement is theirs to restate", () => {
+    const report = checkToolGrounding(
+      'Staying within 20 minutes of the venue, the ride is 3755 miles.',
+      [rec('run_python', ROUTE_TOOL_OUTPUT)],
+      'i dont want to be more than 20 minutes away from the venue'
+    )
+    assert.equal(report, null)
   })
 })

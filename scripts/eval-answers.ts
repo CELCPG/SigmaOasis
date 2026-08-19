@@ -160,9 +160,22 @@ async function completeOnce(
     const usage = (json as { usage?: { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } } }).usage
     const reasoning = usage?.completion_tokens_details?.reasoning_tokens ?? 0
     if (reasoning > 0 || choice?.finish_reason === 'length') {
+      // Two different failures, and v1.9.1 reported both as the first one.
+      // `length` is a budget that ran out mid-thought. `stop` is the model
+      // deciding it was finished — it wrote a thinking block, wrote no answer
+      // and no tool call, and ended the turn. Measured 2026-08-18: 13 of 20
+      // Workbench cases failed this way, every one of them on the round after
+      // a tool had returned the right numbers. Saying "did not finish
+      // thinking" of a model that stopped on purpose sends the reader after
+      // the wrong cause, which is the whole thing this diagnosis exists to
+      // prevent.
+      const spent = `${reasoning} of ${usage?.completion_tokens ?? 0} completion tokens went to reasoning`
       throw new Error(
-        `the model produced no answer: ${reasoning} of ${usage?.completion_tokens ?? 0} completion tokens went to reasoning ` +
-          `(finish_reason: ${choice?.finish_reason ?? 'unknown'}). It did not finish thinking within its budget.`
+        choice?.finish_reason === 'length'
+          ? `the model produced no answer: ${spent} (finish_reason: length). It did not finish thinking within its budget.`
+          : `the model produced no answer: ${spent}, then stopped (finish_reason: ` +
+            `${choice?.finish_reason ?? 'unknown'}). It ended the turn after its thinking block ` +
+            'without writing an answer or calling another tool.'
       )
     }
   }
@@ -925,10 +938,11 @@ async function runQuantSuite(
         // only the last non-empty round measured the preamble whenever the
         // model ended on a tool call, which is a harness artifact, not a miss.
         const rounds: string[] = []
+        const records: import('../src/renderer/src/types').ToolCallRecord[] = []
         await runAgentLoop({
           messages: messages as never,
           tools: wbTools,
-          records: [],
+          records,
           signal: new AbortController().signal,
           deps: {
             streamRound: async (msgs, tools) => {
@@ -951,6 +965,11 @@ async function runQuantSuite(
         const final = rounds.join('\n\n')
         out.replies!.workbench = final.slice(-1500)
         out.workbench = { ...scoreOf(final), ms: Date.now() - t0, toolCalls }
+        // v1.9.2: run the ladder over the arm where it is armed, so the new
+        // quantity rung can be measured against cases scored independently.
+        const { checkToolGrounding } = require('../src/renderer/src/lib/toolGrounding') as typeof import('../src/renderer/src/lib/toolGrounding')
+        const report = checkToolGrounding(final, records, fx.prompt)
+        out.grounding = { quantities: report?.quantities ?? [], figures: report?.figures ?? [] }
       } catch (err) {
         out.workbench = { hit: false, missing: [], ms: Date.now() - t0, toolCalls, error: err instanceof Error ? err.message : String(err) }
       }
@@ -1109,6 +1128,24 @@ async function main(): Promise<void> {
       quantPasses.push({ summary: summarizeQuant(runs), runs })
     }
     const s = summarizeQuant(quantPasses.flatMap((p) => p.runs))
+    if (want.includes('quant')) {
+      // v1.9.2: the number that decides whether the quantity rung is worth
+      // having. A finding on a case the model got RIGHT is a false positive,
+      // and a checker that cries wolf is one people learn to ignore on the
+      // turn it matters.
+      const armed = quantPasses.flatMap((p) => p.runs).filter((r) => r.grounding && r.workbench && !r.workbench.error)
+      const fired = armed.filter((r) => r.grounding!.quantities.length > 0)
+      const wolf = fired.filter((r) => r.workbench!.hit)
+      console.log(
+        `\n  grounding · quantity rung: fired on ${fired.length}/${armed.length} Workbench answers` +
+          ` — ${wolf.length} of those were scored CORRECT (false positives)`
+      )
+      for (const r of fired) {
+        console.log(
+          `    ${r.workbench!.hit ? 'FALSE POSITIVE' : 'on a wrong answer'}  ${r.file}: ${r.grounding!.quantities.join(', ')}`
+        )
+      }
+    }
     console.log(
       `\n  bare (no tools)      ${s.bare.hit}/${s.bare.of}  ${pct(s.bare)}   ${s.seconds.bare.toFixed(1)} s/case\n` +
         (want.includes('quant')
