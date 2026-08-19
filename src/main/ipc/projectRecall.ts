@@ -1,19 +1,43 @@
-import { getIndexedPage, indexPage, lexicalEvidence, retrievePassages } from './researchIndex'
-import { tokenize } from './retrieval'
+import { chunkTextWithOffsets, embedTexts, toUnitVector, unitDot } from './embeddings'
+import {
+  Bm25Index,
+  jaccard,
+  mmrSelect,
+  normalizeScores,
+  reciprocalRankFusion,
+  tokenize
+} from './retrieval'
 
 /**
  * v1.10 project-wide recall: a chat in a project can recall what the project's
- * *other* chats established. Each sibling conversation is rendered to a plain
- * transcript and indexed in the same RAM hybrid (BM25 + embedding) index that
- * fetched pages and attached documents use, pinned so it outlives the page
- * TTL; per turn, the passages most relevant to the user's message are handed
- * to the model as app-supplied context, recorded on the reply like memory
- * recall so the user sees exactly what was surfaced.
+ * *other* chats established.
+ *
+ * The first cut indexed each sibling chat as its own page in the research
+ * index and merged the per-page results. That could not rank chats against
+ * each other: BM25's IDF was per chat, scores were normalized per page, and
+ * the merge fell back to raw keyword strength. This is a project-level index
+ * instead — one corpus over every sibling transcript, so a term rare across
+ * the project is rare, a cosine score means the same thing whichever chat it
+ * came from, and the fusion ranks passages globally.
+ *
+ * Shape:
+ * - Each chat is rendered to a transcript and chunked once per `updatedAt`;
+ *   chunks (with terms and, once computed, vectors) are cached per chat.
+ * - Per query, a BM25 index is built over the union of the requested chats'
+ *   chunks — microseconds at this size — so IDF is shared and the set can
+ *   differ per requesting chat without re-chunking anything.
+ * - Vectors come from the same loopback embedding model as memory and the
+ *   research index, within a per-query budget; already-embedded chunks are
+ *   free, so the cost amortizes to the new material.
+ * - BM25 and cosine are fused by reciprocal rank across the whole corpus,
+ *   gated so a passage rides only on lexical evidence or a cosine above the
+ *   memory floor (a chat with nothing to say about the message contributes
+ *   nothing), then MMR trims near-duplicates.
  *
  * The main process reads the sibling conversations from their JSON files
- * itself — the renderer sends ids, not transcripts — and re-indexes a chat
- * only when its `updatedAt` moved. Ephemeral chats are never on disk, so they
- * are never recallable, which is the no-trace promise holding by construction.
+ * itself — the renderer sends ids, not transcripts. Ephemeral chats are never
+ * on disk, so they are never recallable: the no-trace promise holds by
+ * construction. RAM only; nothing here is written.
  */
 
 /** The slice of a stored conversation this module reads. Kept structural so the pure parts are testable. */
@@ -34,8 +58,9 @@ export interface ProjectRecallItem {
   conversationId: string
   title: string
   text: string
-  /** 0 (start) .. 1 (end) of the transcript. */
+  /** 0 (start) .. 1 (end) of that chat's transcript. */
   position: number
+  /** Fused relevance, normalized 0..1 across the whole project corpus. */
   score: number
 }
 
@@ -44,20 +69,59 @@ export interface ProjectRecallOutcome {
   items: ProjectRecallItem[]
   /** How many sibling chats were consulted (existed on disk). */
   consulted: number
+  /** 'hybrid' = keyword + semantic over the project corpus; 'keyword' = BM25 only. */
+  mode?: 'hybrid' | 'keyword'
   error?: string
 }
 
 /** Characters of one message kept in the transcript; a pasted wall of text is not what a sibling chat "established". */
 const MAX_MESSAGE_CHARS = 4000
-/** Transcript ceiling per chat — the index chunks it; this bounds embedding work. */
+/** Transcript ceiling per chat — bounds chunking and embedding work. */
 const MAX_TRANSCRIPT_CHARS = 400_000
-/** Candidates per chat before the cross-chat merge. */
-const PER_CHAT_CANDIDATES = 3
-/** A chat's second and later passages must score at least this (within-chat, 0..1) to ride along. */
-const MIN_SECONDARY_SCORE = 0.1
+/** Cached chats, LRU; and total cached transcript characters. */
+const MAX_CACHED_CHATS = 200
+const MAX_CACHED_CHARS = 8_000_000
+/** Chunks embedded per query across the corpus (already-vectored chunks are free and not counted). */
+const MAX_EMBED_CHUNKS = 300
+/** After an embedding failure, stay keyword-only this long rather than paying a timeout per turn. */
+const EMBED_RETRY_COOLDOWN_MS = 60_000
+/**
+ * A passage with no lexical overlap rides only if the embedding says it is
+ * about the query. Same floor as long-term memory (memory.ts): below it the
+ * model is saying "nothing stored is actually about this".
+ */
+const COSINE_FLOOR = 0.35
+const CANDIDATE_MULTIPLIER = 5
+const MMR_LAMBDA = 0.72
 
-function keyFor(id: string): string {
-  return `conversation:${id}`
+interface CorpusChunk {
+  id: string
+  conversationId: string
+  text: string
+  offset: number
+  terms: string[]
+  termSet: Set<string>
+  vector?: Float32Array
+}
+
+interface CachedChat {
+  id: string
+  title: string
+  updatedAt: number
+  transcriptLength: number
+  chunks: CorpusChunk[]
+  lastAccess: number
+}
+
+const cache = new Map<string, CachedChat>()
+/** The model the cached vectors belong to; a change invalidates every vector. */
+let cachedEmbeddingModel: string | null = null
+let embedFailure: { at: number; message: string } | null = null
+let chunkSeq = 0
+
+function uid(): string {
+  chunkSeq += 1
+  return `pc${chunkSeq.toString(36)}`
 }
 
 /**
@@ -79,35 +143,131 @@ export function conversationTranscript(c: StoredConversationLike): string {
   return text.length > MAX_TRANSCRIPT_CHARS ? text.slice(0, MAX_TRANSCRIPT_CHARS) : text
 }
 
-/** updatedAt of the version currently indexed, per conversation id. */
-const indexedVersions = new Map<string, number>()
-
-/** Index (or refresh) one conversation. Returns false when there is nothing to index. */
-export function indexConversation(c: StoredConversationLike): boolean {
-  const text = conversationTranscript(c)
-  if (!text.trim()) {
-    indexedVersions.delete(c.id)
-    return false
-  }
-  const existing = getIndexedPage(keyFor(c.id))
-  if (existing && indexedVersions.get(c.id) === c.updatedAt) return true
-  indexPage({
-    key: keyFor(c.id),
-    url: `conversation://${c.id}`,
-    title: c.title,
-    text,
-    truncated: false,
-    kind: 'text',
-    mainContentFound: true,
-    pinned: true
-  })
-  indexedVersions.set(c.id, c.updatedAt)
-  return true
+function cachedChars(): number {
+  let n = 0
+  for (const c of cache.values()) n += c.transcriptLength
+  return n
 }
 
-/** Test/maintenance hook: forget what has been indexed (the index itself is cleared elsewhere). */
+function evict(): void {
+  while (cache.size > MAX_CACHED_CHATS || cachedChars() > MAX_CACHED_CHARS) {
+    let oldest: CachedChat | null = null
+    for (const c of cache.values()) if (!oldest || c.lastAccess < oldest.lastAccess) oldest = c
+    if (!oldest) break
+    cache.delete(oldest.id)
+  }
+}
+
+/**
+ * Chunk (or re-chunk) one conversation into the corpus cache. Returns false
+ * when there is nothing to index. A chat whose `updatedAt` has not moved keeps
+ * its chunks — and their vectors.
+ */
+export function indexConversation(c: StoredConversationLike): boolean {
+  const existing = cache.get(c.id)
+  if (existing && existing.updatedAt === c.updatedAt) {
+    existing.lastAccess = Date.now()
+    return existing.chunks.length > 0
+  }
+  const text = conversationTranscript(c)
+  if (!text.trim()) {
+    cache.delete(c.id)
+    return false
+  }
+  const chunks: CorpusChunk[] = chunkTextWithOffsets(text).map((ch) => {
+    const terms = tokenize(ch.text)
+    return {
+      id: uid(),
+      conversationId: c.id,
+      text: ch.text,
+      offset: ch.offset,
+      terms,
+      termSet: new Set(terms)
+    }
+  })
+  cache.set(c.id, {
+    id: c.id,
+    title: c.title,
+    updatedAt: c.updatedAt,
+    transcriptLength: text.length,
+    chunks,
+    lastAccess: Date.now()
+  })
+  evict()
+  return chunks.length > 0
+}
+
+/** Whether a conversation is currently in the corpus cache (tests, diagnostics). */
+export function isConversationIndexed(id: string): boolean {
+  return cache.has(id)
+}
+
+/** Test/maintenance hook: forget everything chunked and embedded. */
 export function resetProjectRecallCache(): void {
-  indexedVersions.clear()
+  cache.clear()
+  cachedEmbeddingModel = null
+  embedFailure = null
+}
+
+/**
+ * Which chunks to embed for this query when the corpus exceeds the budget:
+ * everything already embedded (free), then BM25's best, then an evenly
+ * spaced sample — the sample matters because a passage sharing no vocabulary
+ * with the query is exactly what embeddings are for.
+ */
+function selectChunksToEmbed(corpus: CorpusChunk[], bm25Ranked: string[]): CorpusChunk[] {
+  const byId = new Map(corpus.map((c) => [c.id, c]))
+  const chosen = new Map<string, CorpusChunk>()
+  let budget = MAX_EMBED_CHUNKS
+  for (const c of corpus) if (c.vector) chosen.set(c.id, c)
+  for (const id of bm25Ranked) {
+    if (budget <= 0) break
+    const c = byId.get(id)
+    if (c && !chosen.has(id)) {
+      chosen.set(id, c)
+      budget -= 1
+    }
+  }
+  if (budget > 0 && corpus.length > 0) {
+    const stride = Math.max(1, Math.floor(corpus.length / budget))
+    for (let i = 0; i < corpus.length && budget > 0; i += stride) {
+      const c = corpus[i]!
+      if (!chosen.has(c.id)) {
+        chosen.set(c.id, c)
+        budget -= 1
+      }
+    }
+  }
+  return [...chosen.values()]
+}
+
+/** Embed the query and whatever chosen chunks still lack vectors. Null = keyword-only this turn. */
+async function ensureVectors(
+  corpus: CorpusChunk[],
+  query: string,
+  bm25Ranked: string[]
+): Promise<Float32Array | null> {
+  if (embedFailure && Date.now() - embedFailure.at < EMBED_RETRY_COOLDOWN_MS) return null
+  const wanted = selectChunksToEmbed(corpus, bm25Ranked)
+  const missing = wanted.filter((c) => !c.vector)
+  try {
+    const { model, vectors } = await embedTexts([query, ...missing.map((c) => c.text)])
+    if (cachedEmbeddingModel && cachedEmbeddingModel !== model) {
+      // A different model is a different vector space; every cached vector is
+      // meaningless against this query. Drop them all; they rebuild on use.
+      for (const chat of cache.values()) for (const c of chat.chunks) c.vector = undefined
+      // This turn's freshly embedded chunks are valid for the new model.
+      for (let i = 0; i < missing.length; i++) missing[i]!.vector = toUnitVector(vectors[i + 1]!)
+    } else {
+      for (let i = 0; i < missing.length; i++) missing[i]!.vector = toUnitVector(vectors[i + 1]!)
+    }
+    cachedEmbeddingModel = model
+    embedFailure = null
+    return toUnitVector(vectors[0]!)
+  } catch (err) {
+    embedFailure = { at: Date.now(), message: err instanceof Error ? err.message : String(err) }
+    return null
+  }
 }
 
 /**
@@ -124,9 +284,8 @@ export async function recallFromConversations(
   const unique = [...new Set(ids.filter((id) => /^[A-Za-z0-9_-]+$/.test(id)))]
   if (!trimmed || unique.length === 0 || topK <= 0) return { ok: true, items: [], consulted: 0 }
 
-  const queryTerms = new Set(tokenize(trimmed))
-  // Per chat: its passages and the strength of its lexical evidence.
-  const perChat: { id: string; strength: number; items: ProjectRecallItem[] }[] = []
+  // 1. Bring every requested chat into the corpus cache.
+  const chats: CachedChat[] = []
   let consulted = 0
   for (const id of unique) {
     let convo: StoredConversationLike | null = null
@@ -138,51 +297,84 @@ export async function recallFromConversations(
     if (!convo) continue
     consulted += 1
     if (!indexConversation(convo)) continue
-    const page = getIndexedPage(keyFor(id))
-    if (!page) continue
-    // The gate. retrievePassages always returns something — the head of the
-    // page when nothing matches, and in hybrid mode a per-page-normalized
-    // ranking of everything — so without this every sibling chat would push
-    // a passage into every turn. A chat with no word in common with the
-    // message has nothing to recall for it.
-    const evidence = lexicalEvidence(page, trimmed)
-    if (evidence.length === 0) continue
-    const outcome = await retrievePassages(page, trimmed, Math.max(PER_CHAT_CANDIDATES, topK))
-    const items: ProjectRecallItem[] = []
-    for (const p of outcome.passages) {
-      // Same rule per passage: MMR may pick a chunk for diversity that shares
-      // no term with the query; it is not evidence of anything.
-      if (!tokenize(p.text).some((t) => queryTerms.has(t))) continue
-      items.push({ conversationId: id, title: convo.title, text: p.text, position: p.position, score: p.score })
-    }
-    // Scores are min-max normalized per chat, so the weakest candidate always
-    // reads 0.00 — an artifact, not a judgment. Keep the best passage, and
-    // any other that scored meaningfully against it.
-    items.sort((a, b) => b.score - a.score)
-    const kept = items.filter((it, i) => i === 0 || it.score >= MIN_SECONDARY_SCORE)
-    if (kept.length > 0) perChat.push({ id, strength: evidence[0]!.score, items: kept })
+    const cached = cache.get(id)
+    if (cached) chats.push(cached)
   }
+  const corpus = chats.flatMap((c) => c.chunks)
+  if (corpus.length === 0) return { ok: true, items: [], consulted, mode: 'keyword' }
+  const byId = new Map(corpus.map((c) => [c.id, c]))
+  const chatById = new Map(chats.map((c) => [c.id, c]))
 
-  // Scores are normalized *within* each chat by retrievePassages, so they do
-  // not rank chats against each other. Raw BM25 strength does: the chats with
-  // the strongest lexical evidence contribute first, each in reading order,
-  // until topK passages are taken.
-  perChat.sort((a, b) => b.strength - a.strength)
-  const best: ProjectRecallItem[] = []
-  for (const chat of perChat) {
-    for (const item of chat.items) {
-      if (best.length >= topK) break
-      best.push(item)
+  // 2. Keyword ranking over the whole project — one IDF for all chats.
+  const queryTerms = tokenize(trimmed)
+  const bm25 = new Bm25Index(corpus.map((c) => ({ id: c.id, terms: c.terms })))
+  const bm25Scored = bm25.search(queryTerms)
+  const bm25Ranked = bm25Scored.map((s) => s.id)
+  const lexical = new Set(bm25Ranked)
+
+  // 3. Semantic ranking, when the embedding model is reachable.
+  const queryVector = await ensureVectors(corpus, trimmed, bm25Ranked)
+  const mode: 'hybrid' | 'keyword' = queryVector ? 'hybrid' : 'keyword'
+
+  // 4. Gate, then fuse. The gate is what keeps an unrelated chat quiet: a
+  // passage rides on a shared term, or on a cosine the embedding model would
+  // call "about this" — never merely on being the best of a bad page.
+  let relevance: Map<string, number>
+  if (queryVector) {
+    const cosine = new Map<string, number>()
+    for (const c of corpus) {
+      if (c.vector && c.vector.length === queryVector.length) cosine.set(c.id, unitDot(queryVector, c.vector))
     }
-    if (best.length >= topK) break
+    const semanticRanked = [...cosine.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+    const fused = reciprocalRankFusion([bm25Ranked, semanticRanked])
+    const gated = [...fused]
+      .filter(([id]) => lexical.has(id) || (cosine.get(id) ?? 0) >= COSINE_FLOOR)
+      .map(([id, score]) => ({ id, score }))
+    relevance = normalizeScores(gated)
+  } else {
+    relevance = normalizeScores(bm25Scored)
   }
-  const order = new Map(perChat.map((c, i) => [c.id, i]))
-  best.sort(
+  if (relevance.size === 0) return { ok: true, items: [], consulted, mode }
+
+  // 5. Diversity: MMR over the top candidates, so four passages are not four
+  // overlapping windows on the same exchange.
+  const candidates = [...relevance]
+    .map(([id, score]) => ({ id, relevance: score }))
+    .sort((a, b) => b.relevance - a.relevance)
+    .slice(0, Math.max(topK, topK * CANDIDATE_MULTIPLIER))
+  const similarity = (a: string, b: string): number => {
+    const ca = byId.get(a)
+    const cb = byId.get(b)
+    if (!ca || !cb) return 0
+    if (ca.vector && cb.vector && ca.vector.length === cb.vector.length) return Math.max(0, unitDot(ca.vector, cb.vector))
+    return jaccard(ca.termSet, cb.termSet)
+  }
+  const selected = mmrSelect(candidates, topK, MMR_LAMBDA, similarity)
+
+  // 6. Group by chat (best chat first), reading order within a chat, so a run
+  // of passages from one conversation still reads the way it happened.
+  const items = selected
+    .map((id) => byId.get(id))
+    .filter((c): c is CorpusChunk => Boolean(c))
+    .map((c) => {
+      const chat = chatById.get(c.conversationId)!
+      return {
+        conversationId: c.conversationId,
+        title: chat.title,
+        text: c.text,
+        position: Math.min(1, c.offset / Math.max(1, chat.transcriptLength)),
+        score: Math.round((relevance.get(c.id) ?? 0) * 1000) / 1000
+      }
+    })
+  const chatBest = new Map<string, number>()
+  for (const it of items) chatBest.set(it.conversationId, Math.max(chatBest.get(it.conversationId) ?? 0, it.score))
+  items.sort(
     (a, b) =>
-      (order.get(a.conversationId) ?? 0) - (order.get(b.conversationId) ?? 0) ||
+      (chatBest.get(b.conversationId) ?? 0) - (chatBest.get(a.conversationId) ?? 0) ||
+      a.conversationId.localeCompare(b.conversationId) ||
       a.position - b.position
   )
-  return { ok: true, items: best, consulted }
+  return { ok: true, items, consulted, mode }
 }
 
 /** The block the model sees. Chat titles are the citations. */

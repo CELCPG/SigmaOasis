@@ -1,6 +1,6 @@
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { load, resetState } from './harness'
+import { load, resetState, state } from './harness'
 import type { StoredConversationLike } from '../src/main/ipc/projectRecall'
 
 /**
@@ -12,7 +12,6 @@ import type { StoredConversationLike } from '../src/main/ipc/projectRecall'
  */
 
 const recall = load<typeof import('../src/main/ipc/projectRecall')>('projectRecall')
-const research = load<typeof import('../src/main/ipc/researchIndex')>('researchIndex')
 
 function convo(
   id: string,
@@ -34,7 +33,6 @@ function convo(
 
 beforeEach(() => {
   resetState()
-  research.clearResearchIndex()
   recall.resetProjectRecallCache()
 })
 
@@ -92,7 +90,11 @@ describe('recallFromConversations', () => {
     assert.ok(out.items.every((i) => i.conversationId === 'pricing'))
   })
 
-  test('a chat with no word in common with the message contributes nothing', async () => {
+  test('a chat with no word in common with the message contributes nothing (keyword mode)', async () => {
+    // Keyword-only here: the harness embedder maps every out-of-vocabulary
+    // text to the same vector, which would make this a test of the toy, not
+    // the gate. The semantic side of the gate is covered below.
+    state.failEmbeddings = true
     const out = await recall.recallFromConversations(loader, ['tariffs', 'pricing'], 'Acme list price July', 4)
     assert.ok(out.items.length >= 1)
     assert.ok(out.items.every((i) => i.conversationId === 'pricing'), JSON.stringify(out.items.map((i) => i.title)))
@@ -128,12 +130,43 @@ describe('recallFromConversations', () => {
     assert.ok(out.items.some((i) => /nine thousand/.test(i.text)))
   })
 
-  test('indexed transcripts are pinned — they outlive fetched-page pressure', async () => {
-    await recall.recallFromConversations(loader, ['tariffs'], 'tariffs', 1)
-    for (let i = 0; i < 40; i++) {
-      research.indexPage({ key: `https://x/${i}`, url: `https://x/${i}`, title: 'p', text: 'page text '.repeat(200), truncated: false })
+  test('chunks and vectors are cached per chat — a second query embeds only the query', async () => {
+    await recall.recallFromConversations(loader, ['tariffs', 'pricing'], 'tariff margin', 2)
+    const afterFirst = state.embedCalls
+    assert.ok(afterFirst >= 1)
+    await recall.recallFromConversations(loader, ['tariffs', 'pricing'], 'Acme price', 2)
+    // One more round trip (the query); no chunk had to be re-embedded.
+    assert.equal(state.embedCalls, afterFirst + 1)
+    assert.equal(recall.isConversationIndexed('tariffs'), true)
+  })
+
+  test('hybrid mode: a passage with no shared word rides on a semantic match above the floor', async () => {
+    // The harness embeds a toy vocabulary with synonyms: "remuneration" and
+    // "pay" map to the same axis as "salary". No lexical overlap at all.
+    const docs2: Record<string, StoredConversationLike> = {
+      hr: convo('hr', 'Hiring plan', [['What did we settle on?', 'The remuneration band for the role is fixed at the market median.']]),
+      infra: convo('infra', 'Infra notes', [['Status?', 'The cache invalidation bug is fixed; latency is back to normal.']])
     }
-    assert.ok(research.getIndexedPage('conversation:tariffs'))
+    const out = await recall.recallFromConversations(async (id) => docs2[id] ?? null, ['hr', 'infra'], 'what pay did we agree', 2)
+    assert.equal(out.mode, 'hybrid')
+    assert.ok(out.items.some((i) => i.conversationId === 'hr'), JSON.stringify(out.items))
+    assert.ok(!out.items.some((i) => i.conversationId === 'infra'), 'unrelated chat stays quiet')
+  })
+
+  test('keyword-only when embeddings fail; still gated on shared terms', async () => {
+    state.failEmbeddings = true
+    const out = await recall.recallFromConversations(loader, ['tariffs', 'pricing'], 'gross margin Shenzhen', 2)
+    assert.equal(out.mode, 'keyword')
+    assert.ok(out.items.length >= 1)
+    assert.ok(out.items.every((i) => i.conversationId === 'tariffs'))
+  })
+
+  test('scores are comparable across chats: the better chat leads the list', async () => {
+    const out = await recall.recallFromConversations(loader, ['pricing', 'tariffs'], 'Section 301 tariff landed cost Shenzhen gross margin', 3)
+    assert.ok(out.items.length >= 1)
+    assert.equal(out.items[0]!.conversationId, 'tariffs')
+    // Scores are one normalized scale across the project, not per chat.
+    assert.ok(out.items.every((i) => i.score >= 0 && i.score <= 1))
   })
 })
 

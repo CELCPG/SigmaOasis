@@ -41,13 +41,14 @@ Sibling chats are read from their JSON files **in the main process** — chat id
 boundary, transcripts never do — and a chat is re-indexed only when it changed. Ephemeral chats are
 never on disk, so they are never recallable: the no-trace promise holds by construction.
 
-Two relevance problems were found building it, both inherited from the passage retriever: with no
-lexical match it falls back to the head of the document, and in hybrid mode it normalizes per
-page — so every sibling chat would have pushed a passage into every turn. Recall now **gates on
-lexical evidence** (a chat sharing no word with your message contributes nothing), ranks chats by
-raw keyword strength rather than per-chat normalized scores, and drops the normalization floor
-artifact. Verified end to end: instructions in the system prompt, a sibling chat's figure recalled
-into another chat, an unrelated question producing no block at all.
+Recall runs over a **project-level index**: every sibling transcript is chunked once per change
+and cached; per query, one BM25 index is built over all of them (so a term rare across the project
+is rare — IDF is shared), cosine comes from the same loopback embedding model memory uses, and the
+two are fused by reciprocal rank across the whole corpus. A passage rides only on a shared term or
+a cosine above the memory floor, so a chat with nothing to say about your message contributes
+nothing; MMR trims near-duplicates. Keyword-only when the embedding model is unavailable. Verified
+end to end: instructions in the system prompt, a sibling chat's figure recalled into another chat,
+an unrelated question producing no block at all.
 
 The details panel says what all of this costs: **"↳ project share: ~1.6k tokens"** under *Context
 in use*, with the split — instructions · pinned files · recall — in the tooltip. The composer's

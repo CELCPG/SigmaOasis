@@ -341,17 +341,6 @@ async function ensureVectors(
  * near-duplicates (chunk overlap makes those routine), and the survivors are
  * restored to reading order so the model sees the page's own sequence.
  */
-/**
- * Raw BM25 evidence that a page has anything to say about `query`: the scored
- * chunk ids, highest first, or [] when no chunk shares a term with the query.
- * retrievePassages always returns *something* (it falls back to the head of
- * the page, and hybrid mode normalizes per page), so a caller merging across
- * many pages uses this to skip pages with no lexical footing at all.
- */
-export function lexicalEvidence(page: IndexedPage, query: string): { id: string; score: number }[] {
-  return page.bm25.search(tokenize(query))
-}
-
 export async function retrievePassages(
   page: IndexedPage,
   query: string,
