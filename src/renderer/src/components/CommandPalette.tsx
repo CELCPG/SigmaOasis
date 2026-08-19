@@ -33,6 +33,7 @@ export function CommandPalette(): JSX.Element | null {
   const { createConversation, selectConversation } = useConversations()
   const { createProject, moveConversation } = useProjects()
   const projects = useAppStore((s) => s.settings?.projects ?? [])
+  const splitConversationId = useAppStore((s) => s.splitConversationId)
   const rightPanelCollapsed = useAppStore((s) => s.settings?.rightPanelCollapsed ?? false)
 
   // Close on Escape
@@ -78,6 +79,35 @@ export function CommandPalette(): JSX.Element | null {
       action: () => { setOnboardingOpen(true); setOpen(false) },
       category: 'settings'
     },
+    // Split view
+    ...(splitConversationId
+      ? [
+          {
+            id: 'close-split',
+            label: 'Close Split View',
+            shortcut: '⌘\\',
+            icon: '⊟',
+            action: () => { useAppStore.getState().closeSplit(); setOpen(false) },
+            category: 'navigation' as const
+          },
+          {
+            id: 'focus-other-pane',
+            label: 'Focus Other Pane',
+            icon: '⇄',
+            action: () => { useAppStore.getState().focusOtherPane(); setOpen(false) },
+            category: 'navigation' as const
+          }
+        ]
+      : conversations
+          .filter((c) => c.id !== activeConversationId)
+          .slice(0, 5)
+          .map((c) => ({
+            id: `split-${c.id}`,
+            label: `Open Beside: ${c.title}`,
+            icon: '⊞',
+            action: () => { useAppStore.getState().openSplit(c.id); setOpen(false) },
+            category: 'navigation' as const
+          }))),
     {
       id: 'toggle-chat-panel',
       label: rightPanelCollapsed ? 'Show Chat Panel' : 'Hide Chat Panel',
@@ -143,7 +173,7 @@ export function CommandPalette(): JSX.Element | null {
       },
       category: 'actions'
     }
-  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen, projects, rightPanelCollapsed, createProject, moveConversation])
+  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen, projects, rightPanelCollapsed, createProject, moveConversation, splitConversationId])
 
   const filteredCommands = useMemo(() => {
     const q = query.toLowerCase().trim()

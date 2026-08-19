@@ -40,8 +40,32 @@ interface AppState {
   upsertConversation: (conversation: Conversation) => void
   removeConversation: (id: string) => void
 
+  /**
+   * The FOCUSED conversation. Everything that acts — the composer, the chat
+   * panel, every turn entry point in useLMStudio — reads this and only this,
+   * which is why split view costs the turn machinery nothing.
+   */
   activeConversationId: string | null
   setActiveConversationId: (id: string | null) => void
+
+  /**
+   * v1.11 split view: the conversation in the *other* pane, or null when the
+   * split is closed. Never equal to activeConversationId — the same chat twice
+   * is two views of one scroll position and no use to anybody.
+   */
+  splitConversationId: string | null
+  /**
+   * Which side the unfocused pane sits on. Focus moves between panes by
+   * swapping the two ids and flipping this, so the chat you were reading stays
+   * where it was on screen while `activeConversationId` keeps meaning "focused".
+   */
+  splitOnLeft: boolean
+  /** Open `id` beside the current chat and focus it. No-op if it is already the focused chat. */
+  openSplit: (id: string) => void
+  /** Close the split, keeping the focused chat. */
+  closeSplit: () => void
+  /** Focus the other pane: swap the ids, flip the side, so nothing moves on screen. */
+  focusOtherPane: () => void
 
   streaming: boolean
   setStreaming: (streaming: boolean) => void
@@ -119,13 +143,62 @@ export const useAppStore = create<AppState>((set) => ({
       return { conversations: next }
     }),
   removeConversation: (id) =>
-    set((s) => ({
-      conversations: s.conversations.filter((c) => c.id !== id),
-      activeConversationId: s.activeConversationId === id ? null : s.activeConversationId
-    })),
+    set((s) => {
+      // A deleted chat must not survive in either pane. When the focused one
+      // goes, the split pane is promoted rather than leaving an empty pane
+      // beside a live one.
+      if (s.activeConversationId === id) {
+        return {
+          conversations: s.conversations.filter((c) => c.id !== id),
+          activeConversationId: s.splitConversationId,
+          splitConversationId: null,
+          splitOnLeft: false
+        }
+      }
+      return {
+        conversations: s.conversations.filter((c) => c.id !== id),
+        ...(s.splitConversationId === id ? { splitConversationId: null, splitOnLeft: false } : {})
+      }
+    }),
 
   activeConversationId: null,
-  setActiveConversationId: (activeConversationId) => set({ activeConversationId }),
+  // Selecting the chat that is already in the other pane focuses that pane
+  // rather than showing it twice.
+  setActiveConversationId: (activeConversationId) =>
+    set((s) =>
+      activeConversationId !== null && activeConversationId === s.splitConversationId
+        ? {
+            activeConversationId,
+            splitConversationId: s.activeConversationId,
+            splitOnLeft: !s.splitOnLeft
+          }
+        : { activeConversationId }
+    ),
+
+  splitConversationId: null,
+  splitOnLeft: false,
+  openSplit: (id) =>
+    set((s) => {
+      if (id === s.activeConversationId) return {}
+      // The chat already on screen keeps its side; the new one takes the other
+      // and the focus.
+      return {
+        activeConversationId: id,
+        splitConversationId: s.activeConversationId,
+        splitOnLeft: !s.splitOnLeft
+      }
+    }),
+  closeSplit: () => set({ splitConversationId: null, splitOnLeft: false }),
+  focusOtherPane: () =>
+    set((s) =>
+      s.splitConversationId === null
+        ? {}
+        : {
+            activeConversationId: s.splitConversationId,
+            splitConversationId: s.activeConversationId,
+            splitOnLeft: !s.splitOnLeft
+          }
+    ),
 
   streaming: false,
   // Clearing progress whenever streaming stops keeps a stale phase from

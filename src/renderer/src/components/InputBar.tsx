@@ -49,6 +49,8 @@ export function InputBar(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const availableModels = useAppStore((s) => s.availableModels)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
+  /** Split view halves this pane's width; the composer lays out differently there. */
+  const compact = useAppStore((s) => s.splitConversationId !== null)
   const conversations = useAppStore((s) => s.conversations)
   const { sendMessage, stopStreaming } = useLMStudio()
 
@@ -373,7 +375,14 @@ export function InputBar(): JSX.Element {
             </div>
           )}
 
-          <div className="flex items-end gap-1">
+          {/*
+            Compact layout while split view is open: at half width the five
+            fixed-size buttons plus Send left the textarea a sliver, and the
+            placeholder rendered as a single clipped letter. Wrapping the row
+            and giving the input its own full-width line keeps every control
+            reachable instead of hiding some of them at narrow widths.
+          */}
+          <div className={`flex items-end gap-1 ${compact ? 'flex-wrap' : ''}`}>
             <button
               type="button"
               onClick={() => void pick()}
@@ -453,8 +462,11 @@ export function InputBar(): JSX.Element {
               onKeyDown={onKeyDown}
               rows={1}
               placeholder="Message Sigma Oasis…"
-              className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-muted"
+              className={`max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-muted ${
+                compact ? 'order-first w-full basis-full' : 'flex-1'
+              }`}
             />
+            {compact && <span className="flex-1" aria-hidden="true" />}
             {streaming ? (
               <button
                 type="button"

@@ -3,22 +3,29 @@ import { useAppStore } from './stores/appStore'
 import { useModels } from './hooks/useModels'
 import { useConversations } from './hooks/useConversations'
 import { Sidebar } from './components/Sidebar'
-import { ChatArea } from './components/ChatArea'
-import { InputBar } from './components/InputBar'
-import { EmptyState } from './components/EmptyState'
+import { ChatPane } from './components/ChatPane'
 import { SettingsModal } from './components/SettingsModal'
 import { OnboardingModal } from './components/OnboardingModal'
 import { CommandPalette } from './components/CommandPalette'
 import { ChatPanel, setRightPanelCollapsed } from './components/ChatPanel'
 import { ProjectModal } from './components/ProjectModal'
 
+/** Hairline between the two panes; purely visual, so it is hidden from the tree. */
+function PaneDivider(): JSX.Element {
+  return (
+    <div
+      aria-hidden="true"
+      className="my-4 w-px shrink-0 bg-gradient-to-b from-transparent via-black/10 to-transparent dark:via-white/10"
+    />
+  )
+}
+
 export default function App(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const setSettings = useAppStore((s) => s.setSettings)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
-  const conversation = useAppStore((s) =>
-    s.conversations.find((c) => c.id === s.activeConversationId)
-  )
+  const splitConversationId = useAppStore((s) => s.splitConversationId)
+  const splitOnLeft = useAppStore((s) => s.splitOnLeft)
   const { refresh } = useModels()
   const { load, createConversation } = useConversations()
 
@@ -60,6 +67,20 @@ export default function App(): JSX.Element {
         const current = useAppStore.getState().settings
         if (!current) return
         setRightPanelCollapsed(!current.rightPanelCollapsed)
+      } else if (e.key === '\\') {
+        // ⌘\ toggles split view, the way editors have meant it for years.
+        // Opening picks the most recently touched *other* chat, so the shortcut
+        // does something useful on its own rather than opening an empty pane.
+        e.preventDefault()
+        const s = useAppStore.getState()
+        if (s.splitConversationId) {
+          s.closeSplit()
+          return
+        }
+        const next = [...s.conversations]
+          .filter((c) => c.id !== s.activeConversationId)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        if (next) s.openSplit(next.id)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -88,20 +109,29 @@ export default function App(): JSX.Element {
       <div className="ambient-orbs" aria-hidden="true" />
       <Sidebar />
 
-      <main className="relative z-10 flex min-w-0 flex-1 flex-col">
-        {conversation && activeConversationId ? (
-          <ChatArea conversation={conversation} />
-        ) : (
-          // No conversation yet — a starter opens one, then fills the composer.
-          <EmptyState
-            heading="Welcome to Sigma Oasis"
-            onPick={(prompt) => {
-              createConversation()
-              useAppStore.getState().setComposerPrefill(prompt)
-            }}
-          />
+      {/*
+        One pane, or two side by side (⌘\). `splitOnLeft` decides which side the
+        unfocused chat is on, so focusing a pane swaps ids underneath without
+        anything moving on screen.
+      */}
+      <main className="relative z-10 flex min-w-0 flex-1 flex-row">
+        {splitConversationId && splitOnLeft && (
+          <>
+            <ChatPane conversationId={splitConversationId} focused={false} split />
+            <PaneDivider />
+          </>
         )}
-        <InputBar />
+        <ChatPane
+          conversationId={activeConversationId}
+          focused
+          split={Boolean(splitConversationId)}
+        />
+        {splitConversationId && !splitOnLeft && (
+          <>
+            <PaneDivider />
+            <ChatPane conversationId={splitConversationId} focused={false} split />
+          </>
+        )}
       </main>
 
       <ChatPanel />

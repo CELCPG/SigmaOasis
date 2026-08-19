@@ -14,6 +14,8 @@ import { Logo } from './Logo'
 export function Sidebar(): JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const activeId = useAppStore((s) => s.activeConversationId)
+  const splitId = useAppStore((s) => s.splitConversationId)
+  const openSplit = useAppStore((s) => s.openSplit)
   const connection = useAppStore((s) => s.connection)
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
   const streaming = useAppStore((s) => s.streaming)
@@ -120,7 +122,10 @@ export function Sidebar(): JSX.Element {
       className={`group relative mb-1 flex items-center rounded-2xl px-2.5 py-2 text-sm transition-colors ${
         c.id === activeId
           ? 'border border-[rgba(0,212,170,0.35)] bg-[rgba(0,212,170,0.1)] font-medium shadow-[inset_0_1px_0_rgba(0,212,170,0.25)]'
-          : 'border border-transparent hover:bg-black/5 dark:hover:bg-white/5'
+          : c.id === splitId
+            ? // Open in the other pane: present, but not where your typing goes.
+              'border border-dashed border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.04)]'
+            : 'border border-transparent hover:bg-black/5 dark:hover:bg-white/5'
       }`}
     >
       {editingId === c.id ? (
@@ -159,10 +164,28 @@ export function Sidebar(): JSX.Element {
               ◌
             </span>
           )}
+          {c.id === splitId && (
+            <span
+              className="ml-1.5 text-xs text-accent-ink"
+              title="Open in the other pane — click to focus it"
+            >
+              ⊞
+            </span>
+          )}
         </button>
       )}
       {editingId !== c.id && (
         <>
+          {c.id !== activeId && c.id !== splitId && (
+            <button
+              type="button"
+              onClick={() => openSplit(c.id)}
+              className="ml-1 hidden shrink-0 rounded px-1 text-neutral-400 hover:text-accent-ink group-hover:block"
+              title="Open beside the current chat (⌘\)"
+            >
+              ⊞
+            </button>
+          )}
           {projects.length > 0 && (
             <button
               type="button"

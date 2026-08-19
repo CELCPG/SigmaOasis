@@ -29,6 +29,10 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
+  // Read by the store subscription below, which is mounted once and so cannot
+  // close over the current conversation.
+  const conversationRef = useRef<string[]>([])
+  conversationRef.current = conversation.messages.map((m) => m.id)
   const [pinned, setPinned] = useState(true)
 
   const lastMessage = conversation.messages[conversation.messages.length - 1]
@@ -78,14 +82,23 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   // deliberately does not subscribe to via a selector — that would re-render
   // the whole list per flush. A plain store subscription scrolls without
   // rendering; the layout read happens only while pinned and streaming.
+  //
+  // v1.11: scoped to this pane's own conversation. With split view two
+  // ChatAreas are mounted, and an unscoped subscription scrolled the pane you
+  // were *reading* every time the other pane emitted a token. The streamed
+  // message is always the last one in its conversation, so identity of the
+  // tail against this conversation's last message is the whole test.
   useEffect(() => {
     let lastLength = -1
     return useAppStore.subscribe((s) => {
-      const length = s.streamingTail ? s.streamingTail.text.length : -1
+      const tail = s.streamingTail
+      const length = tail ? tail.text.length : -1
       if (length === lastLength) return
       lastLength = length
       const el = scrollRef.current
       if (length < 0 || !el || !pinnedRef.current) return
+      const mine = conversationRef.current
+      if (!tail || mine[mine.length - 1] !== tail.messageId) return
       el.scrollTop = el.scrollHeight
     })
   }, [])

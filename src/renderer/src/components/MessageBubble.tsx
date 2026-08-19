@@ -439,7 +439,9 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         {!isStreaming && message.content && (
-          <div className="mb-1 flex items-center gap-1 text-xs text-neutral-400">
+          // flex-wrap, because in split view (v1.11) a bubble is half as wide
+          // and this row of actions used to run off the edge of the pane.
+          <div className="mb-1 flex flex-wrap items-center gap-1 text-xs text-neutral-400">
             <button
               type="button"
               onClick={copyMessage}
