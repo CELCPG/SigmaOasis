@@ -1099,6 +1099,41 @@ describe('runAgentLoop · an answer written into the thinking channel', () => {
     assert.equal(outcome.stopReason, 'completed')
   })
 
+  test('a first round that answered into thinking is recovered too', async () => {
+    // The generalised gate: no tool has run, but text went *somewhere*, and it
+    // was not to the answer. That is the same failure one round earlier.
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [], reasoning: 'The answer is 42, because…' },
+      { content: 'The answer is 42.', toolCalls: [] }
+    ])
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: '' }) }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    assert.equal(seen.length, 2, 'the round should have been retried')
+    const retry = seen[1]
+    assert.match(String(retry[retry.length - 1].content), /^<think>\s*<\/think>/)
+  })
+
+  test('a round with neither content nor thinking is a model with nothing to say', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [], reasoning: '   ' },
+      { content: 'unreachable', toolCalls: [] }
+    ])
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: '' }) }
+    })
+    assert.equal(seen.length, 1, 'nothing to recover, so nothing to retry')
+  })
+
   test('an empty first round is left alone — no tool has answered yet', async () => {
     const { streamRound, seen } = scripted([
       { content: '', toolCalls: [] },

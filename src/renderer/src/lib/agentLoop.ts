@@ -171,6 +171,14 @@ export interface StreamRoundResult {
   /** The round's visible answer text (may be empty on a pure tool-call round). */
   content: string
   toolCalls: ApiToolCall[]
+  /**
+   * v1.9.2: how much arrived on the reasoning channel this round. The loop
+   * does not display it — it uses it as evidence. A round with reasoning and
+   * no content is a model that answered into the wrong channel; a round with
+   * neither is a model with nothing to say, and only the first is recoverable.
+   * Optional: callers that cannot report it fall back to the weaker signal.
+   */
+  reasoning?: string
 }
 
 export interface AgentLoopDeps {
@@ -288,14 +296,17 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
    * this twice is not being recovered, it is being puppeted.
    */
   let thinkChannelRecoveryUsed = false
-  const answeredIntoThinking = (round: { content: string; toolCalls: ApiToolCall[] }): boolean =>
-    !round.content.trim() &&
-    round.toolCalls.length === 0 &&
-    !thinkChannelRecoveryUsed &&
-    // Narrow to the measured case: a tool has already produced something this
-    // turn, so an empty round is a lost answer rather than a model with
-    // nothing to say.
-    messages.some((m) => (m as { role?: string }).role === 'tool')
+  const answeredIntoThinking = (round: StreamRoundResult): boolean => {
+    if (thinkChannelRecoveryUsed) return false
+    if (round.content.trim() || round.toolCalls.length > 0) return false
+    // The direct evidence, when the caller reports it: text went somewhere,
+    // and it was not to the answer.
+    if (round.reasoning?.trim()) return true
+    // The fallback, for callers that cannot see the reasoning channel: a tool
+    // has already produced something this turn, so an empty round is a lost
+    // answer rather than a model with nothing to say.
+    return messages.some((m) => (m as { role?: string }).role === 'tool')
+  }
 
   for (let iteration = 0; iteration < iterationCap; iteration++) {
     let round = await deps.streamRound(messages, tools)

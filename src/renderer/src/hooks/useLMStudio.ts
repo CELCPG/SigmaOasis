@@ -629,6 +629,10 @@ async function runTurn(
       deps: {
         streamRound: async (messages, roundTools) => {
           let content = ''
+          // Per round, not per turn: the loop asks whether *this* round put its
+          // answer on the wrong channel, and a previous round's thinking would
+          // answer the wrong question.
+          const reasoningBefore = reasoning.length
           const roundStartedAt = Date.now()
           const { toolCalls, usage, ttftMs, truncated } = await streamChat(
             baseUrl,
@@ -664,7 +668,7 @@ async function runTurn(
           }
           // Round boundary: land the accumulated content in the message.
           tail.commit()
-          return { content, toolCalls }
+          return { content, toolCalls, reasoning: reasoning.slice(reasoningBefore) }
         },
         // The caller's model id goes along so main-process tools that need to
         // reason (deep_research) plan with the model the user is talking to.

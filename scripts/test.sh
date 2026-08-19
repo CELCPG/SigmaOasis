@@ -13,8 +13,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 OUT=.test-build
-ELECTRON_NODE="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
-ELECTRON_NODE_LINUX="node_modules/electron/dist/electron"
+# Absolute, deliberately. Launched by a relative path, macOS resolves the
+# surrounding .app bundle from argv[0] and — once the bundle has been
+# registered with LaunchServices by running the app itself — aborts with
+# "NSBundle initWithURL:: non-file URL argument" before Node ever starts.
+# Same binary, same directory, absolute path: fine. Cost of the lesson: a
+# green suite that suddenly would not run at all.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ELECTRON_NODE="$REPO_ROOT/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+ELECTRON_NODE_LINUX="$REPO_ROOT/node_modules/electron/dist/electron"
 
 if command -v node >/dev/null 2>&1; then
   RUN=(node)
