@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useAppStore } from '../stores/appStore'
 import type { Conversation } from '../types'
+import { conversationDefaultsFromProject } from '../lib/projectContext'
 
 function byUpdatedAtDesc(a: Conversation, b: Conversation): number {
   return b.updatedAt - a.updatedAt
@@ -24,6 +25,8 @@ export function useConversations(): {
   createConversation: (options?: {
     ephemeral?: boolean
     branchFromMessageId?: string
+    /** v1.10: file the new chat under a project from the start. */
+    projectId?: string | null
   }) => Conversation
   selectConversation: (id: string) => void
   removeConversation: (id: string) => Promise<void>
@@ -53,19 +56,34 @@ export function useConversations(): {
   }, [])
 
   const createConversation = useCallback(
-    (options?: { ephemeral?: boolean; branchFromMessageId?: string }): Conversation => {
+    (options?: {
+      ephemeral?: boolean
+      branchFromMessageId?: string
+      projectId?: string | null
+    }): Conversation => {
       const store = useAppStore.getState()
       // The id is needed inside `branches` below, so it is bound before the
       // literal rather than read back off `convo` mid-initialisation.
       const id = uid()
       const branchFrom = options?.branchFromMessageId
+      // v1.10: a chat started inside a project takes the project's defaults
+      // (strategy, role, memory scope). A branch copies its parent instead —
+      // BranchMenu patches those fields right after — so defaults only apply
+      // to genuinely new chats.
+      const project =
+        options?.projectId && !branchFrom
+          ? store.settings?.projects.find((p) => p.id === options.projectId) ?? null
+          : null
+      const enabledSlotIds = (store.settings?.models ?? []).filter((m) => m.enabled).map((m) => m.id)
       const convo: Conversation = {
         id,
         title: options?.ephemeral ? 'Ephemeral chat' : 'New conversation',
         mode: 'independent',
-        activeModelSlotId: store.settings?.models.find((m) => m.enabled)?.id,
+        activeModelSlotId: enabledSlotIds[0],
         messages: [],
+        ...conversationDefaultsFromProject(project, enabledSlotIds),
         ...(options?.ephemeral ? { ephemeral: true } : {}),
+        ...(options?.projectId ? { projectId: options.projectId } : {}),
         ...(branchFrom
           ? {
               branches: [{ messageId: branchFrom, branchId: id, title: 'Alternative response' }],

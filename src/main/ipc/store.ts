@@ -261,6 +261,10 @@ export interface PlanSettings {
   confirmPlan: boolean
 }
 
+import { normalizeProjects, type Project } from './projects'
+import { recallFromConversations, type StoredConversationLike } from './projectRecall'
+export type { Project, ProjectColor } from './projects'
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -294,6 +298,10 @@ export interface AppSettings {
    * should still be narrow tomorrow.
    */
   sidebarCollapsed: boolean
+  /** v1.10: the chat panel (right side) is collapsed to an icon strip (⌘J). */
+  rightPanelCollapsed: boolean
+  /** v1.10: conversation groups shown in the rail. */
+  projects: Project[]
   /**
    * What happens when a conversation outgrows the model's context window.
    * 'compact' summarizes the dropped span and carries it forward; 'trim'
@@ -491,6 +499,8 @@ function defaultSettings(): AppSettings {
     reasoningDisplay: 'collapsed',
     showResponseStats: true,
     sidebarCollapsed: false,
+    rightPanelCollapsed: false,
+    projects: [],
     contextManagement: 'compact',
     secondOpinion: {
       enabled: false,
@@ -706,6 +716,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       : 'collapsed',
     showResponseStats: settings.showResponseStats !== false,
     sidebarCollapsed: Boolean(settings.sidebarCollapsed),
+    rightPanelCollapsed: Boolean(settings.rightPanelCollapsed),
+    projects: normalizeProjects(settings.projects),
     contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact',
     secondOpinion: {
       enabled: Boolean(settings.secondOpinion?.enabled),
@@ -918,6 +930,20 @@ function conversationFile(id: string): string | null {
   return /^[A-Za-z0-9_-]+$/.test(id) ? join(conversationsDir(), `${id}.json`) : null
 }
 
+/** Read one stored conversation, or null when it is not on disk (deleted, ephemeral, bad id). */
+export async function readStoredConversation(id: string): Promise<StoredConversationLike | null> {
+  const file = conversationFile(id)
+  if (!file) return null
+  try {
+    const raw = await fs.readFile(file, 'utf-8')
+    const parsed = JSON.parse(raw) as StoredConversationLike & { ephemeral?: boolean }
+    if (!parsed || parsed.ephemeral || !Array.isArray(parsed.messages)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true })
 }
@@ -1004,6 +1030,36 @@ export function registerStoreHandlers(): void {
       // already gone
     }
     return true
+  })
+
+  // v1.10 project-wide recall: the renderer names sibling chats by id; the
+  // transcripts never cross the IPC boundary.
+  ipcMain.handle(
+    'projects:recall',
+    (_e, ids: string[], query: string, topK: number) =>
+      recallFromConversations(
+        readStoredConversation,
+        Array.isArray(ids) ? ids.map(String) : [],
+        String(query ?? ''),
+        Math.max(1, Math.min(12, Number(topK) || 4))
+      )
+  )
+
+  // v1.10 project files: a path picker that reads nothing — the project keeps
+  // paths only, and each chat indexes the file when it first needs it.
+  ipcMain.handle('projects:pickFiles', async (event) => {
+    const win = hostWindow(event.sender)
+    if (!win) return []
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Pin files to this project',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Text & PDF', extensions: ['pdf', 'txt', 'md', 'markdown', 'csv', 'json', 'html', 'htm', 'docx', 'ts', 'tsx', 'js', 'py', 'rs', 'go', 'java', 'c', 'h', 'cpp', 'yaml', 'yml', 'toml', 'xml'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    if (canceled) return []
+    return filePaths.map((p) => ({ name: p.split(/[\\/]/).pop() || p, sourcePath: p }))
   })
 
   // Export a rendered Markdown transcript via the native save dialog.

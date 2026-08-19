@@ -22,6 +22,10 @@ interface AppState {
   onboardingOpen: boolean
   setOnboardingOpen: (open: boolean) => void
 
+  /** v1.10: the project whose editor is open, or null. */
+  projectEditorId: string | null
+  setProjectEditorId: (id: string | null) => void
+
   connection: ConnectionStatus
   setConnection: (status: ConnectionStatus) => void
 
@@ -94,6 +98,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   onboardingOpen: false,
   setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
+
+  projectEditorId: null,
+  setProjectEditorId: (projectEditorId) => set({ projectEditorId }),
 
   connection: 'offline',
   setConnection: (connection) => set({ connection }),

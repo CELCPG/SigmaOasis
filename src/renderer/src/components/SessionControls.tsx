@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import type { ChatMode, Conversation, ModelConfig } from '../types'
 import { ACCENT } from '../lib/colors'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
+import { PanelSection } from './PanelSection'
 
 interface Props {
   conversation: Conversation
@@ -22,17 +23,17 @@ const MODE_HINTS: Record<ChatMode, string> = {
 }
 
 /**
- * The "This chat" section of the sidebar: everything scoped to the open
- * conversation rather than the app. Through v0.9 these lived in a bar above the
- * chat; they sit here now so the message list runs full height and the controls
- * you change between chats are next to the chats themselves.
+ * The per-conversation controls of the chat panel: strategy and roles, memory
+ * scope, rollback and export. Through v0.9 these lived in a bar above the
+ * chat, through v1.9 at the bottom of the conversation rail; they sit in the
+ * right panel now (v1.10) so the rail is only a list and the controls that
+ * shape *this* chat have room to breathe.
  */
 export function SessionControls({ conversation }: Props): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const streaming = useAppStore((s) => s.streaming)
   const { rollbackContext, patchConversation } = useConversations()
   const [exported, setExported] = useState(false)
-  const [memoryPickerOpen, setMemoryPickerOpen] = useState(false)
   const [availableSources, setAvailableSources] = useState<string[] | null>(null)
 
   if (!settings) return null
@@ -53,16 +54,13 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
     }
   }
 
-  /** Load the memory source list the first time the picker opens. */
-  const toggleMemoryPicker = (): void => {
-    const next = !memoryPickerOpen
-    setMemoryPickerOpen(next)
-    if (next && availableSources === null) {
-      void window.api
-        .memoryStats()
-        .then((stats) => setAvailableSources(stats.sources.map((s) => s.source)))
-        .catch(() => setAvailableSources([]))
-    }
+  /** Load the memory source list once, the first time the section is shown. */
+  const loadSources = (): void => {
+    if (availableSources !== null) return
+    void window.api
+      .memoryStats()
+      .then((stats) => setAvailableSources(stats.sources.map((s) => s.source)))
+      .catch(() => setAvailableSources([]))
   }
 
   /** Toggle one source. `null` means all; unchecking from null materializes the list. */
@@ -126,178 +124,200 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
     'rounded-lg px-2 py-1 text-[11px] text-ink-tertiary transition-colors hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40 disabled:hover:bg-transparent'
 
   return (
-    <div className="border-t border-black/10 dark:border-white/10 px-4 pb-2 pt-3">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
-          This chat
-        </span>
-        {conversation.ephemeral && (
-          <span
-            className="rounded-full border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-500 dark:text-violet-300"
-            title="This chat lives only in memory. Nothing is written to disk; it is gone when you close it or quit."
-          >
-            ◌ ephemeral
-          </span>
-        )}
-      </div>
-
-      {/*
-        Strategy. 10px, not 11 — "Orchestrated" is the longest label the rail has
-        to hold, and at 11px it ellipsizes inside a 248px three-up control.
-      */}
-      <div
-        className="grid grid-cols-3 gap-0.5 rounded-full bg-black/5 dark:bg-white/5 p-0.5 text-[10px]"
-        title={MODE_HINTS[conversation.mode]}
-      >
-        {(Object.keys(MODE_LABELS) as ChatMode[]).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => setMode(mode)}
-            disabled={streaming}
-            className={`truncate rounded-full px-1 py-1 transition-colors ${
-              conversation.mode === mode
-                ? 'bg-white/70 dark:bg-white/10 font-medium text-ink-primary shadow-sm'
-                : 'text-ink-tertiary hover:text-ink-secondary'
-            } disabled:opacity-50`}
-            title={MODE_HINTS[mode]}
-          >
-            {MODE_LABELS[mode]}
-          </button>
-        ))}
-      </div>
-
-      {/* Who answers */}
-      <div className="mt-2">
-        {conversation.mode === 'independent' &&
-          (enabledModels.length === 0 ? (
-            <p className="px-1 text-[11px] text-ink-muted">No roles enabled — open Settings</p>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              {enabledModels.map((m) =>
-                rolePill(m, conversation.activeModelSlotId === m.id, () =>
-                  patch({ activeModelSlotId: m.id })
-                )
-              )}
-            </div>
-          ))}
-
-        {conversation.mode === 'collaborative' && (
-          <p className="px-1 text-[11px] leading-relaxed text-ink-tertiary">
-            {settings.pipeline
-              .map((id) => settings.models.find((m) => m.id === id)?.roleName)
-              .filter(Boolean)
-              .join(' → ') || 'Empty chain — configure it under Settings → Pipeline'}
-          </p>
-        )}
-
-        {conversation.mode === 'orchestrated' && (
-          <>
-            <p className="mb-1 px-1 text-[10px] uppercase tracking-[0.08em] text-ink-muted">
-              Orchestrator
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {enabledModels.map((m) =>
-                rolePill(m, conversation.orchestratorSlotId === m.id, () =>
-                  patch({ orchestratorSlotId: m.id })
-                )
-              )}
-            </div>
-            <p className="mt-1 px-1 text-[10px] text-ink-muted">
-              Delegates to the other {Math.max(0, enabledModels.length - 1)} enabled role(s)
-            </p>
-          </>
-        )}
-      </div>
-
-      {/* Memory scope · rollback · export */}
-      <div className="relative mt-2 flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={toggleMemoryPicker}
-          className={
-            scopedSources !== null
-              ? `${utilityButton} text-accent-ink hover:text-accent-ink`
-              : utilityButton
-          }
-          title={
-            scopedSources !== null
-              ? `This chat recalls from ${scopedSources.length} of its memory sources`
-              : 'This chat recalls from all long-term memory sources — click to scope it'
-          }
+    <>
+      <PanelSection title="Strategy" hint={MODE_HINTS[conversation.mode]}>
+        <div
+          className="grid grid-cols-3 gap-0.5 rounded-full bg-black/5 dark:bg-white/5 p-0.5 text-[10px]"
+          title={MODE_HINTS[conversation.mode]}
         >
-          📚 {scopedSources !== null ? scopedSources.length : 'All'}
-        </button>
-        <button
-          type="button"
-          onClick={confirmRollback}
-          disabled={streaming || conversation.messages.length === 0}
-          className={utilityButton}
-          title="Forget what the model remembers that you cannot see: the compacted summary and any fetched pages held in memory"
-        >
-          ⏪ Rollback
-        </button>
-        <button
-          type="button"
-          onClick={() => void exportMarkdown()}
-          disabled={conversation.messages.length === 0}
-          className={utilityButton}
-          title="Export conversation as Markdown"
-        >
-          {exported ? '✓ Saved' : '⤓ Export'}
-        </button>
-
-        {/* Opens upward — this row sits at the bottom of the rail. */}
-        {memoryPickerOpen && (
-          <div className="glass-panel absolute bottom-full left-0 z-20 mb-1 w-60 rounded-2xl p-2 text-[11px] shadow-xl">
-            <p className="px-2 pb-1.5 pt-1 font-medium text-ink-secondary">
-              Memory sources for this chat
-            </p>
-            {availableSources === null ? (
-              <p className="px-2 py-1 text-ink-tertiary">Loading…</p>
-            ) : availableSources.length === 0 ? (
-              <p className="px-2 py-1 text-ink-tertiary">
-                No sources yet — add documents under Settings → Memory.
-              </p>
-            ) : (
-              <>
-                {availableSources.map((source) => {
-                  const checked = scopedSources === null || scopedSources.includes(source)
-                  return (
-                    <label
-                      key={source}
-                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/5"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleSource(source)}
-                      />
-                      <span className="min-w-0 flex-1 truncate" title={source}>
-                        {source}
-                      </span>
-                    </label>
-                  )
-                })}
-                <button
-                  type="button"
-                  onClick={() => patch({ memorySources: [] })}
-                  className="mt-1 w-full rounded-lg px-2 py-1 text-left text-ink-tertiary hover:bg-black/5 dark:hover:bg-white/5"
-                  title="This conversation recalls nothing from long-term memory"
-                >
-                  ⃠ None — no memory for this chat
-                </button>
-              </>
-            )}
+          {(Object.keys(MODE_LABELS) as ChatMode[]).map((mode) => (
             <button
+              key={mode}
               type="button"
-              onClick={() => setMemoryPickerOpen(false)}
-              className="mt-1 w-full rounded-lg border-t border-black/10 dark:border-white/10 px-2 py-1.5 text-center text-ink-tertiary hover:text-ink-primary"
+              onClick={() => setMode(mode)}
+              disabled={streaming}
+              className={`truncate rounded-full px-1 py-1 transition-colors ${
+                conversation.mode === mode
+                  ? 'bg-white/70 dark:bg-white/10 font-medium text-ink-primary shadow-sm'
+                  : 'text-ink-tertiary hover:text-ink-secondary'
+              } disabled:opacity-50`}
+              title={MODE_HINTS[mode]}
             >
-              Done
+              {MODE_LABELS[mode]}
             </button>
-          </div>
-        )}
+          ))}
+        </div>
+        <p className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-muted">
+          {MODE_HINTS[conversation.mode]}
+        </p>
+
+        {/* Who answers */}
+        <div className="mt-2">
+          {conversation.mode === 'independent' &&
+            (enabledModels.length === 0 ? (
+              <p className="px-1 text-[11px] text-ink-muted">No roles enabled — open Settings</p>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {enabledModels.map((m) =>
+                  rolePill(m, conversation.activeModelSlotId === m.id, () =>
+                    patch({ activeModelSlotId: m.id })
+                  )
+                )}
+              </div>
+            ))}
+
+          {conversation.mode === 'collaborative' && (
+            <p className="px-1 text-[11px] leading-relaxed text-ink-tertiary">
+              {settings.pipeline
+                .map((id) => settings.models.find((m) => m.id === id)?.roleName)
+                .filter(Boolean)
+                .join(' → ') || 'Empty chain — configure it under Settings → Pipeline'}
+            </p>
+          )}
+
+          {conversation.mode === 'orchestrated' && (
+            <>
+              <p className="mb-1 px-1 text-[10px] uppercase tracking-[0.08em] text-ink-muted">
+                Orchestrator
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {enabledModels.map((m) =>
+                  rolePill(m, conversation.orchestratorSlotId === m.id, () =>
+                    patch({ orchestratorSlotId: m.id })
+                  )
+                )}
+              </div>
+              <p className="mt-1 px-1 text-[10px] text-ink-muted">
+                Delegates to the other {Math.max(0, enabledModels.length - 1)} enabled role(s)
+              </p>
+            </>
+          )}
+        </div>
+      </PanelSection>
+
+      <PanelSection
+        title="Memory"
+        hint="Which long-term memory sources this chat may recall from"
+        defaultOpen={false}
+        right={
+          <span
+            className={`text-[10px] ${scopedSources !== null ? 'text-accent-ink' : 'text-ink-muted'}`}
+            title={
+              scopedSources !== null
+                ? `This chat recalls from ${scopedSources.length} of its memory sources`
+                : 'This chat recalls from all long-term memory sources'
+            }
+          >
+            📚 {scopedSources === null ? 'All' : scopedSources.length === 0 ? 'None' : scopedSources.length}
+          </span>
+        }
+      >
+        <MemoryScope
+          availableSources={availableSources}
+          scopedSources={scopedSources}
+          onShow={loadSources}
+          onToggle={toggleSource}
+          onNone={() => patch({ memorySources: [] })}
+          onAll={() => patch({ memorySources: null })}
+        />
+      </PanelSection>
+
+      <PanelSection title="Actions" hint="Rollback the model's hidden context, or export the transcript">
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={confirmRollback}
+            disabled={streaming || conversation.messages.length === 0}
+            className={utilityButton}
+            title="Forget what the model remembers that you cannot see: the compacted summary and any fetched pages held in memory"
+          >
+            ⏪ Rollback
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportMarkdown()}
+            disabled={conversation.messages.length === 0}
+            className={utilityButton}
+            title="Export conversation as Markdown"
+          >
+            {exported ? '✓ Saved' : '⤓ Export'}
+          </button>
+        </div>
+      </PanelSection>
+    </>
+  )
+}
+
+/**
+ * Inline memory-source picker. Rendered only while its section is open, so the
+ * source list is fetched on first open (via onShow) rather than on every mount.
+ */
+function MemoryScope({
+  availableSources,
+  scopedSources,
+  onShow,
+  onToggle,
+  onNone,
+  onAll
+}: {
+  availableSources: string[] | null
+  scopedSources: string[] | null
+  onShow: () => void
+  onToggle: (source: string) => void
+  onNone: () => void
+  onAll: () => void
+}): JSX.Element {
+  useEffect(() => {
+    onShow()
+    // onShow is stable in practice (guards on state); run once per mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (availableSources === null) {
+    return <p className="px-1 text-[11px] text-ink-tertiary">Loading…</p>
+  }
+  if (availableSources.length === 0) {
+    return (
+      <p className="px-1 text-[11px] text-ink-tertiary">
+        No sources yet — add documents under Settings → Memory.
+      </p>
+    )
+  }
+  return (
+    <div className="text-[11px]">
+      {availableSources.map((source) => {
+        const checked = scopedSources === null || scopedSources.includes(source)
+        return (
+          <label
+            key={source}
+            className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <input type="checkbox" checked={checked} onChange={() => onToggle(source)} />
+            <span className="min-w-0 flex-1 truncate" title={source}>
+              {source}
+            </span>
+          </label>
+        )
+      })}
+      <div className="mt-1 flex gap-1">
+        <button
+          type="button"
+          onClick={onAll}
+          disabled={scopedSources === null}
+          className="rounded-lg px-1.5 py-1 text-ink-tertiary hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-40"
+          title="Recall from every memory source"
+        >
+          All
+        </button>
+        <button
+          type="button"
+          onClick={onNone}
+          disabled={scopedSources !== null && scopedSources.length === 0}
+          className="rounded-lg px-1.5 py-1 text-ink-tertiary hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-40"
+          title="This conversation recalls nothing from long-term memory"
+        >
+          ⃠ None
+        </button>
       </div>
     </div>
   )

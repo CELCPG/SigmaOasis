@@ -593,6 +593,14 @@ export const MessageBubble = memo(function MessageBubble({
           />
         )}
 
+        {!isStreaming && message.projectContext && message.projectContext.length > 0 && (
+          <MemoryContextLine
+            items={message.projectContext}
+            label="🗂 From this project's other chats:"
+            title="Passages the app recalled from other conversations in the same project before the model answered — the model saw exactly these. Turn off per project in its settings."
+          />
+        )}
+
         {!isStreaming && message.attachmentContext && message.attachmentContext.length > 0 && (
           <MemoryContextLine
             items={message.attachmentContext}

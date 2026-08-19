@@ -21,7 +21,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Local & private.** Connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `image_search` / `fetch_webpage` tools (provider of your choice), the image hosts an `image_search` result points at (thumbnails only, fetched by the app so the request carries no cookies, referrer or browser fingerprint), the shopping research tools (`shop_compare` / `price_watch`, which contact retailer and manufacturer pages), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default). All of it is enforced by a built-in egress allowlist, visible in a network activity log with a purpose on every row, and can optionally be routed through **Tor or a VPN** while your LM Studio server stays on a direct loopback connection.
 - **Multi-model roles.** Five slot templates — Assistant, Researcher, Coder, Finance Coach and **Data Analyst** — each with its own model, role name, system prompt, sampling, tool allowlist and colour accent. A slot can declare a *specialty* (coding, research, finance, data) and the pre-flight router sends matching turns to it: attach a spreadsheet and the Data Analyst answers.
 - **Three ways to use your models**
-  - **Independent mode.** Pick the active model in the sidebar's *This chat* section; each conversation keeps its thread.
+  - **Independent mode.** Pick the active model in the chat panel (right side, ⌘J) under *Strategy*; each conversation keeps its thread.
   - **@mention routing.** Type `@Coder write a sort function` to route a single message to a specific role.
   - **Collaborative pipeline.** Your message flows through an ordered chain of models, each building on the previous one's output.
   - **Orchestrated mode.** An orchestrator model reasons about your request and **delegates to the other roles as tools** (`consult_model`), reads their answers, consults again if needed, then synthesizes the final reply. Specialists run with their own persona, tools, and memory; delegation loops are structurally impossible and consultations are capped per turn. Every delegation appears as an expandable "🤝 Consulted …" block.
@@ -42,6 +42,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 - **Second opinions (0.9).** A "🔍 2nd opinion" action under any reply has a **different role** review it and name the factual claims it could not verify, plus the check that would settle each. Never a confidence score — a model grading its own answer says "yes" nearly always.
 - **Tool grounding (1.3).** After every reply the app checks, mechanically, whether the money figures and links in it actually came from the tools that ran. A payment the calculator did not return, a price on a shopping turn with no price check, a product URL in no search result — each gets a warning under the answer naming what was checked against what. No model call and no network: it is number and string comparison, so it holds even when the prompt telling the model not to invent things does not. Prompts are how you ask; this is how you know.
 - **Plan mode (0.9).** The 📋 toggle in the composer turns a task into a visible step-by-step plan: decomposed by the model, shown for your **approval**, executed step by step with live progress, then synthesized into a final answer. A failed step is marked failed and disclosed, never silently retried.
+- **Projects that know things (1.10).** Group conversations under named, colour-coded projects in the rail (fold a project, start a chat inside it, move a chat with the 📁 menu or from the command palette); deleting a project keeps its chats. A project carries context every chat in it shares: **standing instructions** (appended to the role's system prompt), **pinned files** (paths only — read and indexed in RAM on first use, then retrieved per turn like an attached document), **defaults for new chats** (strategy, role, memory scope), and **cross-chat recall** — before each reply the passages of the project's *other* chats most relevant to your message are given to the model and shown under the reply as "🗂 From this project's other chats". Recall reads sibling chats from disk in the main process (ids cross the IPC boundary, transcripts never do), gates on lexical evidence so an unrelated chat contributes nothing, and never sees ephemeral chats. Per-project toggle; edit everything under ⚙ on the project or *Edit project…* in the chat panel. Everything scoped to one conversation — project, strategy and roles, memory scope, rollback, export, and a details readout (messages, context in use, tokens generated, compaction state, files shared, branches) — lives in a collapsible right-hand chat panel (⌘J). The conversation rail collapses too (⌘B). Both layouts are remembered across restarts.
 - **Ephemeral chats (0.9).** The ◌ button starts a conversation that lives only in RAM: never written to disk, gone when you close it or quit. The main process refuses to persist it — the no-trace guarantee is structural, not a habit of the UI.
 - **Context rollback (0.9).** One click forgets what the model remembers that you can't see — the compacted summary and any fetched pages held in memory — while visible messages, notes and long-term memory stay untouched.
 - **Session audit log (0.9, opt-in).** An append-only transcript of what was actually said (inputs, answers, tool calls — no hidden layers), encrypted with your OS keychain and hash-chained so tampering is detectable. Off by default; ephemeral chats are never logged.
@@ -295,7 +296,7 @@ origins, never content).
 
 A conversation accumulates two kinds of invisible context: the compaction summary of messages that
 scrolled off, and the RAM index of fetched web pages. Both can drift or go stale. "⏪ Rollback" in
-the sidebar's *This chat* section drops exactly those two, after a confirmation that names them, and posts an in-chat
+the chat panel's *Actions* section drops exactly those two, after a confirmation that names them, and posts an in-chat
 marker recording what happened. Visible messages are untouched; notes and `memory.json` are
 untouched. The next turn rebuilds context from what you can actually see.
 
@@ -307,7 +308,7 @@ memory-informed answer from a hallucinated one. Now every reply that used memory
 The display is mechanical — the app shows what it actually injected, it does not ask the model to
 footnote itself.
 
-The 📚 picker in the sidebar's *This chat* section scopes a conversation to specific memory sources (or none): one chat
+The *Memory* section of the chat panel scopes a conversation to specific memory sources (or none): one chat
 can know only the company handbook while another knows only personal notes, with neither bleeding
 into the other. Unscoped conversations behave exactly as before.
 
@@ -648,14 +649,18 @@ sigma-oasis/
 │           ├── hooks/
 │           │   ├── useLMStudio.ts         # streaming + tool loop + routing
 │           │   ├── useModels.ts           # model discovery / status
-│           │   └── useConversations.ts    # persistence
+│           │   ├── useConversations.ts    # persistence
+│           │   └── useProjects.ts         # project groups (create/rename/delete/move)
 │           └── components/
-│               ├── Sidebar.tsx
+│               ├── Sidebar.tsx             # Conversation rail, grouped by project (⌘B)
+│               ├── ChatPanel.tsx           # Right panel (⌘J): project, strategy, memory, actions, details
+│               ├── PanelSection.tsx        # Collapsible section used by the chat panel
+│               ├── ProjectModal.tsx        # Project editor: instructions, pinned files, recall, defaults
 │               ├── ChatArea.tsx
 │               ├── MessageBubble.tsx
 │               ├── InputBar.tsx
 │               ├── EmptyState.tsx          # Starter cards before the first message
-│               ├── SessionControls.tsx     # "This chat": mode, roles, memory scope, rollback, export
+│               ├── SessionControls.tsx     # Per-chat controls inside ChatPanel: mode, roles, memory scope, rollback, export
 │               ├── ToolCallBlock.tsx
 │               ├── ReasoningBlock.tsx
 │               ├── SecondOpinionBlock.tsx  # v0.9 critic-pass review

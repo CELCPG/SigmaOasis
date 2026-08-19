@@ -399,6 +399,40 @@ export interface ResearchIndexStats {
   pinnedChars: number
 }
 
+/**
+ * v1.10: a group of conversations in the rail, carrying the context every chat
+ * in it shares. Mirrors src/main/ipc/projects.ts.
+ */
+export interface Project {
+  id: string
+  name: string
+  color: ProjectColor
+  createdAt: number
+  /** Standing instructions appended to the system prompt of every chat in the project. '' = none. */
+  instructions: string
+  /** Files pinned to the project (paths only); each chat retrieves passages from them per turn. */
+  files: ProjectFile[]
+  /** Chats in this project may recall passages from the project's other chats. */
+  recall: boolean
+  /** Applied to a chat created inside the project; never changes existing chats. */
+  defaults: ProjectDefaults
+}
+
+export interface ProjectFile {
+  id: string
+  name: string
+  sourcePath: string
+}
+
+export interface ProjectDefaults {
+  mode: ChatMode | null
+  activeModelSlotId: string | null
+  /** undefined = app default; null = all sources; [] = none; list = those sources. */
+  memorySources?: string[] | null
+}
+
+export type ProjectColor = 'teal' | 'blue' | 'purple' | 'amber' | 'rose' | 'slate'
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -425,6 +459,10 @@ export interface AppSettings {
   showResponseStats: boolean
   /** v1.9.2: conversation rail collapsed to an icon strip (⌘B). */
   sidebarCollapsed: boolean
+  /** v1.10: chat panel (right side) collapsed to an icon strip (⌘J). */
+  rightPanelCollapsed: boolean
+  /** v1.10: conversation groups shown in the rail. */
+  projects: Project[]
   /**
    * What happens when a conversation outgrows the model's context window.
    * 'compact' summarizes the dropped span and carries it forward; 'trim'
@@ -641,6 +679,22 @@ export interface AttachmentPassagesResult {
   notes: string[]
 }
 
+/** v1.10: one passage recalled from a sibling chat in the same project. */
+export interface ProjectRecallItem {
+  conversationId: string
+  title: string
+  text: string
+  position: number
+  score: number
+}
+
+export interface ProjectRecallOutcome {
+  ok: boolean
+  items: ProjectRecallItem[]
+  consulted: number
+  error?: string
+}
+
 export interface AttachmentLoadResult {
   attachments: Attachment[]
   rejected: { name: string; reason: string }[]
@@ -765,6 +819,8 @@ export interface ChatMessage {
   attachmentContext?: MemoryContextItem[]
   /** v1.5: passages the app retrieved from the local reference library for this reply. */
   libraryContext?: MemoryContextItem[]
+  /** v1.10: passages recalled from the project's other chats for this reply (source = chat title). */
+  projectContext?: MemoryContextItem[]
   /** v1.5: the turn ran while the app was offline (no web tools could work). */
   offline?: boolean
   /** v1.5: name of the playbook (method) the app injected for this reply. */
@@ -882,6 +938,8 @@ export interface Conversation {
   branches?: ConversationBranch[]
   /** The branch this conversation *is*, when it was created by branching. */
   activeBranchId?: string | null
+  /** v1.10: the project this conversation is filed under; absent/null = unfiled. */
+  projectId?: string | null
   createdAt: number
   updatedAt: number
 }

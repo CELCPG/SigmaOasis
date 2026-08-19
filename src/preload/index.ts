@@ -20,6 +20,7 @@ import type {
   MemoryStats,
   ModelInfo,
   NetworkActivityEntry,
+  ProjectRecallOutcome,
   ResearchIndexStats,
   SttStatus,
   ToolResult,
@@ -206,6 +207,17 @@ const api = {
     path: string
   ): Promise<{ ok: boolean; text?: string; error?: string }> =>
     ipcRenderer.invoke('voice:transcribeFile', path),
+
+  // v1.10 Projects (main/ipc/store.ts + projectRecall.ts)
+  /** Passages from the project's other chats most relevant to `query`. Reads disk only; ephemeral chats are never seen. */
+  projectRecall: (
+    conversationIds: string[],
+    query: string,
+    topK: number
+  ): Promise<ProjectRecallOutcome> => ipcRenderer.invoke('projects:recall', conversationIds, query, topK),
+  /** Native picker returning paths only — nothing is read. */
+  projectPickFiles: (): Promise<{ name: string; sourcePath: string }[]> =>
+    ipcRenderer.invoke('projects:pickFiles'),
 
   // Local memory / RAG (main/ipc/memory.ts)
   memoryStats: (): Promise<MemoryStats> => ipcRenderer.invoke('memory:stats'),

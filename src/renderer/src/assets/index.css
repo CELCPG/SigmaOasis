@@ -22,6 +22,7 @@
 
   /* Glass surfaces — frosted white over a light canvas */
   --glass-primary: rgba(255, 255, 255, 0.72);
+  --glass-popover: rgba(255, 255, 255, 0.96);
   --glass-hover: rgba(255, 255, 255, 0.86);
   --glass-active: rgba(255, 255, 255, 0.94);
   --glass-border: rgba(0, 0, 0, 0.08);
@@ -60,6 +61,7 @@
   --bg-orb-purple: rgba(100, 80, 220, 0.05);
 
   --glass-primary: rgba(255, 255, 255, 0.05);
+  --glass-popover: rgba(22, 22, 26, 0.96);
   --glass-hover: rgba(255, 255, 255, 0.08);
   --glass-active: rgba(255, 255, 255, 0.12);
   --glass-border: rgba(255, 255, 255, 0.08);
@@ -148,6 +150,10 @@ body {
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--glass-highlight), transparent);
   pointer-events: none;
+}
+/* A menu floating over text needs to be near-opaque, or the text below reads through. */
+.glass-popover {
+  background: var(--glass-popover);
 }
 .glass-panel--hover {
   transition:

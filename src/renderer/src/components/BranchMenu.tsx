@@ -27,7 +27,11 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
     // createConversation returns the new record directly. Searching the store
     // for "a conversation with a branch from this message" would match the
     // first *earlier* branch once one exists.
-    const branch = createConversation({ branchFromMessageId: message.id })
+    // A branch stays in its parent's project — it is the same line of work.
+    const branch = createConversation({
+      branchFromMessageId: message.id,
+      projectId: conversation.projectId ?? null
+    })
     const store = useAppStore.getState()
 
     // The branch starts as a copy of everything up to and including this reply;

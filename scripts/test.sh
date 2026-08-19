@@ -86,6 +86,8 @@ rm -rf "$OUT"
   src/main/ipc/toolRank.ts \
   src/main/ipc/evalResults.ts \
   src/main/ipc/traceExport.ts \
+  src/main/ipc/projects.ts \
+  src/main/ipc/projectRecall.ts \
   src/renderer/src/lib/oasisRipple.ts \
   src/renderer/src/lib/reasoning.ts \
   src/renderer/src/lib/nativeToolCall.ts \
@@ -114,6 +116,9 @@ rm -rf "$OUT"
   src/renderer/src/lib/ranCode.ts \
   src/renderer/src/lib/workbenchChecks.ts \
   src/renderer/src/lib/answerEval.ts \
+  src/renderer/src/lib/projects.ts \
+  src/renderer/src/lib/projectContext.ts \
+  src/renderer/src/lib/conversationStats.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts

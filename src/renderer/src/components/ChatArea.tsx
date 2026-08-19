@@ -91,9 +91,14 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   }, [])
 
   if (conversation.messages.length === 0) {
+    // v1.10: a chat inside a project says so — its instructions and files are
+    // already in play before the first message.
+    const project = useAppStore
+      .getState()
+      .settings?.projects.find((p) => p.id === conversation.projectId)
     return (
       <EmptyState
-        heading="Start a conversation"
+        heading={project ? `New chat in ${project.name}` : 'Start a conversation'}
         onPick={(prompt) => useAppStore.getState().setComposerPrefill(prompt)}
       />
     )

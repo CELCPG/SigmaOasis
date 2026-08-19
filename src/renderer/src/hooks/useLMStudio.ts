@@ -38,6 +38,14 @@ import {
   toAttachmentContextItems
 } from '../lib/attachmentRecall'
 import {
+  PROJECT_RECALL_PER_TURN,
+  buildProjectRecallContext,
+  projectFileRefs,
+  projectInstructionsBlock,
+  siblingConversationIds,
+  toProjectContextItems
+} from '../lib/projectContext'
+import {
   consultModelSchema,
   runAgentLoop,
   toolCallPreamble,
@@ -167,8 +175,13 @@ async function runTurn(
   // v1.5: offline swaps the "verify with web_search" rule for the reference
   // library, and the badge below says "offline" rather than implying neglect.
   const offline = isOffline()
+  // v1.10: the project's standing instructions ride the system prompt — stable
+  // for the life of the project, so they sit with the role prompt rather than
+  // in the per-turn context.
+  const project =
+    (convo.projectId && store.settings?.projects.find((p) => p.id === convo.projectId)) || null
   let systemPrompt = withToolCallPreamble(
-    withGrounding(slot.systemPrompt, new Date(), { offline }),
+    withGrounding(slot.systemPrompt + projectInstructionsBlock(project), new Date(), { offline }),
     slot.modelId
   )
 
@@ -205,11 +218,28 @@ async function runTurn(
   // v1.4.8: attached documents longer than the inline limit live in the
   // session index; retrieve what this message needs from them. Started here so
   // it overlaps the other embedding calls, exactly like memory recall.
-  const attachmentRefs = indexedAttachmentRefs(convo)
+  // v1.10: files pinned to the project are retrieved exactly like attached
+  // documents — indexed from their path the first time a chat needs them.
+  const attachmentRefs = [...indexedAttachmentRefs(convo), ...projectFileRefs(project)]
   const attachmentRecall =
     attachmentRefs.length > 0 && lastUserContent
       ? window.api
           .attachmentPassages(attachmentRefs, lastUserContent, ATTACHMENT_PASSAGES_PER_TURN)
+          .catch(() => null)
+      : null
+
+  // v1.10 project-wide recall: what the project's other chats established,
+  // retrieved by relevance to this message. Main reads the sibling files
+  // itself; ephemeral chats are never on disk and so never surface. Started
+  // here so it overlaps the other embedding work.
+  const siblingIds =
+    project?.recall && lastUserContent
+      ? siblingConversationIds(useAppStore.getState().conversations, convo)
+      : []
+  const projectRecall =
+    siblingIds.length > 0 && lastUserContent
+      ? window.api
+          .projectRecall(siblingIds, lastUserContent, PROJECT_RECALL_PER_TURN)
           .catch(() => null)
       : null
 
@@ -413,6 +443,18 @@ async function runTurn(
       }
     } catch {
       // Memory is a nicety, never a blocker.
+    }
+  }
+
+  if (projectRecall && project) {
+    try {
+      const recalled = await projectRecall
+      if (recalled?.ok && recalled.items.length > 0) {
+        turnContext.push(buildProjectRecallContext(project.name, recalled.items))
+        patch({ projectContext: toProjectContextItems(recalled.items) })
+      }
+    } catch {
+      // Recall is a nicety, never a blocker.
     }
   }
 

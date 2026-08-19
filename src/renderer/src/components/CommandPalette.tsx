@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
+import { useProjects } from '../hooks/useProjects'
+import { setRightPanelCollapsed } from './ChatPanel'
 
 interface CommandItem {
   id: string
@@ -9,7 +11,7 @@ interface CommandItem {
   shortcut?: string
   icon: string
   action: () => void
-  category: 'navigation' | 'actions' | 'settings' | 'conversations'
+  category: 'navigation' | 'actions' | 'settings' | 'conversations' | 'projects'
 }
 
 /**
@@ -29,6 +31,9 @@ export function CommandPalette(): JSX.Element | null {
   const setOnboardingOpen = useAppStore((s) => s.setOnboardingOpen)
 
   const { createConversation, selectConversation } = useConversations()
+  const { createProject, moveConversation } = useProjects()
+  const projects = useAppStore((s) => s.settings?.projects ?? [])
+  const rightPanelCollapsed = useAppStore((s) => s.settings?.rightPanelCollapsed ?? false)
 
   // Close on Escape
   useEffect(() => {
@@ -73,6 +78,42 @@ export function CommandPalette(): JSX.Element | null {
       action: () => { setOnboardingOpen(true); setOpen(false) },
       category: 'settings'
     },
+    {
+      id: 'toggle-chat-panel',
+      label: rightPanelCollapsed ? 'Show Chat Panel' : 'Hide Chat Panel',
+      shortcut: '⌘J',
+      icon: '🗂',
+      action: () => { setRightPanelCollapsed(!rightPanelCollapsed); setOpen(false) },
+      category: 'navigation'
+    },
+    // Projects
+    {
+      id: 'new-project',
+      label: 'New Project',
+      icon: '📁',
+      action: () => {
+        setOpen(false)
+        const name = window.prompt('Project name')
+        if (name !== null) createProject(name)
+      },
+      category: 'projects'
+    },
+    ...projects.map((p) => ({
+      id: `edit-${p.id}`,
+      label: `Project Settings: ${p.name}`,
+      icon: '⚙',
+      action: () => { useAppStore.getState().setProjectEditorId(p.id); setOpen(false) },
+      category: 'projects' as const
+    })),
+    ...(activeConversationId
+      ? projects.map((p) => ({
+          id: `move-${p.id}`,
+          label: `Move Chat to “${p.name}”`,
+          icon: '📁',
+          action: () => { moveConversation(activeConversationId, p.id); setOpen(false) },
+          category: 'projects' as const
+        }))
+      : []),
     // Conversations
     ...conversations.slice(0, 10).map(c => ({
       id: `conv-${c.id}`,
@@ -102,7 +143,7 @@ export function CommandPalette(): JSX.Element | null {
       },
       category: 'actions'
     }
-  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen])
+  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen, projects, rightPanelCollapsed, createProject, moveConversation])
 
   const filteredCommands = useMemo(() => {
     const q = query.toLowerCase().trim()

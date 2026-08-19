@@ -9,6 +9,8 @@ import { EmptyState } from './components/EmptyState'
 import { SettingsModal } from './components/SettingsModal'
 import { OnboardingModal } from './components/OnboardingModal'
 import { CommandPalette } from './components/CommandPalette'
+import { ChatPanel, setRightPanelCollapsed } from './components/ChatPanel'
+import { ProjectModal } from './components/ProjectModal'
 
 export default function App(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
@@ -35,7 +37,8 @@ export default function App(): JSX.Element {
     )
   }, [])
 
-  // Global shortcuts: ⌘N new conversation, ⌘, settings, ⌘B collapse the rail.
+  // Global shortcuts: ⌘N new conversation, ⌘, settings, ⌘B collapse the rail,
+  // ⌘J collapse the chat panel.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey)) return
@@ -52,6 +55,11 @@ export default function App(): JSX.Element {
         const updated = { ...current, sidebarCollapsed: !current.sidebarCollapsed }
         useAppStore.getState().setSettings(updated)
         void window.api.setSettings(updated)
+      } else if (e.key === 'j') {
+        e.preventDefault()
+        const current = useAppStore.getState().settings
+        if (!current) return
+        setRightPanelCollapsed(!current.rightPanelCollapsed)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -96,7 +104,10 @@ export default function App(): JSX.Element {
         <InputBar />
       </main>
 
+      <ChatPanel />
+
       <SettingsModal />
+      <ProjectModal />
       <OnboardingModal />
       <CommandPalette />
     </div>
