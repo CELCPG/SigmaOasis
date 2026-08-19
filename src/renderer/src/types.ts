@@ -688,6 +688,13 @@ export interface ProjectRecallItem {
   score: number
 }
 
+/** v1.10: where a pinned file stands — on disk, in this session's index. */
+export interface ProjectFileStatus {
+  exists: boolean
+  indexed: boolean
+  sizeBytes: number | null
+}
+
 export interface ProjectRecallOutcome {
   ok: boolean
   items: ProjectRecallItem[]
@@ -899,6 +906,13 @@ export interface ResponseStats {
   promptTokens?: number
   completionTokens?: number
   tokensPerSecond?: number
+  /**
+   * v1.10: estimated tokens the project contributed to this turn's prompt —
+   * standing instructions, recalled sibling-chat passages, pinned-file
+   * passages. Estimates (the same estimator the budget uses), so the details
+   * panel can say how much of the window the project is spending.
+   */
+  projectTokens?: { instructions: number; recall: number; files: number }
   /** Time to the first content or reasoning delta. */
   ttftMs: number
   totalMs: number

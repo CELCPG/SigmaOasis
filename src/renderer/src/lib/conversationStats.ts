@@ -16,6 +16,8 @@ export interface ConversationStats {
   roles: string[]
   /** Whether earlier messages have been folded into a summary, and when. */
   compacted: { updatedAt: number } | null
+  /** v1.10: what the project spent on the most recent reply's prompt (estimates), if any. */
+  lastProjectTokens: { instructions: number; recall: number; files: number } | null
 }
 
 /**
@@ -28,6 +30,7 @@ export function conversationStats(c: Conversation): ConversationStats {
   let toolCalls = 0
   let completionTokens = 0
   let lastPromptTokens: number | null = null
+  let lastProjectTokens: ConversationStats['lastProjectTokens'] = null
   let tpsSum = 0
   let tpsCount = 0
   const attachments: ConversationStats['attachments'] = []
@@ -42,6 +45,7 @@ export function conversationStats(c: Conversation): ConversationStats {
     toolCalls += m.toolCalls?.length ?? 0
     if (m.stats) {
       if (typeof m.stats.promptTokens === 'number') lastPromptTokens = m.stats.promptTokens
+      if (m.stats.projectTokens) lastProjectTokens = m.stats.projectTokens
       if (typeof m.stats.completionTokens === 'number') completionTokens += m.stats.completionTokens
       if (typeof m.stats.tokensPerSecond === 'number' && m.stats.tokensPerSecond > 0) {
         tpsSum += m.stats.tokensPerSecond
@@ -66,7 +70,8 @@ export function conversationStats(c: Conversation): ConversationStats {
     avgTokensPerSecond: tpsCount > 0 ? Math.round(tpsSum / tpsCount) : null,
     attachments,
     roles,
-    compacted: c.summary ? { updatedAt: c.summary.updatedAt } : null
+    compacted: c.summary ? { updatedAt: c.summary.updatedAt } : null,
+    lastProjectTokens
   }
 }
 

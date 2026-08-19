@@ -263,6 +263,8 @@ export interface PlanSettings {
 
 import { normalizeProjects, type Project } from './projects'
 import { recallFromConversations, type StoredConversationLike } from './projectRecall'
+import { indexAttachment, isAttachmentIndexed } from './attachmentIndex'
+import { readTextDocument } from './attachments'
 export type { Project, ProjectColor } from './projects'
 
 export interface AppSettings {
@@ -1060,6 +1062,48 @@ export function registerStoreHandlers(): void {
     })
     if (canceled) return []
     return filePaths.map((p) => ({ name: p.split(/[\\/]/).pop() || p, sourcePath: p }))
+  })
+
+  // v1.10 pinned-file status: exists on disk? indexed this session? size. Cheap
+  // stats only — nothing is read here.
+  ipcMain.handle('projects:fileStatus', async (_e, files: { id: string; sourcePath: string }[]) => {
+    const out: Record<string, { exists: boolean; indexed: boolean; sizeBytes: number | null }> = {}
+    for (const f of Array.isArray(files) ? files : []) {
+      const id = String(f?.id ?? '')
+      const sourcePath = String(f?.sourcePath ?? '')
+      let exists = false
+      let sizeBytes: number | null = null
+      try {
+        const st = await fs.stat(sourcePath)
+        exists = st.isFile()
+        sizeBytes = st.size
+      } catch {
+        exists = false
+      }
+      out[id] = { exists, indexed: isAttachmentIndexed(`project-file-${id}`), sizeBytes }
+    }
+    return out
+  })
+
+  // v1.10: (re)index one pinned file now, rather than on first use — the
+  // same read + index path the per-turn retrieval takes. The id prefix
+  // matches projectFileRefs in the renderer.
+  ipcMain.handle('projects:reindexFile', async (_e, file: { id: string; name: string; sourcePath: string }) => {
+    const id = String(file?.id ?? '')
+    const sourcePath = String(file?.sourcePath ?? '')
+    if (!id || !sourcePath) return { ok: false, error: 'No file given.' }
+    try {
+      const doc = await readTextDocument(sourcePath, 8_000_000)
+      const { chunks } = indexAttachment({
+        id: `project-file-${id}`,
+        name: String(file?.name ?? doc.name),
+        text: doc.text,
+        kind: sourcePath.toLowerCase().endsWith('.pdf') ? 'pdf' : 'text'
+      })
+      return { ok: true, chunks, chars: doc.text.length, truncated: doc.truncated }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 
   // Export a rendered Markdown transcript via the native save dialog.

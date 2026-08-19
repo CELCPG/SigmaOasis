@@ -3,9 +3,16 @@ import { useAppStore } from '../stores/appStore'
 import { useProjects } from '../hooks/useProjects'
 import type { ChatMode, Project } from '../types'
 import { PROJECT_ACCENT, PROJECT_COLORS } from '../lib/projects'
+import { useProjectFileStatus } from '../hooks/useProjectFileStatus'
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
 const MODE_LABELS: Record<ChatMode, string> = {
@@ -73,6 +80,24 @@ function ProjectEditor({
 }): JSX.Element {
   const [name, setName] = useState(project.name)
   const [instructions, setInstructions] = useState(project.instructions)
+  const { status: fileStatus, refresh: refreshFileStatus } = useProjectFileStatus(project)
+  const [busyFileId, setBusyFileId] = useState<string | null>(null)
+  const [fileNote, setFileNote] = useState<Record<string, string>>({})
+
+  const reindex = async (f: { id: string; name: string; sourcePath: string }): Promise<void> => {
+    setBusyFileId(f.id)
+    const r: { ok: boolean; chunks?: number; truncated?: boolean; error?: string } = await window.api
+      .projectReindexFile(f)
+      .catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+    setBusyFileId(null)
+    setFileNote((n) => ({
+      ...n,
+      [f.id]: r.ok
+        ? `indexed · ${r.chunks ?? 0} passage${r.chunks === 1 ? '' : 's'}${r.truncated ? ' · long file, opening only' : ''}`
+        : `could not index: ${r.error ?? 'unknown error'}`
+    }))
+    refreshFileStatus()
+  }
 
   const commitName = (): void => {
     const clean = name.trim()
@@ -206,11 +231,32 @@ function ProjectEditor({
                     key={f.id}
                     className="group flex items-center gap-2 rounded-xl bg-black/5 dark:bg-white/5 px-3 py-1.5 text-xs"
                   >
-                    <span className="shrink-0">📄</span>
+                    <span className="shrink-0">{fileStatus[f.id] && !fileStatus[f.id]!.exists ? '⚠' : '📄'}</span>
                     <span className="min-w-0 flex-1 truncate" title={f.sourcePath}>
                       {f.name}
                       <span className="ml-2 text-[10px] text-ink-muted">{f.sourcePath}</span>
+                      <span className="block text-[10px] text-ink-muted">
+                        {fileNote[f.id] ??
+                          (!fileStatus[f.id]
+                            ? '…'
+                            : !fileStatus[f.id]!.exists
+                              ? 'not found at this path — move it back or unpin it'
+                              : `${fileStatus[f.id]!.indexed ? 'indexed this session' : 'indexed on first use'}${
+                                  fileStatus[f.id]!.sizeBytes !== null ? ` · ${formatBytes(fileStatus[f.id]!.sizeBytes!)}` : ''
+                                }`)}
+                      </span>
                     </span>
+                    {fileStatus[f.id]?.exists && (
+                      <button
+                        type="button"
+                        onClick={() => void reindex(f)}
+                        disabled={busyFileId === f.id}
+                        className="rounded px-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+                        title="Read and index this file now (otherwise it happens on the first message that needs it)"
+                      >
+                        {busyFileId === f.id ? '…' : '⟳'}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => onPatch({ files: project.files.filter((x) => x.id !== f.id) })}

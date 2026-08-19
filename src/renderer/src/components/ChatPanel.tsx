@@ -5,6 +5,7 @@ import { useProjects } from '../hooks/useProjects'
 import type { Conversation } from '../types'
 import { PROJECT_ACCENT } from '../lib/projects'
 import { projectInheritanceSummary } from '../lib/projectContext'
+import { useProjectFileStatus } from '../hooks/useProjectFileStatus'
 import { conversationStats, formatTokens, relativeTime } from '../lib/conversationStats'
 import { SessionControls } from './SessionControls'
 import { PanelSection } from './PanelSection'
@@ -155,6 +156,7 @@ function ProjectSection({ conversation }: { conversation: Conversation }): JSX.E
   const projects = useAppStore((s) => s.settings?.projects ?? [])
   const { createProject, moveConversation } = useProjects()
   const current = projects.find((p) => p.id === conversation.projectId) ?? null
+  const missing = useProjectFileStatus(current).missing
 
   const onChange = (value: string): void => {
     if (value === '__new__') {
@@ -202,6 +204,14 @@ function ProjectSection({ conversation }: { conversation: Conversation }): JSX.E
             <span className="block text-ink-muted">
               Inherits: {projectInheritanceSummary(current).join(' · ')}
             </span>
+            {missing.length > 0 && (
+              <span
+                className="block text-amber-600 dark:text-amber-400"
+                title={missing.map((f) => f.sourcePath).join('\n')}
+              >
+                ⚠ {missing.length} pinned file{missing.length === 1 ? '' : 's'} not found on disk
+              </span>
+            )}
           </p>
           <button
             type="button"
@@ -262,6 +272,20 @@ function DetailsSection({ conversation }: { conversation: Conversation }): JSX.E
             title="Prompt tokens the server reported for the last reply — roughly how much of the window this chat fills"
           />
         )}
+        {stats.lastProjectTokens &&
+          stats.lastProjectTokens.instructions + stats.lastProjectTokens.recall + stats.lastProjectTokens.files > 0 && (
+            <Row
+              label="↳ project share"
+              value={`~${formatTokens(
+                stats.lastProjectTokens.instructions + stats.lastProjectTokens.recall + stats.lastProjectTokens.files
+              )} tokens`}
+              title={`Estimated tokens the project added to the last reply's prompt — ${[
+                `instructions ${formatTokens(stats.lastProjectTokens.instructions)}`,
+                `pinned files ${formatTokens(stats.lastProjectTokens.files)}`,
+                `recall ${formatTokens(stats.lastProjectTokens.recall)}`
+              ].join(' · ')}`}
+            />
+          )}
         {stats.completionTokens > 0 && (
           <Row
             label="Generated"

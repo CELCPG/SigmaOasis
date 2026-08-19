@@ -143,6 +143,20 @@ describe('conversationStats', () => {
     assert.deepEqual(s.compacted, { updatedAt: 10 })
   })
 
+  test('the last reply\'s project spend is surfaced; older ones are not', () => {
+    const c: Conversation = {
+      ...convo('s'),
+      messages: [
+        { id: 'u1', role: 'user', content: 'q', createdAt: 1 },
+        { id: 'a1', role: 'assistant', content: 'a', createdAt: 2, stats: { ttftMs: 1, totalMs: 2, projectTokens: { instructions: 50, recall: 0, files: 0 } } },
+        { id: 'u2', role: 'user', content: 'q', createdAt: 3 },
+        { id: 'a2', role: 'assistant', content: 'a', createdAt: 4, stats: { ttftMs: 1, totalMs: 2, projectTokens: { instructions: 50, recall: 120, files: 300 } } }
+      ]
+    }
+    assert.deepEqual(conversationStats(c).lastProjectTokens, { instructions: 50, recall: 120, files: 300 })
+    assert.equal(conversationStats(convo('t')).lastProjectTokens, null)
+  })
+
   test('formatters', () => {
     assert.equal(formatTokens(999), '999')
     assert.equal(formatTokens(2400), '2.4k')

@@ -20,6 +20,7 @@ import type {
   MemoryStats,
   ModelInfo,
   NetworkActivityEntry,
+  ProjectFileStatus,
   ProjectRecallOutcome,
   ResearchIndexStats,
   SttStatus,
@@ -215,6 +216,17 @@ const api = {
     query: string,
     topK: number
   ): Promise<ProjectRecallOutcome> => ipcRenderer.invoke('projects:recall', conversationIds, query, topK),
+  /** Exists / indexed / size for each pinned file (stat only). */
+  projectFileStatus: (
+    files: { id: string; sourcePath: string }[]
+  ): Promise<Record<string, ProjectFileStatus>> => ipcRenderer.invoke('projects:fileStatus', files),
+  /** Read and index one pinned file now (the per-turn path, taken early). */
+  projectReindexFile: (file: {
+    id: string
+    name: string
+    sourcePath: string
+  }): Promise<{ ok: boolean; chunks?: number; chars?: number; truncated?: boolean; error?: string }> =>
+    ipcRenderer.invoke('projects:reindexFile', file),
   /** Native picker returning paths only — nothing is read. */
   projectPickFiles: (): Promise<{ name: string; sourcePath: string }[]> =>
     ipcRenderer.invoke('projects:pickFiles'),

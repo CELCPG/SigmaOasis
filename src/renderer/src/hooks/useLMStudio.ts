@@ -180,10 +180,13 @@ async function runTurn(
   // in the per-turn context.
   const project =
     (convo.projectId && store.settings?.projects.find((p) => p.id === convo.projectId)) || null
+  const projectBlock = projectInstructionsBlock(project)
   let systemPrompt = withToolCallPreamble(
-    withGrounding(slot.systemPrompt + projectInstructionsBlock(project), new Date(), { offline }),
+    withGrounding(slot.systemPrompt + projectBlock, new Date(), { offline }),
     slot.modelId
   )
+  // What the project spent this turn, for the details panel (estimates).
+  const projectTokens = { instructions: estimateTokens(projectBlock), recall: 0, files: 0 }
 
   /** The app's own additions for this turn, appended to the turn's user message. */
   const turnContext: string[] = []
@@ -450,7 +453,9 @@ async function runTurn(
     try {
       const recalled = await projectRecall
       if (recalled?.ok && recalled.items.length > 0) {
-        turnContext.push(buildProjectRecallContext(project.name, recalled.items))
+        const block = buildProjectRecallContext(project.name, recalled.items)
+        turnContext.push(block)
+        projectTokens.recall = estimateTokens(block)
         patch({ projectContext: toProjectContextItems(recalled.items) })
       }
     } catch {
@@ -464,6 +469,9 @@ async function runTurn(
       if (recalled?.ok) {
         const block = buildAttachmentContext(recalled.passages, recalled.notes)
         if (block) turnContext.push(block)
+        projectTokens.files = recalled.passages
+          .filter((p) => p.attachmentId.startsWith('project-file-'))
+          .reduce((n, p) => n + estimateTokens(p.text), 0)
         if (recalled.passages.length > 0) {
           patch({ attachmentContext: toAttachmentContextItems(recalled.passages) })
         }
@@ -643,6 +651,7 @@ async function runTurn(
     const stats: ResponseStats = {
       ttftMs: firstTtftMs ?? 0,
       totalMs: Date.now() - turnStartedAt,
+      ...(project ? { projectTokens } : {}),
       ...(sawUsage
         ? {
             promptTokens,

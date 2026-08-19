@@ -4,6 +4,7 @@ import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
 import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
 import { conversationContextUsage } from '../lib/contextBudget'
+import { projectInstructionsBlock } from '../lib/projectContext'
 import { thinkHarderNote } from '../lib/deliberation'
 import type { Attachment } from '../types'
 
@@ -59,6 +60,7 @@ export function InputBar(): JSX.Element {
    * unknown capability stays silent rather than crying wolf.
    */
   const activeConvo = conversations.find((c) => c.id === activeConversationId)
+  const projects = settings?.projects ?? []
   const activeSlot =
     settings?.models.find((m) => m.id === activeConvo?.activeModelSlotId && m.enabled) ??
     settings?.models.find((m) => m.enabled)
@@ -125,10 +127,11 @@ export function InputBar(): JSX.Element {
         ? conversationContextUsage(
             activeConvo,
             activeSlot,
-            availableModels.find((m) => m.id === activeSlot?.modelId)
+            availableModels.find((m) => m.id === activeSlot?.modelId),
+            projectInstructionsBlock(projects.find((p) => p.id === activeConvo.projectId))
           )
         : null,
-    [activeConvo, activeSlot, availableModels]
+    [activeConvo, activeSlot, availableModels, projects]
   )
 
   // Models can be steered by anything they read (search results, documents,

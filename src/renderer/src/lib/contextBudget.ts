@@ -75,13 +75,16 @@ export interface ContextUsage {
 export function conversationContextUsage(
   conversation: Conversation,
   slot: ModelConfig | undefined,
-  catalogEntry: ModelInfo | undefined
+  catalogEntry: ModelInfo | undefined,
+  /** v1.10: text that rides the system prompt beyond the role's own (project instructions). */
+  extraSystemText = ''
 ): ContextUsage | null {
   const total = budgetContextLength(slot, catalogEntry)
   if (!total) return null
   const used =
     conversation.messages.reduce((n, m) => n + estimateMessageTokens(m), 0) +
     estimateTokens(slot?.systemPrompt ?? '') +
+    estimateTokens(extraSystemText) +
     estimateTokens(conversation.summary?.text ?? '')
   return { used, total, ratio: used / total }
 }
