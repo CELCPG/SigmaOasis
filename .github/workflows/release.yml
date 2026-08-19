@@ -27,6 +27,14 @@ name: Release
 # v1.6.0 two draft releases with the assets split across them; the long comment
 # on `publish` records why.
 
+# On action majors: these are pinned to the first majors that actually *run* on
+# Node 24 (checkout v5+, setup-node v5+, upload-artifact v6+, download-artifact
+# v7+), taken at current latest. v5 across the board is the obvious-looking bump
+# and is not enough — upload-artifact v5 and download-artifact v5/v6 advertised
+# "Node 24 support" while still defaulting their own runtime to Node 20, so the
+# deprecation warning survives it. `node-version: 20` below is unrelated: that is
+# the toolchain the build runs on, not the runtime the action itself uses.
+
 on:
   push:
     tags: ['v*']
@@ -59,7 +67,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # merge-base needs real history; checkout's default shallow fetch has
           # none, and the ancestry test would fail for the wrong reason.
@@ -160,9 +168,9 @@ jobs:
           fi
           echo "Notary credentials accepted by Apple for team $APPLE_TEAM_ID."
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -197,7 +205,7 @@ jobs:
           DEBUG: electron-notarize*
 
       - name: Hand the signed DMGs to the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: installers-mac
           if-no-files-found: error
@@ -215,9 +223,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -234,7 +242,7 @@ jobs:
         run: npx electron-builder --win --publish never
 
       - name: Hand the installer to the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: installers-win
           if-no-files-found: error
@@ -252,9 +260,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -273,7 +281,7 @@ jobs:
         run: npx electron-builder --linux --publish never
 
       - name: Hand the AppImage to the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: installers-linux
           if-no-files-found: error
@@ -312,10 +320,13 @@ jobs:
     steps:
       # Checkout precedes the artifact download: actions/checkout cleans the
       # workspace and would eat an assets/ directory that arrived first.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
+      # v8 defaults `digest-mismatch: error`, so a corrupted transfer fails the
+      # job instead of quietly attaching a bad installer to the release. That is
+      # the behavior we want here; do not soften it to `warn`.
       - name: Collect every platform's installers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: installers-*
           merge-multiple: true
@@ -439,7 +450,7 @@ jobs:
     steps:
       # GITHUB_TOKEN cannot push outside this repo; HOMEBREW_TAP_TOKEN is a PAT
       # with write access to CELCPG/homebrew-tap (see RELEASING.md).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: CELCPG/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
