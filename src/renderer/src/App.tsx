@@ -35,7 +35,7 @@ export default function App(): JSX.Element {
     )
   }, [])
 
-  // Global shortcuts: ⌘N new conversation, ⌘, settings.
+  // Global shortcuts: ⌘N new conversation, ⌘, settings, ⌘B collapse the rail.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey)) return
@@ -45,6 +45,13 @@ export default function App(): JSX.Element {
       } else if (e.key === ',') {
         e.preventDefault()
         useAppStore.getState().setSettingsOpen(true)
+      } else if (e.key === 'b') {
+        e.preventDefault()
+        const current = useAppStore.getState().settings
+        if (!current) return
+        const updated = { ...current, sidebarCollapsed: !current.sidebarCollapsed }
+        useAppStore.getState().setSettings(updated)
+        void window.api.setSettings(updated)
       }
     }
     window.addEventListener('keydown', onKey)

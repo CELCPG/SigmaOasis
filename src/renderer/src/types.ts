@@ -423,6 +423,8 @@ export interface AppSettings {
   reasoningDisplay: 'collapsed' | 'expanded' | 'hidden'
   /** Show tokens/sec and time-to-first-token under each reply. */
   showResponseStats: boolean
+  /** v1.9.2: conversation rail collapsed to an icon strip (⌘B). */
+  sidebarCollapsed: boolean
   /**
    * What happens when a conversation outgrows the model's context window.
    * 'compact' summarizes the dropped span and carries it forward; 'trim'

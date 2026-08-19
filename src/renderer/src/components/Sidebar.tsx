@@ -21,6 +21,20 @@ export function Sidebar(): JSX.Element {
   const { createConversation, selectConversation, removeConversation, renameConversation } =
     useConversations()
   const { status: updateStatus, install: installUpdate } = useUpdates()
+  const settings = useAppStore((s) => s.settings)
+  const collapsed = settings?.sidebarCollapsed ?? false
+
+  /**
+   * Persisted immediately rather than through the settings modal's draft: the
+   * rail is a direct manipulation, and a layout that forgets itself on restart
+   * is the kind of small betrayal people stop using a control over.
+   */
+  const setCollapsed = (next: boolean): void => {
+    if (!settings) return
+    const updated = { ...settings, sidebarCollapsed: next }
+    useAppStore.getState().setSettings(updated)
+    void window.api.setSettings(updated)
+  }
 
   const [query, setQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -61,6 +75,65 @@ export function Sidebar(): JSX.Element {
     setEditingId(null)
   }
 
+  const dotClass =
+    connection === 'online'
+      ? 'bg-green-500 shadow-[0_0_8px_rgba(74,222,128,0.8)] animate-pulse'
+      : connection === 'connecting'
+        ? 'bg-amber-500'
+        : 'bg-red-500'
+
+  if (collapsed) {
+    // The rail keeps what someone collapses the sidebar *to keep*: a way back,
+    // a new chat, and whether the model is reachable. Everything else is one
+    // click away through the command palette, which search already routes to.
+    return (
+      <aside className="relative z-10 m-3 mr-0 flex w-[52px] shrink-0 flex-col items-center gap-2 py-4 glass-panel">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          title="Expand conversations (⌘B)"
+          aria-label="Expand conversations"
+          aria-expanded={false}
+        >
+          »
+        </button>
+        <Logo size={22} />
+        <button
+          type="button"
+          onClick={() => createConversation()}
+          disabled={streaming}
+          className="mt-1 rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-sm text-accent-ink shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
+          title="New conversation (⌘N)"
+          aria-label="New conversation"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          title="Search conversations"
+          aria-label="Search conversations"
+        >
+          🔍
+        </button>
+        <div className="mt-auto flex flex-col items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${dotClass}`} title={`LM Studio: ${connection}`} />
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+            title="Settings (⌘,)"
+            aria-label="Settings"
+          >
+            ⚙️
+          </button>
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <aside className="relative z-10 m-3 mr-0 flex w-[280px] shrink-0 flex-col glass-panel">
       <div className="flex items-center gap-2 px-4 pb-1 pt-4">
@@ -84,6 +157,16 @@ export function Sidebar(): JSX.Element {
             title="New conversation (⌘N)"
           >
             + New
+          </button>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="rounded-lg px-1.5 py-1 text-xs text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+            title="Collapse conversations (⌘B)"
+            aria-label="Collapse conversations"
+            aria-expanded={true}
+          >
+            «
           </button>
         </div>
       </div>
@@ -210,16 +293,7 @@ export function Sidebar(): JSX.Element {
       )}
 
       <div className="flex items-center gap-2 border-t border-black/10 dark:border-white/10 p-4">
-        <span
-          className={`h-2 w-2 rounded-full ${
-            connection === 'online'
-              ? 'bg-green-500 shadow-[0_0_8px_rgba(74,222,128,0.8)] animate-pulse'
-              : connection === 'connecting'
-                ? 'bg-amber-500'
-                : 'bg-red-500'
-          }`}
-          title={`LM Studio: ${connection}`}
-        />
+        <span className={`h-2 w-2 rounded-full ${dotClass}`} title={`LM Studio: ${connection}`} />
         <span className="text-xs text-neutral-500">
           {connection === 'online' ? 'LM Studio connected' : connection}
         </span>

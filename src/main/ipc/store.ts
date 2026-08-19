@@ -289,6 +289,12 @@ export interface AppSettings {
   /** Show tokens/sec and time-to-first-token under each reply. */
   showResponseStats: boolean
   /**
+   * v1.9.2: the conversation rail is collapsed to an icon strip. Persisted
+   * rather than per-session because a window someone deliberately made narrow
+   * should still be narrow tomorrow.
+   */
+  sidebarCollapsed: boolean
+  /**
    * What happens when a conversation outgrows the model's context window.
    * 'compact' summarizes the dropped span and carries it forward; 'trim'
    * silently drops it, which is what every version before 0.8.2 did.
@@ -484,6 +490,7 @@ function defaultSettings(): AppSettings {
     hideToolCalls: false,
     reasoningDisplay: 'collapsed',
     showResponseStats: true,
+    sidebarCollapsed: false,
     contextManagement: 'compact',
     secondOpinion: {
       enabled: false,
@@ -698,6 +705,7 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       ? (settings.reasoningDisplay as AppSettings['reasoningDisplay'])
       : 'collapsed',
     showResponseStats: settings.showResponseStats !== false,
+    sidebarCollapsed: Boolean(settings.sidebarCollapsed),
     contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact',
     secondOpinion: {
       enabled: Boolean(settings.secondOpinion?.enabled),
