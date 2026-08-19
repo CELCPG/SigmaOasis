@@ -7,6 +7,7 @@ import {
   codeReadsData,
   summarizeMultiTurn,
   summarizeLedger,
+  summarizeProjectRecall,
   summarizeReasoning,
   citesSource,
   measurementsIn,
@@ -413,6 +414,118 @@ describe('reasoning suite (v1.9.1)', () => {
       }
       for (const d of fx.distractors ?? []) {
         assert.ok(!new RegExp(d, 'i').test(fx.canonical!), `${f}: distractor /${d}/ matches the CORRECT answer`)
+      }
+    }
+  })
+})
+
+describe('project-wide recall suite (v1.11)', () => {
+  const q = (
+    kind: 'recall' | 'control',
+    hit: boolean,
+    extra: Partial<{ injected: boolean; decoysStated: string[]; error: string; mode: 'hybrid' | 'keyword' }> = {}
+  ) => ({
+    prompt: 'p',
+    kind,
+    hit,
+    missing: [],
+    ms: 4000,
+    injected: extra.injected ?? false,
+    from: [],
+    decoysStated: extra.decoysStated ?? [],
+    ...(extra.error ? { error: extra.error } : {}),
+    ...(extra.mode ? { mode: extra.mode } : {})
+  })
+
+  test('recall and control questions are counted separately in each arm', () => {
+    const s = summarizeProjectRecall([
+      {
+        file: 'a',
+        project: 'P',
+        recall: [q('recall', true, { injected: true }), q('recall', true, { injected: true }), q('control', true)],
+        bare: [q('recall', false), q('recall', true), q('control', true)]
+      }
+    ])
+    assert.deepEqual(s.recall.recallAnswered, { hit: 2, of: 2 })
+    assert.deepEqual(s.bare.recallAnswered, { hit: 1, of: 2 })
+    assert.deepEqual(s.recall.controlAnswered, { hit: 1, of: 1 })
+  })
+
+  test('a control reply that states a project term counts as pulled off topic', () => {
+    const s = summarizeProjectRecall([
+      {
+        file: 'a',
+        project: 'P',
+        recall: [q('control', true, { decoysStated: ['acme'] }), q('control', true)],
+        bare: [q('control', true), q('control', true)]
+      }
+    ])
+    assert.deepEqual(s.recall.controlDistracted, { hit: 1, of: 2 })
+    assert.deepEqual(s.bare.controlDistracted, { hit: 0, of: 2 })
+  })
+
+  test('retrieval is judged on its own: fired where it should, quiet where it should', () => {
+    const s = summarizeProjectRecall([
+      {
+        file: 'a',
+        project: 'P',
+        recall: [
+          q('recall', true, { injected: true, mode: 'hybrid' }),
+          q('recall', false, { injected: false, mode: 'hybrid' }),
+          q('control', true, { injected: false, mode: 'hybrid' }),
+          q('control', true, { injected: true, mode: 'hybrid' })
+        ],
+        bare: []
+      }
+    ])
+    assert.deepEqual(s.retrieval.firedOnRecall, { hit: 1, of: 2 })
+    assert.deepEqual(s.retrieval.quietOnControl, { hit: 1, of: 2 })
+    assert.equal(s.retrieval.mode, 'hybrid')
+  })
+
+  test('errored questions are excluded, not failed', () => {
+    const s = summarizeProjectRecall([
+      { file: 'a', project: 'P', recall: [q('recall', false, { error: 'fetch failed' }), q('recall', true, { injected: true })], bare: [] }
+    ])
+    assert.deepEqual(s.recall.recallAnswered, { hit: 1, of: 1 })
+  })
+
+  test('the project fixtures are well-formed: sibling chats, recall and control questions', () => {
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'projects')
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
+    assert.ok(files.length >= 3)
+    for (const f of files) {
+      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as {
+        project?: string
+        siblings?: { title?: string; turns?: [string, string][] }[]
+        questions?: { kind?: string; expect?: unknown[]; mustInclude?: string[]; decoys?: string[]; prompt?: string }[]
+      }
+      assert.ok(fx.project, `${f}: needs a project name`)
+      assert.ok((fx.siblings ?? []).length >= 2, `${f}: needs at least two sibling chats`)
+      for (const sib of fx.siblings ?? []) {
+        assert.ok(sib.title, `${f}: every sibling chat needs a title — it is the citation`)
+        assert.ok((sib.turns ?? []).length >= 1, `${f}: sibling "${sib.title}" has no turns`)
+      }
+      const qs = fx.questions ?? []
+      assert.ok(qs.some((x) => x.kind === 'recall'), `${f}: needs recall questions`)
+      assert.ok(qs.some((x) => x.kind === 'control'), `${f}: needs control questions — harm is the half that matters`)
+      for (const x of qs) {
+        // Unscoreable questions pass by default in a naive runner; the runner
+        // refuses them, and so does this.
+        assert.ok(
+          (x.expect ?? []).length > 0 || (x.mustInclude ?? []).length > 0,
+          `${f}: question "${x.prompt}" has no expectation and could never be scored`
+        )
+        if (x.kind === 'control') {
+          assert.ok((x.decoys ?? []).length > 0, `${f}: control "${x.prompt}" needs decoys to detect distraction`)
+          // A decoy that matches the correct answer would report distraction
+          // for a right answer.
+          for (const d of x.decoys ?? []) {
+            for (const m of x.mustInclude ?? []) {
+              assert.ok(!m.toLowerCase().includes(d.toLowerCase()), `${f}: decoy "${d}" overlaps required string "${m}"`)
+            }
+          }
+        }
       }
     }
   })

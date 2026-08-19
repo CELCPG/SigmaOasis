@@ -115,18 +115,22 @@ describe('recallFromConversations', () => {
   })
 
   test('re-indexes only when updatedAt moves', async () => {
-    const live = convo('live', 'Live chat', [['q', filler.repeat(10) + 'The budget is four thousand dollars.' + filler.repeat(10)]])
+    // Two content words, because one incidental match is deliberately not
+    // enough to admit a passage (MIN_SELECTIVE_TERMS) — this test is about
+    // cache invalidation, not about the gate.
+    const query = 'what is the approved freight budget'
+    const live = convo('live', 'Live chat', [['q', filler.repeat(10) + 'The approved freight budget is four thousand dollars.' + filler.repeat(10)]])
     const loadLive = async (): Promise<StoredConversationLike> => live
-    let out = await recall.recallFromConversations(loadLive, ['live'], 'what is the budget', 1)
+    let out = await recall.recallFromConversations(loadLive, ['live'], query, 1)
     assert.match(out.items[0]!.text, /four thousand/)
 
     // Same updatedAt: the index is reused, so new content is not yet visible.
-    live.messages.push({ role: 'user', content: 'update' }, { role: 'assistant', content: filler.repeat(10) + 'The budget was raised to nine thousand dollars.' + filler.repeat(10) })
-    out = await recall.recallFromConversations(loadLive, ['live'], 'what is the budget', 2)
+    live.messages.push({ role: 'user', content: 'update' }, { role: 'assistant', content: filler.repeat(10) + 'The approved freight budget was raised to nine thousand dollars.' + filler.repeat(10) })
+    out = await recall.recallFromConversations(loadLive, ['live'], query, 2)
     assert.ok(!out.items.some((i) => /nine thousand/.test(i.text)))
 
     live.updatedAt = 2
-    out = await recall.recallFromConversations(loadLive, ['live'], 'what is the budget', 2)
+    out = await recall.recallFromConversations(loadLive, ['live'], query, 2)
     assert.ok(out.items.some((i) => /nine thousand/.test(i.text)))
   })
 

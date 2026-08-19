@@ -22,7 +22,7 @@
  *   LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>
  *   EVAL_SUITES=quant,deliberate   pick suites (default: library,quant,deliberate;
  *                                  'multiturn' — v1.8 sessions vs stateless — and
- *                                  'ledger' — v1.9 recall of established facts — are opt-in)
+ *                                  'ledger' — v1.9 recall of established facts — and\n *                                  'projects' — v1.11 recall across a project's chats — are opt-in)
  *   EVAL_CASES=1-5                 1-based inclusive slice, per suite
  *   LMSTUDIO_BASE_URL=…            default http://127.0.0.1:1234/v1
  *
@@ -880,6 +880,148 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
   return results
 }
 
+
+interface ProjectFixture {
+  project: string
+  siblings: { title: string; turns: [string, string][] }[]
+  questions: {
+    prompt: string
+    kind: 'recall' | 'control'
+    expect?: { label: string; value: number; tolerance?: number }[]
+    mustInclude?: string[]
+    /** Control questions: project terms whose appearance means the model was pulled off topic. */
+    decoys?: string[]
+  }[]
+}
+
+/**
+ * v1.11: project-wide recall, measured. Each fixture is a project of sibling
+ * chats holding facts, and a set of questions asked in a *fresh* chat in that
+ * project — which is the real shape of the feature: you open a new chat and
+ * ask something the project already knows.
+ *
+ * Two arms, identical but for one thing: the recall arm runs the app's own
+ * retrieval over the sibling transcripts and puts the passages on the turn
+ * exactly as the app builds them; the bare arm does not. The delta on `recall`
+ * questions is whether the feature works.
+ *
+ * The `control` questions are the half that matters more. Their answers are
+ * nowhere in the siblings — arithmetic, a definition — so a *good* result is
+ * the gate staying shut and the reply being unchanged. Injecting other
+ * conversations into a small model's context is exactly the failure
+ * MEMORY_SCORE_FLOOR exists to prevent, and a feature that lifts recall while
+ * dragging unrelated answers off topic is not a win.
+ *
+ * Retrieval is also scored on its own, before the model gets a say: how often
+ * the gate fired on a recall question, and how often it stayed quiet on a
+ * control. Those two numbers judge the ranking without the model's competence
+ * in the way.
+ */
+async function runProjectRecallSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').ProjectRecallCaseResult[]> {
+  const { scoreQuantitative } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { recallFromConversations, resetProjectRecallCache } = require('../src/main/ipc/projectRecall') as typeof import('../src/main/ipc/projectRecall')
+  const { buildProjectRecallContext, PROJECT_RECALL_PER_TURN } = require('../src/renderer/src/lib/projectContext') as typeof import('../src/renderer/src/lib/projectContext')
+
+  const PROJECTS_DIR = join(REPO_ROOT, 'test', 'fixtures', 'projects')
+  const fixtures = slice(loadJson<ProjectFixture>(PROJECTS_DIR))
+  const results: import('../src/renderer/src/lib/answerEval').ProjectRecallCaseResult[] = []
+
+  for (const [i, fx] of fixtures.entries()) {
+    // The sibling chats, in the shape the main process reads off disk. The
+    // loader is fed from the fixture rather than from real files: the code
+    // under test is the ranking, and a temp directory would only be testing fs.
+    const siblings = fx.siblings.map((sib, si) => ({
+      id: `sib${si}`,
+      title: sib.title,
+      updatedAt: si + 1,
+      messages: sib.turns.flatMap(([q, a]) => [
+        { role: 'user' as const, content: q },
+        { role: 'assistant' as const, content: a, roleName: 'Assistant' }
+      ])
+    }))
+    const load = async (id: string): Promise<(typeof siblings)[number] | null> =>
+      siblings.find((s) => s.id === id) ?? null
+    const ids = siblings.map((s) => s.id)
+
+    const caseOut: import('../src/renderer/src/lib/answerEval').ProjectRecallCaseResult = {
+      file: fx.file,
+      project: fx.project,
+      recall: [],
+      bare: []
+    }
+    console.log(`  [${i + 1}/${fixtures.length}] ${fx.file} — ${fx.project} (${siblings.length} sibling chats)`)
+
+    for (const arm of ['recall', 'bare'] as const) {
+      // Each arm starts from a cold index, so neither inherits the other's
+      // embedded chunks and the per-question timing means the same thing.
+      resetProjectRecallCache()
+
+      for (const q of slice(fx.questions)) {
+        const started = Date.now()
+        const out: import('../src/renderer/src/lib/answerEval').ProjectRecallQuestionResult = {
+          prompt: q.prompt,
+          kind: q.kind,
+          hit: false,
+          missing: [],
+          ms: 0,
+          injected: false,
+          from: [],
+          decoysStated: []
+        }
+        try {
+          const blocks: string[] = []
+          if (arm === 'recall') {
+            const recalled = await recallFromConversations(load, ids, q.prompt, PROJECT_RECALL_PER_TURN)
+            out.mode = recalled.mode
+            if (recalled.items.length > 0) {
+              const block = buildProjectRecallContext(fx.project, recalled.items)
+              blocks.push(block)
+              out.injected = true
+              out.block = block
+              out.from = [...new Set(recalled.items.map((it) => it.title))]
+            }
+          }
+          const context = buildTurnContext(blocks)
+          const messages: Msg[] = [
+            { role: 'system', content: withGrounding(PERSONA) },
+            { role: 'user', content: `${q.prompt}${context ?? ''}` }
+          ]
+          const { content } = await complete(model, messages)
+          out.reply = content
+          const lower = content.toLowerCase()
+
+          const quant = q.expect && q.expect.length > 0 ? scoreQuantitative(content, q.expect) : null
+          const missingStrings = (q.mustInclude ?? []).filter((m) => !lower.includes(m.toLowerCase()))
+          out.missing = [...(quant?.missing ?? []), ...missingStrings]
+          // A fixture with no expectation at all cannot be scored, and must not
+          // pass by default — a silent pass is worse than a visible gap.
+          if (!quant && (q.mustInclude ?? []).length === 0) {
+            out.missing.push('no expectation defined')
+            out.hit = false
+          } else {
+            out.hit = out.missing.length === 0
+          }
+          out.decoysStated = (q.decoys ?? []).filter((d) => lower.includes(d.toLowerCase()))
+        } catch (err) {
+          out.error = err instanceof Error ? err.message : String(err)
+        }
+        out.ms = Date.now() - started
+        caseOut[arm].push(out)
+        const mark = out.error ? '!' : out.hit ? '✓' : '✗'
+        const inj = arm === 'recall' ? (out.injected ? ` ⊕${out.from.length}` : ' ⊘') : ''
+        console.log(
+          `      ${arm.padEnd(6)} ${mark} ${q.kind.padEnd(7)}${inj} ${(out.ms / 1000).toFixed(1)}s` +
+            (out.decoysStated.length ? ` · stated ${out.decoysStated.join(',')}` : '') +
+            (out.error ? ` · ${out.error.slice(0, 60)}` : out.missing.length ? ` · missing ${out.missing.join(', ')}` : '')
+        )
+      }
+    }
+    results.push(caseOut)
+  }
+  return results
+}
+
 async function runQuantSuite(
   model: string,
   arms: { workbench: boolean; deliberate: boolean }
@@ -1029,7 +1171,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -1253,6 +1395,37 @@ async function main(): Promise<void> {
       report.ledger = { passes: lgPasses, stability }
     } else {
       report.ledger = { summary: s, runs: lgPasses[0].runs }
+    }
+  }
+
+  if (want.includes('projects')) {
+    console.log('project-wide recall (recall vs bare, facts living in a sibling chat)')
+    const { summarizeProjectRecall, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const prPasses: { runs: Awaited<ReturnType<typeof runProjectRecallSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      prPasses.push({ runs: await runProjectRecallSuite(model) })
+    }
+    const s = summarizeProjectRecall(prPasses.flatMap((p) => p.runs))
+    const line = (label: string, a: typeof s.recall): string =>
+      `  ${label.padEnd(6)} recall-question ${a.recallAnswered.hit}/${a.recallAnswered.of} · control ${a.controlAnswered.hit}/${a.controlAnswered.of}` +
+      ` · control pulled off topic ${a.controlDistracted.hit}/${a.controlDistracted.of} · ${a.secondsPerQuestion.toFixed(1)} s/question`
+    console.log('\n' + line('recall', s.recall) + '\n' + line('bare', s.bare))
+    console.log(
+      `  retrieval (${s.retrieval.mode}): fired on ${s.retrieval.firedOnRecall.hit}/${s.retrieval.firedOnRecall.of} recall questions · stayed quiet on ${s.retrieval.quietOnControl.hit}/${s.retrieval.quietOnControl.of} controls\n`
+    )
+    if (passesWanted > 1) {
+      const stability = {
+        recall: stabilityAcrossPasses(prPasses.map((p) => p.runs.flatMap((r) => r.recall.filter((q) => q.kind === 'recall').map((q, i) => ({ file: `${r.file}#q${i + 1}`, pass: q.error ? null : q.hit }))))),
+        bare: stabilityAcrossPasses(prPasses.map((p) => p.runs.flatMap((r) => r.bare.filter((q) => q.kind === 'recall').map((q, i) => ({ file: `${r.file}#q${i + 1}`, pass: q.error ? null : q.hit })))))
+      }
+      for (const arm of ['recall', 'bare'] as const) {
+        const st = stability[arm]
+        console.log(`  ${arm.padEnd(6)} across ${passesWanted} passes: [${st.perPass.join(', ')}] · median ${st.median} · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.projects = { passes: prPasses, stability }
+    } else {
+      report.projects = { summary: s, runs: prPasses[0].runs }
     }
   }
 

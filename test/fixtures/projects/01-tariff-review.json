@@ -1,0 +1,56 @@
+{
+  "project": "Q3 tariff review",
+  "siblings": [
+    {
+      "title": "Tariff impact on margins",
+      "turns": [
+        ["How do the new tariffs hit us?", "I worked it through against the landed-cost model. The Section 301 tariff adds 25% to landed cost on the Shenzhen SKUs, which drops gross margin on that line from 41% to 33%. The other two lines are unaffected because they ship from Vietnam."],
+        ["Is that before or after the freight change?", "Before. That 33% figure holds freight at the old rate, so it is the optimistic case."]
+      ]
+    },
+    {
+      "title": "Freight and logistics planning",
+      "turns": [
+        ["What did we land on for Q3 freight?", "The approved Q3 freight budget is 48000 dollars, split 60/40 between ocean and air. Ocean is the bulk of it; air is reserved for the two SKUs that stock out fastest."],
+        ["Any risk to that number?", "The main risk is a peak-season surcharge in September, which we have not budgeted for."]
+      ]
+    },
+    {
+      "title": "Competitor pricing scan",
+      "turns": [
+        ["What did the scan turn up?", "Acme cut their list price by 8% in July. Globex held steady. Neither has announced a tariff surcharge yet."],
+        ["Did Acme explain the cut?", "No public explanation. It coincided with their new distribution deal."]
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "prompt": "Remind me what the tariff did to gross margin on the affected line — what did it fall to?",
+      "kind": "recall",
+      "expect": [{ "label": "gross margin after", "value": 33, "tolerance": 0.5 }]
+    },
+    {
+      "prompt": "What is the approved Q3 freight budget, in dollars?",
+      "kind": "recall",
+      "expect": [{ "label": "freight budget", "value": 48000, "tolerance": 1 }]
+    },
+    {
+      "prompt": "Which competitor cut their list price, and by how much?",
+      "kind": "recall",
+      "mustInclude": ["acme"],
+      "expect": [{ "label": "price cut percent", "value": 8, "tolerance": 0.5 }]
+    },
+    {
+      "prompt": "Unrelated to anything above: what is 15% of 200? Answer with the number.",
+      "kind": "control",
+      "expect": [{ "label": "answer", "value": 30, "tolerance": 0.01 }],
+      "decoys": ["shenzhen", "acme", "globex", "48000", "48,000", "section 301"]
+    },
+    {
+      "prompt": "In one sentence, and in general terms, what does the accounting term 'accrual' mean?",
+      "kind": "control",
+      "mustInclude": ["accrual"],
+      "decoys": ["shenzhen", "acme", "globex", "48,000", "section 301", "tariff"]
+    }
+  ]
+}

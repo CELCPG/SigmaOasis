@@ -10,7 +10,9 @@ import {
 
 /**
  * v1.10 project-wide recall: a chat in a project can recall what the project's
- * *other* chats established.
+ * *other* chats established. Measured in v1.11 (docs/evals.md): 7/8 against a
+ * bare arm's 1/8, with retrieval scored separately from the answer — which is
+ * how the gate below was found to be admitting everything.
  *
  * The first cut indexed each sibling chat as its own page in the research
  * index and merged the per-page results. That could not rank chats against
@@ -30,9 +32,12 @@ import {
  *   research index, within a per-query budget; already-embedded chunks are
  *   free, so the cost amortizes to the new material.
  * - BM25 and cosine are fused by reciprocal rank across the whole corpus,
- *   gated so a passage rides only on lexical evidence or a cosine above the
- *   memory floor (a chat with nothing to say about the message contributes
- *   nothing), then MMR trims near-duplicates.
+ *   then MMR trims near-duplicates.
+ * - Admission is separate from ranking, and is what keeps a chat with nothing
+ *   to say about the message from contributing anyway: a passage rides on two
+ *   selective shared terms, or on a cosine that clears this corpus's own mean
+ *   by a margin. Both rules exist because the v1.11 eval caught the first
+ *   version admitting every passage for every question — see docs/evals.md.
  *
  * The main process reads the sibling conversations from their JSON files
  * itself — the renderer sends ids, not transcripts. Ephemeral chats are never
@@ -86,11 +91,83 @@ const MAX_EMBED_CHUNKS = 300
 /** After an embedding failure, stay keyword-only this long rather than paying a timeout per turn. */
 const EMBED_RETRY_COOLDOWN_MS = 60_000
 /**
- * A passage with no lexical overlap rides only if the embedding says it is
- * about the query. Same floor as long-term memory (memory.ts): below it the
- * model is saying "nothing stored is actually about this".
+ * Semantic admission. An absolute floor alone does not work, and the v1.11
+ * eval shows why: with nomic-embed the *baseline* similarity between a query
+ * and arbitrary project text is ~0.54, so the 0.35 floor this started with
+ * (borrowed from memory.ts) admitted every passage for every question —
+ * including "what is 15% of 200?". Measured over the eval fixtures:
+ *
+ *   control questions   cosine 0.485-0.584   over corpus mean by 0.023-0.047
+ *   recall questions    cosine 0.692-0.851   over corpus mean by 0.095-0.196
+ *
+ * The absolute numbers are model-dependent; the *margin over this corpus's
+ * own mean* is far less so, because it cancels whatever baseline the
+ * embedding model sits at. A passage is admitted semantically only when it
+ * clears both: the floor as a sanity bound, the margin as the real test.
  */
 const COSINE_FLOOR = 0.35
+const COSINE_MARGIN = 0.07
+/**
+ * A query term admits a passage only if it is *selective* in this corpus —
+ * present in at most this share of its chunks. "what" and "number" match
+ * nearly every transcript, and they were what carried the control questions
+ * through the lexical side of the gate. BM25 already scores such terms near
+ * zero, but a near-zero score is still a match; this applies the same IDF
+ * intuition to admission rather than to weight.
+ */
+const MAX_TERM_DOC_SHARE = 0.5
+/**
+ * ...but a share means nothing on a tiny corpus. A two-chunk project makes any
+ * term that appears twice look universal, and the first cut of this rule threw
+ * out "budget" in a project whose only chat was about the budget. A term is
+ * only judged uninformative once there are enough chunks carrying it for the
+ * share to be evidence of anything.
+ */
+const MIN_DF_TO_JUDGE_TERM = 3
+/**
+ * How many distinct selective terms a passage must share with the question
+ * before keyword overlap counts as evidence. One is not enough: "what is 15%
+ * of 200?" shares the word "number" with a project about freight, which is a
+ * coincidence, not a topic. Two content words agreeing is a claim about what
+ * the passage is *about*.
+ *
+ * Deliberately a rule about evidence rather than a list of words to ignore.
+ * The words that leaked here — "number", "terms" — are only uninformative in
+ * general English, and a hand-written blocklist of them would be fitted to
+ * these fixtures rather than to the problem.
+ *
+ * A question with exactly one content word ("Which password hash?") is not
+ * lost by this: it is admitted by the semantic margin instead, which is the
+ * hybrid design covering for the half that cannot see it. Keyword-only runs
+ * (no embedding model loaded) do give that case up, and say so via `mode`.
+ */
+const MIN_SELECTIVE_TERMS = 2
+/**
+ * Words that carry no topic in *English*, which corpus-relative selectivity
+ * structurally cannot detect: rare in this project's transcripts, so they look
+ * informative, while saying nothing about what a passage is about. Measured:
+ * "what is 15% of 200?" was admitted to a freight project on the pair
+ * "what" + "number" — two words that agree about nothing.
+ *
+ * These are the canonical interrogatives and auxiliaries every standard
+ * stopword list carries and the shared tokenizer's minimal list happens to
+ * omit; they are not words collected from the eval fixtures. Applied here
+ * rather than in tokenize() because tokenize is shared with the research
+ * index, the library and attachments, and this is one retrieval path's
+ * admission policy, not a change to how the app reads text everywhere.
+ * Ranking still sees every term — this governs admission only.
+ */
+const UNINFORMATIVE_TERMS = new Set([
+  'what', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'how',
+  'do', 'does', 'did', 'done', 'can', 'could', 'should', 'would', 'shall',
+  'may', 'might', 'must', 'have', 'had', 'having', 'been', 'being', 'am',
+  'we', 'us', 'our', 'you', 'your', 'they', 'them', 'their', 'my', 'me',
+  'again', 'also', 'about', 'above', 'below', 'there', 'here', 'then', 'than',
+  'some', 'any', 'anything', 'something', 'thing', 'things', 'one', 'two',
+  'please', 'tell', 'give', 'get', 'make', 'just', 'now', 'only', 'very',
+  'more', 'most', 'much', 'many', 'other', 'others', 'same', 'each', 'every',
+  'if', 'or', 'not', 'no', 'yes', 'so', 'up', 'out', 'over', 'under'
+])
 const CANDIDATE_MULTIPLIER = 5
 const MMR_LAMBDA = 0.72
 
@@ -310,7 +387,29 @@ export async function recallFromConversations(
   const bm25 = new Bm25Index(corpus.map((c) => ({ id: c.id, terms: c.terms })))
   const bm25Scored = bm25.search(queryTerms)
   const bm25Ranked = bm25Scored.map((s) => s.id)
-  const lexical = new Set(bm25Ranked)
+
+  // Admission rests on *selective* terms only (see MAX_TERM_DOC_SHARE):
+  // ranking may use every term, but a passage cannot earn its way onto the
+  // turn by sharing the word "what" with the question.
+  const selectiveTerms = new Set(
+    [...new Set(queryTerms)].filter((term) => {
+      if (UNINFORMATIVE_TERMS.has(term)) return false
+      let n = 0
+      for (const c of corpus) if (c.termSet.has(term)) n += 1
+      if (n === 0) return false
+      const uninformative = n / corpus.length > MAX_TERM_DOC_SHARE && n >= MIN_DF_TO_JUDGE_TERM
+      return !uninformative
+    })
+  )
+  const lexical = new Set(
+    corpus
+      .filter((c) => {
+        let matched = 0
+        for (const t of selectiveTerms) if (c.termSet.has(t)) matched += 1
+        return matched >= MIN_SELECTIVE_TERMS
+      })
+      .map((c) => c.id)
+  )
 
   // 3. Semantic ranking, when the embedding model is reachable.
   const queryVector = await ensureVectors(corpus, trimmed, bm25Ranked)
@@ -325,14 +424,18 @@ export async function recallFromConversations(
     for (const c of corpus) {
       if (c.vector && c.vector.length === queryVector.length) cosine.set(c.id, unitDot(queryVector, c.vector))
     }
+    const scores = [...cosine.values()]
+    const corpusMean = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
+    const semanticFloor = Math.max(COSINE_FLOOR, corpusMean + COSINE_MARGIN)
     const semanticRanked = [...cosine.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
     const fused = reciprocalRankFusion([bm25Ranked, semanticRanked])
     const gated = [...fused]
-      .filter(([id]) => lexical.has(id) || (cosine.get(id) ?? 0) >= COSINE_FLOOR)
+      .filter(([id]) => lexical.has(id) || (cosine.get(id) ?? 0) >= semanticFloor)
       .map(([id, score]) => ({ id, score }))
     relevance = normalizeScores(gated)
   } else {
-    relevance = normalizeScores(bm25Scored)
+    // Keyword-only: the same selectivity rule decides admission.
+    relevance = normalizeScores(bm25Scored.filter((sc) => lexical.has(sc.id)))
   }
   if (relevance.size === 0) return { ok: true, items: [], consulted, mode }
 

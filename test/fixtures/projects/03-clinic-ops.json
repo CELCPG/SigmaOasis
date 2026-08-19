@@ -1,0 +1,37 @@
+{
+  "project": "Clinic operations",
+  "siblings": [
+    {
+      "title": "Staffing and rota",
+      "turns": [
+        ["How many nurses do we need on the late shift?", "Four nurses on the late shift. That is the number that held the average wait under the target on the two weeks we measured."],
+        ["What about weekends?", "Weekends run on three, because arrivals drop by roughly a third."]
+      ]
+    },
+    {
+      "title": "Waiting time review",
+      "turns": [
+        ["Where did the average wait end up?", "The average wait came down to 24 minutes after the triage change, from 39 minutes before it."],
+        ["Is that sustained?", "It held for six consecutive weeks, so yes, it looks sustained rather than a blip."]
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "prompt": "What did the average waiting time come down to after the triage change? Give the number of minutes.",
+      "kind": "recall",
+      "expect": [{ "label": "average wait", "value": 24, "tolerance": 0.5 }]
+    },
+    {
+      "prompt": "How many nurses did we decide the late shift needs?",
+      "kind": "recall",
+      "expect": [{ "label": "nurses", "value": 4, "tolerance": 0.5 }]
+    },
+    {
+      "prompt": "Unrelated to anything above: what is 100 divided by 4? Answer with the number.",
+      "kind": "control",
+      "expect": [{ "label": "answer", "value": 25, "tolerance": 0.01 }],
+      "decoys": ["nurse", "triage", "late shift", "24 minutes", "39"]
+    }
+  ]
+}

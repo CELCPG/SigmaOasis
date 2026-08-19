@@ -598,6 +598,131 @@ export function summarizeLedger(results: LedgerCaseResult[]): LedgerSummary {
   }
 }
 
+// ---- v1.11: project-wide recall ---------------------------------------------
+
+export interface ProjectRecallQuestionResult {
+  prompt: string
+  /** recall = the answer lives in a sibling chat; control = it does not. */
+  kind: 'recall' | 'control'
+  /** The reply stated every expected value and contained every required string. */
+  hit: boolean
+  missing: string[]
+  ms: number
+  /** Recall fired and put at least one passage on the turn (recall arm only). */
+  injected: boolean
+  /** Titles of the sibling chats the injected passages came from. */
+  from: string[]
+  /** The passage block as injected, so a miss can be read against what the model saw. */
+  block?: string
+  /** Retrieval mode for this question: hybrid = keyword + embeddings. */
+  mode?: 'hybrid' | 'keyword'
+  /**
+   * Control questions only: project-specific terms that appeared in the reply
+   * and had no business being there. The harm signal — recall pulling a model
+   * off the question it was asked.
+   */
+  decoysStated: string[]
+  reply?: string
+  error?: string
+}
+
+export interface ProjectRecallCaseResult {
+  file: string
+  project: string
+  /** The sibling chat each recall question's answer actually lives in, by prompt. */
+  recall: ProjectRecallQuestionResult[]
+  bare: ProjectRecallQuestionResult[]
+}
+
+export interface ProjectRecallArmSummary {
+  /** Questions whose answer lives in a sibling chat. */
+  recallAnswered: Rate
+  /** Questions answerable without the siblings — the arm must not make these worse. */
+  controlAnswered: Rate
+  /** Control replies that stated a project term the question never mentioned. */
+  controlDistracted: Rate
+  secondsPerQuestion: number
+}
+
+export interface ProjectRecallSummary {
+  recall: ProjectRecallArmSummary
+  bare: ProjectRecallArmSummary
+  /**
+   * Retrieval measured on its own, independently of whether the model then
+   * used what it was given: how often the gate fired where it should, and how
+   * often it stayed quiet where it should.
+   */
+  retrieval: {
+    /** Recall questions where at least one passage was injected. Higher is better. */
+    firedOnRecall: Rate
+    /** Control questions where nothing was injected. Higher is better — this is the gate. */
+    quietOnControl: Rate
+    mode: 'hybrid' | 'keyword' | 'mixed' | 'none'
+  }
+}
+
+function projectArm(
+  questionsOf: (r: ProjectRecallCaseResult) => ProjectRecallQuestionResult[],
+  results: ProjectRecallCaseResult[]
+): ProjectRecallArmSummary {
+  let rHit = 0
+  let rOf = 0
+  let cHit = 0
+  let cOf = 0
+  let dHit = 0
+  let dOf = 0
+  const secs: number[] = []
+  for (const r of results) {
+    for (const q of questionsOf(r)) {
+      if (q.error) continue
+      secs.push(q.ms / 1000)
+      if (q.kind === 'recall') {
+        rOf += 1
+        if (q.hit) rHit += 1
+      } else {
+        cOf += 1
+        if (q.hit) cHit += 1
+        dOf += 1
+        if (q.decoysStated.length > 0) dHit += 1
+      }
+    }
+  }
+  return {
+    recallAnswered: rate(rHit, rOf),
+    controlAnswered: rate(cHit, cOf),
+    controlDistracted: rate(dHit, dOf),
+    secondsPerQuestion: mean(secs)
+  }
+}
+
+export function summarizeProjectRecall(results: ProjectRecallCaseResult[]): ProjectRecallSummary {
+  let firedHit = 0
+  let firedOf = 0
+  let quietHit = 0
+  let quietOf = 0
+  const modes = new Set<string>()
+  for (const r of results) {
+    for (const q of r.recall) {
+      if (q.error) continue
+      if (q.mode) modes.add(q.mode)
+      if (q.kind === 'recall') {
+        firedOf += 1
+        if (q.injected) firedHit += 1
+      } else {
+        quietOf += 1
+        if (!q.injected) quietHit += 1
+      }
+    }
+  }
+  const mode =
+    modes.size === 0 ? 'none' : modes.size > 1 ? 'mixed' : ([...modes][0] as 'hybrid' | 'keyword')
+  return {
+    recall: projectArm((r) => r.recall, results),
+    bare: projectArm((r) => r.bare, results),
+    retrieval: { firedOnRecall: rate(firedHit, firedOf), quietOnControl: rate(quietHit, quietOf), mode }
+  }
+}
+
 /**
  * v1.7.1: stability across repeated passes of one suite. Motivated by the
  * v1.7 retrieval re-measurement, where three runs at temperature 0 produced

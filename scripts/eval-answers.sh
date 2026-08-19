@@ -22,6 +22,7 @@ if command -v node >/dev/null 2>&1; then TSC=(node); else TSC=(env ELECTRON_RUN_
   --outDir "$OUT" --rootDir . --module commonjs --target es2022 --moduleResolution node \
   --esModuleInterop --skipLibCheck --strict --types node \
   scripts/eval-answers.ts \
+  src/main/ipc/projectRecall.ts \
   src/preload/workbench.ts
 
 # Electron's default-app launcher ignores a lone script argument, so the model

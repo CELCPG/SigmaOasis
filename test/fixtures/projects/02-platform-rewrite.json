@@ -1,0 +1,56 @@
+{
+  "project": "Platform rewrite",
+  "siblings": [
+    {
+      "title": "Auth rewrite decisions",
+      "turns": [
+        ["What should the refresh token lifetime be?", "We settled on a refresh token TTL of 30 minutes. Shorter than that and mobile clients thrash the refresh endpoint; longer and a stolen token is useful for too long."],
+        ["And the password hash?", "Argon2id, with the OWASP-recommended parameters. We rejected bcrypt because of the 72-byte input truncation."]
+      ]
+    },
+    {
+      "title": "Database migration plan",
+      "turns": [
+        ["Which Postgres version are we targeting?", "Postgres 16. The connection pool max is set to 20 per instance, which is what the load test supported without queueing."],
+        ["Do we need a maintenance window?", "Yes, roughly 20 minutes for the final cutover."]
+      ]
+    },
+    {
+      "title": "Checkout outage postmortem",
+      "turns": [
+        ["What actually caused the outage?", "A missing index on orders.customer_id. Once the table passed about 4 million rows the lookup went sequential and checkout timed out. Total outage was 47 minutes."],
+        ["What stopped it?", "Adding the index. It took 90 seconds to build."]
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "prompt": "What did we decide the refresh token TTL should be? Give the number of minutes.",
+      "kind": "recall",
+      "expect": [{ "label": "ttl minutes", "value": 30, "tolerance": 0.5 }]
+    },
+    {
+      "prompt": "Which password hashing algorithm did we choose?",
+      "kind": "recall",
+      "mustInclude": ["argon2"]
+    },
+    {
+      "prompt": "What caused the checkout outage, and how many minutes did it last?",
+      "kind": "recall",
+      "mustInclude": ["index"],
+      "expect": [{ "label": "outage minutes", "value": 47, "tolerance": 0.5 }]
+    },
+    {
+      "prompt": "Unrelated to anything above: what is 12 multiplied by 12? Answer with the number.",
+      "kind": "control",
+      "expect": [{ "label": "answer", "value": 144, "tolerance": 0.01 }],
+      "decoys": ["argon2", "postgres", "customer_id", "refresh token", "outage"]
+    },
+    {
+      "prompt": "In one general sentence, what is a race condition in software?",
+      "kind": "control",
+      "mustInclude": ["race condition"],
+      "decoys": ["argon2", "postgres", "customer_id", "refresh token", "47 minutes"]
+    }
+  ]
+}
