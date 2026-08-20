@@ -364,7 +364,8 @@ function defaultSettings(): AppSettings {
         color: 'purple',
         enabled: false,
         sampling: defaultSampling(0.3),
-        contextWindow: null
+        contextWindow: null,
+        specialty: 'research',
       },
       {
         id: 'model-3',
@@ -375,7 +376,8 @@ function defaultSettings(): AppSettings {
         color: 'green',
         enabled: false,
         sampling: defaultSampling(0.3),
-        contextWindow: null
+        contextWindow: null,
+        specialty: 'coding',
       },
       {
         id: 'model-4',
@@ -393,7 +395,8 @@ function defaultSettings(): AppSettings {
         color: 'green',
         enabled: false,
         sampling: defaultSampling(0.3),
-        contextWindow: null
+        contextWindow: null,
+        specialty: 'finance',
       },
       {
         id: 'model-5',
@@ -598,6 +601,22 @@ function normalizeSampling(value: unknown): SamplingSettings {
  * which a cleared number input produces — would otherwise make the renderer
  * prune every saved conversation from disk on the next load.
  */
+/** Specialty for the canonical template role names (see the backfill note above). */
+function backfillSpecialty(roleName: unknown): ModelConfig['specialty'] {
+  switch (typeof roleName === 'string' ? roleName.trim().toLowerCase() : '') {
+    case 'researcher':
+      return 'research'
+    case 'coder':
+      return 'coding'
+    case 'finance coach':
+      return 'finance'
+    case 'data analyst':
+      return 'data'
+    default:
+      return undefined
+  }
+}
+
 export function normalizeSettings(settings: AppSettings): AppSettings {
   const defaults = defaultSettings()
   const rate = Number(settings.voice?.rate)
@@ -629,13 +648,20 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
             typeof m?.capability === 'string' && m.capability.trim()
               ? m.capability.trim()
               : undefined,
+          // v1.11.2: absent specialty on a canonical template role is backfilled.
+          // Through v1.11.1 only the Data Analyst template carried a specialty,
+          // so the pre-flight router could never route research, coding or
+          // finance turns — three of the four specialties were structurally
+          // unreachable unless the user found the field in Settings. A renamed
+          // role stays untouched: the name is the signal that the slot is
+          // still the template.
           specialty:
             m?.specialty === 'coding' ||
             m?.specialty === 'research' ||
             m?.specialty === 'finance' ||
             m?.specialty === 'data'
               ? m.specialty
-              : undefined
+              : backfillSpecialty(m?.roleName)
         }
       })
     : defaults.models

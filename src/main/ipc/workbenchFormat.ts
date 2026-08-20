@@ -14,6 +14,44 @@ const TEXT_EXT = new Set(['.txt', '.csv', '.tsv', '.json', '.md', '.log', '.html
 /** Total data-URL chars a gallery may carry — same ceiling as image search. */
 const MAX_GALLERY_CHARS = 256 * 1024
 
+/**
+ * v1.11.2: the sentence appended when a run's stdout contains no number that
+ * the code could have computed — every one of them appears as a literal in
+ * the code itself. Measured in a real session: asked for volatile stocks, the
+ * model wrote `nvda_range = (10, 20)` … `print(...)` and the app then told it
+ * "Numbers above were computed, not recalled" — laundering invented figures
+ * into computed ones with the app's own voice. The renderer keys on this
+ * marker too (toolGrounding), so laundered constants also stop counting as
+ * support for the reply's figures.
+ */
+export const HARDCODED_NUMBERS_NOTE =
+  'Caution: every number in this output appears as a literal in the code — nothing was computed. ' +
+  'These are values you supplied, not results. Do not present them as computed or verified; if they ' +
+  'came from memory or assumption, say so plainly.'
+
+/** Numeric tokens of a blob, as values (commas stripped), for the literal check. */
+function numericValues(text: string): number[] {
+  const out: number[] = []
+  for (const m of text.matchAll(/\d[\d,]*(?:\.\d+)?/g)) {
+    const v = Number(m[0].replace(/,/g, ''))
+    if (Number.isFinite(v)) out.push(v)
+  }
+  return out
+}
+
+/**
+ * True when stdout states at least one number and every number it states is a
+ * literal already present in the code (including inside its string constants).
+ * One genuinely derived value — a sum, a ratio, a length — clears the run,
+ * so mixed runs keep the normal banner; this only catches pure echo.
+ */
+export function numbersLookHardcoded(code: string, stdout: string): boolean {
+  const printed = numericValues(stdout)
+  if (printed.length === 0) return false
+  const literals = new Set(numericValues(code))
+  return printed.every((v) => literals.has(v))
+}
+
 export interface FormattedRun {
   ok: boolean
   output?: string
@@ -78,7 +116,10 @@ export function formatRun(outcome: WorkbenchOutcome, code: string): FormattedRun
   if (!stdout && (outcome.result === null || outcome.result === 'None') && fileLines.length === 0) {
     parts.push('(no output — print() what you want to see, or end with an expression)')
   }
-  parts.push('Numbers above were computed, not recalled: state them exactly as shown, with units, and say they came from running code.')
-  void code
+  parts.push(
+    stdout && numbersLookHardcoded(code, stdout)
+      ? HARDCODED_NUMBERS_NOTE
+      : 'Numbers above were computed, not recalled: state them exactly as shown, with units, and say they came from running code.'
+  )
   return { ok: true, output: parts.join('\n\n'), images: images.length ? images : undefined }
 }

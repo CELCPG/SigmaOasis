@@ -56,7 +56,7 @@ export function mentionTarget(settings: AppSettings, text: string): ModelConfig 
 
 // ---- pre-flight classifier --------------------------------------------------
 
-export type RouteSignal = 'image' | 'data' | 'code' | 'factual' | 'finance'
+export type RouteSignal = 'image' | 'data' | 'code' | 'factual' | 'finance' | 'research'
 
 export interface RouteDecision {
   slot: ModelConfig
@@ -69,7 +69,19 @@ const STACK_TRACE =
   /Traceback \(most recent call last\)|^\s+at .+\(.+:\d+:\d+\)|\w+Error:/m
 const FILE_PATH = /(?:~|\.{1,2})?\/[\w./-]+\.\w{1,10}\b/
 const FINANCE_VOCAB =
-  /\b(mortgage|loans?|amortiz\w*|apr|compound\w*|interest rate|exchange rate|inflation|down payment|monthly payment|savings goal)\b/i
+  /\b(mortgage|loans?|amortiz\w*|apr|compound\w*|interest rate|exchange rate|inflation|down payment|monthly payment|savings goal|invest(?:ing|ment)?s?|stocks|stock market|etfs?|index funds?|mutual funds?|portfolio|retirement|401\(?k\)?|roth ira|dividends?|treasur(?:y|ies)|t-bills?|brokerage|futures|tickers?)\b/i
+
+/**
+ * v1.11.2: an explicit ask to research. This is the clearest routing signal a
+ * message can carry — it names the *method*, not just the topic — and it was
+ * missing entirely: "research conservative investment strategy" reached the
+ * router as, at best, finance vocabulary, and "Research this properly and show
+ * me the sources" matched nothing at all (measured against real session
+ * transcripts, 2026-08-19). Checked before finance for exactly that overlap:
+ * when the user says how to answer, the how wins over the what.
+ */
+const RESEARCH_INTENT =
+  /\b(?:research|deep[ -]?dive|investigate|fact[ -]?check|look (?:it |this |that )?up|what(?:'s| is) the latest|current (?:status|state) of|find (?:me )?(?:sources|studies|references)|show me (?:the |your )?sources)\b/i
 
 interface CodeMatch {
   matched: boolean
@@ -89,7 +101,8 @@ function detectCode(text: string): CodeMatch {
  * enabled slot exists — abstention is the safety net and means "use today's
  * behavior".
  *
- * Signal priority: image > code > finance > factual. This deliberately
+ * Signal priority: image > code > research > finance > factual. An explicit
+ * "research …" names the method and beats topic vocabulary. This deliberately
  * deviates from the strategy doc's table order: the finance vocabulary is
  * more specific than the broad `looksFactual` heuristic, so it is checked
  * first, and factual coverage is preserved as the last resort.
@@ -125,6 +138,11 @@ export function preflightRoute(args: {
   if (code.matched) {
     const slot = routable.find((m) => m.specialty === 'coding')
     if (slot) return { slot, signal: 'code', reason: code.reason }
+  }
+
+  if (RESEARCH_INTENT.test(text)) {
+    const slot = routable.find((m) => m.specialty === 'research')
+    if (slot) return { slot, signal: 'research', reason: 'explicit research request' }
   }
 
   if (FINANCE_VOCAB.test(text)) {

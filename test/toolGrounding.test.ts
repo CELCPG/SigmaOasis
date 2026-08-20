@@ -743,3 +743,58 @@ describe('quantities in the report', () => {
     assert.equal(report, null)
   })
 })
+
+// ---- v1.11.2: source-tool text supports figures; laundered runs do not -------
+
+describe('figures present in source-tool output are sourced, not invented', () => {
+  test('percentages verbatim in web_search results are not flagged', () => {
+    // The real false positive (2026-08-19): both figures stood in the search
+    // snippets; a trivial run_python armed the check against a corpus that
+    // excluded them.
+    const records: ToolCallRecord[] = [
+      {
+        id: '1', name: 'web_search', args: {}, status: 'done',
+        result: 'sales recovering 1.7% from January… building on a 2.6% gain in the first quarter'
+      },
+      { id: '2', name: 'run_python', args: {}, status: 'done', result: 'stdout:\nnote: nothing to recompute\n\nNumbers above were computed, not recalled: state them exactly as shown, with units, and say they came from running code.' }
+    ]
+    const report = checkToolGrounding(
+      'Sales recovered 1.7% from January, building on a 2.6% gain in Q1.',
+      records,
+      'current status of the housing market'
+    )
+    assert.equal(report, null, JSON.stringify(report))
+  })
+
+  test('a percentage in NO corpus is still flagged', () => {
+    const records: ToolCallRecord[] = [
+      { id: '1', name: 'web_search', args: {}, status: 'done', result: 'prices rose 1.3% year over year' },
+      { id: '2', name: 'run_python', args: {}, status: 'done', result: 'stdout:\nshare: 25.6\n' }
+    ]
+    const report = checkToolGrounding('About 45% of buyers paid cash.', records, 'housing')
+    assert.ok(report?.figures.includes('45%'))
+  })
+})
+
+describe('a hardcoded-constants run cannot support the reply (v1.11.2)', () => {
+  const launderedResult =
+    'Python ran in 5 ms.\n\nstdout:\nNVDA Beta: 1.05\n\nCaution: every number in this output appears as a literal in the code — nothing was computed. These are values you supplied, not results.'
+
+  test('figures from a laundered run are flagged as unsourced', () => {
+    const records: ToolCallRecord[] = [
+      { id: '1', name: 'run_python', args: {}, status: 'done', result: launderedResult }
+    ]
+    // The laundered run arms the checks but supports nothing: its own
+    // constants come back flagged instead of certified.
+    const report = checkToolGrounding('The beta is $1.05 exactly, and TSLA moves 15% daily.', records, 'x')
+    assert.ok(report?.figures.includes('$1.05'), JSON.stringify(report))
+    assert.ok(report?.figures.includes('15%'), JSON.stringify(report))
+  })
+
+  test('the same run without the caution marker does support its numbers', () => {
+    const records: ToolCallRecord[] = [
+      { id: '1', name: 'run_python', args: {}, status: 'done', result: 'stdout:\nNVDA Beta: 1.05\n\nNumbers above were computed, not recalled.' }
+    ]
+    assert.equal(checkToolGrounding('The beta is $1.05 exactly.', records, 'x'), null)
+  })
+})

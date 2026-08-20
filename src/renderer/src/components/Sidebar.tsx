@@ -94,10 +94,12 @@ export function Sidebar(): JSX.Element {
     setEditingProjectId(null)
   }
 
+  // window.prompt() is unsupported in Electron — it THROWS, which is why the
+  // button silently did nothing (v1.11.1). Create with a placeholder name and
+  // open the project editor, whose name field is focused and selected.
   const newProject = (): void => {
-    const name = window.prompt('Project name')
-    if (name === null) return
-    createProject(name)
+    const project = createProject('New project')
+    if (project) useAppStore.getState().setProjectEditorId(project.id)
   }
 
   const confirmDeleteProject = (p: Project, count: number): void => {

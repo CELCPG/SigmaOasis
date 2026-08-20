@@ -381,3 +381,67 @@ describe('data routing (v1.6)', () => {
     assert.match(routed.routingNote ?? '', /Data Analyst/)
   })
 })
+
+// ---- v1.11.2: research intent + widened finance vocabulary -------------------
+// The phrasings below are lifted from real exported sessions (2026-08-19) in
+// which every message stayed on the active general slot: the router had no
+// research signal at all, and its finance vocabulary knew mortgages but not
+// investing.
+
+describe('preflightRoute · explicit research requests (v1.11.2)', () => {
+  const models = [GENERAL, RESEARCHER, FINANCE]
+
+  test('an imperative "research …" routes to the research slot', () => {
+    for (const text of [
+      'Research this properly and show me the sources you actually used.',
+      'research consertative investment strategy through uncertin times',
+      'the current status of the us housing market',
+      'lets deep dive the energy sector',
+      'can you fact-check this claim about inflation',
+      "what's the latest on the AI bubble"
+    ]) {
+      const d = preflightRoute({ text, hasImages: false, models })
+      assert.equal(d?.slot.id, RESEARCHER.id, `"${text}" should route to research, got ${d?.slot.roleName ?? 'abstain'}`)
+      assert.equal(d?.signal, 'research')
+    }
+  })
+
+  test('research intent beats finance vocabulary — the user named the method', () => {
+    const d = preflightRoute({ text: 'research the best index funds for retirement', hasImages: false, models })
+    assert.equal(d?.signal, 'research')
+  })
+
+  test('no research slot → the signal abstains rather than misrouting', () => {
+    const d = preflightRoute({ text: 'research the housing market', hasImages: false, models: [GENERAL, FINANCE] })
+    assert.notEqual(d?.signal, 'research')
+  })
+})
+
+describe('preflightRoute · widened finance vocabulary (v1.11.2)', () => {
+  const models = [GENERAL, FINANCE]
+
+  test('investing/stocks/retirement phrasing routes to the finance slot', () => {
+    for (const text of [
+      'I have $400 to save or invest every two weeks when i get paid.',
+      'help me find some good stocks to hold for about 60 days',
+      'what are safe investments right now',
+      'should I put more into my 401k or a roth ira',
+      'compare treasuries and dividends for my portfolio',
+      'explain futures contracts to me'
+    ]) {
+      const d = preflightRoute({ text, hasImages: false, models })
+      assert.equal(d?.slot.id, FINANCE.id, `"${text}" should route to finance, got ${d?.slot.roleName ?? 'abstain'}`)
+    }
+  })
+
+  test('ordinary chatter still abstains', () => {
+    for (const text of [
+      'write me a poem about the ocean',
+      'thanks, that looks right',
+      'summarize what we decided above'
+    ]) {
+      const d = preflightRoute({ text, hasImages: false, models: [GENERAL, RESEARCHER, FINANCE] })
+      assert.equal(d, null, `"${text}" should abstain, got ${d?.signal}`)
+    }
+  })
+})

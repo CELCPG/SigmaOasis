@@ -45,3 +45,39 @@ describe('parseRanCode', () => {
     assert.equal(describeRun(p), 'ran in 3 ms')
   })
 })
+
+// ---- v1.11.2: constants are not computations ---------------------------------
+
+describe('numbersLookHardcoded', () => {
+  const { numbersLookHardcoded, HARDCODED_NUMBERS_NOTE } = require('../src/main/ipc/workbenchFormat') as typeof import('../src/main/ipc/workbenchFormat')
+
+  test('a run that only prints its own literals is flagged', () => {
+    // Verbatim shape from a real session: invented volatility "recomputed".
+    const code = 'nvda_beta = 1.05\nxom_beta = 0.62\nprint(f"NVDA Beta: {nvda_beta:.2f}")\nprint(f"XOM Beta: {xom_beta:.2f}")'
+    assert.equal(numbersLookHardcoded(code, 'NVDA Beta: 1.05\nXOM Beta: 0.62'), true)
+  })
+
+  test('numbers inside a printed string literal count as hardcoded', () => {
+    const code = 'print("sales came in at 4.09M, up 3.2% YoY")'
+    assert.equal(numbersLookHardcoded(code, 'sales came in at 4.09M, up 3.2% YoY'), true)
+  })
+
+  test('one genuinely derived value clears the run', () => {
+    const code = 'cap = 10000\npositions = 5\nstop = 0.08\nprint(f"max loss: {cap/positions*stop:.2f}")'
+    assert.equal(numbersLookHardcoded(code, 'max loss: 160.00'), false)
+  })
+
+  test('no numbers in stdout → not flagged', () => {
+    assert.equal(numbersLookHardcoded('print("hello")', 'hello'), false)
+  })
+
+  test('formatRun swaps the banner on a hardcoded run and keeps it on a real one', () => {
+    const { formatRun } = require('../src/main/ipc/workbenchFormat') as typeof import('../src/main/ipc/workbenchFormat')
+    const base = { ok: true, stdout: '', stderr: '', result: null, files: [], durationMs: 5, restarted: false }
+    const echo = formatRun({ ...base, stdout: 'TSLA daily move: 15%' } as never, 'x = 15\nprint(f"TSLA daily move: {x}%")').output!
+    assert.ok(echo.includes(HARDCODED_NUMBERS_NOTE))
+    assert.ok(!echo.includes('computed, not recalled'))
+    const real = formatRun({ ...base, stdout: 'total: 391' } as never, 'print(f"total: {37+354}")').output!
+    assert.ok(real.includes('computed, not recalled'))
+  })
+})

@@ -109,6 +109,7 @@ export const PLAYBOOKS: Record<PlaybookId, Playbook> = {
     name: 'Personal finance & tax',
     steps: [
       'Compute with finance_calculator, never in your head, and state the assumptions (rate, term, filing status).',
+      'When comparing scenarios or showing growth over time, run_python with matplotlib and save the chart to /work/chart.png — it is shown to the user. Plot only values you computed this turn.',
       'Quote the rule from the reference passages — thresholds, limits, deadlines — with its source and tax year; these change annually, so say which year a figure is for.',
       'Separate what the rule is from what the user should do; give the trade-off, not a recommendation dressed as fact.',
       'Say when a professional (CPA, advisor) is warranted.'

@@ -160,10 +160,13 @@ function ProjectSection({ conversation }: { conversation: Conversation }): JSX.E
 
   const onChange = (value: string): void => {
     if (value === '__new__') {
-      const name = window.prompt('Project name')
-      if (name === null) return
-      const project = createProject(name)
-      if (project) moveConversation(conversation.id, project.id)
+      // No window.prompt here — Electron throws on it. Create, file the chat,
+      // and open the editor with the name field selected for renaming.
+      const project = createProject('New project')
+      if (project) {
+        moveConversation(conversation.id, project.id)
+        useAppStore.getState().setProjectEditorId(project.id)
+      }
       return
     }
     moveConversation(conversation.id, value === '' ? null : value)

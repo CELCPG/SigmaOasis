@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useProjects } from '../hooks/useProjects'
 import type { ChatMode, Project } from '../types'
@@ -80,6 +80,17 @@ function ProjectEditor({
 }): JSX.Element {
   const [name, setName] = useState(project.name)
   const [instructions, setInstructions] = useState(project.instructions)
+  // A just-created project arrives named "New project"; select it so the
+  // first keystroke replaces the placeholder instead of appending to it.
+  const nameRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (project.name === 'New project') {
+      nameRef.current?.focus()
+      nameRef.current?.select()
+    }
+    // Once, when the editor opens for this project.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const { status: fileStatus, refresh: refreshFileStatus } = useProjectFileStatus(project)
   const [busyFileId, setBusyFileId] = useState<string | null>(null)
   const [fileNote, setFileNote] = useState<Record<string, string>>({})
@@ -156,6 +167,7 @@ function ProjectEditor({
         <div className="flex items-center gap-3 border-b border-black/10 dark:border-white/10 px-5 py-4">
           <span className={`h-3 w-3 rounded-full ${PROJECT_ACCENT[project.color].dot}`} />
           <input
+            ref={nameRef}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}

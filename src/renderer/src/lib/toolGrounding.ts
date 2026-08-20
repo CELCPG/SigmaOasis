@@ -255,9 +255,14 @@ function isDerivable(value: number, decimals: number, known: number[]): boolean 
  * $396.02, while $293.50 is backed by nothing and is reported — or when it is
  * simple arithmetic on a corpus number (see `isDerivable`).
  */
-export function unsourcedFigures(answer: string, corpus: string): string[] {
+export function unsourcedFigures(answer: string, corpus: string, sourceText = ''): string[] {
   const known = numbersIn(corpus)
   const bases = [...new Set(moneyIn(corpus))].slice(0, MAX_DERIVATION_BASES)
+  // v1.11.2: a figure that appears verbatim in a page or search result the
+  // model was handed is SOURCED, not invented — that is the whole point of the
+  // source. Presence only, never derivation: a fetched page full of numbers
+  // must not become a derivation base that certifies arbitrary arithmetic.
+  const inSources = numbersIn(sourceText)
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const match of answer.matchAll(CURRENCY)) {
@@ -266,7 +271,9 @@ export function unsourcedFigures(answer: string, corpus: string): string[] {
     if (!Number.isFinite(value)) continue
     const decimals = precisionOf(raw)
     const supported =
-      known.some((k) => roundTo(k, decimals) === value) || isDerivable(value, decimals, bases)
+      known.some((k) => roundTo(k, decimals) === value) ||
+      isDerivable(value, decimals, bases) ||
+      inSources.some((k) => roundTo(k, decimals) === value)
     if (supported) continue
     const label = `$${raw}`
     if (seen.has(label)) continue
@@ -362,9 +369,16 @@ export function unsourcedQuantities(answer: string, toolOutput: string, userText
 const PERCENT = /(?<![\w.])(\d{1,3}(?:\.\d+)?)\s?%/g
 const MAX_RATIO_BASES = 40
 
-export function unsourcedPercentages(answer: string, corpus: string): string[] {
+export function unsourcedPercentages(answer: string, corpus: string, sourceText = ''): string[] {
   const known = [...new Set(numbersIn(corpus))]
   const bases = known.filter((k) => k !== 0).slice(0, MAX_RATIO_BASES)
+  // Presence-only source support — see unsourcedFigures. Measured (2026-08-19
+  // session transcript): "1.7%" and "2.6%" stood verbatim in the web_search
+  // results the reply was summarizing, and a trivial run_python on the same
+  // turn armed this check against a corpus that excluded them — flagging a
+  // correct reply. A checker whose findings are against right answers teaches
+  // the reader to dismiss the badge.
+  const inSources = [...new Set(numbersIn(sourceText))]
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const match of answer.matchAll(PERCENT)) {
@@ -372,7 +386,9 @@ export function unsourcedPercentages(answer: string, corpus: string): string[] {
     const value = Number(raw)
     if (!Number.isFinite(value)) continue
     const decimals = precisionOf(raw)
-    let supported = known.some((k) => roundTo(k, decimals) === value)
+    let supported =
+      known.some((k) => roundTo(k, decimals) === value) ||
+      inSources.some((k) => roundTo(k, decimals) === value)
     if (!supported) {
       outer: for (const a of bases) {
         for (const b of bases) {
@@ -663,9 +679,20 @@ export function checkToolGrounding(
 ): GroundingReport | null {
   if (!answer.trim()) return null
 
-  const numericRecords = records.filter(
+  // v1.11.2: a run_python whose output the app itself marked as hardcoded
+  // (every printed number is a literal in the code — see workbenchFormat's
+  // HARDCODED_NUMBERS_NOTE) neither arms the numeric checks nor supports the
+  // reply's figures. Without this, a model could print its invented numbers
+  // through the sandbox and this checker would certify them as computed.
+  const laundered = (r: ToolCallRecord): boolean =>
+    (r.result ?? '').includes('appears as a literal in the code')
+  const honest = records.filter((r) => !laundered(r))
+  const numericRecords = honest.filter(
     (r) => NUMERIC_TOOLS.has(r.name) && (r.status === 'done' || producedBeforeError(r) !== '')
   )
+  // A laundered run ARMS the checks — a fabrication attempt is the moment for
+  // maximum scrutiny — while contributing nothing to the support corpus.
+  const launderedNumeric = records.some((r) => laundered(r) && NUMERIC_TOOLS.has(r.name))
   const sourceRecords = records.filter((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name))
 
   // v1.4.5: a reply that states several prices is checked whether or not a
@@ -674,25 +701,37 @@ export function checkToolGrounding(
   // session — could put a whole table of invented per-bottle prices in front of
   // the user with nothing said about it. What a figure is checked against is
   // unchanged; only whether the check runs at all.
-  const figureCorpus = `${outputOf(records, (n) => NUMERIC_TOOLS.has(n), true)}\n${userText}`
-  const stated = unsourcedFigures(answer, figureCorpus)
+  const figureCorpus = `${outputOf(honest, (n) => NUMERIC_TOOLS.has(n), true)}\n${userText}`
+  const sourceCorpus = outputOf(records, (n) => SOURCE_TOOLS.has(n))
+  const stated = unsourcedFigures(answer, figureCorpus, sourceCorpus)
   const checkFigures =
     numericRecords.length > 0 ||
+    launderedNumeric ||
     options.expectPricingTool === true ||
     stated.length >= MIN_UNPROMPTED_FIGURES
   // Percentages only when something actually computed this turn — that is
   // when a stated share had a source it should have used.
-  const percentages = numericRecords.length > 0 ? unsourcedPercentages(answer, figureCorpus) : []
+  const percentages =
+    numericRecords.length > 0 || launderedNumeric
+      ? unsourcedPercentages(answer, figureCorpus, sourceCorpus)
+      : []
   const figures = [...(checkFigures ? stated : []), ...percentages]
   // Same gate as percentages, for the same reason: with nothing computed there
   // is no corpus to check against, and a reply that says "about 20 minutes"
   // from general knowledge is not making a claim the tools could have backed.
   const quantities =
     numericRecords.length > 0
-      ? unsourcedQuantities(answer, outputOf(records, (n) => NUMERIC_TOOLS.has(n), true), userText)
+      ? // The user-text corpus doubles as the passive-support corpus (see the
+        // comment in unsourcedQuantities); source-tool text joins it for the
+        // same reason it supports figures: a measurement read off a fetched
+        // page is sourced, not a disagreement with the app's arithmetic.
+        unsourcedQuantities(
+          answer,
+          outputOf(honest, (n) => NUMERIC_TOOLS.has(n), true),
+          `${userText}\n${sourceCorpus}`
+        )
       : []
 
-  const sourceCorpus = outputOf(records, (n) => SOURCE_TOOLS.has(n))
   const links = sourceRecords.length > 0 ? unsourcedLinks(answer, sourceCorpus) : []
   const origins = sourceRecords.length > 0 ? contradictedOrigins(answer, sourceCorpus) : []
   // The user's own words join the corpus: an address they gave is theirs.

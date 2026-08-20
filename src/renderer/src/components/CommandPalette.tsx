@@ -123,8 +123,9 @@ export function CommandPalette(): JSX.Element | null {
       icon: '📁',
       action: () => {
         setOpen(false)
-        const name = window.prompt('Project name')
-        if (name !== null) createProject(name)
+        // window.prompt throws in Electron; create and hand off to the editor.
+        const project = createProject('New project')
+        if (project) useAppStore.getState().setProjectEditorId(project.id)
       },
       category: 'projects'
     },
