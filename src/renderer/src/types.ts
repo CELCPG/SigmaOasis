@@ -814,7 +814,7 @@ export interface ChatMessage {
   /** v1.5.1: the think-harder pass that ran on this reply, if any. */
   deliberation?: DeliberationRecord
   /** v1.6: Workbench verification passes that ran on this reply (recompute / code check). */
-  checks?: { kind: 'recompute' | 'code' | 'echo'; ok: boolean; summary: string }[]
+  checks?: { kind: 'recompute' | 'code' | 'echo' | 'conflict'; ok: boolean; summary: string }[]
   /**
    * The long-term memory chunks injected into the system prompt for this turn
    * (v0.9 visible recall). Display-only — never replayed to a model.

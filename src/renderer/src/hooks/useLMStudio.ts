@@ -17,7 +17,9 @@ import {
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
-import { checkToolGrounding, revisionIsAnImprovement } from '../lib/toolGrounding'
+import { checkToolGrounding, revisionIsAnImprovement,
+  conflictingToolFigures
+} from '../lib/toolGrounding'
 import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
 import { buildPlaybookContext, selectPlaybook } from '../lib/playbooks'
 import { buildLedger, buildLedgerContext, describeLedger, shouldInjectLedger } from '../lib/ledger'
@@ -837,6 +839,20 @@ async function runTurn(
    * the checker is satisfied.
    */
   const checkGrounding = async (): Promise<void> => {
+    // v1.12: two numeric tools disagreeing about the same labelled figure in
+    // this turn (market_data said +14.61%, the model's python said -8.99%,
+    // measured live). Disclosed, not adjudicated — the model may well have
+    // relayed the right one, but the disagreement should not be silent.
+    if (!checks.some((c) => c.kind === 'conflict')) {
+      for (const conflict of conflictingToolFigures(allRecords)) {
+        checks.push({
+          kind: 'conflict',
+          ok: false,
+          summary: `⚖️ Tools disagree: ${conflict} — say which one the answer uses and why.`
+        })
+      }
+      if (checks.some((c) => c.kind === 'conflict')) patch({ checks: [...checks] })
+    }
     // v1.6 code check, disclosed whether or not it found anything.
     const firstCode = await codeFindingFor(assistantMsg.content)
     if (firstCode.ran || firstCode.note === 'the code needs input, files or the network, so it cannot be checked in the sandbox') {

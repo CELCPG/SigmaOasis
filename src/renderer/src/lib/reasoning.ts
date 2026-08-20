@@ -168,6 +168,14 @@ export function createReasoningSplitter(): ReasoningSplitter {
   let inReasoning = false
   /** Any non-whitespace answer text has been emitted. */
   let answerStarted = false
+  /**
+   * An opener was just consumed and the conventional newline after it should
+   * be eaten. A flag rather than an inline slice, because the opener and its
+   * newline can arrive in different chunks — found by the boundary-exhaustive
+   * property test, which caught a chunking cut between `<|channel>thought`
+   * and `\n` leaking the newline into the reasoning text.
+   */
+  let eatNewlineInReasoning = false
 
   function consume(text: string, atEnd: boolean): SplitDelta {
     let answer = ''
@@ -176,6 +184,10 @@ export function createReasoningSplitter(): ReasoningSplitter {
 
     for (;;) {
       if (inReasoning) {
+        if (eatNewlineInReasoning && rest.length > 0) {
+          if (rest.startsWith('\n')) rest = rest.slice(1)
+          eatNewlineInReasoning = false
+        }
         const end = findTag(rest, REASONING_END_TOKENS)
         if (!end) {
           // Hold back a possible partial close/tool tag unless the stream is over.
@@ -221,8 +233,10 @@ export function createReasoningSplitter(): ReasoningSplitter {
       }
       answer += before
       rest = rest.slice(open.index + open.tag.length)
-      // The channel opener is followed by a newline before the actual thought.
-      if (rest.startsWith('\n')) rest = rest.slice(1)
+      // The conventional newline after the opener is eaten inside the
+      // reasoning branch (see eatNewlineInReasoning) so a chunk boundary
+      // between the two cannot change the output.
+      eatNewlineInReasoning = true
       inReasoning = true
     }
   }

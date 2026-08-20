@@ -798,3 +798,65 @@ describe('a hardcoded-constants run cannot support the reply (v1.11.2)', () => {
     assert.equal(checkToolGrounding('The beta is $1.05 exactly.', records, 'x'), null)
   })
 })
+
+// ---- v1.12: cross-tool figure conflicts --------------------------------------
+
+describe('conflictingToolFigures', () => {
+  const { conflictingToolFigures, labeledFiguresIn } = require('../src/renderer/src/lib/toolGrounding') as typeof import('../src/renderer/src/lib/toolGrounding')
+  const rec = (name: string, result: string, id = Math.random().toString(36)): ToolCallRecord =>
+    ({ id, name, args: {}, status: 'done', result }) as ToolCallRecord
+
+  test('the measured case: market_data vs the model python, same label, different sign', () => {
+    // Verbatim shapes from the live NVDA session.
+    const records = [
+      rec('market_data', '- period return (6mo): 14.61%  (190.5 → 217.4)\n- max drawdown (close-to-close): -19.40%'),
+      rec('run_python', 'stdout:\nPeriod Return: -8.99%\nPrice Range High: $236.54')
+    ]
+    const conflicts = conflictingToolFigures(records)
+    assert.equal(conflicts.length, 1, JSON.stringify(conflicts))
+    assert.match(conflicts[0]!, /period return/i)
+    assert.match(conflicts[0]!, /14\.61%/)
+    assert.match(conflicts[0]!, /-8\.99%/)
+  })
+
+  test('agreement within rounding is not a conflict', () => {
+    const records = [
+      rec('market_data', '- period return (6mo): 14.61%'),
+      rec('run_python', 'Period Return: 14.6%')
+    ]
+    assert.deepEqual(conflictingToolFigures(records), [])
+  })
+
+  test('different labels or different units never conflict', () => {
+    const records = [
+      rec('market_data', '- period return (6mo): 14.61%\n- last close: 217.40'),
+      rec('run_python', 'Total Return: 99.0%\nlast close: 217.40%')
+    ]
+    // "period return" vs "total return": different labels. "last close" 217.40
+    // (bare) vs 217.40% (percent): different units — and equal anyway.
+    assert.deepEqual(conflictingToolFigures(records), [])
+  })
+
+  test('a single tool disagreeing with itself across calls still surfaces', () => {
+    const records = [
+      rec('run_python', 'total revenue: $487,988.40'),
+      rec('run_python', 'total revenue: $975,976.80')
+    ]
+    const conflicts = conflictingToolFigures(records)
+    assert.equal(conflicts.length, 1)
+    assert.match(conflicts[0]!, /487,988\.40/)
+  })
+
+  test('fewer than two numeric tool results → nothing to compare', () => {
+    assert.deepEqual(conflictingToolFigures([rec('run_python', 'x: 5')]), [])
+    assert.deepEqual(conflictingToolFigures([rec('web_search', 'a: 1'), rec('web_search', 'a: 2')]), [])
+  })
+
+  test('labeledFiguresIn strips parentheticals and keeps units and signs', () => {
+    const f = labeledFiguresIn('- period return (6mo): -8.99%\nmax loss = $160.00')
+    assert.deepEqual(f.map((x) => [x.label, x.value, x.unit]), [
+      ['period return', -8.99, '%'],
+      ['max loss', 160, '$']
+    ])
+  })
+})

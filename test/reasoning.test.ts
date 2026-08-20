@@ -223,3 +223,78 @@ describe('createReasoningSplitter — e4b-agentic thought/response spellings', (
     assert.equal(out.reasoning, '')
   })
 })
+
+// ---- v1.12: boundary-exhaustive property test --------------------------------
+// A real session produced a reply missing its opening words ("be happy to
+// help…" for "I'd be happy to help…"). The streaming splitter is the component
+// with chunk-boundary state, so it gets the exhaustive treatment: for every
+// transcript below and EVERY possible 1-cut and a sweep of 2-cut chunkings,
+// reassembled answer+reasoning must equal the single-push result exactly.
+
+describe('splitter is lossless across all chunk boundaries', () => {
+  const TRANSCRIPTS = [
+    "I'd be happy to help with research, but I need a topic first.",
+    "<think>user wants research; ask for the topic</think>I'd be happy to help with research, but I need a topic first.",
+    "<think>alpha</think>\n\nI'd be happy to help.",
+    "  \n<thinking>two\nlines\nof thought</thinking>Answer starts here.",
+    "<|channel>thought\nponder ponder<channel|>The visible answer.",
+    "<|thought>brief<|response>I'd say yes.",
+    "<think>calling a tool</think><|tool_call>{\"name\":\"web_search\"}",
+    "No tags at all, just an answer with a < sign and 3 < 5 math.",
+    "<think>unclosed thinking that runs to the end of the stream"
+  ]
+
+  function runChunks(chunks: string[]): { answer: string; reasoning: string } {
+    const s = createReasoningSplitter()
+    let answer = ''
+    let reasoning = ''
+    for (const c of chunks) {
+      const d = s.push(c)
+      answer += d.answer
+      reasoning += d.reasoning
+    }
+    const f = s.flush()
+    answer += f.answer
+    reasoning += f.reasoning
+    return { answer, reasoning }
+  }
+
+  test('every single-cut chunking matches the whole-string parse', () => {
+    for (const t of TRANSCRIPTS) {
+      const whole = runChunks([t])
+      for (let i = 1; i < t.length; i++) {
+        const split = runChunks([t.slice(0, i), t.slice(i)])
+        assert.deepEqual(split, whole, `transcript ${JSON.stringify(t.slice(0, 40))}… cut at ${i}`)
+      }
+    }
+  })
+
+  test('every double-cut chunking around the tag regions matches too', () => {
+    for (const t of TRANSCRIPTS) {
+      const whole = runChunks([t])
+      for (let i = 1; i < t.length - 1; i++) {
+        // Second cut sweeps a window after the first — covers tag spans.
+        for (let j = i + 1; j < Math.min(t.length, i + 14); j++) {
+          const split = runChunks([t.slice(0, i), t.slice(i, j), t.slice(j)])
+          assert.deepEqual(split, whole, `cut at ${i},${j} of ${JSON.stringify(t.slice(0, 40))}`)
+        }
+      }
+    }
+  })
+
+  test('token-at-a-time (worst case) matches as well', () => {
+    for (const t of TRANSCRIPTS) {
+      const whole = runChunks([t])
+      const split = runChunks([...t])
+      assert.deepEqual(split, whole, JSON.stringify(t.slice(0, 40)))
+    }
+  })
+
+  test('the decapitation shape specifically: nothing eats the first word after a close tag', () => {
+    const t = "<think>x</think>I'd be happy to help."
+    for (let i = 1; i < t.length; i++) {
+      const { answer } = runChunks([t.slice(0, i), t.slice(i)])
+      assert.ok(answer.includes("I'd be happy"), `cut at ${i}: answer=${JSON.stringify(answer)}`)
+    }
+  })
+})
