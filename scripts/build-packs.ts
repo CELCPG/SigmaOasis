@@ -45,6 +45,8 @@ const SOURCES_DIR = join(ROOT, 'packs', 'sources')
 const OUT_DIR = join(ROOT, 'packs')
 /** Below this many characters a page almost certainly rendered a consent wall or an error, not the article. */
 const MIN_DOC_CHARS = 500
+/** Body text below this is a blank shell, not a rendered page. See the polling loop. */
+const MIN_RENDER_CHARS = 300
 const LOAD_TIMEOUT_MS = 45_000
 /** Settle time after load for late-rendering content. */
 const SETTLE_MS = 1500
@@ -167,6 +169,7 @@ async function fetchDoc(doc: SourceDoc, contentSelector?: string): Promise<{ mar
     const rendered = (async (): Promise<void> => {
       const deadline = Date.now() + LOAD_TIMEOUT_MS
       let lastChars = -1
+      let stablePolls = 0
       // Fire and forget: the promise itself is not the signal.
       win.loadURL(doc.url, { userAgent: win.webContents.getUserAgent().replace(/Electron\/\S+\s?/, '') }).catch(() => undefined)
       while (Date.now() < deadline) {
@@ -188,7 +191,21 @@ async function fetchDoc(doc: SourceDoc, contentSelector?: string): Promise<{ mar
         const chars = (await win.webContents
           .executeJavaScript('document.body ? document.body.innerText.length : 0')
           .catch(() => 0)) as number
-        if (chars > 1200 && chars === lastChars) return
+        // Stability, not size, is the signal. The floor used to be 1200
+        // characters, which a *legitimately short* page can never reach: nine
+        // Investor.gov glossary pages rendered completely and instantly at
+        // ~630 characters of body text and were then failed, after 45 seconds
+        // of polling, as "never rendered enough content". Measured 2026-08-19.
+        // Two consecutive identical readings mean the page has settled; the
+        // real quality gate is MIN_DOC_CHARS on the *extracted* markdown
+        // below, which rejects a consent wall or an error page on substance
+        // rather than on how many pixels of navigation it happens to carry.
+        if (chars >= MIN_RENDER_CHARS && chars === lastChars) {
+          stablePolls += 1
+          if (stablePolls >= 2) return
+        } else {
+          stablePolls = 0
+        }
         lastChars = chars
       }
       throw new Error('load timeout (page never rendered enough content)')

@@ -85,3 +85,52 @@ describe('data-analysis playbook · sessions (v1.8.1)', () => {
     assert.equal(PLAYBOOKS['data-analysis'].steps.filter((s) => /keeps its variables/.test(s)).length, 1)
   })
 })
+
+// ---- v1.12: money scenarios ---------------------------------------------------
+
+describe('the finance-scenario playbook (v1.12)', () => {
+  const pick = (text: string) => selectPlaybook({ text })
+
+  test('the real session prompts get the scenario method, not the generic finance one', () => {
+    for (const text of [
+      'I have $400 to save or invest every two weeks when i get paid. What should I do to get the best returns.',
+      // Note the "invest": a bare "contribute $500 a month" carries no finance
+      // noun, and the domain regex deliberately abstains rather than claim
+      // every "contribute" is about money.
+      'how much would I have if I invest 500 a month for 20 years',
+      'compare a bond ladder against a savings account for my emergency fund',
+      // "asset allocation", not a bare "allocation": classifying that word
+      // alone as finance would make "fix the memory allocation bug" a money
+      // question, which is the worse trade.
+      'should I do a 60/40 or 70/30 asset allocation'
+    ]) {
+      assert.equal(pick(text)?.id, 'finance-scenario', `"${text.slice(0, 40)}" → ${pick(text)?.id}`)
+    }
+  })
+
+  test('a plain finance question still gets the plain finance playbook', () => {
+    for (const text of [
+      'what is an APR on a mortgage and how is it different from the interest rate',
+      'do I need to file a tax return this year',
+      // Deliberately here rather than above: "research a conservative strategy"
+      // asks what the options ARE, not to project or compare two of them. The
+      // plain finance playbook plus the investing pack's citable passages is
+      // the right answer to it — a listicle from memory was the measured
+      // failure, and a scenario chart would not have fixed that.
+      'research consertative investment strategy through uncertin times'
+    ]) {
+      assert.equal(pick(text)?.id, 'finance', `"${text.slice(0, 40)}" → ${pick(text)?.id}`)
+    }
+  })
+
+  test('severity order is untouched — health and first aid still win over a money comparison', () => {
+    assert.notEqual(pick('compare ibuprofen versus acetaminophen for a fever every two weeks')?.id, 'finance-scenario')
+  })
+
+  test('the method names the trap that produced the measured bug', () => {
+    const steps = (pick('if i invest 400 every two weeks')?.steps ?? []).join(' ')
+    assert.match(steps, /26 periods/, 'the pay-period trap must be stated outright')
+    assert.match(steps, /ONE parameter/, 'comparisons must isolate one variable')
+    assert.match(steps, /chart\.png/i)
+  })
+})

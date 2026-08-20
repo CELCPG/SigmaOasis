@@ -49,9 +49,24 @@ egress allowlist. In order of preference:
   shape, expected values recomputed independently in TypeScript, a tool arm vs a no-tools arm
   whose honest answer is refusal. Results in docs/evals.md. Still owed: indicator recipes in the
   playbook beyond the chart nudge.
-- **Phase 3:** education — a curated "Investing foundations" library pack (the pack mechanism
-  exists), so definitions and rules come from citable passages instead of model memory; plus a
-  scenario workbench: contribution plans, ladders, allocation comparisons as parameterized
-  computations with charts.
+- **Phase 3 (shipped, v1.12):** education. A curated **"Investing foundations"** pack — 14
+  documents, ~43k characters, fetched from Investor.gov (SEC, public domain) by the existing
+  build script: what stocks, bonds, mutual funds and index funds are; risk, diversification,
+  asset allocation, rebalancing, dollar-cost averaging, expense ratios, Treasuries; and the
+  shapes investment fraud takes. Authored by the SEC, not by a model — a reference pack written
+  from model memory would be the exact failure this app exists to prevent.
+
+  Two things had to change for the pack to be *reachable*. The finance reference domain knew
+  mortgages and taxes but no investing vocabulary, so "what are safe investments right now"
+  never triggered a library lookup at all; it does now. And a **money-scenario playbook** —
+  state the parameters and check them against the question (an "$400 every two weeks" plan is 26
+  periods a year, not 24, and not $800 a month), compute with tools, compare two scenarios
+  differing in ONE parameter, chart it, say what would flip the conclusion — which is the
+  scenario workbench, expressed as a method rather than a new tool, because run_python already
+  computes and charts.
+
+  Nine candidate glossary pages were dropped rather than shipped as ~270-character stubs; the
+  companion IRS pack carries retirement-account limits. Retirement-account *concepts* (401(k),
+  Roth) remain a gap on the SEC side — noted, not papered over.
 - **Non-goals, permanent:** price predictions, buy/sell recommendations, and any figure the turn's
   tools did not produce. The app's job is to compute, chart, cite, and say what it could not get.

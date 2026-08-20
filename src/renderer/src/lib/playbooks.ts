@@ -31,6 +31,7 @@ export type PlaybookId =
   | 'food'
   | 'home'
   | 'finance'
+  | 'finance-scenario'
   | 'legal'
   | 'data-analysis'
   | 'coding'
@@ -115,6 +116,17 @@ export const PLAYBOOKS: Record<PlaybookId, Playbook> = {
       'Say when a professional (CPA, advisor) is warranted.'
     ]
   },
+  'finance-scenario': {
+    id: 'finance-scenario',
+    name: 'Money scenarios, compared',
+    steps: [
+      'State the parameters you are assuming — amount per period, periods per year, rate, years — and check them against the question before computing. "$400 every two weeks" is 26 periods a year, not 24, and not $800 a month.',
+      'Compute every figure with finance_calculator or run_python. Never mental arithmetic, and never restate a computed number as a different one.',
+      'Compare at least two scenarios differing in ONE parameter, so the gap between them is attributable to that parameter.',
+      'Chart the comparison with matplotlib saved to /work/chart.png — label both axes with units, and plot only values you computed this turn.',
+      'Close with what would have to be different for the conclusion to flip, and one line that this is education, not personalized financial advice.'
+    ]
+  },
   legal: {
     id: 'legal',
     name: 'Legal & civic',
@@ -193,6 +205,17 @@ const CODE_SIGNAL =
   /```|Traceback \(most recent call last\)|^\s+at .+\(.+:\d+:\d+\)|\w+Error:|\b(?:refactor|debug|stack trace|unit tests?|compile(?:r|s)? error|type ?error|null pointer|segfault|pull request|function that|write (?:a|the|me a) (?:function|script|class|regex|query|test))\b/im
 const COMPARE_INTENT =
   /\b(?:compare|comparison|versus|vs\.?|which is better|better than|pros and cons|trade-?offs?|should i (?:pick|choose|go with|buy)|difference between)\b/i
+/**
+ * A money question that is really a *comparison or a projection* — the shape
+ * the generic finance playbook answers as prose. Measured on real sessions:
+ * "$400 to save or invest every two weeks" produced one calculation whose
+ * stated premise ($800 a month) disagreed with the arguments actually passed
+ * ($400), and "conservative strategy through uncertain times" produced a
+ * ten-item listicle with no arithmetic at all.
+ */
+const SCENARIO_INTENT =
+  /\b(?:compare|versus|vs\.?|scenario|what ?if|how much (?:would|will|could|do) i|if i (?:invest|save|contribute|put|add)|every (?:two weeks|other week|month|week|pay ?check)|per (?:pay ?check|paycheck)|ladder|allocation|rebalanc\w+|\d{2}\/\d{2}\b|contribut\w+|project(?:ion|ed)|over (?:\d+|the next) (?:years?|months?)|by (?:age|retirement))\b/i
+
 const PLAN_INTENT =
   /\b(?:plan (?:a|my|the|our|for)|make (?:a|me a) plan|itinerary|roadmap|schedule (?:for|out|my)|step[- ]by[- ]step plan|checklist for|how (?:should|do) i (?:organi[sz]e|structure|approach|prepare for))\b/i
 
@@ -218,7 +241,13 @@ export function selectPlaybook(input: { text: string; attachmentNames?: string[]
   if (text.length < 8) return null
   for (const domain of referenceDomains(text)) {
     const id = DOMAIN_TO_PLAYBOOK[domain]
-    if (id) return PLAYBOOKS[id]
+    if (!id) continue
+    // A finance turn that is really a comparison or a projection gets the
+    // scenario method instead — a specialization of the finance playbook, not
+    // a competitor to it, so the severity order above is untouched and
+    // health/first-aid still win outright.
+    if (id === 'finance' && SCENARIO_INTENT.test(text)) return PLAYBOOKS['finance-scenario']
+    return PLAYBOOKS[id]
   }
   if (looksLikeDataWork(text, input.attachmentNames ?? [])) return PLAYBOOKS['data-analysis']
   if (CODE_SIGNAL.test(text)) return PLAYBOOKS.coding

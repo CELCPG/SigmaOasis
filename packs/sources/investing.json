@@ -1,0 +1,81 @@
+{
+  "id": "investing",
+  "name": "Investing foundations",
+  "description": "What the instruments are and how they behave \u2014 stocks, bonds, mutual funds and index funds; risk and diversification; asset allocation and rebalancing; dollar-cost averaging; expense ratios; Treasury securities; and the shapes investment fraud takes and how to avoid it. From Investor.gov, the SEC's investor education site.",
+  "version": "2026.08",
+  "license": "Public domain (US federal work \u2014 SEC)",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date. Definitions and mechanics are durable; any dollar figure, contribution limit or rate a page states belongs to the year that page was written \u2014 check the year before relying on a number, and prefer a current source for anything time-sensitive. Retirement-account limits live in the companion 'Personal finance & tax basics' pack (IRS). Nothing here is a recommendation to buy or sell.",
+  "docLicense": "Public domain (US federal work \u2014 SEC)",
+  "docs": [
+    {
+      "id": "stocks",
+      "title": "Stocks",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/investment-products/stocks"
+    },
+    {
+      "id": "bonds",
+      "title": "Bonds",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/investment-products/bonds-or-fixed-income-products/bonds"
+    },
+    {
+      "id": "mutual-funds",
+      "title": "Mutual funds",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/investment-products/mutual-funds-and-exchange-traded-funds-etfs/mutual-funds"
+    },
+    {
+      "id": "index-fund",
+      "title": "Index fund",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/index-fund"
+    },
+    {
+      "id": "risk",
+      "title": "Risk",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/risk"
+    },
+    {
+      "id": "diversification",
+      "title": "Diversification",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/diversification"
+    },
+    {
+      "id": "asset-allocation-glossary",
+      "title": "Asset allocation",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/asset-allocation"
+    },
+    {
+      "id": "asset-allocation-guide",
+      "title": "Asset allocation, diversification and rebalancing \u2014 getting started",
+      "url": "https://www.investor.gov/introduction-investing/getting-started/asset-allocation"
+    },
+    {
+      "id": "rebalancing",
+      "title": "Rebalancing",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/rebalancing"
+    },
+    {
+      "id": "dollar-cost-averaging",
+      "title": "Dollar-cost averaging",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/dollar-cost-averaging"
+    },
+    {
+      "id": "expense-ratio",
+      "title": "Expense ratio",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/expense-ratio"
+    },
+    {
+      "id": "treasury-securities",
+      "title": "Treasury securities",
+      "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/treasury-securities"
+    },
+    {
+      "id": "types-of-fraud",
+      "title": "Types of investment fraud",
+      "url": "https://www.investor.gov/protect-your-investments/fraud/types-fraud"
+    },
+    {
+      "id": "how-to-avoid-fraud",
+      "title": "How to avoid investment fraud",
+      "url": "https://www.investor.gov/protect-your-investments/fraud/how-avoid-fraud"
+    }
+  ]
+}

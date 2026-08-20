@@ -400,3 +400,37 @@ describe('looksReference (v1.5)', () => {
   for (const t of yes) test(`yes: ${t}`, () => assert.equal(looksReference(t), true))
   for (const t of no) test(`no: ${t}`, () => assert.equal(looksReference(t), false))
 })
+
+// ---- v1.12: investing vocabulary reaches the finance domain -------------------
+
+describe('the finance reference domain covers investing (v1.12)', () => {
+  const { referenceDomains } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+
+  test('the phrasings from the reviewed sessions classify as finance', () => {
+    for (const text of [
+      'I have $400 to save or invest every two weeks when i get paid',
+      'help me find some good stocks to hold for about 60 days',
+      'what are safe investments right now',
+      'compare index funds and ETFs for my portfolio',
+      'is a bond ladder better than a savings account',
+      'how does diversification actually reduce risk'
+    ]) {
+      assert.ok(
+        referenceDomains(text).includes('finance'),
+        `"${text.slice(0, 45)}" → ${JSON.stringify(referenceDomains(text))}`
+      )
+    }
+  })
+
+  test('this is what makes the investing pack reachable at all', () => {
+    // The app-initiated reference lookup is gated on the domain; without it a
+    // curated pack is installed and never consulted.
+    assert.ok(referenceDomains('what is an expense ratio').includes('finance'))
+  })
+
+  test('unrelated talk is still not finance', () => {
+    for (const text of ['write me a poem about the ocean', 'debug this stack trace for me']) {
+      assert.ok(!referenceDomains(text).includes('finance'), text)
+    }
+  })
+})

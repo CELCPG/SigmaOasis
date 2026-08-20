@@ -189,7 +189,7 @@ const BUILDING_DOMAINS =
  * BUILDING_DOMAINS above are included by looksReference().
  */
 const FINANCE_RULE_DOMAINS =
-  /\b(?:tax(?:es|able)?|deductions?|deductible|withholding|filing status|dependents?|ira|401\(?k\)?|roth|hsa|fsa|capital gains|standard deduction|itemi[sz]e|credit scores?|credit reports?|apr|interest rates?|amortization|escrow|mortgages?|refinanc(?:e|ing)|insurance|premiums?|deductibles?|budget(?:ing)?|emergency fund|compound(?:ing)? interest|inflation|annuit(?:y|ies)|estate plan|wills?|power of attorney|beneficiar(?:y|ies))\b/i
+  /\b(?:tax(?:es|able)?|deductions?|deductible|withholding|filing status|dependents?|ira|401\(?k\)?|roth|hsa|fsa|capital gains|standard deduction|itemi[sz]e|credit scores?|credit reports?|apr|interest rates?|amortization|escrow|mortgages?|refinanc(?:e|ing)|insurance|premiums?|deductibles?|budget(?:ing)?|emergency fund|compound(?:ing)? interest|inflation|annuit(?:y|ies)|estate plan|wills?|power of attorney|beneficiar(?:y|ies)|invest(?:s|ing|ment|ments|or|ors)?|stocks?|bonds?|etfs?|index funds?|mutual funds?|portfolios?|diversif\w+|asset allocation|rebalanc\w+|dividends?|treasur(?:y|ies)|t[- ]bills?|certificates? of deposit|expense ratios?|dollar[- ]cost averaging|bond ladders?|brokerages?|retirement|savings? accounts?)\b/i
 
 const LEGAL_CIVIC_DOMAINS =
   /\b(?:tenants?|landlords?|leases?|evictions?|small claims|contracts?|warrant(?:y|ies)|consumer rights|my rights|statute|statutes|jurisdiction|citizenship|naturali[sz]ation|green card|visas?|passports?|jury duty|notari[sz]e|notary|liabilit(?:y|ies)|negligence|copyright|trademark|fair use)\b/i

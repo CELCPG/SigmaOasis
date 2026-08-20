@@ -1,0 +1,138 @@
+{
+  "formatVersion": 1,
+  "id": "investing",
+  "name": "Investing foundations",
+  "description": "What the instruments are and how they behave — stocks, bonds, mutual funds and index funds; risk and diversification; asset allocation and rebalancing; dollar-cost averaging; expense ratios; Treasury securities; and the shapes investment fraud takes and how to avoid it. From Investor.gov, the SEC's investor education site.",
+  "version": "2026.08",
+  "license": "Public domain (US federal work — SEC)",
+  "kind": "curated",
+  "sourceNote": "Pages retrieved and converted to text at build time; each document carries its URL and retrieval date. Definitions and mechanics are durable; any dollar figure, contribution limit or rate a page states belongs to the year that page was written — check the year before relying on a number, and prefer a current source for anything time-sensitive. Retirement-account limits live in the companion 'Personal finance & tax basics' pack (IRS). Nothing here is a recommendation to buy or sell. Built 2026-08-20 by scripts/build-packs.ts from packs/sources/investing.json.",
+  "docs": [
+    {
+      "id": "stocks",
+      "title": "Stocks",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/investment-products/stocks",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "stocks.md",
+      "chars": 7745
+    },
+    {
+      "id": "bonds",
+      "title": "Bonds",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/investment-products/bonds-or-fixed-income-products/bonds",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "bonds.md",
+      "chars": 7299
+    },
+    {
+      "id": "mutual-funds",
+      "title": "Mutual funds",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/investment-products/mutual-funds-and-exchange-traded-funds-etfs/mutual-funds",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "mutual-funds.md",
+      "chars": 9969
+    },
+    {
+      "id": "index-fund",
+      "title": "Index fund",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/index-fund",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "index-fund.md",
+      "chars": 1684
+    },
+    {
+      "id": "risk",
+      "title": "Risk",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/risk",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "risk.md",
+      "chars": 1042
+    },
+    {
+      "id": "diversification",
+      "title": "Diversification",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/diversification",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "diversification.md",
+      "chars": 1013
+    },
+    {
+      "id": "asset-allocation-glossary",
+      "title": "Asset allocation",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/asset-allocation",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "asset-allocation-glossary.md",
+      "chars": 877
+    },
+    {
+      "id": "asset-allocation-guide",
+      "title": "Asset allocation, diversification and rebalancing — getting started",
+      "source": "https://www.investor.gov/introduction-investing/getting-started/asset-allocation",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "asset-allocation-guide.md",
+      "chars": 5493
+    },
+    {
+      "id": "rebalancing",
+      "title": "Rebalancing",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/rebalancing",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "rebalancing.md",
+      "chars": 976
+    },
+    {
+      "id": "dollar-cost-averaging",
+      "title": "Dollar-cost averaging",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/dollar-cost-averaging",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "dollar-cost-averaging.md",
+      "chars": 1241
+    },
+    {
+      "id": "expense-ratio",
+      "title": "Expense ratio",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/expense-ratio",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "expense-ratio.md",
+      "chars": 1072
+    },
+    {
+      "id": "treasury-securities",
+      "title": "Treasury securities",
+      "source": "https://www.investor.gov/introduction-investing/investing-basics/glossary/treasury-securities",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "treasury-securities.md",
+      "chars": 1223
+    },
+    {
+      "id": "types-of-fraud",
+      "title": "Types of investment fraud",
+      "source": "https://www.investor.gov/protect-your-investments/fraud/types-fraud",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "types-of-fraud.md",
+      "chars": 1499
+    },
+    {
+      "id": "how-to-avoid-fraud",
+      "title": "How to avoid investment fraud",
+      "source": "https://www.investor.gov/protect-your-investments/fraud/how-avoid-fraud",
+      "license": "Public domain (US federal work — SEC)",
+      "date": "retrieved 2026-08-20",
+      "file": "how-to-avoid-fraud.md",
+      "chars": 1636
+    }
+  ]
+}
