@@ -136,6 +136,7 @@ export interface NetworkActivityEntry {
     | 'geo'
     | 'proxytest'
     | 'update'
+    | 'market'
   /** Origin only — full URLs (and queries) are never logged. */
   origin: string
   method: string

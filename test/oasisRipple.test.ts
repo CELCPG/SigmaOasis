@@ -41,7 +41,10 @@ test('every built-in tool maps to its documented visual', () => {
     ['read_file', 'file', 'READING'],
     ['list_directory', 'file', 'READING'],
     ['consult_model', 'consult', 'CONSULTING'],
-    ['get_current_datetime', 'generic', 'WORKING']
+    ['get_current_datetime', 'generic', 'WORKING'],
+    // v1.12: a market fetch is network activity and shows as such — not the
+    // generic teal, which would hide that the app is contacting a host.
+    ['market_data', 'search', 'SEARCHING']
   ]
   for (const [name, kind, label] of cases) {
     const visual = toolVisualForName(name)
