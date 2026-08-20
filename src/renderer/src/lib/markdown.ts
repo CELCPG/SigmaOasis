@@ -92,7 +92,20 @@ export function renderMarkdown(markdown: string): string {
   // Models often wrap numbers and units in TeX ($374^\circ\text{C}$); the
   // renderer has no math engine, so rewrite it to plain text first.
   const html = marked.parse(latexToPlainText(markdown), { async: false }) as string
-  return DOMPurify.sanitize(html, SANITIZE_OPTIONS)
+  return DOMPurify.sanitize(stripSandboxImages(html), SANITIZE_OPTIONS)
+}
+
+/**
+ * v1.12: a model that saved a chart under /work tends to also write
+ * ![chart](/work/chart.png) into its answer — and one that FAILED to save it
+ * writes the same markdown anyway (measured live: the only python run errored,
+ * the reply embedded the image regardless). The sandbox path can never load in
+ * the renderer — real charts arrive through the tool result's image gallery —
+ * so a broken-image icon is all that ref can ever render. Drop the tag; the
+ * gallery shows the chart when it exists.
+ */
+export function stripSandboxImages(html: string): string {
+  return html.replace(/<img\b[^>]*src=["'](?:file:\/\/)?\/work\/[^"']*["'][^>]*>/gi, '')
 }
 
 /**

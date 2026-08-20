@@ -572,7 +572,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         'do not estimate it. Also to verify a calculation you are about to state.\n' +
         'Do not use when: finance_calculator or date_calculator already does the exact job; or the ' +
         'user needs a shell on their machine (run_terminal_command). Do not use it to reach the ' +
-        'network — it cannot.\n' +
+        'network — it cannot; for market prices call market_data, which stages the series at /work/<SYMBOL>.csv.\n' +
         'Print what you need to see, or end with an expression. Keep runs short (default limit 60 s).\n' +
         'Example: {"code": "prices=[2.40/3]*17\\nprint(round(20-sum(prices),2))"}',
       parameters: {
@@ -687,6 +687,42 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           targetPrice: { type: 'number', description: 'Notify below this price' }
         },
         required: ['action']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'market_data',
+      description:
+        'Fetch a DAILY price series (open/high/low/close/volume) for a stock, ETF, index, futures ' +
+        'contract or crypto pair, with app-computed summary stats (period return, high/low, max ' +
+        'drawdown, realized volatility). The full series is staged at /work/<SYMBOL>.csv for ' +
+        'run_python — compute indicators (SMA/EMA, RSI, ATR, beta vs an index) from that file and ' +
+        'chart them with matplotlib saved to /work/chart.png. Symbols: AAPL, BRK-B, ^GSPC (index), ' +
+        'ES=F / GC=F (futures), BTC-USD (crypto).\n' +
+        'Use when: the user asks about a price, performance, volatility, drawdowns, or wants a chart ' +
+        'or technical analysis of a real instrument — fetch first, compute second, never quote a ' +
+        'price or indicator from memory.\n' +
+        'Do not use when: the question is conceptual (what IS a moving average — answer or use ' +
+        'reference_lookup); or for intraday data, order books or live quotes — this is daily history ' +
+        'and may lag by a day. State the as-of date with any figure. Historical data is not a ' +
+        'forecast; never extrapolate it into a prediction or a recommendation.\n' +
+        'Example: {"symbol": "NVDA", "range": "6mo"}',
+      parameters: {
+        type: 'object',
+        properties: {
+          symbol: {
+            type: 'string',
+            description: 'Ticker: AAPL, BRK-B, ^GSPC, ES=F, GC=F, BTC-USD. One symbol per call.'
+          },
+          range: {
+            type: 'string',
+            enum: ['1mo', '3mo', '6mo', '1y', '2y', '5y', 'max'],
+            description: 'How far back (daily bars). Default 1y.'
+          }
+        },
+        required: ['symbol']
       }
     }
   }

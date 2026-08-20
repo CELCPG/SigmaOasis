@@ -96,7 +96,11 @@ export function evalStubResult(name: string): ToolResult {
       'Derived requirements: 32GB RAM, discrete GPU, 1TB SSD. Confirm before searching.',
     shop_compare:
       '| Seller | Price | Source | As of |\n| --- | --- | --- | --- |\n| Example | $1,899 | example.com | today |',
-    price_watch: 'The watchlist is empty.'
+    price_watch: 'The watchlist is empty.',
+    market_data:
+      'AAPL · EQUITY · NMS · USD\nDaily bars, 2026-02-18 → 2026-08-18 (125 trading days).\n' +
+      'Computed by the app from the fetched series: last close: 316.83 · period return (6mo): 12.40% · ' +
+      'max drawdown (close-to-close): -9.10%\nFull series staged at /work/AAPL.csv.'
   }
   return { ok: true, output: stubs[name] ?? '(ok)' }
 }

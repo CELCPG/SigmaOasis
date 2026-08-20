@@ -70,3 +70,25 @@ describe('splitStreamingMarkdown boundaries', () => {
     assert.match(live, /^\| a \| b \|/)
   })
 })
+
+describe('sandbox image refs are dropped from rendered markdown (v1.12)', () => {
+  // renderMarkdown itself needs a DOM (DOMPurify) and is exercised by the
+  // Electron render checks; the stripping rule is pure and pinned here.
+  const { stripSandboxImages } = require('../src/renderer/src/lib/markdown') as typeof import('../src/renderer/src/lib/markdown')
+
+  test('an img into /work never survives — a broken icon is all it could render', () => {
+    for (const src of ['/work/chart.png', 'file:///work/chart.png', "/work/out%20put.png"]) {
+      const html = `<p>before</p><img src="${src}" alt="chart"><p>after</p>`
+      const out = stripSandboxImages(html)
+      assert.ok(!out.includes('<img'), out)
+      assert.ok(out.includes('before') && out.includes('after'))
+    }
+  })
+
+  test('ordinary images survive', () => {
+    for (const src of ['data:image/png;base64,iVBORw0KGgo=', 'https://example.com/x.png']) {
+      const out = stripSandboxImages(`<img src="${src}">`)
+      assert.ok(out.includes('<img'), out)
+    }
+  })
+})

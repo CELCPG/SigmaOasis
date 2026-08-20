@@ -75,6 +75,8 @@ export interface ToolToggles {
   shop_requirements: boolean
   shop_compare: boolean
   price_watch: boolean
+  /** v1.12: daily market data — sends the ticker to one pinned public host. */
+  market_data: boolean
 }
 
 export interface ShoppingSettings {

@@ -104,7 +104,7 @@ describe('TOOL_SCHEMAS integrity', () => {
         'web_search', 'image_search', 'fetch_webpage', 'deep_research', 'finance_calculator',
         'geo_locate', 'date_calculator', 'get_current_datetime', 'create_note', 'list_notes', 'read_note',
         'memory_save', 'memory_search', 'memory_forget', 'reference_lookup', 'run_python', 'analyze_file',
-        'shop_requirements', 'shop_compare', 'price_watch'
+        'shop_requirements', 'shop_compare', 'price_watch', 'market_data'
       ]
     )
   })

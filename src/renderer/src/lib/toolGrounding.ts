@@ -24,7 +24,11 @@ import { measurementsIn } from '../../../shared/measurements'
  */
 
 /** Tools whose output is the authoritative source for numbers in a reply. */
-const NUMERIC_TOOLS = new Set(['finance_calculator', 'shop_compare', 'price_watch', 'run_python', 'analyze_file'])
+// market_data joined in v1.12: its output IS app-computed figures (last close,
+// range high/low, drawdown), and on its first live run the checker flagged the
+// tool's own numbers as "not backed by the tool output" because this set did
+// not know the tool existed.
+const NUMERIC_TOOLS = new Set(['finance_calculator', 'shop_compare', 'price_watch', 'run_python', 'analyze_file', 'market_data'])
 
 /** Tools whose output is the authoritative source for links in a reply. */
 const SOURCE_TOOLS = new Set([

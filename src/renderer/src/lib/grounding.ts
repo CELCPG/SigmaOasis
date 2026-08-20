@@ -448,7 +448,12 @@ const SOURCE_TOOLS = new Set([
   // interest answer computed by run_python still wore the unverified badge.)
   'run_python',
   'analyze_file',
-  'finance_calculator'
+  'finance_calculator',
+  // v1.12: a fetched price series is a source in exactly this sense. Measured
+  // the omission live on the tool's first real run: market_data fetched 125
+  // days of NVDA, the model answered from the tool's own computed stats, and
+  // the reply was branded "answered from model memory — no sources consulted".
+  'market_data'
 ])
 
 /**

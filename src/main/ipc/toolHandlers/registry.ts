@@ -8,6 +8,7 @@ import { memoryHandlers } from './memory'
 import { libraryHandlers } from './library'
 import { workbenchHandlers } from './workbench'
 import { shoppingHandlers } from './shopping'
+import { marketHandlers } from './market'
 import type { ToolContext, ToolHandler, ToolResult } from './types'
 
 /**
@@ -25,7 +26,8 @@ export const TOOL_HANDLERS: Record<keyof ToolToggles, ToolHandler> = {
   ...memoryHandlers,
   ...libraryHandlers,
   ...workbenchHandlers,
-  ...shoppingHandlers
+  ...shoppingHandlers,
+  ...marketHandlers
 }
 
 export const TOOL_NAMES = Object.keys(TOOL_HANDLERS) as (keyof ToolToggles)[]

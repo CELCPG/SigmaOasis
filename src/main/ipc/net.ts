@@ -52,6 +52,7 @@ export type NetworkPurpose =
   | 'geo' // place lookups for the geo_locate tool (OpenStreetMap only)
   | 'proxytest' // user-initiated "Test proxy" check only
   | 'update' // opt-in update checks
+  | 'market' // market_data tool: daily price series (single pinned host)
 
 export interface NetworkActivityEntry {
   /** epoch ms */
@@ -156,6 +157,12 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
       // explicitly so this cannot become a general-purpose escape hatch, and so
       // the one third-party contact the app makes on its own behalf is auditable.
       return ['api.ipify.org']
+    case 'market':
+      // One pinned host. The request carries a ticker symbol — that is the
+      // disclosure the tool's Settings description names, and the reason the
+      // toggle ships off. Kept off the wildcard purposes so market lookups are
+      // distinguishable in the activity log and cannot widen by accident.
+      return ['query1.finance.yahoo.com']
     case 'update':
       // electron-updater talks to GitHub Releases; listed here so the policy
       // is explicit and auditable even though the updater uses its own stack.

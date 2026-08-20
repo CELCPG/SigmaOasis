@@ -60,7 +60,8 @@ const TOOL_LABELS: Record<keyof ToolToggles, string> = {
   finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)',
   shop_requirements: 'Shopping requirements (works out what you need — fully local, sends nothing)',
   shop_compare: 'Shopping comparison (contacts retailers; prices carry a source and a timestamp)',
-  price_watch: 'Price watch (local watchlist — no service is told what is on it)'
+  price_watch: 'Price watch (local watchlist — no service is told what is on it)',
+  market_data: 'Market data (daily stock/index/futures prices — sends the ticker to query1.finance.yahoo.com)'
 }
 
 type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library'

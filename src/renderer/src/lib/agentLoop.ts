@@ -48,7 +48,10 @@ export const TOOL_TURN_BUDGETS: Record<string, number> = {
   run_python: 4,
   analyze_file: 2,
   shop_requirements: 2,
-  shop_compare: 2
+  shop_compare: 2,
+  // One request per symbol; comparing a handful of instruments is legitimate,
+  // a screener loop over the whole market is not.
+  market_data: 4
 }
 
 /**

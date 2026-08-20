@@ -70,6 +70,11 @@ const runPythonTool: ToolHandler = async (args, context) => {
   if (!formatted.ok && /ModuleNotFoundError|No module named/.test(formatted.error ?? '')) {
     const pk = await bundledPackages()
     formatted.error += `\n\nThe sandbox is offline: only the standard library${pk.length ? ` and these packages are available: ${pk.join(', ')}` : ' is available'}. Rewrite without the missing module.`
+    // The first live market question tried `import yfinance` before anything
+    // else. Name the door that is actually open.
+    if (/yfinance|pandas_datareader|pandas-datareader|alpha_vantage/i.test(formatted.error ?? '')) {
+      formatted.error += ' For market prices, call the market_data tool — it stages the series at /work/<SYMBOL>.csv for pandas.'
+    }
   }
   const stagedNote =
     staged.files.length > 0

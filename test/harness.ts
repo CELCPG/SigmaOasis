@@ -520,6 +520,10 @@ function fakeNativeImage(spec: ReturnType<typeof parseFakeImage>, width: number)
 const electronStub = {
   app: {
     getPath: () => TEST_USER_DATA_DIR,
+    // workbench.pyodideDir resolves the runtime from here; a directory with no
+    // pyodide in it means "runtime not installed", which is the degraded state
+    // handler tests want.
+    getAppPath: () => TEST_USER_DATA_DIR,
     getVersion: () => '0.9.0-test'
   },
   nativeImage: {

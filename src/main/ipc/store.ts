@@ -103,6 +103,12 @@ export interface ToolToggles {
   shop_requirements: boolean
   shop_compare: boolean
   price_watch: boolean
+  /**
+   * v1.12: daily market data (stocks, ETFs, indices, futures, crypto pairs).
+   * Off by default: each lookup sends the ticker to one pinned public host,
+   * which is a disclosure of what you are researching.
+   */
+  market_data: boolean
 }
 
 export interface ShoppingSettings {
@@ -461,7 +467,9 @@ function defaultSettings(): AppSettings {
       // that log them. That should be a choice the user makes on purpose.
       shop_requirements: false,
       shop_compare: false,
-      price_watch: false
+      price_watch: false,
+      // v1.12: off by default — a ticker lookup discloses what you are researching.
+      market_data: false
     },
     workingDirectory: '',
     pipeline: ['model-1'],
