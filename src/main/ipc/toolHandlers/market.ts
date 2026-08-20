@@ -1,10 +1,9 @@
 import {
-  MARKET_DATA_HOST,
   csvNameFor,
   fetchMarketSeries,
+  formatMarketOutput,
   normalizeRange,
   normalizeSymbol,
-  summarize,
   toCsv
 } from '../marketData'
 import { runPython, workbenchRuntimePresent } from '../workbench'
@@ -18,9 +17,6 @@ import type { ToolHandler } from './types'
  * marketData.ts for the provider decision and the privacy posture.
  */
 
-/** Recent closes shown inline, so eyeballing the tape needs no python. */
-const TAIL_ROWS = 10
-
 const marketData: ToolHandler = async (args, context) => {
   const symbol = normalizeSymbol(args.symbol)
   if (!symbol) {
@@ -33,7 +29,6 @@ const marketData: ToolHandler = async (args, context) => {
   const range = normalizeRange(args.range)
 
   const series = await fetchMarketSeries(symbol, range)
-  const s = summarize(series.bars)
   const csv = toCsv(series.bars)
   const csvName = csvNameFor(symbol)
 
@@ -63,32 +58,7 @@ const marketData: ToolHandler = async (args, context) => {
     }
   }
 
-  const money = (n: number): string =>
-    n >= 1000 ? n.toLocaleString('en-US', { maximumFractionDigits: 2 }) : String(Math.round(n * 10000) / 10000)
-  const tail = series.bars.slice(-TAIL_ROWS)
-  const lines = [
-    `${series.symbol || symbol} · ${series.instrumentType || 'instrument'} · ${series.exchange || 'exchange n/a'} · ${series.currency || 'currency n/a'}`,
-    `Daily bars from ${MARKET_DATA_HOST}, ${s.firstDate} → ${s.lastDate} (${s.rows} trading days). As of ${s.lastDate} — data may lag by a day; this is an unofficial public endpoint.`,
-    '',
-    'Computed by the app from the fetched series (state these exactly as shown):',
-    `- last close: ${money(s.lastClose)}`,
-    `- period return (${range}): ${s.periodReturnPct.toFixed(2)}%  (${money(s.firstClose)} → ${money(s.lastClose)})`,
-    `- range high/low: ${money(s.high)} / ${money(s.low)}`,
-    `- max drawdown (close-to-close): ${s.maxDrawdownPct.toFixed(2)}%`,
-    s.annualizedVolPct !== null
-      ? `- realized volatility (annualized, daily log returns): ${s.annualizedVolPct.toFixed(1)}%`
-      : '- realized volatility: not computed (under 20 trading days in range)',
-    '',
-    `Last ${tail.length} closes: ${tail.map((b) => `${b.date} ${money(b.close)}`).join(' · ')}`,
-    '',
-    staged
-      ? `Full series staged at /work/${csvName} (columns: date,open,high,low,close,adj_close,volume). ` +
-        'Compute indicators from it with run_python — pandas/numpy for SMA/EMA, RSI, ATR, beta vs an index series — ' +
-        'and chart with matplotlib saved to /work/chart.png (shown to the user). Never state an indicator value you did not compute this conversation.'
-      : stageNote,
-    'These are historical prices, not advice or a prediction. Do not extrapolate them into a forecast.'
-  ]
-  return { ok: true, output: truncate(lines.filter(Boolean).join('\n')) }
+  return { ok: true, output: truncate(formatMarketOutput(series, range, { staged, csvName, note: stageNote })) }
 }
 
 export const marketHandlers = {

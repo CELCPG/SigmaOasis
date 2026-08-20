@@ -1022,6 +1022,182 @@ async function runProjectRecallSuite(model: string): Promise<import('../src/rend
   return results
 }
 
+
+/**
+ * v1.12: market indicators, measured. Two synthetic tickers (deterministic
+ * fixture series in Yahoo's chart shape — the provider is never contacted),
+ * four questions each: relay the tool's computed stats, compute a 20-day SMA,
+ * state the max drawdown, produce a chart. Two arms:
+ *
+ *   tool   market_data (serving the fixture through the app's own parser,
+ *          formatter and CSV staging) + run_python against the real sandbox.
+ *          Every expected value is recomputed by this script in TypeScript
+ *          from the same bars, so a hit means the model's number reproduces
+ *          from the series — the discipline the tool exists to enforce.
+ *   bare   no tools. The tickers are synthetic, so the honest answer is "I
+ *          cannot know" — a confident figure here is a fabrication, and the
+ *          `declined` rate is the honesty measure.
+ */
+async function runMarketSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').MarketCaseResult[]> {
+  const { scoreQuantitative } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
+  const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
+  const md = require('../src/main/ipc/marketData') as typeof import('../src/main/ipc/marketData')
+  const { runPython } = require('../src/main/ipc/workbench') as typeof import('../src/main/ipc/workbench')
+  const { workbenchHandlers } = require('../src/main/ipc/toolHandlers/workbench') as typeof import('../src/main/ipc/toolHandlers/workbench')
+  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+
+  const MARKET_DIR = join(REPO_ROOT, 'test', 'fixtures', 'market')
+  const tools = TOOL_SCHEMAS.filter((t) => ['market_data', 'run_python'].includes(t.function.name))
+  const files = readdirSync(MARKET_DIR).filter((f) => f.endsWith('.chart.json')).sort()
+  const results: import('../src/renderer/src/lib/answerEval').MarketCaseResult[] = []
+
+  for (const [i, file] of slice(files).entries()) {
+    const series = md.parseChart(JSON.parse(readFileSync(join(MARKET_DIR, file), 'utf-8')))
+    const sym = series.symbol
+    const s = md.summarize(series.bars)
+    const closes = series.bars.map((b) => b.close)
+    const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20
+    const csvName = md.csvNameFor(sym)
+    const csv = md.toCsv(series.bars)
+
+    const questions: { prompt: string; kind: 'figures' | 'chart'; expect: { label: string; value: number; tolerance: number }[] }[] = [
+      {
+        prompt: `Using your tools, get the recent daily price history for ${sym} and tell me the exact last closing price and the total period return percentage.`,
+        kind: 'figures',
+        expect: [
+          { label: 'last close', value: s.lastClose, tolerance: 0.02 },
+          { label: 'period return %', value: Math.round(s.periodReturnPct * 100) / 100, tolerance: 0.5 }
+        ]
+      },
+      {
+        prompt: `What is the current 20-day simple moving average of ${sym}'s closing price? Fetch the data and compute it, then state the value.`,
+        kind: 'figures',
+        expect: [{ label: '20-day SMA', value: Math.round(sma20 * 100) / 100, tolerance: Math.max(0.05, sma20 * 0.005) }]
+      },
+      {
+        // Scored sign-agnostically below: a drawdown is stated as "-34.77%"
+        // or "a 34.77% decline" with equal correctness, and answerEval's
+        // numbersIn keeps the sign. Measured: the first pass failed a reply
+        // that stated the expected value to the exact hundredth, negated.
+        prompt: `What was ${sym}'s maximum drawdown over the period? Give the percentage.`,
+        kind: 'figures',
+        expect: [{ label: 'max drawdown %', value: Math.round(Math.abs(s.maxDrawdownPct) * 100) / 100, tolerance: 1.0 }]
+      },
+      {
+        prompt: `Chart ${sym}'s closing price with a 20-day moving average overlaid.`,
+        kind: 'chart',
+        expect: []
+      }
+    ]
+
+    const caseOut: import('../src/renderer/src/lib/answerEval').MarketCaseResult = { file, symbol: sym, tool: [], bare: [] }
+    console.log(`  [${i + 1}/${slice(files).length}] ${file} — ${sym} (${s.rows} bars, last close ${s.lastClose})`)
+
+    for (const arm of ['tool', 'bare'] as const) {
+      for (const q of slice(questions)) {
+        if (arm === 'bare' && q.kind === 'chart') continue // nothing to draw with
+        const sessionKey = `mk-${file}-${q.kind}-${process.pid}-${jobNonce++}`
+        let fetched = false
+        let computed = false
+        let chartProduced = false
+
+        const exec = async (name: string, args: Record<string, unknown>): Promise<{ ok: boolean; output?: string; error?: string }> => {
+          if (name === 'market_data') {
+            // The fixture stands in for the provider; parsing, summarizing,
+            // formatting and staging are the app's own code.
+            const range = md.normalizeRange(args.range)
+            const staged = await runPython({ code: 'pass', files: [{ name: csvName, data: Buffer.from(csv, 'utf-8') }], session: sessionKey, timeoutMs: 60_000 })
+            fetched = true
+            return { ok: true, output: md.formatMarketOutput(series, range, { staged: staged.ok, csvName, note: staged.ok ? undefined : 'staging failed' }) }
+          }
+          if (name === 'run_python') {
+            const res = await workbenchHandlers.run_python(args, { sender: {} as never, modelId: '', attachments: [], conversationId: sessionKey } as never)
+            if (res.ok) computed = true
+            if ((res as { images?: unknown[] }).images?.length) chartProduced = true
+            if (res.ok && /files written under \/work:[^]*\.png/i.test(res.output ?? '')) chartProduced = true
+            return res
+          }
+          return { ok: false, error: `Unknown tool "${name}"` }
+        }
+
+        const blocks: string[] = []
+        const playbook = selectPlaybook({ text: q.prompt })
+        if (playbook) blocks.push(buildPlaybookContext(playbook))
+        const turnContext = buildTurnContext(blocks)
+        const messages: Msg[] = [
+          { role: 'system', content: withGrounding(PERSONA) },
+          { role: 'user', content: `${q.prompt}${turnContext ?? ''}` }
+        ]
+
+        const t0 = Date.now()
+        const records: import('../src/renderer/src/types').ToolCallRecord[] = []
+        const rounds: string[] = []
+        const out: import('../src/renderer/src/lib/answerEval').MarketQuestionResult = {
+          prompt: q.prompt,
+          kind: q.kind,
+          hit: false,
+          missing: [],
+          fetched: false,
+          computed: false,
+          chartProduced: false,
+          statedFigures: false,
+          ms: 0
+        }
+        try {
+          await runAgentLoop({
+            messages: messages as never,
+            tools: arm === 'tool' ? tools : [],
+            records,
+            signal: new AbortController().signal,
+            deps: {
+              streamRound: async (msgs: unknown, tls: unknown) => {
+                const r = await complete(model, msgs as never, tls as never[])
+                if (r.content.trim()) rounds.push(r.content)
+                return { content: r.content, toolCalls: r.toolCalls }
+              },
+              executeTool: exec
+            }
+          })
+          const reply = rounds.join('\n\n')
+          out.reply = reply.slice(0, 1200)
+          out.fetched = fetched
+          out.computed = computed
+          out.chartProduced = chartProduced
+          out.statedFigures = /\$\s?\d|\d+\.\d{2}\b|\d+(?:\.\d+)?\s?%/.test(reply)
+          if (q.kind === 'chart') {
+            out.hit = chartProduced
+            if (!chartProduced) out.missing.push('no chart file produced')
+          } else {
+            const { statesValue } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+            const scored = scoreQuantitative(reply, q.expect)
+            // Sign-agnostic second chance, drawdowns only (see the fixture note).
+            out.missing = scored.missing.filter(
+              (label) =>
+                !(label === 'max drawdown %' &&
+                  q.expect.some((e) => e.label === label && statesValue(reply, -e.value, e.tolerance)))
+            )
+            out.hit = out.missing.length === 0
+          }
+        } catch (err) {
+          out.error = err instanceof Error ? err.message : String(err)
+        }
+        out.ms = Date.now() - t0
+        caseOut[arm].push(out)
+        const mark = out.error ? '!' : out.hit ? '✓' : '✗'
+        console.log(
+          `      ${arm.padEnd(5)} ${mark} ${q.kind.padEnd(7)} ${(out.ms / 1000).toFixed(0)}s` +
+            (arm === 'tool' ? ` fetched=${out.fetched ? 'y' : 'n'} computed=${out.computed ? 'y' : 'n'}${q.kind === 'chart' ? ` chart=${out.chartProduced ? 'y' : 'n'}` : ''}` : ` figures=${out.statedFigures ? 'y' : 'n'}`) +
+            (out.error ? ` · ${out.error.slice(0, 60)}` : out.missing.length ? ` · missing ${out.missing.join(', ')}` : '')
+        )
+      }
+    }
+    results.push(caseOut)
+  }
+  return results
+}
+
 async function runQuantSuite(
   model: string,
   arms: { workbench: boolean; deliberate: boolean }
@@ -1171,7 +1347,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -1426,6 +1602,34 @@ async function main(): Promise<void> {
       report.projects = { passes: prPasses, stability }
     } else {
       report.projects = { summary: s, runs: prPasses[0].runs }
+    }
+  }
+
+  if (want.includes('market')) {
+    const probe = await wb.runPython({ code: 'print(2 + 2)' })
+    if (!probe.ok || !/^4/m.test(probe.stdout)) {
+      throw new Error(`the Workbench sandbox is not working, so the market suite cannot be measured:\n  ${probe.error ?? probe.stdout}`)
+    }
+    console.log('market indicators (tool vs bare, synthetic fixture series)')
+    const { summarizeMarket, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const mkPasses: { runs: Awaited<ReturnType<typeof runMarketSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      mkPasses.push({ runs: await runMarketSuite(model) })
+    }
+    const s = summarizeMarket(mkPasses.flatMap((p) => p.runs))
+    console.log(
+      `\n  tool   figures ${s.tool.figures.hit}/${s.tool.figures.of} · charts ${s.tool.charts.hit}/${s.tool.charts.of} · used the sandbox on ${s.tool.computed.hit}/${s.tool.computed.of} turns · ${s.tool.secondsPerQuestion.toFixed(0)} s/question`
+    )
+    console.log(
+      `  bare   figures ${s.bare.figures.hit}/${s.bare.figures.of} · declined to invent on ${s.bare.declined.hit}/${s.bare.declined.of} · ${s.bare.secondsPerQuestion.toFixed(0)} s/question\n`
+    )
+    if (passesWanted > 1) {
+      const stability = stabilityAcrossPasses(mkPasses.map((p) => p.runs.flatMap((r) => r.tool.map((q, qi) => ({ file: `${r.file}#q${qi + 1}`, pass: q.error ? null : q.hit })))))
+      console.log(`  tool across ${passesWanted} passes: [${stability.perPass.join(', ')}] · median ${stability.median} · stable-pass ${stability.stablePass} · flaky ${stability.flaky.length}${stability.flaky.length ? ` (${stability.flaky.join(', ')})` : ''}`)
+      report.market = { passes: mkPasses, stability }
+    } else {
+      report.market = { summary: s, runs: mkPasses[0].runs }
     }
   }
 

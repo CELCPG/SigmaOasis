@@ -45,8 +45,10 @@ egress allowlist. In order of preference:
   series counts as a consulted source, its computed stats support the reply's figures, a
   `yfinance` import error points at the tool, and a phantom `![chart](/work/…)` image reference
   can no longer render as a broken icon. Its first live run caught all four of those gaps.
-  Still owed from this phase: indicator recipes in the playbook, and the eval where every stated
-  indicator value must reproduce from the fetched series.
+  The indicator eval exists (`EVAL_SUITES=market`): fixture series in the provider's payload
+  shape, expected values recomputed independently in TypeScript, a tool arm vs a no-tools arm
+  whose honest answer is refusal. Results in docs/evals.md. Still owed: indicator recipes in the
+  playbook beyond the chart nudge.
 - **Phase 3:** education — a curated "Investing foundations" library pack (the pack mechanism
   exists), so definitions and rules come from citable passages instead of model memory; plus a
   scenario workbench: contribution plans, ladders, allocation comparisons as parameterized

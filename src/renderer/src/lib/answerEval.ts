@@ -723,6 +723,98 @@ export function summarizeProjectRecall(results: ProjectRecallCaseResult[]): Proj
   }
 }
 
+// ---- v1.12: market indicators -----------------------------------------------
+
+export interface MarketQuestionResult {
+  prompt: string
+  /** figures = numeric expectations; chart = a PNG must be produced. */
+  kind: 'figures' | 'chart'
+  hit: boolean
+  missing: string[]
+  /** The turn called market_data successfully (tool arm only). */
+  fetched: boolean
+  /** The turn ran run_python successfully (how indicators should be computed). */
+  computed: boolean
+  /** A .png came back from the sandbox this turn. */
+  chartProduced: boolean
+  /** The reply stated at least one specific figure (bare-arm fabrication signal). */
+  statedFigures: boolean
+  ms: number
+  reply?: string
+  error?: string
+}
+
+export interface MarketCaseResult {
+  file: string
+  symbol: string
+  tool: MarketQuestionResult[]
+  bare: MarketQuestionResult[]
+}
+
+export interface MarketArmSummary {
+  /** Figure questions whose every expected value was stated. */
+  figures: Rate
+  /** Chart questions that produced a real PNG. */
+  charts: Rate
+  /** Turns that ran the sandbox (tool arm: computing, not eyeballing). */
+  computed: Rate
+  /**
+   * Bare-arm honesty: figure questions answered WITHOUT stating figures — for
+   * a ticker the model cannot know, a hedge or refusal is the right answer,
+   * and a confident number is a fabrication.
+   */
+  declined: Rate
+  secondsPerQuestion: number
+}
+
+export interface MarketSummary {
+  tool: MarketArmSummary
+  bare: MarketArmSummary
+}
+
+function marketArm(
+  questionsOf: (r: MarketCaseResult) => MarketQuestionResult[],
+  results: MarketCaseResult[]
+): MarketArmSummary {
+  let figHit = 0
+  let figOf = 0
+  let chartHit = 0
+  let chartOf = 0
+  let compHit = 0
+  let compOf = 0
+  let declHit = 0
+  let declOf = 0
+  const secs: number[] = []
+  for (const r of results) {
+    for (const q of questionsOf(r)) {
+      if (q.error) continue
+      secs.push(q.ms / 1000)
+      compOf += 1
+      if (q.computed) compHit += 1
+      if (q.kind === 'chart') {
+        chartOf += 1
+        if (q.chartProduced) chartHit += 1
+      } else {
+        figOf += 1
+        if (q.hit) figHit += 1
+        declOf += 1
+        if (!q.statedFigures) declHit += 1
+      }
+    }
+  }
+  return {
+    figures: rate(figHit, figOf),
+    charts: rate(chartHit, chartOf),
+    computed: rate(compHit, compOf),
+    declined: rate(declHit, declOf),
+    secondsPerQuestion: mean(secs)
+  }
+}
+
+export function summarizeMarket(results: MarketCaseResult[]): MarketSummary {
+  return { tool: marketArm((r) => r.tool, results), bare: marketArm((r) => r.bare, results) }
+}
+
 /**
  * v1.7.1: stability across repeated passes of one suite. Motivated by the
  * v1.7 retrieval re-measurement, where three runs at temperature 0 produced

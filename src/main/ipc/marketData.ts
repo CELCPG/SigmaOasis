@@ -190,6 +190,48 @@ export function csvNameFor(symbol: string): string {
   return `${symbol.replace(/[\^=]/g, (c) => (c === '^' ? '' : '_'))}.csv`
 }
 
+/** Recent closes shown inline, so eyeballing the tape needs no python. */
+const TAIL_ROWS = 10
+
+/**
+ * The tool output, single-sourced: the handler formats real fetches with it
+ * and the market eval formats fixture series with it, so what the eval grades
+ * is byte-for-byte what the app says.
+ */
+export function formatMarketOutput(
+  series: MarketSeries,
+  range: MarketRange,
+  staging: { staged: boolean; csvName: string; note?: string }
+): string {
+  const s = summarize(series.bars)
+  const money = (n: number): string =>
+    n >= 1000 ? n.toLocaleString('en-US', { maximumFractionDigits: 2 }) : String(Math.round(n * 10000) / 10000)
+  const tail = series.bars.slice(-TAIL_ROWS)
+  const lines = [
+    `${series.symbol} · ${series.instrumentType || 'instrument'} · ${series.exchange || 'exchange n/a'} · ${series.currency || 'currency n/a'}`,
+    `Daily bars from ${MARKET_DATA_HOST}, ${s.firstDate} → ${s.lastDate} (${s.rows} trading days). As of ${s.lastDate} — data may lag by a day; this is an unofficial public endpoint.`,
+    '',
+    'Computed by the app from the fetched series (state these exactly as shown):',
+    `- last close: ${money(s.lastClose)}`,
+    `- period return (${range}): ${s.periodReturnPct.toFixed(2)}%  (${money(s.firstClose)} → ${money(s.lastClose)})`,
+    `- range high/low: ${money(s.high)} / ${money(s.low)}`,
+    `- max drawdown (close-to-close): ${s.maxDrawdownPct.toFixed(2)}%`,
+    s.annualizedVolPct !== null
+      ? `- realized volatility (annualized, daily log returns): ${s.annualizedVolPct.toFixed(1)}%`
+      : '- realized volatility: not computed (under 20 trading days in range)',
+    '',
+    `Last ${tail.length} closes: ${tail.map((b) => `${b.date} ${money(b.close)}`).join(' · ')}`,
+    '',
+    staging.staged
+      ? `Full series staged at /work/${staging.csvName} (columns: date,open,high,low,close,adj_close,volume). ` +
+        'Compute indicators from it with run_python — pandas/numpy for SMA/EMA, RSI, ATR, beta vs an index series — ' +
+        'and chart with matplotlib saved to /work/chart.png (shown to the user). Never state an indicator value you did not compute this conversation.'
+      : staging.note ?? '',
+    'These are historical prices, not advice or a prediction. Do not extrapolate them into a forecast.'
+  ]
+  return lines.filter(Boolean).join('\n')
+}
+
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 const TIMEOUT_MS = 20_000
 

@@ -166,3 +166,57 @@ describe('market_data is wired into the honesty rails (v1.12)', () => {
     assert.equal(report, null, JSON.stringify(report))
   })
 })
+
+describe('market eval scaffolding (v1.12)', () => {
+  test('the fixture series parse with the real parser and are big enough to score', () => {
+    const { readFileSync, readdirSync } = require('fs') as typeof import('fs')
+    const { join } = require('path') as typeof import('path')
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'market')
+    const files = readdirSync(dir).filter((f: string) => f.endsWith('.chart.json'))
+    assert.ok(files.length >= 2)
+    for (const f of files) {
+      const s = md.parseChart(JSON.parse(readFileSync(join(dir, f), 'utf-8')))
+      assert.ok(s.symbol, `${f}: needs a symbol`)
+      assert.ok(s.bars.length >= 40, `${f}: needs 40+ bars (20-day SMA plus history), has ${s.bars.length}`)
+      const sum = md.summarize(s.bars)
+      assert.ok(sum.annualizedVolPct !== null, `${f}: must be long enough for a volatility figure`)
+    }
+  })
+
+  test('summarizeMarket splits arms and reads the honesty signals', () => {
+    const { summarizeMarket } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const q = (kind: 'figures' | 'chart', hit: boolean, extra: Partial<{ computed: boolean; chartProduced: boolean; statedFigures: boolean; error: string }> = {}) => ({
+      prompt: 'p', kind, hit, missing: [], fetched: true,
+      computed: extra.computed ?? false, chartProduced: extra.chartProduced ?? false,
+      statedFigures: extra.statedFigures ?? false, ms: 8000,
+      ...(extra.error ? { error: extra.error } : {})
+    })
+    const s = summarizeMarket([
+      {
+        file: 'a', symbol: 'TRND',
+        tool: [q('figures', true, { computed: true, statedFigures: true }), q('figures', false), q('chart', true, { chartProduced: true, computed: true })],
+        bare: [q('figures', false, { statedFigures: true }), q('figures', false)]
+      }
+    ])
+    assert.deepEqual(s.tool.figures, { hit: 1, of: 2 })
+    assert.deepEqual(s.tool.charts, { hit: 1, of: 1 })
+    assert.deepEqual(s.tool.computed, { hit: 2, of: 3 })
+    // Bare: one fabricated a figure, one declined.
+    assert.deepEqual(s.bare.declined, { hit: 1, of: 2 })
+  })
+
+  test('errored questions are excluded, not failed', () => {
+    const { summarizeMarket } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const s = summarizeMarket([
+      {
+        file: 'a', symbol: 'X',
+        tool: [
+          { prompt: 'p', kind: 'figures', hit: false, missing: [], fetched: false, computed: false, chartProduced: false, statedFigures: false, ms: 1, error: 'fetch failed' },
+          { prompt: 'p', kind: 'figures', hit: true, missing: [], fetched: true, computed: true, chartProduced: false, statedFigures: true, ms: 1 }
+        ],
+        bare: []
+      }
+    ])
+    assert.deepEqual(s.tool.figures, { hit: 1, of: 1 })
+  })
+})

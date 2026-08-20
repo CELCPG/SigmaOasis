@@ -58,6 +58,16 @@ Retrieval is scored separately from the model, because the two fail differently:
 (did the gate open where the answer was?) and **stayed quiet on control** (did it stay shut where
 there was nothing to find?). Those two judge the ranking without the model's competence in the way.
 
+**Market indicators** (v1.12, opt-in: `EVAL_SUITES=market`). Two synthetic tickers whose daily
+series are deterministic fixtures in the provider's own payload shape — the provider is never
+contacted. Four questions each: relay the tool's computed stats, compute a 20-day SMA, state the
+max drawdown, produce a chart. The **tool** arm runs `market_data` (the fixture served through the
+app's real parser, formatter and CSV staging) plus `run_python` against the real sandbox; every
+expected value is recomputed by the eval in TypeScript from the same bars, so a hit means the
+model's number *reproduces from the series*. The **bare** arm gets no tools — and since the tickers
+are synthetic, the honest bare answer is "I cannot know": its `declined` rate is the honesty
+measure, and any confident figure is a fabrication.
+
 **Deliberation.** The bare draft is put through one think-harder pass and re-scored, reported as a
 delta and a cost in seconds. With a single model loaded this is the *self-review* arm — the weaker
 half of that feature — and the report says so.
@@ -660,6 +670,36 @@ noise, and removing it cost nothing.
 - **Small corpora.** These projects are 4–6 chunks. The selectivity rule needs a minimum document
   frequency before it will call a term uninformative, precisely because a share means nothing at
   that size — a two-chunk project made "budget" look universal and threw it out.
+
+## Market indicators, measured (v1.12, qwen3.8-9b, temperature 0)
+
+Two synthetic tickers, four questions each — relay the tool's stats, compute a 20-day SMA, state
+the max drawdown, produce a chart — tool arm vs. no-tools arm. Expected values recomputed
+independently in TypeScript from the same fixture bars.
+
+| arm | figures | charts | used the sandbox | s/question |
+| --- | --- | --- | --- | --- |
+| **tool** | **6/6** | **2/2** | 4/8 turns | 47 |
+| bare | 0/6 | — | — | 27 |
+
+With the tool, **every stated figure reproduces from the series**, and both chart requests
+produced a real PNG (close + 20-day SMA, drawn by the model in the sandbox from the staged CSV).
+The sandbox ran exactly where computing was needed — both SMA questions, both charts — and the
+relay questions were answered from the app's own computed stats, which is what they are for.
+
+Without the tool the tickers are unknowable, and the honest answer is a refusal. The model
+**declined on only 3 of 6** — on the other three it stated confident prices and returns for
+instruments it has never seen. That is the fabrication behavior from the reviewed sessions
+(v1.11.2's laundering fix), now with a number attached, and it is the delta the tool exists to
+close.
+
+One scorer bug found and fixed during the run, of the class this file keeps warning about: the
+first pass failed a reply that stated the expected drawdown to the exact hundredth — as
+"-34.77%" against an expected +34.77, because `numbersIn` keeps the sign. Drawdowns are now
+scored sign-agnostically. An eval that fails a correct answer is worse than no eval.
+
+Caveats: one model class, synthetic series (deterministic, but not real market texture), and the
+provider path is exercised only up to the parser — the fixture stands in for the network.
 
 ## Findings worth keeping
 
