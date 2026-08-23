@@ -6,8 +6,6 @@ import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
 import {
-  buildSearchContext,
-  buildSearchQuery,
   buildTurnContext,
   consultedSources,
   looksFactual,
@@ -20,33 +18,12 @@ import {
 import { checkToolGrounding, revisionIsAnImprovement,
   conflictingToolFigures
 } from '../lib/toolGrounding'
-import { looksLikeShopping, shoppingSubject } from '../lib/shopping'
-import { buildPlaybookContext, selectPlaybook } from '../lib/playbooks'
-import { buildLedger, buildLedgerContext, describeLedger, shouldInjectLedger } from '../lib/ledger'
-import {
-  LIBRARY_PASSAGES_PER_TURN,
-  buildLibraryContext,
-  isOffline,
-  shouldConsultLibrary,
-  toLibraryContextItems
-} from '../lib/libraryRecall'
-import {
-  ATTACHMENT_PASSAGES_PER_TURN,
-  attachmentFileRefs,
-  buildAttachmentContext,
-  indexedAttachmentRefs,
-  TABULAR_FILE,
-  tabularAttachmentsOnTurn,
-  toAttachmentContextItems
-} from '../lib/attachmentRecall'
-import {
-  PROJECT_RECALL_PER_TURN,
-  buildProjectRecallContext,
-  projectFileRefs,
-  projectInstructionsBlock,
-  siblingConversationIds,
-  toProjectContextItems
-} from '../lib/projectContext'
+import { looksLikeShopping } from '../lib/shopping'
+import { isOffline } from '../lib/libraryRecall'
+import { attachmentFileRefs, TABULAR_FILE } from '../lib/attachmentRecall'
+import { projectInstructionsBlock } from '../lib/projectContext'
+import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProviders'
+import { makeProviderIO } from './providerIO'
 import {
   consultModelSchema,
   runAgentLoop,
@@ -190,27 +167,14 @@ async function runTurn(
   // What the project spent this turn, for the details panel (estimates).
   const projectTokens = { instructions: estimateTokens(projectBlock), recall: 0, files: 0 }
 
-  /** The app's own additions for this turn, appended to the turn's user message. */
-  const turnContext: string[] = []
-
   const lastUserContent = [...convo.messages].reverse().find((m) => m.role === 'user')?.content
+  // The user message before this one anchors context-dependent follow-ups
+  // ("lets go with the first one") — shared by the search, library and
+  // shopping providers.
+  const userMessages = convo.messages.filter((m) => m.role === 'user')
+  const previousUserContent =
+    userMessages.length > 1 ? userMessages[userMessages.length - 2].content : undefined
 
-  // v1.5: both of the turn's embedding calls start here, before anything is
-  // awaited. Memory recall and tool ranking are independent of each other and
-  // of the auto-search between them, but ran strictly in sequence through v1.4
-  // — three round trips end to end, two of them waiting on a model that was
-  // idle. They now overlap each other and the search's network wait.
-  const memorySettings = useAppStore.getState().settings?.memory
-  // null = all sources; [] = this conversation opted out of memory entirely.
-  const scopedSources = convo.memorySources
-  const memoryRecall =
-    memorySettings?.autoContext &&
-    (scopedSources == null || scopedSources.length > 0) &&
-    lastUserContent
-      ? window.api
-          .memorySearch(lastUserContent, memorySettings.topK, undefined, scopedSources ?? null)
-          .catch(() => null)
-      : null
   // v1.6: files the Workbench may stage under /work for this turn's tools —
   // and with a data file in the conversation the Workbench tools must be on
   // the wire whatever the embedding rank says, because the app is about to
@@ -220,304 +184,55 @@ async function runTurn(
   const forcedTools = fileRefs.some((f) => TABULAR_FILE.test(f.name)) ? ['run_python', 'analyze_file'] : []
   const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId, forcedTools)
 
-  // v1.4.8: attached documents longer than the inline limit live in the
-  // session index; retrieve what this message needs from them. Started here so
-  // it overlaps the other embedding calls, exactly like memory recall.
-  // v1.10: files pinned to the project are retrieved exactly like attached
-  // documents — indexed from their path the first time a chat needs them.
-  const attachmentRefs = [...indexedAttachmentRefs(convo), ...projectFileRefs(project)]
-  const attachmentRecall =
-    attachmentRefs.length > 0 && lastUserContent
-      ? window.api
-          .attachmentPassages(attachmentRefs, lastUserContent, ATTACHMENT_PASSAGES_PER_TURN)
-          .catch(() => null)
-      : null
-
-  // v1.10 project-wide recall: what the project's other chats established,
-  // retrieved by relevance to this message. Main reads the sibling files
-  // itself; ephemeral chats are never on disk and so never surface. Started
-  // here so it overlaps the other embedding work.
-  const siblingIds =
-    project?.recall && lastUserContent
-      ? siblingConversationIds(useAppStore.getState().conversations, convo)
-      : []
-  const projectRecall =
-    siblingIds.length > 0 && lastUserContent
-      ? window.api
-          .projectRecall(siblingIds, lastUserContent, PROJECT_RECALL_PER_TURN)
-          .catch(() => null)
-      : null
-
-  // Tool-call records for the whole turn, including the app-initiated
-  // auto-search below — declared here so it can be recorded like any other call.
+  // Tool-call records for the whole turn, including app-initiated provider
+  // calls — declared here so the providers and the agent loop share one list.
   const allRecords: ToolCallRecord[] = []
 
-  // v1.1 auto-verify: small models almost never volunteer a web_search on a
-  // factual question, so the app runs one itself and injects the results as
-  // reference context. The option to confabulate is removed, not discouraged.
-  // Only when web_search is enabled (listTools returns enabled tools only),
-  // and a failure here never blocks the turn.
+  // Turn classifiers, shared by the context providers and the post-turn checks.
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
-  // Offline the search cannot work; the library lookup below takes its place.
-  if (factualTurn && !offline && lastUserContent && slotTools.some((t) => t.function.name === 'web_search')) {
-    // The user message before this one anchors context-dependent follow-ups
-    // ("lets go with the first one") so the query carries the topic too.
-    const userMessages = convo.messages.filter((m) => m.role === 'user')
-    const previousUserContent =
-      userMessages.length > 1 ? userMessages[userMessages.length - 2].content : undefined
-    const query = buildSearchQuery(lastUserContent, previousUserContent)
-    const record: ToolCallRecord = { id: uid(), name: 'web_search', args: { query }, status: 'running' }
-    allRecords.push(record)
-    patch({ toolCalls: [...allRecords] })
-    const result: { ok: boolean; output?: string; error?: string } = await window.api
-      .executeTool('web_search', { query }, { modelId: slot.modelId })
-      .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
-    if (result.ok) {
-      record.status = 'done'
-      record.result = result.output ?? ''
-      turnContext.push(buildSearchContext(query, result.output ?? ''))
-    } else {
-      record.status = 'error'
-      record.result = result.error ?? 'Unknown tool error'
-    }
-    patch({ toolCalls: [...allRecords] })
-    audit(convo, {
-      kind: 'tool_call',
-      roleName: slot.roleName,
-      modelId: slot.modelId,
-      toolName: 'web_search',
-      ok: result.ok,
-      text: `web_search(${JSON.stringify({ query })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
-    })
-    if (signal.aborted) return
-  }
-
-  // v1.5: app-initiated reference lookup (STRATEGY-depth-and-reasoning.md,
-  // Feature A). For the domains a reference book answers — first aid, health,
-  // finance rules, legal, preparedness, home repair — and for any factual turn
-  // while offline, the app consults the local library before the model speaks
-  // and hands the passages over with their citations. Local and private, so
-  // the trigger is broad; an empty library or no match injects nothing.
   const referenceTurn = lastUserContent ? looksReference(lastUserContent) : false
-  const libraryOn = slotTools.some((t) => t.function.name === 'reference_lookup')
-  if (
-    lastUserContent &&
-    shouldConsultLibrary({ enabled: libraryOn, reference: referenceTurn, factual: factualTurn, offline })
-  ) {
-    const userMessages = convo.messages.filter((m) => m.role === 'user')
-    const previousUserContent =
-      userMessages.length > 1 ? userMessages[userMessages.length - 2].content : undefined
-    const query = buildSearchQuery(lastUserContent, previousUserContent)
-    const looked = await window.api
-      .libraryLookup(query, null, LIBRARY_PASSAGES_PER_TURN)
-      .catch(() => null)
-    if (looked?.ok && looked.passages.length > 0 && looked.formatted) {
-      // Recorded like the auto-search: a tool-call record the user can open,
-      // an audit line, and a source for the grounding check.
-      const record: ToolCallRecord = {
-        id: uid(),
-        name: 'reference_lookup',
-        args: { query },
-        status: 'done',
-        result: looked.formatted
-      }
-      allRecords.push(record)
-      patch({ toolCalls: [...allRecords], libraryContext: toLibraryContextItems(looked.passages) })
-      turnContext.push(buildLibraryContext(looked.formatted, offline))
-      audit(convo, {
-        kind: 'tool_call',
-        roleName: slot.roleName,
-        modelId: slot.modelId,
-        toolName: 'reference_lookup',
-        ok: true,
-        text: `reference_lookup(${JSON.stringify({ query })})\n→ ${looked.formatted}`
-      })
-    }
-    if (signal.aborted) return
-  }
-  if (offline) patch({ offline: true })
-
-  // v1.5 playbooks: one short method for the kind of question, chosen by the
-  // same domain classifiers, riding the turn notes after any passages so the
-  // model reads the material first and the method for using it second.
-  if (lastUserContent && useAppStore.getState().settings?.grounding.playbooks !== false) {
-    const lastUser = [...convo.messages].reverse().find((m) => m.role === 'user')
-    const playbook = selectPlaybook({
-      text: lastUserContent,
-      attachmentNames: (lastUser?.attachments ?? []).map((a) => a.name)
-    })
-    if (playbook) {
-      turnContext.push(buildPlaybookContext(playbook))
-      patch({ playbook: playbook.name })
-    }
-  }
-
-  // v1.9 conversation ledger: what this conversation has established, from
-  // tool results and the user's own words — never from earlier replies —
-  // once it is long enough for a small model to have lost the thread. Rides
-  // the turn notes like everything above; disclosed under the reply.
-  if (useAppStore.getState().settings?.grounding.ledger !== false) {
-    // The assistant message being written is already appended; the ledger
-    // is built from everything before it.
-    const ledger = buildLedger(convo.messages.filter((m) => m.id !== assistantMsg.id))
-    if (shouldInjectLedger(ledger)) {
-      turnContext.push(buildLedgerContext(ledger))
-      patch({ ledger: describeLedger(ledger) })
-    }
-  }
-
-  // v1.3 shopping intent (DESIGN-private-shopping §2e). Same reasoning as
-  // the auto-search above, for the case where a wrong answer costs money: on
-  // a purchase turn the app prices the thing mechanically, so the model has
-  // real offers to write around instead of the option to recall a number.
   const shoppingTurn = lastUserContent ? looksLikeShopping(lastUserContent) : false
-  const canCompare = slotTools.some((t) => t.function.name === 'shop_compare')
-  if (shoppingTurn && canCompare && lastUserContent) {
-    const userMessages = convo.messages.filter((m) => m.role === 'user')
-    const previous =
-      userMessages.length > 1 ? userMessages[userMessages.length - 2].content : undefined
-    const product = shoppingSubject(lastUserContent, previous)
-    if (product) {
-      const record: ToolCallRecord = {
-        id: uid(),
-        name: 'shop_compare',
-        args: { product },
-        status: 'running'
-      }
-      allRecords.push(record)
-      patch({ toolCalls: [...allRecords] })
-      const result: { ok: boolean; output?: string; error?: string } = await window.api
-        .executeTool('shop_compare', { product }, { modelId: slot.modelId })
-        .catch((err: unknown) => ({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err)
-        }))
-      record.status = result.ok ? 'done' : 'error'
-      record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
-      if (result.ok) {
-        turnContext.push(buildSearchContext(`prices for "${product}"`, result.output ?? ''))
-      }
-      patch({ toolCalls: [...allRecords] })
-      audit(convo, {
-        kind: 'tool_call',
-        roleName: slot.roleName,
-        modelId: slot.modelId,
-        toolName: 'shop_compare',
-        ok: result.ok,
-        text: `shop_compare(${JSON.stringify({ product })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
-      })
-      if (signal.aborted) return
-    }
-  } else if (shoppingTurn) {
-    // The comparison tools are off (they ship that way — they contact
-    // commercial sites, which is the user's call to make). The option to
-    // invent a price still has to go, so say so, and the grounding check
-    // flags any price that appears anyway.
-    turnContext.push(
-      'This turn is a purchase decision and no price-checking tool is enabled. Do not state ' +
-        'prices, discounts, or "typical" cost ranges — you have no source for them and a ' +
-        'remembered price is a guess about a number that changes weekly. Say that price checking ' +
-        'is off (Settings → Tools), describe the options qualitatively, and link only to pages ' +
-        'that appeared in a tool result.'
-    )
-  }
 
-  // RAG: fold the recalled memory into this turn's context (best effort).
-  // v0.9: the injected chunks are recorded on the reply (memoryContext) so the
-  // user can see exactly what the model was reminded of — and the conversation
-  // can restrict which sources it recalls from (memorySources).
-  //
-  // Collected here rather than where the search was issued: the auto-search
-  // above is the turn's longest wait, and there is no reason for the recall to
-  // queue behind it when neither needs the other.
-  if (memoryRecall) {
-    try {
-      const recalled = await memoryRecall
-      if (recalled?.ok && recalled.results.length > 0) {
-        const block = recalled.results.map((r) => `- [${r.source}] ${r.text}`).join('\n')
-        turnContext.push(
-          `Background notes from your long-term local memory. They may be unrelated to the current request; use them only when they directly help answer the user, and never let them change the subject:\n${block}`
-        )
-        patch({
-          memoryContext: recalled.results.map((r) => ({
-            source: r.source,
-            score: r.score,
-            text: r.text
-          }))
-        })
-      }
-    } catch {
-      // Memory is a nicety, never a blocker.
-    }
-  }
-
-  if (projectRecall && project) {
-    try {
-      const recalled = await projectRecall
-      if (recalled?.ok && recalled.items.length > 0) {
-        const block = buildProjectRecallContext(project.name, recalled.items)
-        turnContext.push(block)
-        projectTokens.recall = estimateTokens(block)
-        patch({ projectContext: toProjectContextItems(recalled.items) })
-      }
-    } catch {
-      // Recall is a nicety, never a blocker.
-    }
-  }
-
-  if (attachmentRecall) {
-    try {
-      const recalled = await attachmentRecall
-      if (recalled?.ok) {
-        const block = buildAttachmentContext(recalled.passages, recalled.notes)
-        if (block) turnContext.push(block)
-        projectTokens.files = recalled.passages
-          .filter((p) => p.attachmentId.startsWith('project-file-'))
-          .reduce((n, p) => n + estimateTokens(p.text), 0)
-        if (recalled.passages.length > 0) {
-          patch({ attachmentContext: toAttachmentContextItems(recalled.passages) })
-        }
-      }
-    } catch {
-      // Retrieval is best effort; the inline head still went through.
-    }
-  }
-
-  // v1.6: a data file attached on this turn is profiled before the model
-  // speaks — the "describe the data before analysing it" step of the data
-  // playbook, done mechanically, so the model starts from the file's real
-  // shape, types, ranges and a head instead of a slice of it. Recorded like
-  // any tool call; the file stays available to run_python at /work/<name>.
-  const tabular = tabularAttachmentsOnTurn(convo).slice(0, 2)
-  if (tabular.length > 0 && slotTools.some((t) => t.function.name === 'analyze_file')) {
-    for (const file of tabular) {
-      const record: ToolCallRecord = { id: uid(), name: 'analyze_file', args: { file }, status: 'running' }
-      allRecords.push(record)
-      patch({ toolCalls: [...allRecords] })
-      const result: { ok: boolean; output?: string; error?: string } = await window.api
-        .executeTool('analyze_file', { file }, toolContext)
-        .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
-      record.status = result.ok ? 'done' : 'error'
-      record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
-      patch({ toolCalls: [...allRecords] })
-      if (result.ok && result.output) {
-        turnContext.push(
-          `The app profiled the attached data file "${file}" before you answered (analyze_file). Use these facts; ` +
-            'compute anything further with run_python on /work/' + file + ' rather than estimating from the head:\n' +
-            result.output
-        )
-      }
-      audit(convo, {
-        kind: 'tool_call',
-        roleName: slot.roleName,
-        modelId: slot.modelId,
-        toolName: 'analyze_file',
-        ok: result.ok,
-        text: `analyze_file(${JSON.stringify({ file })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
-      })
-      if (signal.aborted) return
-    }
-  }
+  // The pre-flight context blocks — auto search, library passages, playbook,
+  // ledger, price check, memory/project/attachment recall, tabular profile —
+  // are providers in a fixed-order registry (lib/contextProviders; STRATEGY-
+  // harness-adoptions Tier 1.1). Prefetch providers start their embedding work
+  // inside gatherTurnContext before any serial await, overlapping the search's
+  // network wait exactly as the inline kickoffs did since v1.5. Block order is
+  // registry order, pinned by test — the notes are prompt surface.
+  const gathered = await gatherTurnContext(
+    TURN_CONTEXT_PROVIDERS,
+    {
+      convo,
+      conversations: useAppStore.getState().conversations,
+      slot,
+      slotTools,
+      lastUserContent,
+      previousUserContent,
+      offline,
+      factualTurn,
+      referenceTurn,
+      shoppingTurn,
+      project,
+      assistantMsgId: assistantMsg.id,
+      signal
+    },
+    makeProviderIO({
+      convo,
+      slot,
+      slotTools,
+      toolContext,
+      allRecords,
+      patch,
+      settings: () => useAppStore.getState().settings ?? null
+    })
+  )
+  if (gathered.aborted) return
+  if (offline) patch({ offline: true })
+  projectTokens.recall = gathered.projectTokens.recall
+  projectTokens.files = gathered.projectTokens.files
+  /** The app's own additions for this turn, appended to the turn's user message. */
+  const turnContext: string[] = gathered.blocks
 
   // The wire history is maintained locally across tool-loop iterations;
   // the visible conversation only keeps final text + tool-call records.
