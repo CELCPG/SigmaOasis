@@ -38,7 +38,7 @@ rm -rf "$OUT"
   --skipLibCheck \
   --strict \
   --types node \
-  src/main/ipc/toolSchemas.ts \
+  src/shared/tools/index.ts \
   src/main/ipc/traceExport.ts \
   scripts/export-traces.ts
 

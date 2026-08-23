@@ -81,7 +81,7 @@ rm -rf "$OUT"
   src/main/ipc/rubrics.ts \
   src/main/ipc/shopping.ts \
   src/main/ipc/watchlist.ts \
-  src/main/ipc/toolSchemas.ts \
+  src/shared/tools/index.ts \
   src/main/ipc/toolHandlers/registry.ts \
   src/main/ipc/toolRank.ts \
   src/main/ipc/evalResults.ts \

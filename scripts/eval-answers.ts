@@ -312,7 +312,7 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
   const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
   const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
   const { buildLedger, buildLedgerContext, shouldInjectLedger } = require('../src/renderer/src/lib/ledger') as typeof import('../src/renderer/src/lib/ledger')
-  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
 
   const MULTITURN_DIR = join(REPO_ROOT, 'test', 'fixtures', 'multiturn')
   const sessionTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'run_python' || t.function.name === 'analyze_file')
@@ -721,7 +721,7 @@ async function runLedgerSuite(model: string): Promise<import('../src/renderer/sr
   const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
   const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
   const { buildLedger, buildLedgerContext, shouldInjectLedger } = require('../src/renderer/src/lib/ledger') as typeof import('../src/renderer/src/lib/ledger')
-  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
 
   const LEDGER_DIR = join(REPO_ROOT, 'test', 'fixtures', 'ledger')
   const tools = TOOL_SCHEMAS.filter((t) => t.function.name === 'run_python' || t.function.name === 'analyze_file')
@@ -1046,7 +1046,7 @@ async function runMarketSuite(model: string): Promise<import('../src/renderer/sr
   const md = require('../src/main/ipc/marketData') as typeof import('../src/main/ipc/marketData')
   const { runPython } = require('../src/main/ipc/workbench') as typeof import('../src/main/ipc/workbench')
   const { workbenchHandlers } = require('../src/main/ipc/toolHandlers/workbench') as typeof import('../src/main/ipc/toolHandlers/workbench')
-  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
 
   const MARKET_DIR = join(REPO_ROOT, 'test', 'fixtures', 'market')
   const tools = TOOL_SCHEMAS.filter((t) => ['market_data', 'run_python'].includes(t.function.name))
@@ -1227,7 +1227,7 @@ async function runOrchestrateSuite(model: string): Promise<import('../src/render
   const { scoreQuantitative } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
   const { runAgentLoop, consultModelSchema } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
   const { withGrounding } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
-  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
   const { defaultSettings } = require('../src/main/ipc/store') as typeof import('../src/main/ipc/store')
 
   const wbTools = TOOL_SCHEMAS.filter((t) => ['run_python', 'analyze_file'].includes(t.function.name))
@@ -1392,7 +1392,7 @@ async function runSynthesisSuite(model: string): Promise<import('../src/renderer
   const { scoreQuantitative } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
   const { runAgentLoop, consultModelSchema } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
   const { withGrounding } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
-  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
   const { defaultSettings } = require('../src/main/ipc/store') as typeof import('../src/main/ipc/store')
   const lib = require('../src/main/ipc/library') as typeof import('../src/main/ipc/library')
   const { workbenchHandlers } = require('../src/main/ipc/toolHandlers/workbench') as typeof import('../src/main/ipc/toolHandlers/workbench')
@@ -1548,7 +1548,7 @@ async function runQuantSuite(
   const { scoreQuantitative } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
   const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
   const { withGrounding } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
-  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
   const del = require('../src/renderer/src/lib/deliberation') as typeof import('../src/renderer/src/lib/deliberation')
 
   const wbTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'run_python' || t.function.name === 'analyze_file')

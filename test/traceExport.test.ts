@@ -13,7 +13,7 @@ import {
   type AuditEntryLike,
   type TraceTurn
 } from '../src/main/ipc/traceExport'
-import { TOOL_SCHEMAS } from '../src/main/ipc/toolSchemas'
+import { TOOL_SCHEMAS } from '../src/shared/tools'
 
 /**
  * Layer 4's labels decide what a future fine-tune learns to imitate, and its

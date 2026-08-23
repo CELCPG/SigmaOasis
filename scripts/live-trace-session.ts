@@ -24,7 +24,7 @@ import type { ApiMessage, StreamRoundResult } from '../src/renderer/src/lib/agen
 import { runAgentLoop } from '../src/renderer/src/lib/agentLoop'
 import { parseCompletionMessage } from '../src/renderer/src/lib/evalRunner'
 import { withGrounding, withToolCallPreamble } from '../src/renderer/src/lib/grounding'
-import { TOOL_SCHEMAS } from '../src/main/ipc/toolSchemas'
+import { TOOL_SCHEMAS } from '../src/shared/tools'
 import type { ToolCallRecord } from '../src/renderer/src/types'
 
 const USER_DATA = '/tmp/oasis-live-userdata'

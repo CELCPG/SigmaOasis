@@ -25,7 +25,7 @@ type Registry = {
 type Schemas = { TOOL_SCHEMAS: { function: { name: string } }[] }
 
 const registry = load<Registry>('toolHandlers/registry')
-const { TOOL_SCHEMAS } = load<Schemas>('toolSchemas')
+const { TOOL_SCHEMAS } = load<Schemas>('../../shared/tools')
 const context = { sender: {} as unknown }
 
 describe('tool registry', () => {

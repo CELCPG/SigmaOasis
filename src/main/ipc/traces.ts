@@ -3,7 +3,7 @@ import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { readSessionPlaintext, currentAuditSessionId } from './audit'
-import { TOOL_SCHEMAS } from './toolSchemas'
+import { TOOL_SCHEMAS } from '../../shared/tools'
 import {
   exportTraces,
   outcomeKey,

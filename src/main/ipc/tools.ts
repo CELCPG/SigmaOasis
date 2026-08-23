@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { getSettings } from './store'
 import type { ToolToggles } from './store'
-import { TOOL_SCHEMAS } from './toolSchemas'
+import { TOOL_SCHEMAS } from '../../shared/tools'
 import { executeTool } from './toolHandlers/registry'
 
 /**

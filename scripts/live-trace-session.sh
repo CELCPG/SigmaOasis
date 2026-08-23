@@ -32,7 +32,7 @@ node node_modules/typescript/bin/tsc \
   --skipLibCheck \
   --strict \
   --types node \
-  src/main/ipc/toolSchemas.ts \
+  src/shared/tools/index.ts \
   src/main/ipc/traceExport.ts \
   src/main/ipc/audit.ts \
   src/main/ipc/store.ts \

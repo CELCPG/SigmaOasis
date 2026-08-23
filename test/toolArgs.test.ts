@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { validateToolArgs } from '../src/renderer/src/lib/toolArgs'
-import { TOOL_SCHEMAS } from '../src/main/ipc/toolSchemas'
+import { TOOL_SCHEMAS } from '../src/shared/tools'
 
 /**
  * The validator scores the eval's arg-validity rate and will word the repair

@@ -21,8 +21,10 @@ window.api.listTools()  →  ipc 'tools:list'     →  TOOL_SCHEMAS.filter(enabl
 window.api.executeTool()→  ipc 'tools:execute'  →  executeTool(name, args, ctx)
 ```
 
-Three call sites, all in `useLMStudio.ts` (:1047, :1196, :1341). Everything downstream is
-keyed on `ToolSchema.function.name` and does not care where a schema came from:
+All `listTools` call sites live in `useLMStudio.ts`; app-initiated `executeTool` dispatch is
+now concentrated in `hooks/providerIO.ts` (the context providers) and the loop's deps.
+Everything downstream is keyed on `ToolSchema.function.name` and does not care where a
+schema came from:
 
 | Layer | File | Cares about origin? |
 | --- | --- | --- |
@@ -91,13 +93,17 @@ protocol is stateless so in-flight requests are simply lost and retryable.
 
 ## 4. Five things that block it today
 
-**1. `ToolToggles` is a closed interface.** `store.ts:78–106` enumerates every tool name, and
-`tools.ts:28` does `getSettings().tools[name]`. Dynamic names have no key.
+**1. `ToolToggles` is a closed type.** It is now derived from the single tool table
+(`src/shared/tools` — `ToolName` union), and `tools.ts` does `getSettings().tools[name]`.
+Dynamic names have no key.
 → A separate `mcp` settings branch holds per-server and per-tool enablement. `tools:execute`
-checks it when the name is not a static toggle key.
+checks it when the name is not a static toggle key. MCP tools enter as a second source
+merged over the static `ToolMeta` table: extend the `tools:list` payload with per-entry
+metadata (`turnBudget?`, `alwaysOn?`, `isSource?`) rather than inventing a parallel shape —
+the renderer already derives its budget/always-on/source sets from that table.
 
-**2. `TOOL_HANDLERS` is compile-time closed.** `Record<keyof ToolToggles, ToolHandler>`
-(`registry.ts:19`) makes "toggle without handler" a build error. That is a deliberate,
+**2. `TOOL_HANDLERS` is compile-time closed.** `Record<ToolName, ToolHandler>`
+(`registry.ts`) makes "declared tool without handler" a build error. That is a deliberate,
 valuable property — **do not loosen it.**
 → Add an MCP fallback in `executeTool` *before* the `Unknown tool` return. The static table
 keeps its exact type.
@@ -115,7 +121,7 @@ tool-call block shows the server as a badge and the original tool name as the la
 
 **5. `TURN_TOOL_CAP = 6`.** One filesystem server adds ~12 tools; three servers can triple the
 toolbox. The ranker exists for exactly this, but there is a real quality risk:
-`toolSchemas.ts` descriptions are *decision rules* ("Use when… Do not use when… Example:")
+the tool table's descriptions (`src/shared/tools`) are *decision rules* ("Use when… Do not use when… Example:")
 tuned against the eval harness. MCP descriptions are nameplates ("Read a file"). They will
 rank badly *and* crowd out built-ins that were tuned to win.
 → Two mitigations: (a) reserve slots — cap MCP tools per turn separately, so built-ins keep a

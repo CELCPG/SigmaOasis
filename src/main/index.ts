@@ -20,7 +20,7 @@ import { registerModelPinHandlers, hasLegacyPins, unloadLegacyPins } from './ipc
 import { registerModelCatalogHandlers } from './ipc/modelCatalog'
 import { registerSummarizeHandlers } from './ipc/summarize'
 import { readEvalResults, readEvalFixtures, saveEvalResult } from './ipc/evalResults'
-import { TOOL_SCHEMAS } from './ipc/toolSchemas'
+import { TOOL_SCHEMAS } from '../shared/tools'
 import { registerUpdateHandlers } from './updates'
 
 /** electron-vite serves the renderer over http in dev, from a file in production. */

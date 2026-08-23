@@ -35,7 +35,7 @@ import {
   type AuditEntryLike,
   type TurnOutcome
 } from '../src/main/ipc/traceExport'
-import { TOOL_SCHEMAS } from '../src/main/ipc/toolSchemas'
+import { TOOL_SCHEMAS } from '../src/shared/tools'
 
 function usage(): never {
   console.error(

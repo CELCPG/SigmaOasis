@@ -39,7 +39,7 @@ rm -rf "$OUT"
   --skipLibCheck \
   --strict \
   --types node \
-  src/main/ipc/toolSchemas.ts \
+  src/shared/tools/index.ts \
   src/renderer/src/lib/agentLoop.ts \
   src/renderer/src/lib/evalRunner.ts \
   src/renderer/src/lib/reasoning.ts \

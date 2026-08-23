@@ -41,7 +41,7 @@ import {
   type EvalFixture,
   type EvalFixtureRun
 } from '../src/renderer/src/lib/evalRunner'
-import { TOOL_SCHEMAS } from '../src/main/ipc/toolSchemas'
+import { TOOL_SCHEMAS } from '../src/shared/tools'
 import type { ToolSchema } from '../src/renderer/src/types'
 
 // Compiled by scripts/eval-tools.sh to .eval-build/scripts/eval-tools.js —
