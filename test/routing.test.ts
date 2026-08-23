@@ -445,3 +445,32 @@ describe('preflightRoute · widened finance vocabulary (v1.11.2)', () => {
     }
   })
 })
+
+describe('routingReadiness (v1.12.1)', () => {
+  const { routingReadiness } = require('../src/renderer/src/lib/routing') as typeof import('../src/renderer/src/lib/routing')
+
+  test('one generalist slot — the measured setup — gets the full explanation', () => {
+    const r = routingReadiness([GENERAL])
+    assert.equal(r.specialists.length, 0)
+    assert.match(r.note!, /No specialist roles are enabled/)
+    assert.match(r.note!, /Settings → Models/)
+  })
+
+  test('partial coverage names what routes and what does not', () => {
+    const r = routingReadiness([GENERAL, RESEARCHER, FINANCE])
+    assert.equal(r.specialists.length, 2)
+    assert.match(r.note!, /research, finance/)
+    assert.match(r.note!, /coding, data turns stay/)
+  })
+
+  test('full coverage says nothing — no note to dismiss', () => {
+    assert.equal(routingReadiness([GENERAL, RESEARCHER, FINANCE, CODER, ANALYST]).note, null)
+  })
+
+  test('an enabled specialist without a model does not count as reachable', () => {
+    const ghost = slot({ id: 'g2', roleName: 'Researcher', specialty: 'research', modelId: '' })
+    const r = routingReadiness([GENERAL, ghost])
+    assert.equal(r.specialists.length, 0)
+    assert.match(r.note!, /No specialist roles/)
+  })
+})

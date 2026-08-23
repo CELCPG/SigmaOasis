@@ -163,6 +163,36 @@ export function preflightRoute(args: {
   return null
 }
 
+/**
+ * v1.12.1: what the pre-flight router can actually do with the user's current
+ * slots. The measured failure this line prevents: a user with one enabled
+ * generalist slot asked "why is it not using the researcher model" — routing
+ * was fixed, but with no routable specialist it silently does nothing, and
+ * silence reads as breakage. The chat panel shows the answer instead.
+ */
+export function routingReadiness(models: ModelConfig[]): {
+  /** Enabled slots with a model and a specialty — what the router can reach. */
+  specialists: ModelConfig[]
+  /** One short line for the panel, or null when routing is fully armed. */
+  note: string | null
+} {
+  const specialists = models.filter((m) => m.enabled && m.modelId && m.specialty)
+  if (specialists.length === 0) {
+    return {
+      specialists,
+      note:
+        'No specialist roles are enabled, so research, money, code and data turns all stay on the active role. Enable Researcher, Coder, Finance Coach or Data Analyst under Settings → Models to route them automatically.'
+    }
+  }
+  const covered = new Set(specialists.map((m) => m.specialty))
+  if (covered.size >= 4) return { specialists, note: null }
+  const missing = (['research', 'finance', 'coding', 'data'] as const).filter((s) => !covered.has(s))
+  return {
+    specialists,
+    note: `Routing is active for ${[...covered].join(', ')} turns; ${missing.join(', ')} turns stay on the active role.`
+  }
+}
+
 // ---- route targets ----------------------------------------------------------
 
 export interface RouteResult {

@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import type { ChatMode, Conversation, ModelConfig } from '../types'
 import { ACCENT } from '../lib/colors'
+import { routingReadiness } from '../lib/routing'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
 import { PanelSection } from './PanelSection'
 
@@ -39,6 +40,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
   if (!settings) return null
 
   const enabledModels = settings.models.filter((m) => m.enabled)
+  const routingNote = routingReadiness(settings.models).note
   const scopedSources = conversation.memorySources ?? null
 
   const patch = (partial: Partial<Conversation>): void =>
@@ -157,13 +159,23 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
             (enabledModels.length === 0 ? (
               <p className="px-1 text-[11px] text-ink-muted">No roles enabled — open Settings</p>
             ) : (
-              <div className="flex flex-wrap gap-1">
-                {enabledModels.map((m) =>
-                  rolePill(m, conversation.activeModelSlotId === m.id, () =>
-                    patch({ activeModelSlotId: m.id })
-                  )
+              <>
+                <div className="flex flex-wrap gap-1">
+                  {enabledModels.map((m) =>
+                    rolePill(m, conversation.activeModelSlotId === m.id, () =>
+                      patch({ activeModelSlotId: m.id })
+                    )
+                  )}
+                </div>
+                {routingNote && (
+                  <p
+                    className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-muted"
+                    title="The pre-flight router sends research, money, code and data turns to matching specialist roles — but only roles that are enabled with a model assigned. This is what it can reach right now."
+                  >
+                    🔀 {routingNote}
+                  </p>
                 )}
-              </div>
+              </>
             ))}
 
           {conversation.mode === 'collaborative' && (

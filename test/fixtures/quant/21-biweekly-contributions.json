@@ -1,0 +1,13 @@
+{
+  "prompt": "I get paid every two weeks and can put $400 from each paycheck into an index fund averaging 7% per year. If I keep that up for 30 years, what will it be worth? Compute it exactly and state the future value.",
+  "expect": [
+    {
+      "label": "future value",
+      "value": 1059289,
+      "tolerance": 26000
+    }
+  ],
+  "mustInclude": [
+    "26|every two weeks|bi-?weekly|10,?400"
+  ]
+}
