@@ -1,0 +1,36 @@
+{
+  "formatVersion": 1,
+  "id": "synthesis-policies",
+  "name": "Company policy manual (eval fixture)",
+  "description": "Invented commission, freight, rebate, budget and levy rules for the synthesis eval. Every number is fictional by construction so retrieval is load-bearing.",
+  "version": "2026.08",
+  "license": "Fixture \u2014 this repository",
+  "kind": "curated",
+  "docs": [
+    {
+      "id": "commission-policy",
+      "title": "Sales commission policy",
+      "file": "commission-policy.md"
+    },
+    {
+      "id": "freight-policy",
+      "title": "Freight surcharge policy",
+      "file": "freight-policy.md"
+    },
+    {
+      "id": "rebate-policy",
+      "title": "Regional rebate policy",
+      "file": "rebate-policy.md"
+    },
+    {
+      "id": "budget-policy",
+      "title": "Marketing budget policy",
+      "file": "budget-policy.md"
+    },
+    {
+      "id": "levy-policy",
+      "title": "Fourth-quarter excise levy",
+      "file": "levy-policy.md"
+    }
+  ]
+}

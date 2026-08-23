@@ -1,0 +1,19 @@
+{
+  "data": "company-2025.csv",
+  "prompt": "From the attached company-2025.csv and the freight surcharge policy in the reference manual, what freight surcharge do we owe for the year? State the per-unit rate you applied and the total.",
+  "expect": [
+    {
+      "label": "total units",
+      "value": 510,
+      "tolerance": 0
+    },
+    {
+      "label": "freight total",
+      "value": 688.5,
+      "tolerance": 0.1
+    }
+  ],
+  "mustInclude": [
+    "1\\.35"
+  ]
+}

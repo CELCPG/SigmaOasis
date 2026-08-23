@@ -1,0 +1,20 @@
+{
+  "data": "company-2025.csv",
+  "prompt": "Using the attached company-2025.csv and our company's sales commission policy from the reference manual, compute the exact commission owed on this year's sales. Show the revenue and the commission.",
+  "expect": [
+    {
+      "label": "total revenue",
+      "value": 17470.5,
+      "tolerance": 0.05
+    },
+    {
+      "label": "commission",
+      "value": 673.53,
+      "tolerance": 0.25
+    }
+  ],
+  "mustInclude": [
+    "3\\s?%|0\\.03",
+    "5\\s?%|0\\.05"
+  ]
+}

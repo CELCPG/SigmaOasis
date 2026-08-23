@@ -748,9 +748,35 @@ deliberately different allowlists). The failure mode to watch is a tool-less orc
 answering from memory rather than consulting — the exact class the "answered from model memory"
 badge exists for.
 
-Caveats: one model family, same weights under every persona (a multi-model measurement needs more
-memory than this machine has), quantitative fixtures only — tasks needing *synthesis across*
-specialists were not measured and remain the configuration most likely to show a delegation win.
+**Regime 3 — synthesis across specialists** (`EVAL_SUITES=synthesis`), the configuration most
+likely to show a delegation win, built so a win is *possible*: six cases each requiring a number
+computed from an attached CSV **and** a policy rule that exists only in a fixture reference pack
+whose figures are invented — retrieval is load-bearing in both arms, weights cannot shortcut it.
+The independent arm holds all three capabilities (Workbench + reference_lookup); the orchestrated
+arm splits them across specialists (Data Analyst: Workbench; Researcher: library; Finance Coach:
+calculator) under a tool-less orchestrator, so no single consult can answer.
+
+| arm | correct | cross-role consults | s/case |
+| --- | --- | --- | --- |
+| independent (all tools, one agent) | **6/6** | — | 59 |
+| orchestrated (split capabilities) | 6/6 figures, 5/6 strict | 2+ distinct roles on **6/6** | **177** |
+
+The mechanism performs exactly as designed: every case delegated across at least two roles, in
+sensible orders (compute → fetch policy → apply, or policy first), and every final figure was
+exact — commission tiers, threshold branches, the budget cap, all of it. The one strict-scoring
+miss is an **uncited rate, not a wrong number**: the rebate answer was perfect ($841.67, only the
+qualifying region, correct threshold) but the final reply never restated the 8.5% the Researcher
+had fetched. And the cost is **3.0×** the latency of one agent holding all the tools.
+
+### The verdict across all three regimes
+
+Delegation is a working mechanism and a losing configuration. With tools in hand the orchestrator
+rightly never uses it; forced by allowlists it relays faithfully at 2.3×; on tasks built for
+synthesis it crosses roles correctly at 3.0× — and at no point, in 48 measured cases, did it
+produce a single answer the plain agent got wrong. On same-weights hardware, "the power of
+multiple models" is realized by giving ONE well-tooled slot the job, and per-slot allowlists
+should be treated as a security boundary, not a performance strategy. The configuration still
+unmeasured is genuinely different weights per slot, which needs more memory than this machine.
 
 ## Findings worth keeping
 

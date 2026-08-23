@@ -19,3 +19,4 @@ resources/pyodide/
 
 # Answer-eval library cache (embedded packs; rebuild with scripts/eval-answers.sh)
 .eval-library/
+.eval-library-synthesis/

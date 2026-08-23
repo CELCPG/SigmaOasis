@@ -1,0 +1,19 @@
+{
+  "data": "company-2025.csv",
+  "prompt": "From the attached company-2025.csv and the fourth-quarter excise levy policy in the reference manual, how much levy do we owe? Show Q4 revenue and the levy.",
+  "expect": [
+    {
+      "label": "q4 revenue",
+      "value": 6278.0,
+      "tolerance": 0.1
+    },
+    {
+      "label": "levy",
+      "value": 392.38,
+      "tolerance": 0.25
+    }
+  ],
+  "mustInclude": [
+    "6\\.25\\s?%|0\\.0625"
+  ]
+}

@@ -1,0 +1,17 @@
+date,region,product,units,unit_price
+2025-01-15,North,widget,40,24.5
+2025-02-10,South,widget,25,24.5
+2025-02-21,East,gadget,18,61.0
+2025-03-05,North,gadget,22,61.0
+2025-04-11,South,widget,35,25.0
+2025-04-28,East,widget,20,25.0
+2025-05-16,North,widget,55,25.0
+2025-06-09,South,gadget,12,62.5
+2025-07-14,North,gadget,30,62.5
+2025-08-22,East,widget,28,25.5
+2025-09-18,South,widget,42,25.5
+2025-10-06,North,widget,60,26.0
+2025-10-27,East,gadget,15,64.0
+2025-11-12,North,gadget,25,64.0
+2025-12-03,South,widget,38,26.0
+2025-12-19,North,widget,45,26.0

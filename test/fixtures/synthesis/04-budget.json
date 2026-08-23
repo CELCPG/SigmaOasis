@@ -1,0 +1,15 @@
+{
+  "data": "company-2025.csv",
+  "prompt": "Using the attached company-2025.csv and the marketing budget policy in the reference manual, what is next year's marketing budget? Show how you got it.",
+  "expect": [
+    {
+      "label": "budget",
+      "value": 1800.0,
+      "tolerance": 0.05
+    }
+  ],
+  "mustInclude": [
+    "cap|1,?800",
+    "12\\s?%|0\\.12"
+  ]
+}

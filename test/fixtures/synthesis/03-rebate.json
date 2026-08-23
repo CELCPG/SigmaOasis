@@ -1,0 +1,15 @@
+{
+  "data": "company-2025.csv",
+  "prompt": "Per the regional rebate policy in the reference manual and the attached company-2025.csv: which regions qualify for the rebate this year, and what rebate does the top region earn? Give the exact figure.",
+  "expect": [
+    {
+      "label": "top region rebate",
+      "value": 841.67,
+      "tolerance": 0.5
+    }
+  ],
+  "mustInclude": [
+    "north",
+    "8\\.5\\s?%|0\\.085"
+  ]
+}

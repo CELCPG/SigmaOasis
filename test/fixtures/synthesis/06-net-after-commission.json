@@ -1,0 +1,14 @@
+{
+  "data": "company-2025.csv",
+  "prompt": "Per the commission policy in the reference manual and the attached company-2025.csv: after paying this year's sales commission, how much revenue does the company keep? Give the exact net figure.",
+  "expect": [
+    {
+      "label": "net after commission",
+      "value": 16796.97,
+      "tolerance": 0.5
+    }
+  ],
+  "mustInclude": [
+    "673|commission"
+  ]
+}
