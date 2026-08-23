@@ -26,6 +26,7 @@ import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProvide
 import { makeProviderIO } from './providerIO'
 import {
   consultModelSchema,
+  createTurnToolLedger,
   runAgentLoop,
   toolCallPreamble,
   MAX_TOOL_ITERATIONS,
@@ -187,6 +188,9 @@ async function runTurn(
   // Tool-call records for the whole turn, including app-initiated provider
   // calls — declared here so the providers and the agent loop share one list.
   const allRecords: ToolCallRecord[] = []
+  // One tool ledger for the whole turn: provider pre-flight calls and loop
+  // calls share budgets and repeat detection (the old bypass asymmetry).
+  const turnLedger = createTurnToolLedger()
 
   // Turn classifiers, shared by the context providers and the post-turn checks.
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
@@ -223,6 +227,7 @@ async function runTurn(
       slotTools,
       toolContext,
       allRecords,
+      ledger: turnLedger,
       patch,
       settings: () => useAppStore.getState().settings ?? null
     })
@@ -392,6 +397,9 @@ async function runTurn(
       messages: apiMessages,
       tools: wireTools,
       records: allRecords,
+      // The providers already charged this ledger: an app-run search spends
+      // web_search budget, and its byte-identical repeat is reused, not re-run.
+      ledger: turnLedger,
       signal,
       onRecordChange: () => patch({ toolCalls: [...allRecords] }),
       deps: {

@@ -56,6 +56,36 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value) ?? 'undefined'
 }
 
+/**
+ * The turn's tool spending, shared between the loop and any app-initiated
+ * pre-flight calls (the context providers): executed-call counts for budgets
+ * (Layer 3c) and dispatched results keyed by name + canonical args for repeat
+ * detection (3b). Sharing one ledger is what makes an app-run web_search
+ * spend web_search budget, and a model repeating the app's byte-identical
+ * query hit the reuse path instead of re-fetching. Verification and plan-mode
+ * loops deliberately keep fresh ledgers — a revision pass must not be starved
+ * by the turn's spending.
+ */
+export interface TurnToolLedger {
+  executedCounts: Map<string, number>
+  previousCalls: Map<string, ToolResult>
+  /** Record one executed call: charges its budget and seeds repeat detection. */
+  note(name: string, args: Record<string, unknown>, result: ToolResult): void
+}
+
+export function createTurnToolLedger(): TurnToolLedger {
+  const executedCounts = new Map<string, number>()
+  const previousCalls = new Map<string, ToolResult>()
+  return {
+    executedCounts,
+    previousCalls,
+    note(name, args, result) {
+      executedCounts.set(name, (executedCounts.get(name) ?? 0) + 1)
+      previousCalls.set(`${name} ${stableStringify(args)}`, result)
+    }
+  }
+}
+
 /** The round's text as a tool-call preamble, or null when it is answer content. */
 export function toolCallPreamble(roundContent: string): string | null {
   const trimmed = roundContent.trim()
@@ -220,6 +250,12 @@ export interface AgentLoopOptions {
   repairIterations?: number
   /** Called after every records mutation so the caller can re-render. */
   onRecordChange?: (record: ToolCallRecord) => void
+  /**
+   * The turn's shared tool ledger (budgets + repeat detection). Omitted, the
+   * loop runs a fresh one — correct for verification and plan-mode passes.
+   * runTurn passes the ledger its context providers already charged.
+   */
+  ledger?: TurnToolLedger
   deps: AgentLoopDeps
 }
 
@@ -251,8 +287,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   let delegationCount = 0
   // Layer 3 turn state: executed-call counts for budgets (3c), and the results
   // of dispatched calls keyed by name+canonical args for repeat detection (3b).
-  const executedCounts = new Map<string, number>()
-  const previousCalls = new Map<string, ToolResult>()
+  // Caller-shared when app-initiated pre-flight calls should count (runTurn);
+  // fresh otherwise.
+  const ledger = options.ledger ?? createTurnToolLedger()
+  const { executedCounts, previousCalls } = ledger
 
   // v1.7.1: one recovery per turn for a reply that IS a tool call written as
   // prose — `web_search("…")` as the entire answer (measured; the turn scored
@@ -412,8 +450,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
           }
         } else {
           result = await deps.executeTool(tc.function.name, args)
-          executedCounts.set(tc.function.name, (executedCounts.get(tc.function.name) ?? 0) + 1)
-          previousCalls.set(`${tc.function.name} ${stableStringify(args)}`, result)
+          ledger.note(tc.function.name, args, result)
         }
       }
 

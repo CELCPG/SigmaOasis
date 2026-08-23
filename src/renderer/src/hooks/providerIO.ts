@@ -8,6 +8,7 @@ import type {
   ToolSchema
 } from '../types'
 import type { ProviderIO, ToolExecuteContext } from '../lib/contextProviders'
+import type { TurnToolLedger } from '../lib/agentLoop'
 import { audit, uid } from './turnHelpers'
 
 /**
@@ -26,10 +27,16 @@ export function makeProviderIO(opts: {
   toolContext: ToolExecuteContext
   /** The turn's shared record list — the agent loop appends to the same one. */
   allRecords: ToolCallRecord[]
+  /**
+   * The turn's shared tool ledger. Provider calls charge budgets and seed
+   * repeat detection exactly like loop calls, so the model repeating the
+   * app's byte-identical query gets the reuse path, not a re-fetch.
+   */
+  ledger: TurnToolLedger
   patch: (p: Partial<ChatMessage>) => void
   settings: () => AppSettings | null
 }): ProviderIO {
-  const { convo, slot, slotTools, toolContext, allRecords, patch, settings } = opts
+  const { convo, slot, slotTools, toolContext, allRecords, ledger, patch, settings } = opts
 
   const auditCall = (name: string, args: Record<string, unknown>, ok: boolean, text: string): void =>
     audit(convo, {
@@ -60,6 +67,7 @@ export function makeProviderIO(opts: {
         }))
       record.status = result.ok ? 'done' : 'error'
       record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+      ledger.note(name, args, result)
       patch({ toolCalls: [...allRecords] })
       auditCall(
         name,
@@ -73,6 +81,7 @@ export function makeProviderIO(opts: {
     recordSyntheticCall(name, args, output) {
       const record: ToolCallRecord = { id: uid(), name, args, status: 'done', result: output }
       allRecords.push(record)
+      ledger.note(name, args, { ok: true, output })
       patch({ toolCalls: [...allRecords] })
       auditCall(name, args, true, output)
     },

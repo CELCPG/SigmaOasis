@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   runAgentLoop,
   consultModelSchema,
+  createTurnToolLedger,
   MAX_TOOL_ITERATIONS,
   MAX_DELEGATIONS_PER_TURN,
   type AgentLoopDeps,
@@ -1148,5 +1149,90 @@ describe('runAgentLoop · an answer written into the thinking channel', () => {
     })
     assert.equal(outcome.stopReason, 'completed')
     assert.equal(seen.length, 1, 'a model with nothing to say is not a lost answer')
+  })
+})
+
+describe('runAgentLoop · shared turn ledger', () => {
+  test('a pre-seeded executed count spends the budget before the loop starts', async () => {
+    // The app's pre-flight already ran one web_search; a budget of 2 leaves
+    // the model exactly one live call this turn.
+    const ledger = createTurnToolLedger()
+    ledger.note('web_search', { query: 'app query' }, { ok: true, output: 'app result' })
+    const { streamRound } = scripted([
+      { content: '', toolCalls: [call('c1', 'web_search', { query: 'model query one' })] },
+      { content: '', toolCalls: [call('c2', 'web_search', { query: 'model query two' })] },
+      { content: 'answer', toolCalls: [] }
+    ])
+    const records: ToolCallRecord[] = []
+    let executed = 0
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records,
+      ledger,
+      toolBudgets: { web_search: 2 },
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => {
+          executed += 1
+          return { ok: true, output: 'live result' }
+        }
+      }
+    })
+    assert.equal(executed, 1, 'the seeded call left one budget slot, not two')
+    assert.equal(records[1].status, 'error')
+    assert.match(records[1].result ?? '', /budget reached/)
+  })
+
+  test('a pre-seeded call is reused, not re-executed, on a byte-identical repeat', async () => {
+    const ledger = createTurnToolLedger()
+    ledger.note('web_search', { query: 'Phish Hampton 1997' }, { ok: true, output: 'app result' })
+    const { streamRound } = scripted([
+      { content: '', toolCalls: [call('c1', 'web_search', { query: 'Phish Hampton 1997' })] },
+      { content: 'answer', toolCalls: [] }
+    ])
+    const records: ToolCallRecord[] = []
+    let executed = 0
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records,
+      ledger,
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => {
+          executed += 1
+          return { ok: true, output: 'should not run' }
+        }
+      }
+    })
+    assert.equal(executed, 0, 'the identical query was served from the ledger')
+    assert.match(records[0].result ?? '', /app result/)
+    assert.match(records[0].result ?? '', /result reused, not re-executed/)
+  })
+
+  test('omitting the ledger keeps a fresh one — verification passes are unstarved', async () => {
+    // Same scripted turn as above, but no shared ledger: the call executes.
+    const { streamRound } = scripted([
+      { content: '', toolCalls: [call('c1', 'web_search', { query: 'Phish Hampton 1997' })] },
+      { content: 'answer', toolCalls: [] }
+    ])
+    let executed = 0
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => {
+          executed += 1
+          return { ok: true, output: 'ran' }
+        }
+      }
+    })
+    assert.equal(executed, 1)
   })
 })
