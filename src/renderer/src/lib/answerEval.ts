@@ -815,6 +815,76 @@ export function summarizeMarket(results: MarketCaseResult[]): MarketSummary {
   return { tool: marketArm((r) => r.tool, results), bare: marketArm((r) => r.bare, results) }
 }
 
+// ---- v1.12.1: orchestration ---------------------------------------------------
+
+export interface OrchestrateArmResult {
+  hit: boolean
+  missing: string[]
+  ms: number
+  /** Real tool executions this turn (excluding consult_model itself). */
+  toolCalls: number
+  /** Successful consult_model calls (orchestrated arm; always 0 independent). */
+  consults: number
+  /** Roles successfully consulted, in call order. */
+  delegatedTo: string[]
+  reply?: string
+  error?: string
+}
+
+export interface OrchestrateCaseResult {
+  file: string
+  prompt: string
+  independent: OrchestrateArmResult
+  orchestrated: OrchestrateArmResult
+}
+
+export interface OrchestrateSummary {
+  independent: { hit: Rate; secondsPerCase: number; toolCallsPerCase: number }
+  orchestrated: {
+    hit: Rate
+    secondsPerCase: number
+    toolCallsPerCase: number
+    /** Cases where at least one consultation succeeded. */
+    delegated: Rate
+    consultsPerCase: number
+  }
+  /**
+   * The slice the headline can hide: correctness on exactly the cases where
+   * the orchestrator DID delegate, both arms. If delegation helps, it shows
+   * here or nowhere.
+   */
+  whenDelegated: { cases: number; independent: Rate; orchestrated: Rate }
+}
+
+export function summarizeOrchestrate(results: OrchestrateCaseResult[]): OrchestrateSummary {
+  const ok = (r: OrchestrateCaseResult): boolean => !r.independent.error && !r.orchestrated.error
+  const usable = results.filter(ok)
+  const rateOf = (pick: (r: OrchestrateCaseResult) => boolean): Rate =>
+    rate(usable.filter(pick).length, usable.length)
+  const meanOf = (pick: (r: OrchestrateCaseResult) => number): number =>
+    mean(usable.map(pick))
+  const delegated = usable.filter((r) => r.orchestrated.consults > 0)
+  return {
+    independent: {
+      hit: rateOf((r) => r.independent.hit),
+      secondsPerCase: meanOf((r) => r.independent.ms / 1000),
+      toolCallsPerCase: meanOf((r) => r.independent.toolCalls)
+    },
+    orchestrated: {
+      hit: rateOf((r) => r.orchestrated.hit),
+      secondsPerCase: meanOf((r) => r.orchestrated.ms / 1000),
+      toolCallsPerCase: meanOf((r) => r.orchestrated.toolCalls),
+      delegated: rateOf((r) => r.orchestrated.consults > 0),
+      consultsPerCase: meanOf((r) => r.orchestrated.consults)
+    },
+    whenDelegated: {
+      cases: delegated.length,
+      independent: rate(delegated.filter((r) => r.independent.hit).length, delegated.length),
+      orchestrated: rate(delegated.filter((r) => r.orchestrated.hit).length, delegated.length)
+    }
+  }
+}
+
 /**
  * v1.7.1: stability across repeated passes of one suite. Motivated by the
  * v1.7 retrieval re-measurement, where three runs at temperature 0 produced

@@ -341,7 +341,9 @@ export function defaultSampling(temperature = 0.7): SamplingSettings {
   return { temperature, topP: 1, maxTokens: -1, seed: null, topK: -1, minP: -1 }
 }
 
-function defaultSettings(): AppSettings {
+// Exported for the orchestrate eval, which builds its specialist roster from
+// the app's own template personas rather than restating them.
+export function defaultSettings(): AppSettings {
   return {
     baseUrl: 'http://127.0.0.1:1234/v1',
     models: [

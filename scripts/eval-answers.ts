@@ -1198,6 +1198,176 @@ async function runMarketSuite(model: string): Promise<import('../src/renderer/sr
   return results
 }
 
+
+/**
+ * v1.12.1: orchestrated mode, measured. The user-facing promise is "the power
+ * of multiple models" — an orchestrator that reasons about the request and
+ * delegates to specialists as tools. Nobody had ever measured whether that
+ * beats simply answering. Two arms over the quant fixtures (objective ground
+ * truth, mixed arithmetic and CSV work):
+ *
+ *   independent    one generalist persona with the Workbench tools.
+ *   orchestrated   the same persona given consult_model over three specialist
+ *                  personas (Data Analyst, Finance Coach, Researcher — the
+ *                  app's own templates) plus the same Workbench tools, wired
+ *                  exactly as the app wires it (wireTools + deps.consult →
+ *                  nested agent loop; specialists never see consult_model).
+ *
+ * One machine, one loaded model: every persona runs on the same weights,
+ * which is this hardware's honest reality and the configuration a
+ * single-model user actually gets from orchestrated mode. What differs is
+ * personas, delegation structure, and the overhead of consulting. A
+ * multi-model measurement (different weights per slot) needs more memory
+ * than this machine has — stated here rather than implied away.
+ *
+ * The summary reports the delegated slice separately: if delegation helps,
+ * it shows on exactly the cases where the orchestrator delegated, or nowhere.
+ */
+async function runOrchestrateSuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').OrchestrateCaseResult[]> {
+  const { scoreQuantitative } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  const { runAgentLoop, consultModelSchema } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
+  const { withGrounding } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { TOOL_SCHEMAS } = require('../src/main/ipc/toolSchemas') as typeof import('../src/main/ipc/toolSchemas')
+  const { defaultSettings } = require('../src/main/ipc/store') as typeof import('../src/main/ipc/store')
+
+  const wbTools = TOOL_SCHEMAS.filter((t) => ['run_python', 'analyze_file'].includes(t.function.name))
+  const exec = workbenchExecutor(join(QUANT_DIR, 'data'))
+  const fixtures = slice(loadJson<QuantFixture>(QUANT_DIR))
+  const results: import('../src/renderer/src/lib/answerEval').OrchestrateCaseResult[] = []
+
+  // The app's own template personas, so the roster is what a user gets.
+  const templates = defaultSettings().models
+  const persona = (roleName: string): string =>
+    templates.find((m: { roleName: string }) => m.roleName === roleName)?.systemPrompt ?? `You are the ${roleName}.`
+  const specialists = [
+    { roleName: 'Data Analyst', systemPrompt: persona('Data Analyst'), tools: ['run_python', 'analyze_file'] },
+    { roleName: 'Finance Coach', systemPrompt: persona('Finance Coach'), tools: ['run_python'] },
+    // Deliberately present with no tools this suite can serve: a roster is
+    // only a real choice if a wrong pick is possible.
+    { roleName: 'Researcher', systemPrompt: persona('Researcher'), tools: [] as string[] }
+  ]
+  const profiles = specialists.map((sp) => ({
+    roleName: sp.roleName,
+    systemPrompt: sp.systemPrompt,
+    tools: sp.tools,
+    context: 'unknown'
+  }))
+  // EVAL_ORCH_LEAN=1: the orchestrator holds NO tools of its own — only the
+  // roster. This is the app's differentiating configuration (per-slot
+  // allowlists), and the regime where delegation is load-bearing rather than
+  // optional: measured with tools in hand, the orchestrator delegated 0/21
+  // times and simply computed, which is optimal there and says nothing about
+  // whether delegation *works* when it must.
+  const lean = process.env.EVAL_ORCH_LEAN === '1'
+  const orchTools = lean ? [consultModelSchema(profiles)] : [...wbTools, consultModelSchema(profiles)]
+
+  /** One agent-loop turn; shared by both arms and by nested consultations. */
+  const runTurn = async (
+    systemPrompt: string,
+    userText: string,
+    tools: import('../src/renderer/src/types').ToolSchema[],
+    attachments: { name: string; sourcePath: string }[],
+    sessionKey: string,
+    counters: { toolCalls: number },
+    consult?: (role: string, task: string) => Promise<{ ok: boolean; output?: string; error?: string }>
+  ): Promise<string> => {
+    const rounds: string[] = []
+    await runAgentLoop({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userText }
+      ] as never,
+      tools,
+      records: [],
+      signal: new AbortController().signal,
+      deps: {
+        streamRound: async (msgs: unknown, tls: unknown) => {
+          const r = await complete(model, msgs as never, tls as never[])
+          if (r.content.trim()) rounds.push(r.content)
+          return { content: r.content, toolCalls: r.toolCalls }
+        },
+        executeTool: async (name: string, args: Record<string, unknown>) => {
+          counters.toolCalls += 1
+          return exec(name, args, attachments, sessionKey)
+        },
+        ...(consult ? { consult } : {})
+      }
+    })
+    return rounds.join('\n\n')
+  }
+
+  for (const [i, fx] of fixtures.entries()) {
+    const attachments = fx.data ? [{ name: fx.data, sourcePath: join(QUANT_DIR, 'data', fx.data) }] : []
+    const dataNote = fx.data ? `\n\n[Attached file: ${fx.data} — available to run_python and analyze_file at /work/${fx.data}]` : ''
+    const scoreOf = (reply: string): { hit: boolean; missing: string[] } => {
+      const q = scoreQuantitative(reply, fx.expect)
+      const missing = [...q.missing]
+      for (const p of fx.mustInclude ?? []) if (!new RegExp(p, 'i').test(reply)) missing.push(p)
+      return { hit: missing.length === 0, missing }
+    }
+    const blank = (): import('../src/renderer/src/lib/answerEval').OrchestrateArmResult => ({
+      hit: false, missing: [], ms: 0, toolCalls: 0, consults: 0, delegatedTo: []
+    })
+    const caseOut: import('../src/renderer/src/lib/answerEval').OrchestrateCaseResult = {
+      file: fx.file, prompt: fx.prompt, independent: blank(), orchestrated: blank()
+    }
+    console.log(`  [${i + 1}/${fixtures.length}] ${fx.file}`)
+
+    for (const arm of ['independent', 'orchestrated'] as const) {
+      const out = caseOut[arm]
+      const counters = { toolCalls: 0 }
+      const sessionKey = `or-${fx.file}-${arm}-${process.pid}-${jobNonce++}`
+      const t0 = Date.now()
+      try {
+        const consult =
+          arm === 'orchestrated'
+            ? async (role: string, task: string): Promise<{ ok: boolean; output?: string; error?: string }> => {
+                const sp = specialists.find(
+                  (x) => x.roleName.replace(/\s+/g, '').toLowerCase() === role.replace(/\s+/g, '').toLowerCase()
+                )
+                if (!sp) return { ok: false, error: `No specialist named "${role}".` }
+                if (!task.trim()) return { ok: false, error: 'The "task" argument is required and must be self-contained.' }
+                const spTools = wbTools.filter((t) => sp.tools.includes(t.function.name))
+                // The specialist shares the case's sandbox session so an
+                // attached CSV staged once is visible — mirroring the app,
+                // where staging happens per tool call from the same paths.
+                const reply = await runTurn(
+                  withGrounding(sp.systemPrompt), task, spTools, attachments, sessionKey, counters
+                )
+                out.consults += 1
+                out.delegatedTo.push(sp.roleName)
+                const trimmed = reply.trim()
+                return { ok: true, output: trimmed.slice(0, 3000) || '(the specialist returned an empty reply)' }
+              }
+            : undefined
+        const reply = await runTurn(
+          withGrounding(PERSONA),
+          `${fx.prompt}${dataNote}`,
+          arm === 'orchestrated' ? orchTools : wbTools,
+          attachments,
+          sessionKey,
+          counters,
+          consult
+        )
+        out.reply = reply.slice(0, 1200)
+        Object.assign(out, scoreOf(reply))
+      } catch (err) {
+        out.error = err instanceof Error ? err.message : String(err)
+      }
+      out.ms = Date.now() - t0
+      out.toolCalls = counters.toolCalls
+      const mark = out.error ? '!' : out.hit ? '✓' : '✗'
+      console.log(
+        `      ${arm.padEnd(12)} ${mark} ${(out.ms / 1000).toFixed(0)}s tools=${out.toolCalls}` +
+          (arm === 'orchestrated' ? ` consults=${out.consults}${out.delegatedTo.length ? ` (${out.delegatedTo.join(', ')})` : ''}` : '') +
+          (out.error ? ` · ${out.error.slice(0, 60)}` : out.missing.length ? ` · missing ${out.missing.join(', ')}` : '')
+      )
+    }
+    results.push(caseOut)
+  }
+  return results
+}
+
 async function runQuantSuite(
   model: string,
   arms: { workbench: boolean; deliberate: boolean }
@@ -1347,7 +1517,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,orchestrate,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
     )
     app.exit(0)
     return
@@ -1630,6 +1800,47 @@ async function main(): Promise<void> {
       report.market = { passes: mkPasses, stability }
     } else {
       report.market = { summary: s, runs: mkPasses[0].runs }
+    }
+  }
+
+  if (want.includes('orchestrate')) {
+    const probe = await wb.runPython({ code: 'print(2 + 2)' })
+    if (!probe.ok || !/^4/m.test(probe.stdout)) {
+      throw new Error(`the Workbench sandbox is not working, so the orchestrate suite cannot be measured:\n  ${probe.error ?? probe.stdout}`)
+    }
+    console.log(
+      `orchestrated vs independent (same weights, specialist personas, quant fixtures${process.env.EVAL_ORCH_LEAN === '1' ? '; LEAN orchestrator — roster only, no tools of its own' : ''})`
+    )
+    const { summarizeOrchestrate, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const orPasses: { runs: Awaited<ReturnType<typeof runOrchestrateSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      orPasses.push({ runs: await runOrchestrateSuite(model) })
+    }
+    const s = summarizeOrchestrate(orPasses.flatMap((p) => p.runs))
+    console.log(
+      `\n  independent  ${s.independent.hit.hit}/${s.independent.hit.of} · ${s.independent.toolCallsPerCase.toFixed(1)} tool calls/case · ${s.independent.secondsPerCase.toFixed(0)} s/case`
+    )
+    console.log(
+      `  orchestrated ${s.orchestrated.hit.hit}/${s.orchestrated.hit.of} · delegated on ${s.orchestrated.delegated.hit}/${s.orchestrated.delegated.of} cases (${s.orchestrated.consultsPerCase.toFixed(1)} consults/case) · ${s.orchestrated.toolCallsPerCase.toFixed(1)} tool calls/case · ${s.orchestrated.secondsPerCase.toFixed(0)} s/case`
+    )
+    if (s.whenDelegated.cases > 0) {
+      console.log(
+        `  on the ${s.whenDelegated.cases} delegated case(s): independent ${s.whenDelegated.independent.hit}/${s.whenDelegated.independent.of} vs orchestrated ${s.whenDelegated.orchestrated.hit}/${s.whenDelegated.orchestrated.of}\n`
+      )
+    }
+    if (passesWanted > 1) {
+      const stability = {
+        independent: stabilityAcrossPasses(orPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.independent.error ? null : r.independent.hit })))),
+        orchestrated: stabilityAcrossPasses(orPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.orchestrated.error ? null : r.orchestrated.hit }))))
+      }
+      for (const arm of ['independent', 'orchestrated'] as const) {
+        const st = stability[arm]
+        console.log(`  ${arm.padEnd(12)} across ${passesWanted} passes: [${st.perPass.join(', ')}] · median ${st.median} · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.orchestrate = { passes: orPasses, stability }
+    } else {
+      report.orchestrate = { summary: s, runs: orPasses[0].runs }
     }
   }
 

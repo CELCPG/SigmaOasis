@@ -8,6 +8,7 @@ import {
   summarizeMultiTurn,
   summarizeLedger,
   summarizeProjectRecall,
+  summarizeOrchestrate,
   summarizeReasoning,
   citesSource,
   measurementsIn,
@@ -528,5 +529,41 @@ describe('project-wide recall suite (v1.11)', () => {
         }
       }
     }
+  })
+})
+
+describe('orchestrate suite (v1.12.1)', () => {
+  const arm = (hit: boolean, extra: Partial<{ consults: number; delegatedTo: string[]; error: string; ms: number; toolCalls: number }> = {}) => ({
+    hit, missing: [], ms: extra.ms ?? 30000, toolCalls: extra.toolCalls ?? 2,
+    consults: extra.consults ?? 0, delegatedTo: extra.delegatedTo ?? [],
+    ...(extra.error ? { error: extra.error } : {})
+  })
+  const kase = (file: string, ind: ReturnType<typeof arm>, orch: ReturnType<typeof arm>) =>
+    ({ file, prompt: 'p', independent: ind, orchestrated: orch })
+
+  test('the delegated slice compares both arms on exactly the delegated cases', () => {
+    const s = summarizeOrchestrate([
+      kase('a', arm(true), arm(true, { consults: 1, delegatedTo: ['Data Analyst'] })),
+      kase('b', arm(true), arm(false, { consults: 2, delegatedTo: ['Researcher', 'Data Analyst'] })),
+      kase('c', arm(false), arm(true)), // answered itself, no consult
+      kase('d', arm(true), arm(true))
+    ])
+    assert.deepEqual(s.independent.hit, { hit: 3, of: 4 })
+    assert.deepEqual(s.orchestrated.hit, { hit: 3, of: 4 })
+    assert.deepEqual(s.orchestrated.delegated, { hit: 2, of: 4 })
+    assert.deepEqual(s.whenDelegated, {
+      cases: 2,
+      independent: { hit: 2, of: 2 },
+      orchestrated: { hit: 1, of: 2 }
+    })
+  })
+
+  test('a case that errored in either arm is excluded from every rate', () => {
+    const s = summarizeOrchestrate([
+      kase('a', arm(true), arm(false, { error: 'fetch failed' })),
+      kase('b', arm(true), arm(true, { consults: 1 }))
+    ])
+    assert.deepEqual(s.independent.hit, { hit: 1, of: 1 })
+    assert.deepEqual(s.orchestrated.hit, { hit: 1, of: 1 })
   })
 })
