@@ -3,7 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import type { ChatMode, Conversation, ModelConfig } from '../types'
 import { ACCENT } from '../lib/colors'
-import { routingReadiness } from '../lib/routing'
+import { routingReadiness, sameModelOrchestrationNote } from '../lib/routing'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
 import { PanelSection } from './PanelSection'
 
@@ -41,6 +41,8 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
 
   const enabledModels = settings.models.filter((m) => m.enabled)
   const routingNote = routingReadiness(settings.models).note
+  const sameModelNote =
+    conversation.mode === 'orchestrated' ? sameModelOrchestrationNote(settings.models) : null
   const scopedSources = conversation.memorySources ?? null
 
   const patch = (partial: Partial<Conversation>): void =>
@@ -202,6 +204,14 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
               <p className="mt-1 px-1 text-[10px] text-ink-muted">
                 Delegates to the other {Math.max(0, enabledModels.length - 1)} enabled role(s)
               </p>
+              {sameModelNote && (
+                <p
+                  className="mt-1.5 px-1 text-[10px] leading-relaxed text-amber-600 dark:text-amber-500"
+                  title="Measured on this app's own eval suites — 48 cases across three regimes, docs/evals.md in the repository. With different models per role this note disappears, because that configuration has not been measured."
+                >
+                  ⚖️ {sameModelNote}
+                </p>
+              )}
             </>
           )}
         </div>

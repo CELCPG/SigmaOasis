@@ -193,6 +193,27 @@ export function routingReadiness(models: ModelConfig[]): {
   }
 }
 
+/**
+ * v1.12.1: the honest word on orchestrated mode for this slot configuration.
+ * Measured (docs/evals.md, 48 cases across three regimes): when every role
+ * runs the same weights, delegation never once beat a single well-tooled
+ * agent and cost 2-3x the latency. The mode still works as a mechanism — the
+ * relay is faithful and roles are picked correctly — so the note states the
+ * trade rather than hiding the mode. Null when slots genuinely differ in
+ * model (the unmeasured configuration where a win is still possible) or when
+ * there are not enough enabled slots for orchestration to mean anything.
+ */
+export function sameModelOrchestrationNote(models: ModelConfig[]): string | null {
+  const enabled = models.filter((m) => m.enabled && m.modelId)
+  if (enabled.length < 2) return null
+  const distinct = new Set(enabled.map((m) => m.modelId))
+  if (distinct.size > 1) return null
+  return (
+    'All enabled roles run the same model, so delegation adds structure and latency (measured: 2-3x), not intelligence. ' +
+    'Orchestration earns its keep when roles differ in model or tools — otherwise Independent with a well-tooled role does the same work faster.'
+  )
+}
+
 // ---- route targets ----------------------------------------------------------
 
 export interface RouteResult {

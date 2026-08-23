@@ -474,3 +474,27 @@ describe('routingReadiness (v1.12.1)', () => {
     assert.match(r.note!, /No specialist roles/)
   })
 })
+
+describe('sameModelOrchestrationNote (v1.12.1)', () => {
+  const { sameModelOrchestrationNote } = require('../src/renderer/src/lib/routing') as typeof import('../src/renderer/src/lib/routing')
+
+  test('all roles on one model — the measured losing configuration — gets the note', () => {
+    const a = slot({ id: 'a', roleName: 'A', modelId: 'qwen' })
+    const b = slot({ id: 'b', roleName: 'B', modelId: 'qwen' })
+    const note = sameModelOrchestrationNote([a, b])
+    assert.match(note!, /same model/)
+    assert.match(note!, /measured: 2-3x/)
+  })
+
+  test('different models per role — the unmeasured configuration — stays silent', () => {
+    const a = slot({ id: 'a', roleName: 'A', modelId: 'qwen' })
+    const b = slot({ id: 'b', roleName: 'B', modelId: 'mistral' })
+    assert.equal(sameModelOrchestrationNote([a, b]), null)
+  })
+
+  test('fewer than two enabled slots — orchestration is degenerate — stays silent', () => {
+    assert.equal(sameModelOrchestrationNote([slot({ id: 'a', roleName: 'A', modelId: 'qwen' })]), null)
+    const off = slot({ id: 'b', roleName: 'B', modelId: 'qwen', enabled: false })
+    assert.equal(sameModelOrchestrationNote([slot({ id: 'a', roleName: 'A', modelId: 'qwen' }), off]), null)
+  })
+})
