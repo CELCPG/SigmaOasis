@@ -6,6 +6,7 @@ import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
 import { isLoopbackBaseUrl } from './loopback'
+import { DEFAULT_TOOL_TOGGLES, type ToolToggles } from '../../shared/tools'
 
 /**
  * Default settings shape. The renderer keeps a mirror of this shape in its
@@ -75,41 +76,12 @@ export interface ModelConfig {
   specialty?: 'coding' | 'research' | 'finance' | 'data'
 }
 
-export interface ToolToggles {
-  read_file: boolean
-  write_file: boolean
-  list_directory: boolean
-  run_terminal_command: boolean
-  web_search: boolean
-  image_search: boolean
-  fetch_webpage: boolean
-  date_calculator: boolean
-  geo_locate: boolean
-  get_current_datetime: boolean
-  create_note: boolean
-  list_notes: boolean
-  read_note: boolean
-  memory_save: boolean
-  memory_search: boolean
-  memory_forget: boolean
-  /** v1.5: offline reference library (the Almanac). Local disk + loopback embeddings only. */
-  reference_lookup: boolean
-  /** v1.6: the Workbench — sandboxed Python (WASM; no network, no real disk). */
-  run_python: boolean
-  /** v1.6: mechanical profile of an attached CSV/TSV/JSON/XLSX (runs in the same sandbox). */
-  analyze_file: boolean
-  deep_research: boolean
-  finance_calculator: boolean
-  shop_requirements: boolean
-  shop_compare: boolean
-  price_watch: boolean
-  /**
-   * v1.12: daily market data (stocks, ETFs, indices, futures, crypto pairs).
-   * Off by default: each lookup sends the ticker to one pinned public host,
-   * which is a disclosure of what you are researching.
-   */
-  market_data: boolean
-}
+/**
+ * Toggle keys are the tool table (src/shared/tools) — one declaration, both
+ * processes re-export it. Per-tool rationale (what is off by default and why)
+ * lives on each tool's ToolMeta.
+ */
+export type { ToolToggles } from '../../shared/tools'
 
 export interface ShoppingSettings {
   /**
@@ -439,40 +411,8 @@ export function defaultSettings(): AppSettings {
     theme: 'light',
     fontSize: 15,
     historyLimit: 100,
-    tools: {
-      read_file: true,
-      // Off by default: these two mutate the machine. Opt in under Settings → Tools.
-      write_file: false,
-      list_directory: true,
-      run_terminal_command: false,
-      web_search: true,
-      image_search: true,
-      fetch_webpage: true,
-      date_calculator: true,
-      geo_locate: true,
-      get_current_datetime: true,
-      create_note: true,
-      list_notes: true,
-      read_note: true,
-      memory_save: true,
-      memory_search: true,
-      memory_forget: true,
-      // v1.5: on by default — it reads only the user's own installed packs and
-      // never touches the network, so there is nothing to consent to.
-      reference_lookup: true,
-      // v1.6: on by default — sandboxed by construction, touches nothing outside the app.
-      run_python: true,
-      analyze_file: true,
-      deep_research: true,
-      finance_calculator: true,
-      // Off by default: these initiate outbound requests to commercial sites
-      // that log them. That should be a choice the user makes on purpose.
-      shop_requirements: false,
-      shop_compare: false,
-      price_watch: false,
-      // v1.12: off by default — a ticker lookup discloses what you are researching.
-      market_data: false
-    },
+    // Derived from the tool table; per-tool on/off rationale lives on each ToolMeta.
+    tools: { ...DEFAULT_TOOL_TOGGLES },
     workingDirectory: '',
     pipeline: ['model-1'],
     voice: {

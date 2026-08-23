@@ -1,4 +1,4 @@
-import type { ToolToggles } from '../store'
+import type { ToolName } from '../../../shared/tools'
 import { fileHandlers } from './files'
 import { webHandlers } from './web'
 import { researchHandlers } from './research'
@@ -12,12 +12,14 @@ import { marketHandlers } from './market'
 import type { ToolContext, ToolHandler, ToolResult } from './types'
 
 /**
- * The dispatch table: tool name → handler. Typed against ToolToggles so adding
- * a toggle without a handler (or vice versa) is a compile error, not a runtime
- * "Unknown tool". toolSchemas.ts is the third leg; test/toolRegistry.test.ts
- * pins that all three agree.
+ * The dispatch table: tool name → handler. Typed against the tool table's
+ * ToolName union (src/shared/tools), so a declared tool without a handler —
+ * or a handler for an undeclared tool — is a compile error, not a runtime
+ * "Unknown tool". Schemas, toggles, budgets and labels all derive from that
+ * same table; the handler is the one member that must stay in the main
+ * process (it touches fs, net, Electron).
  */
-export const TOOL_HANDLERS: Record<keyof ToolToggles, ToolHandler> = {
+export const TOOL_HANDLERS: Record<ToolName, ToolHandler> = {
   ...fileHandlers,
   ...webHandlers,
   ...researchHandlers,
@@ -30,7 +32,7 @@ export const TOOL_HANDLERS: Record<keyof ToolToggles, ToolHandler> = {
   ...marketHandlers
 }
 
-export const TOOL_NAMES = Object.keys(TOOL_HANDLERS) as (keyof ToolToggles)[]
+export const TOOL_NAMES = Object.keys(TOOL_HANDLERS) as ToolName[]
 
 /** Look a tool up and run it. Handler exceptions become `{ok:false}` results the model can read. */
 export async function executeTool(
