@@ -34,35 +34,11 @@ import type {
 } from '../types'
 import { speak } from '../lib/voice'
 
-const TOOL_LABELS: Record<keyof ToolToggles, string> = {
-  read_file: 'Read file',
-  write_file: 'Write file (confirms when no working directory is set)',
-  list_directory: 'List directory',
-  run_terminal_command: 'Run terminal command (asks to confirm)',
-  web_search: 'Web search (provider chosen in Settings → Search)',
-  image_search: 'Image search (shows thumbnails in chat; each links to its source page)',
-  fetch_webpage: 'Fetch webpage (HTTPS only, private addresses refused)',
-  deep_research: 'Deep research (multi-step: plans, searches, reads and cites sources)',
-  date_calculator:
-    'Date calculator (day of the week, "next Saturday", date spans — exact, fully local)',
-  geo_locate:
-    'Places and distances (looks up a place on OpenStreetMap; straight-line distances only)',
-  get_current_datetime: 'Get current date/time',
-  create_note: 'Create note',
-  list_notes: 'List notes',
-  read_note: 'Read note',
-  memory_save: 'Save to long-term memory',
-  memory_search: 'Search long-term memory',
-  memory_forget: 'Delete a memory',
-  reference_lookup: 'Reference library (offline packs and your own documents — fully local)',
-  run_python: 'Run Python (sandboxed WebAssembly runtime — no network, no access to your disk)',
-  analyze_file: 'Analyze attached data files (CSV/TSV/JSON/XLSX profile, computed in the same sandbox)',
-  finance_calculator: 'Finance calculator (loans, savings, compound growth — exact, fully local)',
-  shop_requirements: 'Shopping requirements (works out what you need — fully local, sends nothing)',
-  shop_compare: 'Shopping comparison (contacts retailers; prices carry a source and a timestamp)',
-  price_watch: 'Price watch (local watchlist — no service is told what is on it)',
-  market_data: 'Market data (daily stock/index/futures prices — sends the ticker to query1.finance.yahoo.com)'
-}
+// Labels derive from the tool table (each ToolMeta's `label`), listed in wire
+// order — so the Settings list and the model's tool list agree on membership
+// by construction. (One visible change from the hand-kept map: finance_calculator
+// now sits with the other calculators instead of after analyze_file.)
+import { TOOL_LABELS } from '../../../shared/tools'
 
 type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library'
 

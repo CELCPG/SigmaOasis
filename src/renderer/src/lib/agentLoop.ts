@@ -2,6 +2,7 @@ import type { ToolCallRecord, ToolResult, ToolSchema } from '../types'
 import { detectProseParenCall } from './nativeToolCall'
 import { validateToolArgs } from './toolArgs'
 import { CLOSED_THINK_PREFILL } from '../../../shared/thinking'
+import { TOOL_TURN_BUDGETS } from '../../../shared/tools'
 
 /**
  * The agentic tool-call loop, lifted out of the useLMStudio hook so the
@@ -32,27 +33,12 @@ export const MAX_TOOL_PREAMBLE_CHARS = 240
 /**
  * Per-tool per-turn budgets (Layer 3c), checked *before* the call and stated
  * when hit — budgets before work, disclosed on the stop. Only egress and
- * expensive tools are listed; cheap local tools are covered by the iteration
- * cap and repeat detection. deep_research is one campaign per turn.
+ * expensive tools carry a budget; cheap local tools are covered by the
+ * iteration cap and repeat detection. Derived from the tool table (each
+ * tool's `turnBudget`, with its rationale); re-exported here so the loop's
+ * callers keep one import site.
  */
-export const TOOL_TURN_BUDGETS: Record<string, number> = {
-  web_search: 3,
-  // One call is one provider request plus a fetch to every image host it names
-  // — the widest third-party fan-out of any tool here, so the tightest budget.
-  image_search: 2,
-  fetch_webpage: 2,
-  deep_research: 1,
-  // Local and cheap, but a model that keeps rephrasing the same lookup is looping.
-  reference_lookup: 3,
-  // Local, but each run is a model round trip; four is plenty for write → fix → verify.
-  run_python: 4,
-  analyze_file: 2,
-  shop_requirements: 2,
-  shop_compare: 2,
-  // One request per symbol; comparing a handful of instruments is legitimate,
-  // a screener loop over the whole market is not.
-  market_data: 4
-}
+export { TOOL_TURN_BUDGETS } from '../../../shared/tools'
 
 /**
  * Key-insensitive stringify for repeat detection (Layer 3b): the model's two

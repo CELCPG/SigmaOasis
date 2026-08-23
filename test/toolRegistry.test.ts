@@ -5,12 +5,13 @@ import { installStubs, load, resetState } from './harness'
 installStubs()
 
 /**
- * The tool dispatch table has three legs that must agree: the schemas the
- * model sees (toolSchemas.ts), the toggles the user controls (store.ts
- * ToolToggles — pinned at compile time by the registry's type), and the
- * handlers that run (toolHandlers/registry.ts). A schema with no handler is a
- * tool the model can call and always fails; a handler with no schema is dead
- * code. Both are silent without this test.
+ * Runtime semantics of the dispatch table. Schema/toggle/handler agreement is
+ * no longer a test concern: schemas, toggles, budgets and labels all derive
+ * from the single tool table (src/shared/tools), and the handler Record is
+ * typed against its ToolName union, so a missing or extra handler is a
+ * compile error. test/toolTable.test.ts pins what the type system cannot
+ * (wire hash, name identity, toggle defaults); this file covers how dispatch
+ * behaves at runtime.
  */
 type Registry = {
   TOOL_HANDLERS: Record<string, unknown>
@@ -28,7 +29,9 @@ const { TOOL_SCHEMAS } = load<Schemas>('toolSchemas')
 const context = { sender: {} as unknown }
 
 describe('tool registry', () => {
-  test('every schema has a handler and every handler has a schema', () => {
+  test('the compiled registry serves exactly the declared tool set', () => {
+    // Redundant with the ToolName typing at compile time, but this asserts it
+    // against the *compiled* .test-build output the suite actually loads.
     const schemaNames = TOOL_SCHEMAS.map((t) => t.function.name).sort()
     const handlerNames = [...registry.TOOL_NAMES].sort()
     assert.deepEqual(handlerNames, schemaNames)

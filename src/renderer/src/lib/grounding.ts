@@ -432,29 +432,12 @@ export function stripTurnNotesEcho(reply: string): { text: string; echoed: boole
 // ---- Source-consultation check ------------------------------------------------
 
 /**
- * Tools whose successful use counts as consulting a source. v1.5 adds
- * reference_lookup: an installed reference document is a source in the sense
- * that matters here — text the model can quote instead of recall — even
- * though it is not the live web. (Only a lookup that returned passages is
- * recorded as done; an empty library records nothing.)
+ * Tools whose successful use counts as consulting a source — text or figures
+ * the model can quote instead of recall. Derived from the tool table (each
+ * tool's `isSource`, with its rationale — the run_python and market_data
+ * inclusions were both measured omissions).
  */
-const SOURCE_TOOLS = new Set([
-  'web_search',
-  'fetch_webpage',
-  'deep_research',
-  'reference_lookup',
-  // v1.6: a number the sandbox or the calculator computed is not "from model
-  // memory" — the computation is its source. (Measured: a correct compound-
-  // interest answer computed by run_python still wore the unverified badge.)
-  'run_python',
-  'analyze_file',
-  'finance_calculator',
-  // v1.12: a fetched price series is a source in exactly this sense. Measured
-  // the omission live on the tool's first real run: market_data fetched 125
-  // days of NVDA, the model answered from the tool's own computed stats, and
-  // the reply was branded "answered from model memory — no sources consulted".
-  'market_data'
-])
+import { SOURCE_TOOLS } from '../../../shared/tools'
 
 /**
  * Did this turn consult any source? The badge decision is mechanical:

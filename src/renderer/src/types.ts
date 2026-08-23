@@ -50,34 +50,12 @@ export interface ModelConfig {
   specialty?: 'coding' | 'research' | 'finance' | 'data'
 }
 
-export interface ToolToggles {
-  read_file: boolean
-  write_file: boolean
-  list_directory: boolean
-  run_terminal_command: boolean
-  web_search: boolean
-  image_search: boolean
-  fetch_webpage: boolean
-  date_calculator: boolean
-  geo_locate: boolean
-  get_current_datetime: boolean
-  create_note: boolean
-  list_notes: boolean
-  read_note: boolean
-  memory_save: boolean
-  memory_search: boolean
-  memory_forget: boolean
-  reference_lookup: boolean
-  run_python: boolean
-  analyze_file: boolean
-  deep_research: boolean
-  finance_calculator: boolean
-  shop_requirements: boolean
-  shop_compare: boolean
-  price_watch: boolean
-  /** v1.12: daily market data — sends the ticker to one pinned public host. */
-  market_data: boolean
-}
+/**
+ * Toggle keys derive from the tool table (src/shared/tools) — the same
+ * declaration the main process uses, so the two can no longer drift.
+ */
+import type { ToolToggles } from '../../shared/tools'
+export type { ToolToggles } from '../../shared/tools'
 
 export interface ShoppingSettings {
   /** Refuse shopping fetches when no proxy is active. On by default. */
@@ -979,14 +957,7 @@ export interface ConversationSummary {
 // ---- Tool execution (renderer ↔ main) ----------------------------------------
 
 /** OpenAI-compatible function/tool schema, as sent to the chat completions API. */
-export interface ToolSchema {
-  type: 'function'
-  function: {
-    name: string
-    description: string
-    parameters: Record<string, unknown>
-  }
-}
+export type { ToolSchema } from '../../shared/tools'
 
 export interface ToolResult {
   ok: boolean
