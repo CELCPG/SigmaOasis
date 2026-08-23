@@ -607,6 +607,11 @@ Per pass: recall `[7, 7, 7]`, bare `[1, 1, 1]` — **zero flaky cases**, which m
 this project has been caught before by a ±3-case movement that was only the server's
 nondeterminism. Retrieval was identical across all three: 24/24 fired, 15/15 quiet.
 
+**Second family (mistral-7b-instruct-v0.3, 2026-08-23):** recall **7/8 vs bare 1/8**, controls
+5/5 both arms with zero decoys stated, retrieval fired 8/8 and stayed quiet 5/5 — the same
+numbers as qwen to the case, including the same single miss. The gate and the recall effect are
+properties of the retrieval, not of the answering model.
+
 The feature works, and by a wide margin: **7/8 against 1/8 every pass**. The one miss is a question whose
 answer was retrieved and put in front of the model, which then answered around it — a model
 failure, not a retrieval one, and visible as such because retrieval is scored separately.
@@ -698,8 +703,22 @@ first pass failed a reply that stated the expected drawdown to the exact hundred
 "-34.77%" against an expected +34.77, because `numbersIn` keeps the sign. Drawdowns are now
 scored sign-agnostically. An eval that fails a correct answer is worse than no eval.
 
-Caveats: one model class, synthetic series (deterministic, but not real market texture), and the
-provider path is exercised only up to the parser — the fixture stands in for the network.
+**Second family (mistral-7b-instruct-v0.3, 2026-08-23), and it diverges completely:** the tool
+arm scored **0/6 with zero tool calls in 8 turns** — the model never invoked market_data or
+run_python at all on this serving stack, so the tool arm collapsed into the bare arm. Worse, its
+replies *claim* tool use they never made: "I've used web_search to gather data … the latest
+closing price for TRND is $157.49" — web_search was not even on the wire, and the figure is
+invented. Same fabrication bare (declined only 2/6).
+
+So the market feature is **gated on the model's tool-calling competence**: on a tool-native
+family it delivers 6/6 reproducible figures and real charts; on a family that emits no tool
+calls it delivers nothing, and the model fabricates confidently in the vacuum. In the real app
+those replies would wear the "answered from model memory" badge and have their figures flagged —
+the rails exist for exactly this model — but the feature itself cannot rescue a model that will
+not call tools. Worth knowing before recommending a model for market work.
+
+Caveats: synthetic series (deterministic, but not real market texture), and the provider path is
+exercised only up to the parser — the fixture stands in for the network.
 
 ## Orchestrated mode, measured (v1.12.1, qwen3.8-9b, temperature 0)
 
