@@ -1007,6 +1007,122 @@ locator is a real link — through the same window handler a link the model mere
   round 1 and three merges silently reverted parts of it — caught by round 1's own tests and by the
   new contrast check, but caught late. Branch point is part of the method, not an incidental.
 
+## Round 3: the tool-honesty family (v1.14)
+
+Round 2's one remaining loss was TH3, quotation fidelity, and the critic's verdict on it was that
+the baseline won **on the model's luck**: neither build compared a quoted span against the passage
+it claimed to quote, so neither would have caught a fabrication. The comparison is free — the reply
+and the retrieved passages sit in the same message — and the critic ran it in ten lines of Python
+against data the app already held.
+
+Three mechanical comparisons were added, all pure string work, no model and no network:
+
+- **`misquotedSpans`** — every span the reply offers as verbatim (paired quotes, markdown
+  blockquotes, ≥25 chars) must occur as a contiguous substring of what the turn's tools returned.
+  Normalisation folds only what a renderer or a keyboard introduces: curly↔straight quotes, dash
+  shapes, whitespace, case. No join tolerance — a span stitched from two places in the source is a
+  quotation from neither. The corpus is what tools *returned* plus the user's own words, deliberately
+  **not** the tool arguments, or a model could launder an invention through its own query string.
+- **`misattributedCitations`** — an attribution naming a document that is not the passage the marker
+  resolves to. A word belonging to no retrieved label at all is extra detail the check cannot rule
+  on, and is not faulted.
+- **`undisclosedToolRuns`** — the real gap behind TH1. `unrunToolClaims` scans for tool *names*, so
+  a "Tools used:" section listing *documents* rather than tools was invisible to it.
+
+Replayed against the four recorded runs, the new checks fire exactly where the critics said the app
+was silent, and stay silent on the runs that quoted accurately. Before the change all four produced
+`checkToolGrounding(...) === null`.
+
+Alongside those: the markdown container wraps a long unbroken token (round 1's fix had reached only
+the user bubble, and the assistant container was byte-identical between arms); the raw-neutral guard
+widened from a hand-picked file or two to the whole renderer, because *"two components are not a
+palette"* and any component written afterwards would inherit the 2.4:1 default; a silent stream
+counts itself out loud and names its own deadline; and a plan discloses what each step may do before
+approval, makes its terminal outcome the heaviest text in the block, and stops presenting a never-run
+step's contents as findings.
+
+**Measured, blind, against the original baseline: 14 tasks won, 0 lost, 2 tied of 16 judged.** See
+the correction in the next section — one of those wins was void, and the honest figure is 13–0–2
+with 1 void.
+
+## Round 4: four reassurances the app had not earned (v1.15)
+
+Round 3 won 14 of 16 blind tasks and lost none. The critics still found this, and every item is the
+same species — the app saying something true-sounding it had not established. That is the failure
+this whole exercise exists to catch, and it kept reappearing in the machinery built to prevent it.
+
+**The quote checker cried wolf.** Round 3's `misquotedSpans` flagged a quotation that is verbatim in
+the `reference_lookup` output it names. Reproduced before anything was changed: the blockquote
+pattern bounds a span by the *line*, so `> "…tax year 2024." [1]` was checked with the citation
+marker still inside it, and the trailing-character trim cannot reach past a `]`. A bracketed marker
+is now trimmed at either edge. The change is strictly narrowing — the body comparison is still
+character-exact, and TH1's stitched invention is still caught.
+
+**A green tick over a wrong number.** The chip read *"it runs without error"* above a reply stating
+854,405 where its own executed block printed **824,693**. The check verified that no exception was
+raised and was worded as though it had checked the figures. It now compares every `label: number`
+the run printed against the answer lines using that label's words, and has three outcomes instead of
+one — including *"Nothing in the reply restated a figure it printed, so no figure was checked"*,
+which is what honesty looks like when there was nothing to compare.
+
+**A check that could not succeed, still running.** Round 3 built the right machinery and pointed it
+at the wrong string: `UNREACHABLE_PATTERNS` **enumerated** the `net::` codes it had seen, and the one
+the task actually produces — `ERR_UNSAFE_PORT`, Chromium refusing port 9 before opening a socket —
+was not among them. Both guards were therefore dead. The enumeration is replaced by its inverse:
+which `net::` codes mean a server *answered*. An unlisted code can no longer defeat it.
+
+| | before | after |
+| --- | --- | --- |
+| web_search calls | 8 (3 answering + 5 claim-check) | 2 (answering only) |
+| claim-extraction round trips | 1 | 0 |
+| post-answer tail | 14.8 s — **38.0%** of the turn | 1.2 s — **7.5%** |
+
+**A cold boot charged and attributed nowhere.** The first `run_python` of a session loads a
+WASM runtime before a line of the model's code runs, and the block reported only execution time:
+*"ran in 6 ms"* cold against *"ran in 20 ms"* warm — inverting the true order. `durationMs` is
+stopwatched inside the sandbox page, so the load was structurally invisible to the only number the
+block had. The boot is now measured around the load, named while it happens in the vocabulary round 3
+gave silent streams, and reported *beside* the run time. Folding it in would claim the snippet took
+8.6 s, which is false; dropping it inverts the order; so the header states both.
+
+**A forecast nothing checked.** A plan step approved as *"Tools — may use: memory_search"* went on to
+call `reference_lookup` against the user's own library, and the row said only *"🔧 2 tool calls"* — a
+count that agreed with itself while the names disagreed. The forecast is deliberately still not an
+allowlist (a small model that forecasts nothing would then be handed nothing); it is now reconciled
+against what actually ran.
+
+### The guard that let all of this through
+
+`run.json` computed a run's validity from **fixture hits alone**. So a run whose declared
+preconditions never held still scored as a comparison. A third guard now joins the settings
+read-back and the fixture-bypass check: a task declaring a capability is INVALID when it did not
+hold, probed both on disk and in the transcript, with a reason naming which precondition failed.
+
+This was not hypothetical. It is how the following went unnoticed for three rounds.
+
+### A flaw in the method, not the app
+
+**The baseline arm never had the Python runtime.** When the baseline build was set up, `node_modules`
+was symlinked into its worktree and `resources/pyodide` was not — and `resources/pyodide/` is
+gitignored, so a worktree never inherits it. Five tasks — FR1, TTU2, V3, V2, VC1 — therefore ran
+against a baseline whose sandbox failed with *"Workbench runtime not installed"* while the newer
+build's worked. That is the harness handicapping one arm, not a property of the build.
+
+Reading each critic's own reasoning for what it taints:
+
+| Task | The verdict rested on | Status |
+| --- | --- | --- |
+| TTU2 | the critic wrote that the baseline *"never paid a boot at all… did not exercise the path TTU2 measures"* | **void** |
+| V3 | the library-coverage line (independent) **and** the recompute disclosure (contaminated) | **partly tainted** |
+| V2 | citation numbering and per-source URLs | unaffected |
+| VC1 | presence of `break-words` on the bubble class | unaffected |
+| FR1 | the context-overflow bubble; the critic wrote *"Neither touches the FR1 turn or the criticQuestion"* | unaffected |
+
+So round 3's honest headline is **13 won, 0 lost, 2 tied, 1 void** — not 14–0–2 — and V3's win is
+weaker than first recorded. The error ran in the flattering direction, which is exactly why the
+precondition guard above exists now: a run that could not exercise its own task must not be
+scoreable, and no reviewer should have to notice that by hand.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
