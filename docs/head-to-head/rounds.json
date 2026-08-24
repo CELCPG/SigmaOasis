@@ -6,12 +6,12 @@
   "invariants": [
     {
       "name": "node test suite",
-      "value": "1662 pass / 0 fail",
+      "value": "1731 pass / 0 fail",
       "state": "green"
     },
     {
       "name": "render + style checks",
-      "value": "25 render · 25 style · 33 chrome-contrast · 33 md · 40 workbench · 24 transport",
+      "value": "25 render · 33 style · 39 chrome-contrast · 34 md · 40 workbench · 24 transport",
       "state": "green"
     },
     {
@@ -63,28 +63,28 @@
       "title": "Answer verifiability and citations",
       "gaps": 14,
       "high": 6,
-      "closed": 4
+      "closed": 5
     },
     {
       "key": "plan-transparency",
       "title": "Plan-mode transparency",
       "gaps": 14,
       "high": 5,
-      "closed": 4
+      "closed": 5
     },
     {
       "key": "tool-honesty",
       "title": "Tool-call honesty",
       "gaps": 10,
       "high": 3,
-      "closed": 2
+      "closed": 3
     },
     {
       "key": "time-to-useful",
       "title": "Time-to-useful-output",
       "gaps": 15,
       "high": 5,
-      "closed": 2
+      "closed": 3
     },
     {
       "key": "failure-recovery",
@@ -158,11 +158,32 @@
     },
     {
       "n": 3,
-      "label": "Quotation fidelity, and a real reference arm",
+      "label": "The tool-honesty family, and the residuals",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline",
+        "B": "baseline + rounds 1–3"
+      },
+      "what": "Five builders: quotation fidelity and tool-use claims (the round-2 loss), markdown wrap plus a palette-level retint, a verification pass that could not succeed, stall self-detection, and three plan residuals.",
+      "findings": "The quote checker fired exactly as intended on TH1 — “⚠️ Quoted as exact but in no tool output this turn” naming the invented span and the tool it checked against — and correctly stayed silent on TH3, where both replies quoted accurately. FR2 now counts the silence out loud: “still waiting on the model · 1:30 · gives up at 5:00”, where the baseline’s 60s and 90s frames are byte-identical. VC3 went from 9 failing text nodes to 0, floor 2.46:1 → 5.21:1.",
+      "verdict": "Round-3 build 14 · baseline 0 · 2 ties, over 16 tasks judged blind. First round with no losses. (A 17th critic died twice on API errors; V1 is unjudged and counted nowhere.)",
+      "gap": "Two, both in the winning build. The quote checker FALSE-POSITIVED on V2, flagging a quotation that is verbatim in the reference_lookup output it names — a verifier that cries wolf teaches the reader to ignore it, which costs more than the numbering gains. And on TTU2 the app stamps a green ✓ and “it runs without error” over a reply whose stated sum (854,405) contradicts its own executed output (824,693): the check verifies that no exception was raised, not that the numbers match, so the reassurance fires hardest exactly where the answer is wrong.",
+      "fix": "Quoted spans checked character-for-character against captured tool output · citation attributions checked against the passage the marker resolves to · a “Tools used” section that names none of the executed calls is contradicted · assistant markdown wraps and code blocks gain a wrap toggle · the raw-neutral guard widened to the whole renderer · a silent stream counts itself out loud and names its deadline · plans disclose what each step may DO before approval · a terminal outcome is the heaviest text in the block · never-run steps stop presenting their contents as findings",
+      "evals": {
+        "node cases": "1662 → 1731",
+        "chrome-contrast checks": "33 → 39",
+        "blind tasks judged": "16",
+        "won / lost / tied": "14 / 0 / 2"
+      }
+    },
+    {
+      "n": 4,
+      "label": "The verifier that cries wolf",
       "state": "pending",
       "dimension": null,
       "pair": null,
-      "what": "The one remaining loss is a check neither build performs. Separately: Claude in Chrome is now reachable, so a live reference arm may finally be possible.",
+      "what": "A false positive in the quote checker and a green tick over a wrong number are worse than the gaps they replaced. Also open: run.json reports VALID on a run whose sandbox never started, because validity is computed only from fixtures.",
       "findings": null,
       "verdict": null,
       "gap": null,
@@ -239,6 +260,27 @@
       "suite": "blind head-to-head",
       "metric": "tasks lost to the baseline",
       "value": "1 / 16",
+      "delta": "-1"
+    },
+    {
+      "round": 3,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1731",
+      "delta": "+69"
+    },
+    {
+      "round": 3,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the original baseline",
+      "value": "14 / 16",
+      "delta": "+1"
+    },
+    {
+      "round": 3,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "0 / 16",
       "delta": "-1"
     }
   ]
