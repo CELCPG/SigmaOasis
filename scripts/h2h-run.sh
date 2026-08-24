@@ -184,6 +184,16 @@ for ID in "${IDS[@]}"; do
   wait "$CAP_PID" 2>/dev/null
   STATUS=$?
   [ "$WAITED" -ge "$TASK_DEADLINE" ] && STATUS=124
+
+  # Nothing from this task may still be alive when the next one starts. Two
+  # captures sharing a CDP port silently cross-wire: the second app's settings
+  # check reads the FIRST app's settings and the run dies on a mismatch that
+  # has nothing to do with the build. Reap, then wait for the port itself.
+  pkill -f "remote-debugging-port=$PORT" 2>/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || break
+    sleep 1
+  done
   if [ "$STATUS" = "0" ]; then OK+=("$LABEL")
   elif [ "$STATUS" = "3" ]; then INVALID+=("$LABEL")
   elif [ "$STATUS" = "124" ]; then FAILED+=("$LABEL(deadline)")
