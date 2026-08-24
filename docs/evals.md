@@ -922,6 +922,91 @@ layout.
 - **The measurement rung still only catches measurements.** A mislabelled aggregation, the failure
   recorded under *Findings worth keeping* below, is no more visible than it was.
 
+## Round 2: what a blind comparison sent back (v1.13)
+
+Round 1's six fixes were captured on two builds and judged blind, one fresh-context critic per task,
+reading the recorded runs rather than anyone's summary. The newer build won 6, **lost 2**, and tied 9.
+This section is what the two losses were, because they are the useful part.
+
+### Losing to your own baseline by looking more verified than you are
+
+Task V3 asks how much water a once-a-second drip wastes. The library has no plumbing content, so
+retrieval returned five irrelevant passages in both builds. The **older** build simply said so in
+prose. The newer one instead printed a passed recomputation, "🧮 Recomputed the stated figures in
+Python; the checker compared the reply against that output", and "✎ Revised: 1 unsupported item were
+sent back for verification or removal" — while the recomputation re-derived 600 gal and $3.00 from
+`gallons_per_day_at_one_drip_per_sec = 20  # EPA standard estimate`, a constant the model invented
+and dressed in a source's name. The critic: *"A reader is left more confident than the evidence
+warrants."*
+
+Two changes. `recomputeIsCircular` is true when a program's numeric literals include a non-conversion
+constant and **not one** literal appears in the question — the run is re-deriving the answer from
+itself. The headline then reports the weaker of the two states the app already knew, instead of the
+stronger. And `libraryMissedTheQuestion` measures how much of the question's distinctive vocabulary
+appears in the returned passages; the retrieval score cannot do this job, because it is normalised
+inside one result set — V3's useless best hit scored **0.93**, while its question coverage was 0.18.
+Below the floor, the strip says nothing in the library covers the question and offers the passages
+for reading rather than as backing.
+
+### A check that certified a property the app did not have
+
+Task VC3 measured, from real screenshots, the contrast of every text node in a reply. Both builds
+render identical ink: the stats readout at **2.50:1**, the action row and model id at **2.45:1**, the
+"📖 From the library:" provenance line at **2.46:1** — nine of twelve nodes below AA, while the
+model's prose sits at 17.47:1. The newer build lost only for having *more* text in that ink, including
+its own "nothing was computed" caution at 2.46:1.
+
+`test/styleCheck.ts` asserted prose clears 4.5:1 **and passed**, because it measured the `--text-*`
+tokens and the two `text-ink-muted` sites — while the app's chrome used **242 raw `text-neutral-*`
+classes it never looked at** (`grep -c neutral-400 test/styleCheck.ts` → 0). That is worse than the
+contrast bug: a green check certifying something untrue poisons every round after it.
+
+So the check was fixed first, and made to fail at the real ratios, before any colour changed.
+`test/chromeContrastCheck.ts` (33 checks) lays out a real assistant message and measures the
+provenance line, stats readout, action row, role badge and disclosure headers against the surfaces
+they are **composited over** — the glass panel, not the bare canvas — in both themes, and refuses any
+chrome ink set in a raw neutral. The ink ramp moved to alphas measured on that composited surface.
+`styleCheck.ts` keeps round 1's separate properties: long-token wrapping, code blocks still scrolling,
+focus rings 2px and clearing 3:1.
+
+The new check earned itself immediately: it failed the merge on one raw neutral left in round 1's
+named-wait line, which round 2 could not have seen. Fixed, not exempted.
+
+### Three ties where both builds failed the reader
+
+A tie is not neutral when both arms are wrong. Three were worth taking:
+
+- **A cancelled plan had no cancelled state.** The message said "Plan cancelled — nothing was
+  executed" while the block still read "awaiting approval" with two live buttons. A plan now has a
+  terminal outcome and the header tells the six states apart: never approved, running, finished,
+  cancelled before running, stopped part-way, failed on its own.
+- **A user's Stop rendered as a step failure** — a red ✗ on the step they interrupted — and steps that
+  would never run looked identical to steps still queued. Both are now distinct.
+- **An empty review was reported as a clean review.** `reviewFoundProblems('')` returns false, the
+  same value it returns for a reviewer that read the draft and genuinely found nothing, and both
+  rendered as "no substantive problems found; draft kept". A reviewer that returned nothing, errored,
+  or returned only whitespace is now disclosed as such. This is the same species as the V3 loss.
+
+### A citation that resolves to something
+
+Both builds threw away a locator they already had: every retrieved passage carries its own
+`source:` URL. Inline `[n]` markers resolved to nothing, the strip never showed its index, and
+nothing checked that `[3]` was one of the passages handed over. An `[n]` naming no retrieved passage
+is now a finding of the same class as an unsourced figure, the strip shows its index, and a web
+locator is a real link — through the same window handler a link the model merely typed already used.
+
+### What this round does not measure
+
+- **Still nothing against a reference product.** The comparison is this build against the previous
+  one, on the same local model and the same prompts.
+- **A tie is evidence about the tasks too.** Nine of seventeen tied, and several tied because the
+  model never exercised the path the task aimed at — PT1's plan ran zero tools in both arms, so
+  "tool calls a plan made are visible" had nothing to show. That is a gap in the task, recorded here
+  rather than scored as a pass.
+- **The round-2 worktrees branched from the pre-round-1 baseline**, so every builder worked blind to
+  round 1 and three merges silently reverted parts of it — caught by round 1's own tests and by the
+  new contrast check, but caught late. Branch point is part of the method, not an incidental.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
