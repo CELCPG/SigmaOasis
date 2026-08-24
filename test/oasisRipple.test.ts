@@ -1,14 +1,23 @@
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import {
   MAX_RIPPLES,
   THINKING_VISUAL,
+  WAIT_COUNT_MS,
+  WAIT_ESCALATE_MS,
   capRipples,
   describeOasisState,
+  describeWait,
+  formatElapsed,
   resolveMotion,
   settleRipple,
+  startWaitClock,
   toolVisualForName
 } from '../src/renderer/src/lib/oasisRipple'
+import { OasisRippleView } from '../src/renderer/src/components/OasisRipple'
+import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../src/renderer/src/hooks/chatTransport'
 import type { ToolCallRecord } from '../src/renderer/src/types'
 
 /**
@@ -203,4 +212,105 @@ test('reduced motion keeps information, drops movement', () => {
 test('ambient thinking visual is always the brand teal THINKING', () => {
   assert.equal(THINKING_VISUAL.label, 'THINKING')
   assert.equal(THINKING_VISUAL.color, '#00d4aa')
+})
+
+// ---- The silent wait ----------------------------------------------------------------
+
+/**
+ * FR2: a captured run sat for 90.8 s with `sendToFirstVisibleMs: null`, and the
+ * snapshots at 60 s and at 90 s were byte-identical to the one at 5 s — an
+ * animated disc reading THINKING and nothing else. The transport's stall
+ * timeout does not help a reader who never presses Stop; only the screen can.
+ *
+ * So these assert on the rendered markup, driven by nothing but a clock.
+ */
+
+const AMBIENT = describeOasisState(true, '', [])
+
+function frameAt(silentMs: number, state = AMBIENT, deadlineMs = FIRST_BYTE_TIMEOUT_MS): string {
+  return renderToStaticMarkup(
+    createElement(OasisRippleView, {
+      state,
+      reducedMotion: true,
+      wait: describeWait(silentMs, state, deadlineMs)
+    })
+  )
+}
+
+test('a silent stream changes the screen on its own, with no user action', () => {
+  mock.timers.enable({ apis: ['setInterval', 'Date'] })
+  try {
+    const opening = frameAt(0)
+    const frames: string[] = []
+    // The only input to the whole run is time passing: no Stop, no keystroke,
+    // no chunk. frames[i] is the screen at (i + 1) seconds of silence.
+    const stop = startWaitClock((ms) => frames.push(frameAt(ms)))
+    for (let second = 0; second < 90; second++) mock.timers.tick(1_000)
+    stop()
+
+    assert.equal(frames.length, 90, 'one repaint per second of silence')
+    assert.equal(frames[4], opening, 'at 5s the wait is still ordinary — nothing added')
+
+    const firstChange = frames.findIndex((f) => f !== opening)
+    assert.equal(firstChange + 1, WAIT_COUNT_MS / 1000, 'the screen first changes at 10s')
+
+    const at60 = frames[59]
+    assert.notEqual(at60, frames[4], 'the 60s screen is not the 5s screen')
+    assert.match(at60, /data-wait-level="escalated"/)
+    assert.match(at60, /still waiting on the model/)
+    assert.match(at60, /1:00/, 'elapsed silence, counted')
+    assert.match(at60, /gives up at 5:00/, 'and when it recovers by itself')
+
+    // It keeps counting rather than freezing on one number.
+    assert.match(frames[89], /1:30/)
+    assert.equal(new Set(frames.slice(WAIT_COUNT_MS / 1000)).size, 90 - WAIT_COUNT_MS / 1000)
+  } finally {
+    mock.timers.reset()
+  }
+})
+
+test('the wait line is absent from the ordinary range and present after it', () => {
+  assert.doesNotMatch(frameAt(0), /oasis-wait/)
+  assert.doesNotMatch(frameAt(WAIT_COUNT_MS - 1), /oasis-wait/)
+  assert.match(frameAt(WAIT_COUNT_MS), /oasis-wait/)
+})
+
+test('describeWait escalates on the two thresholds, and only there', () => {
+  const quiet = describeWait(WAIT_COUNT_MS - 1, AMBIENT, FIRST_BYTE_TIMEOUT_MS)
+  assert.equal(quiet.level, 'quiet')
+  assert.equal(quiet.elapsed, null)
+
+  const counting = describeWait(WAIT_COUNT_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS)
+  assert.equal(counting.level, 'counting')
+  assert.equal(counting.elapsed, '10s')
+  assert.equal(counting.detail, null, 'no escalation language before 30s')
+
+  const escalated = describeWait(WAIT_ESCALATE_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS)
+  assert.equal(escalated.level, 'escalated')
+  assert.equal(escalated.detail, 'still waiting on the model')
+  assert.equal(escalated.deadline, 'gives up at 5:00')
+})
+
+test('the wait names the running tool, and the deadline it is actually under', () => {
+  // A stream that has already produced something is under the stall timeout,
+  // not the first-byte ceiling — the line must not promise the wrong minute.
+  const tools = describeOasisState(true, '', [tc('a', 'deep_research')])
+  const notice = describeWait(45_000, tools, STREAM_STALL_MS)
+  assert.equal(notice.detail, 'still waiting on deep_research')
+  assert.equal(notice.deadline, 'gives up at 1:00')
+  assert.match(frameAt(45_000, tools, STREAM_STALL_MS), /still waiting on deep_research/)
+})
+
+test('a hidden ripple never grows a wait line, however long the silence', () => {
+  const hidden = describeOasisState(false, '', [])
+  assert.equal(describeWait(600_000, hidden, FIRST_BYTE_TIMEOUT_MS).level, 'quiet')
+})
+
+test('elapsed is truncated seconds under a minute, m:ss over it', () => {
+  assert.equal(formatElapsed(0), '0s')
+  assert.equal(formatElapsed(9_999), '9s')
+  assert.equal(formatElapsed(59_999), '59s')
+  assert.equal(formatElapsed(60_000), '1:00')
+  assert.equal(formatElapsed(90_857), '1:30', 'the captured run')
+  assert.equal(formatElapsed(300_000), '5:00')
 })
