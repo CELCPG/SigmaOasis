@@ -39,6 +39,8 @@ rm -rf "$OUT"
 
 # Compile main-process modules + tests together, preserving the directory layout
 # that test/harness.ts expects (.test-build/{src/main/ipc,test}).
+# src/preload/index.d.ts rides along because hooks/planMode.ts reaches
+# window.api, and that declaration is what types it.
 "${RUN[@]}" node_modules/typescript/bin/tsc \
   --outDir "$OUT" \
   --rootDir . \
@@ -120,6 +122,8 @@ rm -rf "$OUT"
   src/renderer/src/lib/projectContext.ts \
   src/renderer/src/lib/conversationStats.ts \
   src/renderer/src/stores/appStore.ts \
+  src/preload/index.d.ts \
+  src/renderer/src/hooks/planMode.ts \
   test/harness.ts \
   test/*.test.ts
 

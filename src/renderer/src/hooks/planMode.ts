@@ -8,6 +8,7 @@ import type {
   Conversation,
   ModelConfig,
   PlanStep,
+  ToolCallRecord,
   ToolSchema
 } from '../types'
 import { makeTailStream, streamChat } from './chatTransport'
@@ -67,9 +68,38 @@ export function planContext(messages: ChatMessage[]): string {
 export const planApprovals = new Map<string, (approved: boolean) => void>()
 
 /**
+ * Where a plan step's tool calls go.
+ *
+ * v1.12.2. They went nowhere: the step handed the loop a throwaway array, so a
+ * plan that ran twenty searches showed the user none of them, and with the
+ * audit log off by default they were recorded nowhere reachable. The step now
+ * shares the message's own record list — the same list an ordinary turn shows —
+ * and `stepId` tags each call so the plan block can keep it under the step that
+ * made it.
+ */
+export interface StepRecordSink {
+  stepId: string
+  records: ToolCallRecord[]
+  onChange: () => void
+}
+
+/** The calls one plan step made, in the order it made them. */
+export function stepRecords(
+  records: ToolCallRecord[] | undefined,
+  stepId: string
+): ToolCallRecord[] {
+  return (records ?? []).filter((r) => r.planStepId === stepId)
+}
+
+/** The message's own calls — a step's belong under the step, not the answer. */
+export function answerRecords(records: ToolCallRecord[] | undefined): ToolCallRecord[] {
+  return (records ?? []).filter((r) => !r.planStepId)
+}
+
+/**
  * Execute one plan step: a bounded sub-turn with the normal tool list and a
- * tighter iteration cap. Tool calls are audit-logged like any chat turn's.
- * Returns the step's result, capped.
+ * tighter iteration cap. Tool calls are audit-logged like any chat turn's and
+ * shown in the plan block under this step. Returns the step's result, capped.
  */
 export async function runPlanStep(
   slot: ModelConfig,
@@ -78,7 +108,8 @@ export async function runPlanStep(
   tools: ToolSchema[],
   signal: AbortSignal,
   convo: Conversation,
-  context: string
+  context: string,
+  sink: StepRecordSink
 ): Promise<string> {
   const apiMessages: ApiMessage[] = [
     {
@@ -100,9 +131,14 @@ export async function runPlanStep(
   await runAgentLoop({
     messages: apiMessages,
     tools: await subsetForTurn(toolsForSlot(slot, tools), input),
-    // Step tool calls are audit-logged like any chat turn's, but not displayed.
-    records: [],
+    // The step's calls join the message's record list, tagged with the step:
+    // the work a plan did is as visible as the work an ordinary turn does.
+    records: sink.records,
     signal,
+    onRecordChange: (record) => {
+      record.planStepId = sink.stepId
+      sink.onChange()
+    },
     maxIterations: MAX_PLAN_STEP_ITERATIONS,
     deps: {
       streamRound: async (messages, roundTools) => {
@@ -244,6 +280,10 @@ export async function runPlanTurn(
   }
 
   // 3. Execute steps sequentially; each sees the capped results of the ones before.
+  // One record list for the whole turn — the steps' calls and the synthesis's,
+  // in the order they happened, exactly as an ordinary turn keeps them.
+  const allRecords: ToolCallRecord[] = []
+  const publishRecords = (): void => patch({ toolCalls: [...allRecords] })
   const completed: { title: string; output: string }[] = []
   let haltedBy: string | null = null
   const plan = currentPlan()
@@ -262,7 +302,11 @@ export async function runPlanTurn(
         : '')
 
     try {
-      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo, context)
+      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo, context, {
+        stepId: step.id,
+        records: allRecords,
+        onChange: publishRecords
+      })
       patchStep(step.id, { status: 'done', output })
       completed.push({ title: step.title, output })
     } catch (err) {
@@ -324,8 +368,11 @@ export async function runPlanTurn(
     // The same allowlist any turn gets, with budgets stated. Without tools the
     // synthesis could only fabricate; with them it can actually close the gap.
     tools: withBudgetNotes(await subsetForTurn(toolsForSlot(slot, tools), task), TOOL_TURN_BUDGETS),
-    records: [],
+    // Untagged: the synthesis writes the message's own answer, so its calls sit
+    // with the answer the way any turn's do.
+    records: allRecords,
     signal,
+    onRecordChange: publishRecords,
     maxIterations: MAX_PLAN_STEP_ITERATIONS,
     deps: {
       streamRound: async (messages, roundTools) => {

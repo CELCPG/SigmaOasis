@@ -1,11 +1,15 @@
 import { useState } from 'react'
-import type { ChatPlan, PlanStepStatus } from '../types'
+import type { ChatPlan, PlanStepStatus, ToolCallRecord } from '../types'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
+import { stepRecords } from '../hooks/planMode'
+import { ToolCallBlock } from './ToolCallBlock'
 
 interface Props {
   messageId: string
   plan: ChatPlan
+  /** The message's tool-call records; each step shows the ones it made. */
+  records: ToolCallRecord[]
 }
 
 const STATUS_ICON: Record<PlanStepStatus, string> = {
@@ -27,9 +31,13 @@ const STATUS_CLASS: Record<PlanStepStatus, string> = {
  * awaits approval (Settings → General → Plan mode), nothing has run yet and
  * the Approve/Cancel buttons gate execution. Each finished step's result is
  * expandable; a failed step is shown as failed, never silently retried.
+ *
+ * v1.12.2: so are the tool calls the step made — under the step that made them,
+ * behind the same disclosure, so twenty calls stay a checklist rather than a wall.
  */
-export function PlanBlock({ messageId, plan }: Props): JSX.Element {
+export function PlanBlock({ messageId, plan, records }: Props): JSX.Element {
   const streaming = useAppStore((s) => s.streaming)
+  const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
   const { resolvePlan } = useLMStudio()
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>({})
 
@@ -49,42 +57,60 @@ export function PlanBlock({ messageId, plan }: Props): JSX.Element {
       </div>
 
       <ol className="border-t border-black/10 dark:border-white/10 px-3 py-1.5">
-        {plan.steps.map((step, i) => (
-          <li key={step.id} className="py-1">
-            <div className="flex items-start gap-2">
-              <span className={`mt-px w-4 shrink-0 text-center ${STATUS_CLASS[step.status]}`}>
-                {STATUS_ICON[step.status]}
-              </span>
-              <div className="min-w-0 flex-1">
-                <button
-                  type="button"
-                  disabled={!step.output}
-                  onClick={() => setOpenSteps((o) => ({ ...o, [step.id]: !o[step.id] }))}
-                  className="w-full text-left disabled:cursor-default"
-                >
-                  <span className="font-medium text-neutral-600 dark:text-neutral-300">
-                    {i + 1}. {step.title}
-                  </span>
-                  <span className="block text-neutral-400">{step.detail}</span>
-                  {step.output && (
-                    <span className="text-neutral-400">{openSteps[step.id] ? '▾' : '▸'}</span>
-                  )}
-                </button>
-                {openSteps[step.id] && step.output && (
-                  <pre
-                    className={`mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg p-2 font-mono text-[11px] ${
-                      step.status === 'failed'
-                        ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                        : 'bg-black/5 dark:bg-white/5 text-neutral-500'
-                    }`}
+        {plan.steps.map((step, i) => {
+          const calls = hideToolCalls ? [] : stepRecords(records, step.id)
+          const expandable = Boolean(step.output) || calls.length > 0
+          return (
+            <li key={step.id} className="py-1">
+              <div className="flex items-start gap-2">
+                <span className={`mt-px w-4 shrink-0 text-center ${STATUS_CLASS[step.status]}`}>
+                  {STATUS_ICON[step.status]}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    disabled={!expandable}
+                    onClick={() => setOpenSteps((o) => ({ ...o, [step.id]: !o[step.id] }))}
+                    className="w-full text-left disabled:cursor-default"
                   >
-                    {step.output}
-                  </pre>
-                )}
+                    <span className="font-medium text-neutral-600 dark:text-neutral-300">
+                      {i + 1}. {step.title}
+                    </span>
+                    {/* The count is the disclosure: a step that ran tools says so
+                        before anything is expanded. */}
+                    {calls.length > 0 && (
+                      <span className="ml-1.5 text-neutral-400">
+                        🔧 {calls.length} tool call{calls.length === 1 ? '' : 's'}
+                      </span>
+                    )}
+                    <span className="block text-neutral-400">{step.detail}</span>
+                    {expandable && (
+                      <span className="text-neutral-400">{openSteps[step.id] ? '▾' : '▸'}</span>
+                    )}
+                  </button>
+                  {openSteps[step.id] && (
+                    <>
+                      {calls.map((record) => (
+                        <ToolCallBlock key={record.id} record={record} />
+                      ))}
+                      {step.output && (
+                        <pre
+                          className={`mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg p-2 font-mono text-[11px] ${
+                            step.status === 'failed'
+                              ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                              : 'bg-black/5 dark:bg-white/5 text-neutral-500'
+                          }`}
+                        >
+                          {step.output}
+                        </pre>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ol>
 
       {awaitingApproval && (

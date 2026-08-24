@@ -764,6 +764,13 @@ export interface ToolCallRecord {
    * content, where the model expects its words to live.
    */
   preamble?: string
+  /**
+   * v1.12.2: the plan step whose sub-turn made this call. Set, the call renders
+   * under that step in the plan block rather than in the message's own list —
+   * twenty calls stay grouped by the step that made them instead of becoming a
+   * wall under the answer.
+   */
+  planStepId?: string
 }
 
 export interface ChatMessage {
