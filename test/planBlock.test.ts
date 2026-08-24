@@ -557,3 +557,196 @@ describe('a step that did run still shows the calls it made', () => {
     assert.ok(!/\d+ tool calls?/.test(rows(html)[1]!), 'a step with no calls claims some')
   })
 })
+
+// ---- PT1, round 4: the forecast, reconciled against what the step ran --------
+
+/**
+ * Measured, judge-r3/PT1/run-1. Step 3 was authorised as
+ * "Tools — may use: memory_search" and then called `reference_lookup`
+ * ({"query":"emergency food storage non-perishable shelf life household
+ * preparedness guidelines FEMA Red Cross","max_passages":6}) against the user's
+ * own installed library — a tool that appears nowhere in the block the user
+ * approved. Afterwards the row read "🔧 2 tool calls" and nothing else: a count
+ * is not a name, and the count agreed with itself.
+ *
+ * The forecast is deliberately not an allowlist — a small model that names no
+ * tool would then be handed none, and the plan is worse for it. So the loop
+ * closes the other way round. The step already shows the calls it made; the
+ * block now compares them with what it said it would reach for and says when
+ * they differ. Same species and same words as `undisclosedToolRuns` in
+ * lib/toolGrounding.ts: a call that the account of the work leaves out.
+ */
+
+const call = (
+  id: string,
+  name: string,
+  planStepId: string,
+  status: ToolCallRecord['status'] = 'done'
+): ToolCallRecord => ({ id, name, args: { query: 'q' }, status, result: 'ok', planStepId })
+
+const RECONCILED = endPlan(
+  plan([
+    {
+      id: 'g1',
+      title: 'Calculate the two-week date range',
+      detail: 'Start and end dates for the emergency period.',
+      status: 'done',
+      tools: ['date_calculator']
+    },
+    {
+      id: 'g2',
+      title: 'Calculate total water needed',
+      detail: '3 people × 1 gallon/day × 14 days = 42 gallons.',
+      status: 'done',
+      tools: []
+    },
+    {
+      id: 'g3',
+      title: 'Search reference library for emergency storage',
+      detail: 'Look for notes on supplies and food storage.',
+      status: 'done',
+      tools: ['memory_search']
+    }
+  ]),
+  'completed'
+)
+
+/** The run's own calls: four on step 1 (two of them errors), two on step 3. */
+const RECONCILED_CALLS: ToolCallRecord[] = [
+  call('k1', 'date_calculator', 'g1', 'error'),
+  call('k2', 'date_calculator', 'g1'),
+  call('k3', 'date_calculator', 'g1', 'error'),
+  call('k4', 'date_calculator', 'g1'),
+  call('k5', 'memory_search', 'g3'),
+  call('k6', 'reference_lookup', 'g3')
+]
+
+/** The row's verdict on its own forecast, in the block's own words. */
+const MISMATCH = /did not disclose/
+
+/**
+ * A negative control proves nothing while the check is dead — every row is
+ * unmarked when nothing marks anything. So each one first asserts that the
+ * block does mark the row that really did mismatch.
+ */
+function assertLive(html: string): void {
+  assert.match(
+    html,
+    MISMATCH,
+    'no row marks an undisclosed run at all, so an unmarked row proves nothing'
+  )
+}
+
+describe('a step is held to the tools it forecast', () => {
+  const html = render(RECONCILED, RECONCILED_CALLS)
+  const r = rows(html)
+
+  test('the fixture is the shape the failure was found in', () => {
+    assert.match(r[0]!, /4 tool calls/)
+    assert.match(r[2]!, /2 tool calls/)
+    assert.match(r[2]!, /Tools — may use: memory_search/)
+  })
+
+  test('a step that ran a tool it never forecast names it on the row', () => {
+    assert.match(r[2]!, /reference_lookup/)
+    assert.match(r[2]!, MISMATCH)
+  })
+
+  test('the mark names the tool that went undisclosed, and only that one', () => {
+    const note = textNodes(`<li ${r[2]!}`).find((n) => MISMATCH.test(n.text))
+    assert.ok(note, 'the row carries no undisclosed-run verdict of its own')
+    assert.match(note!.text, /reference_lookup/)
+    assert.ok(
+      !/memory_search/.test(note!.text),
+      `a tool the step did forecast is named as undisclosed: "${note!.text}"`
+    )
+  })
+
+  test('a step whose calls match its forecast is not marked', () => {
+    assertLive(html)
+    assert.ok(
+      !MISMATCH.test(r[0]!),
+      'a step that forecast date_calculator and ran it four times is marked'
+    )
+  })
+
+  test('a step that forecast nothing and ran nothing is not marked', () => {
+    assertLive(html)
+    assert.match(r[1]!, /Tools — none planned/)
+    assert.ok(!MISMATCH.test(r[1]!), 'a reasoning-only step that ran nothing is marked')
+  })
+
+  test('an errored call still counts as having run undisclosed', () => {
+    const errored = render(
+      plan([
+        {
+          id: 'e1',
+          title: 'Check the library',
+          detail: 'Look it up.',
+          status: 'done',
+          tools: ['memory_search']
+        }
+      ]),
+      [call('k8', 'reference_lookup', 'e1', 'error')]
+    )
+    assert.match(errored, MISMATCH)
+    assert.match(errored, /reference_lookup/)
+  })
+
+  for (const dark of [false, true]) {
+    const theme = dark ? 'dark' : 'light'
+
+    test(`the mark is legible enough to be read (${theme})`, () => {
+      const note = textNodes(html).find((n) => MISMATCH.test(n.text))
+      assert.ok(note, 'the block carries no undisclosed-run verdict')
+      const ratio = legible(note!, html, dark)
+      assert.ok(ratio >= 4.5, `${ratio.toFixed(2)}:1`)
+    })
+
+    test(`the mark never outshouts how the plan ended (${theme})`, () => {
+      const note = textNodes(html).find((n) => MISMATCH.test(n.text))
+      const badge = textNodes(html).find((n) => n.text === OUTCOME_LABEL.completed)
+      assert.ok(note && badge, 'the fixture lost its verdict or its outcome')
+      assert.ok(
+        legible(badge!, html, dark) > legible(note!, html, dark),
+        `outcome ${legible(badge!, html, dark).toFixed(2)}:1 vs mark ${legible(note!, html, dark).toFixed(2)}:1`
+      )
+      assert.ok(weight(note!.cls) < weight(badge!.cls), 'the mark is set as heavy as the outcome')
+    })
+  }
+
+  test('the mark outlives the setting that hides tool-call details', () => {
+    const hidden = renderToStaticMarkup(
+      createElement(PlanBlockView, {
+        plan: RECONCILED,
+        streaming: false,
+        onResolve: () => {},
+        records: RECONCILED_CALLS,
+        hideToolCalls: true
+      })
+    ).replace(/<!-- -->/g, '')
+    assert.ok(!/\d+ tool calls?/.test(hidden), 'the fixture no longer hides the call blocks')
+    assert.match(hidden, MISMATCH)
+    assert.match(hidden, /reference_lookup/)
+  })
+})
+
+describe('a step that forecast no tool at all is held to that too', () => {
+  const REASONING_ONLY = plan([
+    {
+      id: 'h1',
+      title: 'Compile the checklist',
+      detail: 'One list, by category.',
+      status: 'done',
+      tools: []
+    }
+  ])
+  const html = render(REASONING_ONLY, [call('k9', 'reference_lookup', 'h1')])
+  const row = rows(html)[0]!
+
+  test('"this step reasons only" is a forecast like any other', () => {
+    assert.match(row, /Tools — none planned/)
+    assert.match(row, MISMATCH)
+    assert.match(row, /reference_lookup/)
+  })
+})

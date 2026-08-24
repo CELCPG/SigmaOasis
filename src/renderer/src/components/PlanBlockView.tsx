@@ -11,7 +11,9 @@ import {
   STATUS_ICON,
   STATUS_NOTE,
   stepBodyClass,
-  toolPreview
+  toolPreview,
+  undisclosedRunNote,
+  undisclosedStepRuns
 } from '../lib/planState'
 
 interface Props {
@@ -60,7 +62,12 @@ export function PlanBlockView({
 
       <ol className="border-t border-black/10 dark:border-white/10 px-3 py-1.5">
         {plan.steps.map((step, i) => {
-          const calls = hideToolCalls ? [] : stepRecords(records, step.id)
+          const ran = stepRecords(records, step.id)
+          const calls = hideToolCalls ? [] : ran
+          // Reconciled against everything the step ran, never against the
+          // filtered list: "Hide tool-call details" collapses the call blocks,
+          // and a step misreporting what it reached for is not a detail.
+          const undisclosed = undisclosedStepRuns(step, ran)
           const expandable = Boolean(step.output) || calls.length > 0
           return (
           <li key={step.id} className="py-1">
@@ -102,6 +109,18 @@ export function PlanBlockView({
                   {/* What the step will reach for, stated while approving it is
                       still a decision — not disclosed afterwards by the calls. */}
                   <span className={`block ${stepBodyClass(step.status)}`}>{toolPreview(step)}</span>
+                  {/* The other half of that disclosure. The forecast above is
+                      not binding — it is a forecast — so it is checked instead:
+                      a tool the step ran without naming is said here, in the
+                      same plain voice as the grounding checks under a reply.
+                      Amber like those, but a rung darker in light: they sit on
+                      their own amber tint, this sits on the plan block's grey,
+                      where amber-700 measures 4.28:1 and misses AA. */}
+                  {undisclosed.length > 0 && (
+                    <span className="block text-amber-800 dark:text-amber-500">
+                      {undisclosedRunNote(undisclosed)}
+                    </span>
+                  )}
                   {expandable && (
                     <span className="text-ink-tertiary">{openSteps[step.id] ? '▾' : '▸'}</span>
                   )}
