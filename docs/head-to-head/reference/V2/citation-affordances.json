@@ -1,0 +1,16 @@
+{
+  "note": "Citation affordances found in the reference app's rendered answer, via the accessibility tree. This is the evidence V2 asks for: not how many citation MARKERS appear, but how many a reader can activate.",
+  "activatableCitations": 9,
+  "everyOneHasHref": true,
+  "links": [
+    {"label": "irs", "target": "irs.gov/node/151941"},
+    {"label": "National Taxpayers Union", "target": "tax rates page"},
+    {"label": "Congress.gov", "target": "CRS product RL34498"},
+    {"label": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2026-...", "target": "IRS news release"},
+    {"label": "https://www.congress.gov/crs-product/RL34498", "target": "CRS historical table"},
+    {"label": "Jacksonhewitt", "target": "age 65 or blind deduction"},
+    {"label": "Jacksonhewitt", "target": "enhanced senior deduction"},
+    {"label": "Fidelity", "target": "standard deduction"},
+    {"label": "Congress.gov", "target": "non-itemizer charitable deduction"}
+  ]
+}

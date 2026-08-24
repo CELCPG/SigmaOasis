@@ -1,0 +1,27 @@
+$32,200 for tax year 2026 (returns filed in 2027). For tax year 2025, the returns most people filed this past spring, it was $31,500.
+
+The numbers
+Tax year | MFJ / surviving spouse | Single / MFS | Head of household
+2025 | $31,500 | $15,750 | $23,625
+2026 | $32,200 | $16,100 | $24,150
+
+The IRS published these amounts in IR-2025-103 (Oct. 9, 2025), with the underlying detail in Revenue Procedure 2025-32. [irs]
+
+Where the number actually comes from — three layers, in order:
+1. Statute: IRC 63(c). TCJA (P.L. 115-97) roughly doubled it in 2018 with a 2025 sunset.
+2. The 2025 reconciliation law. OBBBA (P.L. 119-21, signed July 4, 2025) made the higher amounts
+   permanent. The 2025 figures had originally been headed for $30,000 MFJ. [National Taxpayers Union]
+3. Annual inflation indexing, chained CPI-U per 1(f)(3). So $32,200 is not a number Congress wrote
+   down. It is $31,500 run through the C-CPI-U adjustment and rounded. [Congress.gov]
+
+Primary sources to cite:
+  IRS IR-2025-103: https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2026-including-amendments-from-the-one-big-beautiful-bill
+  Rev. Proc. 2025-32 (the authoritative document; the news release just summarizes it)
+  CRS RL34498 for the historical table: https://www.congress.gov/crs-product/RL34498
+
+Things that stack on top: age 65 or blind (+$1,650 per qualifying person, 2026) [Jacksonhewitt];
+enhanced senior deduction ($6,000 per qualifying taxpayer 65+, through 2028) [Jacksonhewitt][Fidelity];
+non-itemizer charitable deduction up to $2,000 MFJ [Congress.gov].
+
+I'm not a tax advisor, and if this is for an actual filing position rather than a model or a draft,
+pull Rev. Proc. 2025-32 directly rather than relying on the summary.

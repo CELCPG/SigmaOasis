@@ -1,0 +1,19 @@
+ON-SCREEN, as rendered:
+  - A "Searched the web" affordance above the answer, naming that a tool ran.
+  - Inline source chips rendered next to the sentences they support ("irs",
+    "National Taxpayers Union", "Congress.gov", "Jacksonhewitt", "Fidelity").
+  - A "Primary sources to cite" block with bare URLs, also rendered as links.
+  - A standing footer: "Claude is AI and can make mistakes. Please double-check
+    cited sources."
+  - The answer volunteers a limit of its own: pull the Rev. Proc. directly
+    rather than relying on the summary.
+
+MEASURED: 9 citation affordances, every one carrying an href (see
+citation-affordances.json). Zero of them are inert text.
+
+FOR CONTRAST, from the round-2 blind judging of Sigma Oasis on this same task:
+  round-2 build : markers numbered [1][2][5] and matched to a numbered strip,
+                  but transcript.json records citations: [] and citationCount: 0
+                  — the critic's words were "legible, not reachable": styling on
+                  markdown text, no href, no activation handler.
+  baseline      : markers present, strip unnumbered, nothing to resolve them to.
