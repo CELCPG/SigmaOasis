@@ -354,15 +354,35 @@
           </div>
           <dl class="facts">
             <div><dt>what ran</dt><dd>Six builders in isolated worktrees, one dimension each, every fix carrying a new mechanical case. Two semantic merge conflicts resolved by composing both designs rather than picking one.</dd></div>
-            <div><dt>findings</dt><dd>The action-row gate was rewritten twice for opposite correct reasons — an empty failed reply needs Regenerate, and a complete reply must not wait on the verification tail. Both now rest on one shared predicate so they cannot drift.</dd></div>
-            <div><dt>blind verdict</dt><dd>pending — blind critics have not run yet</dd></div>
+            <div><dt>findings</dt><dd>Two losses, both real. V3 above. VC3: the contrast fix never reached the chrome — both arms render identical ink at 2.45:1, and the round-1 build lost only for having MORE text in it, including its own “nothing was computed” caution at 2.46:1. Behind that sits the round’s worst finding: test/styleCheck.ts passes at ≥4.5:1 while inspecting the --text-* tokens, and the app’s chrome uses 242 raw text-neutral-* classes the check never looks at. A green check was certifying a property the app does not have.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-1 build 6 · baseline 2 · 9 ties, over 17 tasks judged blind by 17 fresh-context critics reading the real runs.</dd></div>
+            <div><dt>biggest gap</dt><dd>V3: the new verification chrome manufactures confidence it has not earned. On a question the library does not cover, the round-1 build showed a passed recomputation, a “the checker compared the reply against that output” line and a revision claiming unsupported items were removed — while re-deriving its numbers from constants the model invented and labelling one “EPA standard estimate” with no source consulted. The baseline simply said the library does not cover home repair, so this is general knowledge. Looking checked beat being checked, which is the one thing this project exists to prevent.</dd></div>
             <div><dt>fix</dt><dd>Retrieval arms the measurement check · tool claims joined to the executed set · failed tools stop disarming the link checks · plan-step tool calls made visible · action row follows the answer, waits get names · streamed error frames diagnosed and recoverable · long tokens wrap, focus rings restored, prose contrast raised</dd></div>
           </dl>
           <div class="evals">
             <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">1546 → 1615</span></div>
             <div class="ev"><span class="ev__k">new style checks</span><span class="ev__v num">25</span></div>
-            <div class="ev"><span class="ev__k">high gaps closed</span><span class="ev__v num">13</span></div>
+            <div class="ev"><span class="ev__k">blind tasks judged</span><span class="ev__v num">17</span></div>
+            <div class="ev"><span class="ev__k">won / lost / tied</span><span class="ev__v num">6 / 2 / 9</span></div>
           </div>
+        </div>
+      </li>
+      <li class="round round--running">
+        <div class="round__mark"><span class="round__n num">2</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>Send the losses back</h3>
+            <span class="tag tag--running">running</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">round-1 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">round-1 + round-2 fixes</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Five builders: the two losses, plus the three ties where BOTH arms failed the reader — a cancelled plan with no cancelled state, a Stop rendered as a step failure, and an empty review reported as a clean review.</dd></div>
+          </dl>
+
         </div>
       </li>
     </ol>
@@ -378,6 +398,8 @@
             <tr><td class="num">1</td><td>node</td><td>cases passing</td><td class="r num">1615</td><td class="r num up">+69</td></tr>
             <tr><td class="num">1</td><td>render/style</td><td>style checks</td><td class="r num">25</td><td class="r num up">+25</td></tr>
             <tr><td class="num">1</td><td>audit</td><td>high-severity gaps closed</td><td class="r num">13 / 28</td><td class="r num up">+13</td></tr>
+            <tr><td class="num">1</td><td>blind head-to-head</td><td>tasks won by the newer build</td><td class="r num">6 / 17</td><td class="r num ">—</td></tr>
+            <tr><td class="num">1</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">2 / 17</td><td class="r num ">—</td></tr>
           </tbody>
         </table>
       </div>

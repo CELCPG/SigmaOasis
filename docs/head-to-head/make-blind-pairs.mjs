@@ -14,7 +14,7 @@
  *
  *   node docs/head-to-head/make-blind-pairs.mjs <armA-dir> <armB-dir> <out-dir> <salt>
  */
-import { readdirSync, mkdirSync, copyFileSync, statSync, writeFileSync, rmSync } from 'node:fs'
+import { readdirSync, mkdirSync, copyFileSync, statSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { createHash } from 'node:crypto'
 
@@ -29,7 +29,7 @@ function indexRuns(dir) {
   const out = new Map()
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
-    if (!statSync(full).isDirectory()) continue
+    if (name.startsWith('.') || !statSync(full).isDirectory()) continue
     const taskId = name.replace(/-\d{8}-\d{6}$/, '')
     // Keep the most recent run for a task if a task was captured twice.
     const prev = out.get(taskId)
@@ -38,13 +38,31 @@ function indexRuns(dir) {
   return out
 }
 
-function copyVisible(from, to) {
+/**
+ * Text artifacts can carry the run's own absolute path — the app renders
+ * sandbox and workbench paths, and those sit under <out>/<arm>/<task>-<stamp>/.
+ * That would hand the critic the arm label inside the very transcript it is
+ * meant to read blind. Both arms get the same neutral placeholder, so nothing
+ * about the comparison changes except that the tell is gone.
+ */
+const SCRUBBABLE = /\.(txt|json|jsonl|md|html)$/i
+
+function scrub(text, runRoot, armDir) {
+  return text
+    .split(runRoot)
+    .join('/RUN')
+    .split(`/${armDir}/`)
+    .join('/ARM/')
+}
+
+function copyVisible(from, to, runRoot, armDir) {
   mkdirSync(to, { recursive: true })
   for (const name of readdirSync(from)) {
     if (name.startsWith('_')) continue // identifying sidecars stay behind
     const src = join(from, name)
     const dst = join(to, name)
-    if (statSync(src).isDirectory()) copyVisible(src, dst)
+    if (statSync(src).isDirectory()) copyVisible(src, dst, runRoot, armDir)
+    else if (SCRUBBABLE.test(name)) writeFileSync(dst, scrub(readFileSync(src, 'utf8'), runRoot, armDir))
     else copyFileSync(src, dst)
   }
 }
@@ -63,8 +81,8 @@ for (const task of tasks) {
   const aFirst = digest[0] % 2 === 0
   const first = aFirst ? a.get(task) : b.get(task)
   const second = aFirst ? b.get(task) : a.get(task)
-  copyVisible(first, join(outDir, task, 'run-1'))
-  copyVisible(second, join(outDir, task, 'run-2'))
+  copyVisible(first, join(outDir, task, 'run-1'), first, basename(aFirst ? armADir : armBDir))
+  copyVisible(second, join(outDir, task, 'run-2'), second, basename(aFirst ? armBDir : armADir))
   key[task] = { 'run-1': aFirst ? 'A' : 'B', 'run-2': aFirst ? 'B' : 'A' }
 }
 
