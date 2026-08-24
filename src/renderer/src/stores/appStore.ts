@@ -6,6 +6,7 @@ import type {
   Conversation,
   ModelInfo
 } from '../types'
+import type { TurnPhase } from '../lib/turnPhase'
 
 /**
  * Global renderer state (Zustand). Settings are a mirror of electron-store —
@@ -76,6 +77,16 @@ interface AppState {
    */
   researchProgress: { phase: string; detail: string } | null
   setResearchProgress: (progress: { phase: string; detail: string } | null) => void
+
+  /**
+   * The named stage of the in-flight turn (lib/turnPhase.ts): the pre-model
+   * wait a context provider is in, or the post-answer check that is running.
+   * It names the wait, and — because `streaming` stays true through the
+   * checks — it is also what tells a finished bubble that its answer is done
+   * and can be acted on.
+   */
+  turnPhase: TurnPhase | null
+  setTurnPhase: (phase: TurnPhase | null) => void
 
   /**
    * True while earlier messages are being summarized to fit the context
@@ -204,10 +215,17 @@ export const useAppStore = create<AppState>((set) => ({
   // Clearing progress whenever streaming stops keeps a stale phase from
   // lingering after the turn ends, however it ended.
   setStreaming: (streaming) =>
-    set(streaming ? { streaming } : { streaming, researchProgress: null, compacting: false }),
+    set(
+      streaming
+        ? { streaming }
+        : { streaming, researchProgress: null, compacting: false, turnPhase: null }
+    ),
 
   researchProgress: null,
   setResearchProgress: (researchProgress) => set({ researchProgress }),
+
+  turnPhase: null,
+  setTurnPhase: (turnPhase) => set({ turnPhase }),
 
   compacting: false,
   setCompacting: (compacting) => set({ compacting }),

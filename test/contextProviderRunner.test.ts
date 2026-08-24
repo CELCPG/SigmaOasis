@@ -149,6 +149,38 @@ describe('gatherTurnContext', () => {
     assert.deepEqual(result.blocks, ['first'])
   })
 
+  test('the provider holding the turn open is announced by name, then cleared', async () => {
+    const seen: (string | null)[] = []
+    const providers: ContextProvider[] = [
+      { ...provider('named', 'serial', async () => ({ blocks: ['a'] })), wait: { label: 'Searching the web', detail: 'before the model is asked' } },
+      provider('anonymous', 'serial', async () => ({ blocks: ['b'] })),
+      provider('pre', 'prefetch', async () => null)
+    ]
+    await gatherTurnContext(providers, input(), io, (w) => seen.push(w ? w.label : null))
+    // Announced before its own await; the next provider clears it, so a name
+    // never outlives the work it describes.
+    assert.deepEqual(seen, ['Searching the web', null, null])
+  })
+
+  test('an abort mid-wait still clears the name', async () => {
+    const controller = new AbortController()
+    const seen: (string | null)[] = []
+    const providers: ContextProvider[] = [
+      {
+        ...provider('named', 'serial', async () => {
+          controller.abort()
+          return null
+        }),
+        wait: { label: 'Checking prices', detail: 'real offers' }
+      }
+    ]
+    const result = await gatherTurnContext(providers, input({ signal: controller.signal }), io, (w) =>
+      seen.push(w ? w.label : null)
+    )
+    assert.equal(result.aborted, true)
+    assert.deepEqual(seen, ['Checking prices', null])
+  })
+
   test('projectTokens accumulate across providers', async () => {
     const providers = [
       provider('recall', 'prefetch', async () => ({ projectTokens: { recall: 40 } })),
