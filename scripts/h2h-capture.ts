@@ -1348,9 +1348,28 @@ async function main(): Promise<void> {
     const installed = await cdp.evalString(INSTRUMENT)
     if (installed !== 'installed') notes.push(`sampler install returned "${installed}"`)
 
+    // A screenshot is evidence, never a precondition. Page.captureScreenshot can
+    // stall indefinitely when the compositor will not produce a frame — an
+    // occluded or sleeping display does it — and a stalled frame grab must not
+    // be able to void a run whose transcript, timings and DOM were all captured
+    // fine. A failure is recorded in notes and in run.json's screenshot list,
+    // so a critic reading the run knows an image is missing rather than absent.
+    let shotFailures = 0
     const screenshot = async (phase: ShotRecord['phase'], atMs: number | null): Promise<void> => {
-      const r = await cdp!.send<{ data?: string }>('Page.captureScreenshot', { format: 'png', fromSurface: true })
+      let r: { data?: string }
+      try {
+        r = await cdp!.send<{ data?: string }>(
+          'Page.captureScreenshot',
+          { format: 'png', fromSurface: true },
+          30_000
+        )
+      } catch (err) {
+        shotFailures++
+        notes.push(`screenshot (${phase}) failed: ${err instanceof Error ? err.message : String(err)}`)
+        return
+      }
       if (!r.data) {
+        shotFailures++
         notes.push(`screenshot (${phase}) returned no data`)
         return
       }
@@ -1730,6 +1749,9 @@ async function main(): Promise<void> {
       validity,
       validityReasons,
       screenshots: shots,
+      // Stated, not implied: a critic must be able to tell "no image here"
+      // from "an image that was never taken".
+      screenshotsFailed: shotFailures,
       viewport: cap.viewport,
       notes
     }
