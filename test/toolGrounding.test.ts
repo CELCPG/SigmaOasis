@@ -1109,3 +1109,61 @@ describe('citation markers', () => {
     assert.equal(report, null)
   })
 })
+
+/**
+ * v1.12.3: the footer must not contradict the checks above it.
+ *
+ * Measured (V3): the 🧮 line said the recomputation re-derived the answer from
+ * itself and "checks nothing", and the ⚠️ strip two lines below closed with
+ * "Checked against: reference_lookup, run_python" — naming, as a check, the run
+ * the app had just called worthless. A run marked `checksNothing` is treated
+ * exactly like a laundered one: it arms the checks, supports no figure, and is
+ * never named as something the answer was checked against.
+ */
+describe('a run that checked nothing is never named as a check', () => {
+  // What runRecompute writes when recomputeIsCircular fires: the same record it
+  // shows as "Ran Python", plus the marker saying it settled nothing.
+  const circular = (result: string): ToolCallRecord => ({
+    ...rec('run_python', result),
+    preamble: 'App-initiated: recomputing the figures stated in the answer.',
+    checksNothing: true
+  })
+
+  // $450 appears in no output at all, so a report exists either way and the
+  // assertion under test is the footer, not whether the badge fired.
+  const ANSWER = 'The two tiers cost $100 and $200. The bundle is $450.'
+  const RECOMPUTE_STDOUT = '100\n200'
+
+  test('the circular recompute drops out of "Checked against"', () => {
+    const report = checkToolGrounding(
+      ANSWER,
+      [rec('reference_lookup', 'Passage: onboarding is handled by the vendor.'), circular(RECOMPUTE_STDOUT)],
+      ''
+    )
+    assert.ok(report, 'expected a report: $450 is in no output')
+    assert.ok(report!.figures.includes('$450'))
+    assert.ok(report!.checkedAgainst.includes('reference_lookup'))
+    assert.equal(
+      report!.checkedAgainst.some((c) => c.includes('run_python')),
+      false,
+      'the footer named a run the 🧮 line had already called circular'
+    )
+    // The circular run supports no figure either: $100 and $200 came back out
+    // of the model's own constants, which is exactly what "checks nothing" meant.
+    assert.ok(report!.figures.includes('$100'))
+    assert.ok(report!.figures.includes('$200'))
+  })
+
+  test('when it is the only thing that ran, the footer says so instead of "nothing ran"', () => {
+    const report = checkToolGrounding(ANSWER, [circular(RECOMPUTE_STDOUT)], '')
+    assert.ok(report, 'expected a report: $450 is in no output')
+    assert.deepEqual(report!.checkedAgainst, ['nothing — the only checks that ran verified nothing'])
+  })
+
+  test('an ordinary recompute is still named — the rule is narrow', () => {
+    const honest = { ...rec('run_python', '100\n200\n30'), preamble: 'App-initiated: recomputing the figures stated in the answer.' }
+    const report = checkToolGrounding('The two tiers cost $100 and $250.', [honest], '')
+    assert.ok(report, 'expected a report: $250 is in no output')
+    assert.deepEqual(report!.checkedAgainst, ['run_python'])
+  })
+})

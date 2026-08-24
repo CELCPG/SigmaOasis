@@ -889,15 +889,20 @@ export function checkToolGrounding(
   // HARDCODED_NUMBERS_NOTE) neither arms the numeric checks nor supports the
   // reply's figures. Without this, a model could print its invented numbers
   // through the sandbox and this checker would certify them as computed.
-  const laundered = (r: ToolCallRecord): boolean =>
-    (r.result ?? '').includes(LAUNDERED_OUTPUT_MARKER)
-  const honest = records.filter((r) => !laundered(r))
+  //
+  // v1.12.3 generalises it: `checksNothing` is the same verdict reached by a
+  // different route — the app has already told the user, in the 🧮 line, that
+  // this run re-derived the answer from itself. A run the footer calls circular
+  // cannot also be a run the footer says it checked against.
+  const verifiedNothing = (r: ToolCallRecord): boolean =>
+    (r.result ?? '').includes(LAUNDERED_OUTPUT_MARKER) || r.checksNothing === true
+  const honest = records.filter((r) => !verifiedNothing(r))
   const numericRecords = honest.filter(
     (r) => NUMERIC_TOOLS.has(r.name) && (r.status === 'done' || producedBeforeError(r) !== '')
   )
-  // A laundered run ARMS the checks — a fabrication attempt is the moment for
+  // Such a run ARMS the checks — a fabrication attempt is the moment for
   // maximum scrutiny — while contributing nothing to the support corpus.
-  const launderedNumeric = records.some((r) => laundered(r) && NUMERIC_TOOLS.has(r.name))
+  const verifiedNothingNumeric = records.some((r) => verifiedNothing(r) && NUMERIC_TOOLS.has(r.name))
   const sourceRecords = records.filter((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name))
   // v1.12.1: an errored source tool ARMS the link, origin and address checks
   // instead of disarming them. Gating them on `sourceRecords.length > 0` had it
@@ -921,13 +926,13 @@ export function checkToolGrounding(
   const stated = unsourcedFigures(answer, figureCorpus, sourceCorpus)
   const checkFigures =
     numericRecords.length > 0 ||
-    launderedNumeric ||
+    verifiedNothingNumeric ||
     options.expectPricingTool === true ||
     stated.length >= MIN_UNPROMPTED_FIGURES
   // Percentages only when something actually computed this turn — that is
   // when a stated share had a source it should have used.
   const percentages =
-    numericRecords.length > 0 || launderedNumeric
+    numericRecords.length > 0 || verifiedNothingNumeric
       ? unsourcedPercentages(answer, figureCorpus, sourceCorpus)
       : []
   const figures = [...(checkFigures ? stated : []), ...percentages]
@@ -995,10 +1000,15 @@ export function checkToolGrounding(
   // disclosure would otherwise read "nothing ran this turn" when a search did
   // run and came back empty-handed.
   const failed = [...new Set(failedSources.map((r) => `${r.name} (errored)`))].sort()
+  // …and when every check that ran is one the app already reported as verifying
+  // nothing, say that rather than "nothing ran": something did run, it just
+  // settled nothing, and "no tool output" would be its own small lie.
   const checkedAgainst =
     used.length + failed.length > 0
       ? [...used, ...failed]
-      : ['no tool output — nothing ran this turn']
+      : records.some(verifiedNothing)
+        ? ['nothing — the only checks that ran verified nothing']
+        : ['no tool output — nothing ran this turn']
 
   return {
     figures: figures.slice(0, MAX_REPORTED),

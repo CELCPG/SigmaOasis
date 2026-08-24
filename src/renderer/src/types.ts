@@ -220,8 +220,15 @@ export interface SecondOpinionSettings {
 
 // ---- v1.2: claim check (settle the critic's list) -----------------------------
 
-/** How one extracted claim fared against sources. Never model self-graded. */
-export type ClaimVerdict = 'confirmed' | 'contradicted' | 'unverifiable'
+/**
+ * How one extracted claim fared against sources. Never model self-graded.
+ *
+ * `unverifiable` and `unchecked` are different admissions and must stay apart:
+ * a source was read and did not settle the claim, versus no source could be
+ * reached at all. Reporting the second as the first is how a structurally
+ * impossible pass looks like a completed one.
+ */
+export type ClaimVerdict = 'confirmed' | 'contradicted' | 'unverifiable' | 'unchecked'
 
 export interface CheckedClaim {
   /** The bare factual claim as extracted by the critic. */
@@ -802,6 +809,12 @@ export interface ToolCallRecord {
    * wall under the answer.
    */
   planStepId?: string
+  /**
+   * v1.12.3: the app has already told the user this run verified nothing — a
+   * recomputation fed by the model's own constants, say. Such a run must not
+   * then be named in "Checked against", and its output supports no figure.
+   */
+  checksNothing?: boolean
 }
 
 export interface ChatMessage {
