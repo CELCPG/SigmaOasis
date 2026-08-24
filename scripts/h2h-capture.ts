@@ -697,12 +697,32 @@ class Cdp {
     }
   }
 
-  send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  /**
+   * Every message is bounded. An unanswered CDP message used to hang the whole
+   * capture for as long as anyone would wait — the turn had finished, the
+   * composer was idle, and the harness sat on a reply that never came, leaving
+   * no run.json and no _failure.txt to say so. Screenshots are the usual
+   * culprit and they are also the slowest legitimate call, hence the generous
+   * default rather than a tight one: this is a deadlock guard, not a latency
+   * budget, and it must never fire on a call that was merely slow.
+   */
+  send<T = Record<string, unknown>>(
+    method: string,
+    params: Record<string, unknown> = {},
+    timeoutMs = 120_000
+  ): Promise<T> {
     const ws = this.ws
     if (!ws) throw new Error('CDP not connected')
     const id = ++this.nextId
-    return new Promise<T>((res) => {
-      this.pending.set(id, (r) => res(r as T))
+    return new Promise<T>((res, rej) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        rej(new Error(`CDP ${method} did not answer within ${timeoutMs} ms`))
+      }, timeoutMs)
+      this.pending.set(id, (r) => {
+        clearTimeout(timer)
+        res(r as T)
+      })
       ws.send(JSON.stringify({ id, method, params }))
     })
   }
