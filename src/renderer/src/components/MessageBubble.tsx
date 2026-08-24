@@ -6,6 +6,7 @@ import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
+import { LIBRARY_MISS_LABEL, LIBRARY_STRIP_LABEL, libraryMissDetail } from '../lib/libraryRecall'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
@@ -237,11 +238,14 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
 function MemoryContextLine({
   items,
   label = '📚 From memory:',
-  title = 'The long-term memory chunks the model was reminded of before answering'
+  title = 'The long-term memory chunks the model was reminded of before answering',
+  detail
 }: {
   items: NonNullable<ChatMessage['memoryContext']>
   label?: string
   title?: string
+  /** Replaces the citation list in the collapsed header, when listing sources would overclaim. */
+  detail?: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
@@ -253,7 +257,7 @@ function MemoryContextLine({
         title={title}
       >
         {label}{' '}
-        {items.map((i) => `${i.source} (${i.score.toFixed(2)})`).join(', ')}{' '}
+        {detail ?? items.map((i) => `${i.source} (${i.score.toFixed(2)})`).join(', ')}{' '}
         <span>{open ? '▾' : '▸'}</span>
       </button>
       {open && (
@@ -590,8 +594,13 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.libraryContext && message.libraryContext.length > 0 && (
           <MemoryContextLine
             items={message.libraryContext}
-            label="📖 From the library:"
-            title="Passages the app retrieved from your local reference library before the model answered — the model saw exactly these, with their citations"
+            label={message.libraryMiss ? LIBRARY_MISS_LABEL : LIBRARY_STRIP_LABEL}
+            detail={message.libraryMiss ? libraryMissDetail(message.libraryContext.length) : undefined}
+            title={
+              message.libraryMiss
+                ? 'The app searched your local reference library before the model answered. None of the passages it returned is about this question — the retrieval score is relative to the result set, so a weak best match still scores high. They are shown because the model saw them, not because they support the answer.'
+                : 'Passages the app retrieved from your local reference library before the model answered — the model saw exactly these, with their citations'
+            }
           />
         )}
 

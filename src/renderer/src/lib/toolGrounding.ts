@@ -1,5 +1,6 @@
 import type { ToolCallRecord } from '../types'
 import { measurementsIn } from '../../../shared/measurements'
+import { LAUNDERED_OUTPUT_MARKER } from './workbenchChecks'
 
 /**
  * v1.3 tool grounding: did the answer actually use what the tools returned?
@@ -771,7 +772,7 @@ export function checkToolGrounding(
   // reply's figures. Without this, a model could print its invented numbers
   // through the sandbox and this checker would certify them as computed.
   const laundered = (r: ToolCallRecord): boolean =>
-    (r.result ?? '').includes('appears as a literal in the code')
+    (r.result ?? '').includes(LAUNDERED_OUTPUT_MARKER)
   const honest = records.filter((r) => !laundered(r))
   const numericRecords = honest.filter(
     (r) => NUMERIC_TOOLS.has(r.name) && (r.status === 'done' || producedBeforeError(r) !== '')

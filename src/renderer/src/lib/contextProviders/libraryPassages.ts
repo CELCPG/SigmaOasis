@@ -3,6 +3,7 @@ import { buildSearchQuery } from '../grounding'
 import {
   LIBRARY_PASSAGES_PER_TURN,
   buildLibraryContext,
+  libraryMissedTheQuestion,
   shouldConsultLibrary,
   toLibraryContextItems
 } from '../libraryRecall'
@@ -34,7 +35,13 @@ export const libraryPassagesProvider: ContextProvider = {
     // Recorded like the auto-search: a tool-call record the user can open,
     // an audit line, and a source for the grounding check.
     io.recordSyntheticCall('reference_lookup', { query }, looked.formatted)
-    io.patch({ libraryContext: toLibraryContextItems(looked.passages) })
+    io.patch({
+      libraryContext: toLibraryContextItems(looked.passages),
+      // The lookup fires on the domain, not on the corpus: a library with no
+      // plumbing in it still returns its five closest passages. Whether any of
+      // them is about the question is a separate fact, and the strip says so.
+      libraryMiss: libraryMissedTheQuestion(input.lastUserContent!, looked.passages)
+    })
     return { blocks: [buildLibraryContext(looked.formatted, input.offline)] }
   }
 }

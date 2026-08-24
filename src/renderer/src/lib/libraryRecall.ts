@@ -47,6 +47,58 @@ export function toLibraryContextItems(passages: LibraryPassage[]): MemoryContext
   return passages.map((p) => ({ source: citationOf(p), score: p.score, text: p.text }))
 }
 
+/** Words too common to say a passage is about the question. */
+const WEAK_WORDS = new Set([
+  'about', 'after', 'all', 'and', 'any', 'are', 'because', 'been', 'best', 'but', 'can', 'could', 'did', 'does',
+  'doing', 'don', 'each', 'find', 'for', 'from', 'get', 'give', 'going', 'good', 'has', 'have', 'her', 'here',
+  'his', 'how', 'its', 'just', 'know', 'let', 'like', 'long', 'lot', 'make', 'many', 'may', 'much', 'need',
+  'not', 'now', 'off', 'one', 'only', 'other', 'our', 'out', 'over', 'per', 'put', 'really', 'said', 'same',
+  'should', 'some', 'still', 'such', 'take', 'tell', 'than', 'that', 'the', 'their', 'them', 'then', 'there',
+  'these', 'they', 'thing', 'things', 'this', 'those', 'too', 'use', 'using', 'very', 'want', 'was', 'way',
+  'were', 'what', 'when', 'where', 'which', 'while', 'who', 'why', 'will', 'with', 'would', 'you', 'your'
+])
+
+const wordsOf = (text: string): string[] => (text.toLowerCase().match(/[a-z][a-z']{2,}/g) ?? [])
+
+/**
+ * The share of the question's distinctive words a passage actually contains.
+ *
+ * v1.12.2: the retrieval score cannot answer "did the library have anything on
+ * this?" — it is normalized inside one result set, so the best of five useless
+ * hits still reads 0.93. Measured (faucet drip, V3): a library of first aid,
+ * food safety and flood prep returned "Cuts and grazes" at 0.93 and the bubble
+ * captioned it "📖 From the library:" under an answer about plumbing. Word
+ * coverage is scale-free and says what the score cannot.
+ */
+export function questionCoverage(question: string, passageText: string): number {
+  const terms = new Set(wordsOf(question).filter((w) => !WEAK_WORDS.has(w)))
+  if (terms.size === 0) return 1
+  const words = new Set(wordsOf(passageText))
+  let hit = 0
+  for (const t of terms) if (words.has(t)) hit += 1
+  return hit / terms.size
+}
+
+/** Below this share of the question's own words, a passage is not about it. */
+export const MIN_QUESTION_COVERAGE = 0.3
+
+/** True when retrieval ran and nothing it returned is about the question. */
+export function libraryMissedTheQuestion(question: string, passages: { text: string }[]): boolean {
+  if (passages.length === 0) return false
+  return passages.every((p) => questionCoverage(question, p.text) < MIN_QUESTION_COVERAGE)
+}
+
+export const LIBRARY_STRIP_LABEL = '📖 From the library:'
+/**
+ * What the strip says instead when nothing cleared the floor. The passages
+ * stay one click away — they were in the model's context and hiding them would
+ * be its own dishonesty — but the caption no longer implies they backed the
+ * answer.
+ */
+export const LIBRARY_MISS_LABEL = '📖 Nothing in the library covers this question — the answer is not backed by it.'
+export const libraryMissDetail = (n: number): string =>
+  `Searched anyway; the ${n} closest passage${n === 1 ? '' : 's'} still went to the model — open to read ${n === 1 ? 'it' : 'them'}.`
+
 /**
  * The turn-context block. `formatted` is the main process's model-facing
  * rendering (library.ts formatLookup) — the same text the tool would return —
