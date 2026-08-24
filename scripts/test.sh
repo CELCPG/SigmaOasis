@@ -51,6 +51,7 @@ rm -rf "$OUT"
   --skipLibCheck \
   --strict \
   --types node \
+  --jsx react-jsx \
   src/main/ipc/embeddings.ts \
   src/main/ipc/retrieval.ts \
   src/main/ipc/researchIndex.ts \
@@ -125,8 +126,9 @@ rm -rf "$OUT"
   src/renderer/src/hooks/chatTransport.ts \
   src/preload/index.d.ts \
   src/renderer/src/stores/appStore.ts \
-  src/preload/index.d.ts \
   src/renderer/src/hooks/planMode.ts \
+  src/renderer/src/lib/planState.ts \
+  src/renderer/src/components/PlanBlockView.tsx \
   test/harness.ts \
   test/*.test.ts
 

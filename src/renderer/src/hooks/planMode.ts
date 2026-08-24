@@ -2,11 +2,13 @@ import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { runAgentLoop, TOOL_TURN_BUDGETS, type ApiMessage } from '../lib/agentLoop'
+import { endPlan } from '../lib/planState'
 import type {
   ChatMessage,
   ChatPlan,
   Conversation,
   ModelConfig,
+  PlanOutcome,
   PlanStep,
   ToolCallRecord,
   ToolSchema
@@ -263,6 +265,11 @@ export async function runPlanTurn(
       plan: { ...plan, steps: plan.steps.map((s) => (s.id === stepId ? { ...s, ...p } : s)) }
     })
   }
+  /** Record how the plan ended, so the block stops reading as live work. */
+  const finish = (outcome: PlanOutcome): void => {
+    const plan = currentPlan()
+    if (plan) patch({ plan: endPlan(plan, outcome) })
+  }
 
   // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
   if (settings.plan.confirmPlan) {
@@ -273,7 +280,16 @@ export async function runPlanTurn(
     planApprovals.delete(assistantMsg.id)
     const plan = currentPlan()
     if (!approved) {
-      if (plan) patch({ plan: { ...plan, approved: false }, content: 'Plan cancelled — nothing was executed.' })
+      // The refusal has to reach the block, not just the prose: with only
+      // `approved:false` it still read "awaiting approval" with a live Run
+      // button under a message saying nothing was executed.
+      const stopped = signal.aborted
+      finish(stopped ? 'stopped' : 'cancelled')
+      patch({
+        content: stopped
+          ? 'Stopped before the plan ran — nothing was executed.'
+          : 'Plan cancelled — nothing was executed.'
+      })
       return
     }
     if (plan) patch({ plan: { ...plan, approved: true } })
@@ -289,7 +305,10 @@ export async function runPlanTurn(
   const plan = currentPlan()
   if (!plan) return
   for (let i = 0; i < plan.steps.length; i++) {
-    if (signal.aborted) return
+    if (signal.aborted) {
+      finish('stopped')
+      return
+    }
     const step = plan.steps[i]!
     patchStep(step.id, { status: 'running' })
 
@@ -311,6 +330,14 @@ export async function runPlanTurn(
       completed.push({ title: step.title, output })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      // Stop lands here as an abort. It is the user ending the plan, not the
+      // step blowing up — drawing it in failure red blames them for their own
+      // decision, so it gets its own status and no error output.
+      if (signal.aborted) {
+        patchStep(step.id, { status: 'stopped' })
+        finish('stopped')
+        return
+      }
       patchStep(step.id, { status: 'failed', output: message })
       // A failed step poisons everything built on it: halt, and let the
       // synthesis say plainly what that leaves unanswered.
@@ -318,7 +345,12 @@ export async function runPlanTurn(
       break
     }
   }
-  if (signal.aborted) return
+  if (signal.aborted) {
+    finish('stopped')
+    return
+  }
+  // The checklist is settled here; the synthesis below writes the answer.
+  finish(haltedBy ? 'failed' : 'completed')
 
   // 4. Synthesize the final answer from the step results.
   let resultsBlock = plan.steps
