@@ -117,9 +117,10 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
     parts.push(`${report.links.length} link${report.links.length === 1 ? '' : 's'}`)
   }
   // v1.9.2: named in full rather than counted. A quantity is only ever flagged
-  // when something computed this turn, so the reply is stating a distance, a
-  // duration or a dose against arithmetic the app itself did — and which of
-  // them disagrees is the only thing worth reading.
+  // when something computed or retrieved this turn, so the reply is stating a
+  // distance, a duration or a dose against arithmetic the app itself did or a
+  // passage it just read — and which of them disagrees is the only thing worth
+  // reading.
   const quantities = report.quantities ?? []
   if (quantities.length > 0) {
     parts.push(

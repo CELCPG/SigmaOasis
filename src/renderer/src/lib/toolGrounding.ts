@@ -30,6 +30,18 @@ import { measurementsIn } from '../../../shared/measurements'
 // not know the tool existed.
 const NUMERIC_TOOLS = new Set(['finance_calculator', 'shop_compare', 'price_watch', 'run_python', 'analyze_file', 'market_data'])
 
+/**
+ * Tools that return retrieved *text* the reply is meant to quote from.
+ *
+ * v1.12.2, and it arms exactly one check: measurements. A passage is not a
+ * computation, so it must not license the money or percentage rungs — but it
+ * is every bit as authoritative about the dose it states as `run_python` is
+ * about its own total. "Give 500 mg" over a retrieved passage reading "200 mg
+ * to 400 mg" is the same failure as a headline contradicting the app's
+ * arithmetic, and until now it produced no finding at all.
+ */
+const RETRIEVAL_TOOLS = new Set(['reference_lookup'])
+
 /** Tools whose output is the authoritative source for links in a reply. */
 const SOURCE_TOOLS = new Set([
   'web_search',
@@ -148,7 +160,8 @@ export function describeGroundingFindings(report: GroundingReport): string {
   if (report.quantities?.length) {
     lines.push(
       '- Measurements nothing computed or retrieved supports: ' +
-        `${report.quantities.join(', ')}. If a tool computed a different number, use that one.`
+        `${report.quantities.join(', ')}. If a tool computed, or a retrieved passage states, a ` +
+        'different number, use that one.'
     )
   }
   if (report.origins?.length) {
@@ -288,7 +301,8 @@ export function unsourcedFigures(answer: string, corpus: string, sourceText = ''
 }
 
 /**
- * v1.9.2: quantities with units, checked only when a computation tool ran.
+ * v1.9.2: quantities with units, checked when a computation tool ran — or,
+ * from v1.12.2, when the library returned passages (see RETRIEVAL_TOOLS).
  *
  * The gap this closes, from a real session. Asked to sketch a cycling route,
  * the model called `run_python`, which added the legs and printed
@@ -330,13 +344,14 @@ export function unsourcedQuantities(answer: string, toolOutput: string, userText
   // right answers is worse than no checker, because the next person to see the
   // badge has been taught to dismiss it.
   // Two corpora, two jobs, and conflating them is what defeated the previous
-  // version. Only a *computation* can arm the check — if the tools worked in
-  // miles and the answer states a distance they do not support, that is a
-  // disagreement with the app's own arithmetic. A unit the user merely used in
-  // passing arms nothing: the marathon prompt says "1 mile = 1.609344 km" and
-  // "3 hours 47 minutes", which armed `mile` with the value 1 and `minute`
-  // with 47, and then reported a correct 26.219 miles and a correct 227
-  // minutes as unsupported. Measured 2026-08-19, on an answer scored correct.
+  // version. Only what the tools *produced* — computed, or retrieved verbatim
+  // from a passage — can arm the check: if they worked in miles and the answer
+  // states a distance they do not support, that is a disagreement with the
+  // app's own arithmetic. A unit the user merely used in passing arms nothing:
+  // the marathon prompt says "1 mile = 1.609344 km" and "3 hours 47 minutes",
+  // which armed `mile` with the value 1 and `minute` with 47, and then
+  // reported a correct 26.219 miles and a correct 227 minutes as unsupported.
+  // Measured 2026-08-19, on an answer scored correct.
   //
   // But once armed, a value is supported by either corpus — a measurement the
   // user gave is theirs to restate, and always has been here.
@@ -787,8 +802,10 @@ export function checkToolGrounding(
   // session — could put a whole table of invented per-bottle prices in front of
   // the user with nothing said about it. What a figure is checked against is
   // unchanged; only whether the check runs at all.
-  const figureCorpus = `${outputOf(honest, (n) => NUMERIC_TOOLS.has(n), true)}\n${userText}`
+  const computedCorpus = outputOf(honest, (n) => NUMERIC_TOOLS.has(n), true)
+  const figureCorpus = `${computedCorpus}\n${userText}`
   const sourceCorpus = outputOf(records, (n) => SOURCE_TOOLS.has(n))
+  const retrievedCorpus = outputOf(records, (n) => RETRIEVAL_TOOLS.has(n))
   const stated = unsourcedFigures(answer, figureCorpus, sourceCorpus)
   const checkFigures =
     numericRecords.length > 0 ||
@@ -802,18 +819,22 @@ export function checkToolGrounding(
       ? unsourcedPercentages(answer, figureCorpus, sourceCorpus)
       : []
   const figures = [...(checkFigures ? stated : []), ...percentages]
-  // Same gate as percentages, for the same reason: with nothing computed there
-  // is no corpus to check against, and a reply that says "about 20 minutes"
-  // from general knowledge is not making a claim the tools could have backed.
+  // Nearly the percentages gate, widened in v1.12.2 by what the library
+  // returned. With nothing computed AND nothing retrieved there is no corpus,
+  // and a reply that says "about 20 minutes" from general knowledge is not
+  // making a claim the tools could have backed — that turn is the `unverified`
+  // badge's business, not this one. But once passages are in hand, a dose or a
+  // temperature they contradict is precisely the claim this rung exists for,
+  // and it is the standard the library eval has always scored replies against.
   const quantities =
-    numericRecords.length > 0
+    numericRecords.length > 0 || retrievedCorpus.trim() !== ''
       ? // The user-text corpus doubles as the passive-support corpus (see the
         // comment in unsourcedQuantities); source-tool text joins it for the
         // same reason it supports figures: a measurement read off a fetched
         // page is sourced, not a disagreement with the app's arithmetic.
         unsourcedQuantities(
           answer,
-          outputOf(honest, (n) => NUMERIC_TOOLS.has(n), true),
+          `${computedCorpus}\n${retrievedCorpus}`,
           `${userText}\n${sourceCorpus}`
         )
       : []

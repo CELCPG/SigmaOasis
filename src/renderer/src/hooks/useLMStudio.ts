@@ -10,6 +10,7 @@ import {
   consultedSources,
   looksFactual,
   looksReference,
+  needsVerification,
   stripTurnNotesEcho,
   TURN_CONTEXT_HEADER,
   withGrounding,
@@ -196,6 +197,8 @@ async function runTurn(
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
   const referenceTurn = lastUserContent ? looksReference(lastUserContent) : false
   const shoppingTurn = lastUserContent ? looksLikeShopping(lastUserContent) : false
+  // The badge gate is wider than the search gate — see needsVerification.
+  const checkableTurn = lastUserContent ? needsVerification(lastUserContent) : false
 
   // The pre-flight context blocks — auto search, library passages, playbook,
   // ledger, price check, memory/project/attachment recall, tabular profile —
@@ -692,7 +695,7 @@ async function runTurn(
     // v1.1: a factual question answered without consulting any web source is
     // exactly the confabulation signature — flag it so the UI can say so,
     // then have a different role name the claims it could not verify.
-    if (factualTurn && !consultedSources(allRecords)) {
+    if (checkableTurn && !consultedSources(allRecords)) {
       patch({ unverified: true })
       // v1.2: the claim check settles the critic's list when enabled;
       // otherwise the v1.1 auto-critic names the checks for the user.
@@ -738,7 +741,7 @@ async function runTurn(
       (assistantMsg.content ? `${assistantMsg.content}\n\n` : '') +
       `⚠️ Stopped after ${MAX_TOOL_ITERATIONS} consecutive tool-call rounds.`
   })
-  if (factualTurn && !consultedSources(allRecords)) {
+  if (checkableTurn && !consultedSources(allRecords)) {
     patch({ unverified: true })
     const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
     if (claimCheckOn) {
