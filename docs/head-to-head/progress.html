@@ -191,12 +191,12 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">1615 pass / 0 fail</span>
+          <span class="inv__val">1662 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">render + style checks</span>
-          <span class="inv__val">25 render · 25 style · 26 md · 40 workbench · 24 transport</span>
+          <span class="inv__val">25 render · 25 style · 33 chrome-contrast · 33 md · 40 workbench · 24 transport</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -255,22 +255,22 @@
     <div class="grid">
         <article class="dim">
           <h3 class="dim__title">Answer verifiability and citations</h3>
-          <div class="dim__bar" role="img" aria-label="2 of 6 high-severity gaps closed">
-            <span class="dim__fill" style="width:33%"></span>
+          <div class="dim__bar" role="img" aria-label="4 of 6 high-severity gaps closed">
+            <span class="dim__fill" style="width:67%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">2<span class="of">/6</span></dd></div>
+            <div><dt>closed</dt><dd class="num">4<span class="of">/6</span></dd></div>
             <div><dt>high</dt><dd class="num">6</dd></div>
             <div><dt>total</dt><dd class="num">14</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Plan-mode transparency</h3>
-          <div class="dim__bar" role="img" aria-label="1 of 5 high-severity gaps closed">
-            <span class="dim__fill" style="width:20%"></span>
+          <div class="dim__bar" role="img" aria-label="4 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:80%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">1<span class="of">/5</span></dd></div>
+            <div><dt>closed</dt><dd class="num">4<span class="of">/5</span></dd></div>
             <div><dt>high</dt><dd class="num">5</dd></div>
             <div><dt>total</dt><dd class="num">14</dd></div>
           </dl>
@@ -299,22 +299,22 @@
         </article>
         <article class="dim">
           <h3 class="dim__title">Failure recovery</h3>
-          <div class="dim__bar" role="img" aria-label="3 of 4 high-severity gaps closed">
-            <span class="dim__fill" style="width:75%"></span>
+          <div class="dim__bar" role="img" aria-label="4 of 4 high-severity gaps closed">
+            <span class="dim__fill" style="width:100%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">3<span class="of">/4</span></dd></div>
+            <div><dt>closed</dt><dd class="num">4<span class="of">/4</span></dd></div>
             <div><dt>high</dt><dd class="num">4</dd></div>
             <div><dt>total</dt><dd class="num">11</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Visual craft</h3>
-          <div class="dim__bar" role="img" aria-label="3 of 4 high-severity gaps closed">
-            <span class="dim__fill" style="width:75%"></span>
+          <div class="dim__bar" role="img" aria-label="4 of 4 high-severity gaps closed">
+            <span class="dim__fill" style="width:100%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">3<span class="of">/4</span></dd></div>
+            <div><dt>closed</dt><dd class="num">4<span class="of">/4</span></dd></div>
             <div><dt>high</dt><dd class="num">4</dd></div>
             <div><dt>total</dt><dd class="num">12</dd></div>
           </dl>
@@ -367,20 +367,43 @@
           </div>
         </div>
       </li>
-      <li class="round round--running">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">2</span></div>
         <div class="round__body">
           <header class="round__head">
             <h3>Send the losses back</h3>
-            <span class="tag tag--running">running</span>
+            <span class="tag tag--done">done</span>
           </header>
           <div class="pair">
-            <span class="pair__side">round-1 build</span>
+            <span class="pair__side">the original baseline — the build that beat us in round 1</span>
             <span class="pair__vs">vs</span>
-            <span class="pair__side">round-1 + round-2 fixes</span>
+            <span class="pair__side">baseline + round 1 + round 2</span>
           </div>
           <dl class="facts">
             <div><dt>what ran</dt><dd>Five builders: the two losses, plus the three ties where BOTH arms failed the reader — a cancelled plan with no cancelled state, a Stop rendered as a step failure, and an empty review reported as a clean review.</dd></div>
+            <div><dt>findings</dt><dd>V3, the round-1 loss, is now won at high confidence: the build says “Recomputation ran, but its inputs are constants the model wrote… Treat these figures as unverified” and “Nothing in the library covers this question — the answer is not backed by it”, where the baseline printed a “📖 From the library:” strip with five ranked passages under an answer about faucets. VC3 flipped too, measured off the pixels: the provenance line went 2.46:1 → 9.48:1, the timing readout 2.48:1 → 5.26:1, and text below AA in the last reply went 11 of 20 → 0 of 20.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-2 build 13 · baseline 1 · 2 ties, over 16 tasks judged blind (a 17th critic failed on schema retries and is not counted). Both round-1 losses flipped to wins at high confidence.</dd></div>
+            <div><dt>biggest gap</dt><dd>TH3, tool-honesty: quotation fidelity. Neither build compares a quoted span in the reply against the retrieved passage it claims to quote — the baseline won this one on the model’s luck, not on anything the app did. The critic ran the exact substring test in ten lines of Python against data the app already holds in the same message.</dd></div>
+            <div><dt>fix</dt><dd>Circular recomputation reports the weaker state · a retrieval turn with no relevant passages says so instead of showing a provenance strip · plans get a real terminal state · a user’s Stop is not drawn as a step failure · an empty review is disclosed instead of reported as a clean one · citation markers are numbered and their locators reachable · chrome contrast measured against the surfaces it is composited over</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">1615 → 1662</span></div>
+            <div class="ev"><span class="ev__k">chrome-contrast checks</span><span class="ev__v num">33 new</span></div>
+            <div class="ev"><span class="ev__k">blind tasks judged</span><span class="ev__v num">16</span></div>
+            <div class="ev"><span class="ev__k">won / lost / tied</span><span class="ev__v num">13 / 1 / 2</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--pending">
+        <div class="round__mark"><span class="round__n num">3</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>Quotation fidelity, and a real reference arm</h3>
+            <span class="tag tag--pending">pending</span>
+          </header>
+
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>The one remaining loss is a check neither build performs. Separately: Claude in Chrome is now reachable, so a live reference arm may finally be possible.</dd></div>
           </dl>
 
         </div>
@@ -400,6 +423,10 @@
             <tr><td class="num">1</td><td>audit</td><td>high-severity gaps closed</td><td class="r num">13 / 28</td><td class="r num up">+13</td></tr>
             <tr><td class="num">1</td><td>blind head-to-head</td><td>tasks won by the newer build</td><td class="r num">6 / 17</td><td class="r num ">—</td></tr>
             <tr><td class="num">1</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">2 / 17</td><td class="r num ">—</td></tr>
+            <tr><td class="num">2</td><td>node</td><td>cases passing</td><td class="r num">1662</td><td class="r num up">+47</td></tr>
+            <tr><td class="num">2</td><td>render/style</td><td>chrome-contrast checks</td><td class="r num">33</td><td class="r num up">+33</td></tr>
+            <tr><td class="num">2</td><td>blind head-to-head</td><td>tasks won vs the original baseline</td><td class="r num">13 / 16</td><td class="r num up">+7</td></tr>
+            <tr><td class="num">2</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">1 / 16</td><td class="r num down">-1</td></tr>
           </tbody>
         </table>
       </div>

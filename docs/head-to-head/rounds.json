@@ -6,12 +6,12 @@
   "invariants": [
     {
       "name": "node test suite",
-      "value": "1615 pass / 0 fail",
+      "value": "1662 pass / 0 fail",
       "state": "green"
     },
     {
       "name": "render + style checks",
-      "value": "25 render · 25 style · 26 md · 40 workbench · 24 transport",
+      "value": "25 render · 25 style · 33 chrome-contrast · 33 md · 40 workbench · 24 transport",
       "state": "green"
     },
     {
@@ -63,14 +63,14 @@
       "title": "Answer verifiability and citations",
       "gaps": 14,
       "high": 6,
-      "closed": 2
+      "closed": 4
     },
     {
       "key": "plan-transparency",
       "title": "Plan-mode transparency",
       "gaps": 14,
       "high": 5,
-      "closed": 1
+      "closed": 4
     },
     {
       "key": "tool-honesty",
@@ -91,14 +91,14 @@
       "title": "Failure recovery",
       "gaps": 11,
       "high": 4,
-      "closed": 3
+      "closed": 4
     },
     {
       "key": "visual-craft",
       "title": "Visual craft",
       "gaps": 12,
       "high": 4,
-      "closed": 3
+      "closed": 4
     }
   ],
   "rounds": [
@@ -138,13 +138,31 @@
     {
       "n": 2,
       "label": "Send the losses back",
-      "state": "running",
+      "state": "done",
       "dimension": null,
       "pair": {
-        "A": "round-1 build",
-        "B": "round-1 + round-2 fixes"
+        "A": "the original baseline — the build that beat us in round 1",
+        "B": "baseline + round 1 + round 2"
       },
       "what": "Five builders: the two losses, plus the three ties where BOTH arms failed the reader — a cancelled plan with no cancelled state, a Stop rendered as a step failure, and an empty review reported as a clean review.",
+      "findings": "V3, the round-1 loss, is now won at high confidence: the build says “Recomputation ran, but its inputs are constants the model wrote… Treat these figures as unverified” and “Nothing in the library covers this question — the answer is not backed by it”, where the baseline printed a “📖 From the library:” strip with five ranked passages under an answer about faucets. VC3 flipped too, measured off the pixels: the provenance line went 2.46:1 → 9.48:1, the timing readout 2.48:1 → 5.26:1, and text below AA in the last reply went 11 of 20 → 0 of 20.",
+      "verdict": "Round-2 build 13 · baseline 1 · 2 ties, over 16 tasks judged blind (a 17th critic failed on schema retries and is not counted). Both round-1 losses flipped to wins at high confidence.",
+      "gap": "TH3, tool-honesty: quotation fidelity. Neither build compares a quoted span in the reply against the retrieved passage it claims to quote — the baseline won this one on the model’s luck, not on anything the app did. The critic ran the exact substring test in ten lines of Python against data the app already holds in the same message.",
+      "fix": "Circular recomputation reports the weaker state · a retrieval turn with no relevant passages says so instead of showing a provenance strip · plans get a real terminal state · a user’s Stop is not drawn as a step failure · an empty review is disclosed instead of reported as a clean one · citation markers are numbered and their locators reachable · chrome contrast measured against the surfaces it is composited over",
+      "evals": {
+        "node cases": "1615 → 1662",
+        "chrome-contrast checks": "33 new",
+        "blind tasks judged": "16",
+        "won / lost / tied": "13 / 1 / 2"
+      }
+    },
+    {
+      "n": 3,
+      "label": "Quotation fidelity, and a real reference arm",
+      "state": "pending",
+      "dimension": null,
+      "pair": null,
+      "what": "The one remaining loss is a check neither build performs. Separately: Claude in Chrome is now reachable, so a live reference arm may finally be possible.",
       "findings": null,
       "verdict": null,
       "gap": null,
@@ -194,6 +212,34 @@
       "metric": "tasks lost to the baseline",
       "value": "2 / 17",
       "delta": null
+    },
+    {
+      "round": 2,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1662",
+      "delta": "+47"
+    },
+    {
+      "round": 2,
+      "suite": "render/style",
+      "metric": "chrome-contrast checks",
+      "value": "33",
+      "delta": "+33"
+    },
+    {
+      "round": 2,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the original baseline",
+      "value": "13 / 16",
+      "delta": "+7"
+    },
+    {
+      "round": 2,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "1 / 16",
+      "delta": "-1"
     }
   ]
 }
