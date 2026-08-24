@@ -1256,7 +1256,19 @@ async function main(): Promise<void> {
   }
 
   try {
-    const argv = [shim, `--remote-debugging-port=${args.port}`, '--remote-allow-origins=*']
+    // macOS stops compositing a window it considers occluded, and a capture box
+    // is nearly always occluded — the frames simply stop, so every screenshot
+    // after the first one times out with no error the app could report. These
+    // are the standard flags for keeping a background window rendering; without
+    // them a run comes back VALID carrying one image and four failures.
+    const argv = [
+      shim,
+      `--remote-debugging-port=${args.port}`,
+      '--remote-allow-origins=*',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-background-timer-throttling'
+    ]
     const env: Record<string, string | undefined> = {
       ...process.env,
       OASIS_H2H_USERDATA: userData,
