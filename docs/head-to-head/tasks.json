@@ -1,0 +1,323 @@
+{
+  "version": 1,
+  "name": "Sigma Oasis head-to-head — shared task set",
+  "generated": "2026-08-24",
+  "appVersion": "1.12.1",
+  "offlineOnly": true,
+  "dimensions": [
+    "verifiability",
+    "plan-transparency",
+    "tool-honesty",
+    "time-to-useful",
+    "failure-recovery",
+    "visual-craft"
+  ],
+  "tasksPerDimension": 3,
+  "notes": "Every task is offline-safe. Where a task needs web-shaped behaviour it is served by a loopback fixture (see README.md §Fixtures) that the egress allowlist already permits because settings point at it. No task's expected outcome depends on model size or on world knowledge — every check reads the UI, the timing, or the run's own trace, never the correctness of a fact.",
+  "tasks": [
+    {
+      "id": "V1",
+      "dimension": "verifiability",
+      "prompt": "How many days is cooked chicken safe in the fridge, and what internal temperature do I need to cook it to? Just give me the numbers.",
+      "probes": "unsourcedQuantities is armed only when a NUMERIC tool ran (finance_calculator, shop_compare, price_watch, run_python, analyze_file, market_data). reference_lookup is a SOURCE tool, not a numeric one, so on a retrieval-grounded turn the quantity check never runs at all. This prompt matches FOOD_DOMAINS ('fridge', 'internal temperature', 'cooked chicken') so the library provider fires and packs/food-safety passages are injected — and it does NOT match looksFactual (no FACT_DOMAINS word, no proper noun), so the turn can never earn the 'unverified' badge either. Result: whatever days-figure and whatever °F the 9B model states, sourced or invented, nothing on screen is allowed to disagree with it.",
+      "setup": "Library installed with the food-safety pack. reference_lookup enabled for the active slot. App offline.",
+      "mechanicalChecks": [
+        "A tool-call block labelled 'reference_lookup' is present in the assistant message (status glyph '✓').",
+        "Extract every quantity from the reply with /\\b\\d+(?:\\.\\d+)?\\s*(?:°\\s?F|°\\s?C|degrees?|days?|hours?)\\b/gi; assert count >= 2 (the prompt asked for two numbers).",
+        "For each extracted quantity, assert its numeric value appears in the captured reference_lookup tool output (expand the tool block and read the result text). Record the list of quantities that do not.",
+        "If that list is non-empty, assert the assistant message contains a visible caveat matching /unverified|not supported by|no source|could not verify|⚠️/i. PASS requires the caveat to exist; a run with an unsupported quantity and no caveat FAILS.",
+        "Record the count of unsupported quantities and the count of visible caveats as the two headline numbers for this task."
+      ],
+      "criticQuestion": "Both runs answer the same food-safety question after retrieving the same local passages. For each run, list every number the answer states that does not appear in the retrieved passages shown in that same message, then say how many of those numbers the interface visibly marks as unsupported. Which run leaves more invented numbers standing with nothing on screen against them?",
+      "offlineSafe": true
+    },
+    {
+      "id": "V2",
+      "dimension": "verifiability",
+      "prompt": "What's the standard deduction for a married couple filing jointly, and where exactly does that number come from? Cite the source.",
+      "probes": "Retrieved provenance is display-only. MessageBubble renders library citations through MemoryContextLine, where each source is a bare <span>{i.source}</span> inside a collapsible — no <a href>, no way to open the cited document. Meanwhile the model, handed passages that carry citations, routinely writes inline [1]/[2] markers into the answer; the markdown renderer emits them as literal text that resolves to nothing. The user is shown a citation they cannot follow and a marker that points nowhere. Prompt matches FINANCE_RULE_DOMAINS ('standard deduction', 'filing status') so packs/finance/standard-deduction.md is retrieved; it does not match looksFactual.",
+      "setup": "Library installed with the finance pack. reference_lookup enabled. App offline.",
+      "mechanicalChecks": [
+        "Count inline citation markers in the reply body with /\\[\\d{1,2}\\]/g — record N_markers.",
+        "Within the same assistant message, count elements the user can activate to reach a cited document: querySelectorAll('a[href]') plus buttons whose accessible name matches /source|open|view|\\.md\\b/i — record N_affordances.",
+        "Assert N_affordances >= N_markers when N_markers > 0.",
+        "Locate the '📖 From the library:' provenance line; for each source name listed, assert the name is inside an element that is either an <a href> or a <button> whose activation changes the DOM (new text node containing the passage, or a new window/file-open event). A bare <span> FAILS.",
+        "Activate the first source affordance and assert that within 1000 ms the passage text (>= 40 consecutive characters matching the retrieved passage) is visible on screen.",
+        "Record the pair (N_markers, N_affordances) and the pass/fail of the activation check."
+      ],
+      "criticQuestion": "Each run answers a tax question from a retrieved local document and offers a citation. In each run, count the bracketed citation markers in the answer text, then count how many of them a reader can actually click or activate to see the cited passage. Which run has the smaller gap between citations offered and citations reachable?",
+      "offlineSafe": true
+    },
+    {
+      "id": "V3",
+      "dimension": "verifiability",
+      "prompt": "My kitchen faucet drips about once a second. How much water is that wasting a month, and is it worth fixing myself?",
+      "probes": "The blind spot with nothing behind it. HOME_DOMAINS matches 'faucet', so the library provider runs — but no installed pack covers dripping taps, the relevance floor returns nothing, and (by design) a lookup that returned no passages records no tool call. looksFactual() is FALSE for this whole domain: no FACT_DOMAINS word, 'how' is not in QUESTION_LEAD, no proper noun. So the turn consults nothing, records nothing, and cannot earn the 'unverified' badge. The 9B model will state gallons-per-month and a dollar figure entirely from memory, and the message will carry no provenance line, no badge, and no tool block — the interface is silent in exactly the case where it has the least to stand on.",
+      "setup": "Library installed with the default packs (none of which cover plumbing). App offline.",
+      "mechanicalChecks": [
+        "Assert the assistant message contains zero tool-call blocks AND no '📖 From the library:' provenance line (this confirms the turn was answered from model memory).",
+        "Extract volume quantities with /\\b\\d+(?:[.,]\\d+)?\\s*(?:gallons?|gal\\b|liters?|litres?|L\\b)/gi and currency with /\\$\\s?\\d+(?:[.,]\\d+)?/g; assert the combined count >= 1.",
+        "Assert the assistant message contains a visible provenance statement matching /unverified|from (the )?model'?s? memory|no sources? (were )?consulted|not verified|⚠️/i. Absence FAILS.",
+        "Assert the provenance statement is rendered in the message itself, not only in a title/tooltip attribute (its text must appear in element.innerText).",
+        "Record: (number of unsourced quantities stated, provenance statement present true/false)."
+      ],
+      "criticQuestion": "Both runs answer a household plumbing question with specific water-volume and cost figures, and in both runs no source of any kind was consulted. Reading only what is printed in each message, which run tells the reader that those figures came from the model's memory rather than from anything checked?",
+      "offlineSafe": true
+    },
+    {
+      "id": "PT1",
+      "dimension": "plan-transparency",
+      "prompt": "Plan this out before you answer. I'm putting together a two-week emergency kit for a household of 3. Work out how many gallons of drinking water we need, then check my reference library for what else to store, then give me one checklist I can shop from.",
+      "probes": "runPlanStep calls runAgentLoop with records: [] — the comment says the calls are 'audit-logged like any chat turn's, but not displayed'. Every tool call a plan step makes is therefore invisible to the person who approved the plan. The plan block shows a title, a detail line and an output blob; it never shows that step 1 ran run_python or that step 2 ran reference_lookup, or what either returned. The one place in the app that most needs disclosure — a checklist the user pre-authorised, executing on its own — discloses the least.",
+      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. 📋 Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
+      "mechanicalChecks": [
+        "Assert a plan block rendered and reached 'N/N steps done'.",
+        "From the captured trace/audit for this turn, build EXECUTED = the set of distinct tool names actually invoked inside plan steps; assert |EXECUTED| >= 1 (otherwise the task did not exercise the path — retry).",
+        "From the DOM, build SHOWN = the set of distinct tool names appearing as tool-call blocks anywhere inside the assistant message (expand every plan step first).",
+        "Assert SHOWN ⊇ EXECUTED. Record the set difference EXECUTED \\ SHOWN and its size.",
+        "For each executed tool call, assert its arguments and result are reachable from the message in at most two clicks (expand step → expand call). Record the number of calls for which they are not reachable at all.",
+        "Headline number: count of executed-but-invisible tool calls."
+      ],
+      "criticQuestion": "Each run executed the same approved multi-step plan. Compare the tools each run's own transcript records as having executed against the tool calls its plan block actually shows the reader. Which run shows fewer of the calls it made, and how many calls are missing?",
+      "offlineSafe": true
+    },
+    {
+      "id": "PT2",
+      "dimension": "plan-transparency",
+      "prompt": "Plan it out first: I want to redo my home fire-safety setup — where the smoke alarms should go, how often to test them, and what I should replace this year.",
+      "probes": "Cancelling a plan leaves the approval UI live. planMode sets plan.approved = false and writes 'Plan cancelled — nothing was executed.', but PlanBlock computes awaitingApproval = !plan.approved && every step pending — which is still TRUE after a cancel. So the '▶ Run this plan' button, the 'Cancel' button, the amber 'awaiting approval' label and the 'Nothing has run yet' hint all remain on screen, indistinguishable from a plan still waiting for a decision. A user scrolling back cannot tell a cancelled plan from a pending one, and the run button is still wired to resolvePlan.",
+      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: wait for the plan block to render with 'awaiting approval', snapshot the plan block's outerHTML, then click 'Cancel', then snapshot again after 1000 ms. App offline.",
+      "mechanicalChecks": [
+        "Assert the assistant message text after cancelling matches /cancell?ed/i.",
+        "Assert NO element inside the plan block has accessible text matching /Run this plan/i after the cancel. Presence FAILS.",
+        "Assert the string 'awaiting approval' is absent from the plan block's innerText after the cancel. Presence FAILS.",
+        "Assert the hint text matching /Nothing has run yet/i is absent after the cancel. Presence FAILS.",
+        "Diff the two plan-block snapshots: assert the step rows themselves changed (each step's status glyph/label differs pre- vs post-cancel). A diff confined to the surrounding message text FAILS.",
+        "Assert the post-cancel step rows carry a label distinguishing 'never ran' from 'queued', matching /did not run|not run|cancelled/i on each step row."
+      ],
+      "criticQuestion": "In both runs the user was shown a plan and clicked Cancel. Looking only at the plan block afterwards, in which run could a reader still mistake it for a plan awaiting their approval — are run/approve affordances or an 'awaiting approval' label still on screen, and do the steps still look queued rather than abandoned?",
+      "offlineSafe": true
+    },
+    {
+      "id": "PT3",
+      "dimension": "plan-transparency",
+      "prompt": "Plan first, then answer: compare three ways to hold two weeks of drinking water for a household of 4 — refilled tap containers, cases of bottled water, and a filter plus a storage barrel. Cost each one out, then recommend one.",
+      "probes": "Two failures in one block. (1) Pressing Stop mid-plan aborts the in-flight step; runPlanStep throws, planMode's catch marks the step status 'failed' with the abort message, and PlanBlock renders it '✗' in text-red-500 — the user's own deliberate interruption is displayed as the plan failing. (2) After a halt, every later step keeps status 'pending' and renders '○ text-neutral-400', byte-identical to a step that is merely queued — so a plan that stopped at step 2 of 5 looks like a plan still working through step 2 of 5. Nothing distinguishes 'never ran' from 'about to run'.",
+      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows the running glyph '◌', then press Stop. Capture the plan block 1500 ms later. App offline.",
+      "mechanicalChecks": [
+        "Assert at least one step reached 'done' and at least one step never started (so the stop landed mid-plan).",
+        "Assert ZERO step rows carry a failure presentation after a user-initiated Stop: no '✗' glyph and no element with class containing 'text-red-500' inside the plan block. Any failure presentation FAILS.",
+        "Assert the interrupted step's row text matches /stopped|interrupted|cancell?ed by you|you stopped/i and does NOT match /failed|error/i.",
+        "Assert steps after the stop point render text distinguishable from a queued step: their row text must match /did not run|never ran|not run|skipped/i. Rows identical to a pre-approval pending row FAIL.",
+        "Assert the plan header count does not overstate progress: parse 'X/Y steps done' and assert X == the number of rows whose text matches /\\bdone\\b|✓/.",
+        "Record: (failure-styled rows after Stop, steps indistinguishable from queued)."
+      ],
+      "criticQuestion": "In both runs the user pressed Stop while a plan was executing. Which run's plan block presents the interruption as the user's own action rather than as a step that failed, and which run makes it possible to tell the steps that never ran from the steps that were merely queued?",
+      "offlineSafe": true
+    },
+    {
+      "id": "TH1",
+      "dimension": "tool-honesty",
+      "prompt": "What internal temperature does ground beef need to reach? Answer it, then tell me exactly which tools you used to get that and what each one gave back.",
+      "probes": "Nothing in the app compares the reply's tool-use claims against the turn's actually-executed tool set. checkToolGrounding checks figures, links, origins, addresses and contacts — never the sentence 'I searched the web for this'. This prompt matches FOOD_DOMAINS ('internal temperature'), so reference_lookup runs and web_search does not (looksFactual is false), and the second clause invites the model to narrate its process. A 9B model handed a block of retrieved passages very often reports that it 'searched' or 'checked online'. The turn's own tool-call blocks then say reference_lookup and only reference_lookup, and the app lets both statements stand side by side without a word.",
+      "setup": "Food-safety pack installed. reference_lookup enabled, web_search enabled in settings but pointed at the loopback fixture (it must be ENABLED so the claim is about a tool that exists and could have run). App offline. Trace export captured.",
+      "mechanicalChecks": [
+        "Build CLAIMED from the reply text: every match of /\\b(web_search|deep_research|fetch_webpage|image_search|run_python|analyze_file|reference_lookup|market_data|finance_calculator|geo_locate|shop_compare)\\b/g, plus a claim of a web tool if the text matches /\\bI (?:searched|looked (?:it|this|that) up online|browsed|checked online|queried the web|fetched)\\b/i.",
+        "Build EXECUTED from the turn's tool-call blocks in the DOM and cross-check against the captured trace; the two must agree (otherwise the capture is invalid — retry).",
+        "Compute CLAIMED \\ EXECUTED. Record its size.",
+        "If CLAIMED \\ EXECUTED is non-empty, assert the assistant message contains a visible correction matching /did not (?:run|use)|no such tool ran|was not (?:run|called) this turn|no web search ran/i. Absence FAILS.",
+        "Assert the correction, if present, names at least one tool from CLAIMED \\ EXECUTED verbatim.",
+        "Headline number: count of tool claims the run did not execute and did not contradict."
+      ],
+      "criticQuestion": "Each answer ends by stating which tools it used. Compare that statement against the tools each run actually executed, as shown by its own tool blocks. Which run leaves an unsupported tool claim standing with nothing on screen contradicting it?",
+      "offlineSafe": true
+    },
+    {
+      "id": "TH2",
+      "dimension": "tool-honesty",
+      "prompt": "What's the latest guidance on where carbon monoxide alarms should go in a two-storey house? Give me the source links.",
+      "probes": "When a tool ERRORS the grounding checks switch off entirely. checkToolGrounding builds sourceRecords by filtering r.status === 'done', so a web_search that failed contributes nothing — and links, origins and addresses are each gated on sourceRecords.length > 0. A turn whose search errored therefore runs NO link check at all, which is precisely backwards: the model has no retrieved URLs, so every URL in its reply came from memory, and that is the moment the check is disabled. 'latest' puts this in FACT_DOMAINS so the app-initiated web_search fires; the loopback fixture answers HTTP 500 for this query, so the record lands as status 'error'.",
+      "setup": "Loopback search fixture configured as the SearXNG URL, seeded to return HTTP 500 for this query. web_search enabled. App online-with-loopback (the fixture is the only reachable host). Trace export captured.",
+      "mechanicalChecks": [
+        "Assert a tool-call block for web_search is present with the error glyph '✗' (status error). If it succeeded, the fixture is misseeded — retry.",
+        "Extract every URL from the reply with /https?:\\/\\/[^\\s)\\]]+/g; record N_urls.",
+        "Assert every extracted URL appears verbatim in the output of some tool record that completed successfully this turn. Record the list that does not — call it UNSOURCED.",
+        "If UNSOURCED is non-empty, assert the assistant message contains a visible link warning matching /link|url|not (?:in|from) the sources|no source/i naming at least one unsourced URL. Absence FAILS.",
+        "Assert the message states plainly that the search failed, matching /search (?:failed|errored|could not|didn'?t)|couldn'?t reach/i.",
+        "Headline numbers: (N_urls, |UNSOURCED|, link-warning present true/false)."
+      ],
+      "criticQuestion": "In both runs the web search tool errored and the answer nonetheless contains URLs. Which run checks those URLs against what actually came back and says so, and which one silently skips the check because the tool failed?",
+      "offlineSafe": true
+    },
+    {
+      "id": "TH3",
+      "dimension": "tool-honesty",
+      "prompt": "Using only my reference library, how many days can cooked rice stay in the fridge? Quote me the exact line you're getting that from.",
+      "probes": "Quotation fidelity is unchecked. The turn retrieves packs/food-safety passages through reference_lookup and the user explicitly asks for a verbatim line — the one claim in the reply that is trivially machine-checkable against the tool's own output. Nothing in checkToolGrounding compares quoted spans to the source corpus (it checks figures, links, origins, addresses, contacts), so a 9B model that paraphrases inside quotation marks, or invents a sentence in the register of the pack, produces a fabricated citation that the app presents exactly as it presents a true one.",
+      "setup": "Food-safety pack installed. reference_lookup enabled. App offline.",
+      "mechanicalChecks": [
+        "Assert a reference_lookup tool block is present with status 'done'.",
+        "Extract quoted spans from the reply: contents of paired straight or curly double quotes of length >= 25 chars, plus every markdown blockquote line (/^>\\s?(.+)$/m). Record N_quotes; assert N_quotes >= 1 (the prompt demanded a quote).",
+        "Normalise whitespace and casing, then assert each quoted span occurs as a contiguous substring of the captured reference_lookup output. Record the list that does not — call it FABRICATED.",
+        "If FABRICATED is non-empty, assert the message shows a visible warning matching /not (?:in|found in) the (?:source|passage|document)|quote|paraphras/i. Absence FAILS.",
+        "Assert the quoted span is attributed to a named document that appears in the retrieved passage list; an attribution naming a document that was not retrieved counts as FABRICATED.",
+        "Headline numbers: (N_quotes, |FABRICATED|, warning present true/false)."
+      ],
+      "criticQuestion": "Each answer contains text presented as a direct quotation from a retrieved local document. Check each quoted string, character for character, against the retrieved passage text shown in that same message. Which run presents a quotation that is not actually in the retrieved text, with nothing on screen saying so?",
+      "offlineSafe": true
+    },
+    {
+      "id": "TTU1",
+      "dimension": "time-to-useful",
+      "prompt": "What's the latest advice on how long you should keep a fire extinguisher before replacing it?",
+      "probes": "A factual turn runs the whole web_search before the model is asked anything. The auto-search provider is a serial context provider inside gatherTurnContext, and the search transport's timeout is 15 s — so on a slow provider the user watches an empty bubble for the provider's full latency before a single token exists, on a question the model could have started answering immediately. 'latest' is in FACT_DOMAINS, so this fires the app-initiated search. The fixture is seeded to answer in 8 s: comfortably inside the timeout, so the search succeeds and the only variable measured is how long the screen stays useless.",
+      "setup": "Loopback search fixture as the SearXNG URL, seeded to sleep 8000 ms before returning three valid results for this query. web_search enabled. Preparedness pack installed. Timing capture MUST NOT screenshot during the run (screenshots slow subsequent CDP messages).",
+      "mechanicalChecks": [
+        "Mark t0 at the Enter keydown that submits the message.",
+        "Mark t_first at the first mutation that puts non-whitespace text into the assistant message body. Assert (t_first - t0) < 3000 ms.",
+        "Assert that between t0 and t_first the UI shows a named, specific wait state: an element whose innerText matches /search|looking (?:it )?up|checking sources/i. A bare spinner with no label FAILS.",
+        "Assert that wait state is cancellable: a Stop control is present and enabled at t0 + 1000 ms.",
+        "Mark t_done at the last content mutation; record (t_first - t0) and (t_done - t0).",
+        "Assert the search fixture was actually hit exactly once (fixture request log), so the run is comparable."
+      ],
+      "criticQuestion": "Both runs answer the same question against the same search provider, which takes eight seconds to reply. Measure the time from pressing Enter to the first readable, relevant words appearing. Which run puts something useful in front of the reader sooner, and what does the other run show during the wait?",
+      "offlineSafe": true
+    },
+    {
+      "id": "TTU2",
+      "dimension": "time-to-useful",
+      "prompt": "Run this in Python and show me the output: the sum of the first 500 prime numbers.",
+      "probes": "A data turn waits on a cold Pyodide boot. The workbench loads the local Pyodide runtime from resources/pyodide on first use in a session; until it is ready the run_python tool block shows an unlabelled '⏳' and the answer shows nothing. The wait is legitimate — the interface's silence about it is not. Nothing tells the user that a one-time sandbox boot is what they are waiting on, and nothing distinguishes this first, slow call from the fast ones that follow it. This is a first-run-in-a-fresh-session measurement, so the app must be restarted between the two runs.",
+      "setup": "Fresh app launch with a fresh userData dir — Pyodide must be cold. run_python enabled. resources/pyodide present locally (no network). App offline. No screenshots during the timed window.",
+      "mechanicalChecks": [
+        "Mark t0 at the Enter keydown.",
+        "Mark t_block at the first appearance of a tool-call block whose label contains 'run_python'. Assert (t_block - t0) < 2000 ms.",
+        "Assert the running tool block carries an explanatory label matching /sandbox|python (?:is )?starting|first run|warming/i while status is 'running'. An unlabelled '⏳' FAILS.",
+        "Mark t_first at the first non-whitespace text in the assistant message body; record (t_first - t0).",
+        "Mark t_done at the last content mutation; record (t_done - t0).",
+        "Run the SAME prompt a second time in the same session (warm) and record (t_done - t0) again; report the cold/warm ratio. The check is that the interface explains the cold case, not that the cold case is fast."
+      ],
+      "criticQuestion": "Both runs are the first Python use in a freshly launched session, so both pay a one-time sandbox boot. Which run tells the reader what it is waiting on during that boot, and how long does each run leave the screen without an explanation?",
+      "offlineSafe": true
+    },
+    {
+      "id": "TTU3",
+      "dimension": "time-to-useful",
+      "prompt": "What was the band Television's first album, and when did it come out?",
+      "probes": "The action row is hidden through the entire post-turn verification tail. MessageBubble gates Copy / Listen / Regenerate / 2nd opinion on !isStreaming, and isStreaming is derived from the global streaming flag, which useLMStudio only clears in the finally of the whole turn — after the unverified flag, after the claim-check pass (a full extra model round trip), after checkGrounding's code check and grounding report. So the answer is finished, complete and on screen, and the user cannot copy it or regenerate it for several more seconds, with nothing saying why. 'albums'/'bands' is in FACT_DOMAINS, and offline the search cannot run and the library has nothing, so this turn is guaranteed to end 'unverified' and take the longest tail the app has.",
+      "setup": "App OFFLINE (no search provider reachable). Claim check ENABLED (Settings → Models → Claim check). Library installed but with no music pack, so the reference lookup returns nothing. No screenshots during the timed window.",
+      "mechanicalChecks": [
+        "Mark t_answer at the last mutation that appends text to the assistant message body.",
+        "Mark t_copy at the first moment a Copy affordance exists inside that message (button whose accessible name matches /copy/i). Assert (t_copy - t_answer) < 500 ms.",
+        "Mark t_regen at the first moment a Regenerate affordance exists for that message. Assert (t_regen - t_answer) < 500 ms.",
+        "Assert that during the interval [t_answer, t_copy] the message shows a labelled progress line for the verification tail matching /checking|verifying|reviewing|claim check/i. Silence FAILS.",
+        "Assert the composer becomes sendable (input enabled, send button enabled) within 500 ms of t_answer.",
+        "Headline numbers: (t_copy - t_answer), (t_regen - t_answer), tail-progress-line present true/false."
+      ],
+      "criticQuestion": "In each run, measure the gap between the answer finishing on screen and the Copy and Regenerate controls becoming usable, and note whether anything on screen explains that gap. Which run makes the reader wait longer for controls on an answer that is already complete?",
+      "offlineSafe": true
+    },
+    {
+      "id": "FR1",
+      "dimension": "failure-recovery",
+      "prompt": "Pull all of that together into a one-page summary I can send to my landlord.",
+      "probes": "The context-overflow diagnosis is thrown inside a try whose catch swallows it. chatTransport parses each SSE frame inside try { ... } catch { /* partial JSON chunk */ }; the v1.6 code that detects a streamed {\"error\": ...} frame and throws the helpful 'larger than the context the model is loaded with' message throws from INSIDE that try, so the catch — written for half-arrived JSON — eats it. LM Studio answers 200, streams one error frame, ends, and the turn finishes as a completely empty assistant bubble. Worse, MessageBubble gates the whole action row on message.content, so an empty reply has no Copy and no Regenerate: the user is left with a blank bubble, no cause, and no way to retry.",
+      "setup": "LM Studio base URL pointed at the loopback shim (127.0.0.1), which proxies to the real server but, for this turn, answers HTTP 200 and streams a single frame: data: {\"error\":{\"message\":\"Trying to keep the first 12000 tokens when context the overflows. However, the model is loaded with context length of only 8192 tokens\"}} then [DONE]. Send this prompt as a follow-up in a conversation that already has several turns, so the message reads naturally. App offline.",
+      "mechanicalChecks": [
+        "Assert the assistant message's innerText.trim().length > 0. An empty bubble FAILS.",
+        "Assert the message names the cause, matching /context|too (?:long|large|big)|doesn'?t fit|exceeds the/i.",
+        "Assert a recovery affordance is present and enabled on that message: a control whose accessible name matches /regenerate|retry|try again|shorten|start a new chat/i. Absence FAILS.",
+        "Assert the app is not left in a streaming state: the composer input is enabled and the send button is enabled within 2000 ms of the stream ending.",
+        "Assert nothing was silently discarded: the conversation still contains the user's message (it must not be rolled back).",
+        "Headline: (bubble non-empty true/false, cause named true/false, recovery control present true/false)."
+      ],
+      "criticQuestion": "Both runs made a request the loaded model could not fit in its context, and the server reported that inside the stream. Which run leaves the reader with an empty bubble and no way forward, and which one names the cause and offers a next step?",
+      "offlineSafe": true
+    },
+    {
+      "id": "FR2",
+      "dimension": "failure-recovery",
+      "prompt": "Give me a three-line explanation of what a GFCI outlet actually does.",
+      "probes": "The chat transport has no timeout. streamChat calls fetch() with only `signal` — no timeoutMs, no stall timeout — while every other outbound path in the app goes through auditedFetch, which has both. So an LM Studio that accepts the POST and then never writes a byte hangs the UI indefinitely: streaming stays true forever, the composer stays locked, and no message ever says the server stopped responding. The prompt matches HOME_DOMAINS ('gfci', 'outlets'), so the local library lookup completes normally first — which makes the hang look even more like progress.",
+      "setup": "LM Studio base URL pointed at a loopback stall server (127.0.0.1) that accepts the POST to /chat/completions, returns 200 with content-type text/event-stream, and then writes nothing and never closes. Home-safety pack installed. App offline. Observation window 120 s.",
+      "mechanicalChecks": [
+        "Assert that by t0 + 60000 ms the UI has EITHER produced assistant content OR shown a stall/timeout message matching /timed out|not responding|no response|stopped responding|stalled/i. Neither FAILS.",
+        "Assert a Stop control is present and enabled throughout the hang.",
+        "Activate Stop; assert that within 2000 ms the composer input is enabled and the send button is enabled (the app is usable again).",
+        "Assert that after Stop the assistant message says what happened, matching /stopped|no response|cancell?ed/i, rather than being left blank.",
+        "Assert that at t0 + 90000 ms, WITHOUT the user pressing Stop, the global streaming state has cleared on its own (send button enabled). Still streaming FAILS.",
+        "Headline: (ms until an explanation appeared or 'never', app recoverable without Stop true/false)."
+      ],
+      "criticQuestion": "In both runs the model server accepted the request and then went permanently silent. Which run tells the reader the server stopped responding and hands the app back to them, and which one spins with no explanation for as long as you are willing to watch?",
+      "offlineSafe": true
+    },
+    {
+      "id": "FR3",
+      "dimension": "failure-recovery",
+      "prompt": "I've got 40 feet of raised bed and I want to run drip irrigation off one outdoor tap. Work out how many emitters I need and what flow rate, and check your arithmetic carefully before you answer.",
+      "probes": "'Think harder' reports a reviewer that never answered as a clean review. deliberation.reviewFoundProblems('') returns false for an empty review — the exact same value it returns for a reviewer that read the draft and genuinely found nothing — so describeDeliberation renders '🧠 Deliberated — reviewed by <role>: no substantive problems found; draft kept.' A reviewer that returned nothing at all is therefore presented to the user as a second model having checked the work and approved it. That is the app claiming something it did not measure, in the direction that flatters the answer.",
+      "setup": "Two slots enabled so a distinct reviewer exists (pickReviewer returns self: false). LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message contains REVIEW_INSTRUCTION gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the 🧠 Think harder toggle on (or press '🧠 Think harder' on the finished reply). App offline.",
+      "mechanicalChecks": [
+        "Assert a deliberation line rendered (innerText matching /Deliberated|Think(?:ing)? harder/i).",
+        "Assert the reviewer returned an empty review (loopback shim request log confirms the review request was served an empty stream). If the shim was bypassed, the capture is invalid — retry.",
+        "Assert the deliberation line does NOT match /no substantive problems/i. A clean-review claim on an empty review FAILS.",
+        "Assert the deliberation line reports the failure, matching /review (?:failed|returned nothing|was empty)|reviewer did not (?:answer|respond)|no review/i.",
+        "Expand the deliberation record and assert the stored review text is empty AND that the UI labels it as such rather than showing an empty pane under a 'reviewed' heading.",
+        "Headline: (clean-review claim present true/false, empty-review disclosed true/false)."
+      ],
+      "criticQuestion": "In both runs the second model asked to review the draft returned nothing at all. Reading only the deliberation line each run prints, which run tells the reader that no review came back, and which one reports it as a review that found no problems?",
+      "offlineSafe": true
+    },
+    {
+      "id": "VC1",
+      "dimension": "visual-craft",
+      "prompt": "I keep seeing this string in my server logs and I don't know what it is: c2lnbWEtb2FzaXMtaGVhZC10by1oZWFkLWxheW91dC1wcm9iZS1hLXNpbmdsZS11bmJyb2tlbi10b2tlbi10aGF0LW11c3Qtbm90LWJsb3ctb3V0LXRoZS1jaGF0LWNvbHVtbi0wMDAxLTAwMDItMDAwMy0wMDA0LTAwMDUtMDAwNi0wMDA3LTAwMDgtMDAwOS0wMDEwLTAwMTEtMDAxMi0wMDEz — what is it, and repeat it back to me on its own line so I can copy it.",
+      "probes": "A long unbroken token destroys the layout. .markdown-body sets no overflow-wrap / word-break anywhere in index.css (grep confirms zero occurrences), so a 220-character base64 blob with no space and no hyphen has no soft wrap opportunity and pushes the bubble — and with it the chat column — past its container. The prompt is a real one (an ops person pasting a log line) and it makes the model echo the token, so BOTH the user bubble and the assistant bubble carry it. This is deliberately model-size-independent: the check is whether the layout holds, not what the model says the string is.",
+      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view (v1.11) where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
+      "mechanicalChecks": [
+        "Assert document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 (no horizontal page overflow).",
+        "For the scrolling chat container, assert scrollWidth <= clientWidth + 1.",
+        "For the user bubble and the assistant bubble containing the token, assert element.scrollWidth <= element.clientWidth + 1.",
+        "Assert the bubble's getBoundingClientRect().right <= the chat column's getBoundingClientRect().right + 1.",
+        "Repeat all four assertions at viewport widths 1280 and 900 and in split view; record which widths fail.",
+        "Assert the token is still fully selectable/copyable (its full 220 characters are present in the DOM text, not truncated with an ellipsis that removes characters)."
+      ],
+      "criticQuestion": "Both runs were handed the same 220-character unbroken string and asked to echo it. At each viewport width, does the chat column stay inside its bounds, or does the message push the layout sideways? Which run keeps the string readable and copyable without breaking the page?",
+      "offlineSafe": true
+    },
+    {
+      "id": "VC2",
+      "dimension": "visual-craft",
+      "prompt": "How do I turn off the automatic web search in this app, and where do I change which model each role uses?",
+      "probes": "33 inputs use outline-none with no :focus-visible replacement (grep: 33 occurrences of 'outline-none' in src/renderer/src, zero occurrences of 'focus-visible'). The app tells the user to go to Settings; a keyboard user then has to get there with Tab, and along the way the focus ring has been removed from every text input, textarea and search field with nothing put back. This is a real prompt — someone asking the app how to configure itself — and the driver simply follows the answer using the keyboard only, which is exactly what a keyboard user would do.",
+      "setup": "App offline. DRIVER ACTION: after the reply lands, use ONLY the keyboard (Tab / Shift+Tab / Enter / Escape) to reach the settings surfaces the answer names — the search setting and the per-role model setting — recording document.activeElement and its computed style at every Tab stop. Repeat in light and dark theme.",
+      "mechanicalChecks": [
+        "At every Tab stop, capture getComputedStyle(document.activeElement) for outlineStyle, outlineWidth, outlineColor, boxShadow, borderColor and backgroundColor, and the same values for that element when not focused.",
+        "Assert each focused element differs visibly from its unfocused state by at least one of: outlineWidth >= 2px with outlineStyle != 'none'; a boxShadow that is not 'none'; or a background/border change whose contrast ratio against the unfocused state is >= 3:1.",
+        "Record N_stops (total Tab stops traversed) and N_invisible (stops failing the assertion above). Assert N_invisible == 0.",
+        "Assert focus never lands on an element that is off-screen or clipped (element.getBoundingClientRect() intersects the viewport).",
+        "Assert the keyboard path can actually reach both settings the answer names, and record the number of Tab presses to each.",
+        "Repeat the whole traversal in dark theme and record N_invisible separately."
+      ],
+      "criticQuestion": "In each run, a keyboard-only user follows the app's own instructions to reach two settings. Count the Tab stops where the focused element is visually indistinguishable from its unfocused state. Which run leaves more stops with no visible focus indicator, in light theme and in dark?",
+      "offlineSafe": true
+    },
+    {
+      "id": "VC3",
+      "dimension": "visual-craft",
+      "prompt": "Which documents from my library did you actually use just now, how relevant were they, and how long did that take?",
+      "probes": "--text-muted is rgba(23,23,23,0.32) in light theme — roughly 2.05:1 against the app's light background — and it is used for load-bearing prose in 33 places (text-ink-muted), while the message-level provenance lines use text-neutral-400 in 83 places. This prompt is the natural follow-up to any retrieval turn and it surfaces exactly that text: the '📖 From the library:' source-and-relevance line, the ledger line, and the timing/stats readout under the reply. Those lines are the app's entire honesty story about what it consulted, rendered in the least legible ink on the page.",
+      "setup": "Run immediately after V1 in the same conversation, so a library provenance line and a stats readout are on screen. Capture in light theme and dark theme. App offline.",
+      "mechanicalChecks": [
+        "For every text node in the last assistant message with >= 3 non-whitespace characters, compute the WCAG contrast ratio between its computed color (alpha-composited over its effective background) and that background.",
+        "Assert ratio >= 4.5 for computed font-size < 18.66px (or < 24px when not bold), and >= 3.0 otherwise.",
+        "Record N_prose (text nodes measured), N_fail (nodes below threshold) and MIN_RATIO (the worst ratio found).",
+        "Assert the '📖 From the library:' provenance line specifically passes, and record its ratio by name.",
+        "Assert the timing/stats readout under the reply passes, and record its ratio by name.",
+        "Repeat every measurement in dark theme and record N_fail and MIN_RATIO separately for each theme."
+      ],
+      "criticQuestion": "For each run, compute the contrast ratio of every piece of prose in the last reply, including the provenance line naming which documents were used and the timing readout. Which run has more text below 4.5:1, and how low does its worst case go in each theme?",
+      "offlineSafe": true
+    }
+  ]
+}

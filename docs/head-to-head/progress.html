@@ -1,0 +1,352 @@
+<title>Sigma Oasis Bench Log</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #f4f7f6;
+    --panel: #ffffff;
+    --panel-2: #eef2f1;
+    --ink: #0f1c18;
+    --ink-2: #3c4d48;
+    --ink-3: #64756f;
+    --rule: #d8e0dd;
+    --accent: #12786a;
+    --accent-soft: #d6ebe6;
+    --good: #2c7a55;
+    --bad: #ac3e2b;
+    --warn: #8d6417;
+    --shadow: 0 1px 2px rgba(15, 28, 24, .05), 0 8px 24px -12px rgba(15, 28, 24, .16);
+    --f-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+    --f-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0b1210;
+      --panel: #121b19;
+      --panel-2: #182320;
+      --ink: #e8efec;
+      --ink-2: #b3c2bd;
+      --ink-3: #879791;
+      --rule: #24322e;
+      --accent: #4fbfab;
+      --accent-soft: #10312c;
+      --good: #57b483;
+      --bad: #e0705a;
+      --warn: #cfa04a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0b1210;
+    --panel: #121b19;
+    --panel-2: #182320;
+    --ink: #e8efec;
+    --ink-2: #b3c2bd;
+    --ink-3: #879791;
+    --rule: #24322e;
+    --accent: #4fbfab;
+    --accent-soft: #10312c;
+    --good: #57b483;
+    --bad: #e0705a;
+    --warn: #cfa04a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 96px; display: flex; flex-direction: column; gap: 40px; }
+
+  /* masthead */
+  .mast { display: flex; flex-direction: column; gap: 14px; }
+  .eyebrow {
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  h1 {
+    font-family: var(--f-display); font-weight: 800;
+    font-size: clamp(30px, 5vw, 46px); line-height: 1.05; margin: 0;
+    letter-spacing: -.02em; text-wrap: balance;
+  }
+  .dek { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 16px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); }
+  .meta b { color: var(--ink-2); font-weight: 600; }
+
+  /* invariants band */
+  .band { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+  .inv { background: var(--panel); padding: 12px 14px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .inv__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none; transform: translateY(-1px); }
+  .inv--red .inv__dot { background: var(--bad); }
+  .inv__name { font-size: 12.5px; color: var(--ink-3); }
+  .inv__val { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink); margin-left: auto; }
+
+  section { display: flex; flex-direction: column; gap: 16px; }
+  h2 {
+    font-family: var(--f-display); font-weight: 600; font-size: 20px; margin: 0;
+    letter-spacing: -.01em;
+    padding-bottom: 10px; border-bottom: 1px solid var(--rule);
+  }
+  .lede { margin: 0; color: var(--ink-2); max-width: 68ch; }
+
+  /* reference-arm notice */
+  .notice { border: 1px solid var(--rule); border-left: 3px solid var(--warn); border-radius: 8px; background: var(--panel); padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow); }
+  .notice__top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .notice__top h3 { font-family: var(--f-display); font-size: 16px; margin: 0; font-weight: 600; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  .notice th, .notice td { text-align: left; vertical-align: top; padding: 8px 14px 8px 0; border-top: 1px solid var(--rule); }
+  .notice th { font-weight: 500; color: var(--ink); white-space: nowrap; font-family: var(--f-mono); font-size: 12.5px; }
+  .notice td { color: var(--ink-2); }
+  .unblock { font-size: 13.5px; color: var(--ink-2); background: var(--accent-soft); border-radius: 6px; padding: 10px 12px; }
+  .unblock b { color: var(--ink); }
+
+  /* dimension scoreboard */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .dim { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
+  .dim__title { font-family: var(--f-display); font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -.005em; }
+  .dim__bar { height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .dim__fill { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .dim__stats { display: flex; gap: 20px; margin: 0; }
+  .dim__stats div { display: flex; flex-direction: column; gap: 1px; }
+  .dim__stats dt { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+  .dim__stats dd { margin: 0; font-size: 18px; font-weight: 600; }
+  .of { color: var(--ink-3); font-size: 13px; font-weight: 400; }
+
+  /* rounds */
+  ol.rounds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+  .round { display: grid; grid-template-columns: 46px 1fr; gap: 16px; }
+  .round__mark { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .round__n {
+    width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 12.5px; font-weight: 600; background: var(--panel); color: var(--ink-2);
+    border: 1px solid var(--rule); flex: none;
+  }
+  .round:not(:last-child) .round__mark::after { content: ""; width: 1px; flex: 1; background: var(--rule); }
+  .round--done .round__n { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .round__body { padding-bottom: 26px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .round__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .round__head h3 { font-family: var(--f-display); font-size: 17px; margin: 0; font-weight: 600; }
+  .tag {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 20px; border: 1px solid var(--rule); color: var(--ink-3);
+  }
+  .tag--done { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+  .tag--running { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+
+  .pair { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--f-mono); font-size: 12.5px; }
+  .pair__side { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px; }
+  .pair__vs { color: var(--ink-3); }
+
+  .facts { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .facts > div { display: grid; grid-template-columns: 108px 1fr; gap: 14px; align-items: start; }
+  .facts dt { font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 3px; }
+  .facts dd { margin: 0; color: var(--ink-2); }
+
+  .evals { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ev { display: flex; gap: 8px; align-items: baseline; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 10px; }
+  .ev__k { font-size: 11.5px; color: var(--ink-3); }
+  .ev__v { font-size: 12.5px; font-weight: 600; }
+
+  /* history */
+  .hist th, .hist td { padding: 8px 12px; border-bottom: 1px solid var(--rule); text-align: left; }
+  .hist thead th { font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 400; }
+  .hist .r { text-align: right; }
+  .hist .up { color: var(--good); }
+  .hist .down { color: var(--bad); }
+  .empty { margin: 0; color: var(--ink-3); font-size: 14px; border: 1px dashed var(--rule); border-radius: 8px; padding: 16px; }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--ink-3); font-size: 12.5px; font-family: var(--f-mono); }
+
+  @media (max-width: 560px) {
+    .facts > div { grid-template-columns: 1fr; gap: 2px; }
+    .round { grid-template-columns: 34px 1fr; gap: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="mast">
+    <p class="eyebrow">Adversarial bench log</p>
+    <h1>Six dimensions, measured against themselves</h1>
+    <p class="dek">Sigma Oasis is being improved on the things that do not depend on model size — whether an answer can be checked, whether a plan is honest about what it did, whether a tool call really happened, how fast something usable appears, what happens when it breaks, and how it looks doing it. Every claim on this page is a measurement. Nothing is listed as improved until a suite says so.</p>
+    <div class="meta">
+      <span>baseline <b>v1.12.1</b></span>
+      <span>local model <b>qwen3.8-9b</b></span>
+      <span>updated <b>2026-08-24</b></span>
+    </div>
+  </header>
+
+  <div class="band">
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">node test suite</span>
+          <span class="inv__val">1546 pass / 0 fail</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">electron-vite build</span>
+          <span class="inv__val">exit 0</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">local-only</span>
+          <span class="inv__val">no telemetry, no cloud dependency</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">tolerances</span>
+          <span class="inv__val">none widened, no case deleted</span>
+        </div>
+  </div>
+
+  <section>
+    <h2>What the comparison is, and is not</h2>
+    <div class="notice">
+      <div class="notice__top">
+        <h3>The reference arm is blocked</h3>
+        <span class="tag tag--running">unresolved</span>
+      </div>
+      <p class="lede">Every automated route to a live Claude Desktop or ChatGPT reference arm is closed on this machine. Nothing here is claimed against a reference app until one is reachable.</p>
+      <div class="tablewrap">
+        <table>
+          <tbody>
+          <tr>
+            <th scope="row">Claude Desktop + CDP debug port</th>
+            <td>App refuses to start: “a debugging or network-override switch is present on the command line.” Deliberate anti-automation guard.</td>
+          </tr>
+          <tr>
+            <th scope="row">Claude Desktop GUI automation</th>
+            <td>osascript is not allowed assistive access; UI elements enabled = false. Needs a password-gated security setting.</td>
+          </tr>
+          <tr>
+            <th scope="row">Screenshot the reference app</th>
+            <td>screencapture: could not create image from display. Screen Recording permission denied.</td>
+          </tr>
+          <tr>
+            <th scope="row">Claude in Chrome extension bridge</th>
+            <td>A browser is listed, but the extension is not reachable from this session.</td>
+          </tr>
+          <tr>
+            <th scope="row">In-app browser → claude.ai</th>
+            <td>Navigation denied by browsing policy. ChatGPT Desktop is not installed.</td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="unblock"><b>Cheapest unblock:</b> Install and sign into the Claude in Chrome extension. No password, no security settings, no app restart — and this session runs inside Claude.app, so restarting that app would kill the run.</p>
+    </div>
+    <p class="lede"><b>What runs instead, every round:</b> Both arms run the identical local model on identical prompts, so model size is held constant and only harness behaviour varies. Critics receive the two run directories with no arm labels. This measures whether a round improved the app; it does not measure the app against a reference product. Arm A is <span class="num">Sigma Oasis v1.12.1 baseline</span>; arm B is <span class="num">Sigma Oasis + the round&#39;s fixes</span>.</p>
+  </section>
+
+  <section>
+    <h2>High-severity gaps closed, by dimension</h2>
+    <p class="lede">Counts come from an audit that required a <span class="num">file:line</span> or an executed probe for every entry. A gap is only moved to <em>closed</em> when a mechanical eval case covers it.</p>
+    <div class="grid">
+        <article class="dim">
+          <h3 class="dim__title">Answer verifiability and citations</h3>
+          <div class="dim__bar" role="img" aria-label="0 of 6 high-severity gaps closed">
+            <span class="dim__fill" style="width:0%"></span>
+          </div>
+          <dl class="dim__stats">
+            <div><dt>closed</dt><dd class="num">0<span class="of">/6</span></dd></div>
+            <div><dt>high</dt><dd class="num">6</dd></div>
+            <div><dt>total</dt><dd class="num">14</dd></div>
+          </dl>
+        </article>
+        <article class="dim">
+          <h3 class="dim__title">Plan-mode transparency</h3>
+          <div class="dim__bar" role="img" aria-label="0 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:0%"></span>
+          </div>
+          <dl class="dim__stats">
+            <div><dt>closed</dt><dd class="num">0<span class="of">/5</span></dd></div>
+            <div><dt>high</dt><dd class="num">5</dd></div>
+            <div><dt>total</dt><dd class="num">14</dd></div>
+          </dl>
+        </article>
+        <article class="dim">
+          <h3 class="dim__title">Tool-call honesty</h3>
+          <div class="dim__bar" role="img" aria-label="0 of 3 high-severity gaps closed">
+            <span class="dim__fill" style="width:0%"></span>
+          </div>
+          <dl class="dim__stats">
+            <div><dt>closed</dt><dd class="num">0<span class="of">/3</span></dd></div>
+            <div><dt>high</dt><dd class="num">3</dd></div>
+            <div><dt>total</dt><dd class="num">10</dd></div>
+          </dl>
+        </article>
+        <article class="dim">
+          <h3 class="dim__title">Time-to-useful-output</h3>
+          <div class="dim__bar" role="img" aria-label="0 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:0%"></span>
+          </div>
+          <dl class="dim__stats">
+            <div><dt>closed</dt><dd class="num">0<span class="of">/5</span></dd></div>
+            <div><dt>high</dt><dd class="num">5</dd></div>
+            <div><dt>total</dt><dd class="num">15</dd></div>
+          </dl>
+        </article>
+        <article class="dim">
+          <h3 class="dim__title">Failure recovery</h3>
+          <div class="dim__bar" role="img" aria-label="0 of 4 high-severity gaps closed">
+            <span class="dim__fill" style="width:0%"></span>
+          </div>
+          <dl class="dim__stats">
+            <div><dt>closed</dt><dd class="num">0<span class="of">/4</span></dd></div>
+            <div><dt>high</dt><dd class="num">4</dd></div>
+            <div><dt>total</dt><dd class="num">11</dd></div>
+          </dl>
+        </article>
+        <article class="dim">
+          <h3 class="dim__title">Visual craft</h3>
+          <div class="dim__bar" role="img" aria-label="0 of 4 high-severity gaps closed">
+            <span class="dim__fill" style="width:0%"></span>
+          </div>
+          <dl class="dim__stats">
+            <div><dt>closed</dt><dd class="num">0<span class="of">/4</span></dd></div>
+            <div><dt>high</dt><dd class="num">4</dd></div>
+            <div><dt>total</dt><dd class="num">12</dd></div>
+          </dl>
+        </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>Rounds</h2>
+    <ol class="rounds">
+      <li class="round round--done">
+        <div class="round__mark"><span class="round__n num">0</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>Setup</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Baseline pinned, six dimensions audited against real code, capture harness and 18-task shared set built.</dd></div>
+            <div><dt>findings</dt><dd>88 evidence-backed gaps, 28 of them high severity, every one carrying a file:line or an executed probe.</dd></div>
+          </dl>
+
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Eval numbers over time</h2>
+      <p class="empty">No eval numbers yet. This table stays empty until a suite has actually been run — it is not seeded with expectations.</p>
+  </section>
+
+  <footer>Regenerate with <span>node docs/head-to-head/build-progress.mjs</span> · source of truth is <span>docs/head-to-head/rounds.json</span></footer>
+</div>

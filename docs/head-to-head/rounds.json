@@ -1,0 +1,52 @@
+{
+  "app": "Sigma Oasis",
+  "baseline": "v1.12.1",
+  "localModel": "qwen3.8-9b",
+  "updated": "2026-08-24",
+  "invariants": [
+    { "name": "node test suite", "value": "1546 pass / 0 fail", "state": "green" },
+    { "name": "electron-vite build", "value": "exit 0", "state": "green" },
+    { "name": "local-only", "value": "no telemetry, no cloud dependency", "state": "green" },
+    { "name": "tolerances", "value": "none widened, no case deleted", "state": "green" }
+  ],
+  "referenceArm": {
+    "status": "blocked",
+    "summary": "Every automated route to a live Claude Desktop or ChatGPT reference arm is closed on this machine. Nothing here is claimed against a reference app until one is reachable.",
+    "routes": [
+      { "route": "Claude Desktop + CDP debug port", "result": "App refuses to start: “a debugging or network-override switch is present on the command line.” Deliberate anti-automation guard." },
+      { "route": "Claude Desktop GUI automation", "result": "osascript is not allowed assistive access; UI elements enabled = false. Needs a password-gated security setting." },
+      { "route": "Screenshot the reference app", "result": "screencapture: could not create image from display. Screen Recording permission denied." },
+      { "route": "Claude in Chrome extension bridge", "result": "A browser is listed, but the extension is not reachable from this session." },
+      { "route": "In-app browser → claude.ai", "result": "Navigation denied by browsing policy. ChatGPT Desktop is not installed." }
+    ],
+    "cheapestUnblock": "Install and sign into the Claude in Chrome extension. No password, no security settings, no app restart — and this session runs inside Claude.app, so restarting that app would kill the run."
+  },
+  "arms": {
+    "A": "Sigma Oasis v1.12.1 baseline",
+    "B": "Sigma Oasis + the round's fixes",
+    "note": "Both arms run the identical local model on identical prompts, so model size is held constant and only harness behaviour varies. Critics receive the two run directories with no arm labels. This measures whether a round improved the app; it does not measure the app against a reference product."
+  },
+  "dimensions": [
+    { "key": "verifiability", "title": "Answer verifiability and citations", "gaps": 14, "high": 6, "closed": 0 },
+    { "key": "plan-transparency", "title": "Plan-mode transparency", "gaps": 14, "high": 5, "closed": 0 },
+    { "key": "tool-honesty", "title": "Tool-call honesty", "gaps": 10, "high": 3, "closed": 0 },
+    { "key": "time-to-useful", "title": "Time-to-useful-output", "gaps": 15, "high": 5, "closed": 0 },
+    { "key": "failure-recovery", "title": "Failure recovery", "gaps": 11, "high": 4, "closed": 0 },
+    { "key": "visual-craft", "title": "Visual craft", "gaps": 12, "high": 4, "closed": 0 }
+  ],
+  "rounds": [
+    {
+      "n": 0,
+      "label": "Setup",
+      "state": "done",
+      "dimension": null,
+      "what": "Baseline pinned, six dimensions audited against real code, capture harness and 18-task shared set built.",
+      "verdict": null,
+      "gap": null,
+      "fix": null,
+      "findings": "88 evidence-backed gaps, 28 of them high severity, every one carrying a file:line or an executed probe.",
+      "evals": {}
+    }
+  ],
+  "evalHistory": []
+}
