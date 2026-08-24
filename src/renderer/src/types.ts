@@ -297,6 +297,14 @@ export interface MemoryContextItem {
   source: string
   score: number
   text: string
+  /**
+   * v1.13: the bracketed number the model was given for this passage, when it
+   * was given one (library lookups number theirs). The strip shows it, so a
+   * `[1]` in the reply has something on screen to name.
+   */
+  index?: number
+  /** The document's own web source, when it has one — shown as a link. */
+  url?: string
 }
 
 // ---- v0.9: session audit log ---------------------------------------------------
@@ -744,6 +752,8 @@ export interface GroundingReport {
   code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */
   addresses?: string[]
+  /** v1.13: bracketed citation markers naming a passage the library never returned. */
+  citations?: string[]
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }

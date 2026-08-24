@@ -2,6 +2,7 @@ import type { ToolCallRecord } from '../types'
 import { measurementsIn } from '../../../shared/measurements'
 import { TOOL_DEFS } from '../../../shared/tools'
 import { LAUNDERED_OUTPUT_MARKER } from './workbenchChecks'
+import { danglingCitations, retrievedCitations } from './citations'
 
 /**
  * v1.3 tool grounding: did the answer actually use what the tools returned?
@@ -81,6 +82,12 @@ export interface GroundingReport {
   toolClaims?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox (finding lines). */
   code?: string[]
+  /**
+   * v1.13: bracketed markers — "[3]" — naming a passage the library lookup
+   * never returned. A citation index is a claim of the same kind as a figure
+   * or a link, and until now it was the one kind nothing checked.
+   */
+  citations?: string[]
   /** Tools whose output was used as the corpus, for the disclosure text. */
   checkedAgainst: string[]
 }
@@ -121,7 +128,8 @@ export function groundingFindingCount(report: GroundingReport | null): number {
     (report.contacts?.length ?? 0) +
     (report.addresses?.length ?? 0) +
     (report.toolClaims?.length ?? 0) +
-    (report.code?.length ?? 0)
+    (report.code?.length ?? 0) +
+    (report.citations?.length ?? 0)
   )
 }
 
@@ -164,6 +172,12 @@ export function describeGroundingFindings(report: GroundingReport): string {
   }
   if (report.links.length) {
     lines.push(`- Links that appear in no result: ${report.links.join('; ')}`)
+  }
+  if (report.citations?.length) {
+    lines.push(
+      `- Citation markers naming a passage that was never retrieved: ${report.citations.join(', ')}. ` +
+        'Cite only the numbered passages you were handed, or drop the marker and say what is uncited.'
+    )
   }
   if (report.figures.length) {
     lines.push(`- Figures nothing retrieved or computed supports: ${report.figures.join(', ')}`)
@@ -958,6 +972,10 @@ export function checkToolGrounding(
   // checkable against the records, and a turn with no tools at all is the turn
   // where "I searched for this" is furthest from true.
   const toolClaims = unrunToolClaims(answer, records)
+  // Ungated by design — `danglingCitations` only speaks when passages were
+  // actually retrieved, which is the only situation in which a bracketed
+  // number is a claim about them.
+  const citations = danglingCitations(answer, retrievedCitations(records))
 
   if (
     figures.length === 0 &&
@@ -966,7 +984,8 @@ export function checkToolGrounding(
     origins.length === 0 &&
     contacts.length === 0 &&
     addresses.length === 0 &&
-    toolClaims.length === 0
+    toolClaims.length === 0 &&
+    citations.length === 0
   ) {
     return null
   }
@@ -989,6 +1008,7 @@ export function checkToolGrounding(
     ...(contacts.length > 0 ? { contacts: contacts.slice(0, MAX_REPORTED) } : {}),
     ...(addresses.length > 0 ? { addresses: addresses.slice(0, MAX_REPORTED) } : {}),
     ...(toolClaims.length > 0 ? { toolClaims: toolClaims.slice(0, MAX_REPORTED) } : {}),
+    ...(citations.length > 0 ? { citations: citations.slice(0, MAX_REPORTED) } : {}),
     checkedAgainst
   }
 }

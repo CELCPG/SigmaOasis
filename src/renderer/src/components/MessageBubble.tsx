@@ -2,6 +2,8 @@ import { memo, useMemo, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
 import { groundingFindingCount } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
+import { retrievedCitations, webSource } from '../lib/citations'
+import { contextItemLabel } from '../lib/libraryRecall'
 import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
@@ -135,6 +137,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
   const toolClaims = report.toolClaims ?? []
+  const citations = report.citations ?? []
   return (
     <div
       className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
@@ -190,6 +193,16 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       {addresses.length > 0 && (
         <div className="mt-1">
           ⚠️ Addresses no tool returned: {addresses.join('; ')}. Check these before travelling.
+        </div>
+      )}
+      {/* Named in full: a marker pointing at a passage that was never
+          retrieved is a source the reader cannot open, however plainly it is
+          written — and the numbered passages that WERE retrieved are listed
+          under this reply, so the mismatch is checkable by eye. */}
+      {citations.length > 0 && (
+        <div className="mt-1">
+          ⚠️ {citations.join(', ')} {citations.length === 1 ? 'cites' : 'cite'} no passage the
+          library returned this turn — that citation points at nothing.
         </div>
       )}
       {report.links.length > 0 && (
@@ -281,19 +294,38 @@ function MemoryContextLine({
         title={title}
       >
         {label}{' '}
-        {detail ?? items.map((i) => `${i.source} (${i.score.toFixed(2)})`).join(', ')}{' '}
+        {detail ?? items.map(contextItemLabel).join(', ')}{' '}
         <span>{open ? '▾' : '▸'}</span>
       </button>
       {open && (
         <div className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
-          {items.map((i, idx) => (
-            <div key={idx}>
-              <span className="font-medium text-ink-secondary">
-                {i.source} · relevance {i.score.toFixed(2)}
-              </span>
-              <p className="whitespace-pre-wrap text-ink-secondary">{i.text}</p>
-            </div>
-          ))}
+          {items.map((i, idx) => {
+            // The locator the app retrieved with the passage. Linked only when
+            // it is a web URL — a folder pack's source is a path on disk — and
+            // a click leaves through the window's own handler, the same route
+            // a link the model merely typed already takes.
+            const url = webSource(i.url)
+            return (
+              <div key={idx}>
+                <span className="font-medium text-ink-secondary">
+                  {i.index !== undefined && <span className="text-ink-tertiary">[{i.index}] </span>}
+                  {i.source} · relevance {i.score.toFixed(2)}
+                </span>
+                {url && (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-1 break-all text-sky-600 underline dark:text-sky-400"
+                    title={`Open the source of this passage: ${url}`}
+                  >
+                    {url}
+                  </a>
+                )}
+                <p className="whitespace-pre-wrap text-ink-secondary">{i.text}</p>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -364,14 +396,22 @@ export const MessageBubble = memo(function MessageBubble({
     tailText !== null && message.role === 'assistant'
       ? splitStreamingMarkdown(displayContent)
       : [displayContent, '']
+  // v1.13: the passages this turn's library lookups returned, so an inline
+  // [1] renders as the passage it names rather than as three dead characters.
+  const citations = useMemo(
+    () => (message.role === 'assistant' ? retrievedCitations(message.toolCalls ?? []) : []),
+    [message.role, message.toolCalls]
+  )
   const stableHtml = useMemo(
-    () => (message.role === 'assistant' && stablePart ? renderMarkdown(stablePart) : ''),
-    [message.role, stablePart]
+    () => (message.role === 'assistant' && stablePart ? renderMarkdown(stablePart, citations) : ''),
+    [message.role, stablePart, citations]
   )
   // Both halves are DOMPurify-sanitized in renderMarkdown; concatenating two
   // sanitized block-level fragments is still sanitized.
   const html =
-    livePart && message.role === 'assistant' ? stableHtml + renderMarkdown(livePart) : stableHtml
+    livePart && message.role === 'assistant'
+      ? stableHtml + renderMarkdown(livePart, citations)
+      : stableHtml
   // Declared before the marker/user branches below: hooks must run in the same
   // order on every render, and an early return would skip them. That includes
   // the three settings subscriptions — they were once below the early returns,

@@ -1,4 +1,5 @@
 import type { LibraryPassage, MemoryContextItem } from '../types'
+import { webSource } from './citations'
 
 /**
  * v1.5: app-initiated reference lookup — the renderer half.
@@ -42,9 +43,30 @@ export function citationOf(p: LibraryPassage): string {
   return `${parts.join(' › ')} · ${Math.round(p.position * 100)}% in`
 }
 
-/** What the bubble shows under the reply — mechanical, exactly what was sent. */
+/**
+ * What the bubble shows under the reply — mechanical, exactly what was sent.
+ *
+ * v1.13: with the number and the source the model was given. `formatLookup`
+ * numbers this same array in this same order, so item i carries the marker
+ * the reply cites; without it on screen an inline `[1]` named nothing, and
+ * the URL the lookup had already retrieved was shown nowhere.
+ */
 export function toLibraryContextItems(passages: LibraryPassage[]): MemoryContextItem[] {
-  return passages.map((p) => ({ source: citationOf(p), score: p.score, text: p.text }))
+  return passages.map((p, i) => {
+    const url = webSource(p.source)
+    return {
+      source: citationOf(p),
+      score: p.score,
+      text: p.text,
+      index: i + 1,
+      ...(url ? { url } : {})
+    }
+  })
+}
+
+/** One line of the recall strip: the bracketed number, when there is one, then the citation. */
+export function contextItemLabel(item: MemoryContextItem): string {
+  return `${item.index === undefined ? '' : `[${item.index}] `}${item.source} (${item.score.toFixed(2)})`
 }
 
 /** Words too common to say a passage is about the question. */
