@@ -748,12 +748,18 @@ export interface GroundingReport {
   contacts?: string[]
   /** v1.12.1: tools the reply says it used that never ran this turn. */
   toolClaims?: string[]
+  /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
+  toolDisclosure?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox. */
   code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */
   addresses?: string[]
   /** v1.13: bracketed citation markers naming a passage the library never returned. */
   citations?: string[]
+  /** v1.14: spans presented as direct quotations that no tool output contains. */
+  quotes?: string[]
+  /** v1.14: `[n] (Document)` attributions naming a document that is not passage n's. */
+  attributions?: string[]
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }
