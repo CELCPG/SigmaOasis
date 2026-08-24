@@ -43,10 +43,18 @@
    */
   --accent-ink: #00695a;
 
-  /* Text */
+  /*
+   * Text. Measured on the pale canvas, the old light ramp was two tiers of
+   * wishful thinking: tertiary at 0.48 came out 3.14:1 and muted at 0.32 came
+   * out 2.03:1, so every piece of help text set in them failed AA outright.
+   * Secondary moves 0.68 → 0.78 and tertiary 0.48 → 0.62, which puts the three
+   * prose tiers at 14.1 / 8.4 / 4.9 against --bg-base — still a ramp, roughly
+   * 1.7× apart, and all three now clear 4.5:1. Muted stays where it is: it is
+   * for decorative and disabled states only, and never for prose.
+   */
   --text-primary: rgba(23, 23, 23, 0.94);
-  --text-secondary: rgba(23, 23, 23, 0.68);
-  --text-tertiary: rgba(23, 23, 23, 0.48);
+  --text-secondary: rgba(23, 23, 23, 0.78);
+  --text-tertiary: rgba(23, 23, 23, 0.62);
   --text-muted: rgba(23, 23, 23, 0.32);
 
   /* Easing */
@@ -441,7 +449,38 @@ body {
   background: transparent;
 }
 
+/* ---- Focus: one ring, keyboard only ---------------------------------------- */
+
+/*
+ * `outline-none` is on 33 controls in this app and only two of them put anything
+ * back, so a keyboard caret was invisible nearly everywhere. One ring, restored
+ * centrally. `:focus-visible` keeps it off mouse clicks, --accent-ink is the
+ * accent that survives both canvases (plain teal is 1.7:1 on the light one), and
+ * the selectors are element-level so they outrank the .outline-none utility.
+ */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
 /* ---- Markdown rendering (assistant messages) ------------------------------- */
+
+/*
+ * Model output is full of tokens no line-breaking algorithm can break: base64
+ * blobs, absolute paths, hashes, bare URLs. Without a break opportunity one of
+ * them stretches the bubble and, because the bubble is a flex item, the chat
+ * column with it. `anywhere` rather than `break-word` — it is the one that also
+ * shrinks min-content, which is what stops the column blowing out.
+ */
+.markdown-body {
+  overflow-wrap: anywhere;
+}
 
 .markdown-body p {
   margin: 0.5em 0;
@@ -554,10 +593,12 @@ body {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
+/* Code opts back out: a wrapped line is a lie about the source. It scrolls. */
 .code-block pre {
   margin: 0;
   padding: 10px 12px;
   overflow-x: auto;
+  overflow-wrap: normal;
 }
 .code-block code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

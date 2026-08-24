@@ -355,7 +355,7 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {/* Its own row — beside the two buttons it wrapped mid-phrase at 280px. */}
-      <p className="px-4 pb-3 text-[10px] text-ink-muted">Private AI — you own your data</p>
+      <p className="px-4 pb-3 text-[10px] text-ink-tertiary">Private AI — you own your data</p>
 
       {conversations.length > 0 && (
         <div className="px-4 pb-2">
@@ -422,7 +422,7 @@ export function Sidebar(): JSX.Element {
                           {project.name}
                         </span>
                       )}
-                      <span className="text-[10px] text-ink-muted">{items.length}</span>
+                      <span className="text-[10px] text-ink-tertiary">{items.length}</span>
                     </button>
                     {editingProjectId !== project.id && (
                       <span className="hidden shrink-0 items-center group-hover/project:flex">
@@ -467,7 +467,7 @@ export function Sidebar(): JSX.Element {
                   </div>
                   {isOpen &&
                     (items.length === 0 ? (
-                      <p className="px-6 py-1 text-[11px] text-ink-muted">
+                      <p className="px-6 py-1 text-[11px] text-ink-tertiary">
                         No chats yet — hover the project for +
                       </p>
                     ) : (
@@ -480,7 +480,7 @@ export function Sidebar(): JSX.Element {
             })}
 
             {projects.length > 0 && grouped.unfiled.length > 0 && (
-              <p className="mt-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+              <p className="mt-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-tertiary">
                 Unfiled
               </p>
             )}
@@ -489,7 +489,7 @@ export function Sidebar(): JSX.Element {
             <button
               type="button"
               onClick={newProject}
-              className="mt-2 w-full rounded-xl px-2.5 py-1.5 text-left text-[11px] text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 hover:text-ink-secondary"
+              className="mt-2 w-full rounded-xl px-2.5 py-1.5 text-left text-[11px] text-ink-tertiary hover:bg-black/5 dark:hover:bg-white/5 hover:text-ink-secondary"
               title="Group related chats under a name"
             >
               ＋ New project

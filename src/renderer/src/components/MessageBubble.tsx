@@ -385,8 +385,10 @@ export const MessageBubble = memo(function MessageBubble({
             {a.indexed && <span className="ml-1 text-neutral-400">(indexed)</span>}
           </span>
         ))}
+        {/* break-words: a pasted path or key has no break opportunity of its
+            own and would otherwise run straight out of the bubble. */}
         {message.content && (
-          <div className="oasis-enter max-w-[80%] whitespace-pre-wrap rounded-3xl rounded-br-md px-4 py-2.5 text-sm border border-[rgba(0,212,170,0.18)] bg-[rgba(0,212,170,0.12)] backdrop-blur-xl">
+          <div className="oasis-enter max-w-[80%] whitespace-pre-wrap break-words rounded-3xl rounded-br-md px-4 py-2.5 text-sm border border-[rgba(0,212,170,0.18)] bg-[rgba(0,212,170,0.12)] backdrop-blur-xl">
             {message.content}
           </div>
         )}

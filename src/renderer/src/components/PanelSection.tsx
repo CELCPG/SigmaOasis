@@ -29,7 +29,7 @@ export function PanelSection({
           title={hint}
         >
           <span className="w-3 text-[9px] text-ink-muted">{open ? '▼' : '▶'}</span>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">
             {title}
           </span>
         </button>

@@ -127,7 +127,7 @@ export function EmptyState({ heading, onPick }: Props): JSX.Element {
         </div>
 
         <p
-          className="oasis-enter mt-5 text-[11px] text-ink-muted"
+          className="oasis-enter mt-5 text-[11px] text-ink-tertiary"
           style={{ animationDelay: '400ms' }}
         >
           Route a message to a role with @RoleName · drop files to attach · hold 🎙️ to talk

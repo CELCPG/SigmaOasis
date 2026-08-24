@@ -151,7 +151,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
             </button>
           ))}
         </div>
-        <p className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-muted">
+        <p className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-tertiary">
           {MODE_HINTS[conversation.mode]}
         </p>
 
@@ -159,7 +159,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
         <div className="mt-2">
           {conversation.mode === 'independent' &&
             (enabledModels.length === 0 ? (
-              <p className="px-1 text-[11px] text-ink-muted">No roles enabled — open Settings</p>
+              <p className="px-1 text-[11px] text-ink-tertiary">No roles enabled — open Settings</p>
             ) : (
               <>
                 <div className="flex flex-wrap gap-1">
@@ -171,7 +171,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
                 </div>
                 {routingNote && (
                   <p
-                    className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-muted"
+                    className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-tertiary"
                     title="The pre-flight router sends research, money, code and data turns to matching specialist roles — but only roles that are enabled with a model assigned. This is what it can reach right now."
                   >
                     🔀 {routingNote}
@@ -191,7 +191,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
 
           {conversation.mode === 'orchestrated' && (
             <>
-              <p className="mb-1 px-1 text-[10px] uppercase tracking-[0.08em] text-ink-muted">
+              <p className="mb-1 px-1 text-[10px] uppercase tracking-[0.08em] text-ink-tertiary">
                 Orchestrator
               </p>
               <div className="flex flex-wrap gap-1">
@@ -201,7 +201,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
                   )
                 )}
               </div>
-              <p className="mt-1 px-1 text-[10px] text-ink-muted">
+              <p className="mt-1 px-1 text-[10px] text-ink-tertiary">
                 Delegates to the other {Math.max(0, enabledModels.length - 1)} enabled role(s)
               </p>
               {sameModelNote && (
@@ -223,7 +223,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
         defaultOpen={false}
         right={
           <span
-            className={`text-[10px] ${scopedSources !== null ? 'text-accent-ink' : 'text-ink-muted'}`}
+            className={`text-[10px] ${scopedSources !== null ? 'text-accent-ink' : 'text-ink-tertiary'}`}
             title={
               scopedSources !== null
                 ? `This chat recalls from ${scopedSources.length} of its memory sources`
