@@ -31,6 +31,22 @@
  * with `_`, which the critic does not open. Screenshots are the unavoidable
  * exception — a picture of a UI shows whose UI it is.
  *
+ * Two builds, one harness. `--app <dir>` points the driver at any build's
+ * `out/` (a git worktree's, say), which is what makes an A/B possible; with no
+ * `--app` it runs this repo's own build exactly as before.
+ *
+ * Task setup — packs, settings, fixtures, driver actions — is declarative and
+ * comes in from outside: `--settings` deep-merges into the seeded config,
+ * `--packs` installs reference packs through the app's own install path,
+ * `--search-fixture` / `--lm-fixture` stand up loopback servers (h2h-fixtures)
+ * and substitute their URLs into the settings, and `--actions` is a list of
+ * things to do to the running app. Everything the driver did lands in run.json.
+ *
+ * Two guards keep a half-run task from being scored as if it ran. A seeded
+ * setting is read back out of the running app through its own settings API and
+ * compared leaf by leaf; a fixture that was configured but never received a
+ * request marks the run INVALID. Both fail the run loudly rather than quietly.
+ *
  * Run:  bash scripts/h2h-capture.sh --model <id> --task-id <id> --prompt "..."
  */
 
@@ -39,6 +55,8 @@ import type { ChildProcess } from 'child_process'
 import { get as httpGet } from 'http'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
+import { startLmShim, startSearchFixture } from './h2h-fixtures'
+import type { FixtureHandle, LmShimConfig, SearchFixtureConfig } from './h2h-fixtures'
 
 /* ------------------------------------------------------------------ types */
 
@@ -65,6 +83,90 @@ interface Args {
   midEveryMs: number
   maxMidShots: number
   keepUserData: boolean
+  /** Root of the build to drive. Default: this repo. */
+  appDir: string | null
+  /** Extra settings, deep-merged into the seeded config and then verified in-app. */
+  settings: Record<string, unknown> | null
+  /** Reference packs to install before the turn, through the app's own installer. */
+  packs: string[]
+  /** Driver actions, run BEFORE the task prompt is sent (composer toggles, prior turns). */
+  preActions: Action[]
+  /** Driver actions, run after the prompt is sent. */
+  actions: Action[]
+  searchFixture: SearchFixtureConfig | null
+  lmFixture: LmShimConfig | null
+  /** Initial window size, applied before the app paints. */
+  windowSize: { w: number; h: number } | null
+}
+
+/**
+ * One thing the driver does to the running app. Every action is recorded in
+ * run.json with what it did and when, so a critic can see the driving.
+ */
+interface Action {
+  type:
+    | 'waitMs'
+    | 'waitForText'
+    | 'waitForSelector'
+    | 'clickText'
+    | 'pressStop'
+    | 'key'
+    | 'viewport'
+    | 'snapshot'
+    | 'tabTraverse'
+    | 'prompt'
+    | 'waitTurnEnd'
+  /** waitMs */
+  ms?: number
+  /** waitForText / clickText: a case-insensitive regular expression source. */
+  text?: string
+  /** waitForSelector */
+  selector?: string
+  /** waitForText / waitForSelector / clickText: how long to keep trying (default 60000). */
+  timeoutMs?: number
+  /** clickText: which match to click when several have the same label (default 0). */
+  nth?: number
+  /** key: e.g. 'Tab', 'Enter', 'Escape'; modifiers is a bitmask (1 alt, 2 ctrl, 4 meta, 8 shift). */
+  key?: string
+  modifiers?: number
+  /** viewport */
+  width?: number
+  height?: number
+  /** snapshot / tabTraverse: a name for the artifact file. */
+  label?: string
+  /** snapshot: which subtree — 'document' (default), 'transcript', 'plan', 'lastMessage'. */
+  within?: string
+  /** tabTraverse: how many Tab presses to record (default 25). */
+  stops?: number
+  /** prompt: the follow-up message to send in the same conversation. */
+  prompt?: string
+  /** Do not fail the run if this action cannot complete; record it and go on. */
+  optional?: boolean
+}
+
+interface ActionRecord {
+  index: number
+  type: string
+  detail: Record<string, unknown>
+  atMsFromSend: number | null
+  durationMs: number
+  ok: boolean
+  result: string
+}
+
+/** One turn's in-page clock, as read back from the sampler. */
+interface TurnRecord {
+  index: number
+  prompt: string
+  sendMethod: string
+  sendToFirstVisibleMs: number | null
+  sendToTurnEndMs: number | null
+  sendToUserBubbleMs: number | null
+  sendToAssistantContainerMs: number | null
+  sendToStreamingStartMs: number | null
+  firstVisibleKind: string | null
+  endReason: string | null
+  timedOut: boolean
 }
 
 /** What the injected sampler reports back. All times are page `Date.now()`. */
@@ -129,7 +231,30 @@ const USAGE = `usage: bash scripts/h2h-capture.sh --model <id> --task-id <id> (-
   --boot-timeout <ms>   give up on app boot after this long (default: 60000)
   --mid-every <ms>      spacing between mid-turn screenshots (default: 8000)
   --max-mid <n>         cap on mid-turn screenshots (default: 3)
+  --no-shots            take no mid-turn screenshots at all (use for timed tasks:
+                        a screenshot stalls the CDP channel it shares with the sampler)
   --keep-userdata       do not delete the throwaway userData dir afterwards
+
+  --app <dir>           drive the build rooted at <dir> instead of this repo. The
+                        main entry is resolved from <dir>/out/main/index.js,
+                        <dir>/main/index.js or <dir>/index.js, and that root's own
+                        packs/ and node_modules/electron are preferred when present.
+  --settings <file>     JSON deep-merged into the seeded settings before launch.
+                        Every leaf is read back out of the running app afterwards
+                        and the run FAILS if the app did not take it.
+  --packs <ids>         comma-separated reference packs to install before the turn
+                        (installed through the app's own library:installBundled).
+  --search-fixture <f>  JSON (file path or inline) configuring the loopback SearXNG
+                        fixture. Its URL replaces {{searchFixtureUrl}} in --settings.
+  --lm-fixture <f>      JSON (file path or inline) configuring the loopback LM Studio
+                        shim. Its URL replaces {{lmShimUrl}} in --settings.
+  --pre-actions <f>     JSON array of driver actions to run BEFORE the prompt is
+                        sent — flipping the 📋 or 🧠 composer toggle, or sending
+                        earlier turns so the task prompt lands in a conversation
+                        that already has history.
+  --actions <f>         JSON array (file path or inline) of driver actions to run
+                        after the prompt is sent. See the Action type.
+  --window <WxH>        initial window size, e.g. 1280x800
 `
 
 function parseArgs(argv: string[]): Args {
@@ -139,7 +264,7 @@ function parseArgs(argv: string[]): Args {
     const t = argv[i]
     if (!t.startsWith('--')) continue
     const key = t.slice(2)
-    if (key === 'keep-userdata' || key === 'help') {
+    if (key === 'keep-userdata' || key === 'help' || key === 'no-shots') {
       flags.add(key)
       continue
     }
@@ -169,6 +294,23 @@ function parseArgs(argv: string[]): Args {
     const v = Number(a[k])
     return Number.isFinite(v) && v > 0 ? v : d
   }
+
+  /** A JSON argument may be a path to a file or the JSON itself. */
+  const json = <T>(k: string): T | null => {
+    const raw = a[k]
+    if (raw === undefined) return null
+    const text = existsSync(resolve(raw)) ? readFileSync(resolve(raw), 'utf8') : raw
+    try {
+      return JSON.parse(text) as T
+    } catch (e) {
+      process.stderr.write(`error: --${k} is not valid JSON: ${e instanceof Error ? e.message : String(e)}\n`)
+      process.exit(2)
+    }
+    return null
+  }
+
+  const win = a.window?.match(/^(\d+)x(\d+)$/)
+
   return {
     model: a.model,
     taskId: a['task-id'],
@@ -179,9 +321,83 @@ function parseArgs(argv: string[]): Args {
     timeoutMs: num('timeout', 300_000),
     bootTimeoutMs: num('boot-timeout', 60_000),
     midEveryMs: num('mid-every', 8000),
-    maxMidShots: num('max-mid', 3),
-    keepUserData: flags.has('keep-userdata')
+    maxMidShots: flags.has('no-shots') ? 0 : num('max-mid', 3),
+    keepUserData: flags.has('keep-userdata'),
+    appDir: a.app ? resolve(a.app) : null,
+    settings: json<Record<string, unknown>>('settings'),
+    packs: (a.packs ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    preActions: json<Action[]>('pre-actions') ?? [],
+    actions: json<Action[]>('actions') ?? [],
+    searchFixture: json<SearchFixtureConfig>('search-fixture'),
+    lmFixture: json<LmShimConfig>('lm-fixture'),
+    windowSize: win ? { w: Number(win[1]), h: Number(win[2]) } : null
   }
+}
+
+/* ------------------------------------------------------- settings plumbing */
+
+type Json = Record<string, unknown>
+
+/** Deep merge, right wins. Arrays are replaced whole — settings.models is an array. */
+function deepMerge(base: Json, extra: Json): Json {
+  const out: Json = { ...base }
+  for (const [k, v] of Object.entries(extra)) {
+    const cur = out[k]
+    if (v && typeof v === 'object' && !Array.isArray(v) && cur && typeof cur === 'object' && !Array.isArray(cur)) {
+      out[k] = deepMerge(cur as Json, v as Json)
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
+/** Replaces {{searchFixtureUrl}} / {{lmShimUrl}} anywhere in a settings tree. */
+function substitute(value: unknown, vars: Record<string, string>): unknown {
+  if (typeof value === 'string') {
+    return value.replace(/\{\{(\w+)\}\}/g, (m, name: string) => vars[name] ?? m)
+  }
+  if (Array.isArray(value)) return value.map((v) => substitute(v, vars))
+  if (value && typeof value === 'object') {
+    const out: Json = {}
+    for (const [k, v] of Object.entries(value as Json)) out[k] = substitute(v, vars)
+    return out
+  }
+  return value
+}
+
+/** Every leaf of an object as dotted paths, so a seed can be checked against reality. */
+function leaves(value: unknown, prefix = ''): { path: string; value: unknown }[] {
+  if (value === null || typeof value !== 'object') return [{ path: prefix, value }]
+  const out: { path: string; value: unknown }[] = []
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => out.push(...leaves(v, `${prefix}[${i}]`)))
+    return out
+  }
+  for (const [k, v] of Object.entries(value as Json)) {
+    out.push(...leaves(v, prefix ? `${prefix}.${k}` : k))
+  }
+  return out
+}
+
+function atPath(root: unknown, path: string): unknown {
+  let node: unknown = root
+  for (const part of path.split('.')) {
+    const m = part.match(/^([^[]*)((?:\[\d+\])*)$/)
+    if (!m) return undefined
+    if (m[1]) {
+      if (node === null || typeof node !== 'object') return undefined
+      node = (node as Json)[m[1]]
+    }
+    for (const idx of m[2].match(/\d+/g) ?? []) {
+      if (!Array.isArray(node)) return undefined
+      node = node[Number(idx)]
+    }
+  }
+  return node
 }
 
 /* --------------------------------------------------------- injected page code */
@@ -293,8 +509,12 @@ const INSTRUMENT = String.raw`(() => {
 
     var a = (H._a && H._a.isConnected) ? H._a : null
     if (!a) {
-      var kids = r.children
-      for (var i = kids.length - 1; i >= 0; i--) {
+      // Only rows added since this turn began are candidates. On a second turn
+      // in the same conversation the previous reply is still the last child for
+      // a frame or two, and accepting it would stamp first-visible on text that
+      // was already on screen before Enter.
+      var kids = r.children, floor = H._minIndex || 0
+      for (var i = kids.length - 1; i >= floor; i--) {
         if (classify(kids[i]) === 'assistant') { a = kids[i]; H._a = a; break }
       }
     }
@@ -324,6 +544,26 @@ const INSTRUMENT = String.raw`(() => {
   mo.observe(document.body, { childList: true, subtree: true, characterData: true })
   var iv = setInterval(tick, H.sampleMs)
   H.stop = function () { if (mo) mo.disconnect(); clearInterval(iv) }
+
+  // Re-arm for a second turn in the same conversation (the "prompt" driver
+  // action). Everything the sampler owns is cleared, including the cached
+  // assistant container and the transcript root — the next turn appends new
+  // rows, and a stale _a would freeze first-visible on the previous reply.
+  H.reset = function (p) {
+    var r0 = resolveRoot()
+    H._minIndex = r0 ? r0.children.length : 0
+    H.t0 = null; H.tUserBubble = null; H.tAssistantContainer = null
+    H.tFirstVisible = null; H.firstVisibleKind = null
+    H.tStreamStart = null; H.tEnd = null; H.endReason = null
+    H.sawStreaming = false; H._a = null
+    if (p) H.prompt = p
+    root = null
+    if (!mo) {
+      mo = new MutationObserver(tick)
+      mo.observe(document.body, { childList: true, subtree: true, characterData: true })
+    }
+    return 'reset'
+  }
   return 'installed'
 })()`
 
@@ -566,18 +806,341 @@ function stamp(d: Date): string {
   )
 }
 
+/* --------------------------------------------------------- driver actions */
+
+/**
+ * Resolves a named subtree in the page. Written as an expression so it can be
+ * pasted into any evaluate: 'document' is the whole page, 'transcript' the
+ * scrolling message list, 'lastMessage' the last assistant row, 'plan' the plan
+ * block inside it.
+ */
+function scopeExpr(within: string | undefined): string {
+  const w = within ?? 'document'
+  if (w === 'document') return 'document.documentElement'
+  if (w === 'transcript') return 'window.__h2h.getRoot()'
+  const lastMessage = String.raw`(() => {
+    var H = window.__h2h, r = H && H.getRoot()
+    if (!r) return null
+    var kids = r.children
+    for (var i = kids.length - 1; i >= 0; i--) if (H.classify(kids[i]) === 'assistant') return kids[i]
+    return null
+  })()`
+  if (w === 'lastMessage') return lastMessage
+  if (w === 'plan') {
+    return String.raw`(() => {
+      var m = ${lastMessage}
+      if (!m) return null
+      var blocks = window.__h2h.blockNodes(m)
+      for (var i = blocks.length - 1; i >= 0; i--) {
+        var t = blocks[i].innerText || ''
+        if (/awaiting approval|steps done|Run this plan|Plan\b/i.test(t)) return blocks[i]
+      }
+      return blocks.length ? blocks[blocks.length - 1] : null
+    })()`
+  }
+  // Anything else is treated as a CSS selector.
+  return `document.querySelector(${JSON.stringify(w)})`
+}
+
+/**
+ * Captures, for every focusable element, its computed style while NOT focused.
+ * Run once before a Tab traversal: comparing a focused element against its own
+ * unfocused values is the only comparison that answers "is the focus visible",
+ * and it cannot be taken after the fact without moving focus away again.
+ */
+const TAB_BASELINE = String.raw`(() => {
+  var KEYS = ['outlineStyle','outlineWidth','outlineColor','outlineOffset','boxShadow','borderColor','backgroundColor','color']
+  function snap(el) {
+    var cs = getComputedStyle(el), o = {}
+    for (var i = 0; i < KEYS.length; i++) o[KEYS[i]] = cs[KEYS[i]]
+    return o
+  }
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
+  var map = new WeakMap()
+  var all = document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')
+  for (var i = 0; i < all.length; i++) map.set(all[i], snap(all[i]))
+  window.__h2hTab = { map: map, snap: snap, keys: KEYS }
+  return String(all.length)
+})()`
+
+/** Reads the focused element and both style states at one Tab stop. */
+const TAB_STOP = String.raw`(() => {
+  var T = window.__h2hTab
+  var el = document.activeElement
+  if (!el || el === document.body) return JSON.stringify({ tag: null })
+  var r = el.getBoundingClientRect()
+  var unfocused = T.map.get(el) || null
+  return JSON.stringify({
+    tag: el.tagName.toLowerCase(),
+    type: el.getAttribute('type'),
+    label: (el.getAttribute('aria-label') || el.getAttribute('title') || (el.innerText || '').trim()).slice(0, 80),
+    className: typeof el.className === 'string' ? el.className.slice(0, 200) : '',
+    rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+    inViewport: r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth,
+    focused: T.snap(el),
+    unfocused: unfocused
+  })
+})()`
+
+interface ActionContext {
+  screenshot(phase: ShotRecord['phase'], atMs: number | null): Promise<void>
+  snapshotsDir: string
+  waitTurnEnd(budgetMs: number): Promise<boolean>
+  sendPrompt(text: string): Promise<string>
+  budgetMs: number
+}
+
+async function runAction(cdp: Cdp, action: Action, ctx: ActionContext): Promise<string> {
+  const timeout = action.timeoutMs ?? 60_000
+  switch (action.type) {
+    case 'waitMs': {
+      await sleep(action.ms ?? 1000)
+      return `waited ${action.ms ?? 1000} ms`
+    }
+
+    case 'waitForText': {
+      if (!action.text) throw new Error('waitForText needs text')
+      const re = JSON.stringify(action.text)
+      const scope = scopeExpr(action.within)
+      const started = Date.now()
+      for (;;) {
+        const hit = await cdp.evalString(String.raw`(() => {
+          var s = ${scope}
+          if (!s) return 'no-scope'
+          return new RegExp(${re}, 'i').test(s.innerText || '') ? 'yes' : 'no'
+        })()`)
+        if (hit === 'yes') return `matched after ${Date.now() - started} ms`
+        if (Date.now() - started > timeout) {
+          throw new Error(`text /${action.text}/i never appeared in ${action.within ?? 'document'} within ${timeout} ms`)
+        }
+        await sleep(150)
+      }
+    }
+
+    case 'waitForSelector': {
+      if (!action.selector) throw new Error('waitForSelector needs a selector')
+      const started = Date.now()
+      for (;;) {
+        const hit = await cdp.evalString(
+          `String(!!document.querySelector(${JSON.stringify(action.selector)}))`
+        )
+        if (hit === 'true') return `matched after ${Date.now() - started} ms`
+        if (Date.now() - started > timeout) {
+          throw new Error(`selector ${action.selector} never appeared within ${timeout} ms`)
+        }
+        await sleep(150)
+      }
+    }
+
+    case 'pressStop':
+    case 'clickText': {
+      const pattern = action.type === 'pressStop' ? '^\\s*Stop\\s*$' : action.text
+      if (!pattern) throw new Error('clickText needs text')
+      const re = JSON.stringify(pattern)
+      const scope = scopeExpr(action.within)
+      const nth = action.nth ?? 0
+      const started = Date.now()
+      for (;;) {
+        // Only real activatable controls are considered, and the click is a
+        // plain .click() on the element the user would have clicked.
+        const res = await cdp.evalString(String.raw`(() => {
+          var s = ${scope}
+          if (!s) return JSON.stringify({ ok: false, why: 'no-scope' })
+          var re = new RegExp(${re}, 'i')
+          var all = s.querySelectorAll('button, a[href], [role="button"], input[type="submit"]')
+          var hits = []
+          for (var i = 0; i < all.length; i++) {
+            var el = all[i]
+            // Visible text first, then the accessible name and the tooltip: an
+            // icon-only control has no text a regex could match, but it is
+            // still a control a user can identify and reach.
+            var visible = (el.innerText || el.value || '').trim()
+            var accessible = [el.getAttribute('aria-label') || '', el.getAttribute('title') || '']
+              .filter(Boolean).join(' — ')
+            // Both are tried separately, never concatenated: an anchored
+            // pattern like ^Stop$ must still match a control whose tooltip is a
+            // paragraph long.
+            var matched = (visible && re.test(visible)) || (accessible && re.test(accessible))
+            if (matched && el.offsetParent !== null && !el.disabled) hits.push({ el: el, label: visible || accessible })
+          }
+          if (hits.length <= ${nth}) return JSON.stringify({ ok: false, why: 'not-found', count: hits.length })
+          hits[${nth}].el.click()
+          return JSON.stringify({ ok: true, label: hits[${nth}].label, count: hits.length })
+        })()`)
+        const parsed = JSON.parse(res) as { ok: boolean; why?: string; label?: string; count?: number }
+        if (parsed.ok) {
+          return `clicked "${parsed.label}" (${parsed.count} candidates) after ${Date.now() - started} ms`
+        }
+        if (Date.now() - started > timeout) {
+          throw new Error(
+            `no clickable control matching /${pattern}/i in ${action.within ?? 'document'} within ${timeout} ms (${parsed.why})`
+          )
+        }
+        await sleep(150)
+      }
+    }
+
+    case 'key': {
+      if (!action.key) throw new Error('key needs a key name')
+      // Real input, not a synthesized KeyboardEvent: Tab must actually move
+      // focus, and only a trusted event does that.
+      await dispatchKey(cdp, action.key, action.modifiers ?? 0)
+      await sleep(120)
+      return `pressed ${action.key}${action.modifiers ? ` (modifiers ${action.modifiers})` : ''}`
+    }
+
+    case 'viewport': {
+      const width = action.width ?? 1280
+      const height = action.height ?? 800
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: 0,
+        mobile: false
+      })
+      await sleep(400)
+      const metrics = await cdp.evalString(String.raw`(() => JSON.stringify({
+        inner: [window.innerWidth, window.innerHeight],
+        docScroll: document.documentElement.scrollWidth,
+        docClient: document.documentElement.clientWidth
+      }))()`)
+      return `viewport ${width}x${height}; ${metrics}`
+    }
+
+    case 'snapshot': {
+      const label = action.label ?? `snapshot-${Date.now()}`
+      const scope = scopeExpr(action.within)
+      const res = await cdp.evalString(String.raw`(() => {
+        var s = ${scope}
+        if (!s) return JSON.stringify({ ok: false })
+        return JSON.stringify({ ok: true, html: s.outerHTML, text: s.innerText || '' })
+      })()`)
+      const parsed = JSON.parse(res) as { ok: boolean; html?: string; text?: string }
+      if (!parsed.ok) throw new Error(`snapshot scope "${action.within ?? 'document'}" did not resolve`)
+      mkdirSync(ctx.snapshotsDir, { recursive: true })
+      writeFileSync(join(ctx.snapshotsDir, `${label}.html`), parsed.html ?? '')
+      writeFileSync(join(ctx.snapshotsDir, `${label}.txt`), parsed.text ?? '')
+      return `snapshots/${label}.html (${(parsed.html ?? '').length} chars)`
+    }
+
+    case 'tabTraverse': {
+      const stops = action.stops ?? 25
+      const label = action.label ?? 'tab-traverse'
+      const counted = await cdp.evalString(TAB_BASELINE)
+      const rows: unknown[] = []
+      for (let i = 0; i < stops; i++) {
+        await dispatchKey(cdp, 'Tab', 0)
+        await sleep(90)
+        const raw = await cdp.evalString(TAB_STOP)
+        rows.push({ stop: i + 1, ...(JSON.parse(raw) as Record<string, unknown>) })
+      }
+      mkdirSync(ctx.snapshotsDir, { recursive: true })
+      writeFileSync(
+        join(ctx.snapshotsDir, `${label}.json`),
+        `${JSON.stringify(
+          {
+            note:
+              'One entry per Tab press. "focused" is the computed style while focused; ' +
+              '"unfocused" is the same element measured before the traversal, with nothing focused. ' +
+              'A stop where the two are identical is a stop with no visible focus indicator.',
+            focusableElementsMeasured: Number(counted),
+            stops: rows
+          },
+          null,
+          2
+        )}\n`
+      )
+      return `snapshots/${label}.json (${stops} stops over ${counted} focusable elements)`
+    }
+
+    case 'prompt': {
+      if (!action.prompt) throw new Error('prompt action needs prompt text')
+      const method = await ctx.sendPrompt(action.prompt)
+      return `sent follow-up via ${method}`
+    }
+
+    case 'waitTurnEnd': {
+      const budget = action.timeoutMs ?? ctx.budgetMs
+      const to = await ctx.waitTurnEnd(budget)
+      return to ? `turn did not end within ${budget} ms` : 'turn ended'
+    }
+
+    default:
+      throw new Error(`unknown action type "${String((action as Action).type)}"`)
+  }
+}
+
+async function dispatchKey(cdp: Cdp, key: string, modifiers: number): Promise<void> {
+  // `key` in an action is the physical key name; `keyValue` is what the page's
+  // own handlers read off the event (App.tsx compares e.key === '\\' for ⌘\).
+  // Getting that wrong silently does nothing, which is the worst failure mode a
+  // driver can have, so the mapping is explicit rather than inferred.
+  const codes: Record<string, { code: string; vk: number; keyValue?: string; text?: string }> = {
+    Tab: { code: 'Tab', vk: 9 },
+    Enter: { code: 'Enter', vk: 13, text: '\r' },
+    Escape: { code: 'Escape', vk: 27 },
+    Backslash: { code: 'Backslash', vk: 220, keyValue: '\\', text: '\\' },
+    ArrowDown: { code: 'ArrowDown', vk: 40 },
+    ArrowUp: { code: 'ArrowUp', vk: 38 },
+    Space: { code: 'Space', vk: 32, keyValue: ' ', text: ' ' }
+  }
+  const spec = codes[key] ?? { code: key, vk: 0 }
+  const keyValue = spec.keyValue ?? key
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: keyValue,
+    code: spec.code,
+    windowsVirtualKeyCode: spec.vk,
+    nativeVirtualKeyCode: spec.vk,
+    modifiers
+  })
+  // No char event under a modifier: ⌘\ is a shortcut, and sending the
+  // character too would also type a backslash into whatever has focus.
+  if (spec.text && modifiers === 0) {
+    await cdp.send('Input.dispatchKeyEvent', { type: 'char', text: spec.text, key: keyValue, modifiers })
+  }
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: keyValue,
+    code: spec.code,
+    windowsVirtualKeyCode: spec.vk,
+    nativeVirtualKeyCode: spec.vk,
+    modifiers
+  })
+}
+
 /* ------------------------------------------------------------------- main */
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   const repoRoot = resolve(__dirname, '..', '..')
-  const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
-  if (!existsSync(mainEntry)) {
-    throw new Error(`no build at ${mainEntry} — run: node node_modules/electron-vite/bin/electron-vite.js build`)
+
+  // Which build to drive. Default is this repo's own out/, unchanged; --app
+  // names another root — a git worktree's checkout, say — and the main entry is
+  // resolved from it rather than assumed.
+  const appRoot = args.appDir ?? repoRoot
+  const entryCandidates = [
+    join(appRoot, 'out', 'main', 'index.js'),
+    join(appRoot, 'main', 'index.js'),
+    join(appRoot, 'index.js')
+  ]
+  const mainEntry = entryCandidates.find((p) => existsSync(p))
+  if (!mainEntry) {
+    throw new Error(
+      `no main entry under ${appRoot} — looked for ${entryCandidates.join(', ')}. ` +
+        'Build it first: node node_modules/electron-vite/bin/electron-vite.js build'
+    )
   }
-  const electron = ['node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', 'node_modules/electron/dist/electron']
-    .map((p) => join(repoRoot, p))
-    .find((p) => existsSync(p))
+  // The app's own Electron if that root has one (a worktree may pin a different
+  // version); this repo's otherwise. The runtime is stated in the sidecar so a
+  // mismatch is visible rather than assumed away.
+  const electronNames = [
+    'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+    'node_modules/electron/dist/electron'
+  ]
+  const electron =
+    electronNames.map((p) => join(appRoot, p)).find((p) => existsSync(p)) ??
+    electronNames.map((p) => join(repoRoot, p)).find((p) => existsSync(p))
   if (!electron) throw new Error("no bundled Electron runtime found — run 'npm install'")
 
   const startedAt = new Date()
@@ -590,15 +1153,34 @@ async function main(): Promise<void> {
   // user's conversations and must not leave anything behind in them.
   const userData = join(runDir, '_userdata')
   mkdirSync(userData, { recursive: true })
-  const seededConfig = {
-    settings: {
-      baseUrl: 'http://127.0.0.1:1234/v1',
-      onboardingCompleted: true,
-      models: [
-        { id: 'model-1', modelId: args.model, roleName: 'Assistant', color: 'blue', enabled: true }
-      ]
-    }
+
+  // Fixtures come up before the config is written: their ports are chosen by
+  // the OS, and the settings that point the app at them have to carry the real
+  // numbers. {{searchFixtureUrl}} / {{lmShimUrl}} in --settings are where they
+  // land.
+  const fixtures: FixtureHandle[] = []
+  const fixtureVars: Record<string, string> = { model: args.model }
+  if (args.searchFixture) {
+    const f = await startSearchFixture(args.searchFixture)
+    fixtures.push(f)
+    fixtureVars.searchFixtureUrl = f.url
   }
+  if (args.lmFixture) {
+    const f = await startLmShim(args.lmFixture)
+    fixtures.push(f)
+    fixtureVars.lmShimUrl = f.url
+  }
+
+  const baseSettings: Json = {
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    onboardingCompleted: true,
+    models: [{ id: 'model-1', modelId: args.model, roleName: 'Assistant', color: 'blue', enabled: true }]
+  }
+  const extraSettings = args.settings
+    ? (substitute(args.settings, fixtureVars) as Json)
+    : null
+  const seededSettings = extraSettings ? deepMerge(baseSettings, extraSettings) : baseSettings
+  const seededConfig = { settings: seededSettings }
   writeFileSync(join(userData, 'config.json'), JSON.stringify(seededConfig, null, 2))
 
   // Launcher shim: redirect userData before the real main process reads it, and
@@ -608,9 +1190,24 @@ async function main(): Promise<void> {
   writeFileSync(
     shim,
     [
-      "const { app } = require('electron')",
+      "const { app, dialog } = require('electron')",
       "app.setPath('userData', process.env.OASIS_H2H_USERDATA)",
-      "app.on('browser-window-created', (_e, w) => { try { w.setAlwaysOnTop(true) } catch {} })",
+      // Audit/trace export goes through a native save dialog, which a driver
+      // cannot click. The dialog is answered with a fixed path instead. This
+      // patches the *dialog*, never the app's own logic: what gets written, and
+      // whether anything is written at all, is entirely the app's decision.
+      'if (process.env.OASIS_H2H_SAVE_PATH) {',
+      '  dialog.showSaveDialog = async () => ({ canceled: false, filePath: process.env.OASIS_H2H_SAVE_PATH })',
+      '}',
+      'app.on(\'browser-window-created\', (_e, w) => {',
+      '  try { w.setAlwaysOnTop(true) } catch {}',
+      // Window size is set on the real window rather than emulated, so layout,
+      // screenshots and the app's own responsive breakpoints all agree.
+      '  try {',
+      '    const s = process.env.OASIS_H2H_WINDOW',
+      "    if (s) { const [w0, h0] = s.split('x').map(Number); w.setSize(w0, h0); w.center() }",
+      '  } catch {}',
+      '})',
       'require(process.env.OASIS_H2H_MAIN)',
       ''
     ].join('\n')
@@ -618,9 +1215,13 @@ async function main(): Promise<void> {
 
   const notes: string[] = []
   const shots: ShotRecord[] = []
+  const actionLog: ActionRecord[] = []
+  const turns: TurnRecord[] = []
+  const settingsChecks: { path: string; expected: unknown; actual: unknown; ok: boolean }[] = []
   let child: ChildProcess | null = null
   let cdp: Cdp | null = null
   const appLog: string[] = []
+  const snapshotsDir = join(runDir, 'snapshots')
 
   const shutdown = async (): Promise<void> => {
     cdp?.close()
@@ -629,13 +1230,23 @@ async function main(): Promise<void> {
       for (let i = 0; i < 50 && child.exitCode === null; i++) await sleep(100)
       if (child.exitCode === null) child.kill('SIGKILL')
     }
+    for (const f of fixtures) await f.close()
   }
 
   try {
     const argv = [shim, `--remote-debugging-port=${args.port}`, '--remote-allow-origins=*']
-    const env = { ...process.env, OASIS_H2H_USERDATA: userData, OASIS_H2H_MAIN: mainEntry }
-    delete (env as Record<string, string | undefined>).ELECTRON_RUN_AS_NODE
-    child = spawn(electron, argv, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      OASIS_H2H_USERDATA: userData,
+      OASIS_H2H_MAIN: mainEntry
+    }
+    if (args.windowSize) env.OASIS_H2H_WINDOW = `${args.windowSize.w}x${args.windowSize.h}`
+    env.OASIS_H2H_SAVE_PATH = join(runDir, 'trace', 'audit.jsonl')
+    mkdirSync(join(runDir, 'trace'), { recursive: true })
+    delete env.ELECTRON_RUN_AS_NODE
+    // cwd is the app root, not this repo: a dev build resolves its bundled
+    // packs/ relative to its own app path.
+    child = spawn(electron, argv, { cwd: appRoot, env, stdio: ['ignore', 'pipe', 'pipe'] })
     child.stdout?.on('data', (d) => appLog.push(`[out] ${String(d)}`))
     child.stderr?.on('data', (d) => appLog.push(`[err] ${String(d)}`))
     child.on('exit', (code, sig) => appLog.push(`[exit] code=${code} signal=${sig}`))
@@ -661,56 +1272,61 @@ async function main(): Promise<void> {
       throw new Error(`a modal is covering the composer; refusing to capture: ${modals[0]}`)
     }
 
+    /* ------------------------------------------- seeded settings, verified */
+
+    // What the app actually loaded, read back through its own settings API —
+    // not out of the file we wrote. normalizeSettings() silently reverts values
+    // it does not like (a non-loopback base URL, an out-of-range number), so a
+    // seed that was rejected must fail the run rather than produce a run that
+    // looks like the task it was not.
+    const liveSettingsRaw = await cdp.evalString(
+      `window.api.getSettings().then(s => JSON.stringify(s))`
+    )
+    const liveSettings = JSON.parse(liveSettingsRaw) as Json
+    writeFileSync(join(runDir, '_settings-in-app.json'), `${JSON.stringify(liveSettings, null, 2)}\n`)
+    if (extraSettings) {
+      for (const { path, value } of leaves(extraSettings)) {
+        const actual = atPath(liveSettings, path)
+        const ok = JSON.stringify(actual) === JSON.stringify(value)
+        settingsChecks.push({ path, expected: value, actual, ok })
+      }
+      const bad = settingsChecks.filter((c) => !c.ok)
+      if (bad.length) {
+        throw new Error(
+          `the app did not take ${bad.length} seeded setting(s): ` +
+            bad
+              .map((b) => `${b.path} expected ${JSON.stringify(b.expected)} got ${JSON.stringify(b.actual)}`)
+              .join('; ')
+        )
+      }
+    }
+
+    /* --------------------------------------------------- reference packs */
+
+    // Installed through the app's own installer, exactly as pressing Install in
+    // Settings → Library would: nothing is copied into the library behind the
+    // app's back, so a pack that this build cannot install fails here.
+    const packsInstalled: string[] = []
+    if (args.packs.length) {
+      for (const id of args.packs) {
+        const res = await cdp.evalString(
+          `window.api.libraryInstallBundled(${JSON.stringify(id)}).then(r => JSON.stringify(r)).catch(e => JSON.stringify({ error: String(e && e.message || e) }))`
+        )
+        const parsed = JSON.parse(res) as { error?: string; ok?: boolean }
+        if (parsed.error) throw new Error(`installing pack "${id}" failed: ${parsed.error}`)
+        packsInstalled.push(id)
+      }
+      const listRaw = await cdp.evalString(`window.api.libraryList().then(l => JSON.stringify(l))`)
+      const list = JSON.parse(listRaw) as { id: string; docs: number; chunks: number }[]
+      const missing = args.packs.filter((id) => !list.some((p) => p.id === id))
+      if (missing.length) throw new Error(`packs did not install: ${missing.join(', ')}`)
+      notes.push(
+        `library: ${list.map((p) => `${p.id} (${p.docs} docs, ${p.chunks} chunks)`).join(', ')}`
+      )
+    }
+
     const installed = await cdp.evalString(INSTRUMENT)
     if (installed !== 'installed') notes.push(`sampler install returned "${installed}"`)
-
-    // Type and send in ONE evaluate: no CDP round-trip may sit between the t0
-    // stamp and the keydown that starts the turn.
-    const p = JSON.stringify(args.prompt)
-    const sendRes = await cdp.evalString(String.raw`(() => {
-      var ta = document.querySelector('textarea')
-      if (!ta) return JSON.stringify({ ok: false, error: 'no composer textarea' })
-      var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
-      setter.call(ta, ${p})
-      ta.dispatchEvent(new Event('input', { bubbles: true }))
-      window.__h2h.prompt = ${p}
-      var t0 = Date.now()
-      window.__h2h.t0 = t0
-      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }))
-      return JSON.stringify({ ok: true, t0: t0 })
-    })()`)
-    const sent = JSON.parse(sendRes) as { ok: boolean; t0?: number; error?: string }
-    if (!sent.ok) throw new Error(sent.error ?? 'send failed')
-    let sendMethod = 'enter'
-
-    // Did Enter actually submit? If the composer still holds the text, fall back
-    // to the Send button and re-stamp t0 so the reported latency stays true.
-    let cleared = false
-    for (let i = 0; i < 20 && !cleared; i++) {
-      await sleep(50)
-      cleared = (await cdp.evalString(`String(document.querySelector('textarea').value === '')`)) === 'true'
-    }
-    if (!cleared) {
-      const clickRes = await cdp.evalString(String.raw`(() => {
-        var btns = document.querySelectorAll('button')
-        for (var i = 0; i < btns.length; i++) {
-          if ((btns[i].textContent || '').trim() === 'Send') {
-            window.__h2h.t0 = Date.now()
-            btns[i].click()
-            return 'clicked'
-          }
-        }
-        return 'no-send-button'
-      })()`)
-      if (clickRes !== 'clicked') throw new Error(`Enter did not submit and no Send button was found (${clickRes})`)
-      sendMethod = 'send-button'
-      notes.push('Enter did not submit; the Send button was clicked instead and t0 was re-stamped')
-      for (let i = 0; i < 20 && !cleared; i++) {
-        await sleep(50)
-        cleared = (await cdp.evalString(`String(document.querySelector('textarea').value === '')`)) === 'true'
-      }
-      if (!cleared) throw new Error('composer never cleared; the turn did not start')
-    }
 
     const screenshot = async (phase: ShotRecord['phase'], atMs: number | null): Promise<void> => {
       const r = await cdp!.send<{ data?: string }>('Page.captureScreenshot', { format: 'png', fromSurface: true })
@@ -724,35 +1340,195 @@ async function main(): Promise<void> {
       shots.push({ file: `screenshots/${name}`, phase, atMsFromSend: atMs, bytes: buf.length })
     }
 
-    // Poll the in-page clock. Poll cadence affects only when the driver *learns*
-    // a thing happened, never the recorded time of it.
-    const deadline = Date.now() + args.timeoutMs
-    let state: PageState | null = null
+    const sampler: { state: PageState | null } = { state: null }
     let midShots = 0
     let lastMidAt = 0
     let timedOut = false
-    for (;;) {
-      const raw = await cdp.evalString(READ_STATE)
+
+    const readState = async (): Promise<PageState> => {
+      const raw = await cdp!.evalString(READ_STATE)
       const s = JSON.parse(raw) as PageState & { missing?: boolean }
       if (s.missing) throw new Error('the page reloaded mid-turn; the sampler is gone')
-      state = s
-      if (s.tEnd !== null) break
-      if (Date.now() > deadline) {
-        timedOut = true
-        break
-      }
-      const t0 = s.t0 ?? Date.now()
-      const elapsed = Date.now() - t0
-      const readyForMid = s.live && (s.tFirstVisible !== null || elapsed > 3000)
-      if (readyForMid && midShots < args.maxMidShots && Date.now() - lastMidAt > args.midEveryMs) {
-        lastMidAt = Date.now()
-        midShots++
-        await screenshot('mid', elapsed)
-      }
-      await sleep(120)
+      sampler.state = s
+      return s
     }
 
-    const t0 = state?.t0 ?? null
+    /**
+     * Types a message and starts the turn. Called once for the task prompt and
+     * again for each `prompt` driver action; the sampler is re-armed in
+     * between, so every turn gets its own honest t0.
+     */
+    let anyTurnSent = false
+    const sendPrompt = async (text: string): Promise<string> => {
+      if (anyTurnSent) {
+        const r = await cdp!.evalString(`window.__h2h.reset(${JSON.stringify(text)})`)
+        if (r !== 'reset') throw new Error(`sampler reset returned "${r}"`)
+      }
+      const p = JSON.stringify(text)
+      // Type and send in ONE evaluate: no CDP round-trip may sit between the t0
+      // stamp and the keydown that starts the turn.
+      const sendRes = await cdp!.evalString(String.raw`(() => {
+        var ta = document.querySelector('textarea')
+        if (!ta) return JSON.stringify({ ok: false, error: 'no composer textarea' })
+        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+        setter.call(ta, ${p})
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+        window.__h2h.prompt = ${p}
+        var t0 = Date.now()
+        window.__h2h.t0 = t0
+        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }))
+        return JSON.stringify({ ok: true, t0: t0 })
+      })()`)
+      const sent = JSON.parse(sendRes) as { ok: boolean; t0?: number; error?: string }
+      if (!sent.ok) throw new Error(sent.error ?? 'send failed')
+      anyTurnSent = true
+      let method = 'enter'
+
+      // Did Enter actually submit? If the composer still holds the text, fall
+      // back to the Send button and re-stamp t0 so the reported latency stays true.
+      let ok = false
+      for (let i = 0; i < 20 && !ok; i++) {
+        await sleep(50)
+        ok = (await cdp!.evalString(`String(document.querySelector('textarea').value === '')`)) === 'true'
+      }
+      if (!ok) {
+        const clickRes = await cdp!.evalString(String.raw`(() => {
+          var btns = document.querySelectorAll('button')
+          for (var i = 0; i < btns.length; i++) {
+            if ((btns[i].textContent || '').trim() === 'Send') {
+              window.__h2h.t0 = Date.now()
+              btns[i].click()
+              return 'clicked'
+            }
+          }
+          return 'no-send-button'
+        })()`)
+        if (clickRes !== 'clicked') throw new Error(`Enter did not submit and no Send button was found (${clickRes})`)
+        method = 'send-button'
+        notes.push('Enter did not submit; the Send button was clicked instead and t0 was re-stamped')
+        for (let i = 0; i < 20 && !ok; i++) {
+          await sleep(50)
+          ok = (await cdp!.evalString(`String(document.querySelector('textarea').value === '')`)) === 'true'
+        }
+        if (!ok) throw new Error('composer never cleared; the turn did not start')
+      }
+      return method
+    }
+
+    /**
+     * Polls the in-page clock until the composer leaves its streaming state.
+     * Poll cadence affects only when the driver *learns* a thing happened,
+     * never the recorded time of it.
+     */
+    const waitTurnEnd = async (budgetMs: number): Promise<boolean> => {
+      const deadline = Date.now() + budgetMs
+      for (;;) {
+        const s = await readState()
+        if (s.tEnd !== null) return false
+        if (Date.now() > deadline) return true
+        const t0 = s.t0 ?? Date.now()
+        const elapsed = Date.now() - t0
+        const readyForMid = s.live && (s.tFirstVisible !== null || elapsed > 3000)
+        if (readyForMid && midShots < args.maxMidShots && Date.now() - lastMidAt > args.midEveryMs) {
+          lastMidAt = Date.now()
+          midShots++
+          await screenshot('mid', elapsed)
+        }
+        await sleep(120)
+      }
+    }
+
+    const recordTurn = (index: number, prompt: string, method: string, s: PageState | null, to: boolean): void => {
+      const base = s?.t0 ?? null
+      const r = (t: number | null | undefined): number | null => (t == null || base == null ? null : t - base)
+      turns.push({
+        index,
+        prompt,
+        sendMethod: method,
+        sendToFirstVisibleMs: r(s?.tFirstVisible),
+        sendToTurnEndMs: r(s?.tEnd),
+        sendToUserBubbleMs: r(s?.tUserBubble),
+        sendToAssistantContainerMs: r(s?.tAssistantContainer),
+        sendToStreamingStartMs: r(s?.tStreamStart),
+        firstVisibleKind: s?.firstVisibleKind ?? null,
+        endReason: to ? 'timeout' : (s?.endReason ?? null),
+        timedOut: to
+      })
+    }
+
+    /* -------------------------------------------------------- the driving */
+
+    let sendMethod = 'enter'
+    let currentPrompt = args.prompt
+    let t0Absolute: number | null = null
+
+    const ctx: ActionContext = {
+      screenshot,
+      snapshotsDir,
+      waitTurnEnd: async (budget) => {
+        const to = await waitTurnEnd(budget)
+        timedOut = timedOut || to
+        recordTurn(turns.length, currentPrompt, sendMethod, sampler.state, to)
+        return to
+      },
+      sendPrompt: async (text) => {
+        sendMethod = await sendPrompt(text)
+        currentPrompt = text
+        return sendMethod
+      },
+      budgetMs: args.timeoutMs
+    }
+
+    /** Runs one list of actions, logging each. `phase` labels them in run.json. */
+    const runActions = async (list: Action[], phase: 'pre' | 'post'): Promise<void> => {
+      for (let i = 0; i < list.length; i++) {
+        const action = list[i]
+        const startedMs = Date.now()
+        const rel0 = t0Absolute == null ? null : startedMs - t0Absolute
+        const log = (ok: boolean, result: string): void => {
+          actionLog.push({
+            index: actionLog.length,
+            type: `${phase}:${action.type}`,
+            detail: { ...action },
+            atMsFromSend: rel0,
+            durationMs: Date.now() - startedMs,
+            ok,
+            result
+          })
+        }
+        try {
+          log(true, await runAction(cdp!, action, ctx))
+        } catch (e) {
+          const result = e instanceof Error ? e.message : String(e)
+          log(false, result)
+          if (!action.optional) throw new Error(`driver action ${phase}[${i}] (${action.type}) failed: ${result}`)
+          notes.push(`optional driver action ${phase}[${i}] (${action.type}) failed: ${result}`)
+        }
+      }
+    }
+
+    // Pre-actions: composer toggles the task needs set before Enter, and any
+    // earlier turns the prompt is meant to land after.
+    await runActions(args.preActions, 'pre')
+
+    sendMethod = await sendPrompt(args.prompt)
+    t0Absolute = (await readState()).t0
+    const taskTurnIndex = turns.length
+
+    // Post-actions run while the turn is live — pressing Stop or clicking
+    // Cancel is only meaningful mid-turn. If none of them waits for the turn to
+    // finish, the wait is appended.
+    const actions: Action[] = [...args.actions]
+    if (!actions.some((a) => a.type === 'waitTurnEnd')) actions.push({ type: 'waitTurnEnd' })
+    await runActions(actions, 'post')
+
+    if (turns.length === taskTurnIndex) {
+      // No waitTurnEnd ran (an action list that only waits by clock). Record
+      // whatever the sampler has so the run still reports a turn.
+      recordTurn(taskTurnIndex, args.prompt, sendMethod, sampler.state, timedOut)
+    }
+
+    const t0 = sampler.state?.t0 ?? null
     const rel = (t: number | null | undefined): number | null =>
       t == null || t0 == null ? null : t - t0
 
@@ -760,14 +1536,36 @@ async function main(): Promise<void> {
     // collapsed, because that is what the user was looking at.
     const capRaw = await cdp.evalString(CAPTURE)
     const cap = JSON.parse(capRaw) as Capture
-    await screenshot('turn-end', rel(state?.tEnd ?? null) ?? null)
+    await screenshot('turn-end', rel(sampler.state?.tEnd ?? null) ?? null)
 
     // Then open everything and capture again, for the reader who wants inside.
     const expanded = await cdp.evalString(EXPAND)
     await sleep(300)
     const capExpRaw = await cdp.evalString(CAPTURE)
     const capExp = JSON.parse(capExpRaw) as Capture
-    await screenshot('turn-end-expanded', rel(state?.tEnd ?? null) ?? null)
+    await screenshot('turn-end-expanded', rel(sampler.state?.tEnd ?? null) ?? null)
+
+    // The turn's own record, when the app was told to keep one. Several tasks
+    // cross-check what the transcript SHOWS against what the app RECORDS as
+    // having executed, and that comparison needs both halves.
+    let auditExport: Record<string, unknown> | null = null
+    if ((liveSettings.audit as Json | undefined)?.enabled === true) {
+      const raw = await cdp.evalString(
+        `window.api.auditExport().then(r => JSON.stringify(r)).catch(e => JSON.stringify({ ok: false, error: String(e && e.message || e) }))`
+      )
+      const res = JSON.parse(raw) as { ok?: boolean; entries?: number; chainValid?: boolean; error?: string }
+      auditExport = {
+        file: res.ok ? 'trace/audit.jsonl' : null,
+        entries: res.entries ?? null,
+        hashChainValid: res.chainValid ?? null,
+        error: res.ok ? null : (res.error ?? 'export refused'),
+        note:
+          'The app\'s own append-only session record for this run, exported through its own ' +
+          'Export-audit path. A task that compares "what the transcript shows" against "what the ' +
+          'app says ran" reads this file for the second half.'
+      }
+      if (!res.ok) notes.push(`audit export failed: ${res.error ?? 'unknown'}`)
+    }
 
     if (!cap.rootFound) notes.push('the transcript container could not be resolved; text artifacts may be empty')
     if (timedOut) notes.push(`the turn had not finished after ${args.timeoutMs} ms; capture is of an unfinished turn`)
@@ -791,30 +1589,65 @@ async function main(): Promise<void> {
     const blockCount = capExp.messages.reduce((n, m) => n + m.blocks.length, 0)
     const citationCount = capExp.messages.reduce((n, m) => n + m.citations.length, 0)
 
+    /* ------------------------------------------------------------ fixtures */
+
+    // The fixture logs are task evidence, not harness bookkeeping: a check like
+    // "assert the search fixture was hit exactly once" is answered from here.
+    // They carry no arm identity, so they are not underscore-prefixed.
+    const fixtureReports: Record<string, unknown>[] = []
+    const validityReasons: string[] = []
+    if (fixtures.length) {
+      mkdirSync(join(runDir, 'fixtures'), { recursive: true })
+      for (const f of fixtures) {
+        const file = `fixtures/${f.kind}.json`
+        f.writeLog(join(runDir, file))
+        fixtureReports.push({
+          kind: f.kind,
+          url: f.url,
+          file,
+          expectHit: f.expectHit,
+          requestCount: f.requests.length,
+          injectedCount: f.injected().length,
+          actions: f.requests.map((r) => r.action)
+        })
+        if (f.requests.length === 0 && f.expectHit) {
+          validityReasons.push(
+            `the ${f.kind} fixture was configured but never received a request — the app did not ` +
+              'use it, so this run did not exercise the path the task is about'
+          )
+        }
+      }
+    }
+    const validity = validityReasons.length ? 'INVALID' : 'VALID'
+
     const run = {
       schema: 'h2h-capture/1',
       taskId: args.taskId,
       prompt: args.prompt,
       startedAtIso: startedAt.toISOString(),
       finishedAtIso: new Date().toISOString(),
-      send: { method: sendMethod, composerCleared: cleared },
+      send: { method: turns[taskTurnIndex]?.sendMethod ?? sendMethod },
       timings: {
-        sendToFirstVisibleMs: rel(state?.tFirstVisible ?? null),
-        sendToTurnEndMs: rel(state?.tEnd ?? null),
-        sendToUserBubbleMs: rel(state?.tUserBubble ?? null),
-        sendToAssistantContainerMs: rel(state?.tAssistantContainer ?? null),
-        sendToStreamingStartMs: rel(state?.tStreamStart ?? null),
-        firstVisibleKind: state?.firstVisibleKind ?? null,
-        endReason: timedOut ? 'timeout' : (state?.endReason ?? null),
-        timedOut,
+        sendToFirstVisibleMs: turns[taskTurnIndex]?.sendToFirstVisibleMs ?? null,
+        sendToTurnEndMs: turns[taskTurnIndex]?.sendToTurnEndMs ?? null,
+        sendToUserBubbleMs: turns[taskTurnIndex]?.sendToUserBubbleMs ?? null,
+        sendToAssistantContainerMs: turns[taskTurnIndex]?.sendToAssistantContainerMs ?? null,
+        sendToStreamingStartMs: turns[taskTurnIndex]?.sendToStreamingStartMs ?? null,
+        firstVisibleKind: turns[taskTurnIndex]?.firstVisibleKind ?? null,
+        endReason: turns[taskTurnIndex]?.endReason ?? null,
+        timedOut: turns[taskTurnIndex]?.timedOut ?? timedOut,
+        taskTurnIndex,
+        turnNote:
+          'These figures are the task prompt\'s own turn (index taskTurnIndex in "turns"). A task whose driver sent follow-up ' +
+          'turns reports each of them in "turns" below, in order.',
         clock:
           'page Date.now(); t0 is stamped in the same evaluate that dispatches the Enter keydown, ' +
           'so CDP round-trips and screenshot stalls are excluded from every figure here',
-        samplingIntervalMs: state?.sampleMs ?? null,
+        samplingIntervalMs: sampler.state?.sampleMs ?? null,
         samplingNote:
           'a MutationObserver plus a ' +
-          `${state?.sampleMs ?? 20} ms interval; first-visible and turn-end are therefore accurate to about ` +
-          `${state?.sampleMs ?? 20} ms, not better`,
+          `${sampler.state?.sampleMs ?? 20} ms interval; first-visible and turn-end are therefore accurate to about ` +
+          `${sampler.state?.sampleMs ?? 20} ms, not better`,
         definitions: {
           firstVisible:
             'first non-empty assistant content on screen — rendered prose, or a tool/plan/reasoning ' +
@@ -846,6 +1679,36 @@ async function main(): Promise<void> {
           'header — exactly what was on screen. transcript-expanded.txt is the same transcript after ' +
           'every collapsed disclosure was opened.'
       },
+      turns,
+      setup: {
+        packsInstalled,
+        /**
+         * Every leaf of the --settings file, read back out of the running app
+         * through its own settings API. The run fails before the turn if any of
+         * these disagree, so a VALID run always shows them all true.
+         */
+        seededSettingsVerified: settingsChecks,
+        windowSize: args.windowSize,
+        viewportNote:
+          'A "viewport" driver action changes the layout viewport through CDP emulation, not the ' +
+          'OS window; --window sets the real window size before the app paints.'
+      },
+      /**
+       * Everything the driver did to the app after Enter, in order, with the
+       * time from send at which it happened. A critic reading a transcript that
+       * shows a cancelled plan or an interrupted turn can see here that the
+       * driver is what cancelled or interrupted it.
+       */
+      driverActions: actionLog,
+      fixtures: fixtureReports,
+      auditExport,
+      /**
+       * VALID or INVALID. INVALID means the run did not exercise the path the
+       * task is about — a configured fixture was never contacted — and must be
+       * reported as such rather than scored.
+       */
+      validity,
+      validityReasons,
       screenshots: shots,
       viewport: cap.viewport,
       notes
@@ -863,7 +1726,7 @@ async function main(): Promise<void> {
 
     let pkgVersion = 'unknown'
     try {
-      pkgVersion = (JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as { version?: string }).version ?? 'unknown'
+      pkgVersion = (JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')) as { version?: string }).version ?? 'unknown'
     } catch {
       /* leave unknown */
     }
@@ -875,7 +1738,8 @@ async function main(): Promise<void> {
           arm: args.arm,
           appVersion: pkgVersion,
           model: args.model,
-          baseUrl: seededConfig.settings.baseUrl,
+          baseUrl: String(seededSettings.baseUrl),
+          appRoot,
           electronBinary: electron,
           mainEntry,
           cdpPort: args.port,
@@ -902,11 +1766,20 @@ async function main(): Promise<void> {
         `turn end           ${fmt(run.timings.sendToTurnEndMs)} (${run.timings.endReason ?? 'n/a'})`,
         `reply              ${run.reply.chars} chars / ${run.reply.words} words`,
         `messages / blocks  ${run.transcript.messageCount} / ${run.transcript.blockCount}`,
-        `screenshots        ${shots.map((s) => `${s.phase}:${s.bytes}B`).join('  ')}`,
+        `screenshots        ${shots.map((s) => `${s.phase}:${s.bytes}B`).join('  ') || 'none'}`,
+        `turns              ${turns.map((t) => `#${t.index} ${fmt(t.sendToTurnEndMs)}`).join('  ')}`,
+        `driver actions     ${actionLog.map((a) => `${a.type}${a.ok ? '' : '!'}`).join(' → ') || 'none'}`,
+        `fixtures           ${
+          fixtureReports.length
+            ? fixtureReports.map((f) => `${String(f.kind)}:${String(f.requestCount)} req`).join('  ')
+            : 'none'
+        }`,
+        `validity           ${validity}${validityReasons.length ? ` — ${validityReasons.join('; ')}` : ''}`,
         notes.length ? `notes              ${notes.join(' | ')}` : 'notes              none',
         ''
       ].join('\n')
     )
+    if (validity === 'INVALID') process.exitCode = 3
   } catch (err) {
     await shutdown()
     // Leave the run directory in place on failure; the partial artifacts and
@@ -950,9 +1823,28 @@ FILES
                            role, full text, prose, inline blocks (tool calls,
                            plans, reasoning, code runs), citation strips and
                            any red/error text
-  run.json                 timings, counts, and the definitions behind them
+  run.json                 timings, counts, and the definitions behind them,
+                           plus every action the driver took and whether the
+                           run is VALID (see below)
   screenshots/             mid-turn frames and the frame at turn end, plus one
                            with every section expanded
+  snapshots/               DOM captured at named moments the driver chose (for
+                           example, a plan block before and after Cancel), and
+                           keyboard-traversal records
+  fixtures/                every request the task's loopback servers served. If
+                           a task claims to have exercised a fixture, it is
+                           here that the claim is checked.
+  trace/audit.jsonl        present only when the run was told to keep a session
+                           audit log: the application's own append-only record
+                           of the turn. Where the transcript shows what the
+                           reader saw, this shows what the application says
+                           happened — the two are meant to be compared.
+
+VALIDITY
+  run.json carries validity: VALID or INVALID. INVALID means the run did not
+  exercise the path the task is about — most often a fixture that was set up
+  and then never contacted. An INVALID run must be reported as invalid, not
+  scored against the other arm.
 
 TIMINGS
   Every timestamp was taken inside the page, not by the driving script, so the

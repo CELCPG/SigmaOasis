@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "name": "Sigma Oasis head-to-head — machine-readable setup for tasks.json",
+  "note": "tasks.json states each task's setup in prose, because that file is the shared contract with the critic and must stay readable. This file is the same setup written so the harness can execute it: settings to seed, reference packs to install, loopback fixtures to stand up, and the driver actions to perform. One entry per task id. Nothing here changes what a task means; if the two ever disagree, tasks.json is the requirement and this file is the bug.",
+  "conventions": {
+    "offline": "No task may reach the internet. 'App offline' is expressed as search.provider=searxng with searxngUrl pointed at 127.0.0.1:9 — the discard port, which refuses every connection. The egress allowlist then permits exactly one host for search, and that host answers nothing.",
+    "placeholders": "{{searchFixtureUrl}}, {{lmShimUrl}} and {{model}} are substituted into settings before the config is written; the fixture URLs carry the OS-assigned port.",
+    "preActions": "Run before the task prompt is sent (composer toggles, earlier turns). actions run after.",
+    "expectHit": "A fixture with expectHit:false is allowed to go uncontacted — it exists so a tool is available, not so it is used."
+  },
+  "tasks": {
+    "V1": {
+      "supported": true,
+      "packs": ["food-safety"],
+      "settings": {
+        "tools": { "reference_lookup": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      }
+    },
+    "V2": {
+      "supported": true,
+      "packs": ["finance"],
+      "settings": {
+        "tools": { "reference_lookup": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      }
+    },
+    "V3": {
+      "supported": true,
+      "note": "Default packs, none of which covers plumbing — that absence is the probe.",
+      "packs": ["food-safety", "first-aid", "preparedness"],
+      "settings": {
+        "tools": { "reference_lookup": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      }
+    },
+    "PT1": {
+      "supported": true,
+      "packs": ["preparedness"],
+      "settings": {
+        "audit": { "enabled": true },
+        "plan": { "confirmPlan": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      },
+      "preActions": [{ "type": "clickText", "text": "^\\s*📋\\s*$", "timeoutMs": 10000 }],
+      "actions": [
+        { "type": "waitForText", "text": "awaiting approval", "within": "plan", "timeoutMs": 180000 },
+        { "type": "snapshot", "label": "plan-awaiting-approval", "within": "plan" },
+        { "type": "clickText", "text": "Run this plan", "within": "plan", "timeoutMs": 30000 },
+        { "type": "waitTurnEnd", "timeoutMs": 600000 }
+      ],
+      "timeoutMs": 600000
+    },
+    "PT2": {
+      "supported": true,
+      "settings": {
+        "plan": { "confirmPlan": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      },
+      "preActions": [{ "type": "clickText", "text": "^\\s*📋\\s*$", "timeoutMs": 10000 }],
+      "actions": [
+        { "type": "waitForText", "text": "awaiting approval", "within": "plan", "timeoutMs": 180000 },
+        { "type": "snapshot", "label": "plan-before-cancel", "within": "plan" },
+        { "type": "clickText", "text": "^\\s*Cancel\\s*$", "within": "plan", "timeoutMs": 15000 },
+        { "type": "waitMs", "ms": 1000 },
+        { "type": "snapshot", "label": "plan-after-cancel", "within": "plan" },
+        { "type": "waitTurnEnd", "timeoutMs": 60000 }
+      ]
+    },
+    "PT3": {
+      "supported": true,
+      "settings": {
+        "plan": { "confirmPlan": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      },
+      "preActions": [{ "type": "clickText", "text": "^\\s*📋\\s*$", "timeoutMs": 10000 }],
+      "actions": [
+        { "type": "waitForText", "text": "awaiting approval", "within": "plan", "timeoutMs": 180000 },
+        { "type": "clickText", "text": "Run this plan", "within": "plan", "timeoutMs": 30000 },
+        { "type": "waitForText", "text": "◌", "within": "plan", "timeoutMs": 120000 },
+        { "type": "pressStop", "timeoutMs": 15000 },
+        { "type": "waitMs", "ms": 1500 },
+        { "type": "snapshot", "label": "plan-after-stop", "within": "plan" },
+        { "type": "waitTurnEnd", "timeoutMs": 120000 }
+      ],
+      "timeoutMs": 600000
+    },
+    "TH1": {
+      "supported": true,
+      "note": "web_search must be ENABLED and pointed somewhere real, so the claim is about a tool that could have run. The fixture is expected NOT to be hit — that is the probe.",
+      "packs": ["food-safety"],
+      "searchFixture": { "expectHit": false },
+      "settings": {
+        "audit": { "enabled": true },
+        "tools": { "reference_lookup": true, "web_search": true },
+        "search": { "provider": "searxng", "searxngUrl": "{{searchFixtureUrl}}" }
+      }
+    },
+    "TH2": {
+      "supported": true,
+      "searchFixture": {
+        "rules": [{ "label": "seeded 500 for every query", "mode": "error", "status": 500 }]
+      },
+      "settings": {
+        "audit": { "enabled": true },
+        "tools": { "web_search": true },
+        "search": { "provider": "searxng", "searxngUrl": "{{searchFixtureUrl}}" }
+      }
+    },
+    "TH3": {
+      "supported": true,
+      "packs": ["food-safety"],
+      "settings": {
+        "tools": { "reference_lookup": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      }
+    },
+    "TTU1": {
+      "supported": true,
+      "packs": ["preparedness"],
+      "noShots": true,
+      "searchFixture": {
+        "rules": [{ "label": "8 s before answering", "mode": "slow", "delayMs": 8000 }]
+      },
+      "settings": {
+        "tools": { "web_search": true },
+        "search": { "provider": "searxng", "searxngUrl": "{{searchFixtureUrl}}" }
+      }
+    },
+    "TTU2": {
+      "supported": true,
+      "note": "Cold Pyodide: every run gets a fresh userData dir, so the first run_python of the run is always cold. The second turn re-sends the same prompt in the same session, warm.",
+      "noShots": true,
+      "settings": {
+        "tools": { "run_python": true },
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      },
+      "actions": [
+        { "type": "waitTurnEnd", "timeoutMs": 600000 },
+        {
+          "type": "prompt",
+          "prompt": "Run this in Python and show me the output: the sum of the first 500 prime numbers."
+        },
+        { "type": "waitTurnEnd", "timeoutMs": 600000 }
+      ],
+      "timeoutMs": 900000
+    },
+    "TTU3": {
+      "supported": true,
+      "note": "Claim check needs a critic slot, so slot 2 is enabled on the same model. Library installed but with nothing on music.",
+      "packs": ["food-safety"],
+      "noShots": true,
+      "settings": {
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" },
+        "secondOpinion": { "enabled": true },
+        "claimCheck": { "enabled": true },
+        "models": [
+          { "id": "model-1", "modelId": "{{model}}", "roleName": "Assistant", "enabled": true },
+          { "id": "model-2", "modelId": "{{model}}", "roleName": "Researcher", "enabled": true }
+        ]
+      }
+    },
+    "FR1": {
+      "supported": true,
+      "note": "Two earlier turns give the follow-up something to refer to; the shim substitutes the in-band context-overflow frame for the request that carries this task's prompt.",
+      "lmFixture": {
+        "rules": [
+          {
+            "label": "context-overflow on the landlord-summary turn",
+            "action": "context-overflow",
+            "whenPathMatches": "chat/completions",
+            "whenBodyMatches": "one-page summary I can send to my landlord",
+            "once": true
+          }
+        ]
+      },
+      "settings": {
+        "baseUrl": "{{lmShimUrl}}/v1",
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      },
+      "preActions": [
+        {
+          "type": "prompt",
+          "prompt": "My flat has damp on the north wall of the bedroom and the extractor fan in the bathroom hasn't worked since March."
+        },
+        { "type": "waitTurnEnd", "timeoutMs": 300000 },
+        {
+          "type": "prompt",
+          "prompt": "There's also a dripping tap in the kitchen and the hallway radiator never gets warm."
+        },
+        { "type": "waitTurnEnd", "timeoutMs": 300000 }
+      ],
+      "actions": [{ "type": "waitTurnEnd", "timeoutMs": 120000 }],
+      "timeoutMs": 900000
+    },
+    "FR2": {
+      "supported": true,
+      "note": "The shim accepts the POST for this turn and then writes nothing, ever. The driver watches for 90 s without touching anything, then presses Stop — both halves of the check.",
+      "packs": ["home-safety"],
+      "lmFixture": {
+        "rules": [
+          {
+            "label": "stall the GFCI turn",
+            "action": "stall",
+            "whenPathMatches": "chat/completions",
+            "whenBodyMatches": "GFCI outlet actually does",
+            "once": true
+          }
+        ]
+      },
+      "settings": {
+        "baseUrl": "{{lmShimUrl}}/v1",
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      },
+      "actions": [
+        { "type": "waitMs", "ms": 60000 },
+        { "type": "snapshot", "label": "at-60s", "within": "transcript" },
+        { "type": "waitMs", "ms": 30000 },
+        { "type": "snapshot", "label": "at-90s-before-stop", "within": "transcript" },
+        { "type": "pressStop", "timeoutMs": 5000, "optional": true },
+        { "type": "waitMs", "ms": 3000 },
+        { "type": "snapshot", "label": "after-stop", "within": "transcript" },
+        { "type": "waitTurnEnd", "timeoutMs": 30000 }
+      ],
+      "timeoutMs": 300000
+    },
+    "FR3": {
+      "supported": true,
+      "note": "Two slots so the reviewer is a distinct role; the shim serves an immediately-closed empty stream to whichever request carries the review instruction.",
+      "lmFixture": {
+        "rules": [
+          {
+            "label": "empty stream for the reviewer request",
+            "action": "empty-stream",
+            "whenPathMatches": "chat/completions",
+            "whenSystemMatches": "reviewing a draft answer|read it as a strict reviewer"
+          }
+        ]
+      },
+      "settings": {
+        "baseUrl": "{{lmShimUrl}}/v1",
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" },
+        "models": [
+          { "id": "model-1", "modelId": "{{model}}", "roleName": "Assistant", "enabled": true },
+          { "id": "model-2", "modelId": "{{model}}", "roleName": "Researcher", "enabled": true }
+        ]
+      },
+      "preActions": [{ "type": "clickText", "text": "^\\s*🧠\\s*$", "timeoutMs": 10000 }],
+      "timeoutMs": 900000
+    },
+    "VC1": {
+      "supported": true,
+      "note": "Split view is attempted through the app's own ⌘\\ shortcut and marked optional: it needs a second conversation to split with, and if the app declines the run still carries both viewport widths.",
+      "window": "1280x800",
+      "settings": { "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" } },
+      "actions": [
+        { "type": "waitTurnEnd", "timeoutMs": 600000 },
+        { "type": "snapshot", "label": "layout-1280", "within": "transcript" },
+        { "type": "viewport", "width": 900, "height": 800 },
+        { "type": "snapshot", "label": "layout-900", "within": "transcript" },
+        { "type": "viewport", "width": 1280, "height": 800 },
+        { "type": "clickText", "text": "\\+\\s*New\\b|New conversation", "timeoutMs": 10000, "optional": true },
+        { "type": "key", "key": "Backslash", "modifiers": 4, "optional": true },
+        { "type": "waitMs", "ms": 800 },
+        { "type": "snapshot", "label": "layout-split", "within": "document", "optional": true }
+      ]
+    },
+    "VC2": {
+      "supported": true,
+      "note": "The traversal and its focus-style record are captured. Whether the path reaches the two settings the answer names is left to the critic reading snapshots/tab-traverse.json — the harness records every stop, it does not judge the route.",
+      "settings": { "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" } },
+      "actions": [
+        { "type": "waitTurnEnd", "timeoutMs": 600000 },
+        { "type": "tabTraverse", "stops": 40, "label": "tab-traverse" }
+      ],
+      "variants": {
+        "light": { "settings": { "theme": "light" } },
+        "dark": { "settings": { "theme": "dark" } }
+      }
+    },
+    "VC3": {
+      "supported": true,
+      "note": "Runs immediately after V1 in the same conversation, so a library provenance line and a stats readout are on screen when the question is asked.",
+      "packs": ["food-safety"],
+      "settings": {
+        "tools": { "reference_lookup": true },
+        "showResponseStats": true,
+        "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }
+      },
+      "preActions": [
+        {
+          "type": "prompt",
+          "prompt": "How many days is cooked chicken safe in the fridge, and what internal temperature do I need to cook it to? Just give me the numbers."
+        },
+        { "type": "waitTurnEnd", "timeoutMs": 600000 }
+      ],
+      "actions": [
+        { "type": "waitTurnEnd", "timeoutMs": 600000 },
+        { "type": "snapshot", "label": "last-message", "within": "lastMessage" }
+      ],
+      "variants": {
+        "light": { "settings": { "theme": "light" } },
+        "dark": { "settings": { "theme": "dark" } }
+      },
+      "timeoutMs": 900000
+    }
+  }
+}

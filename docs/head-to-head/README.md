@@ -214,3 +214,62 @@ A new task earns its place only if all of these hold:
 
 If a task starts passing on every build, it has stopped measuring anything —
 retire it and write a harder one. Do not weaken it.
+
+---
+
+## Running it
+
+The harness is three files:
+
+- `scripts/h2h-fixtures.ts` — the loopback servers described above, as a
+  reusable module (and a small CLI for poking one by hand). Each keeps a request
+  log; a run whose fixture was never contacted is marked `INVALID` rather than
+  scored.
+- `scripts/h2h-capture.ts` (`scripts/h2h-capture.sh`) — one task, one arm, one
+  run directory. `--app <dir>` points it at a build other than this repo's,
+  which is what makes an A/B possible; `--settings`, `--packs`,
+  `--search-fixture`, `--lm-fixture`, `--pre-actions` and `--actions` carry a
+  task's setup in. Seeded settings are read back out of the *running* app and
+  the run fails if it did not take them.
+- `scripts/h2h-run.sh` — one arm, many tasks. Reads the prompt from
+  `tasks.json` and the executable setup from `task-setup.json`.
+
+`task-setup.json` is this file's `setup` prose written so a machine can run it:
+settings, packs, fixtures and driver actions per task id. If the two ever
+disagree, `tasks.json` is the requirement and `task-setup.json` is the bug.
+
+```
+# arm B — the current build
+bash scripts/h2h-run.sh --arm B-current  --model qwen3.8-9b V1 TH2 PT2
+
+# arm A — a baseline build in a git worktree, same driver, same tasks
+bash scripts/h2h-run.sh --arm A-baseline --model qwen3.8-9b \
+     --app ../oasis-baseline --port 9344 V1 TH2 PT2
+```
+
+Runs land in `.h2h-runs/<arm>/<taskId>-<timestamp>/`. Beyond the artifacts the
+capture always wrote, a run now carries `fixtures/` (every request each fixture
+served), `snapshots/` (DOM captured at the moments a task names, plus keyboard
+traversal records), and in `run.json`: `driverActions` (everything the driver
+did and when), `turns` (one entry per turn, for the multi-turn tasks),
+`setup.seededSettingsVerified`, and `validity`.
+
+### Driver actions
+
+`waitMs`, `waitForText`, `waitForSelector`, `clickText`, `pressStop`, `key`,
+`viewport`, `snapshot`, `tabTraverse`, `prompt` (a follow-up turn in the same
+conversation) and `waitTurnEnd`. `clickText` matches a control by the text a
+user can see; `key` goes through `Input.dispatchKeyEvent`, so Tab really moves
+focus. Anything marked `optional` is recorded and stepped over on failure;
+anything else fails the run.
+
+### The turn's own record
+
+Three tasks (`PT1`, `TH1`, `TH2`) cross-check what the transcript *shows*
+against what the app *records* as having run. `task-setup.json` turns the
+session audit log on for those, and the capture exports it to
+`trace/audit.jsonl` at the end of the run through the app's own
+Export-audit path — the launcher answers the native save dialog with a fixed
+path, which is the only part of the app the harness touches, and it touches the
+dialog rather than anything that decides what gets written. `run.json`
+`auditExport` records the entry count and whether the hash chain verified.
