@@ -4,20 +4,51 @@
   "localModel": "qwen3.8-9b",
   "updated": "2026-08-24",
   "invariants": [
-    { "name": "node test suite", "value": "1546 pass / 0 fail", "state": "green" },
-    { "name": "electron-vite build", "value": "exit 0", "state": "green" },
-    { "name": "local-only", "value": "no telemetry, no cloud dependency", "state": "green" },
-    { "name": "tolerances", "value": "none widened, no case deleted", "state": "green" }
+    {
+      "name": "node test suite",
+      "value": "1615 pass / 0 fail",
+      "state": "green"
+    },
+    {
+      "name": "render + style checks",
+      "value": "25 render · 25 style · 26 md · 40 workbench · 24 transport",
+      "state": "green"
+    },
+    {
+      "name": "electron-vite build",
+      "value": "exit 0",
+      "state": "green"
+    },
+    {
+      "name": "tolerances",
+      "value": "none widened, no case deleted",
+      "state": "green"
+    }
   ],
   "referenceArm": {
     "status": "blocked",
     "summary": "Every automated route to a live Claude Desktop or ChatGPT reference arm is closed on this machine. Nothing here is claimed against a reference app until one is reachable.",
     "routes": [
-      { "route": "Claude Desktop + CDP debug port", "result": "App refuses to start: “a debugging or network-override switch is present on the command line.” Deliberate anti-automation guard." },
-      { "route": "Claude Desktop GUI automation", "result": "osascript is not allowed assistive access; UI elements enabled = false. Needs a password-gated security setting." },
-      { "route": "Screenshot the reference app", "result": "screencapture: could not create image from display. Screen Recording permission denied." },
-      { "route": "Claude in Chrome extension bridge", "result": "A browser is listed, but the extension is not reachable from this session." },
-      { "route": "In-app browser → claude.ai", "result": "Navigation denied by browsing policy. ChatGPT Desktop is not installed." }
+      {
+        "route": "Claude Desktop + CDP debug port",
+        "result": "App refuses to start: “a debugging or network-override switch is present on the command line.” Deliberate anti-automation guard."
+      },
+      {
+        "route": "Claude Desktop GUI automation",
+        "result": "osascript is not allowed assistive access; UI elements enabled = false. Needs a password-gated security setting."
+      },
+      {
+        "route": "Screenshot the reference app",
+        "result": "screencapture: could not create image from display. Screen Recording permission denied."
+      },
+      {
+        "route": "Claude in Chrome extension bridge",
+        "result": "A browser is listed, but the extension is not reachable from this session."
+      },
+      {
+        "route": "In-app browser → claude.ai",
+        "result": "Navigation denied by browsing policy. ChatGPT Desktop is not installed."
+      }
     ],
     "cheapestUnblock": "Install and sign into the Claude in Chrome extension. No password, no security settings, no app restart — and this session runs inside Claude.app, so restarting that app would kill the run."
   },
@@ -27,12 +58,48 @@
     "note": "Both arms run the identical local model on identical prompts, so model size is held constant and only harness behaviour varies. Critics receive the two run directories with no arm labels. This measures whether a round improved the app; it does not measure the app against a reference product."
   },
   "dimensions": [
-    { "key": "verifiability", "title": "Answer verifiability and citations", "gaps": 14, "high": 6, "closed": 0 },
-    { "key": "plan-transparency", "title": "Plan-mode transparency", "gaps": 14, "high": 5, "closed": 0 },
-    { "key": "tool-honesty", "title": "Tool-call honesty", "gaps": 10, "high": 3, "closed": 0 },
-    { "key": "time-to-useful", "title": "Time-to-useful-output", "gaps": 15, "high": 5, "closed": 0 },
-    { "key": "failure-recovery", "title": "Failure recovery", "gaps": 11, "high": 4, "closed": 0 },
-    { "key": "visual-craft", "title": "Visual craft", "gaps": 12, "high": 4, "closed": 0 }
+    {
+      "key": "verifiability",
+      "title": "Answer verifiability and citations",
+      "gaps": 14,
+      "high": 6,
+      "closed": 2
+    },
+    {
+      "key": "plan-transparency",
+      "title": "Plan-mode transparency",
+      "gaps": 14,
+      "high": 5,
+      "closed": 1
+    },
+    {
+      "key": "tool-honesty",
+      "title": "Tool-call honesty",
+      "gaps": 10,
+      "high": 3,
+      "closed": 2
+    },
+    {
+      "key": "time-to-useful",
+      "title": "Time-to-useful-output",
+      "gaps": 15,
+      "high": 5,
+      "closed": 2
+    },
+    {
+      "key": "failure-recovery",
+      "title": "Failure recovery",
+      "gaps": 11,
+      "high": 4,
+      "closed": 3
+    },
+    {
+      "key": "visual-craft",
+      "title": "Visual craft",
+      "gaps": 12,
+      "high": 4,
+      "closed": 3
+    }
   ],
   "rounds": [
     {
@@ -46,7 +113,56 @@
       "fix": null,
       "findings": "88 evidence-backed gaps, 28 of them high severity, every one carrying a file:line or an executed probe.",
       "evals": {}
+    },
+    {
+      "n": 1,
+      "label": "Six dimensions, one gap each",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "baseline (pre-round-1)",
+        "B": "baseline + round-1 fixes"
+      },
+      "what": "Six builders in isolated worktrees, one dimension each, every fix carrying a new mechanical case. Two semantic merge conflicts resolved by composing both designs rather than picking one.",
+      "findings": "The action-row gate was rewritten twice for opposite correct reasons — an empty failed reply needs Regenerate, and a complete reply must not wait on the verification tail. Both now rest on one shared predicate so they cannot drift.",
+      "verdict": "pending — blind critics have not run yet",
+      "gap": null,
+      "fix": "Retrieval arms the measurement check · tool claims joined to the executed set · failed tools stop disarming the link checks · plan-step tool calls made visible · action row follows the answer, waits get names · streamed error frames diagnosed and recoverable · long tokens wrap, focus rings restored, prose contrast raised",
+      "evals": {
+        "node cases": "1546 → 1615",
+        "new style checks": "25",
+        "high gaps closed": "13"
+      }
     }
   ],
-  "evalHistory": []
+  "evalHistory": [
+    {
+      "round": 0,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1546",
+      "delta": null
+    },
+    {
+      "round": 1,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1615",
+      "delta": "+69"
+    },
+    {
+      "round": 1,
+      "suite": "render/style",
+      "metric": "style checks",
+      "value": "25",
+      "delta": "+25"
+    },
+    {
+      "round": 1,
+      "suite": "audit",
+      "metric": "high-severity gaps closed",
+      "value": "13 / 28",
+      "delta": "+13"
+    }
+  ]
 }
