@@ -119,6 +119,9 @@ rm -rf "$OUT"
   src/renderer/src/lib/projects.ts \
   src/renderer/src/lib/projectContext.ts \
   src/renderer/src/lib/conversationStats.ts \
+  src/renderer/src/lib/replyRecovery.ts \
+  src/renderer/src/hooks/chatTransport.ts \
+  src/preload/index.d.ts \
   src/renderer/src/stores/appStore.ts \
   test/harness.ts \
   test/*.test.ts
