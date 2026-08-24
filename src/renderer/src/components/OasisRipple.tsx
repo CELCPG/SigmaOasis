@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   MAX_RIPPLES,
   THINKING_VISUAL,
+  describeWait,
   resolveMotion,
-  type OasisState
+  startWaitClock,
+  type OasisState,
+  type WaitNotice
 } from '../lib/oasisRipple'
 
 /**
@@ -11,6 +14,11 @@ import {
  * ambient ripples while the model composes, a colored droplet + expanding
  * wave when a tool fires. All loading states (typing dots, spinners) funnel
  * through here; the state machine lives in lib/oasisRipple.ts.
+ *
+ * OasisRippleView is the whole of the markup and takes its two moving inputs —
+ * reduced motion, and how long the stream has been silent — as props, so the
+ * escalation a reader gets at sixty seconds can be rendered and asserted in
+ * plain Node (test/oasisRipple.test.ts) instead of watched for.
  */
 
 function useReducedMotion(): boolean {
@@ -32,8 +40,56 @@ interface ToolEvent {
   color: string
 }
 
-export function OasisRipple({ state, size = 64 }: { state: OasisState; size?: number }): JSX.Element | null {
+/**
+ * Elapsed silence, ticking on its own. `activity` is any value that changes
+ * when something new reaches the screen; a change restarts the clock, so the
+ * counter only ever measures a stream the reader cannot see moving.
+ */
+function useSilence(activity: string): number {
+  const [silentMs, setSilentMs] = useState(0)
+  useEffect(() => {
+    setSilentMs(0)
+    return startWaitClock(setSilentMs)
+  }, [activity])
+  return silentMs
+}
+
+export function OasisRipple({
+  state,
+  size = 64,
+  activity = '',
+  deadlineMs
+}: {
+  state: OasisState
+  size?: number
+  /** Changes whenever output appears; restarts the silence clock. */
+  activity?: string
+  /** The transport's own give-up for this phase, named once the wait escalates. */
+  deadlineMs: number
+}): JSX.Element | null {
   const reducedMotion = useReducedMotion()
+  const silentMs = useSilence(`${state.mode}:${state.activeToolId ?? ''}:${activity}`)
+  return (
+    <OasisRippleView
+      state={state}
+      size={size}
+      reducedMotion={reducedMotion}
+      wait={describeWait(silentMs, state, deadlineMs)}
+    />
+  )
+}
+
+export function OasisRippleView({
+  state,
+  size = 64,
+  reducedMotion,
+  wait
+}: {
+  state: OasisState
+  size?: number
+  reducedMotion: boolean
+  wait: WaitNotice
+}): JSX.Element | null {
   const motion = resolveMotion(reducedMotion)
   const [events, setEvents] = useState<ToolEvent[]>([])
 
@@ -60,13 +116,16 @@ export function OasisRipple({ state, size = 64 }: { state: OasisState; size?: nu
   const label = state.mode === 'tool' && state.tool ? state.tool.label : THINKING_VISUAL.label
   const detail =
     state.mode === 'tool' && state.runningCount > 1 ? ` +${state.runningCount - 1}` : ''
+  // The line the reader gets when nothing has arrived for a while. Ordered
+  // widest-first: what is being waited on, how long, when it self-recovers.
+  const waitText = [wait.detail, wait.elapsed, wait.deadline].filter(Boolean).join(' · ')
 
   return (
     <div
       className="oasis-ripple"
       role="status"
       aria-live="polite"
-      aria-label={`${label.toLowerCase()}${detail}`}
+      aria-label={`${label.toLowerCase()}${detail}${waitText ? ` — ${waitText}` : ''}`}
     >
       <div
         className="oasis-disc"
@@ -133,6 +192,11 @@ export function OasisRipple({ state, size = 64 }: { state: OasisState; size?: nu
           {label}
           {detail && <span className="oasis-label-detail">{detail}</span>}
         </span>
+        {waitText && (
+          <span className="oasis-wait" data-wait-level={wait.level}>
+            {waitText}
+          </span>
+        )}
       </div>
     </div>
   )

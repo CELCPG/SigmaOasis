@@ -42,6 +42,9 @@
    * light theme takes a deep teal instead. Both clear AA on their own surface.
    */
   --accent-ink: #00695a;
+  /* Same idea for amber: --accent-amber is light, and light-on-white is ~2:1.
+     The deep amber below measures 5.9:1 on the panel. */
+  --accent-amber-ink: #8a5a00;
 
   /*
    * Text. The alphas are set against the *composited* surface, not the canvas:
@@ -78,6 +81,7 @@
   --shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.3);
 
   --accent-ink: #4fffd1;
+  --accent-amber-ink: #ffd166;
 
   /*
    * The ink ramp is deliberately brighter than the original 0.92/0.6/0.35/0.2.
@@ -423,6 +427,20 @@ body {
 .oasis-label-detail {
   color: var(--text-tertiary);
   letter-spacing: 0.04em;
+}
+/* The silent-wait line. Secondary ink while it is only counting; the amber of
+   every other "this is not going well" surface once it escalates. */
+.oasis-wait {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oasis-wait[data-wait-level='escalated'] {
+  color: var(--accent-amber-ink);
 }
 
 /* Reduced motion: no droplets, no rings — the orb keeps its calm pulse. */

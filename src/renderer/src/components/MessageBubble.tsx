@@ -7,6 +7,7 @@ import { contextItemLabel } from '../lib/libraryRecall'
 import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
+import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
 import { replyAffordances } from '../lib/replyRecovery'
 import { type TurnPhase } from '../lib/turnPhase'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
@@ -505,6 +506,16 @@ export const MessageBubble = memo(function MessageBubble({
   // model composes, droplet + colored wave when a tool fires — regardless of
   // the hideToolCalls setting, since the ripple *is* the disclosure.
   const oasisState = describeOasisState(isStreaming, displayContent, toolCalls)
+  // Everything that would count as output arriving. While any of it moves the
+  // ripple's silence clock keeps resetting; when it stops, the clock runs and
+  // the disc starts saying how long it has been and what it is waiting on.
+  const streamActivity = `${displayContent.length}:${(message.reasoning ?? '').length}:${toolCalls
+    .map((t) => `${t.id}${t.status}`)
+    .join(',')}`
+  // Which of the transport's two deadlines is actually counting down: a stream
+  // that has already produced something is under the stall timeout, one that
+  // has produced nothing at all is still under the first-byte ceiling.
+  const streamStarted = (message.reasoning ?? '') !== '' || toolCalls.length > 0
   // The action row follows the ANSWER, not the turn. Verification keeps
   // `streaming` true for seconds after the last token, and none of it can
   // change whether a finished reply may be copied, spoken or branched — so
@@ -621,7 +632,13 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        {oasisState.mode !== 'hidden' && <OasisRipple state={oasisState} />}
+        {oasisState.mode !== 'hidden' && (
+          <OasisRipple
+            state={oasisState}
+            activity={streamActivity}
+            deadlineMs={streamStarted ? STREAM_STALL_MS : FIRST_BYTE_TIMEOUT_MS}
+          />
+        )}
 
         {message.plan && (
           <PlanBlock messageId={message.id} plan={message.plan} records={toolCalls} />

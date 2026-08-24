@@ -129,6 +129,7 @@ rm -rf "$OUT"
   src/renderer/src/hooks/planMode.ts \
   src/renderer/src/lib/planState.ts \
   src/renderer/src/components/PlanBlockView.tsx \
+  src/renderer/src/components/OasisRipple.tsx \
   test/harness.ts \
   test/*.test.ts
 
