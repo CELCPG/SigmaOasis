@@ -129,6 +129,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const origins = report.origins ?? []
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
+  const toolClaims = report.toolClaims ?? []
   return (
     <div
       className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
@@ -145,12 +146,22 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         </div>
       )}
       {/*
+        v1.12.1: the reply's account of its own process. First, because a
+        reader who believes "I searched the web for this" reads everything
+        under it as sourced.
+      */}
+      {toolClaims.length > 0 && (
+        <div className={parts.length > 0 ? 'mt-1' : undefined}>
+          ⚠️ This reply says it used {toolClaims.join(', ')}, which did not run this turn.
+        </div>
+      )}
+      {/*
         Called out separately from figures and links because it is a different
         kind of wrong: not an unsupported number but a contradicted fact, and
         the one most likely to be repeated out loud to someone else.
       */}
       {origins.length > 0 && (
-        <div className={parts.length > 0 ? 'mt-1' : undefined}>
+        <div className={parts.length > 0 || toolClaims.length > 0 ? 'mt-1' : undefined}>
           ⚠️ This reply places the subject in {origins.join(', ')}, which the sources it consulted
           never mention.
         </div>
@@ -161,7 +172,11 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         about to put in front of customers.
       */}
       {contacts.length > 0 && (
-        <div className={parts.length > 0 || origins.length > 0 ? 'mt-1' : undefined}>
+        <div
+          className={
+            parts.length > 0 || toolClaims.length > 0 || origins.length > 0 ? 'mt-1' : undefined
+          }
+        >
           ⚠️ Contact details no tool returned: {contacts.join(', ')}. Verify before sending these
           anywhere.
         </div>

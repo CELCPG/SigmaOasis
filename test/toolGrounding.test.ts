@@ -10,7 +10,8 @@ import {
   unsourcedContacts,
   unsourcedFigures,
   unsourcedLinks,
-  unsourcedQuantities
+  unsourcedQuantities,
+  unrunToolClaims
 } from '../src/renderer/src/lib/toolGrounding'
 import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 
@@ -858,5 +859,115 @@ describe('conflictingToolFigures', () => {
       ['period return', -8.99, '%'],
       ['max loss', 160, '$']
     ])
+  })
+})
+
+/**
+ * v1.12.1: the reply's account of its own process, and the failure path that
+ * used to switch the source checks off.
+ *
+ * Both halves of one gap. Nothing joined the sentence "I've used web_search to
+ * gather the latest data" to the turn's actual tool set, so a model could
+ * narrate a search that never happened and every rung above stayed silent —
+ * the claim is not a figure, a link or an address. And when a search *did* run
+ * and errored, `sourceRecords` filtered it out, which disarmed the link, origin
+ * and address checks on exactly the turn where the model holds no retrieved
+ * URLs and everything it prints came from memory.
+ */
+describe('tool-use claims (v1.12.1)', () => {
+  test('a named tool that did not run this turn is flagged', () => {
+    const answer = "I've used web_search to gather the latest data on this."
+    assert.deepEqual(unrunToolClaims(answer, [rec('get_current_datetime', '2026-08-24')]), [
+      'web_search'
+    ])
+  })
+
+  test('the same claim about a tool that DID run is not flagged', () => {
+    const answer = "I've used web_search to gather the latest data on this."
+    assert.deepEqual(unrunToolClaims(answer, [rec('web_search', 'results')]), [])
+  })
+
+  test('a tool that ran and errored still ran — the reply saying so is true', () => {
+    const answer = 'I ran web_search for this.'
+    assert.deepEqual(unrunToolClaims(answer, [rec('web_search', 'timed out', 'error')]), [])
+  })
+
+  test('the spelled-out form counts only when named as a tool', () => {
+    assert.deepEqual(unrunToolClaims('I used the web search tool for this.', []), ['web_search'])
+    // Prose about the subject matter is not a claim about the app.
+    assert.deepEqual(unrunToolClaims('Using market data from your broker, decide.', []), [])
+  })
+
+  test('offering, declining or denying a tool is not claiming it', () => {
+    for (const answer of [
+      'I can run web_search if you want the current figure.',
+      'I could not use web_search here — it is disabled.',
+      'I have not used web_search, so this is from memory.',
+      'No web_search ran, so treat these as approximate.'
+    ]) {
+      assert.deepEqual(unrunToolClaims(answer, []), [], answer)
+    }
+  })
+
+  test('a claim about an earlier turn is not this turn\'s to judge', () => {
+    // These records are one turn's. "I used web_search earlier" may be true of
+    // a turn this pass never sees, and flagging it would be the noise that
+    // teaches a reader to dismiss the badge.
+    assert.deepEqual(unrunToolClaims('I used web_search earlier for these figures.', []), [])
+  })
+
+  test('reported through checkToolGrounding, with the badge naming the tool', () => {
+    const report = checkToolGrounding(
+      "I've used web_search to gather the latest data. Prices are stable.",
+      [rec('get_current_datetime', '2026-08-24')],
+      'whats the news'
+    )
+    assert.ok(report, 'expected a report')
+    assert.deepEqual(report!.toolClaims, ['web_search'])
+    assert.equal(groundingFindingCount(report), 1)
+    assert.match(describeGroundingFindings(report!), /says you used web_search/)
+  })
+
+  test('an honest reply on a toolless turn produces no report', () => {
+    assert.equal(checkToolGrounding('I have no search here, so this is from memory.', [], ''), null)
+  })
+})
+
+describe('an errored search arms the link check instead of disarming it (v1.12.1)', () => {
+  const answer = 'See https://www.example.com/2026-report for the figures.'
+
+  test('the measured backwards case: search errored, unsourced link now flagged', () => {
+    const report = checkToolGrounding(answer, [rec('web_search', 'search failed: timeout', 'error')], 'find the report')
+    assert.ok(report, 'expected a report — the reply cites a URL nothing retrieved')
+    assert.deepEqual(report!.links, ['https://www.example.com/2026-report'])
+  })
+
+  test('the disclosure says the search errored rather than "nothing ran"', () => {
+    const report = checkToolGrounding(answer, [rec('web_search', 'search failed: timeout', 'error')], '')
+    assert.deepEqual(report!.checkedAgainst, ['web_search (errored)'])
+  })
+
+  test('a URL the user pasted is not an invention when the fetch of it failed', () => {
+    const report = checkToolGrounding(
+      'I could not open https://www.example.com/2026-report — the fetch failed.',
+      [rec('fetch_webpage', 'HTTP 503', 'error')],
+      'summarise https://www.example.com/2026-report'
+    )
+    assert.equal(report, null)
+  })
+
+  test('an address invented on a failed-search turn is flagged too', () => {
+    const report = checkToolGrounding(
+      'Stop 1: Gristedes – 800 3rd Ave, New York, NY',
+      [rec('web_search', 'search failed: budget exhausted', 'error')],
+      'plan my route'
+    )
+    assert.ok(report?.addresses?.some((a) => a.includes('800 3rd Ave')))
+  })
+
+  test('a turn where no source tool was even attempted is still not link-checked', () => {
+    // Unchanged: with no retrieval attempted, a link is the model answering
+    // from memory, which is the `unverified` badge's job, not this one.
+    assert.equal(checkToolGrounding(answer, [rec('get_current_datetime', 'now')], ''), null)
   })
 })
