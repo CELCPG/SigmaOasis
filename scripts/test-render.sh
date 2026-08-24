@@ -5,6 +5,9 @@
 #  - renderCheck:     the page-extraction script, in a real offscreen window.
 #                     Hidden-text stripping depends on getComputedStyle and a real
 #                     layout, so mocking a DOM would only test the mock.
+#  - styleCheck:      the shipped stylesheet, laid out for real: long-token
+#                     wrapping, focus rings, ink contrast. All three are
+#                     properties of a layout, not of a string of CSS.
 #  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
 #                     window. DOMPurify is a no-op without a DOM, so a node test
 #                     of it would pass while sanitizing nothing.
@@ -54,6 +57,7 @@ fi
   --skipLibCheck \
   --strict \
   test/renderCheck.ts \
+  test/styleCheck.ts \
   test/markdownCheck.ts \
   test/workbenchCheck.ts \
   src/preload/workbench.ts \
@@ -62,7 +66,7 @@ fi
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
 status=0
-for check in renderCheck markdownCheck workbenchCheck httpClientCheck; do
+for check in renderCheck styleCheck markdownCheck workbenchCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
 done
 exit "$status"

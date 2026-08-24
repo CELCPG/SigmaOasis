@@ -462,7 +462,7 @@ export function InputBar(): JSX.Element {
               onKeyDown={onKeyDown}
               rows={1}
               placeholder="Message Sigma Oasis…"
-              className={`max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-muted ${
+              className={`max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-tertiary ${
                 compact ? 'order-first w-full basis-full' : 'flex-1'
               }`}
             />
@@ -524,7 +524,7 @@ export function InputBar(): JSX.Element {
             {contextMeter && (
               <span
                 className={
-                  contextMeter.ratio > 0.9 ? 'text-amber-600 dark:text-amber-500' : 'text-ink-muted'
+                  contextMeter.ratio > 0.9 ? 'text-amber-600 dark:text-amber-500' : 'text-ink-tertiary'
                 }
                 title={`Estimated ${contextMeter.used.toLocaleString()} of ${contextMeter.total.toLocaleString()} tokens used. Token counts here are estimated from text length, not tokenized${
                   activeConvo?.summary ? '. Earlier messages have been summarized to fit' : ''

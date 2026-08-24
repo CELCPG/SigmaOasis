@@ -25,6 +25,11 @@ module.exports = {
          * text stays legible in both themes without a `dark:` variant. The
          * variables carry their own alpha, so opacity modifiers such as
          * `text-ink-secondary/50` will NOT work — pick a lighter tier instead.
+         *
+         * Legible means measured: primary, secondary and tertiary each clear
+         * 4.5:1 on both canvases (test/styleCheck.ts asserts it). `muted` does
+         * not and is not meant to — it is decorative and disabled states only,
+         * so prose that needs the faintest tier takes `tertiary`.
          */
         ink: {
           DEFAULT: 'var(--text-primary)',

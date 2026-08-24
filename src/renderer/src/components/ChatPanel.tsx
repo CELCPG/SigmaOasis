@@ -79,7 +79,7 @@ export function ChatPanel(): JSX.Element {
             <DetailsSection conversation={conversation} />
           </>
         ) : (
-          <p className="px-4 py-6 text-center text-xs text-ink-muted">
+          <p className="px-4 py-6 text-center text-xs text-ink-tertiary">
             Open or start a chat to see its settings here.
           </p>
         )}
@@ -139,7 +139,7 @@ function CollapsedStrip({ conversation }: { conversation: Conversation | undefin
             </button>
           )}
           <span
-            className="mt-auto text-[10px] text-ink-muted"
+            className="mt-auto text-[10px] text-ink-tertiary"
             title={`${conversation.messages.length} messages`}
           >
             {conversation.messages.length}
@@ -204,7 +204,7 @@ function ProjectSection({ conversation }: { conversation: Conversation }): JSX.E
                 📝 {current.instructions.trim().split('\n')[0]}
               </span>
             ) : null}
-            <span className="block text-ink-muted">
+            <span className="block text-ink-tertiary">
               Inherits: {projectInheritanceSummary(current).join(' · ')}
             </span>
             {missing.length > 0 && (
