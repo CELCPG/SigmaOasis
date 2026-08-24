@@ -76,9 +76,9 @@ async function main(): Promise<void> {
   })
   await win.loadURL(`http://127.0.0.1:${port}/`)
 
-  const render = async (markdown: string): Promise<string> =>
+  const render = async (markdown: string, citations: unknown[] = []): Promise<string> =>
     (await win.webContents.executeJavaScript(
-      `MarkdownUnderTest.renderMarkdown(${JSON.stringify(markdown)})`
+      `MarkdownUnderTest.renderMarkdown(${JSON.stringify(markdown)}, ${JSON.stringify(citations)})`
     )) as string
 
   console.log('\nsanitization: what a model must not be able to inject')
@@ -156,6 +156,42 @@ async function main(): Promise<void> {
 
   html = await render('Water boils at $100^\\circ\\text{C}$.')
   check('inline TeX is rewritten to plain text', !html.includes('$') && html.includes('100'), html)
+
+  console.log('\ncitations: a retrieved passage the reader can actually open')
+
+  // The locators the app itself retrieved, in the shape citations.ts parses
+  // out of a reference_lookup result.
+  const IRS = 'https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025'
+  const cited = [
+    { index: 1, label: 'Personal finance & tax basics › Tax inflation adjustments · 10% in', source: IRS, href: IRS },
+    { index: 2, label: 'Personal finance & tax basics › Tax Topic 501 · 0% in', source: '/Users/me/docs/tc501.md' }
+  ]
+
+  html = await render('The deduction is $30,000 [1].', cited)
+  check(
+    'an inline [1] becomes a link to the passage the app retrieved',
+    new RegExp(`<a[^>]+class="citation-ref"[^>]+href="${IRS.replace(/[.?*+]/g, '\\$&')}"`).test(html) ||
+      new RegExp(`<a[^>]+href="${IRS.replace(/[.?*+]/g, '\\$&')}"[^>]+class="citation-ref"`).test(html),
+    html
+  )
+  check('the marker text survives as [1]', />\[1\]<\/a>/.test(html), html)
+  check('the passage citation is on the marker as a title', /title="Personal finance &amp; tax basics/.test(html), html)
+
+  html = await render('Itemizing may beat it [2].', cited)
+  check(
+    'a passage whose source is a local path is marked, not linked',
+    /<span[^>]+class="citation-ref"[^>]*>\[2\]<\/span>/.test(html) && !html.includes('/Users/me/docs'),
+    html
+  )
+
+  html = await render('See Publication 17 [4].', cited)
+  check('a marker naming no retrieved passage is left inert', !/citation-ref/.test(html) && html.includes('[4]'), html)
+
+  html = await render('```python\nvalues[1] = 2\n```\n\nand `rows[1]` inline', cited)
+  check('array indexing in code is never linked', !/citation-ref/.test(html), html)
+
+  html = await render('bad [1]', [{ index: 1, label: 'Pack › Doc', href: 'javascript:window.__pwned=1' }])
+  check('a javascript: source cannot become a citation link', !/javascript:/i.test(html), html)
 
   server.close()
   win.destroy()

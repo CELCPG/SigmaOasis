@@ -490,6 +490,18 @@ body {
 .dark .markdown-body a {
   color: var(--accent-teal-glow);
 }
+/* v1.13: an inline [1] that resolves to a retrieved passage. Small and
+   raised, so a citation reads as a citation rather than as body text; the
+   link colour above still marks the ones that open their source. */
+.markdown-body .citation-ref {
+  font-size: 0.85em;
+  vertical-align: 0.25em;
+  text-decoration: none;
+  cursor: help;
+}
+.markdown-body a.citation-ref {
+  cursor: pointer;
+}
 .markdown-body blockquote {
   margin: 0.5em 0;
   border-left: 3px solid rgba(128, 128, 128, 0.4);

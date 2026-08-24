@@ -860,3 +860,50 @@ describe('conflictingToolFigures', () => {
     ])
   })
 })
+
+/**
+ * v1.13: a citation index is a claim of the same kind as a figure or a link,
+ * and it was the one kind nothing checked. The lookup output below is
+ * transcribed from a real run — two numbered passages, each carrying the
+ * locator that would make the citation followable. The reply cited them, and
+ * a reader had no way to tell that a third marker named nothing at all.
+ */
+const LIBRARY_LOOKUP = `Reference passages for "standard deduction" from the local library (keyword ranking), most relevant first.
+
+[1] Personal finance & tax basics › Tax inflation adjustments for tax year 2025 · 10% in
+    source: https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025
+    date: retrieved 2026-08-16
+    relevance 1
+For married couples filing jointly, the standard deduction rises to $30,000.
+[2] Personal finance & tax basics › Tax Topic 501 — Should I itemize? · 0% in
+    source: https://www.irs.gov/taxtopics/tc501
+    relevance 0.996
+Individuals may take a standard deduction or itemize.`
+
+describe('citation markers', () => {
+  test('an [n] that names no retrieved passage is a finding', () => {
+    const report = checkToolGrounding(
+      'The standard deduction is $30,000 [1]. Itemizing may beat it [2]. See Publication 17 [4].',
+      [rec('reference_lookup', LIBRARY_LOOKUP)],
+      ''
+    )
+    assert.ok(report, 'expected a report: [4] names a passage that was never retrieved')
+    assert.deepEqual(report!.citations, ['[4]'])
+    assert.equal(groundingFindingCount(report), 1)
+    assert.match(describeGroundingFindings(report!), /\[4\]/)
+  })
+
+  test('citing only the passages that came back says nothing', () => {
+    const report = checkToolGrounding(
+      'The standard deduction is $30,000 [1], unless you itemize [2].',
+      [rec('reference_lookup', LIBRARY_LOOKUP)],
+      ''
+    )
+    assert.equal(report, null)
+  })
+
+  test('no lookup, no claim — a bare [1] in ordinary prose is not flagged', () => {
+    const report = checkToolGrounding('As noted earlier [1], rates vary.', [rec('web_search', 'x')], '')
+    assert.equal(report, null)
+  })
+})

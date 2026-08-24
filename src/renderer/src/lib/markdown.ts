@@ -3,6 +3,7 @@ import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 
 import { latexToPlainText } from './mathPlaintext'
+import { CITATION_MARKER, webSource, type Citation } from './citations'
 
 // Register only common languages — the full highlight.js bundle is ~1 MB.
 import bash from 'highlight.js/lib/languages/bash'
@@ -88,11 +89,51 @@ const SANITIZE_OPTIONS = {
   FORBID_ATTR: ['style']
 }
 
-export function renderMarkdown(markdown: string): string {
+export function renderMarkdown(markdown: string, citations: Citation[] = []): string {
   // Models often wrap numbers and units in TeX ($374^\circ\text{C}$); the
   // renderer has no math engine, so rewrite it to plain text first.
   const html = marked.parse(latexToPlainText(markdown), { async: false }) as string
-  return DOMPurify.sanitize(stripSandboxImages(html), SANITIZE_OPTIONS)
+  return DOMPurify.sanitize(linkCitations(stripSandboxImages(html), citations), SANITIZE_OPTIONS)
+}
+
+/**
+ * v1.13: `[1]` in a reply becomes the passage it names.
+ *
+ * The library already hands the model numbered passages carrying their
+ * document's source URL, and the model already cites them by number — the
+ * marker just resolved to nothing on screen. Linked here rather than in the
+ * markdown source because the number is the app's, not the model's: only a
+ * passage the lookup actually returned gets a link, and an invented number is
+ * left as plain text for the grounding pass to report.
+ *
+ * Rewritten before DOMPurify runs, deliberately: the pack manifest is a file
+ * on disk like any other input, so its `source` goes through the same one
+ * sanitization boundary as model output. Anchors get no `target` — the app
+ * strips it — so a click leaves through `will-navigate`, the same route a
+ * link the model merely typed already takes (src/main/index.ts).
+ */
+export function linkCitations(html: string, citations: Citation[]): string {
+  if (citations.length === 0) return html
+  const byIndex = new Map(citations.map((c) => [c.index, c]))
+  // Tags, then code regions, then runs of text: only the last are rewritten,
+  // so a `[1]` inside an attribute or a code sample is left alone.
+  return html.replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>|<[^>]+>|[^<]+/g, (chunk) =>
+    chunk.startsWith('<')
+      ? chunk
+      : chunk.replace(CITATION_MARKER, (raw, n: string) => {
+          const c = byIndex.get(Number(n))
+          if (!c) return raw
+          // Re-checked here, not trusted from the caller: this function is the
+          // one that writes the href, so it is the one that decides what may
+          // become one. A scheme that is not http(s) reaches neither the
+          // attribute nor the tooltip.
+          const href = webSource(c.href)
+          const title = escapeHtml(href ? `${c.label}\n${href}` : c.label)
+          return href
+            ? `<a class="citation-ref" href="${escapeHtml(href)}" title="${title}">${raw}</a>`
+            : `<span class="citation-ref" title="${title}">${raw}</span>`
+        })
+  )
 }
 
 /**
