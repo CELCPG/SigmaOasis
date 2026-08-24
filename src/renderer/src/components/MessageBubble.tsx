@@ -6,6 +6,7 @@ import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
 import { replyAffordances } from '../lib/replyRecovery'
+import { type TurnPhase } from '../lib/turnPhase'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
@@ -275,6 +276,33 @@ function MemoryContextLine({
 }
 
 /**
+ * The named wait. Before the model is asked, a context provider can hold the
+ * turn open on the network; after the last token, the checks run for seconds
+ * more. Both used to be a spinner over an unexplained pause — this says which
+ * one it is, and (while verifying) that the answer above is already yours to
+ * use. Same shape as the compaction line in ChatArea, deliberately.
+ */
+function TurnPhaseLine({ phase }: { phase: TurnPhase }): JSX.Element {
+  return (
+    <div
+      className="mt-2 flex items-center gap-2 text-[11px]"
+      style={{ color: 'var(--accent-ink)' }}
+      role="status"
+      aria-live="polite"
+      title={
+        phase.stage === 'verifying'
+          ? 'The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed.'
+          : 'The app is gathering context for this turn. The model has not been asked yet.'
+      }
+    >
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(0,212,170,0.8)]" />
+      <span className="font-medium tracking-[0.08em]">{phase.label}…</span>
+      <span className="min-w-0 truncate text-neutral-400">{phase.detail}</span>
+    </div>
+  )
+}
+
+/**
  * The performance readout under a reply. Token figures appear only when the
  * server reported them — timing is always measured, token counts never
  * estimated, so nothing here is a guess dressed up as a measurement.
@@ -327,6 +355,10 @@ export const MessageBubble = memo(function MessageBubble({
   const [copied, setCopied] = useState(false)
   const { regenerate, secondOpinion, escalate, deliberate } = useLMStudio()
   const streaming = useAppStore((s) => s.streaming)
+  // The turn's named stage (lib/turnPhase.ts): what the wait is called while
+  // it lasts, and — once the checks start — the signal that this message's
+  // text is final enough to copy, read aloud or branch.
+  const turnPhase = useAppStore((s) => s.turnPhase)
   const secondOpinionEnabled = useAppStore((s) => s.settings?.secondOpinion.enabled) ?? false
   const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
   const reasoningDisplay = useAppStore((s) => s.settings?.reasoningDisplay) ?? 'collapsed'
@@ -408,7 +440,15 @@ export const MessageBubble = memo(function MessageBubble({
   // model composes, droplet + colored wave when a tool fires — regardless of
   // the hideToolCalls setting, since the ripple *is* the disclosure.
   const oasisState = describeOasisState(isStreaming, displayContent, toolCalls)
-  const affordances = replyAffordances(message, isLast, isStreaming)
+  // The action row follows the ANSWER, not the turn. Verification keeps
+  // `streaming` true for seconds after the last token, and none of it can
+  // change whether a finished reply may be copied, spoken or branched — so
+  // the row opens as soon as the text is complete, and also when the turn
+  // ended with nothing at all (lib/replyRecovery.ts). Only the buttons that
+  // would START a turn wait, and they say so.
+  const phaseHere = turnPhase?.messageId === message.id ? turnPhase : null
+  const affordances = replyAffordances(message, isLast, isStreaming, phaseHere)
+  const busyTitle = streaming ? '\n\nAvailable once this turn’s checks finish.' : ''
 
   const toggleSpeak = (): void => {
     if (speaking) {
@@ -467,12 +507,13 @@ export const MessageBubble = memo(function MessageBubble({
                 </button>
               </>
             )}
-            {isLast && !streaming && (
+            {isLast && (
               <button
                 type="button"
                 onClick={() => void regenerate()}
-                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
-                title="Re-answer the last message"
+                disabled={streaming}
+                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+                title={`Re-answer the last message${busyTitle}`}
               >
                 ↻ Regenerate
               </button>
@@ -483,7 +524,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onClick={() => void secondOpinion(message.id)}
                 disabled={streaming}
                 className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-violet-600 dark:hover:text-violet-300 disabled:opacity-40"
-                title="Have a different role review this reply and name the claims it could not verify"
+                title={`Have a different role review this reply and name the claims it could not verify${busyTitle}`}
               >
                 🔍 2nd opinion
               </button>
@@ -498,15 +539,14 @@ export const MessageBubble = memo(function MessageBubble({
                   'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
                   // v1.9.1: on a model that already reasons internally, say what
                   // the reasoning suite measured rather than implying a benefit.
-                  (thinkHarderNote(message.modelId ?? '') ? `\n\n${thinkHarderNote(message.modelId ?? '')}` : '')
+                  (thinkHarderNote(message.modelId ?? '') ? `\n\n${thinkHarderNote(message.modelId ?? '')}` : '') +
+                  busyTitle
                 }
               >
                 🧠 Think harder
               </button>
             )}
-            {!isStreaming && conversation && (
-              <BranchMenu message={message} conversation={conversation} />
-            )}
+            {conversation && <BranchMenu message={message} conversation={conversation} />}
             <span
               className="ml-auto px-1.5 text-[10px]"
               title={new Date(message.createdAt).toLocaleString()}
@@ -715,6 +755,8 @@ export const MessageBubble = memo(function MessageBubble({
             {ESCALATION_REASON_TEXT[message.escalation.reason]}
           </button>
         )}
+
+        {phaseHere && <TurnPhaseLine phase={phaseHere} />}
 
         {showStats && !isStreaming && message.stats && (
           <div

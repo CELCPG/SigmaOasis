@@ -1,13 +1,25 @@
 import type { ChatMessage } from '../types'
+import { answerSettled, type TurnPhase } from './turnPhase'
 
 /**
  * What a finished assistant bubble offers the user (MessageBubble.tsx).
  *
  * Kept free of React so the decision is testable in plain Node
- * (test/llmTimeouts.test.ts). Through v1.12.1 the whole action row was gated on
- * `message.content`, which meant the one reply that most needs ↻ Regenerate —
- * the empty one, produced by a stream that failed — was the only reply that
- * never got it.
+ * (test/llmTimeouts.test.ts). Two v1.12.1 gaps meet here, and they pull in
+ * opposite directions:
+ *
+ *   - The whole action row was gated on `message.content`, so the one reply
+ *     that most needs ↻ Regenerate — the empty one, produced by a stream that
+ *     failed — was the only reply that never got it.
+ *   - The row was also gated on the turn being over, and `streaming` stays
+ *     true through the verification tail, so a complete answer sat on screen
+ *     uncopyable for seconds.
+ *
+ * So the row has two independent reasons to open: there is text the reader may
+ * act on, or the turn ended with nothing and has to end somewhere the reader
+ * can act. Both rest on `answerSettled` (lib/turnPhase.ts), which is also what
+ * `actionsReady` rests on — one rule about when an answer is final, asked here
+ * about a reply that may have no text at all.
  */
 export interface ReplyAffordances {
   /** The turn produced nothing at all: no text, no tools, no plan, no thinking. */
@@ -21,15 +33,19 @@ export interface ReplyAffordances {
 export function replyAffordances(
   message: Pick<ChatMessage, 'content' | 'toolCalls' | 'plan' | 'reasoning'>,
   isLast: boolean,
-  isStreaming: boolean
+  isStreaming: boolean,
+  phaseHere: TurnPhase | null = null
 ): ReplyAffordances {
   const empty =
     !message.content.trim() &&
     (message.toolCalls?.length ?? 0) === 0 &&
     !message.plan &&
     !message.reasoning?.trim()
-  const onText = !isStreaming && message.content.trim() !== ''
+  // The answer text is final once the turn is over, and also while it is only
+  // being verified: a revision may replace the text, but it never un-finishes it.
+  const settled = answerSettled(isStreaming, phaseHere)
+  const onText = settled && message.content.trim() !== ''
   // The row shows for an empty last reply too, carrying Regenerate and the
   // branch menu alone: a failed turn has to end somewhere the user can act.
-  return { empty, actions: !isStreaming && (onText || isLast), onText }
+  return { empty, actions: settled && (onText || isLast), onText }
 }

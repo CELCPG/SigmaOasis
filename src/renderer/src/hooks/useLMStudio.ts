@@ -23,6 +23,7 @@ import { isOffline } from '../lib/libraryRecall'
 import { attachmentFileRefs, TABULAR_FILE } from '../lib/attachmentRecall'
 import { projectInstructionsBlock } from '../lib/projectContext'
 import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProviders'
+import { gatheringPhase, verifyingPhase, type VerifyStep } from '../lib/turnPhase'
 import { makeProviderIO } from './providerIO'
 import {
   consultModelSchema,
@@ -136,6 +137,14 @@ async function runTurn(
   const patch = (p: Partial<ChatMessage>): void =>
     useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
   const tail = makeTailStream(assistantMsg, patch)
+  /**
+   * Name the wait (lib/turnPhase.ts). Both ends of a turn make the user wait
+   * on work the model is not doing — the pre-model providers below, and the
+   * checks that run after the last token — and both used to be silent. The
+   * verifying phases are also what unlock the finished reply's action row.
+   */
+  const verifying = (step: VerifyStep | null): void =>
+    useAppStore.getState().setTurnPhase(step ? verifyingPhase(assistantMsg.id, step) : null)
 
   // Pin before the memory RAG below: its embedding call JIT-loads the
   // embedding model, and LM Studio's default auto-evict would unload this
@@ -230,7 +239,9 @@ async function runTurn(
       ledger: turnLedger,
       patch,
       settings: () => useAppStore.getState().settings ?? null
-    })
+    }),
+    (wait) =>
+      useAppStore.getState().setTurnPhase(wait ? gatheringPhase(assistantMsg.id, wait) : null)
   )
   if (gathered.aborted) return
   if (offline) patch({ offline: true })
@@ -616,6 +627,7 @@ async function runTurn(
       return
     }
 
+    verifying('revising')
     const before = assistantMsg.content
     const revised = await reviseAgainstFindings(
       slot,
@@ -694,6 +706,7 @@ async function runTurn(
     // then have a different role name the claims it could not verify.
     if (factualTurn && !consultedSources(allRecords)) {
       patch({ unverified: true })
+      verifying('claims')
       // v1.2: the claim check settles the critic's list when enabled;
       // otherwise the v1.1 auto-critic names the checks for the user.
       const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
@@ -721,7 +734,9 @@ async function runTurn(
         )
       }
     }
+    verifying('grounding')
     await checkGrounding()
+    verifying(null)
     audit(convo, {
       kind: 'assistant_output',
       roleName: slot.roleName,
@@ -740,6 +755,7 @@ async function runTurn(
   })
   if (factualTurn && !consultedSources(allRecords)) {
     patch({ unverified: true })
+    verifying('claims')
     const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
     if (claimCheckOn) {
       await runClaimCheck(
@@ -765,7 +781,9 @@ async function runTurn(
       )
     }
   }
+  verifying('grounding')
   await checkGrounding()
+  verifying(null)
   // Read whatever is left unspoken (including the warning above).
   speakNewSentences(true)
   offerEscalation()

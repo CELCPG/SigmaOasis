@@ -19,6 +19,10 @@ import {
 export const libraryPassagesProvider: ContextProvider = {
   id: 'libraryPassages',
   phase: 'serial',
+  wait: {
+    label: 'Reading the reference library',
+    detail: 'local passages, with their citations, before the model is asked'
+  },
   enabled: (input) =>
     !!input.lastUserContent &&
     shouldConsultLibrary({
