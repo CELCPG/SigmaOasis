@@ -5,6 +5,7 @@ import { ACCENT } from '../lib/colors'
 import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
+import { replyAffordances } from '../lib/replyRecovery'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
@@ -405,6 +406,7 @@ export const MessageBubble = memo(function MessageBubble({
   // model composes, droplet + colored wave when a tool fires — regardless of
   // the hideToolCalls setting, since the ripple *is* the disclosure.
   const oasisState = describeOasisState(isStreaming, displayContent, toolCalls)
+  const affordances = replyAffordances(message, isLast, isStreaming)
 
   const toggleSpeak = (): void => {
     if (speaking) {
@@ -439,26 +441,30 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        {!isStreaming && message.content && (
+        {affordances.actions && (
           // flex-wrap, because in split view (v1.11) a bubble is half as wide
           // and this row of actions used to run off the edge of the pane.
           <div className="mb-1 flex flex-wrap items-center gap-1 text-xs text-neutral-400">
-            <button
-              type="button"
-              onClick={copyMessage}
-              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
-              title="Copy message"
-            >
-              {copied ? '✓ Copied' : '📋 Copy'}
-            </button>
-            <button
-              type="button"
-              onClick={toggleSpeak}
-              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
-              title={speaking ? 'Stop reading' : 'Read aloud'}
-            >
-              {speaking ? '⏹ Stop' : '🔊 Listen'}
-            </button>
+            {affordances.onText && (
+              <>
+                <button
+                  type="button"
+                  onClick={copyMessage}
+                  className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+                  title="Copy message"
+                >
+                  {copied ? '✓ Copied' : '📋 Copy'}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleSpeak}
+                  className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+                  title={speaking ? 'Stop reading' : 'Read aloud'}
+                >
+                  {speaking ? '⏹ Stop' : '🔊 Listen'}
+                </button>
+              </>
+            )}
             {isLast && !streaming && (
               <button
                 type="button"
@@ -469,7 +475,7 @@ export const MessageBubble = memo(function MessageBubble({
                 ↻ Regenerate
               </button>
             )}
-            {secondOpinionEnabled && !isStreaming && !message.secondOpinion && (
+            {secondOpinionEnabled && affordances.onText && !message.secondOpinion && (
               <button
                 type="button"
                 onClick={() => void secondOpinion(message.id)}
@@ -480,7 +486,7 @@ export const MessageBubble = memo(function MessageBubble({
                 🔍 2nd opinion
               </button>
             )}
-            {!isStreaming && !message.deliberation && (
+            {affordances.onText && !message.deliberation && (
               <button
                 type="button"
                 onClick={() => void deliberate(message.id)}
@@ -530,6 +536,22 @@ export const MessageBubble = memo(function MessageBubble({
             // Sanitized by DOMPurify in renderMarkdown.
             dangerouslySetInnerHTML={{ __html: html }}
           />
+        )}
+
+        {/*
+          Nothing streamed, and nothing else to show for the turn either.
+          Through v1.12.1 that rendered as a blank panel — the failure with its
+          cause and its next step stripped out of it. Whatever the transport
+          managed to diagnose is in the ⚠️ message after this one; the action
+          row above carries Regenerate for the same reason this line exists.
+        */}
+        {!isStreaming && affordances.empty && (
+          <div
+            className="text-[11px] text-amber-600 dark:text-amber-400"
+            title="The turn ended without producing any text. If the server said why, the reason is in the next message."
+          >
+            ⚠️ Empty reply — nothing came back from the model. Use ↻ Regenerate to ask again.
+          </div>
         )}
 
         {/* Tool-provided pictures are content, not diagnostics — they render
