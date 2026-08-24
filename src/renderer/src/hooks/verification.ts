@@ -8,7 +8,9 @@ import {
   describeRecompute,
   extractRecomputeProgram,
   isSelfContained,
-  longestPythonFence
+  longestPythonFence,
+  recomputeIsCircular,
+  LAUNDERED_OUTPUT_MARKER
 } from '../lib/workbenchChecks'
 import { parseRanCode } from '../lib/ranCode'
 import type { WorkbenchCheck } from '../lib/workbenchChecks'
@@ -613,7 +615,10 @@ export async function runRecompute(
     ok: result.ok,
     text: `[recompute] run_python(${JSON.stringify({ code })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
   })
-  return describeRecompute({ ran: true, ok: result.ok, note: result.ok ? undefined : 'the recomputation raised an error' })
+  // A run whose inputs the model invented — or whose output the sandbox marked
+  // as pure literals — checked nothing, whatever its exit status.
+  const circular = recomputeIsCircular(code, question) || (record.result ?? '').includes(LAUNDERED_OUTPUT_MARKER)
+  return describeRecompute({ ran: true, ok: result.ok, circular, note: result.ok ? undefined : 'the recomputation raised an error' })
 }
 
 /**

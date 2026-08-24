@@ -829,6 +829,8 @@ export interface ChatMessage {
   attachmentContext?: MemoryContextItem[]
   /** v1.5: passages the app retrieved from the local reference library for this reply. */
   libraryContext?: MemoryContextItem[]
+  /** v1.12.2: the library was consulted and none of what it returned is about the question. */
+  libraryMiss?: boolean
   /** v1.10: passages recalled from the project's other chats for this reply (source = chat title). */
   projectContext?: MemoryContextItem[]
   /** v1.5: the turn ran while the app was offline (no web tools could work). */

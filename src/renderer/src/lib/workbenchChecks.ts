@@ -139,11 +139,58 @@ export interface WorkbenchCheck {
   summary: string
 }
 
-export function describeRecompute(input: { ran: boolean; ok: boolean; note?: string }): WorkbenchCheck {
+/**
+ * The marker workbenchFormat appends when every number a run printed is
+ * already a literal in the code (HARDCODED_NUMBERS_NOTE). toolGrounding keys
+ * on it too — one string, so the checks cannot drift apart.
+ */
+export const LAUNDERED_OUTPUT_MARKER = 'appears as a literal in the code'
+
+/** Numeric literals of a blob, as values (commas stripped). */
+function numbersIn(text: string): number[] {
+  const out: number[] = []
+  for (const m of text.matchAll(/\d[\d,]*(?:\.\d+)?/g)) {
+    const v = Number(m[0].replace(/,/g, ''))
+    if (Number.isFinite(v)) out.push(v)
+  }
+  return out
+}
+
+/** Unit conversions and format widths: present in any program, from nowhere. */
+const CONVERSIONS = new Set([0, 1, 2, 3, 4, 7, 10, 12, 24, 30, 31, 52, 60, 100, 365, 1000, 3600, 86400])
+
+/**
+ * v1.12.2: is a recomputation circular — does it re-derive the answer from
+ * constants the model wrote, rather than from the question? RECOMPUTE_INSTRUCTION
+ * asks for "the inputs given in the question"; when not one literal in the
+ * program appears there, nothing outside the answer constrained the result and
+ * the run proves only that the model can multiply its own assumptions.
+ * Measured (faucet drip, V3): `gallons_per_day = 20  # EPA standard estimate`
+ * and `cost_per_1000_gallons = 5.0` → "600 gallons, $3.00" — the answer's own
+ * figures, returned as if checked. A program built only from conversions is
+ * not circular: it is arithmetic on what the question said in words.
+ */
+export function recomputeIsCircular(code: string, question: string): boolean {
+  const asked = new Set(numbersIn(question))
+  const literals = numbersIn(code)
+  if (literals.every((n) => CONVERSIONS.has(n))) return false
+  return !literals.some((n) => asked.has(n))
+}
+
+export function describeRecompute(input: { ran: boolean; ok: boolean; circular?: boolean; note?: string }): WorkbenchCheck {
   if (!input.ran) return { kind: 'recompute', ok: false, summary: `🧮 Recompute skipped${input.note ? ` — ${input.note}` : ''}` }
-  return input.ok
-    ? { kind: 'recompute', ok: true, summary: '🧮 Recomputed the stated figures in Python; the checker compared the reply against that output.' }
-    : { kind: 'recompute', ok: false, summary: `🧮 Recomputation ran but failed${input.note ? ` — ${input.note}` : ''}; figures could not be checked this way.` }
+  if (!input.ok) return { kind: 'recompute', ok: false, summary: `🧮 Recomputation ran but failed${input.note ? ` — ${input.note}` : ''}; figures could not be checked this way.` }
+  // The headline reports the weaker of the two states: a program fed by the
+  // model's own constants ran, but it checked nothing.
+  if (input.circular)
+    return {
+      kind: 'recompute',
+      ok: false,
+      summary:
+        '🧮 Recomputation ran, but its inputs are constants the model wrote rather than figures from your question — ' +
+        'it re-derives the answer from itself and checks nothing. Treat these figures as unverified.'
+    }
+  return { kind: 'recompute', ok: true, summary: '🧮 Recomputed the stated figures in Python; the checker compared the reply against that output.' }
 }
 
 export function describeCodeCheck(input: { ran: boolean; ok: boolean; finding?: string | null; note?: string; revisedRuns?: boolean }): WorkbenchCheck {
