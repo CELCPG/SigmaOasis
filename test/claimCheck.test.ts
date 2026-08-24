@@ -5,15 +5,19 @@ import {
   buildExtractionMessages,
   buildJudgeMessages,
   claimCheckBlocked,
+  claimCheckSummary,
   firstResultUrl,
   parseClaims,
   parseVerdict,
   searchUnreachable,
+  settleClaims,
+  sourceCaveat,
   EXTRACTION_INSTRUCTION,
   JUDGE_INSTRUCTION,
-  UNREACHABLE_NOTE
+  UNREACHABLE_NOTE,
+  type SettleDeps
 } from '../src/renderer/src/lib/claimCheck'
-import type { ModelConfig, ToolCallRecord } from '../src/renderer/src/types'
+import type { CheckedClaim, ModelConfig, ToolCallRecord } from '../src/renderer/src/types'
 
 /**
  * Claim Check's structural guarantees: extraction is the critic's job (never
@@ -200,5 +204,184 @@ describe('reachability', () => {
       assert.equal(claim.source, undefined)
     }
     assert.equal(abandoned[0]!.text, 'Marquee Moon came out in 1977.')
+  })
+})
+
+/**
+ * v1.12.4 — the same pass, still running, measured again (TTU3, both arms).
+ *
+ * v1.12.3 enumerated the transport codes it had seen and missed the one that
+ * was actually happening. Pointed at `http://127.0.0.1:9`, Chromium refuses the
+ * port before a socket is opened — `net::ERR_UNSAFE_PORT` — which matched none
+ * of the patterns, so neither the pre-flight nor the in-pass stop ever fired.
+ * Recorded consequence: run-1 spent 41,988 ms on a turn whose own stat line
+ * read "23.0s total" — about 19 s of post-answer silence, 45% of the turn — to
+ * arrive at three "Unverifiable — Search was declined or failed."; run-2,
+ * 62,556 ms against "36.4s total", five of them. Every one of those verdicts
+ * was settled before the pass began, and the useful warning ("Answered from
+ * model memory — no sources consulted") was already on screen without it.
+ */
+describe('a refused port stops the pass at the first search (TTU3)', () => {
+  /** Verbatim from both recorded runs — what web_search returned every time. */
+  const REFUSED =
+    'net::ERR_UNSAFE_PORT Tell the user plainly what you could not verify — never invent ' +
+    'products, brands, prices, or sources to fill the gap.'
+
+  /** The five claims the critic extracted in run-2, verbatim. */
+  const CLAIMS = [
+    "The band Television's first album was Marquee Moon.",
+    'Marquee Moon was released on March 25, 1977.',
+    'Marquee Moon was released via Sire Records.',
+    'Tom Verlaine played vocals and guitar in Television.',
+    'Richard Lloyd played guitar in Television.'
+  ]
+
+  const record = (result: string): ToolCallRecord => ({
+    id: `web_search:${result.slice(0, 8)}`,
+    name: 'web_search',
+    args: { query: 'q' },
+    status: 'error',
+    result
+  })
+
+  /** A provider that refuses every connection, watching how often it is asked. */
+  const refusing = (searched: string[]): SettleDeps => ({
+    search: async (claim) => {
+      searched.push(claim)
+      return { ok: false, error: REFUSED }
+    },
+    fetchPage: async () => assert.fail('a refused search must not be followed by a fetch'),
+    judge: async () => assert.fail('a refused search must not be followed by a judgment'),
+    onClaim: () => {},
+    aborted: () => false
+  })
+
+  test('a port Chromium refuses is an unreachable source, not a source that answered', () => {
+    assert.equal(searchUnreachable(REFUSED), true)
+    assert.equal(searchUnreachable('net::ERR_UNSAFE_PORT'), true)
+  })
+
+  test('the rule is "nothing answered", not a list of codes seen so far', () => {
+    // Codes the enumeration never named still count: the request never landed.
+    for (const nothingAnswered of [
+      'net::ERR_SOCKS_CONNECTION_FAILED',
+      'net::ERR_TUNNEL_CONNECTION_FAILED',
+      'net::ERR_ADDRESS_INVALID'
+    ]) {
+      assert.equal(searchUnreachable(nothingAnswered), true, nothingAnswered)
+    }
+    // …and a code that means a server DID answer does not: the next claim may
+    // fare differently, so the pass has no business giving up on its behalf.
+    for (const answered of [
+      'net::ERR_CONTENT_DECODING_FAILED',
+      'net::ERR_TOO_MANY_REDIRECTS',
+      'net::ERR_INVALID_CHUNKED_ENCODING'
+    ]) {
+      assert.equal(searchUnreachable(answered), false, answered)
+    }
+  })
+
+  test('the turn’s own refusals block the pass before a token is spent extracting', () => {
+    assert.equal(claimCheckBlocked([record(REFUSED), record(REFUSED)]), UNREACHABLE_NOTE)
+  })
+
+  test('five claims cost ONE search, not five', async () => {
+    const searched: string[] = []
+    const outcome = await settleClaims(CLAIMS, refusing(searched))
+    assert.deepEqual(searched, [CLAIMS[0]], 'the pass repeated a search that had already failed')
+    assert.equal(outcome.claims.length, 5)
+    for (const claim of outcome.claims) {
+      assert.equal(claim.verdict, 'unchecked')
+      assert.equal(claim.source, undefined)
+    }
+    assert.equal(outcome.budgetNote, UNREACHABLE_NOTE)
+  })
+
+  test('the line on screen says the check could not run, not "5 claims — 0 confirmed"', async () => {
+    const outcome = await settleClaims(CLAIMS, refusing([]))
+    const summary = claimCheckSummary(outcome, false)
+    assert.match(summary, /could not check: no source is reachable/i)
+    assert.doesNotMatch(summary, /\d+ claims? —/)
+    assert.doesNotMatch(summary, /confirmed|contradicted/)
+  })
+
+  test('a provider that answered is not unreachable — every claim still gets its search', async () => {
+    const searched: string[] = []
+    const outcome = await settleClaims(CLAIMS.slice(0, 3), {
+      search: async (claim) => {
+        searched.push(claim)
+        return { ok: false, error: 'SearXNG returned HTTP 403. Enable JSON output on your instance.' }
+      },
+      fetchPage: null,
+      judge: async () => assert.fail('nothing was fetched, so nothing may be judged'),
+      onClaim: () => {},
+      aborted: () => false
+    })
+    assert.equal(searched.length, 3)
+    assert.equal(outcome.budgetNote, undefined)
+    for (const claim of outcome.claims) assert.equal(claim.verdict, 'unverifiable')
+  })
+
+  test('a pass that stops halfway reports what it checked, not what was extracted', async () => {
+    const results =
+      '1. Marquee Moon — Wikipedia\n   https://en.wikipedia.org/wiki/Marquee_Moon\n   Released 1977.'
+    let searches = 0
+    const outcome = await settleClaims(CLAIMS.slice(0, 3), {
+      search: async () =>
+        searches++ === 0 ? { ok: true, output: results } : { ok: false, error: REFUSED },
+      fetchPage: async () => ({ ok: true, output: 'Marquee Moon was released on 8 February 1977.' }),
+      judge: async () => 'VERDICT: CONTRADICTED\nBASIS: The page dates it 8 February 1977.',
+      onClaim: () => {},
+      aborted: () => false
+    })
+    assert.equal(searches, 2, 'the third claim was searched after the second had refused')
+    assert.deepEqual(
+      outcome.claims.map((c) => c.verdict),
+      ['contradicted', 'unchecked', 'unchecked']
+    )
+    assert.equal(
+      claimCheckSummary(outcome, false),
+      'Claim check: 1 of 3 claims checked — 0 confirmed, 1 contradicted'
+    )
+  })
+
+  test('the pass streams each claim out as it settles, abandoned ones included', async () => {
+    const seen: CheckedClaim[] = []
+    const deps = refusing([])
+    await settleClaims(CLAIMS.slice(0, 2), { ...deps, onClaim: (c) => seen.push(c) })
+    assert.deepEqual(
+      seen.map((c) => c.text),
+      CLAIMS.slice(0, 2)
+    )
+  })
+})
+
+/**
+ * The footer under the verdicts promises the reader a source to open. Measured
+ * (TTU3 run-2): five verdicts, none of them naming a source, and beneath them
+ * "Each verdict rests on the one source shown."
+ */
+describe('the source caveat promises only what is on screen', () => {
+  const claim = (text: string, source?: string): CheckedClaim =>
+    source
+      ? { text, verdict: 'confirmed', source }
+      : { text, verdict: 'unverifiable', basis: 'Search was declined or failed.' }
+
+  test('no verdict names a source: no promise of one', () => {
+    assert.equal(sourceCaveat([claim('a'), claim('b')]), null)
+    assert.equal(sourceCaveat(abandonClaims(['a', 'b'])), null)
+    assert.equal(sourceCaveat([]), null)
+  })
+
+  test('every verdict names its source: the blanket sentence stands', () => {
+    const caveat = sourceCaveat([claim('a', 'https://e.g/1'), claim('b', 'https://e.g/2')])
+    assert.match(caveat ?? '', /^Each verdict rests on the one source shown\./)
+    assert.match(caveat ?? '', /open it before relying on the claim\.$/)
+  })
+
+  test('a mixed pass says which verdicts it means', () => {
+    const caveat = sourceCaveat([claim('a', 'https://e.g/1'), claim('b')])
+    assert.doesNotMatch(caveat ?? '', /Each verdict rests on the one source shown/)
+    assert.match(caveat ?? '', /^Where a verdict names a source, it rests on that one source alone\./)
   })
 })

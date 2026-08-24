@@ -24,20 +24,15 @@ import {
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { describeGroundingFindings } from '../lib/toolGrounding'
 import {
-  abandonClaims,
   buildExtractionMessages,
   buildJudgeMessages,
   claimCheckBlocked,
-  firstResultUrl,
   parseClaims,
-  parseVerdict,
-  searchUnreachable,
-  UNREACHABLE_NOTE
+  settleClaims
 } from '../lib/claimCheck'
 import { runAgentLoop, TOOL_TURN_BUDGETS, type ApiMessage } from '../lib/agentLoop'
 import type {
   ChatMessage,
-  CheckedClaim,
   ClaimCheckRecord,
   Conversation,
   DeliberationRecord,
@@ -323,42 +318,23 @@ export async function runClaimCheck(
     }
 
     // 2. Settlement — budget enforced in code: one search, at most one fetch,
-    //    one judgment per claim.
-    for (const [i, claim] of claims.entries()) {
-      if (signal.aborted) return
-      const checked: CheckedClaim = { text: claim, verdict: 'unverifiable' }
-      const search = await runTool('web_search', { query: claim })
-      // One refused connection settles the whole pass: the remaining claims
-      // would each buy the same failure at the cost of another wait.
-      if (!search.ok && searchUnreachable(search.error ?? '')) {
-        record.claims.push(...abandonClaims(claims.slice(i)))
-        record.budgetNote = UNREACHABLE_NOTE
+    //    one judgment per claim. The loop itself lives in lib/claimCheck.ts so
+    //    node:test can watch it stop; everything it touches is passed in here.
+    const outcome = await settleClaims(claims, {
+      search: (claim) => runTool('web_search', { query: claim }),
+      fetchPage: settings.tools.fetch_webpage
+        ? (url, claim) => runTool('fetch_webpage', { url, query: claim })
+        : null,
+      judge: (claim, passage) => complete(buildJudgeMessages(critic, claim, passage)),
+      onClaim: (claim) => {
+        record.claims.push(claim)
         patchRecord()
-        return
-      }
-      const url = search.ok && search.output ? firstResultUrl(search.output) : null
-      let passage = ''
-      if (url && settings.tools.fetch_webpage) {
-        const page = await runTool('fetch_webpage', { url, query: claim })
-        if (page.ok && page.output) {
-          passage = page.output
-          checked.source = url
-        }
-      }
-      if (passage) {
-        if (signal.aborted) return
-        const judged = await complete(buildJudgeMessages(critic, claim, passage))
-        if (signal.aborted) return
-        const { verdict, basis } = parseVerdict(judged)
-        checked.verdict = verdict
-        if (basis) checked.basis = basis
-      } else if (!search.ok) {
-        // Declined (confirmBeforeSearch) or failed — disclosed, never guessed.
-        checked.basis = 'Search was declined or failed.'
-      }
-      record.claims.push(checked)
-      patchRecord()
-    }
+      },
+      aborted: () => signal.aborted
+    })
+    if (outcome.aborted) return
+    if (outcome.budgetNote) record.budgetNote = outcome.budgetNote
+    patchRecord()
   } catch (err) {
     if (!signal.aborted) {
       record.budgetNote = `Claim check failed: ${err instanceof Error ? err.message : String(err)}`
