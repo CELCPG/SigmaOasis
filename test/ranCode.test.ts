@@ -1,6 +1,11 @@
-import { test, describe } from 'node:test'
+import { test, describe, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { describeRun, parseRanCode } from '../src/renderer/src/lib/ranCode'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describeRun, explainRun, parseRanCode, totalWaitMs, type RanCodeOutput } from '../src/renderer/src/lib/ranCode'
+import { RanCodeHeader } from '../src/renderer/src/components/RanCodeHeader'
+import { startWaitClock } from '../src/renderer/src/lib/oasisRipple'
+import { SANDBOX_BOOT_WAIT } from '../src/renderer/src/lib/turnPhase'
 import { formatRun } from '../src/main/ipc/workbenchFormat'
 
 /**
@@ -79,5 +84,161 @@ describe('numbersLookHardcoded', () => {
     assert.ok(!echo.includes('computed, not recalled'))
     const real = formatRun({ ...base, stdout: 'total: 391' } as never, 'print(f"total: {37+354}")').output!
     assert.ok(real.includes('computed, not recalled'))
+  })
+})
+
+// ---- v1.12.4: the boot the block used to swallow -------------------------------
+
+/**
+ * Measured, TTU2 run-1 — a capture of the shipped build, the same prompt twice
+ * in one session (.h2h-runs/judge-r3/TTU2/run-1):
+ *
+ *   turn 0, cold   header: "⚡ Ran Python  ran in 6 ms"    turn end 41840 ms
+ *   turn 1, warm   header: "⚡ Ran Python  ran in 20 ms"   turn end 25483 ms
+ *
+ * The cold turn is the one that loaded the runtime, and it is displayed as more
+ * than three times FASTER than the warm one, because durationMs is stopwatched
+ * inside the sandbox page and the host does not send it the job until the
+ * runtime is up. The load is charged to nobody.
+ *
+ * Nor was it named while it happened: grepping both transcripts for
+ * sandbox|warm|first run|starting|boot|initializ|one-time|cold returns only the
+ * after-the-event "Ran the Python in this reply in the sandbox".
+ *
+ * BOOT_MS is a stand-in for a several-second boot. Its value is the gap between
+ * the two turns' first-visible times (11973 − 3364 ms) — the right order of
+ * magnitude, but not a measurement of the boot: the capture reports no boot at
+ * all, which is the bug. A real Pyodide load is timed and asserted against in
+ * test/workbenchCheck.ts, which prints the cold and warm headers side by side.
+ */
+const BOOT_MS = 8609
+const COLD_RUN_MS = 6
+const WARM_RUN_MS = 20
+
+const primes = { ok: true, stdout: 'Sum of the first 500 prime numbers: 854405\n', stderr: '', result: null, files: [] as { name: string; data: Buffer }[] }
+
+function ran(durationMs: number, bootMs?: number): RanCodeOutput {
+  return parseRanCode(formatRun({ ...primes, durationMs, ...(bootMs ? { bootMs } : {}) }, 'print(sum(primes))').output!, true)
+}
+
+function header(props: Partial<Parameters<typeof RanCodeHeader>[0]> = {}): string {
+  return renderToStaticMarkup(
+    createElement(RanCodeHeader, {
+      status: 'running' as const,
+      parsed: null,
+      booting: false,
+      waitedMs: 0,
+      open: true,
+      onToggle: () => undefined,
+      ...props
+    })
+  ).replace(/<!-- -->/g, '')
+}
+
+/** The header's status text — what is on screen, not what a tooltip would say. */
+function labelOf(html: string): string {
+  const m = html.match(/<span class="text-ink-tertiary">([^<]*)<\/span>/)
+  assert.ok(m, `no status span in ${html}`)
+  return m![1]
+}
+
+/** The largest duration the header states, in ms — what a reader compares. */
+function largestStatedMs(text: string): number {
+  let max = 0
+  for (const m of text.matchAll(/(\d+(?:\.\d+)?)\s*(ms|s)\b/g)) {
+    max = Math.max(max, Number(m[1]) * (m[2] === 's' ? 1000 : 1))
+  }
+  return max
+}
+
+describe('a cold run says what it is waiting on, while it waits', () => {
+  test('the boot is named on screen for every second of it', () => {
+    mock.timers.enable({ apis: ['setInterval', 'Date'] })
+    try {
+      // The only input is time passing: no chunk, no keystroke, no result.
+      const frames: string[] = []
+      const stop = startWaitClock((ms) => frames.push(header({ booting: true, waitedMs: ms })))
+      for (let second = 0; second < 8; second++) mock.timers.tick(1_000)
+      stop()
+
+      assert.equal(frames.length, 8, 'one repaint per second of the boot')
+      for (const [i, f] of frames.entries()) {
+        const seen = labelOf(f)
+        assert.match(seen, /Starting the Python sandbox/, `second ${i + 1} does not name the sandbox start: "${seen}"`)
+        assert.match(seen, /one-time for this session/, `second ${i + 1} does not say the cost is one-time: "${seen}"`)
+        assert.ok(!/running…/.test(seen), `second ${i + 1} claims Python is running before the runtime exists: "${seen}"`)
+      }
+      assert.match(labelOf(frames[0]), /· 1s/)
+      assert.match(labelOf(frames[7]), /· 8s/, 'the wait is counted, so eight seconds does not look like one')
+      assert.notEqual(frames[7], frames[0], 'the screen moves on its own during the boot')
+      assert.match(frames[0], /data-run-state="booting"/)
+    } finally {
+      mock.timers.reset()
+    }
+  })
+
+  test('the label is the turn’s own named-wait vocabulary, not a second one', () => {
+    const seen = labelOf(header({ booting: true, waitedMs: 3_000 }))
+    assert.ok(seen.includes(SANDBOX_BOOT_WAIT.label), seen)
+    assert.ok(seen.includes(SANDBOX_BOOT_WAIT.detail), seen)
+  })
+
+  test('a warm run is not told a boot is happening', () => {
+    const f = header({ booting: false, waitedMs: 3_000 })
+    assert.ok(!/sandbox/i.test(labelOf(f)), 'a warm run must not claim a runtime start')
+    assert.match(labelOf(f), /running…/)
+    assert.match(f, /data-run-state="running"/)
+  })
+})
+
+describe('the reported time never ranks a cold call above a warm one', () => {
+  test('TTU2: 8.6 s + 6 ms must not read as faster than 20 ms', () => {
+    const cold = ran(COLD_RUN_MS, BOOT_MS)
+    const warm = ran(WARM_RUN_MS)
+    const coldText = describeRun(cold)
+    const warmText = describeRun(warm)
+
+    // The inversion itself, asserted before anything else: whatever the header
+    // says, the slower call must not state the smaller figure.
+    assert.ok(
+      largestStatedMs(coldText) > largestStatedMs(warmText),
+      `the cold header "${coldText}" still reads as faster than the warm one "${warmText}"`
+    )
+    assert.ok(
+      totalWaitMs(cold)! > totalWaitMs(warm)!,
+      `total wait: cold ${totalWaitMs(cold)} ms vs warm ${totalWaitMs(warm)} ms`
+    )
+
+    assert.equal(coldText, 'started the sandbox in 8.6 s, then ran in 6 ms')
+    assert.equal(warmText, 'ran in 20 ms', 'the warm header is untouched')
+    assert.equal(cold.bootMs, BOOT_MS, 'the boot survives the trip through the result text')
+    assert.equal(warm.bootMs, null, 'a warm run reports no boot')
+    assert.equal(cold.durationMs, COLD_RUN_MS)
+    assert.equal(totalWaitMs(cold), BOOT_MS + COLD_RUN_MS)
+    assert.equal(totalWaitMs(warm), WARM_RUN_MS)
+  })
+
+  test('the rendered header carries both figures, and its tooltip the total', () => {
+    const cold = ran(COLD_RUN_MS, BOOT_MS)
+    const f = header({ status: 'done', parsed: cold, booting: false })
+    assert.equal(labelOf(f), 'started the sandbox in 8.6 s, then ran in 6 ms')
+    assert.match(explainRun(cold), /^8\.6 s in all/)
+    assert.match(explainRun(cold), /one-time cost this run happened to be first to pay/)
+    assert.match(explainRun(ran(WARM_RUN_MS)), /^Python the model wrote/)
+  })
+
+  test('a cold run that fails still reports what it paid to fail', () => {
+    const text = formatRun({ ...primes, ok: false, durationMs: 3, bootMs: BOOT_MS, error: 'ZeroDivisionError: division by zero' }, 'x = 1/0').error!
+    const p = parseRanCode(text, false)
+    assert.equal(p.bootMs, BOOT_MS)
+    assert.equal(describeRun(p), 'started the sandbox in 8.6 s, then failed after 3 ms')
+    assert.ok(!p.notes.some((n) => /sandbox started/.test(n)), 'the boot is a figure, not small print')
+  })
+
+  test('the model is told the cost is one-time, so it cannot read it as this code being slow', () => {
+    const out = formatRun({ ...primes, durationMs: COLD_RUN_MS, bootMs: BOOT_MS }, 'print(1)').output!
+    assert.match(out, /The sandbox started for this run: 8609 ms \(one-time; later runs in this conversation skip it\)\./)
+    assert.match(out, /Python ran in 6 ms\./)
+    assert.ok(!formatRun({ ...primes, durationMs: WARM_RUN_MS }, 'print(1)').output!.includes('The sandbox started'))
   })
 })
