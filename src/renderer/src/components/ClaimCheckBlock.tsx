@@ -22,6 +22,12 @@ const VERDICT_STYLE: Record<ClaimVerdict, { icon: string; label: string; classes
     icon: '?',
     label: 'Unverifiable',
     classes: 'text-amber-600 dark:text-amber-400'
+  },
+  // Not a verdict — an admission that no verdict was reached, and why.
+  unchecked: {
+    icon: '–',
+    label: 'Not checked',
+    classes: 'text-neutral-500 dark:text-neutral-400'
   }
 }
 
@@ -39,11 +45,13 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
   const done = check.claims.filter((c) => c.verdict === 'confirmed').length
   const contradicted = check.claims.filter((c) => c.verdict === 'contradicted').length
 
+  // A pass that never got off the ground puts its reason in the header rather
+  // than under a heading that implies claims were checked.
   const summary =
     check.claims.length === 0
       ? isStreaming
         ? 'Extracting claims…'
-        : 'Claim check'
+        : (check.budgetNote ?? 'Claim check')
       : `Claim check: ${check.claims.length} claim${check.claims.length === 1 ? '' : 's'}` +
         (isStreaming ? ' (running…)' : ` — ${done} confirmed, ${contradicted} contradicted`)
 
@@ -55,7 +63,7 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-amber-400/10"
       >
         <span className={isStreaming ? 'animate-pulse' : ''}>🧪</span>
-        <span className="font-medium text-amber-700 dark:text-amber-300">{summary}</span>
+        <span className="min-w-0 font-medium text-amber-700 dark:text-amber-300">{summary}</span>
         {check.modelId && (
           <span className="min-w-0 truncate font-mono text-[10px] text-neutral-400">
             {check.roleName} · {check.modelId}
@@ -87,10 +95,10 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
               )
             })}
           </ul>
-          {check.budgetNote && (
+          {check.budgetNote && check.budgetNote !== summary && (
             <p className="mt-2 text-[10px] text-neutral-400">{check.budgetNote}</p>
           )}
-          {!isStreaming && check.claims.length > 0 && (
+          {!isStreaming && check.claims.some((c) => c.source) && (
             <p className="mt-2 border-t border-amber-400/15 pt-1.5 text-[10px] text-neutral-400">
               Each verdict rests on the one source shown. A confirmation is only as good as that
               source — open it before relying on the claim.

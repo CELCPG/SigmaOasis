@@ -1,15 +1,19 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  abandonClaims,
   buildExtractionMessages,
   buildJudgeMessages,
+  claimCheckBlocked,
   firstResultUrl,
   parseClaims,
   parseVerdict,
+  searchUnreachable,
   EXTRACTION_INSTRUCTION,
-  JUDGE_INSTRUCTION
+  JUDGE_INSTRUCTION,
+  UNREACHABLE_NOTE
 } from '../src/renderer/src/lib/claimCheck'
-import type { ModelConfig } from '../src/renderer/src/types'
+import type { ModelConfig, ToolCallRecord } from '../src/renderer/src/types'
 
 /**
  * Claim Check's structural guarantees: extraction is the critic's job (never
@@ -117,5 +121,84 @@ describe('prompt assembly', () => {
     assert.match(user!.content, /Claim\./)
     assert.match(user!.content, /untrusted external content/)
     assert.match(user!.content, /Passage text\./)
+  })
+})
+
+/**
+ * v1.12.3: a pass that cannot succeed must not be run.
+ *
+ * Measured (TTU3, both builds): with the search provider on a dead port, the
+ * claim check still extracted five claims and ran five searches, holding the
+ * finished answer for 26-33 seconds of silence to end on five UNVERIFIABLEs.
+ * Every one of those verdicts was settled before the pass began — nothing was
+ * reachable, and the app knew it from its own turn records.
+ */
+describe('reachability', () => {
+  const errored = (name: string, result: string): ToolCallRecord => ({
+    id: `${name}:${result.slice(0, 8)}`,
+    name,
+    args: { query: 'q' },
+    status: 'error',
+    result
+  })
+
+  test('a refused connection is unreachable; a provider that answered is not', () => {
+    for (const transport of [
+      'net::ERR_CONNECTION_REFUSED',
+      'net::ERR_NAME_NOT_RESOLVED',
+      'net::ERR_PROXY_CONNECTION_FAILED',
+      'connect ECONNREFUSED 127.0.0.1:9',
+      'getaddrinfo ENOTFOUND search.example',
+      'fetch failed',
+      'Request timed out after 15s.',
+      'No SearXNG URL configured — set it under Settings → Search.'
+    ]) {
+      assert.equal(searchUnreachable(transport), true, transport)
+    }
+    for (const answered of [
+      'SearXNG returned HTTP 403. Enable JSON output on your instance.',
+      'The user declined this web search.',
+      'Empty search query.',
+      'No results found for "marquee moon" (searxng).'
+    ]) {
+      assert.equal(searchUnreachable(answered), false, answered)
+    }
+  })
+
+  test('the pass is blocked before a token is spent when every search refused to connect', () => {
+    const note = claimCheckBlocked([
+      errored('web_search', 'net::ERR_CONNECTION_REFUSED (http://127.0.0.1:9)'),
+      errored('web_search', 'net::ERR_CONNECTION_REFUSED (http://127.0.0.1:9)')
+    ])
+    assert.match(note ?? '', /could not check: no source is reachable/i)
+    assert.equal(note, UNREACHABLE_NOTE)
+  })
+
+  test('a reachable provider, or no attempt at all, still runs the pass', () => {
+    // Nothing tried yet: the pass has to find out for itself.
+    assert.equal(claimCheckBlocked([]), null)
+    // One search came back — the provider is there, so the next claim may settle.
+    assert.equal(
+      claimCheckBlocked([
+        errored('web_search', 'net::ERR_CONNECTION_REFUSED'),
+        { id: 'ok', name: 'web_search', args: {}, status: 'done', result: '1. T\n   https://e.g/a\n   s' }
+      ]),
+      null
+    )
+    // Failed, but the provider answered: a 403 is not an unreachable provider.
+    assert.equal(claimCheckBlocked([errored('web_search', 'SearXNG returned HTTP 403.')]), null)
+    // A failed page fetch is not a failed search: only web_search decides this.
+    assert.equal(claimCheckBlocked([errored('fetch_webpage', 'net::ERR_CONNECTION_REFUSED')]), null)
+  })
+
+  test('abandoned claims say they were not checked — never UNVERIFIABLE', () => {
+    const abandoned = abandonClaims(['Marquee Moon came out in 1977.', 'SST released it.'])
+    assert.equal(abandoned.length, 2)
+    for (const claim of abandoned) {
+      assert.equal(claim.verdict, 'unchecked')
+      assert.match(claim.basis ?? '', /no source is reachable/i)
+      assert.equal(claim.source, undefined)
+    }
+    assert.equal(abandoned[0]!.text, 'Marquee Moon came out in 1977.')
   })
 })

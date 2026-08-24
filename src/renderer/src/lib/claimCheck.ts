@@ -1,4 +1,4 @@
-import type { ClaimVerdict, ModelConfig } from '../types'
+import type { CheckedClaim, ClaimVerdict, ModelConfig, ToolCallRecord } from '../types'
 
 /**
  * v1.2 Claim Check: settle the critic's list.
@@ -25,6 +25,67 @@ const MAX_CLAIM_CHARS = 300
 /** One search + at most one fetch per claim — the budget, in code. */
 const MAX_SEARCHES_PER_CLAIM = 1
 const MAX_FETCHES_PER_CLAIM = 1
+
+// ---- Reachability --------------------------------------------------------------
+
+/**
+ * v1.12.3: a check that cannot succeed must not be run.
+ *
+ * Measured: with the search provider pointed at a dead port, this pass still
+ * extracted five claims, ran five searches that all failed the same way, and
+ * held the finished answer for half a minute to end on five UNVERIFIABLEs. The
+ * verdict was decided before the first token — every claim rests on a search,
+ * and there was no search to be had.
+ *
+ * Transport failures only. A provider that answered — HTTP 403, no results, a
+ * query the sanitizer refused — is reachable, and the next claim may well fare
+ * differently; a refused connection will not.
+ */
+const UNREACHABLE_PATTERNS = [
+  /\bERR_(?:CONNECTION|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|ADDRESS_UNREACHABLE|NETWORK_CHANGED|PROXY_CONNECTION_FAILED|SOCKET_NOT_CONNECTED)/i,
+  /\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|EAI_AGAIN)\b/,
+  /\bfetch failed\b/i,
+  /\brequest timed out after\b/i,
+  /\bconnection was closed before the response completed\b/i,
+  /\bnothing is\s+listening there\b/i,
+  /\bno searxng url configured\b/i,
+  /\bno brave search api key set\b/i,
+  /\begress policy\b/i
+]
+
+/** Did this search fail because nothing answered, rather than because of what it answered? */
+export function searchUnreachable(error: string): boolean {
+  return UNREACHABLE_PATTERNS.some((re) => re.test(error))
+}
+
+/** What the user is told instead of thirty seconds of silence. */
+export const UNREACHABLE_NOTE =
+  'Could not check: no source is reachable — every search this turn failed to connect, so ' +
+  'nothing could be checked against anything. Point Settings → Search at a working provider ' +
+  'and ask again.'
+
+/**
+ * The pre-flight. The answering turn has usually already tried to search — that
+ * is why this pass was armed — so its records say whether a provider exists
+ * before a single token is spent on extracting claims for it.
+ *
+ * Returns the line to show instead, or null to run the pass.
+ */
+export function claimCheckBlocked(records: ToolCallRecord[]): string | null {
+  const searches = records.filter((r) => r.name === 'web_search')
+  if (searches.length === 0) return null // nothing tried yet — the pass must find out
+  if (searches.some((r) => r.status !== 'error')) return null
+  return searches.every((r) => searchUnreachable(r.result ?? '')) ? UNREACHABLE_NOTE : null
+}
+
+/** Claims the pass gave up on, marked as what they are: not checked, not judged. */
+export function abandonClaims(claims: string[]): CheckedClaim[] {
+  return claims.map((text) => ({
+    text,
+    verdict: 'unchecked' as const,
+    basis: 'No source is reachable, so this claim was not checked.'
+  }))
+}
 
 // ---- Extraction ----------------------------------------------------------------
 

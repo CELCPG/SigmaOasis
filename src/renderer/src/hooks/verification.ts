@@ -24,11 +24,15 @@ import {
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { describeGroundingFindings } from '../lib/toolGrounding'
 import {
+  abandonClaims,
   buildExtractionMessages,
   buildJudgeMessages,
+  claimCheckBlocked,
   firstResultUrl,
   parseClaims,
-  parseVerdict
+  parseVerdict,
+  searchUnreachable,
+  UNREACHABLE_NOTE
 } from '../lib/claimCheck'
 import { runAgentLoop, TOOL_TURN_BUDGETS, type ApiMessage } from '../lib/agentLoop'
 import type {
@@ -240,6 +244,19 @@ export async function runClaimCheck(
       .getState()
       .patchMessage(convo.id, messageId, { claimCheck: { ...record, claims: [...record.claims] } })
 
+  // The pass is worth a model round trip only if a source could settle
+  // something. A switched-off search tool says no outright; this turn's own
+  // failed searches say it just as plainly. Either way, say so now rather than
+  // after an extraction and five searches that cannot come back with anything.
+  const blocked = !settings.tools.web_search
+    ? 'Could not check: web_search is switched off (Settings → Tools), so no claim could be checked against a source.'
+    : claimCheckBlocked(allRecords)
+  if (blocked) {
+    record.budgetNote = blocked
+    patchRecord()
+    return
+  }
+
   /** A tool call by the checker: recorded, displayed, and audited like any other. */
   const runTool = async (
     name: string,
@@ -305,19 +322,20 @@ export async function runClaimCheck(
       return
     }
 
-    if (!settings.tools.web_search) {
-      record.claims = claims.map((text) => ({ text, verdict: 'unverifiable' as const }))
-      record.budgetNote = 'web_search is disabled, so no claim could be checked against a source.'
-      patchRecord()
-      return
-    }
-
     // 2. Settlement — budget enforced in code: one search, at most one fetch,
     //    one judgment per claim.
-    for (const claim of claims) {
+    for (const [i, claim] of claims.entries()) {
       if (signal.aborted) return
       const checked: CheckedClaim = { text: claim, verdict: 'unverifiable' }
       const search = await runTool('web_search', { query: claim })
+      // One refused connection settles the whole pass: the remaining claims
+      // would each buy the same failure at the cost of another wait.
+      if (!search.ok && searchUnreachable(search.error ?? '')) {
+        record.claims.push(...abandonClaims(claims.slice(i)))
+        record.budgetNote = UNREACHABLE_NOTE
+        patchRecord()
+        return
+      }
       const url = search.ok && search.output ? firstResultUrl(search.output) : null
       let passage = ''
       if (url && settings.tools.fetch_webpage) {
@@ -379,7 +397,16 @@ export async function reviseAgainstFindings(
   // while the right ones sat in a tool record it never looked at.
   const recompute = [...records]
     .reverse()
-    .find((r) => r.name === 'run_python' && r.status === 'done' && /recomputing the figures/i.test(r.preamble ?? ''))
+    // …and never a run already marked as checking nothing: handing a circular
+    // recomputation over as "correct values, already verified" is the same
+    // contradiction the footer stopped making.
+    .find(
+      (r) =>
+        r.name === 'run_python' &&
+        r.status === 'done' &&
+        !r.checksNothing &&
+        /recomputing the figures/i.test(r.preamble ?? '')
+    )
   const recomputeStdout = recompute?.result ? parseRanCode(recompute.result, true).stdout : ''
   const recomputeBlock = recomputeStdout ? `\n\n${buildRecomputeReference(recomputeStdout)}` : ''
 
@@ -606,6 +633,12 @@ export async function runRecompute(
     .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
   record.status = result.ok ? 'done' : 'error'
   record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+  // A run whose inputs the model invented — or whose output the sandbox marked
+  // as pure literals — checked nothing, whatever its exit status. Marked on the
+  // record itself so the grounding footer cannot go on to name it as something
+  // the answer was checked against (v1.12.3).
+  const circular = recomputeIsCircular(code, question) || (record.result ?? '').includes(LAUNDERED_OUTPUT_MARKER)
+  if (circular) record.checksNothing = true
   onRecords()
   audit(convo, {
     kind: 'tool_call',
@@ -615,9 +648,6 @@ export async function runRecompute(
     ok: result.ok,
     text: `[recompute] run_python(${JSON.stringify({ code })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
   })
-  // A run whose inputs the model invented — or whose output the sandbox marked
-  // as pure literals — checked nothing, whatever its exit status.
-  const circular = recomputeIsCircular(code, question) || (record.result ?? '').includes(LAUNDERED_OUTPUT_MARKER)
   return describeRecompute({ ran: true, ok: result.ok, circular, note: result.ok ? undefined : 'the recomputation raised an error' })
 }
 
