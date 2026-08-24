@@ -12,7 +12,7 @@
  * Headless, pinned by test/planBlock.test.ts.
  */
 
-import type { ChatPlan, PlanOutcome, PlanStep, PlanStepStatus } from '../types'
+import type { ChatPlan, PlanOutcome, PlanStep, PlanStepStatus, ToolCallRecord } from '../types'
 
 /**
  * End a plan. Every step still pending is one that will never run, so it
@@ -128,4 +128,38 @@ export function toolPreview(step: Pick<PlanStep, 'tools'>): string {
   return names.length > 0
     ? `Tools — may use: ${names.join(', ')}`
     : 'Tools — none planned; this step reasons only'
+}
+
+/**
+ * The forecast, read back against what the step actually ran.
+ *
+ * `toolPreview` is a promise made before approval and deliberately not a
+ * leash: the names in it are not an allowlist, because a small model that
+ * forecasts nothing would then be handed nothing, and the plan is worse for
+ * it. What a non-binding forecast owes the reader instead is honesty — and
+ * measured on a real run it did not pay. A step authorised as "Tools — may
+ * use: memory_search" went on to call `reference_lookup` against the user's
+ * own installed library, and all the row said afterwards was "🔧 2 tool
+ * calls": a count that agreed with itself while the names disagreed.
+ *
+ * So the step reconciles the two lists it already holds. Same species as
+ * `undisclosedToolRuns` in lib/toolGrounding.ts — a call the account of the
+ * work leaves out — and the same rule on status: a call that errored still
+ * ran, and still ran undisclosed.
+ *
+ * Only ever names a tool that ran. A forecast tool that never ran is the
+ * planner over-reaching, not the step misreporting, and is nothing to warn
+ * about.
+ */
+export function undisclosedStepRuns(
+  step: Pick<PlanStep, 'tools'>,
+  calls: readonly Pick<ToolCallRecord, 'name'>[]
+): string[] {
+  const forecast = new Set(step.tools ?? [])
+  return [...new Set(calls.map((c) => c.name))].filter((n) => !forecast.has(n)).sort()
+}
+
+/** What the row says when the two disagree — names, because a count is not one. */
+export function undisclosedRunNote(names: string[]): string {
+  return `⚠️ Ran ${names.join(', ')}, which this step did not disclose.`
 }
