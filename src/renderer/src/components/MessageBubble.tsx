@@ -88,7 +88,7 @@ function ToolImageGallery({ records }: { records: ToolCallRecord[] }): JSX.Eleme
                 )
               )}
             </div>
-            <div className="mt-1 text-[10px] text-neutral-400">
+            <div className="mt-1 text-[10px] text-ink-tertiary">
               {produced
                 ? `📈 ${record.images!.length} figure(s) produced by the code that ran: ${record.images!.map((i) => i.title).join(', ')}`
                 : `🖼️ ${record.images!.length} image(s) for “${String(record.args.query ?? '')}” — click a thumbnail to open its source page.`}
@@ -196,11 +196,11 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
   const [open, setOpen] = useState(false)
   const busy = record.status === 'reviewing' || record.status === 'revising'
   return (
-    <div className="mt-2 text-[11px] text-neutral-400">
+    <div className="mt-2 text-[11px] text-ink-secondary">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="rounded px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+        className="rounded px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title={
           record.self
             ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Models → self-review).'
@@ -212,15 +212,15 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
       {open && !busy && (
         <div className="mt-1 space-y-2 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
           <div>
-            <span className="font-medium text-neutral-500">
+            <span className="font-medium text-ink-secondary">
               Review{record.self ? ' (self)' : ` by ${record.reviewerRole}`}
             </span>
-            <p className="whitespace-pre-wrap text-neutral-500">{record.review || '(empty)'}</p>
+            <p className="whitespace-pre-wrap text-ink-secondary">{record.review || '(empty)'}</p>
           </div>
           {record.revised && (
             <div>
-              <span className="font-medium text-neutral-500">Draft (before revision)</span>
-              <p className="whitespace-pre-wrap text-neutral-500">{record.draft}</p>
+              <span className="font-medium text-ink-secondary">Draft (before revision)</span>
+              <p className="whitespace-pre-wrap text-ink-secondary">{record.draft}</p>
             </div>
           )}
         </div>
@@ -245,11 +245,11 @@ function MemoryContextLine({
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
-    <div className="mt-2 text-[11px] text-neutral-400">
+    <div className="mt-2 text-[11px] text-ink-secondary">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+        className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title={title}
       >
         {label}{' '}
@@ -260,10 +260,10 @@ function MemoryContextLine({
         <div className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
           {items.map((i, idx) => (
             <div key={idx}>
-              <span className="font-medium text-neutral-500">
+              <span className="font-medium text-ink-secondary">
                 {i.source} · relevance {i.score.toFixed(2)}
               </span>
-              <p className="whitespace-pre-wrap text-neutral-500">{i.text}</p>
+              <p className="whitespace-pre-wrap text-ink-secondary">{i.text}</p>
             </div>
           ))}
         </div>
@@ -344,7 +344,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div className="flex items-center gap-3 px-4 py-2">
         <div className="mx-auto flex max-w-3xl flex-1 items-center gap-3">
           <span className="h-px flex-1 bg-black/10 dark:bg-white/10" />
-          <span className="text-[11px] text-neutral-400">{message.content}</span>
+          <span className="text-[11px] text-ink-tertiary">{message.content}</span>
           <span className="h-px flex-1 bg-black/10 dark:bg-white/10" />
         </div>
       </div>
@@ -380,7 +380,7 @@ export const MessageBubble = memo(function MessageBubble({
             }
           >
             📄 {a.name}
-            {a.indexed && <span className="ml-1 text-neutral-400">(indexed)</span>}
+            {a.indexed && <span className="ml-1 text-ink-tertiary">(indexed)</span>}
           </span>
         ))}
         {message.content && (
@@ -389,7 +389,7 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
         <span
-          className="text-[10px] text-neutral-400"
+          className="text-[10px] text-ink-tertiary"
           title={new Date(message.createdAt).toLocaleString()}
         >
           {formatTime(message.createdAt)}
@@ -434,18 +434,18 @@ export const MessageBubble = memo(function MessageBubble({
               {accent && <span className={`h-1.5 w-1.5 rounded-full ${accent.dot}`} />}
               {message.roleName}
             </span>
-            <span className="font-mono text-xs text-neutral-400">{message.modelId}</span>
+            <span className="font-mono text-xs text-ink-tertiary">{message.modelId}</span>
           </div>
         )}
 
         {!isStreaming && message.content && (
           // flex-wrap, because in split view (v1.11) a bubble is half as wide
           // and this row of actions used to run off the edge of the pane.
-          <div className="mb-1 flex flex-wrap items-center gap-1 text-xs text-neutral-400">
+          <div className="mb-1 flex flex-wrap items-center gap-1 text-xs text-ink-secondary">
             <button
               type="button"
               onClick={copyMessage}
-              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
               title="Copy message"
             >
               {copied ? '✓ Copied' : '📋 Copy'}
@@ -453,7 +453,7 @@ export const MessageBubble = memo(function MessageBubble({
             <button
               type="button"
               onClick={toggleSpeak}
-              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+              className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
               title={speaking ? 'Stop reading' : 'Read aloud'}
             >
               {speaking ? '⏹ Stop' : '🔊 Listen'}
@@ -462,7 +462,7 @@ export const MessageBubble = memo(function MessageBubble({
               <button
                 type="button"
                 onClick={() => void regenerate()}
-                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
                 title="Re-answer the last message"
               >
                 ↻ Regenerate
@@ -484,7 +484,7 @@ export const MessageBubble = memo(function MessageBubble({
                 type="button"
                 onClick={() => void deliberate(message.id)}
                 disabled={streaming}
-                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
                 title={
                   'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
                   // v1.9.1: on a model that already reasons internally, say what
@@ -544,7 +544,7 @@ export const MessageBubble = memo(function MessageBubble({
 
         {message.routingNote && (
           <div
-            className="mt-2 text-[11px] text-gray-500 dark:text-gray-400"
+            className="mt-2 text-[11px] text-ink-tertiary"
             title="The pre-flight router sent this message to a specialty slot based on its content. @mention a role name to override routing."
           >
             🔀 {message.routingNote} — override with @RoleName
@@ -560,7 +560,7 @@ export const MessageBubble = memo(function MessageBubble({
             {message.checks.map((c, i) => (
               <div
                 key={i}
-                className={c.ok ? 'text-neutral-400' : 'text-amber-600 dark:text-amber-400'}
+                className={c.ok ? 'text-ink-tertiary' : 'text-amber-600 dark:text-amber-400'}
                 title="Workbench verification: the app ran Python in the sandbox to check this reply — recomputing its figures, or running the code it contains. Settings → Models → Workbench checks."
               >
                 {c.summary}
@@ -571,7 +571,7 @@ export const MessageBubble = memo(function MessageBubble({
 
         {!isStreaming && message.playbook && (
           <div
-            className="mt-2 text-[11px] text-neutral-400"
+            className="mt-2 text-[11px] text-ink-tertiary"
             title="The app added a short numbered method for this kind of question to the turn — the model was asked to follow it. Settings → Models → Playbooks."
           >
             📋 Method: {message.playbook} playbook
@@ -580,7 +580,7 @@ export const MessageBubble = memo(function MessageBubble({
 
         {!isStreaming && message.ledger && (
           <div
-            className="mt-2 text-[11px] text-neutral-400"
+            className="mt-2 text-[11px] text-ink-tertiary"
             title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. Settings → Models → Conversation ledger."
           >
             {message.ledger}
@@ -681,7 +681,7 @@ export const MessageBubble = memo(function MessageBubble({
             disabled={streaming}
             onClick={() => void escalate(message.id)}
             title="Re-run this turn on a bigger slot. The original reply stays; the new answer is appended."
-            className="mt-2 rounded-lg border border-black/10 px-2.5 py-1 text-[11px] text-neutral-600 transition-colors hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/5"
+            className="mt-2 rounded-lg border border-black/10 px-2.5 py-1 text-[11px] text-ink-secondary transition-colors hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:hover:bg-white/5"
           >
             ↗ Try again on {message.escalation.roleName} —{' '}
             {ESCALATION_REASON_TEXT[message.escalation.reason]}
@@ -690,7 +690,7 @@ export const MessageBubble = memo(function MessageBubble({
 
         {showStats && !isStreaming && message.stats && (
           <div
-            className="mt-2 text-[10px] text-neutral-400"
+            className="mt-2 text-[10px] text-ink-tertiary"
             title={
               message.stats.completionTokens
                 ? 'Measured from the server’s own token accounting.'

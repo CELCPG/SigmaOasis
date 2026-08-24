@@ -43,10 +43,18 @@
    */
   --accent-ink: #00695a;
 
-  /* Text */
+  /*
+   * Text. The alphas are set against the *composited* surface, not the canvas:
+   * chrome sits on the glass panel, which is rgba(255,255,255,0.72) over
+   * #f4f4f5 — an effective #fcfcfc. Secondary at 0.68 measured 6.1:1 there and
+   * tertiary at 0.48 only 3.2:1, so tertiary could not carry text at all. The
+   * ramp below clears AA on both the panel and the bare canvas (14.9 / 9.4 /
+   * 5.4:1 on the panel) and keeps three visible ranks. Muted is decorative and
+   * disabled states only — never information.
+   */
   --text-primary: rgba(23, 23, 23, 0.94);
-  --text-secondary: rgba(23, 23, 23, 0.68);
-  --text-tertiary: rgba(23, 23, 23, 0.48);
+  --text-secondary: rgba(23, 23, 23, 0.8);
+  --text-tertiary: rgba(23, 23, 23, 0.64);
   --text-muted: rgba(23, 23, 23, 0.32);
 
   /* Easing */
@@ -484,7 +492,8 @@ body {
   margin: 0.25em 0;
 }
 .markdown-body a {
-  color: #3b82f6;
+  /* blue-500 is 3.6:1 on the panel; blue-700 is 6.5:1. */
+  color: #1d4ed8;
   text-decoration: underline;
 }
 .dark .markdown-body a {
@@ -494,7 +503,9 @@ body {
   margin: 0.5em 0;
   border-left: 3px solid rgba(128, 128, 128, 0.4);
   padding-left: 0.8em;
-  color: rgba(128, 128, 128, 1);
+  /* A quote is the source's own words. The rule sets it apart; the ink does
+     not have to — flat grey was 3.9:1 on the light panel. */
+  color: var(--text-secondary);
 }
 .markdown-body table {
   margin: 0.5em 0;

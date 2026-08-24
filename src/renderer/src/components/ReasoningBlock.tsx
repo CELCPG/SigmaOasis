@@ -41,11 +41,11 @@ export function ReasoningBlock({ reasoning, reasoningMs, isStreaming, defaultOpe
       >
         <span className={isStreaming ? 'animate-pulse' : ''}>💭</span>
         {/* v1.7: light sweeps through "Thinking…" while the thought streams. */}
-        <span className={`font-medium ${isStreaming ? 'shimmer-text' : 'text-neutral-500'}`}>{label}</span>
-        <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
+        <span className={`font-medium ${isStreaming ? 'shimmer-text' : 'text-ink-secondary'}`}>{label}</span>
+        <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap px-3 pb-3 pt-1 font-mono text-neutral-500">
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap px-3 pb-3 pt-1 font-mono text-ink-secondary">
           {reasoning}
         </pre>
       )}
