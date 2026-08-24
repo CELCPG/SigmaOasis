@@ -860,3 +860,94 @@ describe('conflictingToolFigures', () => {
     ])
   })
 })
+
+// ---- v1.12.2: measurements on a retrieval-grounded turn -----------------------
+
+/**
+ * The passages are the shipped packs' own words — the ibuprofen dose from
+ * `health`, the cooking temperatures verbatim from `food-safety/four-steps.md`
+ * — wrapped in the shape `library.ts formatLookup` actually produces.
+ *
+ * Through v1.12.1 every case below returned null: `reference_lookup` was not
+ * in NUMERIC_TOOLS, so the measurement check never armed on a retrieval turn,
+ * and a reply that answered "give 500 mg" over a passage reading "200 mg to
+ * 400 mg" was passed through in silence. The library eval has scored replies
+ * against exactly this standard since v1.6 (`unsupportedMeasurements`); the
+ * app now holds itself to it too.
+ */
+const DOSE_PASSAGES = `Reference passages for "how much ibuprofen can an adult take" from the local library (semantic + keyword ranking), most relevant first.
+
+[1] health › Pain Relievers › Over-the-counter doses · 34% in
+    relevance 0.71
+For adults the usual over-the-counter ibuprofen dose is 200 mg to 400 mg every 4 to 6 hours while symptoms last. Do not exceed 1200 mg in 24 hours unless a provider directs it.`
+
+const COOK_PASSAGES = `Reference passages for "what temperature should chicken be cooked to" from the local library (semantic + keyword ranking), most relevant first.
+
+[1] food-safety › Four Steps to Food Safety › Cook to the Right Temperature · 61% in
+    relevance 0.68
+Keep food hot (140°F (60°C) or above) after cooking. Microwave food thoroughly (165°F (74°C) or above).`
+
+describe('unsupported measurements on a retrieval-grounded turn (v1.12.2)', () => {
+  test('an invented dose over a passage that states the dose is flagged', () => {
+    const report = checkToolGrounding(
+      'For an adult, give 500 mg of ibuprofen every 6 hours [1].',
+      [rec('reference_lookup', DOSE_PASSAGES)],
+      'how much ibuprofen can an adult take'
+    )
+    assert.ok(report, 'expected a report — this returned null through v1.12.1')
+    assert.ok(
+      report!.quantities?.some((q) => /500\s?mg/i.test(q)),
+      `expected the invented dose, got ${JSON.stringify(report!.quantities)}`
+    )
+    // The duration IS supported by the same passage, so it must not be named.
+    assert.ok(!report!.quantities?.some((q) => /hour/i.test(q)), JSON.stringify(report!.quantities))
+  })
+
+  test('the dose the passage does state is not flagged — the true negative', () => {
+    const report = checkToolGrounding(
+      'Adults take 200 mg to 400 mg every 4 to 6 hours, and no more than 1200 mg in 24 hours [1].',
+      [rec('reference_lookup', DOSE_PASSAGES)],
+      'how much ibuprofen can an adult take'
+    )
+    assert.equal(report, null, `a correctly cited dose must stay clean: ${JSON.stringify(report)}`)
+  })
+
+  test('an undercooked chicken temperature is flagged; the passage\'s own is not', () => {
+    const wrong = checkToolGrounding(
+      'Cook chicken to an internal temperature of 145°F.',
+      [rec('reference_lookup', COOK_PASSAGES)],
+      'what internal temperature should chicken be cooked to'
+    )
+    assert.ok(wrong?.quantities?.some((q) => /145/.test(q)), JSON.stringify(wrong))
+    const right = checkToolGrounding(
+      'Cook it to 165°F (74°C), and hold it at 140°F or above [1].',
+      [rec('reference_lookup', COOK_PASSAGES)],
+      'what internal temperature should chicken be cooked to'
+    )
+    assert.equal(right, null, JSON.stringify(right))
+  })
+
+  test('the finding reaches the user: named in the disclosure, counted in the report', () => {
+    const report = checkToolGrounding(
+      'For an adult, give 500 mg of ibuprofen every 6 hours [1].',
+      [rec('reference_lookup', DOSE_PASSAGES)],
+      'how much ibuprofen can an adult take'
+    )
+    assert.equal(groundingFindingCount(report), 1)
+    const text = describeGroundingFindings(report!)
+    assert.match(text, /Measurements nothing computed or retrieved supports/)
+    assert.match(text, /500 mg/)
+    assert.match(text, /reference_lookup/)
+  })
+
+  test('a retrieval turn that measured nothing arms nothing', () => {
+    // The passages carry no measurement, so there is no corpus to disagree
+    // with and the reply's own "about 20 minutes" is not this rung's business.
+    const report = checkToolGrounding(
+      'It usually takes about 20 minutes to set.',
+      [rec('reference_lookup', 'Reference passages for "grout": let the grout cure before sealing it.')],
+      'how long before I can seal grout'
+    )
+    assert.equal(report, null, JSON.stringify(report))
+  })
+})

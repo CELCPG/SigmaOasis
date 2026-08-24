@@ -293,6 +293,29 @@ export function looksFactual(text: string): boolean {
 }
 
 /**
+ * Does this turn make claims the app should have checked before it spoke?
+ *
+ * v1.12.2, and it is deliberately wider than `looksFactual`. That heuristic
+ * decides whether to spend a web_search, so it is tuned for the confabulation
+ * cases of v1.1 — albums, tickers, release dates. It is also the sole gate on
+ * the `unverified` badge, and most of what the shipped packs cover reads as
+ * non-factual to it: "how long do leftovers last in the fridge", "what
+ * internal temperature should chicken be cooked to", "how much can my landlord
+ * raise the rent", "what is the standard deduction this year", "how do I stop
+ * a leaking faucet", "how much water per person for a hurricane kit". In those
+ * domains the app could never say "I could not verify this" — not because it
+ * had verified anything, but because the badge did not know the question
+ * counted.
+ *
+ * A library lookup that returns passages IS a consulted source, so this only
+ * ever speaks when the lookup found nothing (or never ran) — the turn where a
+ * reference answer came entirely from a 9B model's memory.
+ */
+export function needsVerification(text: string): boolean {
+  return looksFactual(text) || looksReference(text)
+}
+
+/**
  * Openers that mark a message as meaningless without the conversation around
  * it — "lets go with the first one", "and the price?". A search provider has
  * never seen the conversation, so a query built from this text alone comes back

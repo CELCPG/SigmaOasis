@@ -8,6 +8,7 @@ import {
   consultedSources,
   looksFactual,
   looksReference,
+  needsVerification,
   stripTurnNotesEcho,
   withGrounding,
   withToolCallPreamble,
@@ -432,5 +433,49 @@ describe('the finance reference domain covers investing (v1.12)', () => {
     for (const text of ['write me a poem about the ocean', 'debug this stack trace for me']) {
       assert.ok(!referenceDomains(text).includes('finance'), text)
     }
+  })
+})
+
+// ---- v1.12.2: the badge gate is wider than the search gate --------------------
+
+/**
+ * `looksFactual` was tuned for the confabulation cases of v1.1 and is also the
+ * sole gate on the `unverified` badge. Five of the seven shipped library packs
+ * never matched it, so in those domains the app could never say "I could not
+ * verify this" — however little it had actually verified. The questions below
+ * are the packs' own subject matter.
+ */
+describe('needsVerification (v1.12.2)', () => {
+  const domains = [
+    'how long do leftovers last in the fridge',
+    'what internal temperature should chicken be cooked to',
+    'how much can my landlord raise the rent',
+    'what is the standard deduction this year',
+    'how do I stop a leaking faucet',
+    'how much water per person for a hurricane kit'
+  ]
+
+  for (const text of domains) {
+    test(`a reference-domain turn is checkable: ${text}`, () => {
+      assert.equal(needsVerification(text), true)
+    })
+  }
+
+  test('none of them could earn the badge before — that was the gap', () => {
+    // Every one is a domain a shipped pack covers, and not one of them reads
+    // as factual to the search heuristic.
+    assert.deepEqual(domains.filter((t) => looksFactual(t)), [])
+    assert.ok(domains.every((t) => looksReference(t)))
+  })
+
+  test('the factual turns it already covered still count', () => {
+    assert.equal(needsVerification('Who is the CEO of Tesla?'), true)
+    assert.equal(needsVerification('current price of bitcoin'), true)
+  })
+
+  test('creative and coding work is still nothing to verify', () => {
+    assert.equal(needsVerification('write a poem about the sea'), false)
+    assert.equal(needsVerification('fix this bug in my python function'), false)
+    assert.equal(needsVerification('hello'), false)
   })
 })
