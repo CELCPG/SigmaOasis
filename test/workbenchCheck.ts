@@ -48,6 +48,26 @@ async function main(): Promise<void> {
   const status = await wb.workbenchStatus()
   check('reports the runtime version and a warm sandbox', status.available && Boolean(status.version) && status.warm, JSON.stringify(status))
 
+  // ---- v1.12.4: the cold start is the caller's wait, so it is reported --------
+  // Against a real boot, not a mocked one: the job is not sent to the page until
+  // the runtime is up, so durationMs — measured inside the page — could never
+  // have seen it. TTU2 reported the cold call as 6 ms and the warm one as 20 ms.
+  const rc = require('../src/renderer/src/lib/ranCode') as typeof import('../src/renderer/src/lib/ranCode')
+  const coldBoot = r.bootMs ?? 0
+  check('the first run of a session reports the runtime start it paid for', coldBoot > 200, `bootMs=${r.bootMs}`)
+  const cold = rc.parseRanCode(fmt.formatRun(r, '').output!, true)
+  r = await wb.runPython({ code: 'print("second")' })
+  check('a warm run reports no runtime start', r.bootMs === 0, `bootMs=${r.bootMs}`)
+  const warm = rc.parseRanCode(fmt.formatRun(r, '').output!, true)
+  console.log(`  (block header, cold: "${rc.describeRun(cold)}" · warm: "${rc.describeRun(warm)}")`)
+  check(
+    'the cold run is not displayed as faster than the warm one',
+    rc.totalWaitMs(cold)! > rc.totalWaitMs(warm)!,
+    `"${rc.describeRun(cold)}" vs "${rc.describeRun(warm)}"`
+  )
+  check('the cold header names the sandbox start', /^started the sandbox in /.test(rc.describeRun(cold)), rc.describeRun(cold))
+  check('the warm header says nothing about a sandbox start', !/sandbox/.test(rc.describeRun(warm)), rc.describeRun(warm))
+
   r = await wb.runPython({ code: 'x = 1/0' })
   check('a Python error is ok:false with the traceback', !r.ok && /ZeroDivisionError/.test(r.error ?? ''), r.error)
   const f = fmt.formatRun(r, 'x = 1/0')
@@ -198,6 +218,8 @@ async function main(): Promise<void> {
   check('a runaway job is killed at its budget and reported', !r.ok && r.restarted === true && /Timed out/.test(r.error ?? ''), `${r.error} after ${Date.now() - t1} ms`)
   r = await wb.runPython({ code: 'print(2+2)' })
   check('the next job works after the restart', r.ok && /^4/m.test(r.stdout), JSON.stringify(r).slice(0, 200))
+  // The kill threw the runtime away, so this job bought a new one — and says so.
+  check('a run that had to rebuild the sandbox reports that boot too', (r.bootMs ?? 0) > 200, `bootMs=${r.bootMs}`)
 
   console.log(`\n${'='.repeat(58)}`)
   if (failures.length === 0) {

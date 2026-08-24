@@ -44,6 +44,18 @@ export interface WorkbenchOutcome {
   result: string | null
   files: { name: string; data: Buffer }[]
   durationMs: number
+  /**
+   * v1.12.4: milliseconds this call spent waiting for the runtime to come up
+   * before a line of its code ran — the one-time CPython-in-WASM load, charged
+   * to whoever asked first. 0 on every later run of the session.
+   *
+   * `durationMs` is measured inside the page, and the host only sends the job
+   * once `ensureSandbox()` has resolved, so the boot was invisible to it: a
+   * cold call reported 6 ms against a warm one's 20 ms and read as the faster
+   * of the two (judge-r3/TTU2/run-1). The wait was real either way; this is
+   * where it is written down.
+   */
+  bootMs?: number
   error?: string
   /** True when the sandbox had to be restarted (timeout or crash). */
   restarted?: boolean
@@ -63,7 +75,12 @@ export interface WorkbenchStatus {
   available: boolean
   version: string | null
   reason?: string
-  /** A sandbox window is currently alive (warm). */
+  /**
+   * The runtime is loaded and serving jobs — the next run pays no cold start.
+   * Not "a window object exists": that is true from the first millisecond of a
+   * boot that has seconds left to run, which is precisely the window in which
+   * a caller needs to be told it is waiting.
+   */
   warm: boolean
   /** Top-level packages bundled offline (from workbench-packages.json), e.g. numpy, pandas, matplotlib. */
   packages: string[]
@@ -80,6 +97,12 @@ const MAX_OUTPUT_FILES = 24
 const MAX_STDIO_CHARS = 200_000
 /** Idle sandbox is destroyed after this long: it holds ~150 MB. */
 const IDLE_MS = 10 * 60 * 1000
+/**
+ * A runtime start under this is not a wait anyone noticed, and reporting it
+ * would put a boot line on every run that failed fast — the runtime-not-
+ * installed refusal returns in about a millisecond. A real one is seconds.
+ */
+const BOOT_REPORT_MS = 250
 
 /** Must run before app.whenReady(): standard + secure so fetch() and WASM work under it. */
 export function registerWorkbenchScheme(): void {
@@ -348,6 +371,8 @@ function installSchemeHandler(ses: Electron.Session): void {
 
 let win: BrowserWindow | null = null
 let readyPromise: Promise<string> | null = null
+/** The runtime has finished loading and is serving jobs. See WorkbenchStatus.warm. */
+let runtimeReady = false
 let idleTimer: NodeJS.Timeout | null = null
 let ipcInstalled = false
 const pending = new Map<string, { resolve: (r: WorkbenchOutcome) => void; timer: NodeJS.Timeout }>()
@@ -364,6 +389,7 @@ function destroySandbox(reason: string): void {
   const w = win
   win = null
   readyPromise = null
+  runtimeReady = false
   if (w && !w.isDestroyed()) w.destroy()
   for (const [id, p] of pending) {
     clearTimeout(p.timer)
@@ -450,6 +476,7 @@ async function ensureSandbox(): Promise<string> {
     const onReady = (event: Electron.IpcMainEvent, info: { version: string }): void => {
       if (event.sender !== w.webContents) return
       cleanup()
+      runtimeReady = true
       resolve(info.version)
     }
     const onFailed = (event: Electron.IpcMainEvent, message: string): void => {
@@ -490,11 +517,23 @@ export function runPython(input: WorkbenchJobInput): Promise<WorkbenchOutcome> {
   const run = async (): Promise<WorkbenchOutcome> => {
     const timeoutMs = Math.min(MAX_TIMEOUT_MS, Math.max(1000, input.timeoutMs ?? DEFAULT_TIMEOUT_MS))
     let restarted = false
+    // The boot is the wait between asking and the code starting, so it is
+    // measured here — around ensureSandbox — and not in the page, which is not
+    // even sent the job until the runtime is up.
+    const askedAt = Date.now()
+    const cold = !runtimeReady
+    const bootSoFar = (): number => {
+      const ms = cold ? Date.now() - askedAt : 0
+      return ms >= BOOT_REPORT_MS ? ms : 0
+    }
     try {
       await ensureSandbox()
     } catch (err) {
-      return { ok: false, stdout: '', stderr: '', result: null, files: [], durationMs: 0, error: err instanceof Error ? err.message : String(err) }
+      // A refusal (runtime not installed) returns in a millisecond; nobody
+      // waited on a sandbox, so nothing is charged to one.
+      return { ok: false, stdout: '', stderr: '', result: null, files: [], durationMs: 0, bootMs: bootSoFar(), error: err instanceof Error ? err.message : String(err) }
     }
+    const bootMs = bootSoFar()
     const w = win!
     const id = `job-${++jobCounter}`
     const outcome = await new Promise<WorkbenchOutcome>((resolve) => {
@@ -521,7 +560,7 @@ export function runPython(input: WorkbenchJobInput): Promise<WorkbenchOutcome> {
         files: (input.files ?? []).map((f) => ({ name: f.name, base64: f.data.toString('base64') }))
       })
     })
-    const final = restarted ? { ...outcome, restarted: true } : outcome
+    const final: WorkbenchOutcome = { ...outcome, bootMs, ...(restarted ? { restarted: true } : {}) }
     // v1.8: a session the sandbox has served before that did not resume means
     // its state is gone (restart, idle teardown, relaunch). Tracked across
     // sandbox lifetimes on purpose — that is exactly when it matters.
@@ -554,7 +593,7 @@ export async function workbenchStatus(): Promise<WorkbenchStatus> {
   if (!runtimePresent()) {
     return { available: false, version: null, warm: false, packages: [], reason: `Runtime not found at ${pyodideDir()}` }
   }
-  return { available: true, version: await runtimeVersion(), warm: Boolean(win && !win.isDestroyed()), packages: await bundledPackages() }
+  return { available: true, version: await runtimeVersion(), warm: runtimeReady && Boolean(win && !win.isDestroyed()), packages: await bundledPackages() }
 }
 
 /** Warm the sandbox ahead of a likely job (e.g. a CSV was attached). Best effort. */

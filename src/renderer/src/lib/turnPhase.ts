@@ -56,6 +56,20 @@ export const VERIFY_WAITS: Record<VerifyStep, TurnWait> = {
   }
 }
 
+/**
+ * v1.12.4: the third wait that was anonymous. The first run_python of a session
+ * loads CPython-compiled-to-WASM before a line of the model's code runs —
+ * seconds on a cold cache, ~0.9 s warm (test/workbenchCheck.ts prints it) — and
+ * through it the block showed an unlabelled ⏳ and the word "running…", which is
+ * what the runtime was not yet doing. Named here, with the other waits, so the
+ * block borrows this vocabulary instead of inventing a second one
+ * (components/RanCodeHeader.tsx renders it).
+ */
+export const SANDBOX_BOOT_WAIT: TurnWait = {
+  label: 'Starting the Python sandbox',
+  detail: 'one-time for this session; later runs skip it'
+}
+
 export function verifyingPhase(messageId: string, step: VerifyStep): TurnPhase {
   return { messageId, stage: 'verifying', ...VERIFY_WAITS[step] }
 }

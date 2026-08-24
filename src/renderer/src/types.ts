@@ -631,7 +631,11 @@ export interface WorkbenchStatus {
   version: string | null
   /** Why it is unavailable, when it is. */
   reason?: string
-  /** A sandbox window is alive right now (the next run skips the cold start). */
+  /**
+   * The runtime is loaded and serving, so the next run skips the cold start.
+   * False for the whole of a boot in progress — which is when a run needs to
+   * be told what it is waiting on (components/RanCodeBlock.tsx).
+   */
   warm: boolean
   /** Top-level packages bundled offline, e.g. numpy, pandas, matplotlib. */
   packages: string[]
