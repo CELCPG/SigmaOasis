@@ -1167,3 +1167,249 @@ describe('a run that checked nothing is never named as a check', () => {
     assert.deepEqual(report!.checkedAgainst, ['run_python'])
   })
 })
+
+const FOOD_LOOKUP = `Reference passages for "how many days can cooked rice stay in the fridge" from the local library (keyword ranking), most relevant first.
+
+[3] Food safety › Refrigerator thermometers — cold facts (FDA) › Refrigerator Strategies: Keeping Food Safe · 13% in
+    source: https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-thermometers-cold-facts-about-food-safety
+    relevance 0.604
+- Keep It Covered: Store refrigerated foods in covered containers or sealed storage bags, and check leftovers daily for spoilage.
+- Check Expiration Dates On Foods. If food is past its "use by" date, discard it.
+[4] Food safety › Safe food handling (FDA) › COOK · 51% in
+    source: https://www.fda.gov/food/buy-store-serve-safe-food/safe-food-handling
+    relevance 0.497
+- Bring sauces, soups and gravy to a boil when reheating.
+[5] Food safety › Leftovers and food safety (USDA) › Thaw Frozen Leftovers Safely · 52% in
+    source: https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/leftovers-and-food-safety
+    relevance 0.46
+Refrigerator thawing takes the longest but the leftovers stay safe the entire time. After thawing, the food should be used within 3 to 4 days or can be refrozen.`
+
+const RICE_PROMPT =
+  'Using only my reference library, how many days can cooked rice stay in the fridge? Quote me the exact line you are getting that from.'
+
+describe('quotation fidelity (v1.14)', () => {
+  test('a quoted span the retrieved text does not contain is a finding', () => {
+    // Verbatim from the recorded run: "checking leftovers daily," against a
+    // passage reading "check leftovers daily for spoilage".
+    assert.deepEqual(
+      misquotedSpans(
+        'The passages mention "checking leftovers daily," and little else.',
+        FOOD_LOOKUP
+      ),
+      ['checking leftovers daily,']
+    )
+  })
+
+  test('the true quotation in the same reply is not a finding', () => {
+    assert.deepEqual(
+      misquotedSpans(
+        'Passage [5] says: "After thawing, the food should be used within 3 to 4 days or can be refrozen."',
+        FOOD_LOOKUP
+      ),
+      []
+    )
+  })
+
+  test('a markdown blockquote is a quotation claim too', () => {
+    assert.deepEqual(misquotedSpans('> Discard all leftovers after two days.\n', FOOD_LOOKUP), [
+      'Discard all leftovers after two days.'
+    ])
+    assert.deepEqual(
+      misquotedSpans('> Bring sauces, soups and gravy to a boil when reheating.\n', FOOD_LOOKUP),
+      []
+    )
+  })
+
+  test('scare quotes and short asides are not citation claims', () => {
+    // Under the length floor: an ordinary phrase in quotes says nothing about
+    // a source, and flagging it is the noise that gets a badge ignored.
+    assert.deepEqual(misquotedSpans('The rule is "when in doubt".', FOOD_LOOKUP), [])
+  })
+
+  test('an explicit ellipsis is the quoter marking the cut, not hiding it', () => {
+    assert.deepEqual(
+      misquotedSpans(
+        '"Refrigerator thawing takes the longest ... the food should be used within 3 to 4 days"',
+        FOOD_LOOKUP
+      ),
+      []
+    )
+  })
+
+  test('rendered curly quotes are the same claim as typed straight ones', () => {
+    assert.deepEqual(
+      misquotedSpans('It says “checking leftovers daily,” in passage [3].', FOOD_LOOKUP),
+      ['checking leftovers daily,']
+    )
+  })
+
+  test('a quotation inside a code fence is a snippet, not a citation', () => {
+    assert.deepEqual(
+      misquotedSpans('```\nassert x == "checking leftovers daily,"\n```', FOOD_LOOKUP),
+      []
+    )
+  })
+
+  test('the recorded reply, end to end, with the badge naming the span', () => {
+    const report = checkToolGrounding(
+      'The closest relevant passage is [5], which says: "After thawing, the food should be used ' +
+        'within 3 to 4 days or can be refrozen." The other passages cover general strategies like ' +
+        '"checking leftovers daily," but none give a day count for cooked rice.',
+      [rec('reference_lookup', FOOD_LOOKUP)],
+      RICE_PROMPT
+    )
+    assert.ok(report, 'expected a report: one of the two quotations is not in the passage')
+    assert.deepEqual(report!.quotes, ['checking leftovers daily,'])
+    assert.match(describeGroundingFindings(report!), /checking leftovers daily/)
+  })
+
+  test('the same reply with both quotations verbatim says nothing', () => {
+    const report = checkToolGrounding(
+      'The closest guidance is in passage [3], which only says: "Store refrigerated foods in ' +
+        'covered containers or sealed storage bags, and check leftovers daily for spoilage." It ' +
+        'does not give a specific number of days.',
+      [rec('reference_lookup', FOOD_LOOKUP)],
+      RICE_PROMPT
+    )
+    assert.equal(report, null)
+  })
+
+  test('with nothing retrieved there is no source to check a quotation against', () => {
+    const report = checkToolGrounding(
+      'The old saying runs "checking leftovers daily, and trusting your nose".',
+      [rec('get_current_datetime', '2026-08-24')],
+      'tell me a saying'
+    )
+    assert.equal(report, null)
+  })
+})
+
+describe('citation attribution (v1.14)', () => {
+  const retrieved = retrievedCitations([rec('reference_lookup', FOOD_LOOKUP)])
+
+  test('a marker labelled with another passage’s document is a finding', () => {
+    // [5] is USDA "Leftovers and food safety"; "Safe food handling" is [4].
+    assert.deepEqual(
+      misattributedCitations(
+        'The closest passage is [5] (USDA Safe Food Handling), which says:',
+        retrieved
+      ),
+      ['[5] USDA Safe Food Handling']
+    )
+  })
+
+  test('a marker labelled with its own document is not', () => {
+    assert.deepEqual(
+      misattributedCitations(
+        'The closest guidance is in passage [3] (FDA Refrigerator Strategies).',
+        retrieved
+      ),
+      []
+    )
+  })
+
+  test('detail the labels never carried is not judged either way', () => {
+    // "FSIS" appears in no retrieved label, so it is extra this check cannot
+    // rule on — every word it CAN rule on points at [5].
+    assert.deepEqual(
+      misattributedCitations('| [5] USDA FSIS Leftovers and Food Safety | ... |', retrieved),
+      []
+    )
+  })
+
+  test('a document nothing retrieved is the same class of error', () => {
+    assert.deepEqual(
+      misattributedCitations('See [3] (Mayo Clinic Kitchen Guide) for the details.', retrieved),
+      ['[3] Mayo Clinic Kitchen Guide']
+    )
+  })
+
+  test('an ordinary parenthetical aside is not an attribution', () => {
+    assert.deepEqual(
+      misattributedCitations(
+        'Passage [3] (see the note below, which qualifies it) applies here.',
+        retrieved
+      ),
+      []
+    )
+  })
+
+  test('reported through checkToolGrounding, with the badge naming the passage', () => {
+    const report = checkToolGrounding(
+      'The closest relevant passage is [5] (USDA Safe Food Handling), which does not answer it.',
+      [rec('reference_lookup', FOOD_LOOKUP)],
+      RICE_PROMPT
+    )
+    assert.ok(report, 'expected a report: [5] is attributed to a different document')
+    assert.deepEqual(report!.attributions, ['[5] USDA Safe Food Handling'])
+    assert.match(describeGroundingFindings(report!), /wrong document/)
+  })
+})
+
+/**
+ * v1.14, and the gap `unrunToolClaims` could not see.
+ *
+ * Recorded: the user asked which tools were used and what each returned. One
+ * call ran, `reference_lookup`. The reply answered under a heading reading
+ * "Tools used:" with a two-row table whose rows were library *documents* — and
+ * never mentioned the tool. `unrunToolClaims` scans for tool names, so a
+ * disclosure that names none is invisible to it: every name in that table was
+ * real and every quotation in it checked out, and the reader's actual question
+ * was answered with something that is not a tool.
+ */
+const TOOLS_USED_TABLE = `Ground beef needs to reach an internal temperature of **160 °F**.
+
+**Tools used:**
+
+| Tool | What it returned |
+|------|------------------|
+| [2] CDC Safe Internal Temperatures | 160°F for ground meats |
+| [3] USDA Cook Food Safely at Home | 160° F measured with a thermometer |`
+
+describe('tools-used disclosure (v1.14)', () => {
+  test('a Tools used section naming documents instead of calls is a finding', () => {
+    assert.deepEqual(undisclosedToolRuns(TOOLS_USED_TABLE, [rec('reference_lookup', 'passages')]), [
+      'reference_lookup'
+    ])
+  })
+
+  test('the same section naming the call that ran is not', () => {
+    const named = TOOLS_USED_TABLE.replace(
+      '| [2] CDC Safe Internal Temperatures',
+      '| reference_lookup'
+    )
+    assert.deepEqual(undisclosedToolRuns(named, [rec('reference_lookup', 'passages')]), [])
+  })
+
+  test('the spaced-out spelling counts as naming it', () => {
+    const named = '**Tools used:**\n\n| reference lookup | 5 passages |'
+    assert.deepEqual(undisclosedToolRuns(named, [rec('reference_lookup', 'passages')]), [])
+  })
+
+  test('a disclosure that says nothing ran is honest about naming nothing', () => {
+    assert.deepEqual(
+      undisclosedToolRuns('Tools used: none — this is from general knowledge.', [
+        rec('reference_lookup', 'passages')
+      ]),
+      []
+    )
+  })
+
+  test('no disclosure heading, nothing to fault', () => {
+    assert.deepEqual(
+      undisclosedToolRuns('Ground beef needs 160 °F.', [rec('reference_lookup', 'passages')]),
+      []
+    )
+  })
+
+  test('reported through checkToolGrounding, with the badge naming the call', () => {
+    const report = checkToolGrounding(
+      TOOLS_USED_TABLE,
+      [rec('reference_lookup', 'passages')],
+      'what temperature does ground beef need?'
+    )
+    assert.ok(report, 'expected a report: the tools-used table names no tool that ran')
+    assert.deepEqual(report!.toolDisclosure, ['reference_lookup'])
+    assert.match(describeGroundingFindings(report!), /reference_lookup/)
+  })
+})

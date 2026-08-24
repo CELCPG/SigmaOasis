@@ -138,7 +138,10 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
   const toolClaims = report.toolClaims ?? []
+  const toolDisclosure = report.toolDisclosure ?? []
   const citations = report.citations ?? []
+  const quotes = report.quotes ?? []
+  const attributions = report.attributions ?? []
   return (
     <div
       className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
@@ -162,6 +165,36 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       {toolClaims.length > 0 && (
         <div className={parts.length > 0 ? 'mt-1' : undefined}>
           ⚠️ This reply says it used {toolClaims.join(', ')}, which did not run this turn.
+        </div>
+      )}
+      {/*
+        v1.14: the same disclosure read the other way round. A "Tools used"
+        section that names documents instead of calls answers the reader's
+        question with something that is not a tool, and no name in it is wrong
+        — so only the omission gives it away.
+      */}
+      {toolDisclosure.length > 0 && (
+        <div className={parts.length > 0 || toolClaims.length > 0 ? 'mt-1' : undefined}>
+          ⚠️ This reply lists the tools it used without naming{' '}
+          {toolDisclosure.join(', ')}, which {toolDisclosure.length === 1 ? 'is' : 'are'} what
+          actually ran this turn.
+        </div>
+      )}
+      {/*
+        v1.14: quotation fidelity. The user asked for a verbatim line and the
+        app held the passage it came from; a quotation that is not in it is an
+        invented source in the notation the reader trusts most.
+      */}
+      {quotes.length > 0 && (
+        <div className="mt-1">
+          ⚠️ Quoted as exact but in no tool output this turn:{' '}
+          {quotes.map((q) => `“${q}”`).join('; ')}.
+        </div>
+      )}
+      {attributions.length > 0 && (
+        <div className="mt-1">
+          ⚠️ {attributions.join('; ')} — that passage came from a different document than the one
+          named here.
         </div>
       )}
       {/*

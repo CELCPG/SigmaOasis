@@ -2,7 +2,7 @@ import type { ToolCallRecord } from '../types'
 import { measurementsIn } from '../../../shared/measurements'
 import { TOOL_DEFS } from '../../../shared/tools'
 import { LAUNDERED_OUTPUT_MARKER } from './workbenchChecks'
-import { danglingCitations, retrievedCitations } from './citations'
+import { danglingCitations, retrievedCitations, type Citation } from './citations'
 
 /**
  * v1.3 tool grounding: did the answer actually use what the tools returned?
@@ -80,6 +80,8 @@ export interface GroundingReport {
   contacts?: string[]
   /** v1.12.1: tools the reply says it used that never ran this turn. */
   toolClaims?: string[]
+  /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
+  toolDisclosure?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox (finding lines). */
   code?: string[]
   /**
@@ -88,6 +90,10 @@ export interface GroundingReport {
    * or a link, and until now it was the one kind nothing checked.
    */
   citations?: string[]
+  /** v1.14: spans quoted as verbatim that no captured tool output contains. */
+  quotes?: string[]
+  /** v1.14: `[n] (Document)` where the named document is not passage n's. */
+  attributions?: string[]
   /** Tools whose output was used as the corpus, for the disclosure text. */
   checkedAgainst: string[]
 }
@@ -128,8 +134,11 @@ export function groundingFindingCount(report: GroundingReport | null): number {
     (report.contacts?.length ?? 0) +
     (report.addresses?.length ?? 0) +
     (report.toolClaims?.length ?? 0) +
+    (report.toolDisclosure?.length ?? 0) +
     (report.code?.length ?? 0) +
-    (report.citations?.length ?? 0)
+    (report.citations?.length ?? 0) +
+    (report.quotes?.length ?? 0) +
+    (report.attributions?.length ?? 0)
   )
 }
 
@@ -162,6 +171,24 @@ export function describeGroundingFindings(report: GroundingReport): string {
     lines.push(
       `- Your answer says you used ${report.toolClaims.join(', ')}; no such call ran this turn. ` +
         'Either make the call, or say what you actually did instead.'
+    )
+  }
+  if (report.toolDisclosure?.length) {
+    lines.push(
+      `- Your answer lists the tools it used and never names ${report.toolDisclosure.join(', ')}, ` +
+        'which is what actually ran. List the calls this turn made, not the documents they returned.'
+    )
+  }
+  if (report.quotes?.length) {
+    lines.push(
+      `- Presented as direct quotations but in no tool output: ${report.quotes.map((q) => `“${q}”`).join('; ')}. ` +
+        'Quote the source line exactly, or drop the quotation marks and say you are paraphrasing.'
+    )
+  }
+  if (report.attributions?.length) {
+    lines.push(
+      `- Attributed to the wrong document: ${report.attributions.join('; ')}. ` +
+        'Name the document the numbered passage actually came from.'
     )
   }
   if (report.addresses?.length) {
@@ -784,6 +811,228 @@ export function unrunToolClaims(answer: string, records: ToolCallRecord[]): stri
   return flagged
 }
 
+/**
+ * A heading that opens the reply's own account of its tool use: "Tools used:",
+ * "**Tools I used**", "### Tools called". Optional markdown furniture, and the
+ * word "tool" is what makes it a disclosure rather than a sentence.
+ */
+const DISCLOSURE_HEADING =
+  /^[ \t]*(?:[#>*_\-|]+[ \t]*)*\**[ \t]*tools?[ \t]+(?:i[ \t]+|we[ \t]+)?(?:used|use|called|ran|run|invoked|consulted)\b/im
+
+/** A disclosure that says nothing ran is honest about naming no tool. */
+const DISCLOSED_NOTHING = /\b(?:none|no tools?|nothing|without[ \t]+(?:any[ \t]+)?tools?)\b/i
+
+/** The identifier as a disclosure row might write it, claim lead not required. */
+function bareToolPattern(name: string): RegExp {
+  return new RegExp(`\\b(?:${name}|${name.split('_').join('[ -]')})\\b`, 'i')
+}
+
+/**
+ * Tools that ran this turn which the reply's own "Tools used" section omits.
+ *
+ * The gap `unrunToolClaims` cannot see. That check scans for tool *names*, so
+ * it only ever speaks when the reply names one — and a disclosure that names
+ * none is invisible to it. Measured: a turn whose sole call was
+ * `reference_lookup` answered under a heading reading "Tools used:" with a
+ * two-row table whose rows were library *documents*, never mentioning the tool
+ * at all. Every name in it was real, every quote in it checked out, and the
+ * reader's question — which tools ran — was answered with something that was
+ * not a tool. Nothing above had a name to fault, so nothing was said.
+ *
+ * A reply is free to describe its process in prose; this speaks only when it
+ * sets up an explicit tools-used section and then fails to name a call the
+ * turn actually made. The section is taken as the rest of the answer, which is
+ * the lenient direction: naming the tool anywhere after the heading clears it.
+ */
+export function undisclosedToolRuns(answer: string, records: ToolCallRecord[]): string[] {
+  const ran = [...new Set(records.map((r) => r.name))]
+  if (ran.length === 0) return []
+  const heading = DISCLOSURE_HEADING.exec(answer)
+  if (!heading) return []
+  const section = answer.slice(heading.index + heading[0].length)
+  if (DISCLOSED_NOTHING.test(section)) return []
+  const omitted = ran.filter((name) => !bareToolPattern(name).test(section))
+  // A section that names some of the calls is an account with a gap in it, not
+  // a fabricated one; only a section naming none of them is the measured shape.
+  return omitted.length === ran.length ? omitted.sort() : []
+}
+
+// ---- quotations ----------------------------------------------------------------
+
+/**
+ * v1.14: text the reply presents as verbatim, checked against what came back.
+ *
+ * The library hands the model numbered passages and the turn block tells it to
+ * quote figures and steps rather than paraphrase them. It does quote — and a
+ * measured turn put `"checking leftovers daily,"` inside quotation marks when
+ * the retrieved passage reads "check leftovers daily for spoilage". One word
+ * away, in the register of the pack, presented exactly as the true quotation
+ * two paragraphs above it was. The substring test that catches it is ten lines
+ * long and runs on data the app already holds in the same message.
+ *
+ * Strict on purpose: character for character after folding whitespace, case
+ * and the unicode quote/dash variants a renderer introduces. A span stitched
+ * from two places in the source with a dash is not a quotation from either,
+ * and tolerating the join would license exactly the fabrication this catches.
+ * An explicit ellipsis is the one exception, because that is the writer
+ * *marking* the omission rather than hiding it.
+ */
+/** Code is not prose: a string literal in a snippet is not a citation claim. */
+const FENCED = /```[\s\S]*?(?:```|$)/g
+const INLINE_CODE = /`[^`\n]*`/g
+
+const QUOTED_SPANS = [
+  /"([^"\n]{25,400})"/g,
+  /“([^”\n]{25,400})”/g,
+  /^[ \t]{0,3}>[ \t]?(.{25,400})$/gm
+]
+
+/** Explicit elision — the quoter said a cut is here, so each side is checked apart. */
+const ELISION = /\s*(?:\.\.\.|…|\[\.\.\.\]|\[…\])\s*/
+
+/** The shortest quoted span that reads as a citation rather than scare quotes. */
+const MIN_QUOTED = 25
+
+/** Fold the differences a renderer or a keyboard introduces, and nothing else. */
+function flattenQuote(text: string): string {
+  return text
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+/** Trailing prose punctuation the quoter added is not part of the source line. */
+function trimQuoteEdges(span: string): string {
+  return span.replace(/^[\s'"([-]+/, '').replace(/[\s'"),.;:-]+$/, '')
+}
+
+/** Every span the reply offers as a direct quotation, in the order it wrote them. */
+function quotedSpans(answer: string): string[] {
+  const prose = answer.replace(FENCED, ' ').replace(INLINE_CODE, ' ')
+  const out: string[] = []
+  for (const pattern of QUOTED_SPANS) {
+    for (const m of prose.matchAll(pattern)) {
+      const span = m[1].trim()
+      if (flattenQuote(span).length >= MIN_QUOTED) out.push(span)
+    }
+  }
+  return out
+}
+
+/**
+ * Quoted spans in `answer` that no captured tool output contains.
+ *
+ * `corpus` is what the tools *returned*, plus the user's own words — never the
+ * arguments the model chose. A model that passes its invention to a lookup as
+ * the query would otherwise find it quoted back into the corpus and certified.
+ */
+export function misquotedSpans(answer: string, corpus: string): string[] {
+  const source = flattenQuote(corpus)
+  if (!source) return []
+  const flagged: string[] = []
+  const seen = new Set<string>()
+  for (const span of quotedSpans(answer)) {
+    const flat = flattenQuote(span)
+    if (seen.has(flat)) continue
+    const parts = flat.split(ELISION).filter(Boolean)
+    const found = parts.every(
+      (part) => source.includes(part) || source.includes(trimQuoteEdges(part))
+    )
+    if (found) continue
+    seen.add(flat)
+    flagged.push(span.length > 72 ? `${span.slice(0, 72)}…` : span)
+  }
+  return flagged
+}
+
+// ---- attributions ---------------------------------------------------------------
+
+/**
+ * `[5] (USDA Safe Food Handling)` — a marker with the document it names.
+ *
+ * Two shapes, both of which a model reaches for unprompted: a parenthetical
+ * straight after the marker, and a marker opening a line or a table cell with
+ * the document's title after it. Bounded and punctuation-free so an ordinary
+ * aside — "[5] (see the note below), which says…" — is not read as a title.
+ */
+const ATTRIBUTIONS = [
+  /\[(\d{1,3})\][ \t]*\(([^)\n]{2,60})\)/g,
+  /^[ \t|>*_-]*\[(\d{1,3})\][ \t]+([^|\n\t]{2,60}?)[ \t]*(?:\||\t|$)/gm
+]
+
+/** Words carrying no identity — a title match on "of" would mean nothing. */
+const TITLE_STOPWORDS = new Set([
+  'the', 'a', 'an', 'of', 'for', 'and', 'in', 'on', 'at', 'to', 'from', 'with', 'by', 'passage'
+])
+
+function titleWords(text: string): Set<string> {
+  return new Set(
+    (text.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []).filter((w) => !TITLE_STOPWORDS.has(w))
+  )
+}
+
+/**
+ * A title, not a sentence: no sentence punctuation, short enough to be a name,
+ * and carrying at least two capitalised words. The capitalisation is what
+ * separates "(USDA Safe Food Handling)" from "(see the note below, which
+ * qualifies it)" — an aside the check has no business ruling on, and which
+ * shares no word with any label, so without this it read as a document nothing
+ * retrieved.
+ */
+function looksLikeTitle(text: string): boolean {
+  const words = text.trim().split(/\s+/)
+  if (/[.!?;]/.test(text) || words.length > 10) return false
+  return words.filter((w) => /^[A-Z]/.test(w)).length >= 2
+}
+
+/**
+ * Attributions naming a document that is not the passage the marker points at.
+ *
+ * `danglingCitations` catches a marker naming no retrieved passage. This
+ * catches the marker that resolves — and is then labelled with someone else's
+ * document. Measured: a reply attributed `[5]` to "USDA Safe Food Handling"
+ * when passage [5] was USDA's *Leftovers and food safety* and "Safe food
+ * handling" was passage [4], an FDA page. The citation opens correctly, so by
+ * eye it checks out; the name over it sends the reader to the wrong document.
+ *
+ * The test uses the retrieved labels as its whole vocabulary, which is what
+ * keeps it quiet. A word the model added that belongs to no passage at all
+ * ("USDA FSIS …" for a page the label calls USDA) is extra detail this cannot
+ * judge and does not fault. A word that belongs to a *different* retrieved
+ * passage and not this one is the swap itself. And an attribution with no
+ * overlap at all names a document the turn never retrieved.
+ */
+export function misattributedCitations(answer: string, retrieved: Citation[]): string[] {
+  if (retrieved.length === 0) return []
+  const labels = new Map(retrieved.map((c) => [c.index, titleWords(c.label)]))
+  const prose = answer.replace(FENCED, ' ').replace(INLINE_CODE, ' ')
+  const flagged: string[] = []
+  const seen = new Set<string>()
+  for (const pattern of ATTRIBUTIONS) {
+    for (const m of prose.matchAll(pattern)) {
+      const index = Number(m[1])
+      const name = m[2].trim()
+      const own = labels.get(index)
+      if (!own || !looksLikeTitle(name)) continue
+      const words = titleWords(name)
+      if (words.size === 0) continue
+      const elsewhere = new Set<string>()
+      for (const [i, set] of labels) if (i !== index) for (const w of set) elsewhere.add(w)
+      const foreign = [...words].some((w) => !own.has(w) && elsewhere.has(w))
+      const supported = [...words].some((w) => own.has(w))
+      if (!foreign && supported) continue
+      const finding = `[${index}] ${name}`
+      if (seen.has(finding)) continue
+      seen.add(finding)
+      flagged.push(finding)
+    }
+  }
+  return flagged
+}
+
 // ---- links -------------------------------------------------------------------
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g
@@ -977,10 +1226,22 @@ export function checkToolGrounding(
   // checkable against the records, and a turn with no tools at all is the turn
   // where "I searched for this" is furthest from true.
   const toolClaims = unrunToolClaims(answer, records)
+  // The other half of the same question: not a tool it names that never ran,
+  // but the tool that ran and its own tools-used section leaves out.
+  const toolDisclosure = undisclosedToolRuns(answer, records)
   // Ungated by design — `danglingCitations` only speaks when passages were
   // actually retrieved, which is the only situation in which a bracketed
   // number is a claim about them.
-  const citations = danglingCitations(answer, retrievedCitations(records))
+  const retrieved = retrievedCitations(records)
+  const citations = danglingCitations(answer, retrieved)
+  // Quotation fidelity, gated on retrieval the same way: with nothing fetched
+  // there is no source a quotation could be checked against, and a quoted
+  // phrase is just prose. The corpus is what every tool RETURNED plus the
+  // user's own words — never the arguments the model chose, or a model could
+  // launder an invented line through its own query string.
+  const quotedCorpus = triedToRetrieve ? `${outputOf(records, () => true, true)}\n${userText}` : ''
+  const quotes = misquotedSpans(answer, quotedCorpus)
+  const attributions = misattributedCitations(answer, retrieved)
 
   if (
     figures.length === 0 &&
@@ -990,7 +1251,10 @@ export function checkToolGrounding(
     contacts.length === 0 &&
     addresses.length === 0 &&
     toolClaims.length === 0 &&
-    citations.length === 0
+    toolDisclosure.length === 0 &&
+    citations.length === 0 &&
+    quotes.length === 0 &&
+    attributions.length === 0
   ) {
     return null
   }
@@ -1018,7 +1282,12 @@ export function checkToolGrounding(
     ...(contacts.length > 0 ? { contacts: contacts.slice(0, MAX_REPORTED) } : {}),
     ...(addresses.length > 0 ? { addresses: addresses.slice(0, MAX_REPORTED) } : {}),
     ...(toolClaims.length > 0 ? { toolClaims: toolClaims.slice(0, MAX_REPORTED) } : {}),
+    ...(toolDisclosure.length > 0
+      ? { toolDisclosure: toolDisclosure.slice(0, MAX_REPORTED) }
+      : {}),
     ...(citations.length > 0 ? { citations: citations.slice(0, MAX_REPORTED) } : {}),
+    ...(quotes.length > 0 ? { quotes: quotes.slice(0, MAX_REPORTED) } : {}),
+    ...(attributions.length > 0 ? { attributions: attributions.slice(0, MAX_REPORTED) } : {}),
     checkedAgainst
   }
 }
