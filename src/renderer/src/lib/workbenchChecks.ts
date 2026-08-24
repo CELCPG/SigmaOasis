@@ -193,9 +193,130 @@ export function describeRecompute(input: { ran: boolean; ok: boolean; circular?:
   return { kind: 'recompute', ok: true, summary: '🧮 Recomputed the stated figures in Python; the checker compared the reply against that output.' }
 }
 
-export function describeCodeCheck(input: { ran: boolean; ok: boolean; finding?: string | null; note?: string; revisedRuns?: boolean }): WorkbenchCheck {
+/** A figure the reply states where the run printed a different one under the same label. */
+export interface OutputMismatch {
+  label: string
+  printed: string
+  stated: string
+}
+
+export interface OutputComparison {
+  /** Printed labels the reply restates with the value that was printed. */
+  agreed: number
+  mismatches: OutputMismatch[]
+}
+
+/** `Sum of the first 500 prime numbers: 824693` — a printed line stating one plain number. */
+const PRINTED_LINE = /^(.{1,60}?):[ \t]*(-?\d[\d,]*(?:\.\d+)?)[ \t]*$/
+/** Words carrying no identity — a label match on "of" would mean nothing. */
+const LABEL_STOPWORDS = new Set(['the', 'a', 'an', 'of', 'for', 'and', 'in', 'on', 'at', 'to', 'from', 'with', 'by', 'is', 'are', 'was', 'were'])
+const NUMBER = /-?\d[\d,]*(?:\.\d+)?/g
+const tokens = (text: string): string[] => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
+const labelWords = (label: string): string[] => tokens(label).filter((w) => !LABEL_STOPWORDS.has(w))
+const asNumber = (s: string): number => Number(s.replace(/,/g, ''))
+
+/**
+ * v1.15: what the reply says the numbers are, against what its own block printed.
+ *
+ * Measured (task TTU2): the executed block printed
+ * `Sum of the first 500 prime numbers: 824693` — correct — while the prose
+ * directly above it said 854,405 and the reply's own pasted "Output:" said the
+ * same, and the check underneath reported "it runs without error" with a tick.
+ * The chip fired hardest exactly where the answer was wrong, because "no
+ * exception was raised" was all it had ever meant. The comparison that catches
+ * it costs nothing: both numbers are in the same message.
+ *
+ * Every `label: number` line the run printed is matched against the lines of
+ * the reply that use all of that label's words. A line repeating the printed
+ * value agrees; a line carrying some other number in its place disagrees. Only
+ * numbers the label does not itself contain count as a restatement, so "the
+ * first 500 primes" is not read as a claim about 500.
+ *
+ * The reply's Python is excluded — a program is not a claim about a value, and
+ * `primes[499]` would otherwise "contradict" the 3571 it prints. Its pasted
+ * output is not excluded: a block that shows output the code does not produce
+ * is the same lie told earlier.
+ */
+export function compareToOutput(answer: string, stdout: string): OutputComparison {
+  const printed = new Map<string, string>()
+  const ambiguous = new Set<string>()
+  for (const line of stdout.split('\n')) {
+    const m = line.trim().match(PRINTED_LINE)
+    if (!m) continue
+    const label = m[1].trim()
+    if (labelWords(label).length < 2) continue
+    if (printed.has(label) && printed.get(label) !== m[2]) ambiguous.add(label)
+    printed.set(label, m[2])
+  }
+  // Tokenised once: every label is matched against the same lines.
+  const lines = answer
+    .replace(/```(?:python|py|python3)[^\n]*\n[\s\S]*?```/g, ' ')
+    .split('\n')
+    .map((line) => ({ have: new Set(tokens(line)), numbers: line.match(NUMBER) ?? [] }))
+  const mismatches: OutputMismatch[] = []
+  const seen = new Set<string>()
+  let agreed = 0
+  for (const [label, value] of printed) {
+    if (ambiguous.has(label)) continue
+    const words = labelWords(label)
+    const own = new Set((label.match(NUMBER) ?? []).map(asNumber))
+    let matched = false
+    for (const line of lines) {
+      if (!words.every((w) => line.have.has(w))) continue
+      const stated = line.numbers.filter((n) => !own.has(asNumber(n)))
+      if (stated.length === 0) continue
+      if (stated.some((n) => asNumber(n) === asNumber(value))) {
+        matched = true
+        continue
+      }
+      const key = `${label}|${asNumber(stated[0])}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      mismatches.push({ label, printed: value, stated: stated[0] })
+    }
+    if (matched) agreed += 1
+  }
+  return { agreed, mismatches }
+}
+
+export function describeCodeCheck(input: {
+  ran: boolean
+  ok: boolean
+  finding?: string | null
+  note?: string
+  revisedRuns?: boolean
+  compared?: OutputComparison
+}): WorkbenchCheck {
   if (!input.ran) return { kind: 'code', ok: false, summary: `🧪 Code check skipped${input.note ? ` — ${input.note}` : ''}` }
-  if (input.ok) return { kind: 'code', ok: true, summary: '🧪 Ran the Python in this reply in the sandbox — it runs without error.' }
+  const bad = input.compared?.mismatches ?? []
+  // The run succeeding is the weaker fact, so the disagreement is the headline:
+  // a tick over a figure the block itself contradicts is the reassurance this
+  // check has not earned.
+  if (bad.length > 0) {
+    const first = bad[0]
+    const rest = bad.length > 1 ? ` (and ${bad.length - 1} more)` : ''
+    return {
+      kind: 'code',
+      ok: false,
+      summary:
+        `🧪 Ran the Python in this reply — it runs, but its output disagrees with the answer: it printed ` +
+        `“${first.label}: ${first.printed}” where the reply says ${first.stated}${rest}. ` +
+        'The printed value is the one that was computed.'
+    }
+  }
+  if (input.ok) {
+    const agreed = input.compared?.agreed ?? 0
+    // Say which of the two things was checked. "Runs without error" over a
+    // reply whose figures nothing compared is a tick the reader over-reads.
+    return {
+      kind: 'code',
+      ok: true,
+      summary:
+        agreed > 0
+          ? `🧪 Ran the Python in this reply in the sandbox — it runs, and the ${agreed === 1 ? 'figure it prints is the one' : `${agreed} figures it prints are the ones`} the reply states.`
+          : '🧪 Ran the Python in this reply in the sandbox — it runs without error. Nothing in the reply restated a figure it printed, so no figure was checked.'
+    }
+  }
   if (input.revisedRuns) return { kind: 'code', ok: true, summary: '🧪 The Python in the first draft failed when run; the revised code runs.' }
   return { kind: 'code', ok: false, summary: `🧪 Ran the Python in this reply — it fails${input.finding ? `: ${input.finding.replace(/^- The Python code in the answer fails when run: /, '').replace(/\. Fix the code.*$/, '')}` : ''}.` }
 }

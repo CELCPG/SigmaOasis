@@ -1288,6 +1288,126 @@ describe('quotation fidelity (v1.14)', () => {
   })
 })
 
+/**
+ * v1.15, and the false positive that would have taught the reader to ignore
+ * the badge.
+ *
+ * Recorded (task V2, run 1): the reply quoted passage [1] word for word and
+ * closed the line with the marker it was citing — `"…tax year 2024." [1]` —
+ * inside a markdown blockquote. The blockquote pattern bounds a span by the
+ * line, not by the quotation marks, so the span checked carried both the marks
+ * and the marker, matched nothing, and the badge read
+ * `⚠️ Quoted as exact but in no tool output this turn: “"For married couples
+ * filing jointly, the standard deduction rises to $30…”` — the doubled quote
+ * mark being the giveaway. The straight-quote pattern had matched the very
+ * same sentence and passed it: the reply made one quotation claim and the
+ * checker ruled on it twice, under two boundaries, and reported the looser.
+ *
+ * A bracketed marker is the quoter's own attribution — `[1]` is not a word the
+ * source wrote — so it is trimmed at either edge like the quoter's other
+ * punctuation. Nothing else about the comparison moves: the body still has to
+ * be in the corpus character for character.
+ */
+const IRS_LOOKUP = `Reference passages for "standard deduction married filing jointly" from the local library (keyword ranking), most relevant first.
+
+[1] Personal finance & tax basics › Tax inflation adjustments for tax year 2025 › Notable changes for tax year 2025 · 10% in
+    source: https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025
+    relevance 1
+- Standard deductions. For single taxpayers and married individuals filing separately for tax year 2025, the standard deduction rises to $15,000 for 2025, an increase of $400 from 2024. For married couples filing jointly, the standard deduction rises to $30,000, an increase of $800 from tax year 2024. For heads of households, the standard deduction will be $22,500 for tax year 2025, an increase of $600 from the amount for tax year 2024.`
+
+/** Passage [2] of the TH1 run: the two halves sit on separate lines. */
+const CDC_LOOKUP = `Reference passages for "ground beef minimum internal temperature" from the local library (keyword ranking), most relevant first.
+
+[2] Food safety › Preventing food poisoning (CDC) › Safe internal temperatures for different foods · 47% in
+    source: https://www.cdc.gov/food-safety/prevention/index.html
+    relevance 0.888
+Whole cuts of beef, veal, lamb, and pork, including fresh ham
+
+145°F (then allow the meat to rest for 3 minutes before carving or eating)
+
+Ground meats, such as beef and pork
+
+160°F
+
+All poultry, including ground chicken and turkey
+
+165°F`
+
+const V2_QUOTE =
+  '"For married couples filing jointly, the standard deduction rises to $30,000, an increase of $800 from tax year 2024."'
+
+describe('quotation fidelity · citation markers (v1.15)', () => {
+  test('the V2 span: a blockquoted verbatim quotation closed with its marker', () => {
+    assert.deepEqual(
+      misquotedSpans(
+        `For tax year 2025 it is $30,000. This comes directly from the IRS:\n\n> ${V2_QUOTE} [1]\n\nIf either spouse is 65 or older…`,
+        IRS_LOOKUP
+      ),
+      []
+    )
+  })
+
+  test('the marker alone is enough to break it, quotation marks or not', () => {
+    assert.deepEqual(
+      misquotedSpans(
+        '> For married couples filing jointly, the standard deduction rises to $30,000, an increase of $800 from tax year 2024. [1]\n',
+        IRS_LOOKUP
+      ),
+      []
+    )
+    assert.deepEqual(misquotedSpans(`${V2_QUOTE} [1][3]`, IRS_LOOKUP), [])
+    assert.deepEqual(misquotedSpans(`> [1] ${V2_QUOTE}\n`, IRS_LOOKUP), [])
+  })
+
+  test('reported through checkToolGrounding, the V2 turn says nothing about quotes', () => {
+    const report = checkToolGrounding(
+      `For tax year 2025, the standard deduction for a married couple filing jointly is $30,000. This comes directly from the IRS:\n\n> ${V2_QUOTE} [1]\n`,
+      [rec('reference_lookup', IRS_LOOKUP)],
+      "What's the standard deduction for a married couple filing jointly? Cite the source."
+    )
+    assert.deepEqual(report?.quotes ?? [], [])
+  })
+
+  test('the TH1 span, invented and stitched, is still caught — marker and all', () => {
+    // Recorded (task TH1, run 2). "Ground meats, such as beef and pork" and
+    // "160°F" are two separate lines of passage [2]; the em dash joining them
+    // is the reply's, and no source says this.
+    assert.deepEqual(
+      misquotedSpans(
+        'CDC Safe Internal Temperatures: "Ground meats, such as beef and pork — 160°F" [2]',
+        CDC_LOOKUP
+      ),
+      ['Ground meats, such as beef and pork — 160°F']
+    )
+    assert.deepEqual(
+      misquotedSpans('> "Ground meats, such as beef and pork — 160°F" [2]\n', CDC_LOOKUP),
+      ['Ground meats, such as beef and pork — 160°F']
+    )
+  })
+
+  test('a marker does not launder an invention through a blockquote', () => {
+    assert.deepEqual(
+      misquotedSpans('> "Discard all leftovers after two days." [3]\n', FOOD_LOOKUP),
+      ['Discard all leftovers after two days.']
+    )
+  })
+
+  test('trimming the marker trims nothing else: a wrong figure inside stays wrong', () => {
+    assert.deepEqual(
+      misquotedSpans(
+        '> "For married couples filing jointly, the standard deduction rises to $32,000, an increase of $800 from tax year 2024." [1]\n',
+        IRS_LOOKUP
+      ),
+      ['For married couples filing jointly, the standard deduction rises to $32,…']
+    )
+  })
+
+  test('one claim, one finding — the two patterns that bound it do not double-report', () => {
+    const flagged = misquotedSpans('> "Discard all leftovers after two days." [3]\n', FOOD_LOOKUP)
+    assert.equal(flagged.length, 1)
+  })
+})
+
 describe('citation attribution (v1.14)', () => {
   const retrieved = retrievedCitations([rec('reference_lookup', FOOD_LOOKUP)])
 

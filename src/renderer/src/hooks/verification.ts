@@ -5,6 +5,7 @@ import {
   buildRecomputeMessages,
   buildRecomputeReference,
   codeFailureFinding,
+  compareToOutput,
   describeRecompute,
   extractRecomputeProgram,
   isSelfContained,
@@ -13,7 +14,7 @@ import {
   LAUNDERED_OUTPUT_MARKER
 } from '../lib/workbenchChecks'
 import { parseRanCode } from '../lib/ranCode'
-import type { WorkbenchCheck } from '../lib/workbenchChecks'
+import type { OutputComparison, WorkbenchCheck } from '../lib/workbenchChecks'
 import {
   buildReviewMessages,
   buildRevisionMessages,
@@ -664,7 +665,7 @@ export async function runCodeCheck(
   records: ToolCallRecord[],
   toolContext: { modelId?: string; attachments?: { name: string; sourcePath: string }[] },
   onRecords: () => void
-): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string }> {
+): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string; compared?: OutputComparison }> {
   const code = longestPythonFence(answer)
   if (!code) return { finding: null, ran: false, ok: false, note: 'no Python block' }
   if (!isSelfContained(code)) return { finding: null, ran: false, ok: false, note: 'the code needs input, files or the network, so it cannot be checked in the sandbox' }
@@ -691,7 +692,9 @@ export async function runCodeCheck(
     ok: result.ok,
     text: `[code check] run_python(${JSON.stringify({ code })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
   })
-  if (result.ok) return { finding: null, ran: true, ok: true }
+  // A clean run says only that nothing was raised. What it printed is right
+  // here, and so are the figures the reply states — compare them (TTU2).
+  if (result.ok) return { finding: null, ran: true, ok: true, compared: compareToOutput(answer, result.output ?? '') }
   const finding = codeFailureFinding(result.error ?? '')
   return { finding, ran: true, ok: false, note: finding ? undefined : 'the failure was environmental, not the code’s' }
 }

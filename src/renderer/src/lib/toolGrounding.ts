@@ -904,9 +904,29 @@ function flattenQuote(text: string): string {
     .toLowerCase()
 }
 
+/**
+ * v1.15: the citation marker a quoter puts beside a quotation — `[1]`, `[2][3]`,
+ * `[1, 2]`. It is the quoter's own attribution, never a word the source wrote.
+ *
+ * Measured (task V2): a passage quoted word for word inside a markdown
+ * blockquote, `> "…tax year 2024." [1]`. The blockquote pattern bounds a span
+ * by the line rather than by the quotation marks, so the span carried the marks
+ * and the marker, matched nothing, and the badge cried wolf on a quotation the
+ * straight-quote pattern had already matched and passed in the same reply.
+ * Trimmed at either edge, like the quoter's other punctuation below; the body
+ * still has to be in the corpus character for character.
+ */
+const MARKER = String.raw`(?:\s*\[\d{1,3}(?:\s*[,;]\s*\d{1,3})*\])+`
+const MARKER_HEAD = new RegExp(`^${MARKER}`)
+const MARKER_TAIL = new RegExp(`${MARKER}[\\s.]*$`)
+
 /** Trailing prose punctuation the quoter added is not part of the source line. */
 function trimQuoteEdges(span: string): string {
-  return span.replace(/^[\s'"([-]+/, '').replace(/[\s'"),.;:-]+$/, '')
+  return span
+    .replace(MARKER_HEAD, '')
+    .replace(MARKER_TAIL, '')
+    .replace(/^[\s'"([-]+/, '')
+    .replace(/[\s'"),.;:-]+$/, '')
 }
 
 /** Every span the reply offers as a direct quotation, in the order it wrote them. */
@@ -936,13 +956,17 @@ export function misquotedSpans(answer: string, corpus: string): string[] {
   const seen = new Set<string>()
   for (const span of quotedSpans(answer)) {
     const flat = flattenQuote(span)
-    if (seen.has(flat)) continue
+    // Keyed on the trimmed form: a blockquote and the quotation marks inside it
+    // are two patterns bounding one claim, and one claim earns one finding. The
+    // quote patterns run tightest-first, so the reported span is the tighter.
+    const key = trimQuoteEdges(flat)
+    if (seen.has(key)) continue
     const parts = flat.split(ELISION).filter(Boolean)
     const found = parts.every(
       (part) => source.includes(part) || source.includes(trimQuoteEdges(part))
     )
     if (found) continue
-    seen.add(flat)
+    seen.add(key)
     flagged.push(span.length > 72 ? `${span.slice(0, 72)}…` : span)
   }
   return flagged
