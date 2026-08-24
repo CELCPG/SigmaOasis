@@ -293,9 +293,14 @@ const api = {
     modelId?: string,
     maxSteps?: number,
     /** The conversation the task came from, so a follow-up plans against it. */
-    context?: string
-  ): Promise<{ ok: boolean; steps?: { title: string; detail: string }[]; error?: string }> =>
-    ipcRenderer.invoke('plan:generate', task, modelId, maxSteps, context),
+    context?: string,
+    /** Enabled tools, so each step can disclose what it may use before approval. */
+    toolNames?: string[]
+  ): Promise<{
+    ok: boolean
+    steps?: { title: string; detail: string; tools?: string[] }[]
+    error?: string
+  }> => ipcRenderer.invoke('plan:generate', task, modelId, maxSteps, context, toolNames),
 
   // Auto-update (main/updates.ts)
   getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:getStatus'),

@@ -4,11 +4,14 @@ import { stepRecords } from '../hooks/planMode'
 import { ToolCallBlock } from './ToolCallBlock'
 import {
   awaitingApproval,
+  OUTCOME_BADGE,
   OUTCOME_CLASS,
   OUTCOME_LABEL,
   STATUS_CLASS,
   STATUS_ICON,
-  STATUS_NOTE
+  STATUS_NOTE,
+  stepBodyClass,
+  toolPreview
 } from '../lib/planState'
 
 interface Props {
@@ -49,7 +52,9 @@ export function PlanBlockView({
             header alone tells the six states apart. */}
         {!awaiting && !plan.outcome && <span className="text-accent-ink">running</span>}
         {plan.outcome && (
-          <span className={OUTCOME_CLASS[plan.outcome]}>{OUTCOME_LABEL[plan.outcome]}</span>
+          <span className={`${OUTCOME_BADGE} ${OUTCOME_CLASS[plan.outcome]}`}>
+            {OUTCOME_LABEL[plan.outcome]}
+          </span>
         )}
       </div>
 
@@ -91,7 +96,10 @@ export function PlanBlockView({
                       {STATUS_NOTE[step.status]}
                     </span>
                   )}
-                  <span className="block text-neutral-400">{step.detail}</span>
+                  <span className={`block ${stepBodyClass(step.status)}`}>{step.detail}</span>
+                  {/* What the step will reach for, stated while approving it is
+                      still a decision — not disclosed afterwards by the calls. */}
+                  <span className={`block ${stepBodyClass(step.status)}`}>{toolPreview(step)}</span>
                   {expandable && (
                     <span className="text-neutral-400">{openSteps[step.id] ? '▾' : '▸'}</span>
                   )}

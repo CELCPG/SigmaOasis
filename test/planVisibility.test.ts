@@ -1,11 +1,15 @@
 import { test, describe, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import {
   answerRecords,
   runPlanStep,
   stepRecords
 } from '../src/renderer/src/hooks/planMode'
+import { PlanBlockView } from '../src/renderer/src/components/PlanBlockView'
 import type {
+  ChatPlan,
   Conversation,
   ModelConfig,
   ToolCallRecord,
@@ -191,5 +195,42 @@ describe('a plan step’s tool calls reach the message', () => {
       stepRecords(records, 'step-b').map((r) => r.args.query),
       ['sunrise', 'sunset']
     )
+  })
+
+  /**
+   * v1.12.3: the step now also says what it may use *before* it is approved.
+   * That forecast must not stand in for the record of what it actually did —
+   * the two are answers to different questions, and the block owes both.
+   */
+  test('the forecast and the record of the calls are both on the row', async () => {
+    const { executed } = stubLMStudio([
+      sse(callFrame('call-1', 'web_search', { query: 'ocean city tide tables' })),
+      sse(textFrame('Low tide is at 06:12.'))
+    ])
+
+    const records: ToolCallRecord[] = []
+    await step('step-a', 'Step 1 of 2: find the tide times', records, () => {})
+    assert.deepEqual(executed, ['web_search'])
+
+    const plan: ChatPlan = {
+      approved: true,
+      createdAt: 1,
+      steps: [
+        {
+          id: 'step-a',
+          title: 'Find the tide times',
+          detail: 'Look up the tables.',
+          tools: ['web_search'],
+          status: 'done',
+          output: 'Low tide is at 06:12.'
+        }
+      ]
+    }
+    const html = renderToStaticMarkup(
+      createElement(PlanBlockView, { plan, streaming: false, onResolve: () => {}, records })
+    ).replace(/<!-- -->/g, '')
+
+    assert.match(html, /Tools — may use: web_search/)
+    assert.match(html, /1 tool call\b/)
   })
 })

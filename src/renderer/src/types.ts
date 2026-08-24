@@ -361,6 +361,12 @@ export interface PlanStep {
   title: string
   detail: string
   status: PlanStepStatus
+  /**
+   * Tools this step may reach for, named by the planner and filtered to the
+   * ones actually enabled. Shown before approval: the user authorises a plan
+   * on what it will do, and a title is not that (v1.12.3).
+   */
+  tools?: string[]
   /** Capped result of the step's sub-turn, shown expandable in the checklist. */
   output?: string
 }

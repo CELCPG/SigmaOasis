@@ -17,34 +17,48 @@ import { getSettings } from './store'
 export interface PlannedStep {
   title: string
   detail: string
+  /** Enabled tools the step says it may use — the pre-approval disclosure. */
+  tools: string[]
 }
 
 interface PlanPayload {
-  steps?: { title?: unknown; detail?: unknown }[]
+  steps?: { title?: unknown; detail?: unknown; tools?: unknown }[]
 }
 
-const PLAN_SCHEMA = {
-  name: 'task_plan',
-  schema: {
-    type: 'object',
-    properties: {
-      steps: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            detail: { type: 'string' }
-          },
-          required: ['title', 'detail'],
-          additionalProperties: false
-        },
-        minItems: 1,
-        maxItems: 10
-      }
-    },
-    required: ['steps'],
-    additionalProperties: false
+/**
+ * v1.12.3: when the caller knows which tools are enabled, each step must name
+ * the ones it may use. Approval is asked for before anything runs, so the tool
+ * names are the only part of the disclosure that says what the step will *do*;
+ * an enum constrains the answer to tools that exist rather than to tools the
+ * model wishes existed.
+ */
+function planSchema(
+  toolNames: readonly string[]
+): { name: string; schema: Record<string, unknown> } {
+  const properties: Record<string, unknown> = {
+    title: { type: 'string' },
+    detail: { type: 'string' }
+  }
+  const required = ['title', 'detail']
+  if (toolNames.length > 0) {
+    properties.tools = { type: 'array', items: { type: 'string', enum: [...toolNames] } }
+    required.push('tools')
+  }
+  return {
+    name: 'task_plan',
+    schema: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          items: { type: 'object', properties, required, additionalProperties: false },
+          minItems: 1,
+          maxItems: 10
+        }
+      },
+      required: ['steps'],
+      additionalProperties: false
+    }
   }
 }
 
@@ -63,11 +77,14 @@ export async function generatePlan(
    * "update the route to 8 stops" became six steps that each asked for a route
    * the previous turn had already produced.
    */
-  context?: string
+  context?: string,
+  /** Tools enabled for this turn. Each step names the ones it may use. */
+  toolNames: readonly string[] = []
 ): Promise<PlannedStep[] | null> {
   const model = await resolveChatModel(modelId)
   if (!model) return null
   const cap = Math.min(10, Math.max(1, Math.round(maxSteps ?? getSettings().plan.maxSteps)))
+  const allowed = new Set(toolNames)
 
   const parsed = await chatCompleteJson<PlanPayload>({
     model,
@@ -80,7 +97,15 @@ export async function generatePlan(
           'conversation), produce a result the next step can use, and be phrased as an ' +
           'instruction. No step may be "think about" or "consider" — every step produces ' +
           'something checkable. If the task is simple enough to answer directly, return a ' +
-          'single step. Return JSON only.'
+          'single step. Return JSON only.' +
+          // The user approves the plan before any of it runs, so the step has
+          // to say what it will reach for while that is still a decision.
+          (allowed.size > 0
+            ? `\n\nThese tools are enabled: ${[...allowed].join(', ')}. For each step, list in ` +
+              '"tools" the ones that step may need — only from that list, and an empty list ' +
+              'when the step is reasoning or arithmetic the model does itself. The user reads ' +
+              'this before approving the plan.'
+            : '')
       },
       {
         role: 'user',
@@ -93,11 +118,23 @@ export async function generatePlan(
     ],
     temperature: 0.2,
     thinking: false,
-    jsonSchema: PLAN_SCHEMA
+    jsonSchema: planSchema([...allowed])
   })
 
   const steps = (parsed?.steps ?? [])
-    .map((s) => ({ title: String(s?.title ?? '').trim(), detail: String(s?.detail ?? '').trim() }))
+    .map((s) => ({
+      title: String(s?.title ?? '').trim(),
+      detail: String(s?.detail ?? '').trim(),
+      // A named tool that is not enabled would be a promise the step cannot
+      // keep, so the disclosure carries only names the turn actually holds.
+      tools: [
+        ...new Set(
+          (Array.isArray(s?.tools) ? s.tools : [])
+            .map((t) => String(t ?? '').trim())
+            .filter((t) => allowed.has(t))
+        )
+      ]
+    }))
     .filter((s) => s.title && s.detail)
     .slice(0, cap)
   return steps.length > 0 ? steps : null
@@ -106,7 +143,14 @@ export async function generatePlan(
 export function registerPlanHandlers(): void {
   ipcMain.handle(
     'plan:generate',
-    async (_e, task: string, modelId?: string, maxSteps?: number, context?: string) => {
+    async (
+      _e,
+      task: string,
+      modelId?: string,
+      maxSteps?: number,
+      context?: string,
+      toolNames?: string[]
+    ) => {
       const trimmed = String(task ?? '').trim()
       if (!trimmed) return { ok: false, error: 'A task is required.' }
       try {
@@ -114,7 +158,8 @@ export function registerPlanHandlers(): void {
           trimmed,
           modelId,
           maxSteps,
-          typeof context === 'string' ? context : undefined
+          typeof context === 'string' ? context : undefined,
+          Array.isArray(toolNames) ? toolNames.map((t) => String(t)) : []
         )
         return steps
           ? { ok: true, steps }

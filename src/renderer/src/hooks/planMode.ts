@@ -226,7 +226,10 @@ export async function runPlanTurn(
     task,
     slot.modelId,
     settings.plan.maxSteps,
-    context || undefined
+    context || undefined,
+    // What this slot is allowed to call, so each step can say before approval
+    // which of them it may use.
+    toolsForSlot(slot, tools).map((t) => t.function.name)
   )
   if (signal.aborted) return
   if (!gen.ok || !gen.steps || gen.steps.length === 0) {
@@ -244,7 +247,13 @@ export async function runPlanTurn(
     color: slot.color,
     toolCalls: [],
     plan: {
-      steps: gen.steps.map((s) => ({ id: uid(), title: s.title, detail: s.detail, status: 'pending' })),
+      steps: gen.steps.map((s) => ({
+        id: uid(),
+        title: s.title,
+        detail: s.detail,
+        tools: s.tools ?? [],
+        status: 'pending' as const
+      })),
       approved: !settings.plan.confirmPlan,
       createdAt: Date.now()
     },
