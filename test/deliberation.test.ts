@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  classifyReview,
   thinkHarderNote,
   buildReviewMessages,
   buildRevisionMessages,
@@ -107,6 +108,64 @@ describe('describeDeliberation', () => {
     assert.match(describeDeliberation({ ...base, note: 'Figures changed: 381 → 391.' }), /Figures changed: 381 → 391/)
     assert.match(describeDeliberation({ ...base, status: 'reviewing' }), /in progress/)
     assert.match(describeDeliberation({ ...base, status: 'error', note: 'boom' }), /failed: boom/)
+  })
+})
+
+/**
+ * v1.9.2: a reviewer that returned nothing must never be reported as a
+ * reviewer that approved the draft. Both states leave the draft standing and
+ * both make reviewFoundProblems false — only one of them read the draft, and
+ * the line the user reads is the only place that difference can survive.
+ */
+describe('a review that never came back', () => {
+  const unreviewed: DeliberationRecord = {
+    reviewerRole: 'Researcher',
+    reviewerModelId: 'gemma',
+    self: false,
+    status: 'done',
+    draft: 'It is 381.',
+    review: '',
+    revised: false,
+    createdAt: 1
+  }
+
+  test('classifyReview separates nothing-came-back from a genuine all-clear', () => {
+    assert.equal(classifyReview(''), 'none')
+    assert.equal(classifyReview('   \n\t '), 'none')
+    assert.equal(classifyReview('No substantive problems.'), 'clear')
+    assert.equal(classifyReview('1. 17 × 23 is 391, not 381.'), 'problems')
+  })
+
+  test('an empty review is disclosed as no review, never as "no problems found"', () => {
+    for (const review of ['', ' ', '\n\t \n']) {
+      const line = describeDeliberation({ ...unreviewed, review })
+      assert.doesNotMatch(line, /no substantive problems/i, `must not vouch for ${JSON.stringify(review)}`)
+      assert.doesNotMatch(line, /reviewed by/i, 'must not claim the draft was reviewed')
+      assert.doesNotMatch(line, /^🧠 Deliberated/, 'must not read as a completed deliberation')
+      assert.match(line, /Researcher returned nothing/)
+      assert.match(line, /not checked/)
+    }
+  })
+
+  test('a self-review that returned nothing says so too', () => {
+    const line = describeDeliberation({ ...unreviewed, self: true })
+    assert.doesNotMatch(line, /no substantive problems/i)
+    assert.doesNotMatch(line, /reviewed its own draft/i)
+    assert.match(line, /the self-review returned nothing; the draft was not checked/)
+  })
+
+  test('a failed review is not an approval either', () => {
+    const line = describeDeliberation({ ...unreviewed, status: 'error', note: 'stream closed' })
+    assert.doesNotMatch(line, /no substantive problems/i)
+    assert.match(line, /failed: stream closed/)
+    assert.match(line, /not checked/)
+  })
+
+  test('a review that did come back and found nothing still reports the all-clear', () => {
+    assert.equal(
+      describeDeliberation({ ...unreviewed, review: 'No substantive problems.' }),
+      '🧠 Deliberated — reviewed by Researcher: no substantive problems found; draft kept.'
+    )
   })
 })
 

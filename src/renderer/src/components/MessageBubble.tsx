@@ -12,7 +12,7 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { RanCodeBlock } from './RanCodeBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
-import { describeDeliberation, thinkHarderNote } from '../lib/deliberation'
+import { classifyReview, describeDeliberation, thinkHarderNote } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { OasisRipple } from './OasisRipple'
@@ -195,6 +195,9 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
 function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Element {
   const [open, setOpen] = useState(false)
   const busy = record.status === 'reviewing' || record.status === 'revising'
+  // v1.9.2: the reviewer returned nothing (or failed) — the tooltip must not
+  // describe a review that did not happen.
+  const unreviewed = record.status === 'error' || classifyReview(record.review) === 'none'
   return (
     <div className="mt-2 text-[11px] text-neutral-400">
       <button
@@ -202,9 +205,11 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
         onClick={() => setOpen((o) => !o)}
         className="rounded px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
         title={
-          record.self
-            ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Models → self-review).'
-            : `A different role (${record.reviewerRole}) listed the problems in the draft; the answerer revised once with that list.`
+          !busy && unreviewed
+            ? `${record.reviewerRole} returned no review at all, so nothing here checked this reply. Run Think harder again, or use 2nd opinion.`
+            : record.self
+              ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Models → self-review).'
+              : `A different role (${record.reviewerRole}) listed the problems in the draft; the answerer revised once with that list.`
         }
       >
         {describeDeliberation(record)} {busy ? '' : <span>{open ? '▾' : '▸'}</span>}
