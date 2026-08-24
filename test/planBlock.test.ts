@@ -1,10 +1,23 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlanBlockView } from '../src/renderer/src/components/PlanBlockView'
-import { awaitingApproval, endPlan } from '../src/renderer/src/lib/planState'
-import type { ChatPlan, PlanStep, PlanStepStatus } from '../src/renderer/src/types'
+import {
+  awaitingApproval,
+  endPlan,
+  OUTCOME_LABEL,
+  STATUS_NOTE
+} from '../src/renderer/src/lib/planState'
+import type {
+  ChatPlan,
+  PlanOutcome,
+  PlanStep,
+  PlanStepStatus,
+  ToolCallRecord
+} from '../src/renderer/src/types'
 
 /**
  * v1.12: a plan has to have a terminal state, and the block has to show it.
@@ -26,10 +39,13 @@ function plan(steps: PlanStep[], rest: Partial<ChatPlan> = {}): ChatPlan {
   return { steps, approved: true, createdAt: 1, ...rest }
 }
 
-function render(p: ChatPlan): string {
+function render(p: ChatPlan, records: ToolCallRecord[] = []): string {
+  // The `<!-- -->` markers separate adjacent text children in static markup and
+  // do not exist in the DOM the reader gets; drop them so a span's text here is
+  // the string on screen.
   return renderToStaticMarkup(
-    createElement(PlanBlockView, { plan: p, streaming: false, onResolve: () => {} })
-  )
+    createElement(PlanBlockView, { plan: p, streaming: false, onResolve: () => {}, records })
+  ).replace(/<!-- -->/g, '')
 }
 
 /** Buttons the user can actually press — the disabled ones are step toggles. */
@@ -177,5 +193,335 @@ describe('endPlan', () => {
     for (const outcome of ['completed', 'cancelled', 'stopped', 'failed'] as const) {
       assert.equal(awaitingApproval(endPlan(pendingUnapproved, outcome)), false)
     }
+  })
+})
+
+/* ---- v1.12.3: what the block says, and how loudly ------------------------- */
+
+/**
+ * Three failures a blind critic found in real recorded runs, each measured
+ * here against the rendered markup rather than described.
+ *
+ * 1. Approval was asked for blind: at the moment the user authorised
+ *    execution the block held three titles and their prose — no tool name, no
+ *    badge — and the tool calls appeared only once they had run.
+ * 2. The terminal state was drawn in the weakest ink in the block:
+ *    "cancelled — nothing ran" in text-neutral-400, the same grey as the step
+ *    body copy, on a block that otherwise read as finished.
+ * 3. A step that never ran kept its contents fully legible: five rows labelled
+ *    "never ran" carrying "Result: ~$1,080" at the weight of a step that did.
+ *
+ * Ink is compared by measurement, not by eye: WCAG 2.1 relative luminance
+ * against the block's own composited background, in both themes.
+ */
+
+const REPO = join(__dirname, '..', '..')
+
+/** Tailwind v3 defaults, for every ink the plan block sets. */
+const PALETTE: Record<string, string> = {
+  'neutral-200': '#e5e5e5',
+  'neutral-300': '#d4d4d4',
+  'neutral-400': '#a3a3a3',
+  'neutral-500': '#737373',
+  'neutral-600': '#525252',
+  'neutral-700': '#404040',
+  'green-300': '#86efac',
+  'green-400': '#4ade80',
+  'green-600': '#16a34a',
+  'green-800': '#166534',
+  'red-300': '#fca5a5',
+  'red-400': '#f87171',
+  'red-500': '#ef4444',
+  'red-700': '#b91c1c',
+  'amber-300': '#fcd34d',
+  'amber-500': '#f59e0b',
+  'amber-600': '#d97706',
+  'amber-800': '#92400e'
+}
+
+/** --accent-ink is a CSS variable; take both themes from the stylesheet itself. */
+const ACCENT_INK = (() => {
+  const css = readFileSync(join(REPO, 'src/renderer/src/assets/index.css'), 'utf8')
+  const found = css.match(/--accent-ink:\s*(#[0-9a-fA-F]{6})/g) ?? []
+  assert.equal(found.length, 2, 'index.css no longer defines --accent-ink once per theme')
+  return found.map((m) => m.slice(m.indexOf('#')))
+})()
+
+/** The canvas the block sits on, read from the app's own Tailwind config. */
+const CANVAS = (() => {
+  const cfg = readFileSync(join(REPO, 'tailwind.config.js'), 'utf8')
+  const m = cfg.match(/base:\s*\{\s*light:\s*'(#[0-9a-fA-F]{6})',\s*dark:\s*'(#[0-9a-fA-F]{6})'/)
+  assert.ok(m, 'tailwind.config.js no longer states the canvas colours')
+  return { light: m![1]!, dark: m![2]! }
+})()
+
+type RGB = [number, number, number]
+
+function hex(value: string): RGB {
+  return [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16)) as RGB
+}
+
+function luminance([r, g, b]: RGB): number {
+  const lin = (c: number): number => {
+    const v = c / 255
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+function contrast(fg: RGB, bg: RGB): number {
+  const [hi, lo] = [luminance(fg), luminance(bg)].sort((a, b) => b - a)
+  return (hi! + 0.05) / (lo! + 0.05)
+}
+
+/** The block's background: its own tint class composited over the canvas. */
+function background(html: string, dark: boolean): RGB {
+  const open = html.indexOf('class="') + 7
+  const root = html.slice(open, html.indexOf('"', open))
+  const m = dark
+    ? root.match(/dark:bg-white\/\[([\d.]+)\]/)
+    : root.match(/(?:^|\s)bg-black\/\[([\d.]+)\]/)
+  assert.ok(m, `the plan block no longer states its ${dark ? 'dark' : 'light'} background`)
+  const alpha = Number(m![1])
+  const tint = dark ? 255 : 0
+  return hex(dark ? CANVAS.dark : CANVAS.light).map((c) => c * (1 - alpha) + tint * alpha) as RGB
+}
+
+/** The colour an element's classes resolve to in one theme. */
+function ink(cls: string, dark: boolean): RGB {
+  const prefix = dark ? 'dark:text-' : 'text-'
+  const names = cls
+    .split(/\s+/)
+    .filter((t) => t.startsWith(prefix))
+    .map((t) => t.slice(prefix.length))
+    .filter((t) => t === 'accent-ink' || /^[a-z]+-\d{3}$/.test(t))
+  const name = names[names.length - 1]
+  if (!name) {
+    // No dark override: the light ink is what renders in both themes.
+    assert.ok(dark, `no ink in "${cls}"`)
+    return ink(cls, false)
+  }
+  if (name === 'accent-ink') return hex(ACCENT_INK[dark ? 1 : 0]!)
+  const value = PALETTE[name]
+  assert.ok(value, `unmeasured ink "${name}" — add it to PALETTE`)
+  return hex(value!)
+}
+
+/** How heavy the type is: a class the block sets, or Tailwind's 400 default. */
+function weight(cls: string): number {
+  if (/\bfont-bold\b/.test(cls)) return 700
+  if (/\bfont-semibold\b/.test(cls)) return 600
+  if (/\bfont-medium\b/.test(cls)) return 500
+  return 400
+}
+
+interface Node {
+  cls: string
+  text: string
+}
+
+/** Every element that carries text of its own, with the classes it sets. */
+function textNodes(html: string): Node[] {
+  const out: Node[] = []
+  const re = /class="([^"]*)"[^>]*>([^<]+)</g
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    const text = m[2]!.trim()
+    if (text) out.push({ cls: m[1]!, text })
+  }
+  return out
+}
+
+/**
+ * A step's own copy — the lines it sets on their own row: its detail and its
+ * tool disclosure. Identified by the layout class rather than by their text, so
+ * a line added to a step is measured rather than quietly exempt.
+ */
+const isBodyCopy = (n: Node): boolean => /(?:^|\s)block(?:\s|$)/.test(n.cls)
+
+const legible = (n: Node, html: string, dark: boolean): number =>
+  contrast(ink(n.cls, dark), background(html, dark))
+
+// ---- PT1: approval is asked for with the tools on the table ------------------
+
+const AWAITING = plan(
+  [
+    { id: 'a1', title: 'Work out the water', detail: '1 gal × 3 × 14 days.', status: 'pending', tools: [] },
+    {
+      id: 'a2',
+      title: 'Check the reference library',
+      detail: 'Look for an emergency supply list.',
+      status: 'pending',
+      tools: ['library_search', 'web_search']
+    },
+    {
+      id: 'a3',
+      title: 'Compile the checklist',
+      detail: 'One list, by category.',
+      status: 'pending',
+      tools: ['library_search']
+    }
+  ],
+  { approved: false }
+)
+
+describe('a plan is approved on what it will do', () => {
+  const html = render(AWAITING)
+
+  test('every step discloses its tools before anything runs', () => {
+    const disclosed = rows(html).filter((r) => /Tools —/.test(r))
+    assert.equal(disclosed.length, AWAITING.steps.length)
+  })
+
+  test('the tool names are in the DOM at the moment approval is asked for', () => {
+    const r = rows(html)
+    assert.match(r[1]!, /library_search/)
+    assert.match(r[1]!, /web_search/)
+    assert.match(r[2]!, /library_search/)
+    // Retrospective disclosure is the failure: the names must precede the
+    // control that authorises the run, not follow it.
+    assert.ok(
+      html.lastIndexOf('Tools —') < html.indexOf('Run this plan'),
+      'the tool disclosure is rendered after the Run button'
+    )
+  })
+
+  test('a step that plans no tool says so rather than saying nothing', () => {
+    assert.match(rows(html)[0]!, /Tools — none planned/)
+  })
+})
+
+// ---- PT2: the outcome is the loudest thing in the block ----------------------
+
+const ENDED: Record<PlanOutcome, ChatPlan> = {
+  completed: endPlan(plan([step(1, 'done', 'ok'), step(2, 'done', 'ok')]), 'completed'),
+  cancelled: CANCELLED,
+  stopped: STOPPED,
+  failed: FAILED
+}
+
+describe('a terminal outcome is the most legible thing in the block', () => {
+  for (const outcome of Object.keys(ENDED) as PlanOutcome[]) {
+    const html = render(ENDED[outcome])
+    const nodes = textNodes(html)
+    const label = OUTCOME_LABEL[outcome]
+    const badge = nodes.find((n) => n.text === label)
+
+    test(`${outcome}: the outcome outweighs every other word in the block`, () => {
+      assert.ok(badge, `no element renders "${label}" as its own text`)
+      const heavier = nodes.filter((n) => n !== badge && weight(n.cls) >= weight(badge!.cls))
+      assert.equal(heavier.length, 0, `set no heavier than ${heavier.map((n) => n.text).join(' | ')}`)
+    })
+
+    for (const dark of [false, true]) {
+      const theme = dark ? 'dark' : 'light'
+
+      test(`${outcome}: the outcome clears AA in the ${theme} theme`, () => {
+        const ratio = legible(badge!, html, dark)
+        assert.ok(ratio >= 4.5, `${ratio.toFixed(2)}:1`)
+      })
+
+      test(`${outcome}: the outcome is not the grey of the step copy (${theme})`, () => {
+        const body = nodes.filter(isBodyCopy)
+        assert.ok(body.length > 0, 'no step copy in the block to compare against')
+        const loudest = Math.max(...body.map((n) => legible(n, html, dark)))
+        const ratio = legible(badge!, html, dark)
+        assert.ok(ratio > loudest, `outcome ${ratio.toFixed(2)}:1 vs copy ${loudest.toFixed(2)}:1`)
+        for (const n of body) assert.notEqual(n.cls, badge!.cls)
+      })
+    }
+  }
+})
+
+// ---- PT3: a step that never ran presents nothing as a finding ----------------
+
+const ABANDONED = endPlan(
+  plan([
+    { id: 'b1', title: 'Total water volume', detail: '4 × 8 × 14 = 448 gallons.', status: 'stopped' },
+    {
+      id: 'b2',
+      title: 'Cost refilled containers',
+      detail: 'Result: ~$244 for delivery plus containers.',
+      status: 'pending',
+      tools: ['finance_calculator']
+    },
+    { id: 'b3', title: 'Cost bottled cases', detail: 'Result: ~$1,080 for 90 cases.', status: 'pending' }
+  ]),
+  'stopped'
+)
+
+describe('a step that never ran does not present its contents as findings', () => {
+  const html = render(ABANDONED)
+  const abandoned = rows(html).filter((r) => /never ran/.test(r))
+  const ran = rows(html).filter((r) => /stopped here/.test(r))
+
+  test('the fixture is the shape the failure was found in', () => {
+    assert.equal(abandoned.length, 2)
+    assert.equal(ran.length, 1)
+    // Two lines of copy per row — the detail and the tool disclosure — is what
+    // the dimness below is measured over.
+    for (const row of [...abandoned, ...ran])
+      assert.equal(textNodes(`<li ${row}`).filter(isBodyCopy).length, 2)
+  })
+
+  test('every figure inside a never-ran row is struck through', () => {
+    let figures = 0
+    for (const row of abandoned) {
+      for (const node of textNodes(`<li ${row}`)) {
+        if (!/\$[\d,]/.test(node.text)) continue
+        figures += 1
+        assert.match(node.cls, /line-through/, `"${node.text}" is legible as a result`)
+      }
+    }
+    assert.ok(figures >= 2, `expected the abandoned rows to carry figures, found ${figures}`)
+  })
+
+  test('the whole row is struck, not only its title', () => {
+    for (const row of abandoned)
+      for (const node of textNodes(`<li ${row}`)) {
+        // The verdict on the row is not part of the row's content, and the
+        // status glyph carries no words.
+        if (node.text === STATUS_NOTE.skipped || !/[a-z]/i.test(node.text)) continue
+        assert.match(node.cls, /line-through/, `"${node.text}" keeps a step's full weight`)
+      }
+  })
+
+  for (const dark of [false, true]) {
+    test(`never-ran copy is dimmer than the copy of a step that ran (${dark ? 'dark' : 'light'})`, () => {
+      const copy = (rowsOf: string[]): number =>
+        Math.max(
+          ...rowsOf.flatMap((r) =>
+            textNodes(`<li ${r}`)
+              .filter(isBodyCopy)
+              .map((n) => legible(n, html, dark))
+          )
+        )
+      assert.ok(
+        copy(abandoned) < copy(ran),
+        `never ran ${copy(abandoned).toFixed(2)}:1 vs ran ${copy(ran).toFixed(2)}:1`
+      )
+    })
+  }
+})
+
+// ---- the round-1 guarantee, kept: a step's executed calls stay visible -------
+
+describe('a step that did run still shows the calls it made', () => {
+  const record = (id: string, name: string, planStepId: string): ToolCallRecord => ({
+    id,
+    name,
+    args: { query: 'tide tables' },
+    status: 'done',
+    result: 'ok',
+    planStepId
+  })
+
+  test('the count is on the row before anything is expanded', () => {
+    const ran = plan([
+      { id: 'c1', title: 'Search', detail: 'Find it.', status: 'done', output: 'ok', tools: ['web_search'] },
+      { id: 'c2', title: 'Write it up', detail: 'Summarise.', status: 'pending', tools: [] }
+    ])
+    const html = render(ran, [record('r1', 'web_search', 'c1'), record('r2', 'web_search', 'c1')])
+    assert.match(rows(html)[0]!, /2 tool calls/)
+    assert.ok(!/\d+ tool calls?/.test(rows(html)[1]!), 'a step with no calls claims some')
   })
 })

@@ -12,7 +12,7 @@
  * Headless, pinned by test/planBlock.test.ts.
  */
 
-import type { ChatPlan, PlanOutcome, PlanStepStatus } from '../types'
+import type { ChatPlan, PlanOutcome, PlanStep, PlanStepStatus } from '../types'
 
 /**
  * End a plan. Every step still pending is one that will never run, so it
@@ -40,12 +40,26 @@ export const OUTCOME_LABEL: Record<PlanOutcome, string> = {
   failed: 'failed'
 }
 
+/**
+ * How a plan ended is the one thing in the block a reader must not miss, so it
+ * is the heaviest and highest-contrast text in it — not, as through v1.12.2,
+ * the lightest. "cancelled — nothing ran" was set in text-neutral-400: the same
+ * grey as the step body copy, on a block whose every other cue said the work
+ * was over, which reads as a completed plan.
+ *
+ * Every ink here clears 4.5:1 on both canvases and is set semibold, one step
+ * heavier than any step title. Hue still separates the four (pinned by
+ * test/planBlock.test.ts).
+ */
 export const OUTCOME_CLASS: Record<PlanOutcome, string> = {
-  completed: 'text-green-600 dark:text-green-400',
-  cancelled: 'text-neutral-400',
-  stopped: 'text-amber-600 dark:text-amber-500',
-  failed: 'text-red-500'
+  completed: 'font-semibold text-green-800 dark:text-green-300',
+  cancelled: 'font-semibold text-neutral-700 dark:text-neutral-200',
+  stopped: 'font-semibold text-amber-800 dark:text-amber-300',
+  failed: 'font-semibold text-red-700 dark:text-red-300'
 }
+
+/** The outcome sits in a bordered chip, so it reads as a stamp, not a caption. */
+export const OUTCOME_BADGE = 'rounded-md border border-black/15 px-1.5 py-px dark:border-white/20'
 
 export const STATUS_ICON: Record<PlanStepStatus, string> = {
   pending: '○',
@@ -70,4 +84,41 @@ export const STATUS_CLASS: Record<PlanStepStatus, string> = {
 export const STATUS_NOTE: Partial<Record<PlanStepStatus, string>> = {
   stopped: 'stopped here',
   skipped: 'never ran'
+}
+
+/**
+ * A step's own copy — its detail line and its tool disclosure.
+ *
+ * v1.12.3: a step that never ran had its title struck through and everything
+ * below it left at full strength, so a stopped plan's abandoned steps still
+ * presented their contents as results. Measured on a real stopped run: five
+ * rows labelled "never ran" carrying "Result: ~$1,080" and "Result: ~$244" in
+ * the same ink as a step that really ran — figures the planner invented, sitting
+ * where a reader lifts them from. Struck and dimmed below the ink of a step that
+ * did run, in both themes.
+ */
+export const STEP_BODY_CLASS = 'text-neutral-500 dark:text-neutral-400'
+export const STEP_BODY_NEVER_RAN = 'text-neutral-400 line-through dark:text-neutral-500'
+
+export function stepBodyClass(status: PlanStepStatus): string {
+  return status === 'skipped' ? STEP_BODY_NEVER_RAN : STEP_BODY_CLASS
+}
+
+/**
+ * What a step says it will reach for, before anything runs.
+ *
+ * v1.12.3: approval was asked for blind. The block showed three titles and
+ * their prose and nothing else — no tool name, no badge — so the user
+ * authorised execution without being told what would execute, and the tool
+ * calls became visible only after they had run.
+ *
+ * Named tools are already filtered to the enabled set (main/ipc/plan.ts); a
+ * step that names none says so, because a missing line and an empty one are
+ * the same thing to a reader.
+ */
+export function toolPreview(step: Pick<PlanStep, 'tools'>): string {
+  const names = step.tools ?? []
+  return names.length > 0
+    ? `Tools — may use: ${names.join(', ')}`
+    : 'Tools — none planned; this step reasons only'
 }
