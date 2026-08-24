@@ -338,7 +338,15 @@ export interface AuditEntryInput {
 
 // ---- v0.9: Plan mode ------------------------------------------------------------
 
-export type PlanStepStatus = 'pending' | 'running' | 'done' | 'failed'
+/**
+ * `stopped` is the user's own Stop landing on the running step — not the step
+ * blowing up. `skipped` is a step that will never run now: the plan ended
+ * before it, so it must not look like a step still waiting its turn.
+ */
+export type PlanStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'stopped' | 'skipped'
+
+/** How a plan ended. Absent while it awaits approval or is still running. */
+export type PlanOutcome = 'completed' | 'cancelled' | 'stopped' | 'failed'
 
 export interface PlanStep {
   id: string
@@ -353,6 +361,11 @@ export interface ChatPlan {
   steps: PlanStep[]
   /** Execution starts only after the user approves (Settings → General → Plan mode). */
   approved: boolean
+  /**
+   * Terminal state. Once set the plan is over: no approval controls, and the
+   * header says how it ended rather than how many steps are done.
+   */
+  outcome?: PlanOutcome
   createdAt: number
 }
 
