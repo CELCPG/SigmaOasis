@@ -357,14 +357,14 @@ export function InputBar(): JSX.Element {
                   >
                     📄 {a.name}
                     {a.indexed ? (
-                      <span className="text-neutral-400">(indexed)</span>
+                      <span className="text-ink-tertiary">(indexed)</span>
                     ) : (
-                      a.truncated && <span className="text-neutral-400">(truncated)</span>
+                      a.truncated && <span className="text-ink-tertiary">(truncated)</span>
                     )}
                     <button
                       type="button"
                       onClick={() => removeAttachment(a.id)}
-                      className="text-neutral-400 hover:text-red-500"
+                      className="text-ink-tertiary hover:text-red-500"
                       title="Remove"
                     >
                       ✕

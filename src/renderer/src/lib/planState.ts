@@ -43,19 +43,22 @@ export const OUTCOME_LABEL: Record<PlanOutcome, string> = {
 /**
  * How a plan ended is the one thing in the block a reader must not miss, so it
  * is the heaviest and highest-contrast text in it — not, as through v1.12.2,
- * the lightest. "cancelled — nothing ran" was set in text-neutral-400: the same
- * grey as the step body copy, on a block whose every other cue said the work
- * was over, which reads as a completed plan.
+ * the lightest. "cancelled — nothing ran" was set in the faintest grey the
+ * palette had, 2.15:1 and identical to the step body copy, on a block whose
+ * every other cue said the work was over — which reads as a completed plan.
  *
  * Every ink here clears 4.5:1 on both canvases and is set semibold, one step
  * heavier than any step title. Hue still separates the four (pinned by
  * test/planBlock.test.ts).
  */
 export const OUTCOME_CLASS: Record<PlanOutcome, string> = {
-  completed: 'font-semibold text-green-800 dark:text-green-300',
-  cancelled: 'font-semibold text-neutral-700 dark:text-neutral-200',
-  stopped: 'font-semibold text-amber-800 dark:text-amber-300',
-  failed: 'font-semibold text-red-700 dark:text-red-300'
+  // Weight and contrast from the plan work (the outcome must be the most
+  // legible thing in the block); the neutral goes through the ink token rather
+  // than a raw Tailwind grey, which the widened contrast guard now refuses.
+  completed: 'font-semibold text-green-900 dark:text-green-300',
+  cancelled: 'font-semibold text-ink-primary',
+  stopped: 'font-semibold text-amber-900 dark:text-amber-300',
+  failed: 'font-semibold text-red-900 dark:text-red-300'
 }
 
 /** The outcome sits in a bordered chip, so it reads as a stamp, not a caption. */
@@ -71,13 +74,13 @@ export const STATUS_ICON: Record<PlanStepStatus, string> = {
 }
 
 export const STATUS_CLASS: Record<PlanStepStatus, string> = {
-  pending: 'text-neutral-400',
+  pending: 'text-ink-tertiary',
   running: 'text-accent-ink animate-pulse',
   done: 'text-green-600 dark:text-green-400',
   failed: 'text-red-500',
   // Stopping is not failing: amber, and never the failure red.
   stopped: 'text-amber-600 dark:text-amber-500',
-  skipped: 'text-neutral-300 dark:text-neutral-600'
+  skipped: 'text-ink-tertiary'
 }
 
 /** Suffix on the step's own line, for the two statuses a glyph alone underplays. */
@@ -96,9 +99,13 @@ export const STATUS_NOTE: Partial<Record<PlanStepStatus, string>> = {
  * the same ink as a step that really ran — figures the planner invented, sitting
  * where a reader lifts them from. Struck and dimmed below the ink of a step that
  * did run, in both themes.
+ *
+ * Muted is the one place in the app where that token is correct prose: its
+ * contract is decorative and DISABLED states, and a step that will never run is
+ * exactly a disabled one. Everything it says is a thing that did not happen.
  */
-export const STEP_BODY_CLASS = 'text-neutral-500 dark:text-neutral-400'
-export const STEP_BODY_NEVER_RAN = 'text-neutral-400 line-through dark:text-neutral-500'
+export const STEP_BODY_CLASS = 'text-ink-tertiary'
+export const STEP_BODY_NEVER_RAN = 'text-ink-muted line-through'
 
 export function stepBodyClass(status: PlanStepStatus): string {
   return status === 'skipped' ? STEP_BODY_NEVER_RAN : STEP_BODY_CLASS

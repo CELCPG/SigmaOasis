@@ -42,10 +42,10 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         <span className="font-medium" style={{ color: record.status === 'running' ? visual.color : undefined }}>
           {label}
         </span>
-        <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
+        <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
       {record.preamble && (
-        <div className="px-3 pb-1.5 italic text-neutral-500">
+        <div className="px-3 pb-1.5 italic text-ink-secondary">
           “{record.preamble}”
         </div>
       )}
@@ -56,7 +56,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
       {open && (
         <div className="space-y-2 p-3">
           <div>
-            <div className="mb-1 font-medium text-neutral-500">
+            <div className="mb-1 font-medium text-ink-secondary">
               {isConsult ? 'Task delegated' : 'Arguments'}
             </div>
             <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono">
@@ -65,7 +65,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
           </div>
           {record.result !== undefined && (
             <div>
-              <div className="mb-1 font-medium text-neutral-500">
+              <div className="mb-1 font-medium text-ink-secondary">
                 {isConsult ? 'Specialist reply' : 'Result'}
               </div>
               <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono">

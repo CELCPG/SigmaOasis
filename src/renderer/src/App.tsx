@@ -105,7 +105,7 @@ export default function App(): JSX.Element {
   }, [settings])
 
   return (
-    <div className="relative flex h-screen bg-base-light text-neutral-900 dark:bg-base-dark dark:text-neutral-100">
+    <div className="relative flex h-screen bg-base-light text-ink-primary dark:bg-base-dark">
       <div className="ambient-orbs" aria-hidden="true" />
       <Sidebar />
 

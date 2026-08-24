@@ -500,6 +500,19 @@ summary:focus-visible,
   overflow-wrap: anywhere;
 }
 
+/*
+ * The same break opportunity for the rest of the reply. A reasoning trace, a
+ * second opinion, a deliberation draft and a tool's output are model output
+ * too — they just never go through the markdown renderer, so they never
+ * inherited the rule above, and one base64 blob in any of them stretched the
+ * bubble by 1600px. Set on the bubble, not on each surface: `overflow-wrap`
+ * inherits, so a surface added later is covered the day it is added. Code opts
+ * back out further down.
+ */
+.reply-surface {
+  overflow-wrap: anywhere;
+}
+
 .markdown-body p {
   margin: 0.5em 0;
 }
@@ -613,7 +626,13 @@ summary:focus-visible,
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.code-copy-btn {
+.code-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.code-copy-btn,
+.code-wrap-btn {
   border: none;
   background: transparent;
   color: rgba(255, 255, 255, 0.65);
@@ -622,8 +641,13 @@ summary:focus-visible,
   padding: 2px 6px;
   border-radius: 5px;
 }
-.code-copy-btn:hover {
+.code-copy-btn:hover,
+.code-wrap-btn:hover {
   background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.code-wrap-btn[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.16);
   color: #fff;
 }
 /* Code opts back out: a wrapped line is a lie about the source. It scrolls. */
@@ -632,6 +656,17 @@ summary:focus-visible,
   padding: 10px 12px;
   overflow-x: auto;
   overflow-wrap: normal;
+}
+/*
+ * …and scrolling on its own left a 300-character line unreadable: the pane is
+ * narrow, the scrollbar is at the bottom of a block that may be one line tall,
+ * and nothing said there was more to see. The header's Wrap control turns this
+ * on for one block at a time, so the default still shows the source as written.
+ */
+.code-block.code-wrapped pre {
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .code-block code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

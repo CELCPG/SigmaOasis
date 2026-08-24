@@ -263,7 +263,7 @@ function ProjectEditor({
                         type="button"
                         onClick={() => void reindex(f)}
                         disabled={busyFileId === f.id}
-                        className="rounded px-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+                        className="rounded px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-40"
                         title="Read and index this file now (otherwise it happens on the first message that needs it)"
                       >
                         {busyFileId === f.id ? '…' : '⟳'}
@@ -272,7 +272,7 @@ function ProjectEditor({
                     <button
                       type="button"
                       onClick={() => onPatch({ files: project.files.filter((x) => x.id !== f.id) })}
-                      className="rounded px-1 text-neutral-400 hover:text-red-500"
+                      className="rounded px-1 text-ink-tertiary hover:text-red-500"
                       title="Unpin"
                     >
                       ✕

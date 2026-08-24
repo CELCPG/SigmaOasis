@@ -229,14 +229,17 @@ const PALETTE: Record<string, string> = {
   'green-400': '#4ade80',
   'green-600': '#16a34a',
   'green-800': '#166534',
+  'green-900': '#14532d',
   'red-300': '#fca5a5',
   'red-400': '#f87171',
   'red-500': '#ef4444',
   'red-700': '#b91c1c',
+  'red-900': '#7f1d1d',
   'amber-300': '#fcd34d',
   'amber-500': '#f59e0b',
   'amber-600': '#d97706',
-  'amber-800': '#92400e'
+  'amber-800': '#92400e',
+  'amber-900': '#78350f'
 }
 
 /** --accent-ink is a CSS variable; take both themes from the stylesheet itself. */
@@ -245,6 +248,26 @@ const ACCENT_INK = (() => {
   const found = css.match(/--accent-ink:\s*(#[0-9a-fA-F]{6})/g) ?? []
   assert.equal(found.length, 2, 'index.css no longer defines --accent-ink once per theme')
   return found.map((m) => m.slice(m.indexOf('#')))
+})()
+
+/**
+ * The ink tokens, both themes, from the stylesheet. These are rgba over
+ * whatever is behind them, so unlike a Tailwind hex they cannot be measured
+ * without knowing the surface — which is the point of them, and why the
+ * measurement has to composite rather than look up.
+ */
+const INK_TOKENS = (() => {
+  const css = readFileSync(join(REPO, 'src/renderer/src/assets/index.css'), 'utf8')
+  const out: Record<string, Array<[number, number, number, number]>> = {}
+  for (const tier of ['primary', 'secondary', 'tertiary', 'muted']) {
+    const found = css.match(new RegExp(`--text-${tier}:\\s*rgba\\(([^)]+)\\)`, 'g')) ?? []
+    assert.equal(found.length, 2, `index.css no longer defines --text-${tier} once per theme`)
+    out[tier] = found.map((m) => {
+      const parts = m.slice(m.indexOf('(') + 1, m.lastIndexOf(')')).split(',').map(Number)
+      return [parts[0]!, parts[1]!, parts[2]!, parts[3]!] as [number, number, number, number]
+    })
+  }
+  return out
 })()
 
 /** The canvas the block sits on, read from the app's own Tailwind config. */
@@ -288,20 +311,29 @@ function background(html: string, dark: boolean): RGB {
 }
 
 /** The colour an element's classes resolve to in one theme. */
-function ink(cls: string, dark: boolean): RGB {
-  const prefix = dark ? 'dark:text-' : 'text-'
-  const names = cls
-    .split(/\s+/)
-    .filter((t) => t.startsWith(prefix))
-    .map((t) => t.slice(prefix.length))
-    .filter((t) => t === 'accent-ink' || /^[a-z]+-\d{3}$/.test(t))
-  const name = names[names.length - 1]
-  if (!name) {
-    // No dark override: the light ink is what renders in both themes.
-    assert.ok(dark, `no ink in "${cls}"`)
-    return ink(cls, false)
-  }
+function ink(cls: string, dark: boolean, bg: RGB): RGB {
+  const pick = (prefix: string): string[] =>
+    cls
+      .split(/\s+/)
+      .filter((t) => t.startsWith(prefix))
+      .map((t) => t.slice(prefix.length))
+      .filter((t) => t === 'accent-ink' || /^ink-[a-z]+$/.test(t) || /^[a-z]+-\d{3}$/.test(t))
+  // A dark: override wins where there is one. Where there is none, a raw
+  // Tailwind class renders the same in both themes — but an ink TOKEN does not,
+  // because the variable behind it is redefined per theme. That is the whole
+  // reason the tokens exist, so resolving one always uses the theme in hand.
+  const overrides = dark ? pick('dark:text-') : []
+  const base = pick('text-')
+  const name = overrides[overrides.length - 1] ?? base[base.length - 1]
+  assert.ok(name, `no ink in "${cls}"`)
   if (name === 'accent-ink') return hex(ACCENT_INK[dark ? 1 : 0]!)
+  if (name.startsWith('ink-')) {
+    const tier = name.slice(4)
+    const token = INK_TOKENS[tier]
+    assert.ok(token, `unmeasured ink token "${name}" — index.css defines no --text-${tier}`)
+    const [r, g, b, a] = token![dark ? 1 : 0]!
+    return [r, g, b].map((c, i) => c * a + bg[i]! * (1 - a)) as RGB
+  }
   const value = PALETTE[name]
   assert.ok(value, `unmeasured ink "${name}" — add it to PALETTE`)
   return hex(value!)
@@ -339,7 +371,7 @@ function textNodes(html: string): Node[] {
 const isBodyCopy = (n: Node): boolean => /(?:^|\s)block(?:\s|$)/.test(n.cls)
 
 const legible = (n: Node, html: string, dark: boolean): number =>
-  contrast(ink(n.cls, dark), background(html, dark))
+  contrast(ink(n.cls, dark, background(html, dark)), background(html, dark))
 
 // ---- PT1: approval is asked for with the tools on the table ------------------
 

@@ -68,7 +68,12 @@ marked.use({
       return (
         `<div class="code-block">` +
         `<div class="code-header"><span>${escapeHtml(language)}</span>` +
-        `<button type="button" class="code-copy-btn">Copy</button></div>` +
+        `<span class="code-actions">` +
+        // Code scrolls by default; this is the reader's way to see the whole of
+        // a long line. Toggled in MessageBubble, same delegation as Copy.
+        `<button type="button" class="code-wrap-btn" aria-pressed="false" ` +
+        `title="Wrap long lines">Wrap</button>` +
+        `<button type="button" class="code-copy-btn">Copy</button></span></div>` +
         `<pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>` +
         `</div>`
       )

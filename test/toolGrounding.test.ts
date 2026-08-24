@@ -5,7 +5,10 @@ import {
   contradictedOrigins,
   describeGroundingFindings,
   groundingFindingCount,
+  misattributedCitations,
+  misquotedSpans,
   revisionIsAnImprovement,
+  undisclosedToolRuns,
   unsourcedAddresses,
   unsourcedContacts,
   unsourcedFigures,
@@ -13,6 +16,7 @@ import {
   unsourcedQuantities,
   unrunToolClaims
 } from '../src/renderer/src/lib/toolGrounding'
+import { retrievedCitations } from '../src/renderer/src/lib/citations'
 import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 
 /**

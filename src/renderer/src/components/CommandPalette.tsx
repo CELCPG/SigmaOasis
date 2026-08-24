@@ -218,9 +218,9 @@ export function CommandPalette(): JSX.Element | null {
             onChange={e => setQuery(e.target.value)}
             placeholder="Type a command or search..."
             autoFocus
-            className="flex-1 bg-transparent text-base outline-none placeholder:text-neutral-400"
+            className="flex-1 bg-transparent text-base outline-none placeholder:text-ink-tertiary"
           />
-          <kbd className="rounded-md bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-500">
+          <kbd className="rounded-md bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-ink-secondary">
             ESC
           </kbd>
         </div>
@@ -228,7 +228,7 @@ export function CommandPalette(): JSX.Element | null {
         {/* Results list */}
         <div className="max-h-[60vh] overflow-y-auto p-2">
           {filteredCommands.length === 0 ? (
-            <p className="p-4 text-center text-sm text-neutral-500">No commands found</p>
+            <p className="p-4 text-center text-sm text-ink-secondary">No commands found</p>
           ) : (
             filteredCommands.map((cmd, idx) => (
               <button
@@ -244,10 +244,10 @@ export function CommandPalette(): JSX.Element | null {
                 <span className="text-lg">{cmd.icon}</span>
                 <div className="flex-1">
                   <div className="text-sm font-medium">{cmd.label}</div>
-                  <div className="text-xs text-neutral-500 capitalize">{cmd.category}</div>
+                  <div className="text-xs text-ink-secondary capitalize">{cmd.category}</div>
                 </div>
                 {cmd.shortcut && (
-                  <kbd className="rounded-md bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-500">
+                  <kbd className="rounded-md bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-ink-secondary">
                     {cmd.shortcut}
                   </kbd>
                 )}
@@ -257,7 +257,7 @@ export function CommandPalette(): JSX.Element | null {
         </div>
 
         {/* Footer hint */}
-        <div className="border-t border-black/10 dark:border-white/10 px-4 py-2 text-xs text-neutral-500">
+        <div className="border-t border-black/10 dark:border-white/10 px-4 py-2 text-xs text-ink-secondary">
           <span className="mr-3">↑↓ Navigate</span>
           <span className="mr-3">↵ Select</span>
           <span>ESC Close</span>

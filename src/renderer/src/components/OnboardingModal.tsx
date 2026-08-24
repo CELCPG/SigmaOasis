@@ -137,7 +137,7 @@ export function OnboardingModal(): JSX.Element | null {
       >
         <p className="mb-1"><Logo size={44} /></p>
         <h2 className="text-lg font-semibold">Welcome to Sigma Oasis</h2>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-ink-secondary">
           Private, local-first AI chat. Let&apos;s make sure everything is ready:
         </p>
 
@@ -147,7 +147,7 @@ export function OnboardingModal(): JSX.Element | null {
               <span className="mt-0.5 text-base leading-none">{ICONS[c.state]}</span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">{c.title}</p>
-                <p className="mt-0.5 text-xs text-neutral-500">{c.detail}</p>
+                <p className="mt-0.5 text-xs text-ink-secondary">{c.detail}</p>
                 {c.fix && (
                   <button
                     type="button"
@@ -166,7 +166,7 @@ export function OnboardingModal(): JSX.Element | null {
           <button
             type="button"
             onClick={recheck}
-            className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+            className="text-xs text-ink-tertiary hover:text-ink-primary"
           >
             ↻ Re-check now
           </button>

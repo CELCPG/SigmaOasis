@@ -43,20 +43,20 @@ export function SecondOpinionBlock({ opinion, isStreaming }: Props): JSX.Element
           </span>
         )}
         {opinion.modelId && (
-          <span className="min-w-0 truncate font-mono text-[10px] text-neutral-400">
+          <span className="min-w-0 truncate font-mono text-[10px] text-ink-tertiary">
             {opinion.modelId}
           </span>
         )}
-        <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
+        <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
         <div className="px-3 pb-3 pt-1">
-          <p className="whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">
+          <p className="whitespace-pre-wrap text-ink-secondary">
             {opinion.text}
             {isStreaming && <span className="animate-pulse">▌</span>}
           </p>
           {opinion.roleName && !isStreaming && reviewed && (
-            <p className="mt-2 border-t border-violet-400/15 pt-1.5 text-[10px] text-neutral-400">
+            <p className="mt-2 border-t border-violet-400/15 pt-1.5 text-[10px] text-ink-tertiary">
               A different local model reviewed this answer. A clean review is a second guess from
               another angle — not verification. Run the checks it names to be sure.
             </p>

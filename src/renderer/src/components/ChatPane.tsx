@@ -126,7 +126,7 @@ function PaneHeader({
       <button
         type="button"
         onClick={onClose}
-        className="shrink-0 rounded-lg px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+        className="shrink-0 rounded-lg px-1.5 py-0.5 text-[11px] text-ink-tertiary hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title="Close this pane (⌘\\ closes the split)"
         aria-label="Close this pane"
       >
