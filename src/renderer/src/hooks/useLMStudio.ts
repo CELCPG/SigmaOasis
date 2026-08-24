@@ -551,8 +551,9 @@ async function runTurn(
       patch({ checks: [...checks] })
     }
   }
-  const codeCheckMemo = new Map<string, { finding: string | null; ran: boolean; ok: boolean; note?: string }>()
-  const codeFindingFor = async (content: string): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string }> => {
+  type CodeCheck = Awaited<ReturnType<typeof runCodeCheck>>
+  const codeCheckMemo = new Map<string, CodeCheck>()
+  const codeFindingFor = async (content: string): Promise<CodeCheck> => {
     if (!workbenchChecksOn) return { finding: null, ran: false, ok: false }
     const hit = codeCheckMemo.get(content)
     if (hit) return hit
@@ -593,7 +594,7 @@ async function runTurn(
     // v1.6 code check, disclosed whether or not it found anything.
     const firstCode = await codeFindingFor(assistantMsg.content)
     if (firstCode.ran || firstCode.note === 'the code needs input, files or the network, so it cannot be checked in the sandbox') {
-      checks.push(describeCodeCheck({ ran: firstCode.ran, ok: firstCode.ok, finding: firstCode.finding, note: firstCode.note }))
+      checks.push(describeCodeCheck({ ran: firstCode.ran, ok: firstCode.ok, finding: firstCode.finding, note: firstCode.note, compared: firstCode.compared }))
       patch({ checks: [...checks] })
     }
     let report = await groundingReport()
@@ -670,10 +671,12 @@ async function runTurn(
       patch({ content: original, grounding: report })
       return
     }
-    // The revision's code ran clean where the draft's did not: say so.
+    // The revision's code ran clean where the draft's did not: say so — but the
+    // comparison rides along (memoised, no second run), so "the revised code
+    // runs" cannot become the tick over a figure its output contradicts.
     if (report.code?.length && !after?.code?.length) {
       const i = checks.findIndex((c) => c.kind === 'code')
-      const line = describeCodeCheck({ ran: true, ok: false, revisedRuns: true })
+      const line = describeCodeCheck({ ran: true, ok: false, revisedRuns: true, compared: (await codeFindingFor(revised)).compared })
       if (i >= 0) checks[i] = line
       else checks.push(line)
     }
