@@ -15,6 +15,7 @@ import { SecondOpinionBlock } from './SecondOpinionBlock'
 import { describeDeliberation, thinkHarderNote } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
+import { answerRecords } from '../hooks/planMode'
 import { OasisRipple } from './OasisRipple'
 import { SigmaAvatar } from './SigmaAvatar'
 import { BranchMenu } from './BranchMenu'
@@ -509,7 +510,9 @@ export const MessageBubble = memo(function MessageBubble({
 
         {oasisState.mode !== 'hidden' && <OasisRipple state={oasisState} />}
 
-        {message.plan && <PlanBlock messageId={message.id} plan={message.plan} />}
+        {message.plan && (
+          <PlanBlock messageId={message.id} plan={message.plan} records={toolCalls} />
+        )}
 
         {message.reasoning && reasoningDisplay !== 'hidden' && (
           <ReasoningBlock
@@ -533,8 +536,9 @@ export const MessageBubble = memo(function MessageBubble({
             even when the user hides tool-call blocks. */}
         <ToolImageGallery records={toolCalls} />
 
+        {/* A plan step's calls render inside the plan block, under their step. */}
         {!hideToolCalls &&
-          toolCalls.map((record) =>
+          answerRecords(toolCalls).map((record) =>
             record.name === 'run_python' ? (
               <RanCodeBlock key={record.id} record={record} onCopyClick={handleCopyClick} />
             ) : (
