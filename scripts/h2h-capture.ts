@@ -214,6 +214,8 @@ interface ShotRecord {
   phase: 'mid' | 'turn-end' | 'turn-end-expanded'
   atMsFromSend: number | null
   bytes: number
+  /** 'os' is the real window surface; 'renderer' is the compositor fallback. */
+  surface?: 'os' | 'renderer'
 }
 
 /* ------------------------------------------------------------------- args */
@@ -1356,18 +1358,33 @@ async function main(): Promise<void> {
     // so a critic reading the run knows an image is missing rather than absent.
     let shotFailures = 0
     const screenshot = async (phase: ShotRecord['phase'], atMs: number | null): Promise<void> => {
-      let r: { data?: string }
-      try {
-        r = await cdp!.send<{ data?: string }>(
-          'Page.captureScreenshot',
-          { format: 'png', fromSurface: true },
-          30_000
-        )
-      } catch (err) {
-        shotFailures++
-        notes.push(`screenshot (${phase}) failed: ${err instanceof Error ? err.message : String(err)}`)
-        return
+      // fromSurface:true grabs the window's real OS surface, which is what makes
+      // a screenshot a picture of what a person would see. It also needs that
+      // surface to exist: when the display sleeps or the window is occluded the
+      // request never answers. Fall back to the renderer's own compositor, which
+      // has no such dependency, and say which one produced the image.
+      let r: { data?: string } | null = null
+      let surface: 'os' | 'renderer' = 'os'
+      for (const fromSurface of [true, false]) {
+        try {
+          r = await cdp!.send<{ data?: string }>(
+            'Page.captureScreenshot',
+            { format: 'png', fromSurface },
+            30_000
+          )
+          surface = fromSurface ? 'os' : 'renderer'
+          break
+        } catch (err) {
+          if (!fromSurface) {
+            shotFailures++
+            notes.push(
+              `screenshot (${phase}) failed on both surfaces: ${err instanceof Error ? err.message : String(err)}`
+            )
+            return
+          }
+        }
       }
+      if (!r) return
       if (!r.data) {
         shotFailures++
         notes.push(`screenshot (${phase}) returned no data`)
@@ -1376,7 +1393,7 @@ async function main(): Promise<void> {
       const buf = Buffer.from(r.data, 'base64')
       const name = `${String(shots.length + 1).padStart(2, '0')}-${phase}.png`
       writeFileSync(join(shotsDir, name), buf)
-      shots.push({ file: `screenshots/${name}`, phase, atMsFromSend: atMs, bytes: buf.length })
+      shots.push({ file: `screenshots/${name}`, phase, atMsFromSend: atMs, bytes: buf.length, surface })
     }
 
     const sampler: { state: PageState | null } = { state: null }
