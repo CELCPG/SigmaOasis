@@ -22,6 +22,7 @@ OUT=".h2h-runs"
 VARIANT=""
 PORT=9333
 DRY=0
+TASK_DEADLINE=${H2H_TASK_DEADLINE:-600}
 TASKS_FILE="docs/head-to-head/tasks.json"
 SETUP_FILE="docs/head-to-head/task-setup.json"
 IDS=()
@@ -159,10 +160,33 @@ for ID in "${IDS[@]}"; do
     continue
   fi
 
-  "${CMD[@]}"
+  # A hard wall-clock bound per task. --timeout inside h2h-capture bounds the
+  # TURN; nothing bounded the work after it, and a post-turn step once hung for
+  # 22 minutes on a turn that had visibly finished in 28 seconds, taking the
+  # whole sweep with it. macOS has no timeout(1), so this is the portable form:
+  # run the capture in the background, poll, and kill the process group if it
+  # outstays the deadline. A killed task is a FAILURE, never a pass.
+  "${CMD[@]}" &
+  CAP_PID=$!
+  WAITED=0
+  while kill -0 "$CAP_PID" 2>/dev/null; do
+    if [ "$WAITED" -ge "$TASK_DEADLINE" ]; then
+      echo "== $LABEL: KILLED after ${TASK_DEADLINE}s (per-task deadline)" >&2
+      kill -TERM "$CAP_PID" 2>/dev/null
+      sleep 3
+      kill -KILL "$CAP_PID" 2>/dev/null
+      pkill -f "remote-debugging-port=$PORT" 2>/dev/null
+      break
+    fi
+    sleep 2
+    WAITED=$((WAITED + 2))
+  done
+  wait "$CAP_PID" 2>/dev/null
   STATUS=$?
+  [ "$WAITED" -ge "$TASK_DEADLINE" ] && STATUS=124
   if [ "$STATUS" = "0" ]; then OK+=("$LABEL")
   elif [ "$STATUS" = "3" ]; then INVALID+=("$LABEL")
+  elif [ "$STATUS" = "124" ]; then FAILED+=("$LABEL(deadline)")
   else FAILED+=("$LABEL"); fi
 done
 
