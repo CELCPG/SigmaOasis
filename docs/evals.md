@@ -797,6 +797,131 @@ multiple models" is realized by giving ONE well-tooled slot the job, and per-slo
 should be treated as a security boundary, not a performance strategy. The configuration still
 unmeasured is genuinely different weights per slot, which needs more memory than this machine.
 
+## Six dimensions that should not depend on model size (v1.12.2)
+
+Everything above measures whether a small model, given this app, answers better. This section
+measures something else: whether the app is *honest and usable* while it does so — answer
+verifiability, plan transparency, tool-call honesty, time-to-useful-output, failure recovery and
+visual craft. A 9B and a 70B should score the same here on a build that behaves well, because none
+of these properties is the model's to get right.
+
+Each one began as an audit finding carrying a `file:line` or an executed probe, and each ships with
+mechanical cases in the same round. **No model grades a model anywhere in this section.** The node
+suite went from 1546 to 1615 cases; a fifth offscreen-window check (`test/styleCheck.ts`, 25 checks)
+joins the four in `scripts/test-render.sh`.
+
+### The app now applies the library suite's own measurement standard
+
+The library suite has scored "stated an unsupported measurement" since v1.6, against the passages
+the app retrieved. The shipped app did not. `toolGrounding`'s measurement rung was armed only by
+computation tools, so on a retrieval-grounded turn nothing checked the numbers. Probed on exactly
+the case the suite scores — `reference_lookup` returns "200 mg to 400 mg every 4 to 6 hours", the
+reply says "give 500 mg of ibuprofen every 6 hours" — `checkToolGrounding` returned `null`.
+
+`reference_lookup` output now arms that rung and only that rung: a passage is not a computation, so
+it still licenses nothing in the money or percentage rungs. The two probe inputs now report
+`quantities: ["500 mg"]` and `quantities: ["145°F"]`. Every true positive in the new block carries a
+true negative beside it — the dose the passage *does* state, and the temperature it *does* state,
+must stay unflagged — because a checker that fires on correct answers teaches the reader to ignore it.
+
+Separately, the `unverified` badge was gated solely on `looksFactual`, a heuristic built from the
+confabulation cases of v1.1. Six questions squarely inside shipped packs — leftovers in the fridge,
+chicken internal temperature, rent increases, the standard deduction, a leaking faucet, water per
+person — returned false, so in five of the seven pack domains the app could never say it had not
+checked. `needsVerification` widens the badge to the reference domains; `looksFactual` itself is
+untouched, so routing and the auto-search gate behave exactly as before.
+
+### The reply's account of itself
+
+Every rung checked what an answer said about the *world*. None checked what it said about *itself*.
+A reply could open with "I've used web_search to gather the latest data" on a turn where web_search
+was never offered, and nothing contradicted it — the sentence is not a figure, a link or an address.
+It is also the claim a reader is least equipped to doubt, because it is a claim about the app in
+front of them.
+
+Tool names come from the shared table (`src/shared/tools`), never a copy, so a rename cannot leave
+the check reading a dead word. Three things are deliberately not findings: a tool that ran and
+*errored* did run; offering or declining a tool is not claiming it; and a denial ("I have not used
+web_search, so this is from memory") is the honest sentence the check exists to encourage.
+
+The second half of the same gap: a source tool that errored used to switch the link, origin and
+address rungs **off**, because `sourceRecords` filtered on `status === 'done'`. That is exactly
+backwards — a turn whose search failed is the turn where the model holds no retrieved URLs and
+everything it prints came from memory. Those rungs now stay armed on the failure path.
+
+### What a plan step did
+
+Plan mode ran its steps through the same agent loop as an ordinary turn and threw the evidence away:
+`runPlanStep` handed the loop `records: []`. A six-step plan could run twenty searches and two
+Python executions and the message showed **zero** tool-call blocks — and since the audit log ships
+disabled, on default settings that work was recorded nowhere a user could reach. A step's calls now
+join the message's record list tagged with the step that made them.
+
+`test/planVisibility.test.ts` drives the real `runPlanStep` — real agent loop, real SSE transport —
+against a stubbed LM Studio, and asserts the calls are present in the message afterwards. It fails
+against `records: []`.
+
+### The wait has a name, and the answer is not held by it
+
+A turn keeps `streaming` true well past its last token: the unverified flag, the claim check (a
+whole extra model round trip), the code check, the grounding report, any revision. The action row
+was gated on that flag, so Copy, Regenerate, Think harder, Branch and the timestamp were hidden on
+an answer that was complete and on screen. The mirror image sits at the other end: a factual turn
+runs the app's own `web_search` before the model is asked anything, and the reader watches an empty
+bubble for that window.
+
+Neither is a latency problem — the verification *is* the product, and the pre-flight search is what
+makes a factual answer worth reading. Both are legibility problems. `lib/turnPhase.ts` names the
+work in progress (`gathering` | `verifying`) and holds one predicate, `answerSettled`, for whether
+the answer text is final. Nothing was deferred or removed to make a number look better.
+
+### A stream that fails, and the bubble it lands in
+
+v1.6 added a context-overflow diagnosis. It has been unreachable ever since: the `throw` sits inside
+a `try` whose own `catch { /* partial JSON chunk */ }` swallows it, so an over-context turn ended as
+a silent empty bubble — the pre-v1.6 behaviour the feature was built to remove. And because the
+action row was gated on `message.content`, the empty reply was the one reply that never got
+Regenerate.
+
+`test/llmTimeouts.test.ts` now drives the shipped `streamChat` against a scripted `fetch`: an
+in-band error frame rejects the round with the diagnosis; whatever streamed before it still reaches
+the user; a delta split across two socket reads and a malformed frame mid-stream are *still*
+tolerated, pinned so the fix cannot be paid for with the behaviour the swallowing `catch` existed
+for; and an unanswered POST fails with a named cause rather than hanging.
+
+**Caveat, printed here because it matters:** the server is a stub. It reproduces the frame LM Studio
+was measured to send, not LM Studio. The two budgets are asserted for being bounded and ordered, not
+for being the right durations — nothing here measures what a good timeout is.
+
+### Visual craft, in pixels
+
+`test/styleCheck.ts` compiles the shipped stylesheet the way the app compiles it — postcss with the
+project's own `tailwind.config.js` over `assets/index.css` — lays the two message bubbles out in a
+chat column squeezed to 420px, and reads geometry and computed colour back out of a real Chromium
+layout.
+
+| Property | Before | After |
+| --- | --- | --- |
+| A 220-character path in a reply (388px bubble) | one 1786.8px line box, 1399.8px past the bubble; document scroll width 1887px in a 1000px viewport | wraps; 0px overhang; no horizontal scroll |
+| The same token in a user message (304px bubble) | one 1786.8px line box, 1482.8px overhang | wraps; 0px overhang |
+| A code block's long line | scrolls | still scrolls — the fix is scoped so wrapping never touches code |
+| Focus ring on the 33 controls that set `outline-none` | `rgba(0,0,0,0)` — 1.00:1, nothing to see | 2px solid, visible in both themes |
+
+### What this section does not measure
+
+- **It does not compare the app to anything.** These are before/after measurements of one build.
+  Every automated route to a live Claude Desktop or ChatGPT reference arm is currently closed on the
+  development machine — the desktop app refuses debugging switches by design, and screen-recording
+  and accessibility permissions are denied — so no claim is made, in either direction, about how
+  this app compares to another product. `docs/head-to-head/` holds the 18-task set and the capture
+  harness that would run such a comparison the moment a reference arm is reachable.
+- **A check that fires is not a reader who is served.** Every case here asserts that the app *says*
+  something — names a measurement, contradicts a tool claim, opens an action row. Whether the
+  resulting screen is actually clearer is a judgement, and it is judged separately, blind, against
+  captured runs rather than asserted here.
+- **The measurement rung still only catches measurements.** A mislabelled aggregation, the failure
+  recorded under *Findings worth keeping* below, is no more visible than it was.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
