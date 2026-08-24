@@ -99,7 +99,7 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
             {existingBranches.length > 0 && (
               <>
                 <div className="my-1 border-t border-black/10 dark:border-white/10" />
-                <div className="px-3 py-1 text-xs text-neutral-500">Existing branches:</div>
+                <div className="px-3 py-1 text-xs text-ink-secondary">Existing branches:</div>
                 {existingBranches.map((branch, idx) => {
                   const branchConvo = conversations.find(c => c.id === branch.branchId)
                   return (

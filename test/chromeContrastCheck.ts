@@ -18,7 +18,7 @@
  * Run through scripts/test-render.sh (Electron proper, not ELECTRON_RUN_AS_NODE).
  */
 import { app, BrowserWindow } from 'electron'
-import { readFileSync } from 'fs'
+import { readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { ACCENT } from '../src/renderer/src/lib/colors'
 
@@ -30,6 +30,7 @@ const tailwindcss = require('tailwindcss')
 const REPO = join(__dirname, '..', '..')
 const CSS_PATH = join(REPO, 'src/renderer/src/assets/index.css')
 const COMPONENTS = join(REPO, 'src/renderer/src/components')
+const RENDERER = join(REPO, 'src/renderer/src')
 
 /** AA for body text. Nothing below this may carry information. */
 const AA = 4.5
@@ -43,6 +44,17 @@ interface Measured {
 
 const bubble = readFileSync(join(COMPONENTS, 'MessageBubble.tsx'), 'utf8')
 const reasoning = readFileSync(join(COMPONENTS, 'ReasoningBlock.tsx'), 'utf8')
+const sidebar = readFileSync(join(COMPONENTS, 'Sidebar.tsx'), 'utf8')
+const appRoot = readFileSync(join(RENDERER, 'App.tsx'), 'utf8')
+
+/** Every renderer source file, so the raw-neutral guard has nowhere to hide. */
+function rendererSources(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name)
+    if (statSync(path).isDirectory()) return rendererSources(path)
+    return /\.tsx?$/.test(name) ? [path] : []
+  })
+}
 
 /** The section of MessageBubble that renders one piece of chrome. */
 function section(from: string, to: string): string {
@@ -59,6 +71,10 @@ function section(from: string, to: string): string {
  * of leaving the fixture quietly testing something the app stopped rendering.
  */
 const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => string }> = {
+  // The canvas and its default ink. Restated here it drifted silently — and
+  // worse, Tailwind only emits a utility some renderer source actually uses, so
+  // a stale copy stops resolving at all and measures inherited black.
+  appShell: { source: appRoot, re: /className="(relative flex h-screen bg-base-light[^"]*)"/ },
   bubble: { source: bubble, re: /className=\{`(glass-panel[^`$]*)/ },
   badge: { source: bubble, re: /className=\{`(inline-flex items-center gap-1\.5[^`$]*)/ },
   modelId: { source: bubble, re: /className="(font-mono text-xs [^"]*)">\{message\.modelId\}/ },
@@ -93,6 +109,18 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   userTimestamp: {
     source: section("if (message.role === 'user')", 'const accent ='),
     re: /className="(text-\[10px\][^"]*)"/
+  },
+  // The sidebar is chrome too, and it is where the ink-token sweep stopped: a
+  // reply can be perfect while the panel beside it carries the worst contrast
+  // on the screen.
+  sidebarShell: { source: sidebar, re: /<aside className="(relative z-10 m-3 mr-0 flex w-\[280px\][^"]*)"/ },
+  sidebarSearch: {
+    source: sidebar,
+    re: /placeholder="Search conversations…"\s*\n\s*className="([^"]*)"/
+  },
+  versionChip: {
+    source: sidebar,
+    re: /className="(text-\[10px\][^"]*)" title="Sigma Oasis build version"/
   }
 }
 
@@ -110,6 +138,21 @@ for (const [name, { source, re, wrap }] of Object.entries(PICK)) {
 
 function c(name: keyof typeof PICK): string {
   return classes[name]
+}
+
+/**
+ * The ink a `placeholder:` utility paints, as a class that can be measured.
+ * Chromium keeps the placeholder in a UA shadow root, so
+ * `getComputedStyle(input, '::placeholder')` reports the input's own colour and
+ * a check built on it certifies ink nobody sees. Both strings come out of the
+ * same scraped class list, so the probe cannot drift from the control.
+ */
+function placeholderInk(classList: string): string {
+  return classList
+    .split(/\s+/)
+    .filter((t) => t.startsWith('placeholder:'))
+    .map((t) => t.slice('placeholder:'.length))
+    .join(' ')
 }
 
 /**
@@ -131,7 +174,9 @@ const LOAD_BEARING = [
   'prose quote',
   'library provenance',
   'stats readout',
-  'user timestamp'
+  'user timestamp',
+  'sidebar search placeholder',
+  'version chip'
 ]
 
 /**
@@ -144,8 +189,16 @@ function fixture(dark: boolean): string {
   return `<!doctype html>
 <html lang="en" class="${dark ? 'dark' : ''}"><head><meta charset="utf-8"><style>__CSS__</style></head>
 <body>
-  <div class="relative flex h-screen bg-base-light text-neutral-900 dark:bg-base-dark dark:text-neutral-100">
+  <div class="${c('appShell')}">
     <div class="ambient-orbs" aria-hidden="true"></div>
+    <aside class="${c('sidebarShell')}">
+      <div class="px-4 pb-2">
+        <div class="${c('sidebarSearch')}"><span class="${placeholderInk(c('sidebarSearch'))}" data-ink="sidebar search placeholder">Search conversations…</span></div>
+      </div>
+      <div class="mt-auto flex items-center gap-2 border-t border-black/10 dark:border-white/10 p-4">
+        <span class="${c('versionChip')}" data-ink="version chip">v31.7.7</span>
+      </div>
+    </aside>
     <div class="min-h-0 flex-1 overflow-y-auto pb-8 pt-4">
       <div class="px-4 py-2">
         <div class="mx-auto flex max-w-3xl items-start gap-3">
@@ -261,13 +314,35 @@ async function main(): Promise<void> {
   // black canvas fails on the white one, and vice versa. Chrome ink has to go
   // through the semantic ramp (--text-*), which is defined once per theme.
   console.log('\nchrome ink is theme-aware')
+  const RAW_INK = /(?:^|[\s"'`{:])text-(?:neutral|gray|zinc|slate|stone)-\d{3}\b/g
   for (const [file, src] of [
     ['MessageBubble.tsx', bubble],
     ['ReasoningBlock.tsx', reasoning]
   ] as const) {
-    const raw = src.match(/(?:^|[\s"'`{:])text-(?:neutral|gray|zinc|slate|stone)-\d{3}\b/g) ?? []
+    const raw = src.match(RAW_INK) ?? []
     check(`${file} sets no chrome ink in a raw neutral`, raw.length === 0, `${raw.length} site(s)`)
   }
+
+  // Two components are not a palette. Retinting the files a critic happens to
+  // look at leaves the default for every component written afterwards at
+  // neutral-400 — 2.2:1 on the light sidebar — so the guard is the whole
+  // renderer or it is nothing.
+  const sources = rendererSources(RENDERER)
+  check(`the guard scans the whole renderer, not a hand-picked file or two`, sources.length >= 40, `${sources.length} file(s)`)
+  const offenders: string[] = []
+  let rawSites = 0
+  for (const path of sources) {
+    const hits = (readFileSync(path, 'utf8').match(RAW_INK) ?? []).length
+    if (hits > 0) {
+      rawSites += hits
+      offenders.push(`${path.slice(RENDERER.length + 1)} (${hits})`)
+    }
+  }
+  check(
+    'no renderer source sets ink in a raw neutral',
+    offenders.length === 0,
+    `${rawSites} site(s) in ${offenders.length} file(s): ${offenders.slice(0, 6).join(', ')}${offenders.length > 6 ? ' …' : ''}`
+  )
 
   const win = new BrowserWindow({
     show: false,

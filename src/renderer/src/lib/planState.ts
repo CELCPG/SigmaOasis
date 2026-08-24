@@ -42,7 +42,7 @@ export const OUTCOME_LABEL: Record<PlanOutcome, string> = {
 
 export const OUTCOME_CLASS: Record<PlanOutcome, string> = {
   completed: 'text-green-600 dark:text-green-400',
-  cancelled: 'text-neutral-400',
+  cancelled: 'text-ink-tertiary',
   stopped: 'text-amber-600 dark:text-amber-500',
   failed: 'text-red-500'
 }
@@ -57,13 +57,13 @@ export const STATUS_ICON: Record<PlanStepStatus, string> = {
 }
 
 export const STATUS_CLASS: Record<PlanStepStatus, string> = {
-  pending: 'text-neutral-400',
+  pending: 'text-ink-tertiary',
   running: 'text-accent-ink animate-pulse',
   done: 'text-green-600 dark:text-green-400',
   failed: 'text-red-500',
   // Stopping is not failing: amber, and never the failure red.
   stopped: 'text-amber-600 dark:text-amber-500',
-  skipped: 'text-neutral-300 dark:text-neutral-600'
+  skipped: 'text-ink-tertiary'
 }
 
 /** Suffix on the step's own line, for the two statuses a glyph alone underplays. */

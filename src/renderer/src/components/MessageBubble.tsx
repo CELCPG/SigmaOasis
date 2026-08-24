@@ -35,8 +35,17 @@ interface Props {
   conversation?: Conversation
 }
 
-function handleCopyClick(event: React.MouseEvent<HTMLDivElement>): void {
-  const button = (event.target as HTMLElement).closest('.code-copy-btn')
+/** The two controls in a code block's header: Wrap and Copy, both delegated. */
+function handleCodeBlockClick(event: React.MouseEvent<HTMLDivElement>): void {
+  const target = event.target as HTMLElement
+  const wrap = target.closest('.code-wrap-btn')
+  if (wrap) {
+    const block = wrap.closest('.code-block')
+    if (!block) return
+    wrap.setAttribute('aria-pressed', String(block.classList.toggle('code-wrapped')))
+    return
+  }
+  const button = target.closest('.code-copy-btn')
   if (!button) return
   const code = button.closest('.code-block')?.querySelector('code')?.textContent ?? ''
   void navigator.clipboard.writeText(code).then(() => {
@@ -532,7 +541,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div className="mx-auto flex max-w-3xl items-start gap-3">
         <SigmaAvatar size={32} active={isStreaming} />
         <div
-          className={`glass-panel min-w-0 flex-1 rounded-3xl rounded-tl-md px-4 py-3 ${isStreaming ? 'bubble-live' : ''}`}
+          className={`glass-panel reply-surface min-w-0 flex-1 rounded-3xl rounded-tl-md px-4 py-3 ${isStreaming ? 'bubble-live' : ''}`}
         >
         {message.roleName && (
           <div className="mb-1.5 flex items-center gap-2">
@@ -639,7 +648,7 @@ export const MessageBubble = memo(function MessageBubble({
         {displayContent !== '' && (
           <div
             className="markdown-body oasis-enter text-sm leading-relaxed"
-            onClick={handleCopyClick}
+            onClick={handleCodeBlockClick}
             // Sanitized by DOMPurify in renderMarkdown.
             dangerouslySetInnerHTML={{ __html: html }}
           />
@@ -669,7 +678,7 @@ export const MessageBubble = memo(function MessageBubble({
         {!hideToolCalls &&
           answerRecords(toolCalls).map((record) =>
             record.name === 'run_python' ? (
-              <RanCodeBlock key={record.id} record={record} onCopyClick={handleCopyClick} />
+              <RanCodeBlock key={record.id} record={record} onCodeBlockClick={handleCodeBlockClick} />
             ) : (
               <ToolCallBlock key={record.id} record={record} />
             )

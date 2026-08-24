@@ -138,6 +138,14 @@ async function main(): Promise<void> {
   html = await render('```python\ndef f():\n    return 1\n```')
   check('code block keeps its header + copy button', /class="code-header"/.test(html) && /code-copy-btn/.test(html), html)
   check('code block is highlighted', /class="hljs language-python"/.test(html) && /hljs-/.test(html), html)
+  // Code scrolls by default (a wrapped line misrepresents the source), so the
+  // header has to offer the reader a way to unfold one — and the control has to
+  // survive the sanitizer, which is the only reason it can be asserted here.
+  check(
+    'code block offers a wrap control, and it survives sanitization',
+    /class="code-wrap-btn"/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
 
   html = await render('```nosuchlang\nx\n```')
   check('unknown language falls back to plaintext', /language-plaintext/.test(html), html)

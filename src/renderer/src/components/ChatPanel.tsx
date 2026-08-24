@@ -51,7 +51,7 @@ export function ChatPanel(): JSX.Element {
         <button
           type="button"
           onClick={() => setRightPanelCollapsed(true)}
-          className="rounded-lg px-1.5 py-1 text-xs text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          className="rounded-lg px-1.5 py-1 text-xs text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Collapse chat panel (⌘J)"
           aria-label="Collapse chat panel"
           aria-expanded={true}
@@ -109,7 +109,7 @@ function CollapsedStrip({ conversation }: { conversation: Conversation | undefin
       <button
         type="button"
         onClick={() => setRightPanelCollapsed(false)}
-        className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+        className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
         title="Expand chat panel (⌘J)"
         aria-label="Expand chat panel"
         aria-expanded={false}

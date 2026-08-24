@@ -25,6 +25,30 @@ import type { AddressInfo } from 'net'
 
 const ROOT = join(__dirname, '..', '..')
 const COMPONENTS = join(ROOT, 'src', 'renderer', 'src', 'components')
+const CSS_ENTRY = join(ROOT, 'src', 'renderer', 'src', 'assets', 'index.css')
+
+const bubbleSrc = readFileSync(join(COMPONENTS, 'MessageBubble.tsx'), 'utf-8')
+const markdownSrc = readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'markdown.ts'), 'utf-8')
+const cssSrc = readFileSync(CSS_ENTRY, 'utf-8')
+
+/**
+ * Class strings read out of the app, never restated here — a copy would keep
+ * measuring markup the app has stopped rendering. `?? ''` rather than a throw
+ * so a rewrite shows up as the extraction check failing, with the layout
+ * checks failing beside it, instead of a stack trace with no measurements.
+ */
+function pick(source: string, re: RegExp): string {
+  return (source.match(re)?.[1] ?? '').trim()
+}
+
+/** The assistant bubble, exactly as MessageBubble builds it. */
+const REPLY_BUBBLE = pick(bubbleSrc, /className=\{`(glass-panel[^`$]*min-w-0 flex-1[^`$]*)/)
+/** A reply surface that is not prose: the second-opinion / deliberation text. */
+const REPLY_TEXT = pick(bubbleSrc, /className="(whitespace-pre-wrap [^"]*)"/)
+/** The control the code-block header offers for unfolding a long line. */
+const WRAP_BTN = pick(markdownSrc, /class="(code-wrap-btn)"/)
+/** The state class that control turns on, read from the stylesheet that keys on it. */
+const WRAP_STATE = pick(cssSrc, /\.code-block\.([a-z-]+) pre \{/)
 
 let passed = 0
 const failures: string[] = []
@@ -129,11 +153,13 @@ function fixture(css: string, probes: string[]): string {
   </style><style>${css}</style></head>
 <body>
   <div class="column">
-    <div class="glass-panel min-w-0 flex-1 rounded-3xl px-4 py-3" id="bubble">
+    <div class="${REPLY_BUBBLE}" id="bubble">
       <div class="markdown-body text-sm" id="md">
         <p>Saved to <span id="blob">${BLOB}</span> just now.</p>
         <div class="code-block"><pre><code>${CODE_LINE}</code></pre></div>
+        <div class="code-block ${WRAP_STATE}" id="wrapped-block"><pre><code>${CODE_LINE}</code></pre></div>
       </div>
+      <p class="${REPLY_TEXT}"><span id="reply-text-token">${BLOB}</span></p>
     </div>
   </div>
   <div class="column" style="justify-content: flex-end">
@@ -151,6 +177,7 @@ function fixture(css: string, probes: string[]): string {
 const PROBE_SCRIPT = `(() => {
   const cs = (el) => getComputedStyle(el)
   const pre = document.querySelector('.code-block pre')
+  const wrapped = document.querySelector('#wrapped-block pre')
   const panel = document.getElementById('panel')
   // Line boxes and edges, unclipped: a bubble that hides its overflow would
   // otherwise report a token that has silently run out of sight as "fitting".
@@ -181,11 +208,15 @@ const PROBE_SCRIPT = `(() => {
   return {
     vars,
     reply: spill('blob', 'bubble'),
+    replyText: spill('reply-text-token', 'bubble'),
     userMessage: spill('user-token', 'user-bubble'),
     docScrollWidth: document.documentElement.scrollWidth,
     viewportWidth: window.innerWidth,
     codeScrollWidth: pre.scrollWidth,
     codeClientWidth: pre.clientWidth,
+    wrappedScrollWidth: wrapped ? wrapped.scrollWidth : -1,
+    wrappedClientWidth: wrapped ? wrapped.clientWidth : -1,
+    wrappedLines: wrapped ? wrapped.querySelector('code').getClientRects().length : 0,
     canvas: cs(document.body).backgroundColor,
     panel: cs(panel).backgroundColor,
     ink,
@@ -202,11 +233,15 @@ interface Spill {
 
 interface Probe {
   reply: Spill
+  replyText: Spill
   userMessage: Spill
   docScrollWidth: number
   viewportWidth: number
   codeScrollWidth: number
   codeClientWidth: number
+  wrappedScrollWidth: number
+  wrappedClientWidth: number
+  wrappedLines: number
   canvas: string
   panel: string
   ink: Record<string, string>
@@ -220,7 +255,7 @@ async function buildCss(): Promise<string> {
   const tailwind = require('tailwindcss')
   /* eslint-enable @typescript-eslint/no-var-requires */
   const config = require(join(ROOT, 'tailwind.config.js'))
-  const entry = join(ROOT, 'src', 'renderer', 'src', 'assets', 'index.css')
+  const entry = CSS_ENTRY
   // Same config the app builds with; the globs are anchored so the utility set
   // does not depend on the cwd the check happens to run from.
   const result = await postcss([
@@ -284,8 +319,18 @@ async function main(): Promise<void> {
   /* -- (a) a long unbreakable token stays in its container ------------------ */
 
   console.log('\na 220-character unbreakable token in a 420px chat column')
+  check(
+    'the fixture is the app’s own reply markup',
+    REPLY_BUBBLE !== '' && REPLY_TEXT !== '',
+    `bubble ${REPLY_BUBBLE ? 'ok' : 'MISSING'}, non-prose surface ${REPLY_TEXT ? 'ok' : 'MISSING'}`
+  )
+  // `reply text` is the second-opinion / deliberation surface: model output
+  // that never goes through the markdown renderer, and so never inherited the
+  // break opportunity .markdown-body has. One base64 blob in it stretched the
+  // bubble, and the flex column with it.
   for (const [where, s] of [
     ['reply', light.reply],
+    ['reply text', light.replyText],
     ['user message', light.userMessage]
   ] as const) {
     check(`${where}: the token wraps instead of running on`, s.lines > 1, `${s.lines} line box(es)`)
@@ -309,6 +354,29 @@ async function main(): Promise<void> {
     'a code block still scrolls rather than wrapping',
     light.codeScrollWidth > light.codeClientWidth,
     `${light.codeScrollWidth} vs ${light.codeClientWidth}`
+  )
+
+  // Scrolling is the right default — a wrapped line is a lie about the source —
+  // but it left no way to read a 300-character line at all. The header carries
+  // a control that turns wrapping on for one block; these four checks are the
+  // control, the state it sets, the wiring between them, and the layout that
+  // state actually produces.
+  console.log('\nand a way to see a long line anyway')
+  check('the code-block header ships a wrap control', WRAP_BTN !== '', 'no .code-wrap-btn in markdown.ts')
+  check(
+    'the stylesheet defines the wrapped state that control turns on',
+    WRAP_STATE !== '',
+    'no `.code-block.<state> pre` rule in index.css'
+  )
+  check(
+    'MessageBubble wires the control to that state',
+    WRAP_BTN !== '' && WRAP_STATE !== '' && bubbleSrc.includes(WRAP_BTN) && bubbleSrc.includes(WRAP_STATE),
+    `looked for ${WRAP_BTN || '?'} and ${WRAP_STATE || '?'}`
+  )
+  check(
+    'in that state the same line wraps instead of scrolling',
+    light.wrappedLines > 1 && light.wrappedScrollWidth <= light.wrappedClientWidth + 1,
+    `${light.wrappedLines} line box(es), ${light.wrappedScrollWidth} vs ${light.wrappedClientWidth}`
   )
 
   /* -- (b) focus indicators ------------------------------------------------- */

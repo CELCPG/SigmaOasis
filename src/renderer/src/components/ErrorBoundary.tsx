@@ -30,14 +30,14 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children
 
     return (
-      <div className="flex h-screen items-center justify-center bg-base-light p-8 text-neutral-900 dark:bg-base-dark dark:text-neutral-100">
+      <div className="flex h-screen items-center justify-center bg-base-light p-8 text-ink-primary dark:bg-base-dark">
         <div className="max-w-lg text-center">
           <p className="mb-2 text-4xl">🧠💥</p>
           <p className="font-medium">Sigma Oasis hit an unexpected error</p>
-          <p className="mt-2 text-sm text-neutral-500">
+          <p className="mt-2 text-sm text-ink-secondary">
             Your conversations are saved on disk — reloading should pick up where you left off.
           </p>
-          <pre className="mt-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-black/5 p-3 text-left font-mono text-xs text-neutral-500 dark:bg-white/5">
+          <pre className="mt-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-black/5 p-3 text-left font-mono text-xs text-ink-secondary dark:bg-white/5">
             {error.message}
           </pre>
           <div className="mt-4 flex justify-center gap-2">

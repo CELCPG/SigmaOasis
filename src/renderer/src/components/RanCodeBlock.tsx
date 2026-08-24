@@ -11,7 +11,7 @@ import { describeRun, parseRanCode } from '../lib/ranCode'
  * of computing instead of recalling is that the user can see the computation;
  * a collapsed block would hide exactly the evidence.
  */
-export function RanCodeBlock({ record, onCopyClick }: { record: ToolCallRecord; onCopyClick: (e: React.MouseEvent<HTMLDivElement>) => void }): JSX.Element {
+export function RanCodeBlock({ record, onCodeBlockClick }: { record: ToolCallRecord; onCodeBlockClick: (e: React.MouseEvent<HTMLDivElement>) => void }): JSX.Element {
   const [open, setOpen] = useState(true)
   const code = String(record.args.code ?? '')
   const parsed = useMemo(() => (record.result !== undefined ? parseRanCode(record.result, record.status === 'done') : null), [record.result, record.status])
@@ -31,16 +31,16 @@ export function RanCodeBlock({ record, onCopyClick }: { record: ToolCallRecord; 
           {running ? '⏳' : record.status === 'done' ? '✓' : '✗'}
         </span>
         <span className="font-medium">⚡ Ran Python</span>
-        <span className="text-neutral-400">
+        <span className="text-ink-tertiary">
           {running ? 'running…' : parsed ? describeRun(parsed) : ''}
           {parsed && parsed.files.length > 0 ? ` · ${parsed.files.length} file${parsed.files.length === 1 ? '' : 's'}` : ''}
         </span>
-        <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
+        <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
-      {record.preamble && <div className="px-3 pb-1.5 italic text-neutral-500">“{record.preamble}”</div>}
+      {record.preamble && <div className="px-3 pb-1.5 italic text-ink-secondary">“{record.preamble}”</div>}
       {open && (
         <div className="space-y-2 px-3 pb-3">
-          <div className="markdown-body text-xs" onClick={onCopyClick} dangerouslySetInnerHTML={{ __html: codeHtml }} />
+          <div className="markdown-body text-xs" onClick={onCodeBlockClick} dangerouslySetInnerHTML={{ __html: codeHtml }} />
           {parsed && (
             <>
               {parsed.stdout && (
@@ -60,12 +60,12 @@ export function RanCodeBlock({ record, onCopyClick }: { record: ToolCallRecord; 
               )}
               {parsed.stderr && (
                 <Section label="stderr">
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-black/5 p-2 font-mono text-neutral-500 dark:bg-white/5">{parsed.stderr}</pre>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-black/5 p-2 font-mono text-ink-secondary dark:bg-white/5">{parsed.stderr}</pre>
                 </Section>
               )}
               {parsed.files.length > 0 && (
                 <Section label="Files written">
-                  <ul className="list-disc pl-5 text-neutral-600 dark:text-neutral-300">
+                  <ul className="list-disc pl-5 text-ink-secondary">
                     {parsed.files.map((f, i) => (
                       <li key={i} className="whitespace-pre-wrap font-mono">{f}</li>
                     ))}
@@ -73,9 +73,9 @@ export function RanCodeBlock({ record, onCopyClick }: { record: ToolCallRecord; 
                 </Section>
               )}
               {!parsed.stdout && !parsed.result && !parsed.error && parsed.files.length === 0 && (
-                <div className="text-neutral-400">(no output)</div>
+                <div className="text-ink-tertiary">(no output)</div>
               )}
-              {parsed.notes.length > 0 && <div className="text-[11px] text-neutral-400">{parsed.notes.join(' · ')}</div>}
+              {parsed.notes.length > 0 && <div className="text-[11px] text-ink-tertiary">{parsed.notes.join(' · ')}</div>}
             </>
           )}
         </div>
@@ -87,7 +87,7 @@ export function RanCodeBlock({ record, onCopyClick }: { record: ToolCallRecord; 
 function Section({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
   return (
     <div>
-      <div className="mb-1 font-medium text-neutral-500">{label}</div>
+      <div className="mb-1 font-medium text-ink-secondary">{label}</div>
       {children}
     </div>
   )

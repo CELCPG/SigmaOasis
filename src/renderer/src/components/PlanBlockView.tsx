@@ -41,7 +41,7 @@ export function PlanBlockView({
     <div className="my-2 overflow-hidden rounded-2xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] text-xs">
       <div className="flex items-center gap-2 px-3 py-1.5">
         <span>📋</span>
-        <span className="font-medium text-neutral-500">
+        <span className="font-medium text-ink-secondary">
           Plan — {doneCount}/{plan.steps.length} steps done
         </span>
         {awaiting && <span className="text-amber-600 dark:text-amber-500">awaiting approval</span>}
@@ -73,8 +73,8 @@ export function PlanBlockView({
                   <span
                     className={
                       step.status === 'skipped'
-                        ? 'font-medium text-neutral-400 line-through dark:text-neutral-500'
-                        : 'font-medium text-neutral-600 dark:text-neutral-300'
+                        ? 'font-medium text-ink-tertiary line-through'
+                        : 'font-medium text-ink-secondary'
                     }
                   >
                     {i + 1}. {step.title}
@@ -82,7 +82,7 @@ export function PlanBlockView({
                   {/* The count is the disclosure: a step that ran tools says so
                       before anything is expanded. */}
                   {calls.length > 0 && (
-                    <span className="ml-1.5 text-neutral-400">
+                    <span className="ml-1.5 text-ink-tertiary">
                       🔧 {calls.length} tool call{calls.length === 1 ? '' : 's'}
                     </span>
                   )}
@@ -91,9 +91,9 @@ export function PlanBlockView({
                       {STATUS_NOTE[step.status]}
                     </span>
                   )}
-                  <span className="block text-neutral-400">{step.detail}</span>
+                  <span className="block text-ink-tertiary">{step.detail}</span>
                   {expandable && (
-                    <span className="text-neutral-400">{openSteps[step.id] ? '▾' : '▸'}</span>
+                    <span className="text-ink-tertiary">{openSteps[step.id] ? '▾' : '▸'}</span>
                   )}
                 </button>
                 {openSteps[step.id] && (
@@ -106,7 +106,7 @@ export function PlanBlockView({
                         className={`mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg p-2 font-mono text-[11px] ${
                           step.status === 'failed'
                             ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                            : 'bg-black/5 dark:bg-white/5 text-neutral-500'
+                            : 'bg-black/5 dark:bg-white/5 text-ink-secondary'
                         }`}
                       >
                         {step.output}
@@ -133,11 +133,11 @@ export function PlanBlockView({
           <button
             type="button"
             onClick={() => onResolve(false)}
-            className="rounded-xl border border-black/10 dark:border-white/10 px-3 py-1 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/5"
+            className="rounded-xl border border-black/10 dark:border-white/10 px-3 py-1 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/5"
           >
             Cancel
           </button>
-          <span className="ml-auto self-center text-[10px] text-neutral-400">
+          <span className="ml-auto self-center text-[10px] text-ink-tertiary">
             {streaming ? '' : 'Nothing has run yet. Tools each step may use are the ones enabled in Settings → Tools.'}
           </span>
         </div>

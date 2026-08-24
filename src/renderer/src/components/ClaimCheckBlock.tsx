@@ -57,11 +57,11 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
         <span className={isStreaming ? 'animate-pulse' : ''}>🧪</span>
         <span className="font-medium text-amber-700 dark:text-amber-300">{summary}</span>
         {check.modelId && (
-          <span className="min-w-0 truncate font-mono text-[10px] text-neutral-400">
+          <span className="min-w-0 truncate font-mono text-[10px] text-ink-tertiary">
             {check.roleName} · {check.modelId}
           </span>
         )}
-        <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
+        <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
         <div className="px-3 pb-3 pt-1">
@@ -74,8 +74,8 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
                     {style.icon}
                   </span>
                   <div className="min-w-0">
-                    <p className="text-neutral-600 dark:text-neutral-300">{claim.text}</p>
-                    <p className="mt-0.5 text-[10px] text-neutral-400">
+                    <p className="text-ink-secondary">{claim.text}</p>
+                    <p className="mt-0.5 text-[10px] text-ink-tertiary">
                       <span className={`font-medium ${style.classes}`}>{style.label}</span>
                       {claim.basis && <span> — {claim.basis}</span>}
                       {claim.source && (
@@ -88,10 +88,10 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
             })}
           </ul>
           {check.budgetNote && (
-            <p className="mt-2 text-[10px] text-neutral-400">{check.budgetNote}</p>
+            <p className="mt-2 text-[10px] text-ink-tertiary">{check.budgetNote}</p>
           )}
           {!isStreaming && check.claims.length > 0 && (
-            <p className="mt-2 border-t border-amber-400/15 pt-1.5 text-[10px] text-neutral-400">
+            <p className="mt-2 border-t border-amber-400/15 pt-1.5 text-[10px] text-ink-tertiary">
               Each verdict rests on the one source shown. A confirmation is only as good as that
               source — open it before relying on the claim.
             </p>

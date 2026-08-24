@@ -14,7 +14,7 @@ import type { LibraryBundledPack, LibraryFreshness, LibraryLookupResult, Library
 
 const BUTTON =
   'rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40'
-const NOTE = 'rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500'
+const NOTE = 'rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary'
 const WARN = 'rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400'
 
 function kb(chars: number): string {
@@ -193,7 +193,7 @@ export function LibraryTab(): JSX.Element {
     <div className="space-y-5">
       <div>
         <div className="text-sm font-medium">Reference library</div>
-        <p className="mt-1 text-xs text-neutral-500">
+        <p className="mt-1 text-xs text-ink-secondary">
           Reference documents the model reads <em>before</em> it answers — installed reference packs
           and folders of your own files. Passages are retrieved by relevance and handed to the model
           with their source, so answers about first aid, finance, health or your own manuals quote a
@@ -261,12 +261,12 @@ export function LibraryTab(): JSX.Element {
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">
                       {p.name}{' '}
-                      <span className="font-normal text-neutral-400">
+                      <span className="font-normal text-ink-tertiary">
                         · {p.kind === 'user' ? 'your documents' : 'reference pack'} · v{p.version}
                       </span>
                     </div>
-                    {p.description && <p className="mt-0.5 text-neutral-500">{p.description}</p>}
-                    <p className="mt-1 text-neutral-400">
+                    {p.description && <p className="mt-0.5 text-ink-secondary">{p.description}</p>}
+                    <p className="mt-1 text-ink-tertiary">
                       {p.docs} document{p.docs === 1 ? '' : 's'} · {p.chunks} passages · {kb(p.chars)} · {p.license}
                       {' · '}
                       {progress
@@ -277,7 +277,7 @@ export function LibraryTab(): JSX.Element {
                             ? `${p.embeddedChunks}/${p.chunks} embedded — keyword + partial semantic`
                             : 'keyword search only — embed for semantic search'}
                     </p>
-                    {p.sourceNote && <p className="mt-1 text-neutral-400 break-all">{p.sourceNote}</p>}
+                    {p.sourceNote && <p className="mt-1 text-ink-tertiary break-all">{p.sourceNote}</p>}
                     {driftLine && (
                       <p className="mt-1 text-amber-600 dark:text-amber-400">
                         {driftLine}
@@ -332,7 +332,7 @@ export function LibraryTab(): JSX.Element {
       )}
 
       {packs && packs.length > 0 && (
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-ink-tertiary">
           {packs.length} pack{packs.length === 1 ? '' : 's'} · {totalDocs} documents · {totalChunks} passages ·{' '}
           {totalEmbedded === totalChunks ? 'all embedded' : `${totalEmbedded} embedded`}. Stored under the app&apos;s
           data folder; the original files you added are never modified.
@@ -343,7 +343,7 @@ export function LibraryTab(): JSX.Element {
       {bundled.length > 0 && (
         <div className="border-t border-black/10 dark:border-white/10 pt-4">
           <div className="text-sm font-medium">Curated packs</div>
-          <p className="mt-1 text-xs text-neutral-500">
+          <p className="mt-1 text-xs text-ink-secondary">
             Reference packs bundled with this build — first aid, health, preparedness, food safety,
             finance, home safety, civics. Installing copies them into your library and uses no
             network.
@@ -360,13 +360,13 @@ export function LibraryTab(): JSX.Element {
                   <li key={b.id} className="flex items-center gap-2 rounded-xl border border-black/10 dark:border-white/10 p-2.5 text-xs">
                     <div className="min-w-0 flex-1">
                       <span className="font-medium">{b.name}</span>{' '}
-                      <span className="text-neutral-400">
+                      <span className="text-ink-tertiary">
                         · {b.docs} document{b.docs === 1 ? '' : 's'} · v{b.version} · {b.license}
                       </span>
-                      {b.description && <p className="mt-0.5 text-neutral-500">{b.description}</p>}
+                      {b.description && <p className="mt-0.5 text-ink-secondary">{b.description}</p>}
                     </div>
                     {b.installed && !updatable ? (
-                      <span className="shrink-0 text-neutral-400">✓ installed</span>
+                      <span className="shrink-0 text-ink-tertiary">✓ installed</span>
                     ) : (
                       <button
                         type="button"
@@ -389,7 +389,7 @@ export function LibraryTab(): JSX.Element {
       {/* Try it */}
       <div className="border-t border-black/10 dark:border-white/10 pt-4">
         <div className="text-sm font-medium">Try a lookup</div>
-        <p className="mt-1 text-xs text-neutral-500">
+        <p className="mt-1 text-xs text-ink-secondary">
           See what the model would be given for a question. This is the same retrieval the{' '}
           <code>reference_lookup</code> tool runs.
         </p>
@@ -413,20 +413,20 @@ export function LibraryTab(): JSX.Element {
             {lookup.ok && lookup.passages.length === 0 && <p className={NOTE}>No passages matched.</p>}
             {lookup.passages.map((p, i) => (
               <div key={i} className="rounded-xl border border-black/10 dark:border-white/10 p-2.5 text-xs">
-                <div className="font-medium text-neutral-600 dark:text-neutral-300">
+                <div className="font-medium text-ink-secondary">
                   [{i + 1}] {p.packName} › {p.docTitle}
                   {p.section ? ` › ${p.section}` : ''} · {Math.round(p.position * 100)}% in · relevance {p.score}
                 </div>
                 {(p.source || p.date || p.license) && (
-                  <div className="mt-0.5 break-all text-neutral-400">
+                  <div className="mt-0.5 break-all text-ink-tertiary">
                     {[p.source, p.date, p.license].filter(Boolean).join(' · ')}
                   </div>
                 )}
-                <p className="mt-1 whitespace-pre-wrap text-neutral-500">{p.text}</p>
+                <p className="mt-1 whitespace-pre-wrap text-ink-secondary">{p.text}</p>
               </div>
             ))}
             {lookup.notes.length > 0 && (
-              <p className="text-xs text-neutral-400">
+              <p className="text-xs text-ink-tertiary">
                 {lookup.mode === 'hybrid' ? 'Semantic + keyword ranking. ' : 'Keyword ranking. '}
                 {lookup.notes.join(' ')}
               </p>
