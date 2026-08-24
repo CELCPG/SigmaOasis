@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { claimCheckSummary, sourceCaveat } from '../lib/claimCheck'
 import type { ClaimCheckRecord, ClaimVerdict } from '../types'
 
 interface Props {
@@ -44,18 +45,9 @@ const VERDICT_STYLE: Record<ClaimVerdict, { icon: string; label: string; classes
  */
 export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
   const [open, setOpen] = useState(true)
-  const done = check.claims.filter((c) => c.verdict === 'confirmed').length
-  const contradicted = check.claims.filter((c) => c.verdict === 'contradicted').length
-
-  // A pass that never got off the ground puts its reason in the header rather
-  // than under a heading that implies claims were checked.
-  const summary =
-    check.claims.length === 0
-      ? isStreaming
-        ? 'Extracting claims…'
-        : (check.budgetNote ?? 'Claim check')
-      : `Claim check: ${check.claims.length} claim${check.claims.length === 1 ? '' : 's'}` +
-        (isStreaming ? ' (running…)' : ` — ${done} confirmed, ${contradicted} contradicted`)
+  // Both lines are decided in lib/claimCheck.ts, where node:test can read them.
+  const summary = claimCheckSummary(check, isStreaming)
+  const caveat = sourceCaveat(check.claims)
 
   return (
     <div className="my-2 overflow-hidden rounded-2xl border border-amber-400/25 bg-amber-400/[0.05] text-xs">
@@ -100,13 +92,9 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
           {check.budgetNote && check.budgetNote !== summary && (
             <p className="mt-2 text-[10px] text-ink-tertiary">{check.budgetNote}</p>
           )}
-          {/* `.some(c => c.source)`, not `.length > 0`: this footer promises the
-              reader a source to open, so it may not appear on a pass where no
-              claim carries one. */}
-          {!isStreaming && check.claims.some((c) => c.source) && (
+          {!isStreaming && caveat && (
             <p className="mt-2 border-t border-amber-400/15 pt-1.5 text-[10px] text-ink-tertiary">
-              Each verdict rests on the one source shown. A confirmation is only as good as that
-              source — open it before relying on the claim.
+              {caveat}
             </p>
           )}
         </div>

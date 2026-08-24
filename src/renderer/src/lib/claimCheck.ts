@@ -42,7 +42,9 @@ const MAX_FETCHES_PER_CLAIM = 1
  * differently; a refused connection will not.
  */
 const UNREACHABLE_PATTERNS = [
-  /\bERR_(?:CONNECTION|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|ADDRESS_UNREACHABLE|NETWORK_CHANGED|PROXY_CONNECTION_FAILED|SOCKET_NOT_CONNECTED)/i,
+  // Kept for codes that reach us stripped of their `net::` prefix; the rule
+  // below covers the prefixed form, including codes nobody has listed here.
+  /\bERR_(?:CONNECTION|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|ADDRESS_UNREACHABLE|NETWORK_CHANGED|PROXY_CONNECTION_FAILED|SOCKET_NOT_CONNECTED|UNSAFE_PORT)/i,
   /\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|EAI_AGAIN)\b/,
   /\bfetch failed\b/i,
   /\brequest timed out after\b/i,
@@ -53,8 +55,32 @@ const UNREACHABLE_PATTERNS = [
   /\begress policy\b/i
 ]
 
+/**
+ * v1.12.4: the Chromium half of the question, asked the other way round.
+ *
+ * v1.12.3 listed the `net::ERR_*` codes it had seen — CONNECTION, NAME_NOT_
+ * RESOLVED, PROXY_CONNECTION_FAILED — and the code that was actually arriving
+ * was not among them. Pointed at `http://127.0.0.1:9`, Chromium refuses the
+ * port before it opens a socket (`ERR_UNSAFE_PORT`), so the pass ran a search
+ * per claim, each refused in microseconds, and still held the answer. An
+ * enumeration is how that mistake gets made twice; the rule below cannot make
+ * it, because it does not depend on having seen the code before.
+ *
+ * Chromium reaches for a `net::` code only when the request did not complete,
+ * so the question is which of them nonetheless mean a server answered and the
+ * *response* was the problem. Those are nameable and few, and every one of
+ * them is per-request — the next claim may fetch a page that decodes. Anything
+ * else never reached a provider, and never will this turn.
+ */
+const RESPONSE_ARRIVED =
+  /\bERR_(?:CONTENT_(?:DECODING(?:_INIT)?_FAILED|LENGTH_MISMATCH)|IN(?:COMPLETE|VALID)_CHUNKED_ENCODING|INVALID_HTTP_RESPONSE|RESPONSE_HEADERS_(?:TOO_BIG|MULTIPLE_CONTENT_LENGTH)|TOO_MANY_REDIRECTS|UNSAFE_REDIRECT|EMPTY_RESPONSE)\b/i
+
+/** A Chromium transport code, however it was wrapped on the way here. */
+const NET_ERROR = /\bnet::ERR_[A-Z0-9_]+/i
+
 /** Did this search fail because nothing answered, rather than because of what it answered? */
 export function searchUnreachable(error: string): boolean {
+  if (NET_ERROR.test(error)) return !RESPONSE_ARRIVED.test(error)
   return UNREACHABLE_PATTERNS.some((re) => re.test(error))
 }
 
@@ -217,3 +243,145 @@ export function parseVerdict(raw: string): { verdict: ClaimVerdict; basis?: stri
 
 /** Per-claim tool budget, exported so the runner reads it from one place. */
 export const CLAIM_BUDGET = { searches: MAX_SEARCHES_PER_CLAIM, fetches: MAX_FETCHES_PER_CLAIM }
+
+// ---- Settlement -----------------------------------------------------------------
+
+/** One tool call's outcome, in the shape `window.api.executeTool` returns. */
+export interface SettleToolResult {
+  ok: boolean
+  output?: string
+  error?: string
+}
+
+/**
+ * Everything the settlement loop does to the outside world, injected. Same
+ * arrangement as lib/agentLoop.ts: the loop is the decision, the hook supplies
+ * the side effects, and node:test can therefore watch the decision being made
+ * (test/claimCheck.test.ts) instead of inferring it from a screenshot.
+ */
+export interface SettleDeps {
+  /** One web_search for this claim. */
+  search: (claim: string) => Promise<SettleToolResult>
+  /** One fetch_webpage on the top result — null when fetching is switched off. */
+  fetchPage: ((url: string, claim: string) => Promise<SettleToolResult>) | null
+  /** The critic's single-claim judgment against one retrieved passage. */
+  judge: (claim: string, passage: string) => Promise<string>
+  /** Each claim as it settles, so the panel can fill in while the pass runs. */
+  onClaim: (claim: CheckedClaim) => void
+  /** Checked between every await; a true reading ends the pass silently. */
+  aborted: () => boolean
+}
+
+export interface SettleOutcome {
+  /** Every claim, in extraction order — settled ones first, abandoned ones after. */
+  claims: CheckedClaim[]
+  /** Set when the pass stopped before it had checked them all. */
+  budgetNote?: string
+  /** The turn was cancelled mid-pass: the caller must not paint anything. */
+  aborted: boolean
+}
+
+/**
+ * Settle the extracted claims: one search, at most one fetch, one judgment
+ * each — the budget enforced in code rather than asked for in a prompt.
+ *
+ * The pass stops at the FIRST search that could not reach a provider. Nothing
+ * about the next claim is different: the same provider, the same refusal, one
+ * more wait bought with the reader's time. What that failure settles is the
+ * whole pass, so it is reported as one fact — the check could not run — and
+ * the claims it never reached are marked `unchecked`, not `unverifiable`.
+ */
+export async function settleClaims(claims: string[], deps: SettleDeps): Promise<SettleOutcome> {
+  const emitted: CheckedClaim[] = []
+  const emit = (claim: CheckedClaim): void => {
+    emitted.push(claim)
+    deps.onClaim(claim)
+  }
+
+  for (const [i, claim] of claims.entries()) {
+    if (deps.aborted()) return { claims: emitted, aborted: true }
+    const checked: CheckedClaim = { text: claim, verdict: 'unverifiable' }
+    const search = await deps.search(claim)
+    // One refused connection settles the whole pass: the remaining claims
+    // would each buy the same failure at the cost of another wait.
+    if (!search.ok && searchUnreachable(search.error ?? '')) {
+      for (const abandoned of abandonClaims(claims.slice(i))) emit(abandoned)
+      return { claims: emitted, budgetNote: UNREACHABLE_NOTE, aborted: false }
+    }
+    const url = search.ok && search.output ? firstResultUrl(search.output) : null
+    let passage = ''
+    if (url && deps.fetchPage) {
+      const page = await deps.fetchPage(url, claim)
+      if (page.ok && page.output) {
+        passage = page.output
+        checked.source = url
+      }
+    }
+    if (passage) {
+      if (deps.aborted()) return { claims: emitted, aborted: true }
+      const judged = await deps.judge(claim, passage)
+      if (deps.aborted()) return { claims: emitted, aborted: true }
+      const { verdict, basis } = parseVerdict(judged)
+      checked.verdict = verdict
+      if (basis) checked.basis = basis
+    } else if (!search.ok) {
+      // Declined (confirmBeforeSearch) or failed — disclosed, never guessed.
+      checked.basis = 'Search was declined or failed.'
+    }
+    emit(checked)
+  }
+  return { claims: emitted, aborted: false }
+}
+
+// ---- What the panel says --------------------------------------------------------
+
+/**
+ * The claim-check block's one-line header.
+ *
+ * A claim count in this line reads as a result — "5 claims" says five were put
+ * to a source — so it is spent only on claims that reached one. A pass that
+ * reached none shows its reason instead of a tally of nothing (measured: "Claim
+ * check: 5 claims — 0 confirmed, 0 contradicted" over five claims no search had
+ * touched), and a pass that stopped partway says how far it got rather than how
+ * many the critic extracted.
+ */
+export function claimCheckSummary(
+  check: { claims: CheckedClaim[]; budgetNote?: string },
+  isStreaming: boolean
+): string {
+  if (check.claims.length === 0) {
+    return isStreaming ? 'Extracting claims…' : (check.budgetNote ?? 'Claim check')
+  }
+  const checked = check.claims.filter((c) => c.verdict !== 'unchecked')
+  if (checked.length === 0) return check.budgetNote ?? 'Claim check could not run.'
+  const confirmed = checked.filter((c) => c.verdict === 'confirmed').length
+  const contradicted = checked.filter((c) => c.verdict === 'contradicted').length
+  const scope =
+    checked.length === check.claims.length
+      ? `${check.claims.length} claim${check.claims.length === 1 ? '' : 's'}`
+      : `${checked.length} of ${check.claims.length} claims checked`
+  return (
+    `Claim check: ${scope}` +
+    (isStreaming ? ' (running…)' : ` — ${confirmed} confirmed, ${contradicted} contradicted`)
+  )
+}
+
+/**
+ * The footer under the verdicts, or null when there is nothing true to say.
+ *
+ * The sentence promises the reader a source to open, so it may not appear over
+ * verdicts that name none — measured (TTU3 run-2): five "Unverifiable — Search
+ * was declined or failed." verdicts, not a URL among them, and underneath them
+ * "Each verdict rests on the one source shown." A mixed pass is the same fault
+ * one step down, so the caveat names the verdicts it covers instead of all of
+ * them.
+ */
+export function sourceCaveat(claims: CheckedClaim[]): string | null {
+  const sourced = claims.filter((c) => c.source).length
+  if (sourced === 0) return null
+  const scope =
+    sourced === claims.length
+      ? 'Each verdict rests on the one source shown.'
+      : 'Where a verdict names a source, it rests on that one source alone.'
+  return `${scope} A confirmation is only as good as that source — open it before relying on the claim.`
+}
