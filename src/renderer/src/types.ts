@@ -725,6 +725,8 @@ export interface GroundingReport {
   origins?: string[]
   /** Phone numbers and email addresses backed by no tool output (v1.4.5). */
   contacts?: string[]
+  /** v1.12.1: tools the reply says it used that never ran this turn. */
+  toolClaims?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox. */
   code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */

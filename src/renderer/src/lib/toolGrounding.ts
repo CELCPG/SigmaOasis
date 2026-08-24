@@ -1,5 +1,6 @@
 import type { ToolCallRecord } from '../types'
 import { measurementsIn } from '../../../shared/measurements'
+import { TOOL_DEFS } from '../../../shared/tools'
 
 /**
  * v1.3 tool grounding: did the answer actually use what the tools returned?
@@ -75,6 +76,8 @@ export interface GroundingReport {
   addresses?: string[]
   /** Phone numbers and email addresses that appear in no tool output. */
   contacts?: string[]
+  /** v1.12.1: tools the reply says it used that never ran this turn. */
+  toolClaims?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox (finding lines). */
   code?: string[]
   /** Tools whose output was used as the corpus, for the disclosure text. */
@@ -116,6 +119,7 @@ export function groundingFindingCount(report: GroundingReport | null): number {
     (report.origins?.length ?? 0) +
     (report.contacts?.length ?? 0) +
     (report.addresses?.length ?? 0) +
+    (report.toolClaims?.length ?? 0) +
     (report.code?.length ?? 0)
   )
 }
@@ -145,6 +149,12 @@ export function revisionIsAnImprovement(
 export function describeGroundingFindings(report: GroundingReport): string {
   const lines: string[] = []
   if (report.code?.length) lines.push(...report.code)
+  if (report.toolClaims?.length) {
+    lines.push(
+      `- Your answer says you used ${report.toolClaims.join(', ')}; no such call ran this turn. ` +
+        'Either make the call, or say what you actually did instead.'
+    )
+  }
   if (report.addresses?.length) {
     lines.push(`- Addresses that appear in no result: ${report.addresses.join('; ')}`)
   }
@@ -615,9 +625,9 @@ function normalizeAddress(raw: string): string {
  * *were* consulted, some addresses came from them, and others were filled in
  * to complete the list.
  */
-export function unsourcedAddresses(answer: string, corpus: string): string[] {
+export function unsourcedAddresses(answer: string, corpus: string, retrievalRan = false): string[] {
   const known = new Set((corpus.match(STREET_ADDRESS) ?? []).map(normalizeAddress))
-  if (known.size === 0 && !corpus.trim()) return []
+  if (known.size === 0 && !corpus.trim() && !retrievalRan) return []
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const raw of answer.match(STREET_ADDRESS) ?? []) {
@@ -684,6 +694,81 @@ export function contradictedOrigins(answer: string, corpus: string): string[] {
   )
 }
 
+// ---- claimed tools (v1.12.1) ---------------------------------------------------
+
+/**
+ * The reply's account of its own process, checked against the turn's records.
+ *
+ * Every other rung here checks what the answer says about the *world*. This one
+ * checks what it says about *itself*: "I've used web_search to gather the
+ * latest data" on a turn where web_search was never offered and never ran. The
+ * sentence is not a figure, a link or an address, so nothing above contradicted
+ * it — and it is the claim a reader most readily believes, because it is a
+ * claim about the app they are looking at.
+ *
+ * The vocabulary is the shared tool table, never a copy: rename a tool and this
+ * check follows it, rather than quietly going blind on the new name.
+ */
+const TOOL_NAMES: readonly string[] = TOOL_DEFS.map((d) => d.name)
+
+/**
+ * The identifier as the reply might write it: `web_search`, optionally
+ * backticked — or spelled out, but only as "the web search tool". Ungated
+ * prose would report an ordinary sentence about market data as a tool claim,
+ * and the phrase "tool" is what makes the spelled-out form a claim at all.
+ */
+function toolNamePattern(name: string): RegExp {
+  return new RegExp(`\\b(?:${name}|${name.split('_').join('[ -]')}(?=\\s+tools?\\b))\\b`, 'gi')
+}
+
+/**
+ * A first-person claim of having run something, in the same sentence and within
+ * reach of the name: "I used X", "I've run X", "via X", "using X".
+ */
+const CLAIM_LEAD =
+  /(?:\b(?:i|we)(?:'ve|'d| have| had)?\s+(?:just |already |then |also )?(?:used|ran|run|called|invoked|queried|executed|performed|checked)\b|\b(?:used|ran|called|invoked|queried|executed|performed|via|using)\b)[^\n]{0,32}$/i
+
+/**
+ * A tool the model is offering, declining or denying is not a tool it claims to
+ * have run. "I can run web_search if you want", "I could not use web_search",
+ * "no web_search is enabled" — all honest, none of them findings.
+ */
+const NOT_A_CLAIM =
+  /\b(?:can|can't|cannot|could|should|would|will|may|might|try|trying|consider|recommend|suggest|if|unless|never|not|no|without|unable|instead|rather)\b|n't\b/i
+
+/**
+ * A claim about an earlier turn is outside what these records can judge — this
+ * pass only ever sees the turn it is checking.
+ */
+const ANOTHER_TURN = /^[^.?!\n]{0,32}\b(?:earlier|previously|last turn|before|above|already)\b/i
+
+/** How much of the sentence around the name is read for the claim. */
+const CLAIM_WINDOW = 120
+
+/**
+ * Tools the reply says it used that ran nowhere in this turn's records.
+ *
+ * Status is deliberately not consulted: a tool that ran and errored *did* run,
+ * and the reply saying so is true. What is false — and what this reports — is
+ * naming a tool the turn never called at all.
+ */
+export function unrunToolClaims(answer: string, records: ToolCallRecord[]): string[] {
+  const ran = new Set(records.map((r) => r.name))
+  const flagged: string[] = []
+  for (const name of TOOL_NAMES) {
+    if (ran.has(name)) continue
+    for (const m of answer.matchAll(toolNamePattern(name))) {
+      const before = answer.slice(Math.max(0, m.index - CLAIM_WINDOW), m.index)
+      const sentence = before.split(/[.?!\n]/).pop() ?? ''
+      if (!CLAIM_LEAD.test(sentence) || NOT_A_CLAIM.test(sentence)) continue
+      if (ANOTHER_TURN.test(answer.slice(m.index + m[0].length))) continue
+      flagged.push(name)
+      break
+    }
+  }
+  return flagged
+}
+
 // ---- links -------------------------------------------------------------------
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g
@@ -703,9 +788,13 @@ function normalizeUrl(url: string): string {
  * collection URL and appends a plausible-looking path has invented a page, and
  * treating "same origin" as good enough would let exactly that through.
  */
-export function unsourcedLinks(answer: string, corpus: string): string[] {
+export function unsourcedLinks(answer: string, corpus: string, retrievalRan = false): string[] {
   const known = new Set((corpus.match(URL_PATTERN) ?? []).map(normalizeUrl))
-  if (known.size === 0 && !corpus.trim()) return []
+  // An empty corpus normally means nothing was retrieved, so nothing is being
+  // contradicted. `retrievalRan` says the opposite happened: retrieval was
+  // attempted and came back with nothing, which is precisely when every URL in
+  // the reply was written from memory. See checkToolGrounding.
+  if (known.size === 0 && !corpus.trim() && !retrievalRan) return []
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const raw of answer.match(URL_PATTERN) ?? []) {
@@ -795,6 +884,14 @@ export function checkToolGrounding(
   // maximum scrutiny — while contributing nothing to the support corpus.
   const launderedNumeric = records.some((r) => laundered(r) && NUMERIC_TOOLS.has(r.name))
   const sourceRecords = records.filter((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name))
+  // v1.12.1: an errored source tool ARMS the link, origin and address checks
+  // instead of disarming them. Gating them on `sourceRecords.length > 0` had it
+  // exactly backwards: a turn whose search failed ran no link check at all,
+  // which is the turn where the model holds no retrieved URLs and every one it
+  // prints came from memory. Attempted retrieval is the signal; what the
+  // attempt returned is the corpus, and an empty corpus supports nothing.
+  const failedSources = records.filter((r) => r.status === 'error' && SOURCE_TOOLS.has(r.name))
+  const triedToRetrieve = sourceRecords.length > 0 || failedSources.length > 0
 
   // v1.4.5: a reply that states several prices is checked whether or not a
   // pricing tool ran. The gate used to be the shopping heuristic, so a turn it
@@ -839,14 +936,27 @@ export function checkToolGrounding(
         )
       : []
 
-  const links = sourceRecords.length > 0 ? unsourcedLinks(answer, sourceCorpus) : []
-  const origins = sourceRecords.length > 0 ? contradictedOrigins(answer, sourceCorpus) : []
+  // On the failure path the user's own words join the link corpus, and only
+  // there. A URL they pasted is normally excluded (see the note above — the app
+  // has still not verified it), but when the fetch that would have verified it
+  // errored, "I could not open https://…" must not be reported as an invented
+  // link. Nothing model-written enters the corpus either way.
+  const linkCorpus = failedSources.length > 0 ? `${sourceCorpus}\n${userText}` : sourceCorpus
+  const links = triedToRetrieve
+    ? unsourcedLinks(answer, linkCorpus, failedSources.length > 0)
+    : []
+  const origins = triedToRetrieve ? contradictedOrigins(answer, sourceCorpus) : []
   // The user's own words join the corpus: an address they gave is theirs.
-  const addresses =
-    sourceRecords.length > 0 ? unsourcedAddresses(answer, `${sourceCorpus}\n${userText}`) : []
+  const addresses = triedToRetrieve
+    ? unsourcedAddresses(answer, `${sourceCorpus}\n${userText}`, failedSources.length > 0)
+    : []
   // Every tool's output, plus the user's own words — a number they gave is
   // theirs to repeat. Ungated, unlike links: see `unsourcedContacts`.
   const contacts = unsourcedContacts(answer, `${outputOf(records, () => true)}\n${userText}`)
+  // Ungated, like contacts: what the reply says about its own process is always
+  // checkable against the records, and a turn with no tools at all is the turn
+  // where "I searched for this" is furthest from true.
+  const toolClaims = unrunToolClaims(answer, records)
 
   if (
     figures.length === 0 &&
@@ -854,13 +964,21 @@ export function checkToolGrounding(
     links.length === 0 &&
     origins.length === 0 &&
     contacts.length === 0 &&
-    addresses.length === 0
+    addresses.length === 0 &&
+    toolClaims.length === 0
   ) {
     return null
   }
 
   const used = [...new Set([...numericRecords, ...sourceRecords].map((r) => r.name))].sort()
-  const checkedAgainst = used.length > 0 ? used : ['no tool output — nothing ran this turn']
+  // Naming the failed calls matters most on exactly the turns this arms: the
+  // disclosure would otherwise read "nothing ran this turn" when a search did
+  // run and came back empty-handed.
+  const failed = [...new Set(failedSources.map((r) => `${r.name} (errored)`))].sort()
+  const checkedAgainst =
+    used.length + failed.length > 0
+      ? [...used, ...failed]
+      : ['no tool output — nothing ran this turn']
 
   return {
     figures: figures.slice(0, MAX_REPORTED),
@@ -869,6 +987,7 @@ export function checkToolGrounding(
     ...(origins.length > 0 ? { origins: origins.slice(0, MAX_REPORTED) } : {}),
     ...(contacts.length > 0 ? { contacts: contacts.slice(0, MAX_REPORTED) } : {}),
     ...(addresses.length > 0 ? { addresses: addresses.slice(0, MAX_REPORTED) } : {}),
+    ...(toolClaims.length > 0 ? { toolClaims: toolClaims.slice(0, MAX_REPORTED) } : {}),
     checkedAgainst
   }
 }
