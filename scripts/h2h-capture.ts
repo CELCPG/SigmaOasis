@@ -1358,16 +1358,27 @@ async function main(): Promise<void> {
     // so a critic reading the run knows an image is missing rather than absent.
     let shotFailures = 0
     const screenshot = async (phase: ShotRecord['phase'], atMs: number | null): Promise<void> => {
-      // fromSurface:true grabs the window's real OS surface, which is what makes
-      // a screenshot a picture of what a person would see. It also needs that
-      // surface to exist: when the display sleeps or the window is occluded the
-      // request never answers. Fall back to the renderer's own compositor, which
-      // has no such dependency, and say which one produced the image.
+      // Every grab gets its OWN short-lived CDP connection, and two tries on it.
+      //
+      // A screenshot degrades the socket it was taken on: the first one usually
+      // succeeds and everything after it — including the next screenshot —
+      // stops answering, which is why runs came back VALID with one image and
+      // three failures. Isolating each grab keeps that damage off the socket
+      // the sampler and the driver share, and off the next grab.
+      //
+      // fromSurface:true is the window's real OS surface, which is what makes a
+      // screenshot a picture of what a person would see; it also needs that
+      // surface to exist, and an asleep or occluded display never answers. The
+      // renderer's own compositor has no such dependency, so it is the fallback,
+      // and each shot records which one produced it.
       let r: { data?: string } | null = null
       let surface: 'os' | 'renderer' = 'os'
+      let lastErr = ''
       for (const fromSurface of [true, false]) {
+        const shotCdp = new Cdp()
         try {
-          r = await cdp!.send<{ data?: string }>(
+          await shotCdp.connect(target.webSocketDebuggerUrl as string)
+          r = await shotCdp.send<{ data?: string }>(
             'Page.captureScreenshot',
             { format: 'png', fromSurface },
             30_000
@@ -1375,19 +1386,18 @@ async function main(): Promise<void> {
           surface = fromSurface ? 'os' : 'renderer'
           break
         } catch (err) {
-          if (!fromSurface) {
-            shotFailures++
-            notes.push(
-              `screenshot (${phase}) failed on both surfaces: ${err instanceof Error ? err.message : String(err)}`
-            )
-            return
+          lastErr = err instanceof Error ? err.message : String(err)
+        } finally {
+          try {
+            shotCdp.close()
+          } catch {
+            /* the socket is going away either way */
           }
         }
       }
-      if (!r) return
-      if (!r.data) {
+      if (!r || !r.data) {
         shotFailures++
-        notes.push(`screenshot (${phase}) returned no data`)
+        notes.push(`screenshot (${phase}) failed on both surfaces: ${lastErr || 'no data'}`)
         return
       }
       const buf = Buffer.from(r.data, 'base64')
