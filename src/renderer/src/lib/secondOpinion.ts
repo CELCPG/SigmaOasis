@@ -14,6 +14,42 @@ import type { ModelConfig } from '../types'
 const MAX_QUESTION_CHARS = 4000
 const MAX_ANSWER_CHARS = 6000
 
+/**
+ * v1.9.2: a reviewer that returned nothing is not a reviewer that approved.
+ *
+ * A local model can end a stream having emitted no answer tokens at all —
+ * reasoning-only output, a dropped connection, a context it refused. Every
+ * review pass on top of a reply (second opinion, think-harder) then holds an
+ * empty string, and an empty string is indistinguishable from "read it, found
+ * nothing" unless the app keeps the difference. It must: the two states are
+ * "unchecked" and "checked and clean", and reporting the first as the second
+ * vouches for an answer nobody read. These are the shared primitives; the
+ * think-harder pass imports them (lib/deliberation.ts).
+ */
+export const NO_REVIEW_PREFIX = '⚠️ No review came back'
+export const REVIEW_FAILED_PREFIX = '⚠️ Second opinion failed'
+
+export const NO_REVIEW_TEXT = `${NO_REVIEW_PREFIX} — the reviewer returned nothing, so this answer was not checked.`
+
+/** True when the reviewer actually returned something to read. Whitespace is nothing. */
+export function reviewCameBack(text: string | undefined | null): boolean {
+  const t = (text ?? '').trim()
+  return t.length > 0 && !t.startsWith(NO_REVIEW_PREFIX) && !t.startsWith(REVIEW_FAILED_PREFIX)
+}
+
+/**
+ * The block's header. Never names the critic as having given an opinion when
+ * no review came back — only `pending` (still streaming) keeps the byline.
+ */
+export function secondOpinionLabel(
+  opinion: { roleName: string; text: string },
+  pending = false
+): string {
+  if (!opinion.roleName) return 'Second opinion unavailable'
+  if (pending || reviewCameBack(opinion.text)) return `Second opinion by ${opinion.roleName}`
+  return `Second opinion unavailable — no review from ${opinion.roleName}`
+}
+
 export const CRITIC_INSTRUCTION =
   'You are reviewing another model\'s answer, not your own. Do not praise it and do not ' +
   'summarize it. List only the specific factual claims in the answer that you cannot verify ' +

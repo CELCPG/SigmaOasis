@@ -1,6 +1,6 @@
 import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
-import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
+import { buildCriticMessages, NO_REVIEW_TEXT, pickCritic } from '../lib/secondOpinion'
 import {
   buildRecomputeMessages,
   buildRecomputeReference,
@@ -15,9 +15,9 @@ import type { WorkbenchCheck } from '../lib/workbenchChecks'
 import {
   buildReviewMessages,
   buildRevisionMessages,
+  classifyReview,
   figuresChanged,
-  pickReviewer,
-  reviewFoundProblems
+  pickReviewer
 } from '../lib/deliberation'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { describeGroundingFindings } from '../lib/toolGrounding'
@@ -190,7 +190,7 @@ export async function runAutoCritic(
       undefined,
       critic.sampling
     )
-    if (!signal.aborted && !text.trim()) patchRecord('(the reviewer returned an empty reply)')
+    if (!signal.aborted && !text.trim()) patchRecord(NO_REVIEW_TEXT)
   } catch (err) {
     if (!signal.aborted) {
       patchRecord(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -501,9 +501,12 @@ export async function runDeliberation(
       kind: 'assistant_output',
       roleName: reviewer.roleName,
       modelId: reviewer.modelId,
-      text: `[think harder — ${self ? 'self-review' : 'review'}]\n${review}`
+      text: `[think harder — ${self ? 'self-review' : 'review'}]\n${review || '(nothing came back)'}`
     })
-    if (!reviewFoundProblems(review)) {
+    // A review that never came back and a review that found nothing are
+    // different states; both keep the draft, only one of them checked it, and
+    // the disclosure (describeDeliberation) reads them apart off `review`.
+    if (classifyReview(review) !== 'problems') {
       patchRecord({ status: 'done', revised: false })
       return
     }

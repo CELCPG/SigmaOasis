@@ -1,6 +1,6 @@
 import { isLikelyReasoningModel } from './reasoning'
 import type { DeliberationRecord, ModelConfig } from '../types'
-import { pickCritic } from './secondOpinion'
+import { pickCritic, reviewCameBack } from './secondOpinion'
 import { BREVITY_RULES } from './grounding'
 
 /**
@@ -23,7 +23,8 @@ import { BREVITY_RULES } from './grounding'
  *
  * Bounded: one review, one revision, both capped in length; the revision is
  * refused (draft kept, note shown) when it is empty or when the review found
- * nothing. Never runs on tool-loop turns' intermediate rounds — only on a
+ * nothing. A review that never came back is reported as no review, not as an
+ * all-clear. Never runs on tool-loop turns' intermediate rounds — only on a
  * finished reply.
  */
 
@@ -95,6 +96,18 @@ export function buildRevisionMessages(
     { role: 'assistant', content: clip(draft, MAX_DRAFT_CHARS) },
     { role: 'user', content: `${REVISION_INSTRUCTION}\n\nReview:\n${clip(review, MAX_REVIEW_CHARS)}` }
   ]
+}
+
+/**
+ * What the reviewer actually returned. `none` is the state the disclosure used
+ * to lose: an empty stream and a careful all-clear both make
+ * `reviewFoundProblems` false, and only one of them means the draft was read.
+ */
+export type ReviewOutcome = 'none' | 'clear' | 'problems'
+
+export function classifyReview(review: string): ReviewOutcome {
+  if (!reviewCameBack(review)) return 'none'
+  return reviewFoundProblems(review) ? 'problems' : 'clear'
 }
 
 /** Did the review find anything worth a revision? Mechanical, on the review's text. */
@@ -171,7 +184,12 @@ export function describeDeliberation(d: DeliberationRecord): string {
   const who = d.self ? 'reviewed its own draft' : `reviewed by ${d.reviewerRole}`
   if (d.status === 'reviewing') return `🧠 Thinking harder — ${d.self ? 'self-review' : `review by ${d.reviewerRole}`} in progress…`
   if (d.status === 'revising') return `🧠 Thinking harder — revising after ${d.self ? 'self-review' : `review by ${d.reviewerRole}`}…`
-  if (d.status === 'error') return `🧠 Think harder failed: ${d.note ?? 'unknown error'}`
+  if (d.status === 'error')
+    return `⚠️ Not deliberated — think harder failed: ${d.note ?? 'unknown error'}; the draft was not checked.`
+  // v1.9.2: nothing came back. The emptiness is known here, and saying
+  // "no substantive problems found" instead would vouch for an unread draft.
+  if (classifyReview(d.review) === 'none')
+    return `⚠️ Not deliberated — ${d.self ? 'the self-review returned nothing' : `${d.reviewerRole} returned nothing`}; the draft was not checked.`
   if (!d.revised) return `🧠 Deliberated — ${who}: no substantive problems found; draft kept.`
   return `🧠 Deliberated — ${who}, revised.${d.note ? ` ${d.note}` : ''}`
 }

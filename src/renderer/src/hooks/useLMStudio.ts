@@ -4,7 +4,7 @@ import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/vo
 import { estimateTokens } from '../lib/contextBudget'
 import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
-import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
+import { buildCriticMessages, NO_REVIEW_TEXT, pickCritic } from '../lib/secondOpinion'
 import {
   buildTurnContext,
   consultedSources,
@@ -1160,7 +1160,7 @@ export function useLMStudio(): {
         undefined,
         critic.sampling
       )
-      if (!controller.signal.aborted && !text.trim()) patch('(the reviewer returned an empty reply)')
+      if (!controller.signal.aborted && !text.trim()) patch(NO_REVIEW_TEXT)
     } catch (err) {
       if (!controller.signal.aborted) {
         patch(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)

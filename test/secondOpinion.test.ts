@@ -1,6 +1,13 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { pickCritic, buildCriticMessages, CRITIC_INSTRUCTION } from '../src/renderer/src/lib/secondOpinion'
+import {
+  pickCritic,
+  buildCriticMessages,
+  CRITIC_INSTRUCTION,
+  NO_REVIEW_TEXT,
+  reviewCameBack,
+  secondOpinionLabel
+} from '../src/renderer/src/lib/secondOpinion'
 import type { ModelConfig } from '../src/renderer/src/types'
 
 /**
@@ -88,5 +95,46 @@ describe('buildCriticMessages', () => {
   test('the instruction bans self-graded confidence, by design', () => {
     assert.match(CRITIC_INSTRUCTION, /Never output a confidence score or/)
     assert.match(CRITIC_INSTRUCTION, /cannot verify/)
+  })
+})
+
+/**
+ * v1.9.2: the same rule as think harder, on the older pass. A critic stream
+ * that ends with no answer tokens leaves an empty review; the block must not
+ * put the critic's name on an opinion it never gave, nor keep the "a different
+ * local model reviewed this answer" footer under nothing.
+ */
+describe('a second opinion that never came back', () => {
+  test('reviewCameBack is false for nothing, whitespace, the sentinel and a failure', () => {
+    assert.equal(reviewCameBack(''), false)
+    assert.equal(reviewCameBack('   \n '), false)
+    assert.equal(reviewCameBack(undefined), false)
+    assert.equal(reviewCameBack(NO_REVIEW_TEXT), false)
+    assert.equal(reviewCameBack('⚠️ Second opinion failed: fetch failed'), false)
+    assert.equal(reviewCameBack('- The 2019 figure is unverifiable.'), true)
+  })
+
+  test('the sentinel says nothing was checked and claims no review', () => {
+    assert.match(NO_REVIEW_TEXT, /returned nothing/)
+    assert.match(NO_REVIEW_TEXT, /not checked/)
+    assert.doesNotMatch(NO_REVIEW_TEXT, /no unverifiable|looks|found nothing/i)
+  })
+
+  test('the header never bylines a review that did not arrive', () => {
+    const arrived = secondOpinionLabel({ roleName: 'Researcher', text: '- Unverifiable: the 2019 figure.' })
+    assert.equal(arrived, 'Second opinion by Researcher')
+    for (const text of ['', '  ', NO_REVIEW_TEXT, '⚠️ Second opinion failed: fetch failed']) {
+      const label = secondOpinionLabel({ roleName: 'Researcher', text })
+      assert.doesNotMatch(label, /^Second opinion by/)
+      assert.match(label, /no review from Researcher/)
+    }
+  })
+
+  test('while the review is still streaming the byline stays', () => {
+    assert.equal(secondOpinionLabel({ roleName: 'Researcher', text: '' }, true), 'Second opinion by Researcher')
+  })
+
+  test('no critic at all is still reported as unavailable', () => {
+    assert.equal(secondOpinionLabel({ roleName: '', text: 'No second role is enabled…' }), 'Second opinion unavailable')
   })
 })

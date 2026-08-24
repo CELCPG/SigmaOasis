@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { reviewCameBack, secondOpinionLabel } from '../lib/secondOpinion'
 import type { SecondOpinionRecord } from '../types'
 
 interface Props {
@@ -19,9 +20,10 @@ interface Props {
 export function SecondOpinionBlock({ opinion, isStreaming }: Props): JSX.Element {
   const [open, setOpen] = useState(true)
 
-  const label = opinion.roleName
-    ? `Second opinion by ${opinion.roleName}`
-    : 'Second opinion unavailable'
+  // v1.9.2: a review that never arrived is not a review. The byline and the
+  // "a different model reviewed this" footer both hang off whether one did.
+  const reviewed = reviewCameBack(opinion.text)
+  const label = secondOpinionLabel(opinion, isStreaming)
 
   return (
     <div className="my-2 overflow-hidden rounded-2xl border border-violet-400/25 bg-violet-400/[0.06] text-xs">
@@ -53,7 +55,7 @@ export function SecondOpinionBlock({ opinion, isStreaming }: Props): JSX.Element
             {opinion.text}
             {isStreaming && <span className="animate-pulse">▌</span>}
           </p>
-          {opinion.roleName && !isStreaming && (
+          {opinion.roleName && !isStreaming && reviewed && (
             <p className="mt-2 border-t border-violet-400/15 pt-1.5 text-[10px] text-neutral-400">
               A different local model reviewed this answer. A clean review is a second guess from
               another angle — not verification. Run the checks it names to be sure.
