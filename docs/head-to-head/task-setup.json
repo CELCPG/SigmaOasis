@@ -6,7 +6,8 @@
     "offline": "No task may reach the internet. 'App offline' is expressed as search.provider=searxng with searxngUrl pointed at 127.0.0.1:9 — the discard port, which refuses every connection. The egress allowlist then permits exactly one host for search, and that host answers nothing.",
     "placeholders": "{{searchFixtureUrl}}, {{lmShimUrl}} and {{model}} are substituted into settings before the config is written; the fixture URLs carry the OS-assigned port.",
     "preActions": "Run before the task prompt is sent (composer toggles, earlier turns). actions run after.",
-    "expectHit": "A fixture with expectHit:false is allowed to go uncontacted — it exists so a tool is available, not so it is used."
+    "expectHit": "A fixture with expectHit:false is allowed to go uncontacted — it exists so a tool is available, not so it is used.",
+    "requires": "Capabilities the machine must supply that no setting can seed — the harness cannot install them, only refuse to score a run without them. A required capability that was not there makes the run INVALID, exactly as an uncontacted fixture does. Capabilities a setting already implies are enforced anyway (settings.tools.run_python of true implies python-runtime), so listing one here is a restatement, not the only thing holding it up. scripts/h2h-preconditions.ts is the list of ids that mean something."
   },
   "tasks": {
     "V1": {
@@ -131,6 +132,7 @@
       "supported": true,
       "note": "Cold Pyodide: every run gets a fresh userData dir, so the first run_python of the run is always cold. The second turn re-sends the same prompt in the same session, warm.",
       "noShots": true,
+      "requires": ["python-runtime"],
       "settings": {
         "tools": { "run_python": true },
         "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" }

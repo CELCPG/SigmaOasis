@@ -6,9 +6,9 @@
 #   bash scripts/h2h-run.sh --arm A-baseline --app ../oasis-baseline --model qwen3.8-9b V1 TH2
 #
 # The prompt for each task comes from docs/head-to-head/tasks.json; the settings,
-# packs, fixtures and driver actions come from docs/head-to-head/task-setup.json,
-# which is that file's prose setup written so a machine can execute it. Each task
-# lands in <out>/<arm>/<taskId>-<timestamp>/.
+# packs, fixtures, declared preconditions and driver actions come from
+# docs/head-to-head/task-setup.json, which is that file's prose setup written so a
+# machine can execute it. Each task lands in <out>/<arm>/<taskId>-<timestamp>/.
 #
 # Arms differ only in --app. Everything else — prompts, settings, fixtures,
 # actions, the driver — is the same code driving both, which is the whole point.
@@ -129,6 +129,7 @@ for ID in "${IDS[@]}"; do
     flags.push("--prompt-file", path.join(work, `${id}.prompt.txt`))
     if (eff.settings) flags.push("--settings", w("settings", eff.settings))
     if (eff.packs && eff.packs.length) flags.push("--packs", eff.packs.join(","))
+    if (eff.requires && eff.requires.length) flags.push("--requires", eff.requires.join(","))
     if (eff.preActions) flags.push("--pre-actions", w("pre-actions", eff.preActions))
     if (eff.actions) flags.push("--actions", w("actions", eff.actions))
     if (eff.searchFixture) flags.push("--search-fixture", w("search-fixture", eff.searchFixture))

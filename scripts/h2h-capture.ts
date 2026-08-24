@@ -42,10 +42,15 @@
  * and substitute their URLs into the settings, and `--actions` is a list of
  * things to do to the running app. Everything the driver did lands in run.json.
  *
- * Two guards keep a half-run task from being scored as if it ran. A seeded
+ * Three guards keep a half-run task from being scored as if it ran. A seeded
  * setting is read back out of the running app through its own settings API and
  * compared leaf by leaf; a fixture that was configured but never received a
- * request marks the run INVALID. Both fail the run loudly rather than quietly.
+ * request marks the run INVALID; and a precondition the task's setup declares —
+ * the local Python runtime, say — marks the run INVALID when it did not
+ * actually hold (h2h-preconditions.ts). All three fail the run loudly rather
+ * than quietly. The first two cover what the harness put in place; the third
+ * covers what the machine had to supply, which is the one a run with no
+ * fixtures used to slip past.
  *
  * Run:  bash scripts/h2h-capture.sh --model <id> --task-id <id> --prompt "..."
  */
@@ -54,9 +59,10 @@ import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { get as httpGet } from 'http'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { join, resolve } from 'path'
+import { dirname, join, resolve } from 'path'
 import { startLmShim, startSearchFixture } from './h2h-fixtures'
 import type { FixtureHandle, LmShimConfig, SearchFixtureConfig } from './h2h-fixtures'
+import { checkPreconditions, requiredCapabilities } from './h2h-preconditions'
 
 /* ------------------------------------------------------------------ types */
 
@@ -89,6 +95,11 @@ interface Args {
   settings: Record<string, unknown> | null
   /** Reference packs to install before the turn, through the app's own installer. */
   packs: string[]
+  /**
+   * Capabilities the task's setup declares it needs from the machine, beyond
+   * what --settings can seed. Unioned with the ones the settings already imply.
+   */
+  requires: string[]
   /** Driver actions, run BEFORE the task prompt is sent (composer toggles, prior turns). */
   preActions: Action[]
   /** Driver actions, run after the prompt is sent. */
@@ -246,6 +257,11 @@ const USAGE = `usage: bash scripts/h2h-capture.sh --model <id> --task-id <id> (-
                         and the run FAILS if the app did not take it.
   --packs <ids>         comma-separated reference packs to install before the turn
                         (installed through the app's own library:installBundled).
+  --requires <ids>      comma-separated capabilities the task's setup says the
+                        machine must supply (e.g. python-runtime). A required
+                        capability that was not actually there marks the run
+                        INVALID. Capabilities the settings already imply — a
+                        tools.run_python of true — are added automatically.
   --search-fixture <f>  JSON (file path or inline) configuring the loopback SearXNG
                         fixture. Its URL replaces {{searchFixtureUrl}} in --settings.
   --lm-fixture <f>      JSON (file path or inline) configuring the loopback LM Studio
@@ -328,6 +344,10 @@ function parseArgs(argv: string[]): Args {
     appDir: a.app ? resolve(a.app) : null,
     settings: json<Record<string, unknown>>('settings'),
     packs: (a.packs ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    requires: (a.requires ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
@@ -1696,6 +1716,23 @@ async function main(): Promise<void> {
         }
       }
     }
+
+    /* ------------------------------------------------------ preconditions */
+
+    // The fixture guard only sees tasks that have fixtures. A task whose setup
+    // needs something from the machine instead — TTU2's "resources/pyodide
+    // present locally" — had nothing checking it, so a run that never paid the
+    // Pyodide boot at all came back VALID with an empty reason list. What the
+    // task declares it needs is checked here, against the build and against the
+    // transcript. See scripts/h2h-preconditions.ts.
+    const preconditionReports = checkPreconditions({
+      required: requiredCapabilities(args.settings, args.requires),
+      appRoot,
+      mainDir: dirname(mainEntry),
+      blocks: capExp.messages.flatMap((m) => m.blocks)
+    })
+    for (const p of preconditionReports) if (p.reason) validityReasons.push(p.reason)
+
     const validity = validityReasons.length ? 'INVALID' : 'VALID'
 
     const run = {
@@ -1779,11 +1816,18 @@ async function main(): Promise<void> {
        */
       driverActions: actionLog,
       fixtures: fixtureReports,
+      /**
+       * Every capability the task's setup requires of the machine, and whether
+       * it was really there — one entry per capability, passed or failed, so a
+       * reader sees that the check ran rather than inferring it from silence.
+       */
+      preconditions: preconditionReports,
       auditExport,
       /**
        * VALID or INVALID. INVALID means the run did not exercise the path the
-       * task is about — a configured fixture was never contacted — and must be
-       * reported as such rather than scored.
+       * task is about — a configured fixture was never contacted, or a
+       * precondition the task declares did not hold — and must be reported as
+       * such rather than scored.
        */
       validity,
       validityReasons,
@@ -1850,6 +1894,11 @@ async function main(): Promise<void> {
         `screenshots        ${shots.map((s) => `${s.phase}:${s.bytes}B`).join('  ') || 'none'}`,
         `turns              ${turns.map((t) => `#${t.index} ${fmt(t.sendToTurnEndMs)}`).join('  ')}`,
         `driver actions     ${actionLog.map((a) => `${a.type}${a.ok ? '' : '!'}`).join(' → ') || 'none'}`,
+        `preconditions      ${
+          preconditionReports.length
+            ? preconditionReports.map((p) => `${p.capability}:${p.ok ? 'held' : 'FAILED'}`).join('  ')
+            : 'none declared'
+        }`,
         `fixtures           ${
           fixtureReports.length
             ? fixtureReports.map((f) => `${String(f.kind)}:${String(f.requestCount)} req`).join('  ')
@@ -1923,9 +1972,13 @@ FILES
 
 VALIDITY
   run.json carries validity: VALID or INVALID. INVALID means the run did not
-  exercise the path the task is about — most often a fixture that was set up
-  and then never contacted. An INVALID run must be reported as invalid, not
-  scored against the other arm.
+  exercise the path the task is about — a fixture that was set up and then
+  never contacted, or a precondition the task's setup declares that did not
+  actually hold (the local Python runtime being absent, say, so every Python
+  block failed on a runtime that was never installed). validityReasons says
+  which, and run.json's "preconditions" lists every capability that was checked
+  and what was found. An INVALID run must be reported as invalid, not scored
+  against the other arm.
 
 TIMINGS
   Every timestamp was taken inside the page, not by the driving script, so the

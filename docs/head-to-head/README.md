@@ -219,15 +219,21 @@ retire it and write a harder one. Do not weaken it.
 
 ## Running it
 
-The harness is three files:
+The harness is four files:
 
 - `scripts/h2h-fixtures.ts` — the loopback servers described above, as a
   reusable module (and a small CLI for poking one by hand). Each keeps a request
   log; a run whose fixture was never contacted is marked `INVALID` rather than
   scored.
+- `scripts/h2h-preconditions.ts` — the environment facts a task's setup says
+  must hold, and how to tell whether they did. A fixture guard only sees tasks
+  that have fixtures; this covers what the *machine* had to supply. TTU2's
+  "resources/pyodide present locally" is the case that motivated it: with the
+  runtime absent, every Python block failed on it and the run still scored
+  `VALID` with an empty reason list.
 - `scripts/h2h-capture.ts` (`scripts/h2h-capture.sh`) — one task, one arm, one
   run directory. `--app <dir>` points it at a build other than this repo's,
-  which is what makes an A/B possible; `--settings`, `--packs`,
+  which is what makes an A/B possible; `--settings`, `--packs`, `--requires`,
   `--search-fixture`, `--lm-fixture`, `--pre-actions` and `--actions` carry a
   task's setup in. Seeded settings are read back out of the *running* app and
   the run fails if it did not take them.
@@ -235,8 +241,15 @@ The harness is three files:
   `tasks.json` and the executable setup from `task-setup.json`.
 
 `task-setup.json` is this file's `setup` prose written so a machine can run it:
-settings, packs, fixtures and driver actions per task id. If the two ever
-disagree, `tasks.json` is the requirement and `task-setup.json` is the bug.
+settings, packs, fixtures, `requires` and driver actions per task id. If the two
+ever disagree, `tasks.json` is the requirement and `task-setup.json` is the bug.
+
+A task states a precondition twice over, and both are enforced: implicitly, in
+the setup it already carries (`settings.tools.run_python` of `true` is what
+"resources/pyodide present locally" looks like once it is machine-readable), and
+explicitly in `requires`. Neither can be deleted without the other still holding
+the run to it, and a `requires` id the harness has no check for fails the run
+rather than passing quietly.
 
 ```
 # arm B — the current build
@@ -252,7 +265,8 @@ capture always wrote, a run now carries `fixtures/` (every request each fixture
 served), `snapshots/` (DOM captured at the moments a task names, plus keyboard
 traversal records), and in `run.json`: `driverActions` (everything the driver
 did and when), `turns` (one entry per turn, for the multi-turn tasks),
-`setup.seededSettingsVerified`, and `validity`.
+`setup.seededSettingsVerified`, `preconditions` (each declared capability and
+whether it was really there), and `validity`.
 
 ### Driver actions
 
