@@ -190,7 +190,37 @@ export function describeRecompute(input: { ran: boolean; ok: boolean; circular?:
         '🧮 Recomputation ran, but its inputs are constants the model wrote rather than figures from your question — ' +
         'it re-derives the answer from itself and checks nothing. Treat these figures as unverified.'
     }
-  return { kind: 'recompute', ok: true, summary: '🧮 Recomputed the stated figures in Python; the checker compared the reply against that output.' }
+  // v1.17.1: what the pass that follows actually reads. `checkToolGrounding`
+  // takes the NUMBERS out of the reply — figures, percentages, measurements —
+  // and judges them against this stdout. Not one of its rungs compares a word
+  // the reply copied out of the run.
+  //
+  // Measured, VC1 run 2 (round 6): the reply pasted back
+  // `sign-my-as-is-head-to-head-layout-probe-…` where the program had decoded
+  // `sigma-oasis-head-to-head-layout-probe-…`, and this line printed inches
+  // above the run that disagreed with it. Re-run against the recorded turn,
+  // `unsourcedFigures` returns [] and `checkToolGrounding` returns null: all
+  // thirteen digit groups in that token WERE compared and did agree. The four
+  // characters that were wrong were letters. So the old sentence — "the checker
+  // compared the reply against that output" — was true of the one dimension
+  // that was right and false of the only one that was wrong.
+  //
+  // Widening rather than narrowing was considered and rejected on the same
+  // recording: the program printed its decoding one character per line, so the
+  // token appears contiguously in that stdout in neither form, and there is no
+  // `label: <string>` line for a string-valued comparison to read at all. A
+  // blunter rule — every long token in the reply must occur in the output —
+  // fires identically on the CORRECT answer, which is round 4's cry-wolf in a
+  // new costume. The check that would catch this does not exist yet; until it
+  // does the sentence says what the app did.
+  return {
+    kind: 'recompute',
+    ok: true,
+    summary:
+      '🧮 Recomputed the stated figures in Python; the reply’s numbers were compared against that ' +
+      'output. Numbers only — text it copies from the run, such as a decoded string or an ' +
+      'identifier, was not checked.'
+  }
 }
 
 /** A figure the reply states where the run printed a different one under the same label. */

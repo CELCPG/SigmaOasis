@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
-import { describeRevisionOutcome } from '../lib/toolGrounding'
+import { describeRevisionOutcome, describeUnbackedItems } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, contextItemLabel, markCitedContextItems } from '../lib/libraryRecall'
@@ -124,26 +124,17 @@ function ToolImageGallery({ records }: { records: ToolCallRecord[] }): JSX.Eleme
  * answer went past them, which is the harder failure to notice by eye.
  */
 function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element {
-  const parts: string[] = []
-  if (report.figures.length > 0) {
-    parts.push(
-      `${report.figures.length} figure${report.figures.length === 1 ? '' : 's'} (${report.figures.join(', ')})`
-    )
-  }
-  if (report.links.length > 0) {
-    parts.push(`${report.links.length} link${report.links.length === 1 ? '' : 's'}`)
-  }
-  // v1.9.2: named in full rather than counted. A quantity is only ever flagged
-  // when something computed or retrieved this turn, so the reply is stating a
-  // distance, a duration or a dose against arithmetic the app itself did or a
-  // passage it just read — and which of them disagrees is the only thing worth
-  // reading.
-  const quantities = report.quantities ?? []
-  if (quantities.length > 0) {
-    parts.push(
-      `${quantities.length} measurement${quantities.length === 1 ? '' : 's'} (${quantities.join(', ')})`
-    )
-  }
+  // v1.9.2: figures and measurements are named in full rather than counted. A
+  // quantity is only ever flagged when something computed or retrieved this
+  // turn, so the reply is stating a distance, a duration or a dose against
+  // arithmetic the app itself did or a passage it just read — and which of them
+  // disagrees is the only thing worth reading.
+  //
+  // v1.17.1: the sentence is built in lib/toolGrounding.ts, where it has a
+  // test. Its verb used to agree with the number of categories in this array
+  // rather than the number of items in them — see `describeUnbackedItems`.
+  const unbacked = describeUnbackedItems(report)
+  const hasUnbacked = unbacked !== ''
   const origins = report.origins ?? []
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
@@ -152,28 +143,34 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const citations = report.citations ?? []
   const quotes = report.quotes ?? []
   const attributions = report.attributions ?? []
+  // v1.17.1 contrast: amber-900 over amber-800 in light, amber-300 over amber-400
+  // in dark, and no `opacity` anywhere inside. This banner is the one place the
+  // app says its own answer is unsupported, and measured over its own amber wash
+  // (#fcf7f0, not the bare panel) it held the three thinnest inks in the app:
+  // 4.71:1 for the warning, 3.99:1 for the link list at `opacity-90`, and 3.10:1
+  // for the "Checked against" footer at `opacity-75` — a critic reading a
+  // screenshot of it got 3.06:1. `opacity` composites the ink against whatever
+  // happens to be behind it, so the tone chosen is not the tone rendered, and
+  // both dimmed pieces were under AA while the suite read them as 4.78:1. The
+  // ranks are ink tokens now, each measured over the surface actually beneath
+  // it. Pinned in test/chromeContrastCheck.ts.
   return (
     <div
-      className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+      className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-300"
       title={
         'These came from the model, not from the tools this turn actually ran ' +
         `(${report.checkedAgainst.join(', ')}). Numbers a calculator did not return, and links ` +
         'that appeared in no search result, are the two things most worth re-checking yourself.'
       }
     >
-      {parts.length > 0 && (
-        <div>
-          ⚠️ {parts.join(' and ')} in this reply {parts.length > 1 ? 'are' : 'is'} not backed by the
-          tool output.
-        </div>
-      )}
+      {hasUnbacked && <div>⚠️ {unbacked}</div>}
       {/*
         v1.12.1: the reply's account of its own process. First, because a
         reader who believes "I searched the web for this" reads everything
         under it as sourced.
       */}
       {toolClaims.length > 0 && (
-        <div className={parts.length > 0 ? 'mt-1' : undefined}>
+        <div className={hasUnbacked ? 'mt-1' : undefined}>
           ⚠️ This reply says it used {toolClaims.join(', ')}, which did not run this turn.
         </div>
       )}
@@ -184,7 +181,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         — so only the omission gives it away.
       */}
       {toolDisclosure.length > 0 && (
-        <div className={parts.length > 0 || toolClaims.length > 0 ? 'mt-1' : undefined}>
+        <div className={hasUnbacked || toolClaims.length > 0 ? 'mt-1' : undefined}>
           ⚠️ This reply lists the tools it used without naming{' '}
           {toolDisclosure.join(', ')}, which {toolDisclosure.length === 1 ? 'is' : 'are'} what
           actually ran this turn.
@@ -213,7 +210,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         the one most likely to be repeated out loud to someone else.
       */}
       {origins.length > 0 && (
-        <div className={parts.length > 0 || toolClaims.length > 0 ? 'mt-1' : undefined}>
+        <div className={hasUnbacked || toolClaims.length > 0 ? 'mt-1' : undefined}>
           ⚠️ This reply places the subject in {origins.join(', ')}, which the sources it consulted
           never mention.
         </div>
@@ -226,7 +223,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       {contacts.length > 0 && (
         <div
           className={
-            parts.length > 0 || toolClaims.length > 0 || origins.length > 0 ? 'mt-1' : undefined
+            hasUnbacked || toolClaims.length > 0 || origins.length > 0 ? 'mt-1' : undefined
           }
         >
           ⚠️ Contact details no tool returned: {contacts.join(', ')}. Verify before sending these
@@ -250,7 +247,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         </div>
       )}
       {report.links.length > 0 && (
-        <ul className="mt-1 list-disc pl-4 opacity-90">
+        <ul className="mt-1 list-disc pl-4">
           {report.links.map((link) => (
             <li key={link} className="break-all">
               {link}
@@ -258,7 +255,10 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
           ))}
         </ul>
       )}
-      <div className="mt-1 opacity-75">
+      {/* One rank quieter than the warnings above it, and quieter by ink rather
+          than by opacity — this is the line that says what the answer was
+          measured against, and it was the least legible thing in the app. */}
+      <div className="mt-1 text-amber-800 dark:text-amber-400">
         Checked against: {report.checkedAgainst.join(', ')}.
       </div>
     </div>
