@@ -63,6 +63,27 @@ import { dirname, join, resolve } from 'path'
 import { startLmShim, startSearchFixture } from './h2h-fixtures'
 import type { FixtureHandle, LmShimConfig, SearchFixtureConfig } from './h2h-fixtures'
 import { checkPreconditions, requiredCapabilities } from './h2h-preconditions'
+import {
+  fingerprintChanged,
+  mergeUnfocused,
+  nextActivation,
+  stylesIn,
+  tabStop,
+  TAB_BASELINE,
+  TAB_FINGERPRINT,
+  TAB_PEEK,
+  TAB_REBASELINE,
+  TAB_RESOLVE,
+  THEME_READ,
+  THEME_SETTING
+} from './h2h-traversal'
+import type {
+  ActivationSpec,
+  Fingerprint,
+  StyleSnapshot,
+  TabStopRow,
+  ThemeReading
+} from './h2h-traversal'
 
 /* ------------------------------------------------------------------ types */
 
@@ -124,6 +145,9 @@ interface Action {
     | 'key'
     | 'viewport'
     | 'snapshot'
+    | 'styles'
+    | 'screenshot'
+    | 'theme'
     | 'tabTraverse'
     | 'prompt'
     | 'waitTurnEnd'
@@ -143,12 +167,30 @@ interface Action {
   /** viewport */
   width?: number
   height?: number
-  /** snapshot / tabTraverse: a name for the artifact file. */
+  /** snapshot / styles / screenshot / tabTraverse: a name for the artifact file. */
   label?: string
-  /** snapshot: which subtree — 'document' (default), 'transcript', 'plan', 'lastMessage'. */
+  /** snapshot / styles: which subtree — 'document' (default), 'transcript', 'plan', 'lastMessage'. */
   within?: string
   /** tabTraverse: how many Tab presses to record (default 25). */
   stops?: number
+  /**
+   * tabTraverse: stops to activate on the way through, in order. Each fires at
+   * most once, and only after the one before it has. This is what lets a
+   * traversal follow the app's own answer *into* what the answer names instead
+   * of stopping at the control that opens it.
+   */
+  activate?: ActivationSpec[]
+  /**
+   * tabTraverse: a label pattern for the control that closes whatever the
+   * traversal opened. Required whenever a traversal opens a surface, because
+   * the run's later artifacts — including screenshots, which nothing can
+   * de-identify — must show the app in the state the task describes.
+   */
+  exit?: string
+  /** tabTraverse: how many further Tab presses may be spent finding `exit` (default 80). */
+  exitStops?: number
+  /** theme: which theme to switch the running app to. */
+  theme?: 'light' | 'dark'
   /** prompt: the follow-up message to send in the same conversation. */
   prompt?: string
   /** Do not fail the run if this action cannot complete; record it and go on. */
@@ -234,11 +276,13 @@ interface RawMessage {
 
 interface ShotRecord {
   file: string
-  phase: 'mid' | 'turn-end' | 'turn-end-expanded'
+  phase: 'mid' | 'turn-end' | 'turn-end-expanded' | 'action'
   atMsFromSend: number | null
   bytes: number
   /** 'os' is the real window surface; 'renderer' is the compositor fallback. */
   surface?: 'os' | 'renderer'
+  /** For phase 'action': the driver's name for the moment, e.g. the theme it is in. */
+  label?: string
 }
 
 /* ------------------------------------------------------------------- args */
@@ -933,52 +977,44 @@ function scopeExpr(within: string | undefined): string {
   return `document.querySelector(${JSON.stringify(w)})`
 }
 
-/**
- * Captures, for every focusable element, its computed style while NOT focused.
- * Run once before a Tab traversal: comparing a focused element against its own
- * unfocused values is the only comparison that answers "is the focus visible",
- * and it cannot be taken after the fact without moving focus away again.
- */
-const TAB_BASELINE = String.raw`(() => {
-  var KEYS = ['outlineStyle','outlineWidth','outlineColor','outlineOffset','boxShadow','borderColor','backgroundColor','color']
-  function snap(el) {
-    var cs = getComputedStyle(el), o = {}
-    for (var i = 0; i < KEYS.length; i++) o[KEYS[i]] = cs[KEYS[i]]
-    return o
-  }
-  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
-  var map = new WeakMap()
-  var all = document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')
-  for (var i = 0; i < all.length; i++) map.set(all[i], snap(all[i]))
-  window.__h2hTab = { map: map, snap: snap, keys: KEYS }
-  return String(all.length)
-})()`
-
-/** Reads the focused element and both style states at one Tab stop. */
-const TAB_STOP = String.raw`(() => {
-  var T = window.__h2hTab
-  var el = document.activeElement
-  if (!el || el === document.body) return JSON.stringify({ tag: null })
-  var r = el.getBoundingClientRect()
-  var unfocused = T.map.get(el) || null
-  return JSON.stringify({
-    tag: el.tagName.toLowerCase(),
-    type: el.getAttribute('type'),
-    label: (el.getAttribute('aria-label') || el.getAttribute('title') || (el.innerText || '').trim()).slice(0, 80),
-    className: typeof el.className === 'string' ? el.className.slice(0, 200) : '',
-    rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
-    inViewport: r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth,
-    focused: T.snap(el),
-    unfocused: unfocused
-  })
-})()`
-
 interface ActionContext {
-  screenshot(phase: ShotRecord['phase'], atMs: number | null): Promise<void>
+  screenshot(phase: ShotRecord['phase'], atMs: number | null, label?: string): Promise<void>
   snapshotsDir: string
   waitTurnEnd(budgetMs: number): Promise<boolean>
   sendPrompt(text: string): Promise<string>
   budgetMs: number
+}
+
+/**
+ * Presses the focused control, using the keyboard only, and proves it fired.
+ *
+ * Enter first, because Enter is what a person presses. Blink activates a button
+ * from the keypress that follows Enter's keydown, and Space from its keyup —
+ * two different code paths, and a control that answers only one of them is a
+ * finding, not something to route around. Both are legitimate keyboard
+ * activation; a click is not, and is never used here.
+ *
+ * Whether anything happened is decided by comparing the page, never assumed.
+ */
+async function activateFocused(
+  cdp: Cdp,
+  tag: string | null
+): Promise<{ key: string | null; before: Fingerprint; after: Fingerprint }> {
+  const read = async (): Promise<Fingerprint> =>
+    JSON.parse(await cdp.evalString(TAB_FINGERPRINT)) as Fingerprint
+  const before = await read()
+  let after = before
+  // Space is only offered to things a space cannot corrupt. Pressed in a text
+  // field it types, and a driver that types into the app it is measuring has
+  // changed the thing it is measuring.
+  const keys = tag === 'button' || tag === 'a' ? ['Enter', 'Space'] : ['Enter']
+  for (const key of keys) {
+    await dispatchKey(cdp, key, 0)
+    await sleep(350)
+    after = await read()
+    if (fingerprintChanged(before, after)) return { key, before, after }
+  }
+  return { key: null, before, after }
 }
 
 async function runAction(cdp: Cdp, action: Action, ctx: ActionContext): Promise<string> {
@@ -1114,34 +1150,237 @@ async function runAction(cdp: Cdp, action: Action, ctx: ActionContext): Promise<
       return `snapshots/${label}.html (${(parsed.html ?? '').length} chars)`
     }
 
-    case 'tabTraverse': {
-      const stops = action.stops ?? 25
-      const label = action.label ?? 'tab-traverse'
-      const counted = await cdp.evalString(TAB_BASELINE)
-      const rows: unknown[] = []
-      for (let i = 0; i < stops; i++) {
-        await dispatchKey(cdp, 'Tab', 0)
-        await sleep(90)
-        const raw = await cdp.evalString(TAB_STOP)
-        rows.push({ stop: i + 1, ...(JSON.parse(raw) as Record<string, unknown>) })
-      }
+    case 'styles': {
+      const label = action.label ?? `styles-${Date.now()}`
+      const res = await cdp.evalString(stylesIn(scopeExpr(action.within)))
+      const parsed = JSON.parse(res) as { ok: boolean; nodes?: Record<string, unknown>[] }
+      if (!parsed.ok) throw new Error(`styles scope "${action.within ?? 'document'}" did not resolve`)
+      const themeNow = await cdp.evalString(
+        `String(document.documentElement.classList.contains('dark') ? 'dark' : 'light')`
+      )
       mkdirSync(ctx.snapshotsDir, { recursive: true })
       writeFileSync(
         join(ctx.snapshotsDir, `${label}.json`),
         `${JSON.stringify(
           {
             note:
-              'One entry per Tab press. "focused" is the computed style while focused; ' +
-              '"unfocused" is the same element measured before the traversal, with nothing focused. ' +
-              'A stop where the two are identical is a stop with no visible focus indicator.',
-            focusableElementsMeasured: Number(counted),
-            stops: rows
+              'One entry per text node of three or more non-whitespace characters, as it actually ' +
+              'rendered. "foregroundRgb" is the ink composited over "backgroundRgb" — the app\'s ' +
+              'muted ink is rgba(23,23,23,0.32), so its raw computed colour is not what anyone sees ' +
+              '— and "backgroundChain" is the stack of surfaces that produced that background. ' +
+              'No contrast ratio is computed here: the ratio is a pure function of those two RGB ' +
+              'triples and belongs to the scoring pass, not to the instrument. fontSizePx and ' +
+              'fontWeight decide which WCAG threshold applies (4.5:1, or 3.0:1 for large text).',
+            theme: themeNow,
+            scope: action.within ?? 'document',
+            nodeCount: parsed.nodes?.length ?? 0,
+            nodes: parsed.nodes ?? []
           },
           null,
           2
         )}\n`
       )
-      return `snapshots/${label}.json (${stops} stops over ${counted} focusable elements)`
+      return `snapshots/${label}.json (${parsed.nodes?.length ?? 0} text nodes, ${themeNow} theme)`
+    }
+
+    case 'screenshot': {
+      const label = action.label ?? `at-${Date.now()}`
+      await ctx.screenshot('action', null, label)
+      return `screenshot "${label}"`
+    }
+
+    case 'theme': {
+      const want = action.theme === 'dark' ? 'dark' : 'light'
+      const read = async (): Promise<ThemeReading> => {
+        const r = JSON.parse(await cdp.evalString(THEME_READ)) as ThemeReading
+        r.setting = await cdp.evalString(THEME_SETTING)
+        return r
+      }
+      const before = await read()
+      if (before.setting === want && before.dark === (want === 'dark')) {
+        return `already ${want} (body background ${before.bodyBackground}); nothing changed`
+      }
+
+      // Through the app's own Settings panel, control by control, exactly as a
+      // person changes a theme: open Settings, General, the theme, Save. The
+      // shortcut of writing the setting over IPC and toggling the class does
+      // not work and must not be used — it leaves the renderer's own store
+      // holding the old value, and the Settings panel then repaints from that
+      // stale value every time it opens or closes. save() is the only path that
+      // updates the persisted settings, the store and the screen together.
+      const click = (text: string): Promise<string> =>
+        runAction(cdp, { type: 'clickText', text, timeoutMs: 20_000 }, ctx)
+      const steps: string[] = []
+      if (!before.overlayOpen) steps.push(await click('^Settings\\b'))
+      steps.push(await click('^General$'))
+      steps.push(await click(`^${want}$`))
+      steps.push(await click('^Save$'))
+      await sleep(500)
+
+      const after = await read()
+      if (after.setting !== want) {
+        throw new Error(`the app did not take theme "${want}" — getSettings() reports "${after.setting}"`)
+      }
+      if (after.dark !== (want === 'dark')) {
+        throw new Error(`theme "${want}" was saved but the document class is "${after.htmlClass}"`)
+      }
+      if (after.overlayOpen) {
+        throw new Error('Save did not close the Settings panel; the app is not back in the state the task describes')
+      }
+      // The witness. A theme that did not move a single rendered colour is a
+      // theme that did not happen, and a capture labelled "dark" over a light
+      // screen is worse than no capture at all.
+      if (before.bodyBackground === after.bodyBackground) {
+        throw new Error(
+          `theme "${want}" changed no rendered colour — body background stayed ${after.bodyBackground}`
+        )
+      }
+      return `theme ${before.setting} → ${after.setting} via the app's own Settings panel (${steps.length} controls); body background ${before.bodyBackground} → ${after.bodyBackground}`
+    }
+
+    case 'tabTraverse': {
+      const stops = action.stops ?? 25
+      const label = action.label ?? 'tab-traverse'
+      const specs = action.activate ?? []
+      const baseline = JSON.parse(await cdp.evalString(TAB_BASELINE)) as {
+        focusables: number
+        startedFrom: string
+        reset: boolean
+      }
+      const themeAt = await cdp.evalString(
+        `String(document.documentElement.classList.contains('dark') ? 'dark' : 'light')`
+      )
+      const rows: TabStopRow[] = []
+      const activations: Record<string, unknown>[] = []
+      let fired = 0
+
+      for (let i = 0; i < stops; i++) {
+        await dispatchKey(cdp, 'Tab', 0)
+        await sleep(90)
+        const row = JSON.parse(await cdp.evalString(tabStop(i + 1))) as TabStopRow
+        rows.push(row)
+
+        const due = nextActivation(typeof row.label === 'string' ? row.label : null, specs, fired)
+        if (!due) continue
+        const { key, before, after } = await activateFocused(cdp, row.tag)
+        fired++
+        // Anything the activation created has to be measured unfocused NOW,
+        // while nothing in it has been focused yet. This is what makes focus
+        // visibility decidable inside the panel rather than only on the way to it.
+        const added = key ? Number(await cdp.evalString(TAB_REBASELINE)) : 0
+        const record = {
+          stop: i + 1,
+          match: due.spec.match,
+          why: due.spec.note ?? null,
+          label: row.label ?? null,
+          keyThatWorked: key,
+          focusablesBefore: before.focusables,
+          focusablesAfter: after.focusables,
+          overlayBefore: before.overlay,
+          overlayAfter: after.overlay,
+          newlyMeasuredUnfocused: added,
+          effect: key
+            ? `activated with ${key}`
+            : 'no observable change from Enter or Space — the control could not be activated from the keyboard'
+        }
+        activations.push(record)
+        row.activated = record
+      }
+
+      // Resolved BEFORE the exit, not after. The post-pass exists to measure
+      // elements that were focused every time a baseline ran, and the exit
+      // unmounts the whole panel — resolving afterwards returns null for every
+      // control the traversal was actually about, which is the one place the
+      // reading was needed.
+      const resolved = JSON.parse(await cdp.evalString(TAB_RESOLVE)) as {
+        stop: number
+        style: StyleSnapshot | null
+      }[]
+      const merged = mergeUnfocused(rows, resolved)
+
+      // Whatever the walk opened has to be closed, with the keyboard, before
+      // the run's own artifacts are taken. A screenshot is the one artifact
+      // nothing can de-identify, and a panel left open puts the app's version
+      // number in it.
+      let exit: Record<string, unknown> | null = null
+      if (action.exit) {
+        const budget = action.exitStops ?? 80
+        const re = new RegExp(action.exit, 'i')
+        let found = false
+        for (let i = 0; i < budget && !found; i++) {
+          await dispatchKey(cdp, 'Tab', 0)
+          await sleep(70)
+          const peek = await cdp.evalString(TAB_PEEK)
+          if (!re.test(peek)) continue
+          const { key, before, after } = await activateFocused(cdp, 'button')
+          found = key !== null
+          exit = {
+            pattern: action.exit,
+            label: peek,
+            extraTabPresses: i + 1,
+            keyThatWorked: key,
+            overlayBefore: before.overlay,
+            overlayAfter: after.overlay
+          }
+        }
+        if (!found) {
+          throw new Error(
+            `no control matching /${action.exit}/i could be activated within ${budget} further Tab presses; ` +
+              'the surface the traversal opened is still open and the run would not be in the state the task describes'
+          )
+        }
+      }
+
+      const fingerprint = JSON.parse(await cdp.evalString(TAB_FINGERPRINT)) as Fingerprint
+
+      mkdirSync(ctx.snapshotsDir, { recursive: true })
+      writeFileSync(
+        join(ctx.snapshotsDir, `${label}.json`),
+        `${JSON.stringify(
+          {
+            note:
+              'One entry per Tab press, in order, driven with real key events. "focused" is the ' +
+              'computed style while focused; "unfocused" is the same element with nothing focused, ' +
+              'and "unfocusedSource" says when that reading was taken — "pre" before the traversal ' +
+              'or immediately after the activation that created the element, "post" after the walk ' +
+              'with focus cleared, null if the traversal itself unmounted the element and no ' +
+              'reading exists. A stop whose two readings are identical is a stop with no visible ' +
+              'focus indicator; a stop with a null unfocused reading is unmeasured, not passing. ' +
+              '"styleDeltaKeys" names exactly which properties moved, because both of the obvious ' +
+              'questions mislead: "do the readings differ" scores a colour change on a zero-width ' +
+              'outline as a ring, and "did the width or style change" misses a ring that is drawn ' +
+              'permanently at 2px and merely turns from transparent to coloured on focus. Both ' +
+              'states are recorded in full so the scoring pass need not choose between them. ' +
+              '"surface" is "overlay" for a stop inside a modal and "page" otherwise, and ' +
+              '"obscured" says whether a click at the element\'s own centre would land on something ' +
+              'else — a control behind a modal scrim is focusable, on screen, and unusable.',
+            theme: themeAt,
+            focusableElementsMeasured: baseline.focusables,
+            focusableElementsAtEnd: fingerprint.focusables,
+            /**
+             * Where focus was when the walk began, and whether it was put back
+             * to the top of the document before the first Tab. Two traversals
+             * of one route are only comparable stop-for-stop if both say
+             * "reset": true — recorded rather than assumed, because the first
+             * traversal of a run starts moments after the driver typed and used
+             * to begin mid-document.
+             */
+            focusStartedFrom: baseline.startedFrom,
+            startPointReset: baseline.reset,
+            overlayOpenAtEnd: fingerprint.overlay,
+            stopsRequested: stops,
+            activationsRequested: specs.length,
+            activationsPerformed: activations.filter((a) => a.keyThatWorked !== null).length,
+            activations,
+            exit,
+            stops: merged
+          },
+          null,
+          2
+        )}\n`
+      )
+      const done = activations.filter((a) => a.keyThatWorked !== null).length
+      return `snapshots/${label}.json (${stops} stops in ${themeAt} theme over ${baseline.focusables} focusable elements; ${done}/${specs.length} activations)`
     }
 
     case 'prompt': {
@@ -1438,7 +1677,11 @@ async function main(): Promise<void> {
     // fine. A failure is recorded in notes and in run.json's screenshot list,
     // so a critic reading the run knows an image is missing rather than absent.
     let shotFailures = 0
-    const screenshot = async (phase: ShotRecord['phase'], atMs: number | null): Promise<void> => {
+    const screenshot = async (
+      phase: ShotRecord['phase'],
+      atMs: number | null,
+      label?: string
+    ): Promise<void> => {
       // Every grab gets its OWN short-lived CDP connection, and two tries on it.
       //
       // A screenshot degrades the socket it was taken on: the first one usually
@@ -1476,15 +1719,23 @@ async function main(): Promise<void> {
           }
         }
       }
+      const named = label ? `${phase}-${label.replace(/[^A-Za-z0-9._-]+/g, '-')}` : phase
       if (!r || !r.data) {
         shotFailures++
-        notes.push(`screenshot (${phase}) failed on both surfaces: ${lastErr || 'no data'}`)
+        notes.push(`screenshot (${named}) failed on both surfaces: ${lastErr || 'no data'}`)
         return
       }
       const buf = Buffer.from(r.data, 'base64')
-      const name = `${String(shots.length + 1).padStart(2, '0')}-${phase}.png`
+      const name = `${String(shots.length + 1).padStart(2, '0')}-${named}.png`
       writeFileSync(join(shotsDir, name), buf)
-      shots.push({ file: `screenshots/${name}`, phase, atMsFromSend: atMs, bytes: buf.length, surface })
+      shots.push({
+        file: `screenshots/${name}`,
+        phase,
+        atMsFromSend: atMs,
+        bytes: buf.length,
+        surface,
+        ...(label ? { label } : {})
+      })
     }
 
     const sampler: { state: PageState | null } = { state: null }
@@ -1678,6 +1929,31 @@ async function main(): Promise<void> {
     const t0 = sampler.state?.t0 ?? null
     const rel = (t: number | null | undefined): number | null =>
       t == null || t0 == null ? null : t - t0
+
+    // A driver action may have opened a modal — VC2's traversal walks into
+    // Settings — and a modal left open at turn end is in every screenshot that
+    // follows. Screenshots are the one artifact make-blind-pairs cannot scrub,
+    // and Settings → General renders the app's version number, which is the
+    // strongest arm tell there is. This does not void a run; it makes the state
+    // of the screen a stated fact rather than something a critic infers from
+    // the picture.
+    const overlayAtEnd = await cdp.evalString(String.raw`(() => {
+      var all = document.querySelectorAll('div')
+      for (var i = 0; i < all.length; i++) {
+        var c = typeof all[i].className === 'string' ? all[i].className : ''
+        if (c.indexOf('fixed inset-0') !== -1 && c.indexOf('z-50') !== -1) return 'open'
+      }
+      return 'none'
+    })()`)
+    const themeAtEnd = await cdp.evalString(
+      `String(document.documentElement.classList.contains('dark') ? 'dark' : 'light')`
+    )
+    if (overlayAtEnd === 'open') {
+      notes.push(
+        'a modal overlay was open at turn end, so the turn-end screenshots show it rather than the ' +
+          'transcript alone; a traversal that opens a surface should declare an "exit"'
+      )
+    }
 
     // Turn-end capture, in the state the app left it: collapsed blocks stay
     // collapsed, because that is what the user was looking at.
@@ -1937,6 +2213,13 @@ async function main(): Promise<void> {
       // from "an image that was never taken".
       screenshotsFailed: shotFailures,
       viewport: cap.viewport,
+      /**
+       * The screen's state when the run's own artifacts were taken. `theme` is
+       * read off the document, not off the seeded config, so a task that
+       * switched themes mid-run reports where it finished; `overlayOpen` says
+       * whether a modal a driver action opened was still covering the app.
+       */
+      screenAtTurnEnd: { theme: themeAtEnd, overlayOpen: overlayAtEnd === 'open' },
       notes
     }
     writeFileSync(join(runDir, 'run.json'), `${JSON.stringify(run, null, 2)}\n`)
@@ -2075,8 +2358,22 @@ FILES
   screenshots/             mid-turn frames and the frame at turn end, plus one
                            with every section expanded
   snapshots/               DOM captured at named moments the driver chose (for
-                           example, a plan block before and after Cancel), and
-                           keyboard-traversal records
+                           example, a plan block before and after Cancel);
+                           styles-*.json, which records for every piece of prose
+                           the two colours a contrast ratio is computed from —
+                           the ink as it composited over its real background,
+                           that background, and the surfaces that produced it;
+                           and tab-traverse-*.json, one entry per Tab press of a
+                           keyboard-only walk through the app, with the computed
+                           style of each stop focused and unfocused, which
+                           properties differ between the two, whether anything
+                           is drawn over the control, and every control the walk
+                           pressed. Where a name ends in -light or -dark, the
+                           same measurement was taken twice on one screen: the
+                           app was switched between themes through its own
+                           Settings panel and switched back afterwards, so the
+                           two readings are of the same reply and the same
+                           layout rather than of two different runs.
   fixtures/                every request the task's loopback servers served. If
                            a task claims to have exercised a fixture, it is
                            here that the claim is checked.

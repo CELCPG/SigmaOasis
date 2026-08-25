@@ -118,7 +118,19 @@ for ID in "${IDS[@]}"; do
       }
       return out
     }
-    const eff = variant && setup.variants && setup.variants[variant] ? merge(setup, setup.variants[variant]) : setup
+    // A variant the task does not define must not fall through to the base
+    // setup: the run directory would still be named "<id>-<variant>" and the
+    // capture would be of something else entirely. A label that outruns its
+    // measurement is the exact failure this bench keeps finding in the product;
+    // it does not get to live in the bench.
+    if (variant && !(setup.variants && setup.variants[variant])) {
+      console.error(
+        `task "${id}" defines no variant "${variant}" (has: ${Object.keys(setup.variants || {}).join(", ") || "none"}) — ` +
+          "refusing to capture it under a name it would not be"
+      )
+      process.exit(3)
+    }
+    const eff = variant ? merge(setup, setup.variants[variant]) : setup
     const w = (name, value) => {
       const p = path.join(work, `${id}.${name}.json`)
       fs.writeFileSync(p, JSON.stringify(value, null, 2))
