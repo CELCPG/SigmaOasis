@@ -20,6 +20,12 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import type { AddressInfo } from 'net'
 
+/** The shipped stylesheet: this file's markup has to pair with a rule over there. */
+const indexCss = readFileSync(
+  join(__dirname, '..', '..', 'src', 'renderer', 'src', 'assets', 'index.css'),
+  'utf-8'
+)
+
 let passed = 0
 const failures: string[] = []
 
@@ -146,12 +152,74 @@ async function main(): Promise<void> {
     /class="code-wrap-btn"/.test(html) && /aria-pressed="false"/.test(html),
     html
   )
+  check(
+    'a block of ordinary code still scrolls by default',
+    !/code-wrapped/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
+
+  // v1.17.2: "a wrapped line is a lie about the source" is an argument about
+  // lines that HAVE a shape — indentation, two things on one line, a chosen
+  // line end. A line that is one unbroken token has none of that, and scrolling
+  // it shows 26 of its 220 characters at a time in split view. So that one
+  // shape of line, and only it, arrives wrapped. The class and the control's
+  // state have to agree, because MessageBubble's toggle derives one from the
+  // other.
+  const TOKEN = 'c2lnbWEtb2FzaXMtaGVhZC10by1oZWFkLWxheW91dC1wcm9iZS1hLXNpbmdsZS11bmJyb2tlbi10b2tlbi10aGF0LW11c3Qtbm90LWJsb3ctb3V0LXRoZS1jaGF0LWNvbHVtbg'
+  html = await render('```\n' + TOKEN + '\n```')
+  check(
+    'a fenced line that is one 220-character token arrives already wrapped',
+    /class="code-block code-wrapped"/.test(html) && /aria-pressed="true"/.test(html),
+    html
+  )
+  check('and the token itself is untouched in the DOM', html.includes(TOKEN), html)
+
+  // The true negatives: a long line of real code has a shape to misrepresent,
+  // and a short token would not have wrapped anyway — both still scroll.
+  html = await render('```js\nconst x = [' + Array(30).fill('"aaaaaa"').join(', ') + ']\n```')
+  check(
+    'a 260-character line of real code is left scrolling',
+    !/code-wrapped/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
+  html = await render('```\nabcdefghij\n```')
+  check(
+    'a short unbroken token does not flip the control for nothing',
+    !/code-wrapped/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
 
   html = await render('```nosuchlang\nx\n```')
   check('unknown language falls back to plaintext', /language-plaintext/.test(html), html)
 
   html = await render('| a | b |\n|---|---|\n| 1 | 2 |')
   check('tables render', /<table>/.test(html) && /<td>1<\/td>/.test(html), html)
+  // A table is the only block whose width its own cells decide, so it is the
+  // only one that can either push the chat column sideways or be squeezed until
+  // words break. Its own scroll container is what lets it do neither — and the
+  // wrapper has to survive the sanitizer, or the layout silently reverts.
+  check(
+    'a table is wrapped in a scroll container that survives sanitization',
+    /<div class="md-table-scroll" tabindex="0"><table>/.test(html),
+    html
+  )
+  // A scroll region has to be reachable from the keyboard, and a new tab stop
+  // that shows no ring is a VC2 regression — so the stylesheet is read here for
+  // the rule that gives this one its ring. The two live in different files;
+  // nothing else pairs them.
+  check(
+    'the tab stop it adds has a visible focus ring in the shipped stylesheet',
+    /\[tabindex\]:focus-visible/.test(indexCss),
+    'no [tabindex]:focus-visible rule in assets/index.css'
+  )
+  check('header and body rows both survive the wrapper', /<thead>[\s\S]*<th>a<\/th>/.test(html) && /<tbody>[\s\S]*<td>1<\/td>/.test(html), html)
+
+  html = await render('| a |\n|---|\n| 1 |\n\ntext\n\n| b |\n|---|\n| 2 |')
+  check(
+    'two tables get two independent containers, so one cannot drag the other',
+    (html.match(/md-table-scroll/g) ?? []).length === 2,
+    html
+  )
 
   // v1.17.1: `~` means "about" in technical prose, and models write it
   // constantly. GFM lets a SINGLE tilde open a strikethrough and marked

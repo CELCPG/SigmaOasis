@@ -49,6 +49,8 @@ const REPLY_TEXT = pick(bubbleSrc, /className="(whitespace-pre-wrap [^"]*)"/)
 const WRAP_BTN = pick(markdownSrc, /class="(code-wrap-btn)"/)
 /** The state class that control turns on, read from the stylesheet that keys on it. */
 const WRAP_STATE = pick(cssSrc, /\.code-block\.([a-z-]+) pre \{/)
+/** The scroll container the renderer wraps every table in. */
+const TABLE_SCROLL = pick(markdownSrc, /class="(md-table-scroll)"/)
 
 let passed = 0
 const failures: string[] = []
@@ -143,13 +145,48 @@ const BLOB = `/Users/x/Library/Caches/${'QUJDREVGR0hJSktMTU5PUFFSU1RVVld'.repeat
 const CODE_LINE = `const payload = "${'y'.repeat(200)}"`
 
 /**
+ * A citations table exactly like the one a reply builds from retrieved
+ * passages: a 3-character marker column beside an English header, and a prose
+ * column wide enough that the table cannot have every column at its preferred
+ * width. That squeeze is the whole case — it is what made the layout engine
+ * choose between widening the `Passage` column and breaking the word, and under
+ * `overflow-wrap: anywhere` it broke the word.
+ */
+const citationsTable = (id: string): string => `<table>
+          <thead><tr><th id="th-passage-${id}">Passage</th><th>Source</th><th>What it says</th></tr></thead>
+          <tbody>
+            <tr><td>[1]</td><td>burns.md</td><td>Cool the burn under cool running water for at least 20 minutes</td></tr>
+            <tr><td>[2]</td><td>scalds.md</td><td>Do not apply ice, butter or any cream to a scald</td></tr>
+          </tbody>
+        </table>`
+
+/** The same token, in a table cell — the case a table must scroll rather than pass on. */
+const TOKEN_TABLE = `<table>
+          <thead><tr><th>Token</th><th>Note</th></tr></thead>
+          <tbody><tr><td>${BLOB}</td><td>log line</td></tr></tbody>
+        </table>`
+
+/** The reply, as MessageBubble.tsx builds it, at one chat-column width. */
+function reply(id: string): string {
+  return `<div class="${REPLY_BUBBLE}" id="${id}">
+      <div class="markdown-body text-sm" id="md-${id}">
+        <p>Saved to <span id="blob-${id}">${BLOB}</span> just now.</p>
+        <div class="${TABLE_SCROLL}" id="cites-${id}">${citationsTable(id)}</div>
+        <div class="${TABLE_SCROLL}" id="tokentable-${id}">${TOKEN_TABLE}</div>
+      </div>
+    </div>`
+}
+
+/**
  * The two bubbles as MessageBubble.tsx builds them — same wrappers, same utility
- * classes — inside a chat column squeezed to 420px.
+ * classes — inside a chat column squeezed to 420px, and again at the 232px a
+ * bubble gets in split view.
  */
 function fixture(css: string, probes: string[]): string {
   const inks = ['primary', 'secondary', 'tertiary', 'muted']
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     .column { display: flex; width: 420px; align-items: flex-start; gap: 12px; }
+    .column.split { width: 232px; }
   </style><style>${css}</style></head>
 <body>
   <div class="column">
@@ -165,6 +202,8 @@ function fixture(css: string, probes: string[]): string {
   <div class="column" style="justify-content: flex-end">
     <div class="max-w-[80%] whitespace-pre-wrap break-words rounded-3xl px-4 py-2.5 text-sm" id="user-bubble"><span id="user-token">${BLOB}</span></div>
   </div>
+  <div class="column">${reply('wide')}</div>
+  <div class="column split">${reply('split')}</div>
   <div class="glass-panel" id="panel">
     ${inks.map((t) => `<p class="text-ink-${t}" id="ink-${t}">ink ${t}</p>`).join('\n    ')}
     <p class="text-accent-ink" id="ink-accent">accent ink</p>
@@ -198,6 +237,49 @@ const PROBE_SCRIPT = `(() => {
     const s = cs(el)
     return { style: s.outlineStyle, width: parseFloat(s.outlineWidth), color: s.outlineColor }
   }
+  // Every word in a reply that got broken across lines although it would have
+  // fitted on a line of the reply's own width. A word is measured on its own,
+  // in its own font, against a ruler — not against the box it was squeezed
+  // into, because that box's width is the thing under test: an overflow-wrap of
+  // "anywhere" collapses a table column to one character, and then every word
+  // in it "didn't fit". A 220-character token, genuinely wider than the reply, is
+  // excluded — it has nowhere to fit and breaking it is the point.
+  const shredded = (rootId) => {
+    const root = document.getElementById(rootId)
+    const ruler = document.createElement('span')
+    ruler.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:pre;visibility:hidden'
+    document.body.appendChild(ruler)
+    const rs = cs(root)
+    const reply = root.clientWidth - parseFloat(rs.paddingLeft) - parseFloat(rs.paddingRight)
+    const out = []
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const parent = n.parentElement
+      if (!parent) continue
+      const ps = cs(parent)
+      for (const p of ['fontStyle','fontVariant','fontWeight','fontStretch','fontSize','fontFamily','letterSpacing','wordSpacing','textTransform'])
+        ruler.style[p] = ps[p]
+      for (const m of n.nodeValue.matchAll(/\\S+/g)) {
+        const range = document.createRange()
+        range.setStart(n, m.index)
+        range.setEnd(n, m.index + m[0].length)
+        // Distinct line tops, not rect count: font fallback splits one line of
+        // "🔎 name" into several rects without breaking anything.
+        const tops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)))
+        if (tops.size < 2) continue
+        ruler.textContent = m[0]
+        const needs = ruler.getBoundingClientRect().width
+        if (needs <= reply + 0.5)
+          out.push({ word: m[0].slice(0, 20), needs: +needs.toFixed(1), reply: +reply.toFixed(1), lines: tops.size, where: parent.tagName.toLowerCase() })
+      }
+    }
+    ruler.remove()
+    return out
+  }
+  const flow = (id) => {
+    const el = document.getElementById(id)
+    return el ? { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth } : null
+  }
   const ink = {}
   const vars = {}
   const rootStyle = cs(document.documentElement)
@@ -210,6 +292,8 @@ const PROBE_SCRIPT = `(() => {
     reply: spill('blob', 'bubble'),
     replyText: spill('reply-text-token', 'bubble'),
     userMessage: spill('user-token', 'user-bubble'),
+    bubbleFlow: flow('bubble'),
+    userBubbleFlow: flow('user-bubble'),
     docScrollWidth: document.documentElement.scrollWidth,
     viewportWidth: window.innerWidth,
     codeScrollWidth: pre.scrollWidth,
@@ -217,6 +301,16 @@ const PROBE_SCRIPT = `(() => {
     wrappedScrollWidth: wrapped ? wrapped.scrollWidth : -1,
     wrappedClientWidth: wrapped ? wrapped.clientWidth : -1,
     wrappedLines: wrapped ? wrapped.querySelector('code').getClientRects().length : 0,
+    replies: ['wide', 'split'].map((w) => ({
+      width: w,
+      shredded: shredded(w),
+      bubble: flow(w),
+      citations: flow('cites-' + w),
+      tokenTable: flow('tokentable-' + w),
+      passageLines: new Set(
+        [...document.getElementById('th-passage-' + w).getClientRects()].map((r) => Math.round(r.top))
+      ).size
+    })),
     canvas: cs(document.body).backgroundColor,
     panel: cs(panel).backgroundColor,
     ink,
@@ -231,10 +325,34 @@ interface Spill {
   overhang: number
 }
 
+interface Flow {
+  scrollWidth: number
+  clientWidth: number
+}
+
+interface Shred {
+  word: string
+  needs: number
+  reply: number
+  lines: number
+  where: string
+}
+
+interface ReplyProbe {
+  width: string
+  shredded: Shred[]
+  bubble: Flow
+  citations: Flow
+  tokenTable: Flow
+  passageLines: number
+}
+
 interface Probe {
   reply: Spill
   replyText: Spill
   userMessage: Spill
+  bubbleFlow: Flow
+  userBubbleFlow: Flow
   docScrollWidth: number
   viewportWidth: number
   codeScrollWidth: number
@@ -242,6 +360,7 @@ interface Probe {
   wrappedScrollWidth: number
   wrappedClientWidth: number
   wrappedLines: number
+  replies: ReplyProbe[]
   canvas: string
   panel: string
   ink: Record<string, string>
@@ -345,6 +464,18 @@ async function main(): Promise<void> {
       `overhangs by ${s.overhang.toFixed(1)}px`
     )
   }
+  // VC1's own mechanical check, which the harness had never carried: an
+  // overhang of 0 says no line hangs past the edge, and says nothing about a
+  // descendant that is wider than the box. scrollWidth does.
+  for (const [where, f] of [
+    ['reply', light.bubbleFlow],
+    ['user message', light.userBubbleFlow]
+  ] as const)
+    check(
+      `${where}: the bubble itself does not scroll sideways`,
+      f.scrollWidth <= f.clientWidth + 1,
+      `scrollWidth ${f.scrollWidth} vs clientWidth ${f.clientWidth}`
+    )
   check(
     'the document does not scroll sideways',
     light.docScrollWidth <= light.viewportWidth,
@@ -378,6 +509,52 @@ async function main(): Promise<void> {
     light.wrappedLines > 1 && light.wrappedScrollWidth <= light.wrappedClientWidth + 1,
     `${light.wrappedLines} line box(es), ${light.wrappedScrollWidth} vs ${light.wrappedClientWidth}`
   )
+
+  /* -- (a2) …without shredding the words around it -------------------------- */
+
+  // The rule that stopped the blowout was `overflow-wrap: anywhere`, and
+  // `anywhere` is `break-word` plus one extra effect: the break counts toward
+  // min-content, so a box sized by its own contents can collapse to one
+  // character. In a table column sized against a 3-character `[1]` cell that
+  // turned the header `Passage` into "Pas / sag / e" — the reply's structured
+  // evidence was the one part of it a reader could not read. Both properties
+  // are asserted together here because they are the same property: the token
+  // must still be contained, and no word that could have fitted may be broken.
+  console.log('\nand the words around it are not shredded to make room')
+  check(
+    'the renderer wraps tables in a scroll container the stylesheet knows about',
+    TABLE_SCROLL !== '' && cssSrc.includes(`.${TABLE_SCROLL}`),
+    `renderer: ${TABLE_SCROLL || 'MISSING'}; stylesheet: ${TABLE_SCROLL && cssSrc.includes(`.${TABLE_SCROLL}`) ? 'ok' : 'no rule'}`
+  )
+  for (const r of light.replies) {
+    const label = r.width === 'split' ? 'split view' : '420px column'
+    check(
+      `${label}: no word is broken across lines that would have fitted the reply`,
+      r.shredded.length === 0,
+      r.shredded
+        .slice(0, 6)
+        .map((s) => `"${s.word}" over ${s.lines} lines (needs ${s.needs}px of ${s.reply}px)`)
+        .join(', ')
+    )
+    check(
+      `${label}: the table header "Passage" is one word on one line`,
+      r.passageLines === 1,
+      `${r.passageLines} lines`
+    )
+    // The true negative for the rule above: a 220-character token in a table
+    // cell has no break opportunity a word-preserving rule may take, so the
+    // table genuinely cannot fit. It scrolls — inside its own container.
+    check(
+      `${label}: a table too wide to fit scrolls inside its own container`,
+      r.tokenTable.scrollWidth > r.tokenTable.clientWidth + 1,
+      `${r.tokenTable.scrollWidth} vs ${r.tokenTable.clientWidth}`
+    )
+    check(
+      `${label}: and the bubble holding it does not scroll sideways`,
+      r.bubble.scrollWidth <= r.bubble.clientWidth + 1,
+      `bubble ${r.bubble.scrollWidth} vs ${r.bubble.clientWidth}, citations table ${r.citations.scrollWidth} vs ${r.citations.clientWidth}`
+    )
+  }
 
   /* -- (b) focus indicators ------------------------------------------------- */
 

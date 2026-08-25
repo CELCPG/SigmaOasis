@@ -88,7 +88,21 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         >
           {declined ? DECLINED_ICON : empty ? EMPTY_ICON : STATUS_ICON[record.status]}
         </span>
-        <span className="font-medium" style={{ color: record.status === 'running' ? visual.color : undefined }}>
+        {/*
+          min-w-0 truncate, like the reason span below it: this is a flex item,
+          so without min-w-0 its width is its own longest word. Measured in a
+          198px split-view row, on `🔎 reference_lookup_home_safety_corpus`:
+          under the old `overflow-wrap: anywhere` the identifier broke across
+          two lines inside itself, in a span squeezed to 138.3px; under
+          `break-word` it instead wants 229px, pushes the 196px row past the
+          wrapper's overflow-hidden, and is silently clipped. Neither is a name.
+          An ellipsis, with the whole of it in the tooltip, is.
+        */}
+        <span
+          className="min-w-0 truncate font-medium"
+          title={label}
+          style={{ color: record.status === 'running' ? visual.color : undefined }}
+        >
           {label}
         </span>
         {empty && <span className="text-amber-600 dark:text-amber-400">— {EMPTY_RESULT_NOTE}</span>}

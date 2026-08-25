@@ -493,11 +493,33 @@ summary:focus-visible,
  * Model output is full of tokens no line-breaking algorithm can break: base64
  * blobs, absolute paths, hashes, bare URLs. Without a break opportunity one of
  * them stretches the bubble and, because the bubble is a flex item, the chat
- * column with it. `anywhere` rather than `break-word` — it is the one that also
- * shrinks min-content, which is what stops the column blowing out.
+ * column with it.
+ *
+ * v1.17.2 — this was `anywhere`, and `anywhere` was the wrong half of the
+ * choice. The two keywords break identically: neither splits a word that fits
+ * on a line of its own. They differ in ONE thing — `anywhere` also lets the
+ * break count toward min-content, so a box that is sized by its contents may
+ * shrink to one character. That is precisely why it stopped the blowout, and
+ * precisely why a blind critic found "Passage" rendered "Pas / sag / e" in a
+ * table header: the column was sized against the 3-character `[1]` cell beside
+ * it, and the header was shredded to fit rather than the column widened.
+ *
+ * The shredding and the blowout are not two problems to trade off. They are the
+ * same property — min-content collapse — read once as a rescue and once as a
+ * defect, and they occur in exactly the same set of places: boxes whose width
+ * their own content decides. So the rule is `break-word` everywhere (never
+ * break a word that could have fitted), and every box that content sizes is
+ * given something else to size against instead:
+ *
+ *   - the bubble is `min-w-0 flex-1`, so its width comes from the column;
+ *   - a table gets its own scroll container (`.md-table-scroll`, below);
+ *   - a tool-call header's label is `min-w-0 truncate` (ToolCallBlock.tsx).
+ *
+ * Measured, at a 420px column and again in split view: shredded words 6 → 0,
+ * bubble scrollWidth unchanged at clientWidth. test/styleCheck.ts.
  */
 .markdown-body {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /*
@@ -510,7 +532,7 @@ summary:focus-visible,
  * back out further down.
  */
 .reply-surface {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .markdown-body p {
@@ -580,6 +602,26 @@ summary:focus-visible,
   /* A quote is the source's own words. The rule sets it apart; the ink does
      not have to — flat grey was 3.9:1 on the light panel. */
   color: var(--text-secondary);
+}
+/*
+ * A table is the one markdown block whose width its own contents decide: the
+ * column algorithm reads each cell's min-content, so with `break-word` a
+ * three-column citations table wants the width of its longest words and a cell
+ * holding a 220-character token wants 1795px. Compressing it is what shredded
+ * "Passage"; letting it push is what blew the column out. So it does neither —
+ * it scrolls, inside a container the reply's own width fixes. `overflow-x`
+ * makes this a scroll container, which also drops its flex `min-width: auto`
+ * to 0, so no ancestor can be stretched by it either.
+ *
+ * The wrapper is generated in lib/markdown.ts, so the <table> stays a real
+ * table: `display: block` on the element would have done the same job in CSS
+ * alone and would have dropped the table role from the accessibility tree.
+ * `tabindex` because a region that scrolls has to be scrollable by keyboard
+ * (WCAG 2.1.1); the app-wide `[tabindex]:focus-visible` ring covers it.
+ */
+.md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }
 .markdown-body table {
   margin: 0.5em 0;
@@ -662,10 +704,16 @@ summary:focus-visible,
  * narrow, the scrollbar is at the bottom of a block that may be one line tall,
  * and nothing said there was more to see. The header's Wrap control turns this
  * on for one block at a time, so the default still shows the source as written.
+ *
+ * v1.17.2: `break-word` rather than `anywhere` here too, so the stylesheet has
+ * exactly one wrapping policy and no `anywhere` left to re-grow from. In a
+ * block whose width is already fixed by its parent the two are identical — a
+ * 220-character token cannot fit a line of its own either way, so it still
+ * breaks. lib/markdown.ts decides which blocks start in this state.
  */
 .code-block.code-wrapped pre {
   overflow-x: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 .code-block code {

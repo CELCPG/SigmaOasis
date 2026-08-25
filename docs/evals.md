@@ -1933,6 +1933,130 @@ The baseline was also re-captured through the *current* harness for this round, 
   a fence; and `overflow-wrap: anywhere` — this project's own fix for the VC1 blowout —
   breaking "Passage" into "Pas / sag / e" in a table header.
 
+### Pending fold-in — the wrapping rule that shredded the words it was protecting
+
+Two of the defects listed above are the same defect, and both are in code this project wrote to
+pass VC1. Round 7's blind critics found them in the winning runs:
+
+> run-1's markdown table is broken by its own wrapping rule — `04-turn-end.png` shows the header
+> `Passage` hard-split mid-word across three lines as **"Pas / sag / e"**, because the column is
+> sized to the 3-character `[1]` cell and the word is broken rather than the column widened.
+
+> its `<pre>` is still bare with the wrap toggle **off by default** (`aria-pressed="false"`), so
+> the same token inside a fenced block still needs horizontal scrolling — in split view roughly
+> 28 characters at a time.
+
+**The blowout and the shredding were never two goals to trade off.** `overflow-wrap: break-word`
+and `overflow-wrap: anywhere` break identically: neither splits a word that fits on a line of its
+own. They differ in exactly one thing — under `anywhere` the break also counts toward
+**min-content**, so a box whose width its own contents decide may collapse to one character. That
+single extra effect is the whole of why `anywhere` stopped the bubble blowing out, and the whole
+of why it shredded a table header. Both readings occur in the same set of places — boxes sized by
+their content — and nowhere else, which is why the same stylesheet left prose, list items and
+blockquotes untouched. Measured: every word the detector flagged was in a table cell, and a
+paragraph, a list item and a blockquote each rendered every word whole at both widths. The one
+other content-sized box in a reply is a tool-call header's label, and it was affected too — see
+the row for it below.
+
+So the rule became `break-word` everywhere, and each content-sized box in a reply was given
+something other than its own words to size against: the bubble is already `min-w-0 flex-1`; a
+table now has its own scroll container (`.md-table-scroll`, generated in `lib/markdown.ts` so the
+`<table>` keeps its element and its role); a tool-call header's label is `min-w-0 truncate`.
+
+#### Measured, in `test/styleCheck.ts`
+
+The app's own reply markup, the app's own stylesheet compiled the way the app compiles it, laid
+out in a real offscreen Chromium window at a 420px chat column and again at the 232px a bubble
+gets in split view. A citations table exactly like one built from retrieved passages — a
+3-character `[1]` column beside an English header, and a prose column wide enough that the table
+cannot have every column at its preferred width.
+
+| Property | Before (`anywhere`) | After (`break-word` + scroll container) |
+| --- | --- | --- |
+| Words broken across lines that would have fitted the reply, 420px | **6** — `Passage`, `burns.md`, `scalds.md`, `Note`, `log`, `line` | **0** |
+| The same, in split view | **6** — `Passage`, `Source`, `burns.md`, `Note`, `log`, `line` | **0** |
+| The header `Passage`, 420px | 2 line boxes in a 54.6px cell | 1 line box in a 68.8px cell |
+| The header `Passage`, split view | 4 line boxes in a 36px cell | 1 line box in a 68.8px cell |
+| A 220-char token in a table cell, 420px | table squeezed to 386px; every word in it shredded | table 1795px, scrolling inside its own 386px container |
+| The bubble holding that table, 420px | scrollWidth 418 = clientWidth 418 | 418 = 418 |
+| …and in split view | 230 = 230 | 230 = 230 |
+| A single-token tool name in a 198px tool-call row | broken across two lines inside the identifier, span squeezed to 138.3px | ellipsis; row scrollWidth 196 = clientWidth 196 |
+
+**The true negatives, which are the point.** VC1's blowout must stay fixed, so the same fixture
+still asserts every original containment property and two the harness had never carried:
+
+| True negative | Measured |
+| --- | --- |
+| The 220-char token in prose still wraps inside the bubble | 12 line boxes, widest 198px against 198px of bubble, 0px overhang |
+| The reply bubble itself does not scroll sideways | scrollWidth 418 ≤ clientWidth 418 (new assertion — an overhang of 0 says no *line* hangs out, and says nothing about a descendant wider than the box) |
+| The user bubble likewise | scrollWidth ≤ clientWidth |
+| The document does not scroll sideways | 992 ≤ 1000 |
+| A code block still scrolls rather than wrapping | scrollWidth > clientWidth |
+| `break-word` **without** a table scroll container — the rejected half-fix | bubble scrollWidth **1811** vs clientWidth 418: the blowout, back. This is why the container is not optional |
+| The rule restored to `anywhere` — the detector's own control | 6 / 6 shredded words return |
+
+The detector is the assertion worth keeping, because it names the class rather than the case: for
+every word in a reply, if it renders across more than one line **and** it would have fitted on a
+line of the reply's own width, it was broken when it did not have to be. The reply's width is the
+reference deliberately — not the box the word ended up in, because that box's width is the thing
+under test. A word measured against a column that `anywhere` has already collapsed to one
+character always "didn't fit", which is how this passed unnoticed for a round.
+
+#### The code block: the principle survives, and it is not "never wrap"
+
+The comment defending the scroll default says *"a wrapped line is a lie about the source. It
+scrolls."* That is a real argument and it is kept — but it is an argument about lines that **have a
+shape**. Where a line ends, how it is indented, whether two things sit on the same line: in code
+those are content, and soft-wrapping invents line ends the file does not contain.
+
+A line that is one unbroken token has none of that. It contains no whitespace, so there is no
+indentation to misplace and no second thing on the line to imply. Wrapping it cannot misrepresent
+it. Scrolling it does measurable damage:
+
+| A 220-character token in a fenced block, split view | Before | After |
+| --- | --- | --- |
+| What the reader can see at once | `pre` scrollWidth 1680 vs clientWidth 198 — **26 of 220 characters**, behind an 8px scrollbar on a block one line tall (offsetHeight 48, clientHeight 40) | arrives wrapped: 10 line boxes, scrollWidth 198 = clientWidth 198, nothing hidden |
+| Interactions needed to read it | find and press Wrap, or ~8 drags | none |
+
+So the default follows the principle more exactly than "never wrap" did: `startsWrapped` in
+`lib/markdown.ts` wraps a block only when wrapping can tell no lie about it, and sets the header
+control's `aria-pressed` from the same value so the two never disagree. **What it costs:** a
+reader who wants to see a long token exactly as the model emitted it — as one line — now has to
+press Wrap to turn it *off*, the inverse of the old cost, and the decision is made from the source
+text rather than from the pane, so a 100-character token that would have fitted a wide window
+still starts wrapped. That is deliberate: a default derived from layout changes when you resize
+the window, and a code block that reflows on drag is worse than either default.
+
+True negatives, in `test/markdownCheck.ts`: a 260-character line of real JavaScript still scrolls
+(`aria-pressed="false"`, no `code-wrapped`); an ordinary Python block still scrolls; a 10-character
+unbroken token does not flip the control for nothing; and the token itself is byte-identical in the
+DOM, so it is still selectable and copyable in full.
+
+#### What this does not measure
+
+- **Nothing was re-run against a model, and no sweep was taken.** These are before/after
+  measurements of one build in a render harness. No win/loss claim attaches to any of it.
+- **An ordinary citations table in split view now scrolls rather than shredding**: container
+  clientWidth 198 against scrollWidth 205. Seven pixels, but it is a horizontal scroll where there
+  used to be none, and the only thing announcing it is the same 8px scrollbar. Reading a
+  three-column table in a 198px pane was never going to be comfortable; the choice made here is
+  that a nudge beats an unreadable word.
+- **Each table adds a tab stop.** `tabindex="0"` is what makes a scroll region reachable by
+  keyboard (WCAG 2.1.1), and it is added to every table, not only the ones that overflow — which
+  cannot be known before layout. VC2's tab-stop counts change accordingly and have not been
+  re-measured.
+- **The fixture holds two tables.** A table nested inside a list item or a blockquote, and a table
+  in the non-markdown reply surfaces, are not in it. The word detector would catch them if they
+  were; it cannot catch what the fixture does not render.
+- **`.reply-surface` is asserted through the bubble, not through each surface.** `overflow-wrap`
+  inherits, which is why the rule is set once — but a future surface that establishes its own
+  content-sized box (a flex row without `min-w-0`, a `fit-content` panel) would be back in the
+  same trap, and only the fixture growing a case for it would say so.
+- **The tool-call header now truncates.** A long tool name is an ellipsis plus a `title` tooltip;
+  a reader who cannot hover — a keyboard or touch user — sees the truncation and not the name.
+  That is a smaller loss than a shredded identifier and it is still a loss.
+
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
