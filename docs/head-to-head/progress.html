@@ -191,12 +191,12 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">1792 pass / 0 fail</span>
+          <span class="inv__val">1862 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">render + style checks</span>
-          <span class="inv__val">25 render · 33 style · 39 chrome-contrast · 34 md · 46 workbench · 24 transport</span>
+          <span class="inv__val">25 render · 33 style · 45 chrome-contrast · 34 md · 46 workbench · 24 transport</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -255,11 +255,11 @@
     <div class="grid">
         <article class="dim">
           <h3 class="dim__title">Answer verifiability and citations</h3>
-          <div class="dim__bar" role="img" aria-label="5 of 6 high-severity gaps closed">
-            <span class="dim__fill" style="width:83%"></span>
+          <div class="dim__bar" role="img" aria-label="6 of 6 high-severity gaps closed">
+            <span class="dim__fill" style="width:100%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">5<span class="of">/6</span></dd></div>
+            <div><dt>closed</dt><dd class="num">6<span class="of">/6</span></dd></div>
             <div><dt>high</dt><dd class="num">6</dd></div>
             <div><dt>total</dt><dd class="num">14</dd></div>
           </dl>
@@ -277,22 +277,22 @@
         </article>
         <article class="dim">
           <h3 class="dim__title">Tool-call honesty</h3>
-          <div class="dim__bar" role="img" aria-label="4 of 3 high-severity gaps closed">
-            <span class="dim__fill" style="width:133%"></span>
+          <div class="dim__bar" role="img" aria-label="5 of 3 high-severity gaps closed">
+            <span class="dim__fill" style="width:167%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">4<span class="of">/3</span></dd></div>
+            <div><dt>closed</dt><dd class="num">5<span class="of">/3</span></dd></div>
             <div><dt>high</dt><dd class="num">3</dd></div>
             <div><dt>total</dt><dd class="num">10</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Time-to-useful-output</h3>
-          <div class="dim__bar" role="img" aria-label="4 of 5 high-severity gaps closed">
-            <span class="dim__fill" style="width:80%"></span>
+          <div class="dim__bar" role="img" aria-label="5 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:100%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">4<span class="of">/5</span></dd></div>
+            <div><dt>closed</dt><dd class="num">5<span class="of">/5</span></dd></div>
             <div><dt>high</dt><dd class="num">5</dd></div>
             <div><dt>total</dt><dd class="num">15</dd></div>
           </dl>
@@ -448,16 +448,43 @@
           </div>
         </div>
       </li>
-      <li class="round round--pending">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">5</span></div>
         <div class="round__body">
           <header class="round__head">
-            <h3>The verification tail, and a revision that did not happen</h3>
+            <h3>The shape three rounds of checks kept failing in</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the original baseline, with the Python runtime</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">baseline + rounds 1–5</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Five builders: the revision line that claimed work it had not done, the measurement check that missed the case it was built for, the unbounded verification tail, a memory disclosure the current build had lost, and citation markers that resolved to the wrong passage when a turn ran two lookups.</dd></div>
+            <div><dt>findings</dt><dd>The round produced a finding larger than its fixes. Three rounds running, a check built for exactly the failing case did not fire, always for the same structural reason: it enumerated the forms it had already seen and the world supplied one that was not on the list — round 3 listed net:: error codes and missed ERR_UNSAFE_PORT; round 4 bounded a quoted span by the line so a citation marker inside it broke the match; round 5 armed measurements per unit STRING, so a corpus with no Celsius never checked 74°C at all, and 165°F was named only because one passage incidentally mentioned a fridge at 40°F. Round 3’s repair generalises: replace the enumeration with its inverse — list the few codes that mean a server ANSWERED and treat everything else as unreachable. A list of known-bad can be defeated by an unknown; a list of known-good cannot.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-5 build 15 · baseline 1 · 1 tie, over 17 tasks judged blind. Best result so far, and the single loss has one traceable cause that was documented as open before judging began.</dd></div>
+            <div><dt>biggest gap</dt><dd>V1, the one loss, and the cause was known before judging. The app now catches and NAMES the invented figure — “✎ Revised: 1 unsupported item was sent back (165 °F)” — but the re-check then clears it, and the figure is still in the answer. reviseAgainstFindings passes the turn’s records into the agent loop, so a retrieval made DURING the correction joins the corpus the re-check reads, while onToolExecuted writes only the audit log and never patches toolCalls. The food-safety pack does contain “165°F (74°C)”, so a real passage cleared both figures — one the reader never saw. The app is not lying about the re-check; the re-check is reading evidence the reader has no access to.</dd></div>
+            <div><dt>fix</dt><dd>The revision line is a function of the report before AND after, names the surviving items, and is amber rather than green when a finding stands · temperature became one dimension in two scales, and stopped being derivable, since the integer-multiple rule had been certifying 80°F from a fridge’s 40°F · the tail is bounded at 60s with a named expiry and the stat line now reads “25.7s answer · 54.3s checking · 80.0s total” · a source tool that found nothing says so, on the block header and to the badge · passages are numbered per turn, so a second lookup no longer restarts at [1] under a reply that cites across both</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">1792 → 1862</span></div>
+            <div class="ev"><span class="ev__k">chrome-contrast checks</span><span class="ev__v num">39 → 45</span></div>
+            <div class="ev"><span class="ev__k">blind tasks judged</span><span class="ev__v num">17</span></div>
+            <div class="ev"><span class="ev__k">won / lost / tied</span><span class="ev__v num">15 / 1 / 1</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--pending">
+        <div class="round__mark"><span class="round__n num">6</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>The re-check that reads what the reader cannot</h3>
             <span class="tag tag--pending">pending</span>
           </header>
 
           <dl class="facts">
-            <div><dt>what ran</dt><dd>V1’s “Revised: 1 unsupported item” on a turn where nothing was revised, and a verification tail long enough to blow a 300-second capture budget on one task and cost 136–190 s on another.</dd></div>
+            <div><dt>what ran</dt><dd>A correction pass may retrieve new evidence, and that evidence clears findings without ever reaching the screen. Until a re-check is confined to what the reader can see, every clearance it issues is unauditable — and it is the last thing standing between the verification chrome and being trustworthy.</dd></div>
           </dl>
 
         </div>
@@ -487,6 +514,9 @@
             <tr><td class="num">4</td><td>node</td><td>cases passing</td><td class="r num">1792</td><td class="r num up">+61</td></tr>
             <tr><td class="num">4</td><td>blind head-to-head</td><td>tasks won vs a corrected baseline</td><td class="r num">13 / 17</td><td class="r num ">—</td></tr>
             <tr><td class="num">4</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">3 / 17</td><td class="r num up">+3</td></tr>
+            <tr><td class="num">5</td><td>node</td><td>cases passing</td><td class="r num">1862</td><td class="r num up">+70</td></tr>
+            <tr><td class="num">5</td><td>blind head-to-head</td><td>tasks won vs the fair baseline</td><td class="r num">15 / 17</td><td class="r num up">+2</td></tr>
+            <tr><td class="num">5</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">1 / 17</td><td class="r num down">-2</td></tr>
           </tbody>
         </table>
       </div>

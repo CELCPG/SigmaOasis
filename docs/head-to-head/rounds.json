@@ -6,12 +6,12 @@
   "invariants": [
     {
       "name": "node test suite",
-      "value": "1792 pass / 0 fail",
+      "value": "1862 pass / 0 fail",
       "state": "green"
     },
     {
       "name": "render + style checks",
-      "value": "25 render · 33 style · 39 chrome-contrast · 34 md · 46 workbench · 24 transport",
+      "value": "25 render · 33 style · 45 chrome-contrast · 34 md · 46 workbench · 24 transport",
       "state": "green"
     },
     {
@@ -63,7 +63,7 @@
       "title": "Answer verifiability and citations",
       "gaps": 14,
       "high": 6,
-      "closed": 5
+      "closed": 6
     },
     {
       "key": "plan-transparency",
@@ -77,14 +77,14 @@
       "title": "Tool-call honesty",
       "gaps": 10,
       "high": 3,
-      "closed": 4
+      "closed": 5
     },
     {
       "key": "time-to-useful",
       "title": "Time-to-useful-output",
       "gaps": 15,
       "high": 5,
-      "closed": 4
+      "closed": 5
     },
     {
       "key": "failure-recovery",
@@ -200,11 +200,32 @@
     },
     {
       "n": 5,
-      "label": "The verification tail, and a revision that did not happen",
+      "label": "The shape three rounds of checks kept failing in",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline, with the Python runtime",
+        "B": "baseline + rounds 1–5"
+      },
+      "what": "Five builders: the revision line that claimed work it had not done, the measurement check that missed the case it was built for, the unbounded verification tail, a memory disclosure the current build had lost, and citation markers that resolved to the wrong passage when a turn ran two lookups.",
+      "findings": "The round produced a finding larger than its fixes. Three rounds running, a check built for exactly the failing case did not fire, always for the same structural reason: it enumerated the forms it had already seen and the world supplied one that was not on the list — round 3 listed net:: error codes and missed ERR_UNSAFE_PORT; round 4 bounded a quoted span by the line so a citation marker inside it broke the match; round 5 armed measurements per unit STRING, so a corpus with no Celsius never checked 74°C at all, and 165°F was named only because one passage incidentally mentioned a fridge at 40°F. Round 3’s repair generalises: replace the enumeration with its inverse — list the few codes that mean a server ANSWERED and treat everything else as unreachable. A list of known-bad can be defeated by an unknown; a list of known-good cannot.",
+      "verdict": "Round-5 build 15 · baseline 1 · 1 tie, over 17 tasks judged blind. Best result so far, and the single loss has one traceable cause that was documented as open before judging began.",
+      "gap": "V1, the one loss, and the cause was known before judging. The app now catches and NAMES the invented figure — “✎ Revised: 1 unsupported item was sent back (165 °F)” — but the re-check then clears it, and the figure is still in the answer. reviseAgainstFindings passes the turn’s records into the agent loop, so a retrieval made DURING the correction joins the corpus the re-check reads, while onToolExecuted writes only the audit log and never patches toolCalls. The food-safety pack does contain “165°F (74°C)”, so a real passage cleared both figures — one the reader never saw. The app is not lying about the re-check; the re-check is reading evidence the reader has no access to.",
+      "fix": "The revision line is a function of the report before AND after, names the surviving items, and is amber rather than green when a finding stands · temperature became one dimension in two scales, and stopped being derivable, since the integer-multiple rule had been certifying 80°F from a fridge’s 40°F · the tail is bounded at 60s with a named expiry and the stat line now reads “25.7s answer · 54.3s checking · 80.0s total” · a source tool that found nothing says so, on the block header and to the badge · passages are numbered per turn, so a second lookup no longer restarts at [1] under a reply that cites across both",
+      "evals": {
+        "node cases": "1792 → 1862",
+        "chrome-contrast checks": "39 → 45",
+        "blind tasks judged": "17",
+        "won / lost / tied": "15 / 1 / 1"
+      }
+    },
+    {
+      "n": 6,
+      "label": "The re-check that reads what the reader cannot",
       "state": "pending",
       "dimension": null,
       "pair": null,
-      "what": "V1’s “Revised: 1 unsupported item” on a turn where nothing was revised, and a verification tail long enough to blow a 300-second capture budget on one task and cost 136–190 s on another.",
+      "what": "A correction pass may retrieve new evidence, and that evidence clears findings without ever reaching the screen. Until a re-check is confined to what the reader can see, every clearance it issues is unauditable — and it is the last thing standing between the verification chrome and being trustworthy.",
       "findings": null,
       "verdict": null,
       "gap": null,
@@ -324,6 +345,27 @@
       "metric": "tasks lost to the baseline",
       "value": "3 / 17",
       "delta": "+3"
+    },
+    {
+      "round": 5,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1862",
+      "delta": "+70"
+    },
+    {
+      "round": 5,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the fair baseline",
+      "value": "15 / 17",
+      "delta": "+2"
+    },
+    {
+      "round": 5,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "1 / 17",
+      "delta": "-2"
     }
   ]
 }
