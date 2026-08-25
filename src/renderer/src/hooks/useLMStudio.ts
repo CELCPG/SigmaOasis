@@ -24,7 +24,13 @@ import { isOffline } from '../lib/libraryRecall'
 import { attachmentFileRefs, TABULAR_FILE } from '../lib/attachmentRecall'
 import { projectInstructionsBlock } from '../lib/projectContext'
 import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProviders'
-import { gatheringPhase, verifyingPhase, type VerifyStep } from '../lib/turnPhase'
+import {
+  createVerifyBudget,
+  gatheringPhase,
+  verifyingPhase,
+  VERIFY_BUDGET_MS,
+  type VerifyStep
+} from '../lib/turnPhase'
 import { makeProviderIO } from './providerIO'
 import {
   consultModelSchema,
@@ -369,6 +375,11 @@ async function runTurn(
   let completionTokens = 0
   let sawUsage = false
   let generationMs = 0
+  /**
+   * The last figures the stream produced, kept so the tail can re-stamp them
+   * with the turn's true length once it is over (lib/turnCost.ts).
+   */
+  let lastStats: ResponseStats | null = null
 
   const recordStats = (
     usage: ApiUsage | null,
@@ -399,6 +410,7 @@ async function runTurn(
           }
         : {})
     }
+    lastStats = stats
     patch({ stats })
   }
 
@@ -533,6 +545,19 @@ async function runTurn(
     slotTools.some((t) => t.function.name === 'run_python')
   const checks: NonNullable<ChatMessage['checks']> = []
 
+  /**
+   * v1.12.5: the deadline over everything from here to the composer being
+   * released. It starts at the last token — the only thing between that and
+   * the first costly pass is a regex — so what it bounds is exactly the wait
+   * the reader is held through with no answer to the question "how long?".
+   *
+   * `signal` rides along, so Stop still stops the checking; only an expiry
+   * leaves a notice.
+   */
+  const budget = createVerifyBudget(VERIFY_BUDGET_MS, signal)
+  /** Stopped by the user, or stopped by the deadline — both leave the answer standing. */
+  const stopped = (): boolean => signal.aborted || budget.signal.aborted
+
   // v1.7: scrub a verbatim echo of the turn-notes scaffold before any check
   // reads the content (the eval caught a 9B opening its reply with the header
   // sentence). Mechanical, disclosed, and shares its marker with the prompt.
@@ -557,7 +582,9 @@ async function runTurn(
     if (!workbenchChecksOn) return { finding: null, ran: false, ok: false }
     const hit = codeCheckMemo.get(content)
     if (hit) return hit
+    if (!budget.admits('code')) return { finding: null, ran: false, ok: false }
     const out = await runCodeCheck(convo, slot, content, allRecords, toolContext, () => patch({ toolCalls: [...allRecords] }))
+    budget.ran('code')
     codeCheckMemo.set(content, out)
     return out
   }
@@ -609,24 +636,31 @@ async function runTurn(
     const numericRan = allRecords.some(
       (r) => (r.name === 'run_python' || r.name === 'finance_calculator' || r.name === 'analyze_file') && r.status === 'done'
     )
+    // `admits` counts what it is asked about, so it goes last: the budget must
+    // not record a pass this turn was never going to run.
     if (
       workbenchChecksOn &&
       lastUserContent &&
-      !signal.aborted &&
+      !stopped() &&
       looksArithmetic(allUserText(), assistantMsg.content) &&
-      (!numericRan || (report?.figures.length ?? 0) > 0)
+      (!numericRan || (report?.figures.length ?? 0) > 0) &&
+      budget.admits('recompute')
     ) {
       checks.push(
-        await runRecompute(convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, signal, () =>
+        await runRecompute(convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, budget.signal, () =>
           patch({ toolCalls: [...allRecords] })
         )
       )
+      // Only a pass that got to finish counts as run: `reviseAgainstFindings`
+      // and `runRecompute` both swallow an abort and return, so their returning
+      // is not on its own evidence that the reader got the check.
+      if (!budget.signal.aborted) budget.ran('recompute')
       patch({ checks: [...checks] })
       report = await groundingReport()
     }
     if (!report) return
     const autoCorrect = useAppStore.getState().settings?.grounding.autoCorrect !== false
-    if (!autoCorrect || signal.aborted) {
+    if (!autoCorrect || stopped() || !budget.admits('revising')) {
       patch({ grounding: report })
       return
     }
@@ -637,15 +671,17 @@ async function runTurn(
       slot,
       baseUrl,
       tools,
-      signal,
+      budget.signal,
       convo,
       before,
       report,
       allRecords
     )
-    // A revision that came back empty, or that the user cancelled, leaves the
-    // original standing: a flagged answer beats no answer.
-    if (!revised.trim() || signal.aborted) {
+    if (!budget.signal.aborted) budget.ran('revising')
+    // A revision that came back empty, that the user cancelled, or that the
+    // deadline cut off, leaves the original standing: a flagged answer beats no
+    // answer, and a half-written one beats neither.
+    if (!revised.trim() || stopped()) {
       patch({ grounding: report })
       return
     }
@@ -707,45 +743,75 @@ async function runTurn(
     patch({ escalation: { slotId: candidate.id, roleName: candidate.roleName, reason } })
   }
 
+  /**
+   * Everything after the last token, under one deadline, ending in a number
+   * the reader can trust.
+   *
+   * Both endings — a completed answer and one that ran out of tool rounds —
+   * ran a byte-identical copy of this, which is how a bound added to one could
+   * have missed the other.
+   */
+  const runVerificationTail = async (): Promise<void> => {
+    try {
+      // v1.1: a factual question answered without consulting any web source is
+      // exactly the confabulation signature — flag it so the UI can say so,
+      // then have a different role name the claims it could not verify.
+      if (checkableTurn && !consultedSources(allRecords)) {
+        patch({ unverified: true })
+        verifying('claims')
+        // v1.2: the claim check settles the critic's list when enabled;
+        // otherwise the v1.1 auto-critic names the checks for the user.
+        const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
+        if (budget.admits('claims')) {
+          if (claimCheckOn) {
+            await runClaimCheck(
+              convo,
+              assistantMsg.id,
+              lastUserContent ?? '',
+              assistantMsg.content,
+              { modelId: slot.modelId, roleName: slot.roleName },
+              baseUrl,
+              budget.signal,
+              allRecords,
+              patch
+            )
+          } else {
+            await runAutoCritic(
+              convo,
+              assistantMsg.id,
+              lastUserContent ?? '',
+              assistantMsg.content,
+              { modelId: slot.modelId, roleName: slot.roleName },
+              baseUrl,
+              budget.signal
+            )
+          }
+          if (!budget.signal.aborted) budget.ran('claims')
+        }
+      }
+      verifying('grounding')
+      await checkGrounding()
+    } finally {
+      budget.stop()
+    }
+    // The deadline fired and it cost the reader something: name it, rather than
+    // letting a check the app skipped look like a check that passed.
+    const notice = budget.notice()
+    if (notice) {
+      checks.push(notice)
+      patch({ checks: [...checks] })
+    }
+    // The tail is over, so the turn's real length is finally known. `totalMs`
+    // stays the stream — tok/s is a rate of that — and this is what the reader
+    // actually waited (lib/turnCost.ts).
+    if (lastStats) patch({ stats: { ...lastStats, turnMs: Date.now() - turnStartedAt } })
+    verifying(null)
+  }
+
   if (outcome.stopReason === 'completed') {
     // Normal completion — read whatever tail fragment is left unspoken.
     speakNewSentences(true)
-    // v1.1: a factual question answered without consulting any web source is
-    // exactly the confabulation signature — flag it so the UI can say so,
-    // then have a different role name the claims it could not verify.
-    if (checkableTurn && !consultedSources(allRecords)) {
-      patch({ unverified: true })
-      verifying('claims')
-      // v1.2: the claim check settles the critic's list when enabled;
-      // otherwise the v1.1 auto-critic names the checks for the user.
-      const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
-      if (claimCheckOn) {
-        await runClaimCheck(
-          convo,
-          assistantMsg.id,
-          lastUserContent ?? '',
-          assistantMsg.content,
-          { modelId: slot.modelId, roleName: slot.roleName },
-          baseUrl,
-          signal,
-          allRecords,
-          patch
-        )
-      } else {
-        await runAutoCritic(
-          convo,
-          assistantMsg.id,
-          lastUserContent ?? '',
-          assistantMsg.content,
-          { modelId: slot.modelId, roleName: slot.roleName },
-          baseUrl,
-          signal
-        )
-      }
-    }
-    verifying('grounding')
-    await checkGrounding()
-    verifying(null)
+    await runVerificationTail()
     audit(convo, {
       kind: 'assistant_output',
       roleName: slot.roleName,
@@ -762,37 +828,7 @@ async function runTurn(
       (assistantMsg.content ? `${assistantMsg.content}\n\n` : '') +
       `⚠️ Stopped after ${MAX_TOOL_ITERATIONS} consecutive tool-call rounds.`
   })
-  if (checkableTurn && !consultedSources(allRecords)) {
-    patch({ unverified: true })
-    verifying('claims')
-    const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
-    if (claimCheckOn) {
-      await runClaimCheck(
-        convo,
-        assistantMsg.id,
-        lastUserContent ?? '',
-        assistantMsg.content,
-        { modelId: slot.modelId, roleName: slot.roleName },
-        baseUrl,
-        signal,
-        allRecords,
-        patch
-      )
-    } else {
-      await runAutoCritic(
-        convo,
-        assistantMsg.id,
-        lastUserContent ?? '',
-        assistantMsg.content,
-        { modelId: slot.modelId, roleName: slot.roleName },
-        baseUrl,
-        signal
-      )
-    }
-  }
-  verifying('grounding')
-  await checkGrounding()
-  verifying(null)
+  await runVerificationTail()
   // Read whatever is left unspoken (including the warning above).
   speakNewSentences(true)
   offerEscalation()

@@ -860,7 +860,12 @@ export interface ChatMessage {
   /** v1.5.1: the think-harder pass that ran on this reply, if any. */
   deliberation?: DeliberationRecord
   /** v1.6: Workbench verification passes that ran on this reply (recompute / code check). */
-  checks?: { kind: 'recompute' | 'code' | 'echo' | 'conflict'; ok: boolean; summary: string }[]
+  checks?: {
+    /** v1.12.5: 'deadline' — the post-answer budget ran out, and this says what was lost. */
+    kind: 'recompute' | 'code' | 'echo' | 'conflict' | 'deadline'
+    ok: boolean
+    summary: string
+  }[]
   /**
    * The long-term memory chunks injected into the system prompt for this turn
    * (v0.9 visible recall). Display-only — never replayed to a model.
@@ -972,7 +977,18 @@ export interface ResponseStats {
   projectTokens?: { instructions: number; recall: number; files: number }
   /** Time to the first content or reasoning delta. */
   ttftMs: number
+  /**
+   * Send to the last token — the stream, and only the stream. Stamped on every
+   * streaming round, so it stops at the one that ended the answer.
+   */
   totalMs: number
+  /**
+   * v1.12.5: send to the composer being released — the wait the reader actually
+   * sat through, including the post-answer verification tail. Same origin as
+   * `totalMs`, so `turnMs - totalMs` is the checking, measured rather than
+   * estimated (lib/turnCost.ts). Absent on turns recorded before v1.12.5.
+   */
+  turnMs?: number
 }
 
 export interface Conversation {
