@@ -63,7 +63,11 @@ Each entry in `tasks.json` carries:
    that cannot be decided mechanically does not belong in this file.
 4. **Both builds, same session shape.** Same machine, same LM Studio model and
    the same loaded context length, same window size, same theme, same settings
-   except where a task's `setup` says otherwise.
+   except where a task's `setup` says otherwise. Where a task measures a theme
+   (`VC2`, `VC3`) it measures **both**, in one run, on one screen: two runs
+   would produce two different replies and therefore two different Tab orders,
+   and a light-versus-dark difference could not be attributed to the theme. The
+   run puts the theme back before its own artifacts are taken.
 5. **Never screenshot inside a timed window.** Screenshots make subsequent CDP
    messages slow, which corrupts every timing in `time-to-useful`. Screenshots
    are taken after the timed window closes, or in tasks that measure no time
@@ -153,8 +157,18 @@ For each run the driver records:
   post-cancel snapshot).
 - `timings.json` — `t0` (Enter keydown) and every marked timestamp, from
   `MutationObserver` on the message body. No screenshots inside this window.
-- `styles.json` — computed styles for the nodes `VC2` and `VC3` measure, in
-  both themes.
+- `snapshots/styles-<scope>-<theme>.json` — for every text node in the scope a
+  task names, the two colours a contrast ratio is computed from: the ink
+  composited over its effective background, that background, the stack of
+  surfaces that produced it (each layer with its own alpha, all the way down to
+  something opaque — `backgroundResolved` says whether it got there), and the
+  font metrics that decide which threshold applies. Written once per scope per
+  theme. The ratio itself is not computed here — it is a pure function of two
+  RGB triples and belongs to the scoring pass.
+- `snapshots/tab-traverse-<theme>-<destination>.json` — one entry per Tab
+  press: the focused and unfocused computed styles, which of them differ, the
+  surface the stop is on, whether anything is drawn over it, and every
+  activation the walk performed.
 - `fixture.log` — every request each fixture served.
 - `shots/` — screenshots, taken only after timed windows close.
 
@@ -265,20 +279,42 @@ bash scripts/h2h-run.sh --arm A-baseline --model qwen3.8-9b \
 
 Runs land in `.h2h-runs/<arm>/<taskId>-<timestamp>/`. Beyond the artifacts the
 capture always wrote, a run now carries `fixtures/` (every request each fixture
-served), `snapshots/` (DOM captured at the moments a task names, plus keyboard
-traversal records), and in `run.json`: `driverActions` (everything the driver
-did and when), `turns` (one entry per turn, for the multi-turn tasks),
-`setup.seededSettingsVerified`, `preconditions` (each declared capability and
-whether it was really there), and `validity`.
+served), `snapshots/` (DOM captured at the moments a task names, per-text-node computed
+styles for the tasks that measure ink, and keyboard-traversal records), and in
+`run.json`: `driverActions` (everything the driver did and when), `turns` (one
+entry per turn, for the multi-turn tasks), `setup.seededSettingsVerified`,
+`preconditions` (each declared capability and whether it was really there),
+`screenAtTurnEnd` (the theme the run finished in, and whether a modal was
+covering the app when its artifacts were taken), and `validity`.
 
 ### Driver actions
 
 `waitMs`, `waitForText`, `waitForSelector`, `clickText`, `pressStop`, `key`,
-`viewport`, `snapshot`, `tabTraverse`, `prompt` (a follow-up turn in the same
-conversation) and `waitTurnEnd`. `clickText` matches a control by the text a
-user can see; `key` goes through `Input.dispatchKeyEvent`, so Tab really moves
-focus. Anything marked `optional` is recorded and stepped over on failure;
-anything else fails the run.
+`viewport`, `snapshot`, `styles`, `screenshot`, `theme`, `tabTraverse`,
+`prompt` (a follow-up turn in the same conversation) and `waitTurnEnd`.
+`clickText` matches a control by the text a user can see; `key` goes through
+`Input.dispatchKeyEvent`, so Tab really moves focus. Anything marked `optional`
+is recorded and stepped over on failure; anything else fails the run.
+
+`tabTraverse` walks Tab stops and, where its `activate` route says so, presses
+them: Enter first, then Space, both real key events and never a click, with the
+page compared before and after so an activation that did not fire is recorded
+as not having fired. That is what lets a traversal follow the app's own answer
+*into* Settings rather than stopping at the button that opens it. A traversal
+that opens a surface must declare an `exit` — the control that closes it — so
+the run's later artifacts show the app in the state the task describes;
+screenshots are the one artifact `make-blind-pairs.mjs` cannot scrub, and
+Settings → General renders the app's version number.
+
+`theme` switches the running app through its own Settings panel, control by
+control (Settings → General → the theme → Save). That is the only path that
+moves the persisted setting, the renderer's store and the screen together: the
+renderer reads settings once at mount and has no settings-changed event, so a
+write straight to the settings API leaves the store stale and the panel
+repaints from it the moment it opens or closes. The action reads back all three
+— the setting, the class the stylesheet keys on, and a colour that actually
+rendered — and fails the run rather than producing a capture labelled `dark`
+of a light screen.
 
 ### What the renderer was handed
 

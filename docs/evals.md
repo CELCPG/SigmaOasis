@@ -2583,6 +2583,207 @@ been added since is exactly the numbering and the marks and nothing else.
   measuring the new note, which was written in it and failed. Only the new site is fixed here;
   the rest are unmeasured and out of this round's scope.
 
+### Pending fold-in — dark theme, and a traversal that stops at the door
+
+Two of round 7's own "what this does not measure" entries were about the same thing: the
+bench could not see what a critic was being asked to judge.
+
+> **Dark theme has still never been captured by the bench**, in any round.
+> **VC2's traversal never reaches Settings.** The path arrives at the `Settings (⌘,)`
+> button at stop 26 and the 40 stops end there.
+
+Both are closed, in the instrument rather than in the product. Nothing here is a win/loss
+claim: **no sweep was taken.** The figures below come from one-off VC2 and VC3 captures
+against a scratch output directory, on `qwen3.8-9b`, and they are what the harness now
+records — not a comparison of two builds.
+
+#### A theme is a property of a measurement, not of a run
+
+`h2h-run.sh` has had a `--variant` flag since the sweep script existed, and
+`task-setup.json` defined `light` and `dark` variants for VC2 and VC3. The machinery works:
+`--variant dark VC1` really does seed `theme: "dark"`, and the capture verifies it against
+the running app. It was simply never used, and using it would have been the wrong repair.
+
+A variant is a property of a **run**, and running VC3 twice measures two different replies.
+The model writes different prose each time, so the light and dark contrast figures would be
+of different text and a difference between them could not be attributed to the theme. VC2 is
+worse: a different reply is a different number of focusable elements in the transcript, so
+the two themes would not even be walking the same Tab order.
+
+So the theme moved *inside* the run, as a `theme` driver action. VC2 and VC3 now measure
+each thing twice on one screen and put the theme back before the run's own artifacts are
+taken. `--variant` stays, because "capture this whole task in dark" is a different question,
+and VC1 keeps its variants so it can still be asked — VC1's assertions are geometric
+(`scrollWidth` against `clientWidth`, a rect against a column's) and none of them moves with
+the theme, so the standard sweep captures it once. A sweep therefore costs **no extra task
+runs at all**: the second theme is DOM work measured in milliseconds against turns measured
+in tens of seconds.
+
+**The shortcut does not work, and the witness is what proved it.** The first implementation
+wrote the theme through `window.api.setSettings` and applied the one line `App.tsx` applies
+(`classList.toggle('dark', …)`). The run failed on its own readback: *"theme 'light' changed
+no rendered colour — body background stayed `rgb(244, 244, 245)`."* The renderer reads
+settings once at mount and has no settings-changed event, so the write left the zustand
+store holding `light`; `SettingsModal` then repaints the document from that stale value both
+when it opens (`draft.theme`) and when it closes (`revertAppearance`). The VC2 traversals
+open Settings — so **two of the four traversals labelled `dark` were running in light**, and
+nothing but the witness would have said so. The action now goes through the app's own panel,
+control by control (Settings → General → the theme → Save), because `save()` is the only
+path that moves the persisted setting, the store and the screen together. It reads back all
+three afterwards — the setting, the class the stylesheet keys on, and a colour that actually
+rendered — and fails the run rather than producing a capture labelled `dark` of a light
+screen.
+
+**And a snapshot could not have carried dark anyway.** VC3's `mechanicalChecks` are
+per-text-node contrast ratios, and until now a run directory held `outerHTML` and
+`innerText` — neither of which says what colour anything rendered in. The README has
+promised a `styles.json` "in both themes" since the protocol was written; it did not exist.
+It does now, one per theme: per text node, the ink **composited over its real background**
+(the app's muted ink is `rgba(23,23,23,0.32)`, so its raw computed colour is not what anyone
+sees), that background, the stack of surfaces that produced it, and the font metrics that
+decide which threshold applies. The ratio is deliberately not computed there — it is a pure
+function of two RGB triples, and it belongs to the scoring pass.
+
+**The first version of that compositor was wrong, and a real capture caught it.** It walked
+the surface stack but forced the accumulated alpha to 1 after a single step, so a
+5%-white glass veil behaved like opaque white. The `Assistant` pill —
+`bg-blue-500/15` inside `bg-white/5` inside an opaque panel — came back as
+`rgb(226, 236, 254)`, a pale blue, **on a black screen**; every ratio computed from it would
+have been fiction, and it would have been fiction only in dark, the theme nobody had ever
+looked at. Proper source-over compositing carries the alpha forward until the stack bottoms
+out (the same pill now measures `rgb(42, 53, 70)`), and `backgroundResolved` states whether
+it bottomed out on an opaque layer or fell through to the browser canvas. The three-layer
+stack is pinned in `test/tabTraverseCheck.ts` with the number the flattening version
+produced written into the failure message.
+
+#### The traversal now walks through the door, and records what is behind it
+
+`tabTraverse` gained an `activate` route: an ordered list of label patterns, each fired at
+most once and each eligible only after the one before it has fired,
+pressed with **Enter first and then Space** — real key events, never a click — with the page
+fingerprinted before and after, so an activation that did not fire is recorded as not having
+fired rather than assumed. Ordering matters: the app's labels repeat across surfaces, and an
+unordered matcher fires on the first `Search` or `Tools` it meets in the sidebar and reports
+a journey it never took. Three further repairs were needed before the record inside the panel meant
+anything, and each was found by reading a real capture:
+
+| What broke | What the record said | The repair |
+| --- | --- | --- |
+| Every control in the panel appeared *after* the baseline ran | `unfocused: null` on exactly the stops the task is about — "is the focus visible here" undecidable | Re-baseline after each activation; a post-walk pass catches whatever was focused when that ran; `unfocusedSource` states which reading each stop got, and a stop with neither is recorded as **unmeasured, not passing** |
+| The post-walk pass ran *after* the exit closed the panel | Every panel control unmounted before it could be measured — 2 stops still null | Resolve before the exit, not after |
+| `blur()` leaves Chromium's sequential-focus starting point where focus was | One run, four traversals of one route, reaching Settings at stops **26, 8, 8, 8** — a light/dark pair that is not stop-for-stop aligned is not a comparison | Focus the body (`tabindex="-1"`, the skip-link pattern) so the next Tab lands on the document's first stop *by keyboard*; the borrowed attribute is given back; `focusStartedFrom` and `startPointReset` are recorded rather than assumed |
+
+A traversal that opens a surface must now declare an `exit` — the control that closes it,
+activated with the keyboard like any other. That is not tidiness. Settings → General renders
+`Sigma Oasis v{version}`, and a panel left open is in every screenshot that follows;
+screenshots are the one artifact `make-blind-pairs.mjs` cannot scrub, so a version number
+reaching a critic there would be invisible to `assertBlind`. An exit that cannot be
+performed fails the action. `run.json` also now carries `screenAtTurnEnd` — the theme the
+run finished in, and whether a modal was covering the app when its artifacts were taken.
+
+#### What one capture now shows that seven rounds could not
+
+VC2, one run, four traversals of two routes in two themes, 70 stops each:
+
+| | light | dark |
+| --- | --- | --- |
+| `Settings (⌘,)` reached and **activated** | stop 8 | stop 8 |
+| `Tools` (the `web_search` toggle) reached and activated | stop 38 | stop 38 |
+| `Models` (each role's model) reached and activated | stop 35 | stop 35 |
+| stops **inside** the Settings panel | 38 / 32 | 38 / 32 |
+| stops with no unfocused reading to compare against | 0 | 0 |
+| `N_invisible` by VC2's own criterion | 0 of 70 | 0 of 70 |
+| stops focusable **behind the modal scrim** | 24 / 30 | 24 / 30 |
+
+Round 7's record ended at stop 26 with the door shut. The last three rows could not
+previously exist at all.
+
+VC3, one run, one reply, measured twice — **the first `N_fail` and `MIN_RATIO` the
+head-to-head bench has ever produced for dark theme from a recorded run**, and the first
+dark screenshot of any kind in seven rounds:
+
+| | light | dark |
+| --- | --- | --- |
+| `N_prose` (last assistant message / whole transcript) | 29 / 63 | 29 / 63 |
+| `N_fail` | 0 | 0 |
+| `MIN_RATIO` | 5.15:1 (`08:00 AM`, 10px) | 6.25:1 (`08:00 AM`, 10px) |
+| `📖 From the library:` provenance line | 9.35:1 | 10.12:1 |
+| timing/stats readout | 5.35:1 | 6.25:1 |
+
+Two scopes per theme, because the task's checks name two. `N_prose` and `MIN_RATIO` come
+from the last assistant message; the provenance line the task names **specifically** sits on
+the *retrieval* turn, and a run whose follow-up consulted nothing — which is what this one
+answered — has no provenance line in its last message at all. Scoped to `lastMessage` alone
+that check is not merely failed, it is unanswerable, and it was unanswerable in light theme
+too. That one is a pre-existing hole in the task's scoping, surfaced by looking.
+
+**`N_invisible` is 0, and the reason is worth the whole exercise.** The app's inputs carry a
+permanent `2px solid` outline whose colour is `rgba(0, 0, 0, 0)` until focus turns it teal.
+So `outlineColor` is the *only* property that moves on a ring anyone can see — and VC2's
+first criterion (`outlineWidth >= 2px with outlineStyle != 'none'`) is satisfied in **both**
+states. A scorer asking "did the width or style change" would report every one of those
+stops as invisible; a scorer asking "do the readings differ at all" would pass a colour
+change on a zero-width outline. The record now carries both full states *and*
+`styleDeltaKeys` naming exactly what moved, so the scoring pass is not forced into either
+mistake. This is round 5's species once more — a check whose vocabulary is narrower than the
+class it guards — caught this time in the measuring instrument before it produced a number.
+
+**`obscured` is new and is a product finding, not an instrument one.** 24 to 30 stops per
+traversal are controls of the chat behind the Settings scrim: focusable, inside the viewport,
+`inViewport: true` by the geometric check VC2 already had, and completely unusable. There is
+no focus trap and no `inert`, so a keyboard user who opens Settings tabs through the entire
+application before reaching the panel's first control. The traversal records what a click at
+each element's own centre would actually hit, and names it.
+
+#### Where the checks live
+
+The browser half cannot be a `node:test` file — whether Tab moves focus, what
+`:focus-visible` matches, what a click at a centre point hits and what a translucent ink
+composites to are all properties of a live layout, and a mocked DOM would answer from the
+mock. `test/tabTraverseCheck.ts` drives the **same strings the harness sends** in a real
+offscreen window with real key events (**43 checks**, joining `scripts/test-render.sh`); it
+pins a control that shows a ring *and* one that does not, so an instrument returning a
+constant fails. `test/h2hTraversal.test.ts` (**41 cases**) pins the orchestration — where
+the ordering bugs live — plus the wiring, read out of the harness sources and
+`task-setup.json`.
+
+Two guards came out of the work rather than being planned:
+
+- **A variant the task does not define is now refused.** `--variant dark` on a task with no
+  dark variant used to fall through to the base setup and still name the directory
+  `<id>-dark` — a label that outruns its measurement, which is the species this bench keeps
+  finding in the *product*. It does not get to live in the bench.
+- **`no task outside visual-craft declares a theme`** is asserted, so the decision above
+  stays a decision and does not drift into a habit.
+
+#### What this still does not measure
+
+- **No sweep was taken and no build was compared.** Every figure above is one capture of
+  the current build. There is no win/loss claim here of any kind.
+- **The Pass-1 scorer is still not committed.** `N_invisible`, `N_fail` and `MIN_RATIO`
+  above were computed by throwaway scripts over the recorded artifacts. The run directory
+  now holds everything those numbers need — which it did not before — but "a script
+  evaluates every entry in `mechanicalChecks`" remains a thing the protocol describes and
+  nothing in the repo does.
+- **The `theme` action drives the app's own Settings panel, so it is arm-dependent.** A
+  build whose panel labels or Save button differ would fail the action and void its VC2 and
+  VC3 runs while the other arm's succeed. That is the correct direction to fail in — a
+  silent mislabelled capture is worse — but it is a new way for one arm to be voided and
+  not the other, and no baseline has been driven through it yet.
+- **VC2's two routes overlap.** Both walks cross the same ~30 page stops before entering
+  Settings, so a union of the two is not a set of distinct stops and `N_stops` must not be
+  added across them.
+- **`obscured` hit-tests the centre point only.** A control half-covered at its edges, or
+  one whose centre falls in a gap in the covering element, reads as unobscured.
+- **Nothing scrubs the app's version out of a screenshot.** VC2's `exit` keeps the Settings
+  panel closed, which is what actually prevents the leak; a future task that opens a surface
+  and forgets an `exit` gets a note in `run.json` and nothing more. `assertBlind` reads text
+  and cannot read a PNG, and `_arm.json` has said so since the protocol was written.
+- **`normalizeSettings` treats an absent `theme` as `dark` while `defaultSettings()` says
+  `light`.** Harmless on every current path, because `getSettings` merges the defaults in
+  first — but the two disagree, and a caller that normalises a partial object gets dark.
+  Found while checking that seven rounds of "light theme only" was actually true. It is.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

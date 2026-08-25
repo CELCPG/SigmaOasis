@@ -7,6 +7,7 @@
     "placeholders": "{{searchFixtureUrl}}, {{lmShimUrl}} and {{model}} are substituted into settings before the config is written; the fixture URLs carry the OS-assigned port.",
     "preActions": "Run before the task prompt is sent (composer toggles, earlier turns). actions run after.",
     "expectHit": "A fixture with expectHit:false is allowed to go uncontacted — it exists so a tool is available, not so it is used.",
+    "themes": "A theme is a property of a MEASUREMENT, not of a run. VC2 and VC3 must be read in light and in dark, and both readings have to be of the same screen: two separate runs would produce two different replies, two different transcript lengths and therefore two different Tab orders, so a light/dark difference could not be attributed to the theme. Those two tasks therefore switch theme mid-run with a `theme` driver action and record each measurement twice, and they put the theme back before the run's own artifacts are taken. A run's `--variant` still exists and still means 'seed the whole run in one named theme'; that is a different question ('does the whole task behave in dark') and VC1 keeps variants so it can be asked. Nothing outside visual-craft declares a theme at all: no assertion in the other five dimensions reads a colour.",
     "requires": "Capabilities the machine must supply that no setting can seed — the harness cannot install them, only refuse to score a run without them. A required capability that was not there makes the run INVALID, exactly as an uncontacted fixture does. Capabilities a setting already implies are enforced anyway (settings.tools.run_python of true implies python-runtime), so listing one here is a restatement, not the only thing holding it up. scripts/h2h-preconditions.ts is the list of ids that mean something."
   },
   "tasks": {
@@ -252,7 +253,11 @@
     },
     "VC1": {
       "supported": true,
-      "note": "Split view is attempted through the app's own ⌘\\ shortcut and marked optional: it needs a second conversation to split with, and if the app declines the run still carries both viewport widths.",
+      "note": "Split view is attempted through the app's own ⌘\\ shortcut and marked optional: it needs a second conversation to split with, and if the app declines the run still carries both viewport widths. Every assertion this task makes is geometric — scrollWidth against clientWidth, a bounding rect against a column's — and none of them moves with the theme, so the standard sweep captures it once. The variants below exist so the whole task CAN be asked in dark (`--variant dark`) if a layout defect is ever suspected there; they are not part of the sweep.",
+      "variants": {
+        "light": { "settings": { "theme": "light" } },
+        "dark": { "settings": { "theme": "dark" } }
+      },
       "window": "1280x800",
       "settings": { "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" } },
       "actions": [
@@ -269,20 +274,62 @@
     },
     "VC2": {
       "supported": true,
-      "note": "The traversal and its focus-style record are captured. Whether the path reaches the two settings the answer names is left to the critic reading snapshots/tab-traverse.json — the harness records every stop, it does not judge the route.",
+      "note": "Four traversals: the keyboard route to each of the two settings the answer names, in each theme. A traversal walks Tab stops and ACTIVATES the ones its route declares — through round 7 it only walked, so it arrived at the Settings button at stop 26 and the record ended there, leaving the task's own question ('can the keyboard path actually reach both settings') unanswered on the winner. The two settings live behind different tabs of one panel and the tab rail is walked forwards once, so one traversal cannot enter both: each destination gets its own walk, and each records the number of Tab presses it took. The harness still does not judge the route — it records every stop, both style states, and whether each activation actually fired. Each traversal closes the panel it opened, because the screenshots taken afterwards cannot be de-identified and Settings → General renders the app's version.",
       "settings": { "search": { "provider": "searxng", "searxngUrl": "http://127.0.0.1:9" } },
       "actions": [
         { "type": "waitTurnEnd", "timeoutMs": 600000 },
-        { "type": "tabTraverse", "stops": 40, "label": "tab-traverse" }
+        {
+          "type": "tabTraverse",
+          "stops": 70,
+          "exitStops": 200,
+          "label": "tab-traverse-light-web-search",
+          "exit": "^✕$",
+          "activate": [
+            { "match": "^Settings\\b", "note": "the reply sends a keyboard user to Settings; this is the door" },
+            { "match": "^Tools$", "note": "the tab holding the web_search toggle — turning it off is what stops the automatic search" }
+          ]
+        },
+        {
+          "type": "tabTraverse",
+          "stops": 70,
+          "exitStops": 200,
+          "label": "tab-traverse-light-role-model",
+          "exit": "^✕$",
+          "activate": [
+            { "match": "^Settings\\b", "note": "same door, second destination" },
+            { "match": "^Models$", "note": "the tab holding each role's model selector" }
+          ]
+        },
+        { "type": "theme", "theme": "dark" },
+        {
+          "type": "tabTraverse",
+          "stops": 70,
+          "exitStops": 200,
+          "label": "tab-traverse-dark-web-search",
+          "exit": "^✕$",
+          "activate": [
+            { "match": "^Settings\\b", "note": "the same route, measured in dark" },
+            { "match": "^Tools$", "note": "the tab holding the web_search toggle" }
+          ]
+        },
+        {
+          "type": "tabTraverse",
+          "stops": 70,
+          "exitStops": 200,
+          "label": "tab-traverse-dark-role-model",
+          "exit": "^✕$",
+          "activate": [
+            { "match": "^Settings\\b", "note": "the same route, measured in dark" },
+            { "match": "^Models$", "note": "the tab holding each role's model selector" }
+          ]
+        },
+        { "type": "theme", "theme": "light" }
       ],
-      "variants": {
-        "light": { "settings": { "theme": "light" } },
-        "dark": { "settings": { "theme": "dark" } }
-      }
+      "timeoutMs": 900000
     },
     "VC3": {
       "supported": true,
-      "note": "Runs immediately after V1 in the same conversation, so a library provenance line and a stats readout are on screen when the question is asked.",
+      "note": "Runs immediately after V1 in the same conversation, so a library provenance line and a stats readout are on screen when the question is asked. Measured in both themes on the SAME reply: the snapshot, the per-text-node styles and a screenshot are taken in light, the app is switched to dark and the same three are taken again, and the theme is put back so every later artifact is what it always was. styles-*.json is what makes the dark half decidable — a snapshot carries outerHTML and innerText, and neither says what colour anything rendered in. Two scopes, because the task's checks name two: the last assistant message, which is where the prose count and MIN_RATIO come from, and the whole transcript, because the '📖 From the library:' line the task names specifically sits on the RETRIEVAL turn and a run whose follow-up used no documents has no provenance line in its last message at all.",
       "packs": ["food-safety"],
       "settings": {
         "tools": { "reference_lookup": true },
@@ -298,12 +345,17 @@
       ],
       "actions": [
         { "type": "waitTurnEnd", "timeoutMs": 600000 },
-        { "type": "snapshot", "label": "last-message", "within": "lastMessage" }
+        { "type": "snapshot", "label": "last-message-light", "within": "lastMessage" },
+        { "type": "styles", "label": "styles-last-message-light", "within": "lastMessage" },
+        { "type": "styles", "label": "styles-transcript-light", "within": "transcript" },
+        { "type": "screenshot", "label": "light" },
+        { "type": "theme", "theme": "dark" },
+        { "type": "snapshot", "label": "last-message-dark", "within": "lastMessage" },
+        { "type": "styles", "label": "styles-last-message-dark", "within": "lastMessage" },
+        { "type": "styles", "label": "styles-transcript-dark", "within": "transcript" },
+        { "type": "screenshot", "label": "dark" },
+        { "type": "theme", "theme": "light" }
       ],
-      "variants": {
-        "light": { "settings": { "theme": "light" } },
-        "dark": { "settings": { "theme": "dark" } }
-      },
       "timeoutMs": 900000
     }
   }
