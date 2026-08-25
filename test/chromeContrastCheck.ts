@@ -102,6 +102,25 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
     source: section('function MemoryContextLine', 'function formatStats'),
     re: /className="(rounded px-1\.5[^"]*)"/
   },
+  // v1.17.2: the strip's three new pieces of information. The per-entry verdict
+  // ("— not cited" / "— cannot tell") is the sentence a reader checks the
+  // answer's sourcing against, and the ⚠️ note is the app saying it cannot
+  // check it — neither may be the quietest thing on the panel.
+  provenanceMark: {
+    source: section('function ContextEntry', 'function MemoryContextLine'),
+    re: /className="(ml-1 text-ink-[^"]*)"/
+  },
+  provenanceNote: {
+    source: section('function MemoryContextLine', 'function formatStats'),
+    re: /<span className="(text-amber-[^"]*)">\{note\}/
+  },
+  // …and the inline marker the app could not resolve. Read out of markdown.ts
+  // for the same reason every other row is read out of its component: renaming
+  // the class must fail the extraction, not quietly measure an unstyled span.
+  unresolvedMarker: {
+    source: readFileSync(join(RENDERER, 'lib/markdown.ts'), 'utf8'),
+    re: /class="(citation-ref citation-unresolved)"/
+  },
   stats: {
     source: section('showStats && !isStreaming', '</div>\n      </div>'),
     re: /className="(mt-2 text-\[10px\][^"]*)"/
@@ -195,6 +214,9 @@ const LOAD_BEARING = [
   'prose link',
   'prose quote',
   'library provenance',
+  'provenance verdict',
+  'provenance note',
+  'unresolved citation',
   'revision cleared',
   'revision unresolved',
   'grounding warning',
@@ -258,9 +280,10 @@ function fixture(dark: boolean): string {
               <p data-ink="prose">Poultry reaches a safe internal temperature at 74&nbsp;°C, measured in the thickest part.</p>
               <p><a href="#" data-ink="prose link">The source table</a> lists every cut.</p>
               <blockquote data-ink="prose quote">Rest the meat for three minutes before carving.</blockquote>
+              <p>Cook it to 74&nbsp;°C <span class="${c('unresolvedMarker')}" data-ink="unresolved citation">[9]</span>.</p>
             </div>
             <div class="${c('provenanceRow')}">
-              <button type="button" class="${c('provenanceButton')}" data-ink="library provenance">📖 From the library: Food safety › Safe minimum internal temperatures (0.72) ▸</button>
+              <button type="button" class="${c('provenanceButton')}" data-ink="library provenance">📖 From the library: Food safety › Safe minimum internal temperatures (0.72)<span class="${c('provenanceMark')}" data-ink="provenance verdict">— not cited</span> <span class="${c('provenanceNote')}" data-ink="provenance note">⚠️ [9] names no passage listed here, so the rest are left unjudged.</span> ▸</button>
             </div>
             <div class="${c('revisedResolved')}" data-ink="revision cleared">✎ Revised: 1 unsupported item was sent back (165°F); the re-check faults none of them.</div>
             <div class="${c('revisedUnresolved')}" data-ink="revision unresolved">✎ Revised: 2 unsupported items were sent back; 1 is still unsupported in this answer: 165°F.</div>

@@ -29,19 +29,42 @@ export interface Citation {
   source?: string
   /** The source when it is a web URL: the only kind this app ever makes clickable. */
   href?: string
+  /**
+   * v1.17.2: the `relevance` the lookup printed above the passage, and the
+   * passage's own words. Present so the provenance strip can be built from the
+   * turn's records — the same parse the inline marker resolves through, so the
+   * two cannot disagree about what was retrieved. Absent only when the block
+   * was cut mid-way by the tool handler's output cap.
+   */
+  score?: number
+  text?: string
 }
 
 /** The `[n] citation` line that opens each passage block of a lookup result. */
 const PASSAGE_HEADER = /^\[(\d{1,3})\][ \t]+(\S.*)$/gm
 /** The `source:` line the formatter indents directly under that header. */
 const PASSAGE_SOURCE = /^\n[ \t]+source:[ \t]*(\S+)/
+/** The last of the indented metadata lines: the passage's own text starts after it. */
+const PASSAGE_RELEVANCE = /^[ \t]+relevance[ \t]+(\d+(?:\.\d+)?)[ \t]*$/m
+/** `formatLookup` appends the lookup's notes after the final passage; they are not part of it. */
+const TRAILING_NOTES = /\n\n(?:Note: [^\n]*(?:\n|$))+$/
 
 /**
- * A bracketed marker in prose. Not after a word character or a closing
- * bracket, so `items[1]` and `m[0][1]` stay array indexing, and not before
- * `(`, which would be a markdown link.
+ * A run of bracketed markers in prose: `[1]`, or `[2][5]` written together.
+ *
+ * v1.17.2: matched as a run rather than one at a time. The old single-marker
+ * pattern refused any `[n]` sitting directly after a `]` — the guard that keeps
+ * `m[0][1]` as array indexing — which silently swallowed the second half of
+ * every `[2][5]`. Measured (judge-r7/V2/run-1): the reply cited `[2][5]`, the
+ * strip marked `[5]` "— not cited", and the marker rendered as dead black text.
+ * Anchoring the guard to the START of the run keeps `m[0][1]` out (its run
+ * begins after a word character) and lets an adjacent pair in.
+ *
+ * Not before `(`, which would be a markdown link.
  */
-export const CITATION_MARKER = /(?<![\w\])])\[(\d{1,3})\](?!\()/g
+export const CITATION_RUN = /(?<![\w\])])\[\d{1,3}\](?:\[\d{1,3}\])*(?!\()/g
+/** One marker inside a run matched by `CITATION_RUN`. */
+export const CITATION_IN_RUN = /\[(\d{1,3})\]/g
 
 const FENCED_CODE = /```[\s\S]*?(?:```|$)/g
 const INLINE_CODE = /`[^`\n]*`/g
@@ -59,18 +82,29 @@ export function webSource(source: string | undefined): string | undefined {
 
 /** The passages one `reference_lookup` result handed over, in the order it numbered them. */
 export function parseCitations(output: string): Citation[] {
-  const out: Citation[] = []
-  for (const m of output.matchAll(PASSAGE_HEADER)) {
-    const source = PASSAGE_SOURCE.exec(output.slice(m.index + m[0].length))?.[1]
+  const heads = [...output.matchAll(PASSAGE_HEADER)]
+  return heads.map((m, i) => {
+    // A block runs from its header to the newline that `formatLookup` joined
+    // the next header on with — so the passage text keeps its own shape and
+    // borrows nothing from its neighbour.
+    const next = heads[i + 1]
+    const body = output.slice(m.index + m[0].length, next ? next.index - 1 : output.length)
+    const source = PASSAGE_SOURCE.exec(body)?.[1]
     const href = webSource(source)
-    out.push({
+    const relevance = PASSAGE_RELEVANCE.exec(body)
+    const score = relevance ? Number(relevance[1]) : NaN
+    const text = relevance
+      ? body.slice(relevance.index + relevance[0].length).replace(/^\n/, '').replace(TRAILING_NOTES, '')
+      : ''
+    return {
       index: Number(m[1]),
       label: m[2].trim(),
       ...(source ? { source } : {}),
-      ...(href ? { href } : {})
-    })
-  }
-  return out
+      ...(href ? { href } : {}),
+      ...(Number.isFinite(score) ? { score } : {}),
+      ...(text ? { text } : {})
+    }
+  })
 }
 
 /**
@@ -151,8 +185,46 @@ export function retrievedCitations(records: ToolCallRecord[]): Citation[] {
 export function citedIndices(answer: string): number[] {
   const prose = answer.replace(FENCED_CODE, ' ').replace(INLINE_CODE, ' ')
   const seen = new Set<number>()
-  for (const m of prose.matchAll(CITATION_MARKER)) seen.add(Number(m[1]))
+  // Every marker of every run: `[2][5]` is two citations, not one.
+  for (const run of prose.matchAll(CITATION_RUN)) {
+    for (const m of run[0].matchAll(CITATION_IN_RUN)) seen.add(Number(m[1]))
+  }
   return [...seen].sort((a, b) => a - b)
+}
+
+/** One `reference_lookup` this turn ran, and the passages it numbered. */
+export interface Lookup {
+  /** The query string the call carried, when it had one. */
+  query: string
+  passages: Citation[]
+}
+
+/**
+ * The turn's library lookups, in the order they ran, each with its own
+ * passages.
+ *
+ * v1.17.2: the strip groups by this. `retrievedCitations` flattens the turn
+ * into one numbered list — right for resolving a marker, wrong for reading:
+ * measured (judge-r7/V1/run-2) a single turn ran three lookups and handed over
+ * seventeen passages, and seventeen citation lines in one undivided list is a
+ * wall. The lookup that produced a passage is also the only thing that says
+ * *why* it is there, so it is the natural heading.
+ */
+export function turnLookups(records: ToolCallRecord[]): Lookup[] {
+  const out: Lookup[] = []
+  const claimed = new Set<number>()
+  for (const r of records) {
+    if (r.name !== 'reference_lookup' || r.status !== 'done') continue
+    // Same first-claim rule as `retrievedCitations`, so a conversation recorded
+    // before per-turn numbering cannot list one number under two headings.
+    const passages = parseCitations(r.result ?? '').filter((c) => {
+      if (claimed.has(c.index)) return false
+      claimed.add(c.index)
+      return true
+    })
+    if (passages.length > 0) out.push({ query: String(r.args?.query ?? ''), passages })
+  }
+  return out
 }
 
 /**

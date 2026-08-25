@@ -19,6 +19,7 @@ import { createServer } from 'http'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import type { AddressInfo } from 'net'
+import { parseCitations } from '../src/renderer/src/lib/citations'
 
 /** The shipped stylesheet: this file's markup has to pair with a rule over there. */
 const indexCss = readFileSync(
@@ -283,15 +284,74 @@ async function main(): Promise<void> {
     /<span[^>]+class="citation-ref"[^>]*>\[2\]<\/span>/.test(html) && !html.includes('/Users/me/docs'),
     html
   )
+  // v1.17.2. Strengthened from "not a link" to "an affordance a reader can
+  // reach": a `title` on a three-character span is a mouse-only hint and a
+  // keyboard user has nothing at all. It now carries the passage number the
+  // bubble opens the provenance strip on, plus the role and tab stop that make
+  // that reachable — and DOMPurify has to let all three through, which is the
+  // half of this only a real DOM can answer.
+  check(
+    'a passage with no web source is still followable — the strip opens on its number',
+    /data-citation="2"/.test(html) && /role="button"/.test(html) && /tabindex="0"/.test(html),
+    html
+  )
+  check('the followable marker says where it goes', /Open this passage in the citation list below\./.test(html), html)
 
   html = await render('See Publication 17 [4].', cited)
-  check('a marker naming no retrieved passage is left inert', !/citation-ref/.test(html) && html.includes('[4]'), html)
+  // v1.17.2. This used to assert `!/citation-ref/` — "left inert" — which was
+  // the defect: an unresolvable marker rendered as plain black text a reader
+  // could not tell from prose, next to a linked one in the same sentence
+  // (measured, judge-r7/V1/run-2: `[8][9]`). It must now be visibly marked as
+  // unresolved, and must still be no kind of link.
+  check(
+    'a marker naming no retrieved passage is marked unresolved, not left looking like prose',
+    /<span class="citation-ref citation-unresolved"[^>]*>\[4\]<\/span>/.test(html) &&
+      !/<a[^>]*>\[4\]/.test(html) &&
+      !/data-citation="4"/.test(html),
+    html
+  )
+  check(
+    'and says so on hover, in the same words the grounding pass uses',
+    /title="This number names no passage this turn retrieved/.test(html),
+    html
+  )
+
+  html = await render('The rate is 22% [1][2].', cited)
+  // v1.17.2: `[2]` sits directly after a `]`, which the old single-marker
+  // pattern refused outright — so the second half of every adjacent pair went
+  // unlinked and uncounted.
+  check(
+    'two markers written together are both resolved',
+    />\[1\]<\/a>/.test(html) && /<span[^>]+class="citation-ref"[^>]*>\[2\]<\/span>/.test(html),
+    html
+  )
 
   html = await render('```python\nvalues[1] = 2\n```\n\nand `rows[1]` inline', cited)
   check('array indexing in code is never linked', !/citation-ref/.test(html), html)
 
+  html = await render('Read m[0][1] from the matrix.', cited)
+  check('array indexing in prose is never linked either, adjacent or not', !/citation-ref/.test(html), html)
+
   html = await render('bad [1]', [{ index: 1, label: 'Pack › Doc', href: 'javascript:window.__pwned=1' }])
   check('a javascript: source cannot become a citation link', !/javascript:/i.test(html), html)
+
+  // v1.17.2, end to end on a captured turn: the reply judge-r7/V1/run-2 actually
+  // produced, against the citations parsed out of that run's own three lookup
+  // records, through the shipping renderer. `[9]` is the one the old pattern
+  // dropped; `[14]` came from the third lookup, which the strip never listed.
+  const captured = JSON.parse(
+    readFileSync(join(__dirname, '..', '..', 'test/fixtures/citations/v1-three-lookups.json'), 'utf-8')
+  ) as { lookups: { result: string }[]; reply: string }
+  const fromTheRun = captured.lookups.flatMap((l) => parseCitations(l.result))
+  html = await render(captured.reply, fromTheRun)
+  check('the captured turn hands over 17 numbered passages', fromTheRun.length === 17, String(fromTheRun.length))
+  for (const n of [14, 8, 9]) {
+    check(
+      `[${n}] in that reply resolves to the passage it names`,
+      new RegExp(`<a class="citation-ref" href="https://[^"]+" title="Food safety[^"]*">\\[${n}\\]</a>`).test(html),
+      html
+    )
+  }
 
   server.close()
   win.destroy()

@@ -7,6 +7,7 @@ import {
   passagesHandedOver,
   renumberPassages,
   retrievedCitations,
+  turnLookups,
   webSource
 } from '../src/renderer/src/lib/citations'
 import type { ToolCallRecord } from '../src/renderer/src/types'
@@ -63,6 +64,53 @@ describe('parseCitations', () => {
 
   test('no passages, nothing to cite', () => {
     assert.deepEqual(parseCitations('No reference passages found for "x".'), [])
+  })
+
+  // v1.17.2: the strip is built from this parse, so the parse has to recover
+  // everything the strip shows — not just what an inline marker needs.
+  test('the relevance and the passage\'s own words come back too', () => {
+    const [one, two] = parseCitations(LOOKUP)
+    assert.equal(one.score, 1)
+    assert.equal(one.text, 'For married couples filing jointly, the standard deduction rises to $30,000, an increase of $800 from tax year 2024.')
+    assert.equal(two.score, 0.996)
+    assert.equal(two.text, 'In general, individuals may take a standard deduction or itemize their deductions.')
+  })
+
+  test('a block cut off by the output cap yields no score and no text, never a wrong one', () => {
+    const [only] = parseCitations('[1] Pack › Doc · 1% in\n    source: https://example.com/a\n    dat')
+    assert.equal(only.index, 1)
+    assert.equal(only.score, undefined)
+    assert.equal(only.text, undefined)
+  })
+
+  test('the notes formatLookup appends after the last passage are not part of it', () => {
+    const withNotes = `${LOOKUP}\n\nNote: one pack was skipped.\nNote: embeddings are stale.`
+    const [, two] = parseCitations(withNotes)
+    assert.equal(two.text, 'In general, individuals may take a standard deduction or itemize their deductions.')
+  })
+})
+
+describe('turnLookups', () => {
+  test('each lookup keeps its own passages, in the order the turn ran them', () => {
+    const second = '[3] Other pack › Other doc · 2% in\n    source: https://example.com/a\n    relevance 1\ntext'
+    const lookups = turnLookups([
+      { id: 'a', name: 'reference_lookup', args: { query: 'deduction' }, status: 'done', result: LOOKUP },
+      { id: 'b', name: 'reference_lookup', args: { query: 'itemizing' }, status: 'done', result: second }
+    ])
+    assert.deepEqual(lookups.map((l) => l.query), ['deduction', 'itemizing'])
+    assert.deepEqual(lookups.map((l) => l.passages.map((p) => p.index)), [[1, 2], [3]])
+  })
+
+  test('a number claimed twice is listed under the lookup that claimed it first', () => {
+    const lookups = turnLookups([rec(LOOKUP), rec(LOOKUP)])
+    assert.equal(lookups.length, 1)
+    assert.deepEqual(lookups[0].passages.map((p) => p.index), [1, 2])
+  })
+
+  test('an unfinished lookup, another tool, and an empty result contribute nothing', () => {
+    assert.deepEqual(turnLookups([rec(LOOKUP, 'reference_lookup', 'error')]), [])
+    assert.deepEqual(turnLookups([rec(LOOKUP, 'web_search')]), [])
+    assert.deepEqual(turnLookups([rec('No reference passages found for "x".')]), [])
   })
 })
 
@@ -129,6 +177,29 @@ describe('citedIndices', () => {
 
   test('a markdown link is not a citation marker', () => {
     assert.deepEqual(citedIndices('see [1](https://example.com) for more'), [])
+  })
+
+  /**
+   * v1.17.2. Measured (judge-r7/V2/run-1): the reply wrote "[2][5]" and the
+   * app saw only the [2] — the guard that keeps `m[0][1]` out of the count
+   * refused any marker sitting after a `]`, whichever `]` it was. The strip
+   * then stated that the passage the reply had just cited went uncited.
+   */
+  test('markers written together are two citations, not one', () => {
+    assert.deepEqual(citedIndices('adjusts each year (Topic no. 551) [2][5].'), [2, 5])
+    assert.deepEqual(citedIndices('all three [1][2][3] agree'), [1, 2, 3])
+  })
+
+  test('array indexing is still not a citation, adjacent or not', () => {
+    // The run starts after a word character, so the whole run is refused.
+    assert.deepEqual(citedIndices('`m[0][1]` is a cell'), [])
+    assert.deepEqual(citedIndices('Read m[0][1] from the matrix.'), [])
+    // …and one whose run starts after some other bracket expression too.
+    assert.deepEqual(citedIndices('Read arr[i][1] from the matrix.'), [])
+  })
+
+  test('a run that ends in a markdown link keeps the link out of the count', () => {
+    assert.deepEqual(citedIndices('see [2][5](https://example.com)'), [2])
   })
 })
 

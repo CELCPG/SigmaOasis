@@ -3,7 +3,7 @@ import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 
 import { latexToPlainText } from './mathPlaintext'
-import { CITATION_MARKER, webSource, type Citation } from './citations'
+import { CITATION_IN_RUN, CITATION_RUN, webSource, type Citation } from './citations'
 
 // Register only common languages — the full highlight.js bundle is ~1 MB.
 import bash from 'highlight.js/lib/languages/bash'
@@ -205,6 +205,19 @@ export function renderMarkdown(markdown: string, citations: Citation[] = []): st
  * sanitization boundary as model output. Anchors get no `target` — the app
  * strips it — so a click leaves through `will-navigate`, the same route a
  * link the model merely typed already takes (src/main/index.ts).
+ *
+ * v1.17.2: three states, not two.
+ *
+ * A marker whose passage carries a web source is a link, as before. One whose
+ * passage is a local file is now a *button* carrying `data-citation` —
+ * MessageBubble opens the provenance strip on that entry — because a bare
+ * `title` is a hover affordance and a keyboard user has none. And a marker
+ * naming no retrieved passage used to be returned untouched, which rendered it
+ * as plain black text a reader cannot tell from prose: measured
+ * (judge-r7/V1/run-2) the reply's `[9]` sat inert in a sentence beside a linked
+ * `[8]`, indistinguishable from a typo. It is now marked as unresolved, which
+ * is the honest rendering of a citation the app cannot follow — the grounding
+ * pass reports the same fact in words.
  */
 export function linkCitations(html: string, citations: Citation[]): string {
   if (citations.length === 0) return html
@@ -214,21 +227,35 @@ export function linkCitations(html: string, citations: Citation[]): string {
   return html.replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>|<[^>]+>|[^<]+/g, (chunk) =>
     chunk.startsWith('<')
       ? chunk
-      : chunk.replace(CITATION_MARKER, (raw, n: string) => {
-          const c = byIndex.get(Number(n))
-          if (!c) return raw
-          // Re-checked here, not trusted from the caller: this function is the
-          // one that writes the href, so it is the one that decides what may
-          // become one. A scheme that is not http(s) reaches neither the
-          // attribute nor the tooltip.
-          const href = webSource(c.href)
-          const title = escapeHtml(href ? `${c.label}\n${href}` : c.label)
-          return href
-            ? `<a class="citation-ref" href="${escapeHtml(href)}" title="${title}">${raw}</a>`
-            : `<span class="citation-ref" title="${title}">${raw}</span>`
-        })
+      : // A run is rewritten marker by marker, so `[2][5]` yields two.
+        chunk.replace(CITATION_RUN, (run) =>
+          run.replace(CITATION_IN_RUN, (raw, n: string) => {
+            const c = byIndex.get(Number(n))
+            if (!c) {
+              return (
+                `<span class="citation-ref citation-unresolved" title="${escapeHtml(UNRESOLVED_TITLE)}">` +
+                `${raw}</span>`
+              )
+            }
+            // Re-checked here, not trusted from the caller: this function is the
+            // one that writes the href, so it is the one that decides what may
+            // become one. A scheme that is not http(s) reaches neither the
+            // attribute nor the tooltip.
+            const href = webSource(c.href)
+            const title = escapeHtml(href ? `${c.label}\n${href}` : `${c.label}\nOpen this passage in the citation list below.`)
+            return href
+              ? `<a class="citation-ref" href="${escapeHtml(href)}" title="${title}">${raw}</a>`
+              : `<span class="citation-ref" data-citation="${c.index}" role="button" tabindex="0" ` +
+                `title="${title}">${raw}</span>`
+          })
+        )
   )
 }
+
+/** What an unresolvable marker says on hover. Exported so the suite can pin it. */
+export const UNRESOLVED_TITLE =
+  'This number names no passage this turn retrieved, so there is nothing to open. ' +
+  'The verification banner reports it as a citation that resolves to nothing.'
 
 /**
  * v1.12: a model that saved a chart under /work tends to also write
