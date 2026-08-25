@@ -749,4 +749,351 @@ describe('a step that forecast no tool at all is held to that too', () => {
     assert.match(row, MISMATCH)
     assert.match(row, /reference_lookup/)
   })
+
+  // Strengthened in round 7. The wording above is what a step that merely
+  // *added* a tool to its list gets; a step that was approved as touching
+  // nothing and then ran two is a different failure and must not read the same.
+  test('a step that promised nothing says so, rather than reading like an addition', () => {
+    assert.match(row, /planned no tools at all/)
+    assert.ok(
+      !/planned no tools at all/.test(rows(render(RECONCILED, RECONCILED_CALLS))[2]!),
+      'a step that added a tool to a real forecast is accused of having forecast none'
+    )
+  })
+})
+
+// ---- round 7: the other direction of the same difference ---------------------
+
+/**
+ * Measured, judge-r6/PT1, and verified against the raw audit log rather than
+ * taken on a critic's word. The plan on screen at the approval moment forecast
+ * `Tools — may use: list_notes` on one step and `read_note` on another;
+ * `trace/audit.jsonl` for that run contains `memory_search` ×1 and
+ * `reference_lookup` ×3, and nothing else. Neither forecast tool ever ran.
+ *
+ * Nothing said so. Both forecast lines stayed on screen unannotated, the header
+ * read `Plan — 4/4 steps done` beside `finished`, and the two steps that did
+ * reach for tools were precisely the ones that had said "none planned; this
+ * step reasons only". A reader who approved on the strength of "may use:
+ * list_notes" had no way to learn the forecast was worthless.
+ *
+ * v1.17 reconciled executed ∖ forecast and stopped there — round 5's species
+ * again, a check reading a quantity adjacent to the one it means: one direction
+ * of a set difference standing in for the difference. Both directions are now
+ * reported, and they are deliberately not reported alike (see below).
+ */
+const FORECAST_UNRUN = endPlan(
+  plan([
+    {
+      id: 'f1',
+      title: 'List the stored notes',
+      detail: 'Enumerate what the notebook holds.',
+      status: 'done',
+      output: 'Nothing to enumerate.',
+      tools: ['list_notes']
+    },
+    {
+      id: 'f2',
+      title: 'Read the matching note',
+      detail: 'Pull the one about the household.',
+      status: 'done',
+      output: 'No matching note.',
+      tools: ['read_note']
+    },
+    {
+      id: 'f3',
+      title: 'Recall what was established',
+      detail: 'Household size and constraints.',
+      status: 'done',
+      output: '3 people.',
+      tools: []
+    },
+    {
+      id: 'f4',
+      title: 'Assemble the answer',
+      detail: 'One list, by category.',
+      status: 'done',
+      output: 'Done.',
+      tools: []
+    }
+  ]),
+  'completed'
+)
+
+/** The run's own calls, exactly as the audit log recorded them. */
+const FORECAST_UNRUN_CALLS: ToolCallRecord[] = [
+  call('m1', 'memory_search', 'f3'),
+  call('m2', 'reference_lookup', 'f4'),
+  call('m3', 'reference_lookup', 'f4'),
+  call('m4', 'reference_lookup', 'f4')
+]
+
+/** The row's verdict on a forecast that did not happen. */
+const UNRUN = /which this step never ran/
+
+describe('a forecast that did not happen is reconciled too', () => {
+  const html = render(FORECAST_UNRUN, FORECAST_UNRUN_CALLS)
+  const r = rows(html)
+
+  test('the fixture is the shape the failure was found in', () => {
+    assert.match(r[0]!, /Tools — may use: list_notes/)
+    assert.match(r[1]!, /Tools — may use: read_note/)
+    assert.match(r[2]!, /Tools — none planned/)
+    assert.match(r[3]!, /Tools — none planned/)
+    // The steps that forecast a tool ran none, and the ones that forecast
+    // none ran four between them. That inversion is the whole case.
+    for (const row of [r[0]!, r[1]!]) assert.ok(!/\d+ tool calls?/.test(row))
+    assert.match(r[2]!, /1 tool call\b/)
+    assert.match(r[3]!, /3 tool calls/)
+  })
+
+  test('a forecast tool that never ran is named on the row', () => {
+    assert.match(r[0]!, UNRUN)
+    assert.match(r[0]!, /Forecast list_notes/)
+    assert.match(r[1]!, /Forecast read_note/)
+  })
+
+  test('the note names the tool that did not run, and only that one', () => {
+    const note = textNodes(`<li ${r[0]!}`).find((n) => UNRUN.test(n.text))
+    assert.ok(note, 'the row carries no verdict on its own unrun forecast')
+    assert.match(note!.text, /list_notes/)
+    assert.ok(!/read_note/.test(note!.text), `another step's forecast leaked in: "${note!.text}"`)
+  })
+
+  test('the header no longer reads as a clean 4/4', () => {
+    const h = header(html)
+    assert.match(h, /4\/4 steps done/)
+    assert.match(h, /4 of 4 steps diverged from their forecast/)
+  })
+
+  /**
+   * PT2's rule, extended to a fixture PT2 never covered. How the plan ended
+   * stays the heaviest thing in the block; a clause appended to the header must
+   * not become a second stamp competing with it. Weight, not contrast — the
+   * header count has out-contrasted the outcome badge since v1.12.3, and the
+   * qualification is deliberately pinned to the count rather than below it.
+   */
+  test('the outcome is still the heaviest thing in the block', () => {
+    const nodes = textNodes(html)
+    const badge = nodes.find((n) => n.text === OUTCOME_LABEL.completed)
+    const note = nodes.find((n) => /diverged from their forecast/.test(n.text))
+    assert.ok(badge && note, 'the fixture lost its outcome or its header note')
+    const heavier = nodes.filter((n) => n !== badge && weight(n.cls) >= weight(badge!.cls))
+    assert.equal(heavier.length, 0, `set no heavier than ${heavier.map((n) => n.text).join(' | ')}`)
+  })
+
+  test('the header note carries the same weight as the count it qualifies', () => {
+    const nodes = textNodes(html)
+    const count = nodes.find((n) => /4\/4 steps done/.test(n.text))
+    const note = nodes.find((n) => /diverged from their forecast/.test(n.text))
+    assert.ok(count && note, 'the fixture lost its count or its header note')
+    assert.equal(weight(note!.cls), weight(count!.cls))
+    for (const dark of [false, true]) {
+      assert.equal(
+        legible(note!, html, dark).toFixed(2),
+        legible(count!, html, dark).toFixed(2),
+        `${dark ? 'dark' : 'light'}: the qualification is dimmer than the claim it qualifies`
+      )
+    }
+  })
+
+  test('an unrun forecast is stated, not warned about', () => {
+    const note = textNodes(html).find((n) => UNRUN.test(n.text))
+    const warning = textNodes(html).find((n) => MISMATCH.test(n.text))
+    assert.ok(note && warning, 'the fixture carries only one of the two verdicts')
+    assert.ok(!/⚠/.test(note!.text), `the quiet reconciliation shouts: "${note!.text}"`)
+    assert.match(warning!.text, /⚠️/)
+    for (const dark of [false, true]) {
+      const quiet = legible(note!, html, dark)
+      const loud = legible(warning!, html, dark)
+      const theme = dark ? 'dark' : 'light'
+      // Legible, or the reader cannot learn their approval was uninformed …
+      assert.ok(quiet >= 4.5, `${theme}: the note misses AA at ${quiet.toFixed(2)}:1`)
+      // … and quieter than a tool that ran unannounced, or the two failures
+      // arrive at one volume and the reader learns to discount both.
+      assert.ok(quiet < loud, `${theme}: note ${quiet.toFixed(2)}:1 vs warning ${loud.toFixed(2)}:1`)
+    }
+  })
+
+  test('the reconciliation outlives the setting that hides tool-call details', () => {
+    const hidden = renderToStaticMarkup(
+      createElement(PlanBlockView, {
+        plan: FORECAST_UNRUN,
+        streaming: false,
+        onResolve: () => {},
+        records: FORECAST_UNRUN_CALLS,
+        hideToolCalls: true
+      })
+    ).replace(/<!-- -->/g, '')
+    assert.ok(!/\d+ tool calls?/.test(hidden), 'the fixture no longer hides the call blocks')
+    assert.match(hidden, UNRUN)
+    assert.match(hidden, /4 of 4 steps diverged/)
+  })
+})
+
+/**
+ * The true negative that has to sit beside every true positive here: a plan
+ * whose forecast was accurate must produce no noise at all. Same tools, same
+ * statuses, same shape — only the calls are the ones the steps said they would
+ * make.
+ */
+describe('a plan whose forecast was accurate says nothing about it', () => {
+  const ACCURATE = endPlan(
+    plan([
+      {
+        id: 'p1',
+        title: 'List the stored notes',
+        detail: 'Enumerate what the notebook holds.',
+        status: 'done',
+        output: 'Two notes.',
+        tools: ['list_notes']
+      },
+      {
+        id: 'p2',
+        title: 'Read the matching note',
+        detail: 'Pull the one about the household.',
+        status: 'done',
+        output: '3 people.',
+        tools: ['read_note']
+      },
+      {
+        id: 'p3',
+        title: 'Assemble the answer',
+        detail: 'One list, by category.',
+        status: 'done',
+        output: 'Done.',
+        tools: []
+      }
+    ]),
+    'completed'
+  )
+  const html = render(ACCURATE, [
+    call('n1', 'list_notes', 'p1'),
+    call('n2', 'read_note', 'p2'),
+    call('n3', 'read_note', 'p2')
+  ])
+
+  test('the fixture really did run the tools it forecast', () => {
+    const r = rows(html)
+    assert.match(r[0]!, /1 tool call\b/)
+    assert.match(r[1]!, /2 tool calls/)
+    assert.ok(!/\d+ tool calls?/.test(r[2]!), 'the reasoning-only step ran something')
+  })
+
+  test('neither direction of the reconciliation says a word', () => {
+    assert.ok(!UNRUN.test(html), 'an accurate forecast is faulted for an unrun tool')
+    assert.ok(!MISMATCH.test(html), 'an accurate forecast is faulted for an undisclosed run')
+  })
+
+  test('the header is the plain count, with nothing appended to it', () => {
+    const h = header(html)
+    assert.match(h, /3\/3 steps done/)
+    assert.ok(!/diverged/.test(h), `the header hedges an accurate plan: "${h}"`)
+  })
+})
+
+/**
+ * The class, not the two instances. Round 5 recorded that a check written
+ * against the forms it has already seen gets defeated by one it has not, and
+ * round 6 sharpened it: any check reading a quantity *adjacent to* the one it
+ * means fails the same way. The quantity meant here is the symmetric difference
+ * of forecast and executed, so that is what is asserted — every member of it
+ * reaches the row, whichever side it came from.
+ */
+describe('the reconciliation is the whole difference, not one side of it', () => {
+  const cases: { forecast: string[]; ran: string[] }[] = [
+    { forecast: [], ran: [] },
+    { forecast: ['list_notes'], ran: [] },
+    { forecast: [], ran: ['reference_lookup'] },
+    { forecast: ['memory_search'], ran: ['memory_search', 'reference_lookup'] },
+    { forecast: ['list_notes', 'read_note'], ran: ['memory_search'] },
+    { forecast: ['list_notes', 'read_note'], ran: ['read_note'] },
+    { forecast: ['web_search'], ran: ['web_search'] }
+  ]
+
+  for (const { forecast, ran } of cases) {
+    const label = `forecast [${forecast.join(' ')}] ran [${ran.join(' ')}]`
+
+    test(`both sides reach the row: ${label}`, () => {
+      const p = plan([
+        { id: 'x1', title: 'Step', detail: 'Do it.', status: 'done', output: 'ok', tools: forecast }
+      ])
+      const html = render(
+        p,
+        ran.map((name, i) => call(`x${i}`, name, 'x1'))
+      )
+      const row = rows(html)[0]!
+      // Only what the row says as a *verdict* counts. Reading the whole row
+      // would let the forecast preview vouch for its own unrun name, which is
+      // the reassurance this round exists to remove.
+      const verdicts = textNodes(`<li ${row}`)
+        .filter((n) => UNRUN.test(n.text) || MISMATCH.test(n.text))
+        .map((n) => n.text)
+        .join(' ')
+      const expected = [
+        ...ran.filter((n) => !forecast.includes(n)),
+        ...forecast.filter((n) => !ran.includes(n))
+      ]
+      for (const name of expected) {
+        assert.match(
+          verdicts,
+          new RegExp(`\\b${name}\\b`),
+          `${name} is in the difference and no verdict names it: "${verdicts}"`
+        )
+      }
+      // And nothing is invented: a tool on both sides earns no verdict at all.
+      for (const name of [...forecast, ...ran].filter((n) => !expected.includes(n))) {
+        assert.ok(
+          !new RegExp(`\\b${name}\\b`).test(verdicts),
+          `${name} was forecast and ran, and is faulted anyway: "${verdicts}"`
+        )
+      }
+      if (expected.length === 0) {
+        assert.equal(verdicts, '', `a matching forecast is faulted: ${label}`)
+        assert.ok(!/diverged/.test(header(html)), `a matching forecast reaches the header: ${label}`)
+      } else {
+        assert.match(header(html), /1 of 1 step diverged from its forecast/)
+      }
+    })
+  }
+})
+
+/**
+ * The other half of "written against the class": *did not* is not *could not
+ * have*. Only a step that reached the end of its own sub-turn can be said to
+ * have finished without touching what it forecast. A step that failed, was
+ * stopped, or was abandoned when the plan ended never got that far — and its
+ * row already says so, in a struck-through line that must not acquire a second
+ * one repeating it.
+ */
+describe('a step that never reached its forecast is not faulted for it', () => {
+  for (const status of ['pending', 'running', 'failed', 'stopped', 'skipped'] as const) {
+    test(`a ${status} step is not told it skipped its forecast`, () => {
+      const html = render(
+        plan([
+          { id: 'y1', title: 'Look it up', detail: 'Check the library.', status, tools: ['read_note'] }
+        ])
+      )
+      assert.match(html, /Tools — may use: read_note/)
+      assert.ok(!UNRUN.test(html), `a ${status} step is faulted for a forecast it never reached`)
+      assert.ok(!/diverged/.test(header(html)), `a ${status} step reaches the header`)
+    })
+  }
+
+  test('the same step, once done, is', () => {
+    const html = render(
+      plan([
+        {
+          id: 'y1',
+          title: 'Look it up',
+          detail: 'Check the library.',
+          status: 'done',
+          output: 'ok',
+          tools: ['read_note']
+        }
+      ])
+    )
+    assert.match(html, UNRUN)
+    assert.match(html, /Forecast read_note/)
+  })
 })

@@ -1324,6 +1324,83 @@ check that reads a quantity **adjacent to** the one it means — the categories 
 the items, one direction of a set difference instead of both, the figures instead of the
 reply.
 
+<!-- FOLD IN: new eval case, PT1's other direction. Not yet a round heading. -->
+
+### Pending fold-in — PT1: the half of the difference nothing checked
+
+The row above is confirmed against the raw audit log rather than taken from the critique. The
+plan on screen at the approval moment forecast `Tools — may use: list_notes` on one step and
+`Tools — may use: read_note` on another; `trace/audit.jsonl` for that run holds `memory_search`
+×1 and `reference_lookup` ×3 and nothing else. **Neither forecast tool ever ran.** Worse, the two
+steps that did reach for tools were the ones whose forecast read `Tools — none planned; this step
+reasons only`, so every tool disclosure in that block was wrong and the block's only verdict was
+about the pair that had run.
+
+Everything the block said about it, **before**:
+
+```
+📋 Plan — 4/4 steps done                                 finished
+✓ 1. List the stored notes
+     Tools — may use: list_notes
+✓ 3. Recall what was established                         🔧 1 tool call
+     Tools — none planned; this step reasons only
+     ⚠️ Ran memory_search, which this step did not disclose.
+```
+
+**After**:
+
+```
+📋 Plan — 4/4 steps done · 4 of 4 steps diverged from their forecast    finished
+✓ 1. List the stored notes
+     Tools — may use: list_notes
+     Forecast list_notes, which this step never ran.
+✓ 3. Recall what was established                         🔧 1 tool call
+     Tools — none planned; this step reasons only
+     ⚠️ Ran memory_search, which this step did not disclose — it planned no tools at all.
+```
+
+Written against the class rather than the instance: `reconcileStepTools` returns the whole
+symmetric difference from one place — `undisclosed`, `unrun`, and whether the forecast was
+*empty* — and the row reports every member of it. Adding a direction later means adding it there,
+not remembering to.
+
+Three decisions that could each have gone the other way:
+
+- **The unrun half is deliberately not a warning.** A tool that ran unannounced is work the reader
+  did not authorise; a tool that was offered and turned out not to be needed is often the step
+  doing its job. The defect was never that the forecast over-reached — it was that nothing said
+  so, so a reader could not tell an informed approval from an uninformed one. It gets the step's
+  own body ink and no glyph: measured at **5.05:1 light / 6.26:1 dark**, clear of AA, and strictly
+  below the amber warning's **6.04:1 / 9.34:1**. Round 4's lesson is the reason — two failures at
+  one volume teach the reader to discount both.
+- **`4/4 steps done` stays, and stops standing alone.** It is true; every step reached the end of
+  its sub-turn. Shrinking the count would trade one false impression for another. What it gets is
+  a clause at *its own* weight and ink, so the qualification cannot be read without the claim.
+  The outcome badge remains the heaviest thing in the block (asserted on this fixture, extending
+  PT2's rule to it).
+- **"Reasons only" and then two tools is not the same as adding one to a list.** The reader was
+  told in as many words that this step would touch nothing. That row now ends `— it planned no
+  tools at all`; a step that merely added a tool to a real forecast keeps the plain wording, and
+  a test asserts the two do not read alike.
+
+The gate on the unrun half is `status === 'done'`, and the distinction is *did not* versus *could
+not have*: only a step that reached the end of its own sub-turn can be said to have finished
+without touching what it forecast. A failed, stopped or skipped step never got that far, and its
+row already says so — pinned for all five non-`done` statuses.
+
+| Case | Forecast | Ran | What the row says |
+| --- | --- | --- | --- |
+| **TP** — the measured run | `list_notes` | — | `Forecast list_notes, which this step never ran.` |
+| **TP** — the measured run | *none planned* | `memory_search` | `⚠️ Ran memory_search, which this step did not disclose — it planned no tools at all.` |
+| **TP** — both at once | `memory_search` | `reference_lookup` | both lines, quiet one first |
+| **TN** — accurate forecast | `list_notes`, `read_note` | `list_notes`, `read_note` ×2 | nothing, and the header stays `3/3 steps done` with no clause |
+| **TN** — partial match | `list_notes`, `read_note` | `read_note` | `list_notes` only; `read_note` is never faulted |
+| **TN** — never reached it | `read_note` | — (step `failed`/`stopped`/`skipped`/`pending`/`running`) | nothing; the row's own status already says it |
+
+24 new cases in `test/planBlock.test.ts`, seven of them a table walk over
+forecast × executed asserting that a name is faulted **iff** it is in the symmetric difference —
+the class, not the two instances that were found.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
