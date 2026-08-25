@@ -1,5 +1,5 @@
 import type { ToolCallRecord } from '../types'
-import { measurementsIn } from '../../../shared/measurements'
+import { inScale, measurementsIn, temperatureScale } from '../../../shared/measurements'
 import { TOOL_DEFS } from '../../../shared/tools'
 import { LAUNDERED_OUTPUT_MARKER } from './workbenchChecks'
 import { danglingCitations, retrievedCitations, type Citation } from './citations'
@@ -414,15 +414,36 @@ export function unsourcedQuantities(answer: string, toolOutput: string, userText
     if (list) list.push(m.value)
     else byUnit.set(m.unit, [m.value])
   }
+  // v1.15: one dimension, two scales. A corpus that states any temperature
+  // arms BOTH — see temperatureScale for the measured turn where it did not,
+  // and half an invented "165°F / 74°C" went unnamed because the passages
+  // happened to be written in Fahrenheit. Support crosses the scales, never
+  // the dimensions: a reply restating a retrieved 165 °F as 74 °C has quoted
+  // its source and must stay clean, while 74 °C over a corpus whose only
+  // temperature is a fridge's 40 °F is the invention this rung exists for.
+  const corpusTemps: { value: number; scale: 'c' | 'f' }[] = []
+  for (const [unit, values] of byUnit) {
+    const scale = temperatureScale(unit)
+    if (scale) for (const value of values) corpusTemps.push({ value, scale })
+  }
+  const armedTemperature = [...armed].some((u) => temperatureScale(u) !== null)
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const m of measurementsIn(answer)) {
-    if (!armed.has(m.unit)) continue
-    const known = byUnit.get(m.unit)
+    const scale = temperatureScale(m.unit)
+    if (!armed.has(m.unit) && !(scale && armedTemperature)) continue
+    const known = scale
+      ? corpusTemps.map((t) => inScale(t.value, t.scale, scale))
+      : byUnit.get(m.unit)
     if (!known || known.length === 0) continue
     const decimals = precisionOf(String(m.value))
     if (known.some((k) => roundTo(k, decimals) === m.value)) continue
-    if (isDerivable(m.value, decimals, known.slice(0, MAX_DERIVATION_BASES))) continue
+    // Temperatures are not derivable. Multiplying one by a pack size is
+    // meaningless — a fridge held at 40 °F does not license 80 °F, and the
+    // integer-multiple rule that keeps per-case pricing quiet was certifying
+    // exactly that. It also keeps the conversion above honest: a converted
+    // value is a fraction, and fractions multiply into almost anything.
+    if (!scale && isDerivable(m.value, decimals, known.slice(0, MAX_DERIVATION_BASES))) continue
     if (seen.has(m.raw)) continue
     seen.add(m.raw)
     flagged.push(m.raw)
@@ -981,10 +1002,24 @@ export function misquotedSpans(answer: string, corpus: string): string[] {
  * straight after the marker, and a marker opening a line or a table cell with
  * the document's title after it. Bounded and punctuation-free so an ordinary
  * aside — "[5] (see the note below), which says…" — is not read as a title.
+ *
+ * v1.15 adds a third, which is the one a model reaches for when it attributes
+ * a figure mid-sentence: the marker INSIDE the parenthetical, the document
+ * after it — `(source: [1] Cold Food Storage Chart)`. Measured (task V1,
+ * run-1): the storage figure was attributed to that when [1] is *Safe minimum
+ * internal temperatures* and the chart is [5]. Neither shape above sees it —
+ * one wants the title in the brackets' wake, the other wants the marker to
+ * open the line — so the check built for exactly this error said nothing.
+ *
+ * The lead-in word is optional; the closing paren is not. Bounding the title
+ * by `)` is what stops it running on into prose and turning an ordinary
+ * sentence into a document name, and `(sources: [1], [2], [4])` is not matched
+ * at all — a marker followed by a comma names no document.
  */
 const ATTRIBUTIONS = [
   /\[(\d{1,3})\][ \t]*\(([^)\n]{2,60})\)/g,
-  /^[ \t|>*_-]*\[(\d{1,3})\][ \t]+([^|\n\t]{2,60}?)[ \t]*(?:\||\t|$)/gm
+  /^[ \t|>*_-]*\[(\d{1,3})\][ \t]+([^|\n\t]{2,60}?)[ \t]*(?:\||\t|$)/gm,
+  /\((?:(?:sources?|from|per|see|via|ref|citing|cited in)[ \t]*:?[ \t]*)?\[(\d{1,3})\][ \t]+([^)\n]{2,60})\)/gi
 ]
 
 /** Words carrying no identity — a title match on "of" would mean nothing. */

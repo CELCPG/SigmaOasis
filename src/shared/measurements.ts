@@ -75,6 +75,41 @@ export function normaliseUnit(unit: string, suffix?: string): string {
   return rate ? `${base} ${rate.replace(/s$/, '')}` : base
 }
 
+/**
+ * The scale a temperature unit names, or null when it measures something else.
+ *
+ * v1.15. Temperature is the one quantity here that is routinely written in two
+ * scales in the same breath, and treating those scales as two unrelated units
+ * is how a whole invented claim went unnamed. Measured (task V1, run-1): the
+ * reply stated "165°F / 74°C" over passages containing neither string. Only
+ * the Fahrenheit half was reported, and only because one passage happens to
+ * mention "40 °F" about a refrigerator; nothing in them is written in Celsius,
+ * so `°c` was never armed and the Celsius half of the same sentence was
+ * skipped in silence.
+ *
+ * `° F` as well as `°F`: the matcher permits a space, and a unit that survives
+ * one renderer's spacing must not become a different kind of thing.
+ */
+export function temperatureScale(unit: string): 'c' | 'f' | null {
+  const m = /^°\s?([cf])$/.exec(unit.trim().toLowerCase())
+  return m ? (m[1] as 'c' | 'f') : null
+}
+
+/**
+ * The same temperature on the other scale.
+ *
+ * Exact arithmetic, no tolerance of its own — the caller rounds to whatever
+ * precision the text it is checking was written at. This is the ONE conversion
+ * this file performs, and it is safe where converting miles to kilometres
+ * would not be: F and C are the same physical quantity written two ways, so a
+ * reply restating a retrieved 165 °F as 74 °C has quoted its source, not
+ * disagreed with it.
+ */
+export function inScale(value: number, from: 'c' | 'f', to: 'c' | 'f'): number {
+  if (from === to) return value
+  return to === 'c' ? ((value - 32) * 5) / 9 : (value * 9) / 5 + 32
+}
+
 /** Every measurement in a body of text. */
 export function measurementsIn(text: string): Measurement[] {
   const out: Measurement[] = []
