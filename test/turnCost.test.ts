@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { formatTurnCost, tailMs } from '../src/renderer/src/lib/turnCost'
+import { formatTurnCost, gatherMs, tailMs } from '../src/renderer/src/lib/turnCost'
 import { VERIFY_BUDGET_MS, createVerifyBudget } from '../src/renderer/src/lib/turnPhase'
 import type { ResponseStats } from '../src/renderer/src/types'
 
@@ -240,10 +240,138 @@ describe('the turn runs its tail under the budget', () => {
     assert.ok(source.includes('budget.notice()'), 'the expiry must be read')
     assert.ok(source.includes('checks.push(notice)'), 'and disclosed on the message')
     // Whatever the tail did, the turn is measured end to end and the stat line
-    // gets the real number.
+    // gets the real number. Round 6 moves the origin back: "end to end" now
+    // means from the turn opening, not from the first request — see below.
     assert.ok(
-      source.includes('turnMs: Date.now() - turnStartedAt'),
-      'the turn must be measured to the moment the composer is released'
+      source.includes('turnMs: Date.now() - turnOpenedAt'),
+      'the turn must be measured to the moment the composer is released, from the moment it opened'
     )
+    assert.ok(
+      !source.includes('turnMs: Date.now() - turnStartedAt'),
+      'turnStartedAt is stamped after the providers have run, so it cannot be the turn’s origin'
+    )
+  })
+})
+
+/**
+ * Round 6: the wait BEFORE the model, which round 5's "total" started after.
+ *
+ * A factual turn runs the app's own web_search as a serial context provider
+ * before the model is asked anything (lib/contextProviders). `turnStartedAt` —
+ * the origin of both `totalMs` and round 5's `turnMs` — is stamped AFTER that
+ * whole sequence returns, so every figure on the line began counting once the
+ * gather was already over.
+ *
+ * Measured, replaying runTurn's own ordering against the real gatherTurnContext
+ * with the search fixture's 8000 ms sleep: the clock's origin lands at t+8002 ms,
+ * and a 39.5 s wait reports as 31.5 s — 20% of it outside every number shown.
+ *
+ * The recorded runs (.h2h-runs/judge-r5/TTU1) are the same shape and are what
+ * the figures below reproduce:
+ *
+ *   run-1  sendToTurnEndMs 40286   on screen "…31.5s total"   hidden 8786 ms
+ *   run-2  sendToTurnEndMs 39791   on screen "…30.9s total"   hidden 8891 ms
+ *
+ * and the fixture in both: "slept 8000ms then ok".
+ */
+describe('the stat line accounts for the gather, the way it accounts for checking', () => {
+  test('TTU1 run-1: the 8.8s search the footer started after', () => {
+    const line = formatTurnCost(
+      stats({
+        completionTokens: 240,
+        tokensPerSecond: 7.6,
+        ttftMs: 13_450,
+        totalMs: 31_500,
+        gatherMs: 8_786,
+        turnMs: 40_286
+      })
+    )
+    assert.ok(line.includes('40.3s total'), `the reader waited 40.3s; line was: ${line}`)
+    assert.ok(line.includes('8.8s gathering'), `the pre-model search must be named; line was: ${line}`)
+    assert.ok(line.includes('31.5s answer'), `the stream is 31.5s and must say so; line was: ${line}`)
+    assert.ok(!line.includes('31.5s total'), 'the stream must never be presented as the total')
+  })
+
+  test('TTU1 run-2: the same hole, the same size', () => {
+    const line = formatTurnCost(
+      stats({ completionTokens: 252, tokensPerSecond: 8.1, ttftMs: 7_710, totalMs: 30_900, gatherMs: 8_891, turnMs: 39_791 })
+    )
+    assert.ok(line.includes('39.8s total'), line)
+    assert.ok(line.includes('8.9s gathering'), line)
+    assert.ok(!line.includes('30.9s total'), line)
+  })
+
+  test('a turn with both waits names both, in the order they happened', () => {
+    // TTU1's gather in front of V1's tail: nothing about the turn is unaccounted.
+    const line = formatTurnCost(stats({ totalMs: 25_700, gatherMs: 8_786, turnMs: 88_818 }))
+    assert.match(line, /8\.8s gathering · 25\.7s answer · 54\.3s checking · 88\.8s total$/, line)
+  })
+
+  test('the segments add up to the total — that is what makes them checkable', () => {
+    for (const [gather, total, turn] of [
+      [8_786, 31_500, 40_286],
+      [8_891, 30_900, 39_791],
+      [8_786, 25_700, 88_818],
+      [1_200, 19_600, 42_640]
+    ] as const) {
+      const s = stats({ gatherMs: gather, totalMs: total, turnMs: turn })
+      assert.equal(
+        gatherMs(s) + s.totalMs + tailMs(s),
+        turn,
+        `gathering + answer + checking must be the total (${gather}/${total}/${turn})`
+      )
+    }
+  })
+
+  test('the gather is not checking — the tail keeps its own meaning', () => {
+    // Round 5 read every unaccounted millisecond as post-answer checking. With
+    // the origin moved back, the pre-model 8.8s must not be relabelled as a
+    // check that never ran.
+    const s = stats({ totalMs: 31_500, gatherMs: 8_786, turnMs: 40_286 })
+    assert.equal(tailMs(s), 0, 'nothing ran after this answer, so nothing may be called checking')
+    assert.ok(!formatTurnCost(s).includes('checking'), 'no tail, no checking figure')
+    assert.equal(gatherMs(stats({ totalMs: 31_500, turnMs: 40_286 })), 0, 'an unmeasured gather claims nothing')
+  })
+
+  test('a gather too short to matter keeps the line it had', () => {
+    // No providers ran, or all of them were disabled: there is no wait to name.
+    const line = formatTurnCost(stats({ totalMs: 12_300, gatherMs: 40, turnMs: 12_340 }))
+    assert.ok(line.endsWith('12.3s total'), line)
+    assert.ok(!line.includes('gathering'), 'a 40 ms gather is not a wait')
+  })
+
+  test('the gather is measured, never inferred, and never negative', () => {
+    assert.equal(gatherMs(stats({ totalMs: 31_500, gatherMs: 8_786, turnMs: 40_286 })), 8_786)
+    // A clock that ran backwards must not put a negative wait on screen.
+    assert.equal(gatherMs(stats({ totalMs: 100, gatherMs: -5, turnMs: 100 })), 0)
+    assert.equal(tailMs(stats({ totalMs: 31_500, gatherMs: 40_000, turnMs: 40_286 })), 0)
+  })
+})
+
+describe('the turn clock starts before the providers, not after them', () => {
+  const source = readFileSync(USE_LM_STUDIO, 'utf-8')
+
+  test('the origin is stamped ahead of the gather', () => {
+    const opened = source.indexOf('const turnOpenedAt = Date.now()')
+    const gather = source.indexOf('await gatherTurnContext(')
+    const stream = source.indexOf('const turnStartedAt = Date.now()')
+    assert.ok(opened > 0, 'the turn must stamp when it opened')
+    assert.ok(gather > 0 && stream > 0, 'gather and stream clock not found')
+    assert.ok(
+      opened < gather,
+      'the turn clock must start before the context providers run, or "total" starts after the wait'
+    )
+    assert.ok(
+      gather < stream,
+      'the stream clock is stamped after the gather — which is exactly why it cannot be the turn’s origin'
+    )
+  })
+
+  test('the pre-model wait is measured and put on the stats', () => {
+    assert.ok(
+      source.includes('const gatherMs = turnStartedAt - turnOpenedAt'),
+      'the gather is the distance between the two origins — measured, not estimated'
+    )
+    assert.ok(source.includes('gatherMs,'), 'and it must reach the stat line through ResponseStats')
   })
 })

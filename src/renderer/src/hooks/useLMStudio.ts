@@ -124,6 +124,18 @@ async function runTurn(
   const convo = store.conversations.find((c) => c.id === conversationId)
   if (!convo) return
 
+  /**
+   * v1.12.6: the turn's one origin — the moment the reader's wait begins.
+   *
+   * Everything below this line is the turn: pinning the model, the context
+   * providers, the stream, the checks. `turnStartedAt` further down is the
+   * STREAM's origin and is stamped after the providers have returned, so
+   * measuring the turn from it silently drops however long they took — 8.8 s
+   * on the recorded TTU1 runs, all of it the app's own web_search running
+   * before the model was asked anything (lib/turnCost.ts).
+   */
+  const turnOpenedAt = Date.now()
+
   // v1.3: the slot's per-role allowlist intersected with the globally-enabled
   // list. Everything this turn offers the model — tools, the auto-search
   // check, the context budget — works from this set, never the global one.
@@ -249,8 +261,13 @@ async function runTurn(
       patch,
       settings: () => useAppStore.getState().settings ?? null
     }),
+    // The count on that line is of the whole pre-model wait, not of whichever
+    // provider is holding it — the walk changes label, the reader's wait does
+    // not (lib/turnPhase.ts).
     (wait) =>
-      useAppStore.getState().setTurnPhase(wait ? gatheringPhase(assistantMsg.id, wait) : null)
+      useAppStore
+        .getState()
+        .setTurnPhase(wait ? gatheringPhase(assistantMsg.id, wait, turnOpenedAt) : null)
   )
   if (gathered.aborted) return
   if (offline) patch({ offline: true })
@@ -369,7 +386,12 @@ async function runTurn(
 
   // Stats span the whole turn, not one round: a turn with three tool calls is
   // four completions, and the user experienced it as one wait.
+  //
+  // This is the STREAM's origin, and the providers above have already run by
+  // the time it is stamped — which is why it cannot also be the turn's.
   const turnStartedAt = Date.now()
+  /** The pre-model wait, as the distance between the turn's two origins. */
+  const gatherMs = turnStartedAt - turnOpenedAt
   let firstTtftMs: number | null = null
   let promptTokens: number | undefined
   let completionTokens = 0
@@ -398,6 +420,7 @@ async function runTurn(
     const stats: ResponseStats = {
       ttftMs: firstTtftMs ?? 0,
       totalMs: Date.now() - turnStartedAt,
+      gatherMs,
       ...(project ? { projectTokens } : {}),
       ...(sawUsage
         ? {
@@ -803,8 +826,9 @@ async function runTurn(
     }
     // The tail is over, so the turn's real length is finally known. `totalMs`
     // stays the stream — tok/s is a rate of that — and this is what the reader
-    // actually waited (lib/turnCost.ts).
-    if (lastStats) patch({ stats: { ...lastStats, turnMs: Date.now() - turnStartedAt } })
+    // actually waited, from the turn's open rather than from the first request
+    // (lib/turnCost.ts).
+    if (lastStats) patch({ stats: { ...lastStats, turnMs: Date.now() - turnOpenedAt } })
     verifying(null)
   }
 

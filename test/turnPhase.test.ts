@@ -7,10 +7,17 @@ import {
   actionsReady,
   gatheringPhase,
   verifyingPhase,
+  waitElapsed,
   type TurnPhase
 } from '../src/renderer/src/lib/turnPhase'
 import { replyAffordances } from '../src/renderer/src/lib/replyRecovery'
-import { TURN_CONTEXT_PROVIDERS } from '../src/renderer/src/lib/contextProviders'
+import {
+  TURN_CONTEXT_PROVIDERS,
+  gatherTurnContext,
+  type ContextProvider,
+  type ProviderIO,
+  type TurnInput
+} from '../src/renderer/src/lib/contextProviders'
 import { useAppStore } from '../src/renderer/src/stores/appStore'
 
 /**
@@ -161,6 +168,103 @@ describe('every wait has a name', () => {
     for (const wait of Object.values(VERIFY_WAITS)) {
       assert.ok(wait.label.length > 3 && wait.detail.length > 10)
     }
+  })
+})
+
+/**
+ * Round 6: the pre-model wait, while it is happening.
+ *
+ * The name reaches the reader — `gatherTurnContext` announces the serial
+ * provider before its await, the store carries it, and the bubble renders the
+ * line. What never reaches them is the wait itself: the line says WHAT is being
+ * waited on and never that it is STILL being waited on, or for how long. Worse,
+ * the label changes as the walk moves from provider to provider, so what the
+ * reader can see resets while their wait does not.
+ *
+ * TTU1 is the shape: the search fixture slept 8000 ms in both recorded runs
+ * (.h2h-runs/judge-r5/TTU1, "slept 8000ms then ok"), the library provider
+ * followed it, and the whole window went by with nothing on screen that a
+ * mid-wait screenshot could have counted. That is why neither capture could
+ * settle the question — there was no number in the picture to read.
+ */
+describe('the reader is shown the pre-model wait while it is happening', () => {
+  const io = {} as ProviderIO
+  const turn = (): TurnInput => ({ signal: new AbortController().signal }) as TurnInput
+
+  const sleeps = (id: string, ms: number, label: string): ContextProvider => ({
+    id,
+    phase: 'serial',
+    wait: { label, detail: 'before the model is asked' },
+    enabled: () => true,
+    gather: () => new Promise((resolve) => setTimeout(() => resolve({ blocks: [id] }), ms))
+  })
+
+  test('TTU1: the count runs to 8s, and a new provider does not restart it', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] })
+    const turnOpenedAt = Date.now()
+    let phase: TurnPhase | null = null
+    const onScreen: string[] = []
+
+    const walk = gatherTurnContext(
+      [sleeps('autoSearch', 8_000, 'Searching the web'), sleeps('libraryPassages', 2_000, 'Reading the reference library')],
+      turn(),
+      io,
+      (wait) => {
+        phase = wait ? gatheringPhase('m1', wait, turnOpenedAt) : null
+      }
+    )
+
+    // A second of wall clock per sample, exactly as the reader experiences it.
+    for (let second = 0; second <= 9; second += 1) {
+      onScreen.push(phase ? `${(phase as TurnPhase).label} ${waitElapsed(phase, Date.now())}` : 'nothing')
+      t.mock.timers.tick(1_000)
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    await walk
+
+    assert.deepEqual(onScreen, [
+      'Searching the web 0s',
+      'Searching the web 1s',
+      'Searching the web 2s',
+      'Searching the web 3s',
+      'Searching the web 4s',
+      'Searching the web 5s',
+      'Searching the web 6s',
+      'Searching the web 7s',
+      // The search returned at 8s and the library took over. The reader has
+      // still been waiting eight seconds, so the count must not go back to 0s.
+      'Reading the reference library 8s',
+      'Reading the reference library 9s'
+    ])
+  })
+
+  test('the count is of the whole pre-model wait, not of the current provider', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const turnOpenedAt = Date.now()
+    t.mock.timers.tick(8_786) // TTU1 run-1's measured gather
+    const phase = gatheringPhase('m1', { label: 'Reading the reference library', detail: 'x' }, turnOpenedAt)
+    assert.equal(phase.since, turnOpenedAt, 'the phase carries the turn’s origin, not this provider’s')
+    assert.equal(waitElapsed(phase, Date.now()), '8s')
+    // A minute-long gather reads as a clock, not as a four-digit millisecond count.
+    t.mock.timers.tick(60_000)
+    assert.equal(waitElapsed(phase, Date.now()), '1:08')
+  })
+
+  test('a clock that runs backwards shows no wait rather than a negative one', () => {
+    const phase = gatheringPhase('m1', { label: 'Searching the web', detail: 'x' }, 10_000)
+    assert.equal(waitElapsed(phase, 9_000), '0s')
+  })
+
+  test('the line the reader sees renders that count, and keeps it running', () => {
+    const source = readFileSync(MESSAGE_BUBBLE, 'utf-8')
+    const start = source.indexOf('function TurnPhaseLine')
+    assert.ok(start > 0, 'TurnPhaseLine not found')
+    const line = source.slice(start, start + 2_600)
+    assert.ok(line.includes('waitElapsed'), 'the pre-model wait must show how long it has run')
+    assert.ok(
+      line.includes('startWaitClock'),
+      'and keep counting on its own — a number stamped once is not a wait being shown'
+    )
   })
 })
 
