@@ -149,6 +149,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const addresses = report.addresses ?? []
   const toolClaims = report.toolClaims ?? []
   const toolDisclosure = report.toolDisclosure ?? []
+  const toolArgs = report.toolArgs ?? []
   const citations = report.citations ?? []
   const quotes = report.quotes ?? []
   const attributions = report.attributions ?? []
@@ -188,6 +189,28 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
           ⚠️ This reply lists the tools it used without naming{' '}
           {toolDisclosure.join(', ')}, which {toolDisclosure.length === 1 ? 'is' : 'are'} what
           actually ran this turn.
+        </div>
+      )}
+      {/*
+        v1.17: the same account read one rung further down. The tool named is
+        the tool that ran and the account is complete — and the argument it
+        quotes is not the one the call carried. A reader told the query was
+        narrow reads the passages under it as responsive to that query, so this
+        sits beside the two lines above rather than under the figures.
+
+        `break-words` because a stated argument can be a URL, which has no space
+        to wrap at; the 72-character cap bounds it but does not break it.
+      */}
+      {toolArgs.length > 0 && (
+        <div
+          className={
+            parts.length > 0 || toolClaims.length > 0 || toolDisclosure.length > 0
+              ? 'mt-1 break-words'
+              : 'break-words'
+          }
+        >
+          ⚠️ This reply states {toolArgs.length === 1 ? 'an argument' : 'arguments'} the{' '}
+          {toolArgs.length === 1 ? 'call' : 'calls'} never received: {toolArgs.join('; ')}.
         </div>
       )}
       {/*
