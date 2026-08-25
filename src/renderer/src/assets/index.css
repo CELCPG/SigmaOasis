@@ -573,6 +573,29 @@ summary:focus-visible,
 .markdown-body a.citation-ref {
   cursor: pointer;
 }
+/* v1.17.2: a marker whose passage has no web source is still followable — it
+   opens the passage in the strip under the reply — so it gets the pointer and
+   the same dotted underline a reader can see without hovering. */
+.markdown-body span.citation-ref[data-citation] {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+.markdown-body span.citation-ref[data-citation]:focus-visible {
+  outline: 2px solid var(--accent-teal-glow);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* …and one the app cannot resolve at all is struck through, rather than left as
+   plain black text no reader can tell from a typo. --text-secondary, not
+   --text-tertiary: the mark has to be legible to be a warning, and the strike
+   is what carries "withdrawn" (so the signal does not rest on colour alone).
+   `not-allowed` because there is genuinely nothing behind it to open. */
+.markdown-body span.citation-unresolved {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
 .markdown-body blockquote {
   margin: 0.5em 0;
   border-left: 3px solid rgba(128, 128, 128, 0.4);

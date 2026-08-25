@@ -1933,6 +1933,178 @@ The baseline was also re-captured through the *current* harness for this round, 
   a fence; and `overflow-wrap: anywhere` — this project's own fix for the VC1 blowout —
   breaking "Passage" into "Pas / sag / e" in a table header.
 
+<!-- FOLD IN: new eval case, the citation strip against the citation binder. Not yet a round heading. -->
+
+### Pending fold-in — citation markers that resolve to nothing
+
+Three round-7 critics, three tasks, one theme: **the provenance strip, the marker binder and the
+answer disagreed with each other, and each of the three was confident.** All of it is the tail of
+round 5's fix, which made a turn's passage numbering global and left every consumer of those
+numbers reading one lookup.
+
+Confirmed against the captured runs rather than the critiques. The tool blocks below are the
+verbatim `record.result` text the app stored, lifted out of
+`.h2h-runs/judge-r7/*/transcript.json` into `test/fixtures/citations/`; `stripAsShown` in each
+fixture is the 📖 line the shipped build actually printed, scraped from the same run.
+
+**V1/run-2 — three lookups, seventeen passages, a strip that listed five.** The turn ran
+`reference_lookup` three times (5 + 6 + 6 passages, numbered `[1]`–`[17]` by round 5's
+renumbering). `libraryContext` — the only thing the strip read — is patched by the app's
+pre-flight provider and by nothing else, so it held the first five. The answer cited `[8] [9]
+[14]`, none of which appeared anywhere in the strip, while all five entries that *were* listed
+carried `— not cited`:
+
+```
+Cooked chicken (leftovers) is safe in the fridge for 3 to 4 days [14].
+You need to cook chicken to an internal temperature of 165°F [8][9].
+
+📖 From the library: [1] Food safety › Safe minimum internal temperatures › Cook to a Safe
+Minimum Internal Temperature · 6% in (1.00) — not cited, [2] … (0.82) — not cited, [3] … (0.77)
+— not cited, [4] … (0.72) — not cited, [5] … (0.72) — not cited  ▸
+```
+
+**After**, with the strip built from the turn's own lookup records — the same parse the inline
+marker already resolves through, so the two can no longer disagree about which passages exist:
+
+```
+📖 From the library: 17 passages from 3 lookups — the answer cites [8] [9] [14].  ▸
+   The app looked this up before the model answered · [1]–[5] · “How many days is cooked
+   chicken safe in the fridge, and what internal t…”
+   The model looked this up · [6]–[11] · “internal temperature for cooked chicken safe food
+   handling”
+   The model looked this up · [12]–[17] · “cooked leftovers how long safe refrigerator
+   storage days”
+```
+
+**Seventeen entries in a collapsed header is a paragraph, not a strip**, so it stops listing them
+and answers the question the reader actually has at that moment — *which one is `[14]`* — while
+the entries move into the panel under a heading per lookup. Grouping by lookup rather than
+flattening is the one thing that says *why* a passage is there; the query is the heading for the
+same reason. Single-lookup turns keep the flat list they have always had, unchanged and asserted
+byte-for-byte.
+
+**V2/run-1 — `[2][5]`, and the marker the app could not see.** `CITATION_MARKER` refused any
+`[n]` preceded by `]`, which is the guard that keeps `m[0][1]` out of the count. It also swallowed
+the second half of every adjacent pair. The reply cited `[2][5]`; the app saw `[2]`, rendered
+`[5]` as dead black text, and printed `— not cited` beside the passage the sentence was leaning
+on. The guard is now anchored to the **start of a run** of markers, so `m[0][1]` is still refused
+whole (its run begins after a word character) and `[2][5]` is two citations:
+
+| on screen | before | after |
+| --- | --- | --- |
+| `…as noted in Topic no. 551 [2][5]` | `[5]` inert black text | `[5]` linked to the IRS page |
+| strip entry `[5] … Topic no. 551, Standard deduction · 0% in (0.63)` | `— not cited` | no mark — it was cited |
+
+**TH3/run-1 — a message contradicting itself.** The header read
+`📖 Nothing in the library covers this question — the answer is not backed by it.`; the strip
+beneath left `[5]` as the one entry *not* marked `— not cited`, and the reply quoted its "3 to 4
+days" verbatim. Both halves of that sentence were computed, and only one of them was measured:
+the relevance floor measures **retrieval**, and "the answer is not backed by it" is a claim about
+the **answer** that nothing checked. The measured half is kept and the unmeasured half is
+replaced by what the answer did:
+
+```
+before:  📖 Nothing in the library covers this question — the answer is not backed by it.
+after:   📖 Nothing in the library covers this question — the answer cites [5] from it anyway.
+```
+
+Which reads as a sharper warning than the original, correctly: a reply leaning on a passage the
+app has just measured as off-topic is worse news than a reply leaning on nothing. When the answer
+cites none of them the original sentence is kept **word for word**.
+
+The floor also stops speaking for passages it never examined. It is computed over the app's own
+pre-flight lookup, so on a turn that went on to retrieve more the caption names its own scope:
+`📖 Nothing in the 5 passages the app looked up covers this question; the model then retrieved 12
+more.`
+
+**"— not cited" is a claim, and the app may only make it while it can account for every marker.**
+When a marker in the answer names nothing on the list, the marker→passage map is *known*
+incomplete — a result cut by the 10,000-character output cap really does drop passages the model
+read, and a conversation recorded before per-turn numbering holds two `[1]`s of which the app can
+see one. Saying nothing would read as "cited", so the entry says which of the two it is:
+
+```
+📖 From the library: [1] … (1.00) — cannot tell, [2] … (0.82) — cannot tell, [3] … — cannot
+tell, [4] … — cannot tell, [5] … — cannot tell
+⚠️ [8] [9] [14] name no passage listed here, so the rest are left unjudged.
+```
+
+The positive is never withdrawn: a marker that *does* name a listed passage is evidence that
+passage was used, whatever the app failed to resolve elsewhere.
+
+**And a marker is now one of three visible things rather than two.** Resolvable-with-a-URL is a
+link, as before. Resolvable-without-one used to be a `title` attribute on three characters — a
+mouse-only hint, and nothing at all for a keyboard user — and is now a `role="button"`,
+`tabindex="0"` span carrying `data-citation`, which opens the provenance strip scrolled to that
+passage and rings it. Unresolvable used to be returned untouched, rendering as plain black text a
+reader cannot tell from prose (measured: `[9]` sitting inert beside a linked `[8]` in the same
+sentence); it is struck through in `--text-secondary` and says on hover that it names no passage
+this turn retrieved. The strike, not the colour, carries the signal.
+
+The three new inks are measured rather than asserted, by `chromeContrastCheck` compositing the
+app's real stylesheet in both themes (54 → 60 checks). The unresolved marker reads **9.37:1 light
+/ 10.16:1 dark**, the per-entry verdict **5.32:1 / 6.26:1**, and the ⚠️ note **4.89:1 / 11.66:1**
+— all clear of AA, and the note quieter than the strip's own ink so a withheld judgement does not
+out-shout the entries it is about. The first draft of that note used `text-amber-600`, which is
+what most of this app's warnings use; the check measured it at **3.10:1** on the light panel and
+failed it, which is the row earning its place on its first run.
+
+| Case | Turn | Answer | What the strip says |
+| --- | --- | --- | --- |
+| **TP** — V1/run-2 | 3 lookups, 17 passages | `[8] [9] [14]` | all 17 listed, grouped by lookup; header names the three |
+| **TP** — V2/run-1 | 2 lookups, 11 passages | `[1] [2][5]` | `[5]` unmarked; `[5]` inline becomes a link |
+| **TP** — TH3/run-1 | 1 lookup, floor missed | `[5]`, quoted | caption names `[5]`; `[1]`–`[4]` marked `— not cited` |
+| **TP** — floor + more lookups | 3 lookups, floor missed | `[8] [9] [14]` | caption scoped to the 5 it judged |
+| **TP** — unresolvable marker | 1 lookup, 5 passages | `[8] [9] [14]` | every entry `— cannot tell`, plus the ⚠️ note |
+| **TN** — judge-r4/V2/run-1 | 1 lookup, 5 passages | `[1]` | the identical flat line: no grouping, no summary, no note |
+| **TN** — accurate multi-marker | 1 lookup | `[1]` cited, `[7]` unresolvable | `[1]` still `cited: true`; only the negative is withheld |
+| **TN** — array indexing | any | `m[0][1]`, `values[1]` in a fence | not citations; nothing linked, nothing marked |
+| **TN** — no library lookup | web search only | `[1]` | **no strip at all**, and the marker stays plain prose |
+| **TN** — memory / attachment recall | — | — | unnumbered entries are never marked either way |
+
+30 new cases (1976 → 2006, 0 fail) across `test/citations.test.ts`, `test/citationScope.test.ts`
+and `test/libraryRecall.test.ts`, plus 9 in `test/markdownCheck.ts` (38 → 47) which is the only
+harness that can answer whether DOMPurify lets `data-citation`, `role` and `tabindex` through —
+it renders in a real Chromium window. The last four of those are the whole path end to end: the
+reply V1/run-2 actually produced, against the citations parsed out of that run's own three lookup
+records, through the shipping renderer, asserting each of `[8]`, `[9]` and `[14]` comes out as an
+anchor to the passage it names.
+
+**Two assertions changed, both strictly stronger, both because the behaviour they described was
+the defect.** `markdownCheck`'s *"a marker naming no retrieved passage is left inert"* asserted
+`!/citation-ref/` — it was pinning the plain-black-text rendering; it now requires the marker to
+be present, marked `citation-unresolved`, **and** to be no kind of link and carry no
+`data-citation`. `citationScope`'s single-lookup case compared against the round-4 fixture's
+`stripAsShown`, which predates both the numbering and the marks; it now spells the full expected
+line out and separately asserts every entry of the old line still appears inside it, so what has
+been added since is exactly the numbering and the marks and nothing else.
+
+**What this does not measure.**
+
+- **Nothing here was re-run against a model.** These are three recorded turns, fixed and pinned
+  against the text the app stored and the line it printed. No new head-to-head sweep was taken,
+  so there is no win/loss claim attached to any of it.
+- **The click-to-open affordance is not measured end to end.** The markdown half — the
+  `data-citation`, `role` and `tabindex` surviving DOMPurify — is pinned in a real Chromium
+  window. The React half (lifting the strip's open state, scrolling to the entry, the highlight
+  ring) has no harness in this project and was verified by reading. The `:focus-visible` outline
+  and the highlight ring are likewise unmeasured, because neither is an ink `chromeContrastCheck`
+  can reach.
+- **The relevance floor is still computed only over the app's own pre-flight passages.** The
+  scoped caption names that limit rather than closing it. Recomputing it over everything the turn
+  retrieved would need the raw question, which the bubble does not hold — the lookup's *query* is
+  in the record, but it is `buildSearchQuery`'s rewriting of the question, not the question, and
+  swapping one for the other silently changes what `questionCoverage` measures.
+- **The strip now appears on turns that never had one.** A turn where the model ran
+  `reference_lookup` itself and the app's pre-flight never fired used to show no strip at all;
+  now it shows one, because that is the only way every retrieved passage is reachable from it.
+  The passages were always disclosed — in the tool block — so this is a relocation, not new
+  disclosure, but it is a change in what a reader sees on turns no round-7 task exercised.
+- **`text-amber-600` composites to 3.10:1 on the light panel, and this app uses it in about
+  twenty places** — the "⚠️ Empty reply" line in this same component among them. Found while
+  measuring the new note, which was written in it and failed. Only the new site is fixed here;
+  the rest are unmeasured and out of this round's scope.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

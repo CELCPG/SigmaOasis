@@ -1,9 +1,9 @@
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
 import { describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
-import { UNCITED_MARK, contextItemLabel, markCitedContextItems } from '../lib/libraryRecall'
+import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
 import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState, startWaitClock } from '../lib/oasisRipple'
@@ -12,7 +12,6 @@ import { replyAffordances } from '../lib/replyRecovery'
 import { VERIFY_BUDGET_MS, waitElapsed, type TurnPhase } from '../lib/turnPhase'
 import { formatTurnCost } from '../lib/turnCost'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
-import { LIBRARY_MISS_LABEL, LIBRARY_STRIP_LABEL, libraryMissDetail } from '../lib/libraryRecall'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
@@ -387,6 +386,76 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
 }
 
 /**
+ * One recalled passage in an expanded strip. Its own component since v1.17.2,
+ * because a citation marker in the answer can now ask the strip to scroll to a
+ * particular entry — which needs a ref and an effect per entry.
+ *
+ * `focus` is a nonce rather than a boolean: activating the same marker twice
+ * has to scroll back to it, and a boolean that is already true fires nothing.
+ */
+function ContextEntry({
+  item,
+  focus
+}: {
+  item: NonNullable<ChatMessage['memoryContext']>[number]
+  focus: number
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (focus > 0) ref.current?.scrollIntoView({ block: 'nearest' })
+  }, [focus])
+  const highlighted = focus > 0
+  // The locator the app retrieved with the passage. Linked only when it is a
+  // web URL — a folder pack's source is a path on disk — and a click leaves
+  // through the window's own handler, the same route a link the model merely
+  // typed already takes.
+  const url = webSource(item.url)
+  return (
+    <div
+      ref={ref}
+      className={
+        highlighted
+          ? '-mx-1 rounded-lg bg-amber-400/15 px-1 ring-1 ring-amber-500/40 dark:bg-amber-300/10'
+          : undefined
+      }
+    >
+      <span className="font-medium text-ink-secondary">
+        {item.index !== undefined && <span className="text-ink-tertiary">[{item.index}] </span>}
+        {item.source} · relevance {item.score.toFixed(2)}
+      </span>
+      {item.cited === false && (
+        <span
+          className="ml-1 text-ink-tertiary"
+          title="The app retrieved this passage and the model saw it, but the answer never cited its number — it is not a source for what was said."
+        >
+          {UNCITED_MARK}
+        </span>
+      )}
+      {item.unsettled && (
+        <span
+          className="ml-1 text-ink-tertiary"
+          title="The answer cites a number that names no passage this turn retrieved, so the app cannot account for every marker it used — and will not claim this passage went uncited on the strength of a map it knows is incomplete."
+        >
+          {UNSETTLED_MARK}
+        </span>
+      )}
+      {url && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="ml-1 break-all text-sky-600 underline dark:text-sky-400"
+          title={`Open the source of this passage: ${url}`}
+        >
+          {url}
+        </a>
+      )}
+      <p className="whitespace-pre-wrap text-ink-secondary">{item.text}</p>
+    </div>
+  )
+}
+
+/**
  * v0.9 visible recall: which long-term memory chunks were injected into the
  * system prompt for this reply. The display is mechanical — the app shows
  * what it actually sent, it does not ask the model to footnote itself.
@@ -395,64 +464,65 @@ function MemoryContextLine({
   items,
   label = '📚 From memory:',
   title = 'The long-term memory chunks the model was reminded of before answering',
-  detail
+  detail,
+  note,
+  groups,
+  open: controlledOpen,
+  onOpenChange,
+  highlight
 }: {
   items: NonNullable<ChatMessage['memoryContext']>
   label?: string
   title?: string
   /** Replaces the citation list in the collapsed header, when listing sources would overclaim. */
   detail?: string
+  /** A warning that follows the header's list or detail — currently the withheld "not cited". */
+  note?: string
+  /** v1.17.2: the entries split by the lookup that produced them, when there was more than one. */
+  groups?: { heading: string; items: NonNullable<ChatMessage['memoryContext']> }[]
+  /** v1.17.2: open state, lifted when an inline citation marker has to be able to open this. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** The passage the reader arrived at by activating its marker; `nonce` rises on every activation. */
+  highlight?: { index: number; nonce: number } | null
 }): JSX.Element {
-  const [open, setOpen] = useState(false)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const open = controlledOpen ?? ownOpen
+  const toggle = (): void => (onOpenChange ? onOpenChange(!open) : setOwnOpen(!open))
+  // An unnumbered entry (memory, an attachment chunk) can never be the target:
+  // it was never given a marker for anything to name it by.
+  const focusOf = (item: NonNullable<ChatMessage['memoryContext']>[number]): number =>
+    highlight && item.index !== undefined && highlight.index === item.index ? highlight.nonce : 0
   return (
     <div className="mt-2 text-[11px] text-ink-secondary">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title={title}
       >
         {label}{' '}
         {detail ?? items.map(contextItemLabel).join(', ')}{' '}
+        {/* amber-700, not the amber-600 most of this app's warnings use: that
+            one composites to 3.10:1 on the light panel and this line is the app
+            saying it cannot vouch for the marks beside it. 4.89:1 / 11.66:1. */}
+        {note && <span className="text-amber-700 dark:text-amber-400">{note} </span>}
         <span>{open ? '▾' : '▸'}</span>
       </button>
       {open && (
         <div className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
-          {items.map((i, idx) => {
-            // The locator the app retrieved with the passage. Linked only when
-            // it is a web URL — a folder pack's source is a path on disk — and
-            // a click leaves through the window's own handler, the same route
-            // a link the model merely typed already takes.
-            const url = webSource(i.url)
-            return (
-              <div key={idx}>
-                <span className="font-medium text-ink-secondary">
-                  {i.index !== undefined && <span className="text-ink-tertiary">[{i.index}] </span>}
-                  {i.source} · relevance {i.score.toFixed(2)}
-                </span>
-                {i.cited === false && (
-                  <span
-                    className="ml-1 text-ink-tertiary"
-                    title="The app retrieved this passage and the model saw it, but the answer never cited its number — it is not a source for what was said."
-                  >
-                    {UNCITED_MARK}
-                  </span>
-                )}
-                {url && (
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ml-1 break-all text-sky-600 underline dark:text-sky-400"
-                    title={`Open the source of this passage: ${url}`}
-                  >
-                    {url}
-                  </a>
-                )}
-                <p className="whitespace-pre-wrap text-ink-secondary">{i.text}</p>
-              </div>
-            )
-          })}
+          {groups
+            ? groups.map((g, gi) => (
+                <div key={gi} className="space-y-1.5">
+                  <div className="text-ink-tertiary">{g.heading}</div>
+                  {g.items.map((i, idx) => (
+                    <ContextEntry key={idx} item={i} focus={focusOf(i)} />
+                  ))}
+                </div>
+              ))
+            : items.map((i, idx) => (
+                <ContextEntry key={idx} item={i} focus={focusOf(i)} />
+              ))}
         </div>
       )}
     </div>
@@ -536,9 +606,22 @@ export const MessageBubble = memo(function MessageBubble({
   // v1.13.1: the strip lists what the app retrieved before the model spoke;
   // only the finished answer says which of it the answer used. An entry the
   // reply never cited is marked, not dropped — the model did see it.
-  const libraryStripItems = useMemo(
-    () => markCitedContextItems(message.libraryContext ?? [], message.content),
-    [message.libraryContext, message.content]
+  //
+  // v1.17.2: built from the same records as `citations` above, so the strip and
+  // the inline marker binder cannot disagree about which passages exist.
+  // `libraryContext` is still the record of the app's own pre-flight lookup,
+  // which is the only thing `libraryMiss` is a finding about.
+  const strip = useMemo(
+    () =>
+      message.role === 'assistant'
+        ? libraryStrip({
+            records: message.toolCalls ?? [],
+            answer: message.content,
+            miss: message.libraryMiss === true,
+            preflight: message.libraryContext?.length ?? 0
+          })
+        : null,
+    [message.role, message.toolCalls, message.content, message.libraryMiss, message.libraryContext]
   )
   const stableHtml = useMemo(
     () => (message.role === 'assistant' && stablePart ? renderMarkdown(stablePart, citations) : ''),
@@ -556,6 +639,13 @@ export const MessageBubble = memo(function MessageBubble({
   // which made the hook count differ between user and assistant messages.
   const [speaking, setSpeaking] = useState(false)
   const [copied, setCopied] = useState(false)
+  // v1.17.2: the provenance strip's open state and the entry a marker asked
+  // for. Lifted out of MemoryContextLine because an inline `[7]` in the answer
+  // now opens it — a marker whose passage has no web page to link to used to be
+  // a `title` attribute and nothing else, which is no affordance at all for a
+  // reader who is not holding a mouse over exactly three characters.
+  const [stripOpen, setStripOpen] = useState(false)
+  const [markerFollowed, setMarkerFollowed] = useState<{ index: number; nonce: number } | null>(null)
   const { regenerate, secondOpinion, escalate, deliberate } = useLMStudio()
   const streaming = useAppStore((s) => s.streaming)
   // The turn's named stage (lib/turnPhase.ts): what the wait is called while
@@ -572,6 +662,31 @@ export const MessageBubble = memo(function MessageBubble({
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
+  }
+
+  /** A citation marker the reader activated: open the strip on that passage. */
+  const followMarker = (target: EventTarget): boolean => {
+    const marker = (target as HTMLElement).closest?.('[data-citation]')
+    if (!marker) return false
+    const index = Number(marker.getAttribute('data-citation'))
+    if (!Number.isFinite(index)) return false
+    setStripOpen(true)
+    // The nonce rises on every activation, so activating the same marker twice
+    // scrolls back to it rather than doing nothing the second time.
+    setMarkerFollowed((m) => ({ index, nonce: (m?.nonce ?? 0) + 1 }))
+    return true
+  }
+
+  const handleBodyClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (followMarker(event.target)) return
+    handleCodeBlockClick(event)
+  }
+
+  // The marker span carries role="button" and tabindex, so it has to answer to
+  // the keys a button answers to.
+  const handleBodyKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    if (followMarker(event.target)) event.preventDefault()
   }
 
   // Marker messages (v0.9) are in-chat dividers, not bubbles — they are never
@@ -793,7 +908,8 @@ export const MessageBubble = memo(function MessageBubble({
         {displayContent !== '' && (
           <div
             className="markdown-body oasis-enter text-sm leading-relaxed"
-            onClick={handleCodeBlockClick}
+            onClick={handleBodyClick}
+            onKeyDown={handleBodyKeyDown}
             // Sanitized by DOMPurify in renderMarkdown.
             dangerouslySetInnerHTML={{ __html: html }}
           />
@@ -874,16 +990,17 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        {!isStreaming && message.libraryContext && message.libraryContext.length > 0 && (
+        {!isStreaming && strip && (
           <MemoryContextLine
-            items={libraryStripItems}
-            label={message.libraryMiss ? LIBRARY_MISS_LABEL : LIBRARY_STRIP_LABEL}
-            detail={message.libraryMiss ? libraryMissDetail(message.libraryContext.length) : undefined}
-            title={
-              message.libraryMiss
-                ? 'The app searched your local reference library before the model answered. None of the passages it returned is about this question — the retrieval score is relative to the result set, so a weak best match still scores high. They are shown because the model saw them, not because they support the answer.'
-                : 'Passages the app retrieved from your local reference library before the model answered — the model saw exactly these, with their citations. One marked "not cited" was seen but never cited by the answer, so it is not a source for it.'
-            }
+            items={strip.items}
+            groups={strip.groups}
+            label={strip.label}
+            detail={strip.detail}
+            note={strip.note}
+            title={strip.title}
+            open={stripOpen}
+            onOpenChange={setStripOpen}
+            highlight={markerFollowed}
           />
         )}
 

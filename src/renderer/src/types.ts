@@ -316,6 +316,12 @@ export interface MemoryContextItem {
    * retrieved, and only the finished answer says what was used.
    */
   cited?: boolean
+  /**
+   * v1.17.2: the answer used a marker that names no listed passage, so whether
+   * this one was cited is not something the app can settle. Set instead of
+   * `cited: false`, never beside it — an unmarked entry would read as "cited".
+   */
+  unsettled?: boolean
   /** The document's own web source, when it has one — shown as a link. */
   url?: string
 }
