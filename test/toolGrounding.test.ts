@@ -1331,13 +1331,14 @@ const RICE_PROMPT =
 describe('quotation fidelity (v1.14)', () => {
   test('a quoted span the retrieved text does not contain is a finding', () => {
     // Verbatim from the recorded run: "checking leftovers daily," against a
-    // passage reading "check leftovers daily for spoilage".
+    // passage reading "check leftovers daily for spoilage". The marker is where
+    // the two stop agreeing, which is the whole of the difference (v1.17).
     assert.deepEqual(
       misquotedSpans(
         'The passages mention "checking leftovers daily," and little else.',
         FOOD_LOOKUP
       ),
-      ['checking leftovers daily,']
+      ['check⟪ing⟫ leftovers daily,']
     )
   })
 
@@ -1353,7 +1354,7 @@ describe('quotation fidelity (v1.14)', () => {
 
   test('a markdown blockquote is a quotation claim too', () => {
     assert.deepEqual(misquotedSpans('> Discard all leftovers after two days.\n', FOOD_LOOKUP), [
-      'Discard all leftovers after two days.'
+      'Discard ⟪all leftovers after two⟫ days.'
     ])
     assert.deepEqual(
       misquotedSpans('> Bring sauces, soups and gravy to a boil when reheating.\n', FOOD_LOOKUP),
@@ -1380,7 +1381,7 @@ describe('quotation fidelity (v1.14)', () => {
   test('rendered curly quotes are the same claim as typed straight ones', () => {
     assert.deepEqual(
       misquotedSpans('It says “checking leftovers daily,” in passage [3].', FOOD_LOOKUP),
-      ['checking leftovers daily,']
+      ['check⟪ing⟫ leftovers daily,']
     )
   })
 
@@ -1400,8 +1401,12 @@ describe('quotation fidelity (v1.14)', () => {
       RICE_PROMPT
     )
     assert.ok(report, 'expected a report: one of the two quotations is not in the passage')
-    assert.deepEqual(report!.quotes, ['checking leftovers daily,'])
-    assert.match(describeGroundingFindings(report!), /checking leftovers daily/)
+    assert.deepEqual(report!.quotes, ['check⟪ing⟫ leftovers daily,'])
+    // The line the reader gets carries the break AND the legend for it: a
+    // marker nobody can read is the truncation problem in a new costume.
+    const said = describeGroundingFindings(report!)
+    assert.match(said, /check⟪ing⟫ leftovers daily/)
+    assert.match(said, /⟪⟫ marks where the quotation stops matching/)
   })
 
   test('the same reply with both quotations verbatim says nothing', () => {
@@ -1514,34 +1519,184 @@ describe('quotation fidelity · citation markers (v1.15)', () => {
         'CDC Safe Internal Temperatures: "Ground meats, such as beef and pork — 160°F" [2]',
         CDC_LOOKUP
       ),
-      ['Ground meats, such as beef and pork — 160°F']
+      ['Ground meats, such as beef and pork ⟪—⟫ 160°F']
     )
     assert.deepEqual(
       misquotedSpans('> "Ground meats, such as beef and pork — 160°F" [2]\n', CDC_LOOKUP),
-      ['Ground meats, such as beef and pork — 160°F']
+      ['Ground meats, such as beef and pork ⟪—⟫ 160°F']
     )
   })
 
   test('a marker does not launder an invention through a blockquote', () => {
     assert.deepEqual(
       misquotedSpans('> "Discard all leftovers after two days." [3]\n', FOOD_LOOKUP),
-      ['Discard all leftovers after two days.']
+      ['Discard ⟪all leftovers after two⟫ days.']
     )
   })
 
   test('trimming the marker trims nothing else: a wrong figure inside stays wrong', () => {
+    // v1.17: and the figure is now IN the reported string. The old clamp cut
+    // this span at 72 characters — `…rises to $32,…` — one character short of
+    // the digit it was complaining about.
     assert.deepEqual(
       misquotedSpans(
         '> "For married couples filing jointly, the standard deduction rises to $32,000, an increase of $800 from tax year 2024." [1]\n',
         IRS_LOOKUP
       ),
-      ['For married couples filing jointly, the standard deduction rises to $32,…']
+      ['…jointly, the standard deduction rises to $3⟪2⟫,000, an increase of $800 from tax year…']
     )
   })
 
   test('one claim, one finding — the two patterns that bound it do not double-report', () => {
     const flagged = misquotedSpans('> "Discard all leftovers after two days." [3]\n', FOOD_LOOKUP)
     assert.equal(flagged.length, 1)
+  })
+})
+
+/**
+ * v1.17, and the two halves of one defect: a fabrication warning that fires on
+ * a verbatim quotation, and a warning the reader cannot check because it stops
+ * before the words it is complaining about.
+ *
+ * Recorded, task TH3. The pack line is quoted here character for character from
+ * `packs/food-safety/docs/refrigerator-thermometers.md`. The reply quoted the
+ * whole sentence, so its own outer pair took the double marks and the source's
+ * nested pair came back out as `‘When in doubt, throw it out.’`. Two glyphs out
+ * of a hundred and four, no word different — and the badge printed
+ *
+ *   ⚠️ Quoted as exact but in no tool output this turn: "If you're not sure or
+ *   if the food looks questionable, the simple rule is…"
+ *
+ * where the 72-character clamp lands *before* the only characters that differ.
+ * A reader who checks it against the source finds nothing wrong, which is the
+ * lesson round 4 already paid for: a check that cries wolf is a check that gets
+ * ignored.
+ */
+const THERMOMETER_LOOKUP = `Reference passages for "how long do leftovers keep in the fridge" from the local library (keyword ranking), most relevant first.
+
+[3] Food safety › Refrigerator thermometers — cold facts (FDA) › Refrigerator Strategies: Keeping Food Safe · 13% in
+    source: https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-thermometers-cold-facts-about-food-safety
+    relevance 0.604
+- Check Expiration Dates On Foods. If food is past its “use by” date, discard it. If you’re not sure or if the food looks questionable, the simple rule is: “When in doubt, throw it out.”`
+
+const TH3_PROMPT =
+  'Using only my reference library, how long do leftovers keep? Quote the exact line.'
+
+const TH3_QUOTE =
+  "If you're not sure or if the food looks questionable, the simple rule is: 'When in doubt, throw it out.'"
+
+describe('quotation fidelity · the glyph is not the claim (v1.17)', () => {
+  test('the TH3 span: a nested pair re-drawn as single quotes is the same quotation', () => {
+    assert.deepEqual(misquotedSpans(`The FDA passage says: "${TH3_QUOTE}"`, THERMOMETER_LOOKUP), [])
+    // …and the same sentence as a renderer hands it back, curly throughout.
+    assert.deepEqual(
+      misquotedSpans(
+        '“If you’re not sure or if the food looks questionable, the simple rule is: ‘When in doubt, throw it out.’”',
+        THERMOMETER_LOOKUP
+      ),
+      []
+    )
+  })
+
+  test('reported through checkToolGrounding, the TH3 turn says nothing at all', () => {
+    const report = checkToolGrounding(
+      `The library has one line on this, in passage [3]:\n\n> "${TH3_QUOTE}" [3]\n\nIt gives no day count.`,
+      [rec('reference_lookup', THERMOMETER_LOOKUP)],
+      TH3_PROMPT
+    )
+    assert.equal(report, null)
+  })
+
+  test('the true positive beside it: change the words and the words are named', () => {
+    const flagged = misquotedSpans(
+      `The FDA passage says: "If you're not sure or if the food smells strange, the simple rule is: 'When in doubt, throw it out.'"`,
+      THERMOMETER_LOOKUP
+    )
+    assert.equal(flagged.length, 1)
+    assert.match(flagged[0]!, /⟪smells strange⟫/)
+  })
+
+  test('the fold moves a glyph’s shape, never its position', () => {
+    // Same words, same marks, one of them a clause earlier: the reply now has
+    // the source ending its quotation at "doubt", which it does not. Deleting
+    // quote characters instead of folding them would pass this.
+    const flagged = misquotedSpans(
+      `He read it out: "If you're not sure or if the food looks questionable, the simple rule is: 'When in doubt', throw it out."`,
+      THERMOMETER_LOOKUP
+    )
+    assert.equal(flagged.length, 1)
+    assert.match(flagged[0]!, /doubt⟪'⟫, throw/)
+  })
+
+  test('a wholly invented quotation is still wholly flagged', () => {
+    // The TH2 family: five quotations attributed to bodies the turn never
+    // retrieved. Nothing in this fold makes one of them match.
+    const flagged = misquotedSpans(
+      'The CPSC puts it plainly: "Every home should have a working smoke alarm on every level, tested monthly and replaced after ten years."',
+      THERMOMETER_LOOKUP
+    )
+    assert.equal(flagged.length, 1)
+    assert.ok(!flagged[0]!.includes('⟪'), 'nothing to single out when none of it matches')
+  })
+})
+
+describe('quotation fidelity · the excerpt shows the difference (v1.17)', () => {
+  const V2_BOLD =
+    '"For married couples filing jointly, the standard deduction rises to **$30,000**, an increase of $800 from tax year 2024."'
+
+  test('the V2 span: emphasis inside a quotation is markup, not a word', () => {
+    assert.deepEqual(misquotedSpans(`> ${V2_BOLD} [1]\n`, IRS_LOOKUP), [])
+    assert.deepEqual(misquotedSpans(`As the IRS puts it, ${V2_BOLD}`, IRS_LOOKUP), [])
+  })
+
+  test('the true positive beside it: the figure inside the emphasis is still checked', () => {
+    const flagged = misquotedSpans(
+      `> ${V2_BOLD.replace('$30,000', '$32,000')} [1]\n`,
+      IRS_LOOKUP
+    )
+    assert.equal(flagged.length, 1)
+    // Round 6 printed `…the standard deduction rises to **$3…`: raw markdown,
+    // cut one character before the digit it was complaining about.
+    assert.ok(!flagged[0]!.includes('*'), 'markdown source is not user-facing text')
+    assert.match(flagged[0]!, /\$3⟪2⟫,000/)
+  })
+
+  test('the window is centred on the break, not measured from the start', () => {
+    const flagged = misquotedSpans(
+      `> ${V2_BOLD.replace('$30,000', '$32,000')} [1]\n`,
+      IRS_LOOKUP
+    )
+    // Both sides of it are readable, and the elision says which end was cut.
+    assert.match(flagged[0]!, /^…/)
+    assert.match(flagged[0]!, /…$/)
+    assert.match(flagged[0]!, /rises to \$3⟪2⟫,000, an increase of \$800/)
+    assert.ok(flagged[0]!.length <= 90, `excerpt stayed a line: ${flagged[0]!.length}`)
+  })
+
+  test('the revision line keeps the marker it exists to show', () => {
+    const report = checkToolGrounding(
+      `> ${V2_BOLD.replace('$30,000', '$32,000')} [1]\n`,
+      [rec('reference_lookup', IRS_LOOKUP)],
+      "What's the standard deduction for a married couple filing jointly? Cite the source."
+    )
+    assert.ok(report, 'expected a report: $32,000 is in no passage')
+    const labels = groundingFindingLabels(report)
+    assert.equal(labels.length, groundingFindingCount(report))
+    // A 48-character head clamp would have stopped in the run-up to the break.
+    assert.ok(
+      labels.some((l) => /\$3⟪2⟫,000/.test(l)),
+      `expected the break in a label, got ${JSON.stringify(labels)}`
+    )
+  })
+
+  test('an unpaired asterisk is not emphasis, and does not vanish from the source', () => {
+    // The fold is paired-delimiter only, so a lone `*` still has to be quoted.
+    const corpus = 'Refrigerate within 2 hours* of cooking. *Or 1 hour above 90°F.'
+    assert.deepEqual(misquotedSpans('It says "Refrigerate within 2 hours* of cooking."', corpus), [])
+    assert.equal(
+      misquotedSpans('It says "Refrigerate within 4 hours* of cooking."', corpus).length,
+      1
+    )
   })
 })
 
