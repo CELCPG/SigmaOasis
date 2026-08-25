@@ -37,6 +37,21 @@ fi
 
 rm -rf "$OUT"
 
+# v1.17.1: typecheck the WHOLE project before compiling the test build.
+#
+# The compile below takes a hand-maintained list of files, and that list is an
+# enumeration — it grew one entry at a time as tests needed things. MessageBubble
+# .tsx, which renders the entire verification banner, was never on it, so a merge
+# that left a dangling `parts` reference in it passed this script at exit 0 while
+# `npm run typecheck` failed. The list cannot be trusted to cover what ships; the
+# tsconfigs can, because they describe the project rather than a selection.
+#
+# This is the same repair the app's own checks keep needing: replace an
+# enumeration of what to look at with the thing that covers the class.
+"${RUN[@]}" node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
+"${RUN[@]}" node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
+
+
 # Compile main-process modules + tests together, preserving the directory layout
 # that test/harness.ts expects (.test-build/{src/main/ipc,test}).
 # src/preload/index.d.ts rides along because hooks/planMode.ts reaches

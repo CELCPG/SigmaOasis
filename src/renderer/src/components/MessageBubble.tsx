@@ -201,7 +201,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       {toolArgs.length > 0 && (
         <div
           className={
-            parts.length > 0 || toolClaims.length > 0 || toolDisclosure.length > 0
+            hasUnbacked || toolClaims.length > 0 || toolDisclosure.length > 0
               ? 'mt-1 break-words'
               : 'break-words'
           }
