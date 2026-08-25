@@ -1,4 +1,5 @@
 import type { CheckedClaim, ClaimVerdict, ModelConfig, ToolCallRecord } from '../types'
+import { wasDeclined } from '../../../shared/tools/outcomes'
 
 /**
  * v1.2 Claim Check: settle the critic's list.
@@ -325,8 +326,13 @@ export async function settleClaims(claims: string[], deps: SettleDeps): Promise<
       checked.verdict = verdict
       if (basis) checked.basis = basis
     } else if (!search.ok) {
-      // Declined (confirmBeforeSearch) or failed — disclosed, never guessed.
-      checked.basis = 'Search was declined or failed.'
+      // Disclosed, never guessed — and which of the two it was, because they
+      // are different facts about the claim. Measured (TTU3 run-1): five
+      // "Unverifiable — Search was declined or failed." over a turn where
+      // nothing was ever declined; all five were net::ERR_UNSAFE_PORT.
+      checked.basis = wasDeclined(search.error ?? '')
+        ? 'The app declined the search, so nothing was checked.'
+        : 'The search failed, so nothing was checked.'
     }
     emit(checked)
   }

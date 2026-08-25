@@ -31,6 +31,8 @@ import { marketToolDefs } from './defs/market'
 
 export type { ToolMeta, ToolSchema } from './types'
 export { DEFAULT_PASSAGES, MAX_PASSAGES } from './defs/web'
+/** How a call that failed says so, and how a call the app declined says that instead. */
+export { declinedCall, failureReason, toolFailure, wasDeclined } from './outcomes'
 
 export const TOOL_DEFS = [
   ...fileToolDefs,

@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { dirname, isAbsolute, resolve, sep } from 'path'
 import { getSettings } from '../store'
 import { hostWindow } from '../hostWindow'
+import { declinedCall } from '../../../shared/tools/outcomes'
 import { truncate } from './types'
 import type { ToolHandler, ToolResult } from './types'
 
@@ -87,7 +88,8 @@ const writeFile: ToolHandler = async (args, { sender }) => {
   // A working directory means the user already scoped where writes may
   // land; without one, every write is confirmed.
   if (!workingRoot() && !(await confirmWrite(sender, target, content.length))) {
-    return { ok: false, error: 'The user declined this file write.' }
+    // Declined, not failed: nothing was written, and the row must say which.
+    return { ok: false, error: declinedCall('the user declined this file write') }
   }
   await fs.mkdir(dirname(target), { recursive: true })
   await fs.writeFile(target, content, 'utf-8')
@@ -105,7 +107,7 @@ const runTerminalCommand: ToolHandler = async (args, { sender }) => {
   const warning = dangerousCommandWarning(command)
   const win = hostWindow(sender)
   if (!win) {
-    return { ok: false, error: 'The user declined to run this command.' }
+    return { ok: false, error: declinedCall('the user declined to run this command') }
   }
   const { response } = await dialog.showMessageBox(win, {
     type: warning ? 'error' : 'warning',
@@ -117,7 +119,7 @@ const runTerminalCommand: ToolHandler = async (args, { sender }) => {
     cancelId: 1
   })
   if (response !== 0) {
-    return { ok: false, error: 'The user declined to run this command.' }
+    return { ok: false, error: declinedCall('the user declined to run this command') }
   }
   const cwd = getSettings().workingDirectory || undefined
   return await new Promise<ToolResult>((resolvePromise) => {

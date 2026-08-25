@@ -54,6 +54,12 @@ export interface WebSearchOutcome {
   /** True when results came from the local cache — nothing left the machine. */
   cached?: boolean
   error?: string
+  /**
+   * Set when the app declined the call and nothing was contacted. Carries the
+   * one clause a reader needs; `error` still carries the model's full text.
+   * Nothing broke on this path, so the caller must not report it as breakage.
+   */
+  declined?: string
 }
 
 export interface ImageResult {
@@ -75,6 +81,8 @@ export interface ImageSearchOutcome {
   /** The exact query that was sent (after redaction). */
   sentQuery: string
   error?: string
+  /** As WebSearchOutcome: set when the app declined and nothing was contacted. */
+  declined?: string
 }
 
 // ---- Query hygiene -----------------------------------------------------------
@@ -133,6 +141,8 @@ function sanitizeQuery(query: string): {
   redactions: string[]
   /** Set when the query was framing rather than terms; see minimizeQuery. */
   refusal?: string
+  /** The same refusal in one clause, for the row. See minimizeQuery. */
+  refusalReason?: string
 } {
   const redactions = new Set<string>()
   let cleaned = query
@@ -153,7 +163,12 @@ function sanitizeQuery(query: string): {
   cleaned = cleaned.replace(/\s+/g, ' ').trim().slice(0, 400)
   const minimized = minimizeQuery(cleaned)
   if (minimized.dropped) redactions.add('conversational framing')
-  return { query: minimized.query, redactions: [...redactions], refusal: minimized.refusal }
+  return {
+    query: minimized.query,
+    redactions: [...redactions],
+    refusal: minimized.refusal,
+    refusalReason: minimized.refusalReason
+  }
 }
 
 // ---- Query minimization ------------------------------------------------------
@@ -226,6 +241,16 @@ export interface MinimizedQuery {
    * the search and hands this back to the model to try again.
    */
   refusal?: string
+  /**
+   * The same refusal in one clause, for the collapsed tool row.
+   *
+   * `refusal` is written for the model — it has to say what a good query looks
+   * like and give an example, which is a paragraph. Nothing was contacted, so
+   * there is no provider error the row can quote instead: if the guard does not
+   * state its objection briefly, the row has nothing to say. Set with `refusal`
+   * and never without it.
+   */
+  refusalReason?: string
 }
 
 const wordsOf = (text: string): string[] => text.split(/\s+/).filter(Boolean)
@@ -292,6 +317,7 @@ export function minimizeQuery(query: string): MinimizedQuery {
     return {
       query: working,
       dropped: true,
+      refusalReason: 'removing the personal framing left no subject to look up',
       refusal:
         'Removing the personal framing from that query left nothing to look up — the subject ' +
         'was inside it. Nothing was sent. Call the tool again with the subject as terms (for ' +
@@ -308,6 +334,7 @@ export function minimizeQuery(query: string): MinimizedQuery {
     return {
       query: working,
       dropped: working !== original,
+      refusalReason: 'the query was a sentence about you, not search terms',
       refusal:
         'That query is a sentence about you, not search terms, so it was not sent. ' +
         'Search providers get the subject only — no first-person framing, no plans, no dates ' +
@@ -600,14 +627,31 @@ export async function runImageSearch(
   beforeSend?: (sanitizedQuery: string) => Promise<boolean>
 ): Promise<ImageSearchOutcome> {
   const settings = getSettings().search
-  const { query, redactions, refusal } = sanitizeQuery(String(rawQuery ?? ''))
+  const { query, redactions, refusal, refusalReason } = sanitizeQuery(String(rawQuery ?? ''))
   const provider = settings.provider
 
+  // Same three never-contacted paths as runWebSearch; same reasoning.
   if (!query) {
-    return { ok: false, provider, images: [], redactions, sentQuery: '', error: 'Empty image search query.' }
+    return {
+      ok: false,
+      provider,
+      images: [],
+      redactions,
+      sentQuery: '',
+      error: 'Empty image search query.',
+      declined: 'the query was empty'
+    }
   }
   if (refusal) {
-    return { ok: false, provider, images: [], redactions, sentQuery: '', error: refusal }
+    return {
+      ok: false,
+      provider,
+      images: [],
+      redactions,
+      sentQuery: '',
+      error: refusal,
+      declined: refusalReason ?? 'the query was not usable as search terms'
+    }
   }
   const limit = Math.min(Math.max(1, Math.round(maxResults) || 1), MAX_IMAGE_RESULTS)
 
@@ -618,7 +662,8 @@ export async function runImageSearch(
       images: [],
       redactions,
       sentQuery: query,
-      error: 'The user declined this image search.'
+      error: 'The user declined this image search.',
+      declined: 'the user declined this image search'
     }
   }
 
@@ -856,17 +901,36 @@ export async function runWebSearch(
   beforeSend?: (sanitizedQuery: string) => Promise<boolean>
 ): Promise<WebSearchOutcome> {
   const settings = getSettings().search
-  const { query, redactions, refusal } = sanitizeQuery(String(rawQuery ?? ''))
+  const { query, redactions, refusal, refusalReason } = sanitizeQuery(String(rawQuery ?? ''))
   const provider = settings.provider
 
+  // Every `declined` below is a path on which nothing was contacted. They are
+  // errors to the model — it has to do something else — but they are not
+  // failures, and the tool row must not draw them as one.
   if (!query) {
-    return { ok: false, provider, results: [], redactions, sentQuery: '', error: 'Empty search query.' }
+    return {
+      ok: false,
+      provider,
+      results: [],
+      redactions,
+      sentQuery: '',
+      error: 'Empty search query.',
+      declined: 'the query was empty'
+    }
   }
   // Refused before the cache and before the wire: a paragraph about the user
   // is neither a good search nor theirs to disclose. The model gets told how
   // to fix it and calls again.
   if (refusal) {
-    return { ok: false, provider, results: [], redactions, sentQuery: '', error: refusal }
+    return {
+      ok: false,
+      provider,
+      results: [],
+      redactions,
+      sentQuery: '',
+      error: refusal,
+      declined: refusalReason ?? 'the query was not usable as search terms'
+    }
   }
 
   // A cache hit sends nothing, so it is checked before the confirmation prompt —
@@ -886,7 +950,8 @@ export async function runWebSearch(
       results: [],
       redactions,
       sentQuery: query,
-      error: 'The user declined this web search.'
+      error: 'The user declined this web search.',
+      declined: 'the user declined this search'
     }
   }
 
