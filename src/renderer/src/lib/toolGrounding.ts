@@ -164,6 +164,105 @@ export function revisionIsAnImprovement(
   return groundingFindingCount(after) < groundingFindingCount(before)
 }
 
+/** Beyond this many, the revision line names the first few and counts the rest. */
+const MAX_NAMED = 4
+/** A single named item longer than this is elided — the line has to stay a line. */
+const MAX_LABEL = 48
+
+/**
+ * Every faulted thing, as the short string a reader can look for on screen.
+ *
+ * The count and the names must come from the same place. `groundingFindingCount`
+ * spans twelve categories; a line that says "3 unsupported items" and then names
+ * two is worse than one that names none, so this walks the same twelve and the
+ * invariant `labels.length === count` is pinned in the tests.
+ *
+ * A code finding is the one that cannot be quoted — it is a traceback plus an
+ * instruction — so it is named by what it is. The 🧪 check line carries the
+ * detail directly under this one.
+ */
+export function groundingFindingLabels(report: GroundingReport | null): string[] {
+  if (!report) return []
+  return [
+    ...(report.code ?? []).map(() => "the answer's Python"),
+    ...(report.toolClaims ?? []),
+    ...(report.toolDisclosure ?? []),
+    ...(report.quotes ?? []).map((q) => `“${q}”`),
+    ...(report.attributions ?? []),
+    ...(report.addresses ?? []),
+    ...(report.contacts ?? []),
+    ...report.links,
+    ...(report.citations ?? []),
+    ...report.figures,
+    ...(report.quantities ?? []),
+    ...(report.origins ?? [])
+  ].map((s) => (s.length > MAX_LABEL ? `${s.slice(0, MAX_LABEL - 1)}…` : s))
+}
+
+export interface RevisionOutcome {
+  /** How many findings went back to the model. */
+  sent: number
+  /** How many of them the re-check still faults in the answer now on screen. */
+  remaining: number
+  /** True only when the re-check faults none of them. */
+  resolved: boolean
+  /** The line, for the reader. Empty when nothing was sent back. */
+  text: string
+}
+
+function nameList(labels: string[]): string {
+  if (labels.length <= MAX_NAMED) return labels.join(', ')
+  return `${labels.slice(0, MAX_NAMED).join(', ')} and ${labels.length - MAX_NAMED} more`
+}
+
+/**
+ * What the revision pass actually accomplished, in the words it can stand behind.
+ *
+ * The v1.4.6 line said "N unsupported items were sent back for verification or
+ * removal" and stopped there — which is a description of a *request*, not of a
+ * result, and it was rendered in green underneath answers where the finding was
+ * still standing. Measured, blind, round 4 task V1: the reply stated 165°F/74°C
+ * over passages that contain neither string, and the only chrome on screen was
+ * "✎ Revised: 1 unsupported item were sent back for verification or removal."
+ * A judge chose the older build over it and named that line as the reason.
+ *
+ * Three things were wrong and all three are the same thing. It asserted a
+ * resolution it had not checked; it named nothing, so nobody could check it
+ * either; and it agreed a plural verb with "1 item". So the line is now a
+ * function of both reports — what went back and what came back still faulted —
+ * it names the items, and `resolved` is what the colour keys off. An unresolved
+ * finding is not a resolution and must not be painted like one.
+ *
+ * Note what `resolved` does and does not claim: the re-check no longer faults
+ * these items, which is a statement about the check, not about the world. It is
+ * the strongest thing this code knows.
+ */
+export function describeRevisionOutcome(
+  before: GroundingReport | null,
+  after: GroundingReport | null
+): RevisionOutcome {
+  const sent = groundingFindingCount(before)
+  const remaining = groundingFindingCount(after)
+  if (sent === 0) return { sent: 0, remaining, resolved: false, text: '' }
+  const head = `Revised: ${sent} unsupported item${sent === 1 ? ' was' : 's were'} sent back`
+  if (remaining === 0) {
+    return {
+      sent,
+      remaining,
+      resolved: true,
+      text: `${head} (${nameList(groundingFindingLabels(before))}); the re-check faults none of them.`
+    }
+  }
+  return {
+    sent,
+    remaining,
+    resolved: false,
+    text:
+      `${head}; ${remaining} ${remaining === 1 ? 'is' : 'are'} still unsupported in this ` +
+      `answer: ${nameList(groundingFindingLabels(after))}.`
+  }
+}
+
 export function describeGroundingFindings(report: GroundingReport): string {
   const lines: string[] = []
   if (report.code?.length) lines.push(...report.code)

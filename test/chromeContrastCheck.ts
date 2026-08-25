@@ -106,6 +106,18 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
     source: section('showStats && !isStreaming', '</div>\n      </div>'),
     re: /className="(mt-2 text-\[10px\][^"]*)"/
   },
+  // The revision line, both tones. It is the only line on screen that reports
+  // on the app's own correction of the answer above it, and after round 4 it
+  // has two of them: cleared, and still-faulted. Measuring one would certify
+  // half a control — the half that was never the problem.
+  revisedResolved: {
+    source: section('function RevisedLine', 'v1.5.1 think-harder'),
+    re: /\?\s*'(mt-2 text-\[11px\] text-emerald[^']*)'/
+  },
+  revisedUnresolved: {
+    source: section('function RevisedLine', 'v1.5.1 think-harder'),
+    re: /:\s*'(mt-2 text-\[11px\] text-amber[^']*)'/
+  },
   userTimestamp: {
     source: section("if (message.role === 'user')", 'const accent ='),
     re: /className="(text-\[10px\][^"]*)"/
@@ -173,6 +185,8 @@ const LOAD_BEARING = [
   'prose link',
   'prose quote',
   'library provenance',
+  'revision cleared',
+  'revision unresolved',
   'stats readout',
   'user timestamp',
   'sidebar search placeholder',
@@ -230,6 +244,8 @@ function fixture(dark: boolean): string {
             <div class="${c('provenanceRow')}">
               <button type="button" class="${c('provenanceButton')}" data-ink="library provenance">📖 From the library: Food safety › Safe minimum internal temperatures (0.72) ▸</button>
             </div>
+            <div class="${c('revisedResolved')}" data-ink="revision cleared">✎ Revised: 1 unsupported item was sent back (165°F); the re-check faults none of them.</div>
+            <div class="${c('revisedUnresolved')}" data-ink="revision unresolved">✎ Revised: 2 unsupported items were sent back; 1 is still unsupported in this answer: 165°F.</div>
             <div class="${c('stats')}" data-ink="stats readout">238 tok · 10.1 tok/s · 7.84s to first token · 23.6s total</div>
           </div>
         </div>
@@ -390,6 +406,18 @@ async function main(): Promise<void> {
       `${theme.name}: chrome keeps two ranks`,
       primary.fg !== secondary.fg && primary.ratio > secondary.ratio,
       `${primary.fg} (${primary.ratio}:1) vs ${secondary.fg} (${secondary.ratio}:1)`
+    )
+    // The revision line reports on the app's own correction, and through v1.14
+    // it painted both outcomes the same green — including the measured V1 turn
+    // where the finding was still standing in the answer above it. Colour is
+    // the fastest thing a reader reads; a finding that survived must not wear
+    // the colour of one that did not.
+    const cleared = by('revision cleared')
+    const unresolved = by('revision unresolved')
+    check(
+      `${theme.name}: a surviving finding is not painted as a resolved one`,
+      cleared.fg !== unresolved.fg,
+      `both ${cleared.fg}`
     )
   }
 
