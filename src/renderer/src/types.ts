@@ -773,6 +773,8 @@ export interface GroundingReport {
   toolClaims?: string[]
   /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
   toolDisclosure?: string[]
+  /** v1.17: an argument the reply quotes as passed that the call never carried. */
+  toolArgs?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox. */
   code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */

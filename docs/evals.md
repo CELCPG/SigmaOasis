@@ -1588,6 +1588,102 @@ a report carrying contacts, or addresses, or quotes).
   ratio nobody sees for longer than a blink. The suite measures the resting state and says
   so; the transient is unmeasured.
 
+### New case, not yet folded into a round: the reply's account of its own ARGUMENTS
+
+The TH1 row above is the gap. This is the rung built for it, and the two directions it was
+measured in — fold it into whichever round ships it.
+
+**The failure.** TH1 asks, explicitly, *"Answer it, then tell me exactly which tools you used
+to get that and what each one gave back."* The reply named the right tool, disclosed it under a
+`Tools used` heading, and stated its argument as `query: "ground beef safe internal temperature"`.
+The audit log and the tool block both show what was actually sent:
+
+```
+reference_lookup({"query":"What internal temperature does ground beef need to reach? Answer it,
+then tell me exactly which tools you used to get that and what each one gave back."})
+```
+
+Every rung of the ladder passed it, each for a good reason of its own. `unrunToolClaims` checks
+the tool's *name*, and the name is right. `undisclosedToolRuns` checks that the account names
+every call, and it does. `misquotedSpans` is the near miss: it strips code spans before it looks
+— deliberately, since a string literal in a snippet is not a citation claim — which is exactly
+where a model writes a tool argument, and where it does see one it accuses it of the wrong thing
+(a query string was never offered as something a tool *returned*). The critic scored the task a
+tie because neither build was ever put to the test on it.
+
+It is not cosmetic. A reader told the query was four targeted keywords reads the passages under
+it as responsive to *that* query. What happened is that a 151-character sentence, second clause
+and all, went to a keyword-ranked local library, which ranks on whichever words dominate it.
+
+**Where the line falls, and why it generalises.** A reply that paraphrases — "I looked up the
+safe temperature for ground beef" — is describing its own work in its own words and is making no
+checkable claim. A reply that puts a string in quotation marks and hands it to a named parameter
+has quoted the call, so **an argument in quotes is a quotation** and is judged exactly as
+`misquotedSpans` judges one: against the string the call actually carried, with an explicit
+ellipsis the only permitted cut. A stated value that is a contiguous part of what went is clean
+— understatement, not invention.
+
+Round 5's repair applied twice: both vocabularies point at known-good rather than known-bad. The
+parameter names are read off the shipped tool schemas, so renaming a parameter moves the check
+with it; and the supported set is *what the turn actually sent*, never a list of the shapes a
+fabrication takes. A phrasing the scanner does not recognise costs a miss, and cannot manufacture
+a finding.
+
+**Scope, and the argument for it.** String parameters of the source and retrieval tools only —
+`query`, `pack`, `url`, `question`, `depth`, `need`, `product`, `action`, `name`. Those arguments
+decide what the tool went and got, they are short human-readable text a reader can compare by
+eye, and for a reader who does not open the call block the reply is the only place they appear.
+A `run_python` body or a note's text is a different animal — long, structured, already rendered
+verbatim in its own block — and a reply quoting a fragment of one is making no claim about what
+was retrieved. Numbers are out for a sharper reason still: `max_passages: 6` is not something a
+reader reads the results through.
+
+**True positive**, on the TH1 reply, with the `reference_lookup` record carrying the real query:
+
+```
+⚠️ This reply states an argument the call never received: query: “ground beef safe internal
+temperature” — the call sent “What internal temperature does ground beef need to reach? Answer
+it, th…”.
+```
+
+Naming what went beside what was claimed is the whole point: the reader can settle it without
+opening anything. Both values are stripped of markdown before display, which is round 6's V2
+sin (`rises to **$3…`) not repeated, and the cut is the app's own ellipsis.
+
+**True negatives**, all four measured on the same reply and the same record, all producing
+silence — no badge at all, not merely a smaller one:
+
+| The reply says | Verdict |
+| --- | --- |
+| `I passed your question to reference_lookup as it stood, rather than reducing it to keywords.` | silent — a paraphrase is not a quotation |
+| `query: "What internal temperature does ground beef need to reach? Answer it, then tell me exactly which tools you used to get that and what each one gave back."` | silent — verbatim |
+| `query: "What internal temperature does ground beef need to reach? …"` | silent — the cut is marked |
+| `query: "internal temperature does ground beef need to reach"` | silent — a fragment of what went |
+
+Plus two structural negatives: a `query: "…"` inside a Python snippet with no call attributed to
+it says nothing, and a parameter *no call passed* says nothing — with nothing sent there is
+nothing to contradict, and a claim about a call that never happened is `unrunToolClaims`' business.
+
+This is the round-4 lesson taken seriously. That round's stricter quote checker was judged
+**worse** than the gap it closed because it fired on a correctly-sourced quotation; a rung that
+reads prose about a JSON value is the same risk in a new place.
+
+**Swept for cry-wolf.** Every recorded reply fixture in `test/toolGrounding.test.ts` — the car
+loan, the cycling route, V1, V2, VC1, the tools-used table, the passage blobs, 18 in all — was
+re-run against eight armed tool records (a `reference_lookup` with a real `query` and `pack`, a
+`web_search`, a `fetch_webpage` with `url` and `query`, a `deep_research` with `question` and
+`depth`, a `price_watch` with `action`/`url`/`name`, a `shop_compare`, an `image_search`, a
+`shop_requirements`) across five different real queries — 90 reply×query runs, each seeing all
+eight records and all nine parameters at once. **One finding came back, and it is TH1's.**
+
+**One claim earns one finding.** A stated argument in straight quotes is also a quoted span, so
+`misquotedSpans` sees it too — and "quoted as exact but in no tool output" is the wrong
+accusation against a query string, which was never offered as something a tool returned. The
+gate now drops a quote finding that duplicates an argument finding: the specific rung wins, and
+the count stays equal to the number of things actually wrong.
+
+Node cases: 1911 → 1927.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

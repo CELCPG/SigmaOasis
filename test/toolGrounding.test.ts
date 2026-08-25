@@ -661,6 +661,7 @@ describe('groundingFindingLabels', () => {
     contacts: ['555-0100'],
     toolClaims: ['web_search'],
     toolDisclosure: ['reference_lookup'],
+    toolArgs: ['query: “ground beef” — the call sent “what temperature for ground beef?”'],
     code: ['- The Python code in the answer fails when run: NameError…'],
     citations: ['[4]'],
     quotes: ['a line no passage contains'],
@@ -670,7 +671,7 @@ describe('groundingFindingLabels', () => {
 
   test('names exactly as many things as the count counts, across every category', () => {
     assert.equal(groundingFindingLabels(everything).length, groundingFindingCount(everything))
-    assert.equal(groundingFindingCount(everything), 12)
+    assert.equal(groundingFindingCount(everything), 13)
   })
 
   test('every label is the checker’s own string, so it can be found on screen', () => {
@@ -2052,5 +2053,213 @@ describe('an invented figure on a retrieval-grounded turn (v1.16)', () => {
     assert.match(text, /Figures nothing retrieved or computed supports/)
     assert.match(text, /\$34,000/)
     assert.match(text, /reference_lookup/)
+  })
+})
+
+/**
+ * v1.17: the reply's account of its own ARGUMENTS, and the tie that exposed it.
+ *
+ * Round 6, task TH1. The user asked "Answer it, then tell me exactly which
+ * tools you used to get that and what each one gave back." The reply named the
+ * right tool — so `unrunToolClaims` had nothing to fault — disclosed it — so
+ * `undisclosedToolRuns` had nothing to fault — and then stated a query the call
+ * never carried. `trace/audit.jsonl` shows the whole user prompt went to a
+ * keyword-ranked local library; the reply says a four-word keyword phrase did.
+ * A blind critic scored the task a tie because neither build was ever put to
+ * the test on it.
+ *
+ * The true negatives below are the design, not decoration. Round 4's stricter
+ * quote checker was judged *worse* than the gap it closed because it fired on
+ * a correctly-sourced quotation, and this is a check on prose about a JSON
+ * value — crying wolf is the whole risk.
+ */
+const TH1_PROMPT =
+  'What internal temperature does ground beef need to reach? Answer it, then tell me exactly which tools you used to get that and what each one gave back.'
+
+const TH1_PASSAGES = `Reference passages for "${TH1_PROMPT}" from the local library (keyword ranking), most relevant first.
+
+[1] Food safety › Safe minimum internal temperatures › Ground meats
+    source: https://www.foodsafety.gov/food-safety-charts/safe-minimum-internal-temperatures
+Ground meats, including beef, pork and veal: 160 °F (71 °C), measured with a food thermometer.`
+
+function lookupCall(args: Record<string, unknown>, result = TH1_PASSAGES): ToolCallRecord {
+  return { id: 'reference_lookup-1', name: 'reference_lookup', args, result, status: 'done' }
+}
+
+/** What actually went: the entire prompt, second clause and all. */
+const TH1_CALL = lookupCall({ query: TH1_PROMPT })
+
+const TH1_REPLY = `Ground beef needs to reach an internal temperature of 160 °F (71 °C), measured with a food thermometer.
+
+**Tools used:**
+
+| Tool | Argument sent | What it returned |
+|------|---------------|------------------|
+| reference_lookup | query: "ground beef safe internal temperature" | 1 passage from the food-safety pack |`
+
+const TH1_FINDING =
+  'query: “ground beef safe internal temperature” — the call sent ' +
+  '“What internal temperature does ground beef need to reach? Answer it, th…”'
+
+describe('stated tool arguments (v1.17)', () => {
+  const { misstatedToolArguments } =
+    require('../src/renderer/src/lib/toolGrounding') as typeof import('../src/renderer/src/lib/toolGrounding')
+
+  test('a query the call never carried is a finding, with what went beside it', () => {
+    assert.deepEqual(misstatedToolArguments(TH1_REPLY, [TH1_CALL]), [TH1_FINDING])
+  })
+
+  test('the same claim written as a model usually writes it — inside a code span', () => {
+    // The form `misquotedSpans` can never see: it strips code before looking,
+    // precisely because a string literal in a snippet is not a citation claim.
+    // A tool argument in a snippet IS a claim about the call.
+    const reply = TH1_REPLY.replace(
+      'query: "ground beef safe internal temperature"',
+      '`reference_lookup({"query": "ground beef safe internal temperature"})`'
+    )
+    assert.deepEqual(misstatedToolArguments(reply, [TH1_CALL]), [TH1_FINDING])
+  })
+
+  test('the argument stated verbatim is silence', () => {
+    const honest = TH1_REPLY.replace('ground beef safe internal temperature', TH1_PROMPT)
+    assert.deepEqual(misstatedToolArguments(honest, [TH1_CALL]), [])
+  })
+
+  test('an honestly-marked cut is silence, exactly as it is for a quotation', () => {
+    const elided = TH1_REPLY.replace(
+      'ground beef safe internal temperature',
+      'What internal temperature does ground beef need to reach? …'
+    )
+    assert.deepEqual(misstatedToolArguments(elided, [TH1_CALL]), [])
+  })
+
+  test('quoting a fragment of what went is understatement, not invention', () => {
+    const partial = TH1_REPLY.replace(
+      'ground beef safe internal temperature',
+      'internal temperature does ground beef need to reach'
+    )
+    assert.deepEqual(misstatedToolArguments(partial, [TH1_CALL]), [])
+  })
+
+  test('a paraphrase is not a quotation and is never faulted', () => {
+    // The line this rung exists to stay quiet on. No parameter handed a quoted
+    // string: the reply is describing its own work in its own words, which is
+    // honest however loosely it summarises the query.
+    for (const reply of [
+      'I searched your reference library for the safe temperature for ground beef, using reference_lookup.',
+      'I passed your question to reference_lookup as it stood, rather than reducing it to keywords.',
+      'reference_lookup went looking for safe internal temperatures for ground beef and returned one passage.'
+    ]) {
+      assert.deepEqual(misstatedToolArguments(reply, [TH1_CALL]), [], reply)
+    }
+  })
+
+  test('a quoted string with no call attributed to it is not an account of a call', () => {
+    const snippet = `Here is roughly how you would call a search API from Python:
+
+\`\`\`python
+results = client.search(query: "ground beef safe internal temperature")
+\`\`\`
+
+That is the general shape of it.`
+    assert.deepEqual(misstatedToolArguments(snippet, [TH1_CALL]), [])
+  })
+
+  test('a parameter no call passed is nothing to contradict', () => {
+    // The known-good vocabulary is what the turn actually sent, so a parameter
+    // the turn never sent arms nothing. A claim about a call that did not
+    // happen belongs to unrunToolClaims, not here.
+    const reply = TH1_REPLY.replace(
+      'query: "ground beef safe internal temperature"',
+      'pack: "food safety"'
+    )
+    assert.deepEqual(misstatedToolArguments(reply, [TH1_CALL]), [])
+  })
+
+  test('a pack the call did not search, when it searched one, is a finding', () => {
+    const reply = TH1_REPLY.replace(
+      'query: "ground beef safe internal temperature"',
+      'pack: "home repair"'
+    )
+    assert.deepEqual(
+      misstatedToolArguments(reply, [lookupCall({ query: TH1_PROMPT, pack: 'food-safety' })]),
+      ['pack: “home repair” — the call sent “food-safety”']
+    )
+  })
+
+  test('a tool whose arguments are out of scope is left alone', () => {
+    // run_python's body is long, structured, and already rendered verbatim in
+    // its own block; a reply quoting a fragment of one is making no claim about
+    // what was retrieved. See ARGUMENT_PARAMS for the argument.
+    const reply = 'I ran run_python with code: "print(sum(legs))" and it printed the total.'
+    const python: ToolCallRecord = {
+      id: 'run_python-1',
+      name: 'run_python',
+      args: { code: 'print(len(legs))' },
+      result: '3',
+      status: 'done'
+    }
+    assert.deepEqual(misstatedToolArguments(reply, [python]), [])
+  })
+
+  test('a fetched URL the reply extends with a path it never asked for', () => {
+    const fetched: ToolCallRecord = {
+      id: 'fetch_webpage-1',
+      name: 'fetch_webpage',
+      args: { url: 'https://example.test/pricing' },
+      result: 'Pricing — https://example.test/pricing',
+      status: 'done'
+    }
+    assert.deepEqual(
+      misstatedToolArguments(
+        'I read the page with fetch_webpage, url: "https://example.test/pricing/enterprise".',
+        [fetched]
+      ),
+      [
+        'url: “https://example.test/pricing/enterprise” — the call sent “https://example.test/pricing”'
+      ]
+    )
+  })
+
+  test('no tool ran at all, so there is no account to check', () => {
+    assert.deepEqual(misstatedToolArguments(TH1_REPLY, []), [])
+  })
+
+  test('reported through checkToolGrounding, and the badge names what went', () => {
+    const report = checkToolGrounding(TH1_REPLY, [TH1_CALL], TH1_PROMPT)
+    assert.ok(report, 'expected a report: the stated query is not the query that went')
+    assert.deepEqual(report!.toolArgs, [TH1_FINDING])
+    // The gate must not discard what the extractor found — the round-6 defect,
+    // in the one place it is easiest to reintroduce.
+    assert.equal(groundingFindingCount(report), 1)
+    assert.deepEqual(groundingFindingLabels(report).length, 1)
+    const text = describeGroundingFindings(report!)
+    assert.match(text, /Quoted as the argument you passed/)
+    assert.match(text, /ground beef safe internal temperature/)
+  })
+
+  test('one claim earns one finding: the quote checker yields to the argument rung', () => {
+    // The stated argument is 37 characters inside straight quotes, so
+    // misquotedSpans sees it too — and "quoted as exact but in no tool output"
+    // is the wrong accusation against a query string, which was never offered
+    // as something a tool returned.
+    const report = checkToolGrounding(TH1_REPLY, [TH1_CALL], TH1_PROMPT)
+    assert.equal(report!.quotes, undefined, JSON.stringify(report!.quotes))
+  })
+
+  test('the honest reply produces no badge at all', () => {
+    const honest = TH1_REPLY.replace('ground beef safe internal temperature', TH1_PROMPT)
+    assert.equal(checkToolGrounding(honest, [TH1_CALL], TH1_PROMPT), null)
+  })
+
+  test('the paraphrasing reply produces no badge at all', () => {
+    const paraphrase = `Ground beef needs to reach an internal temperature of 160 °F (71 °C).
+
+**Tools used:** reference_lookup — I sent it your question and it returned one passage from the food-safety pack.`
+    assert.equal(
+      checkToolGrounding(paraphrase, [TH1_CALL], TH1_PROMPT),
+      null,
+      JSON.stringify(checkToolGrounding(paraphrase, [TH1_CALL], TH1_PROMPT))
+    )
   })
 })
