@@ -85,3 +85,55 @@ describe('latexToPlainText — things that must not change', () => {
     assert.equal(latexToPlainText('price is $5'), 'price is $5')
   })
 })
+
+/**
+ * Every string here is copied out of a captured head-to-head run (docs/evals.md,
+ * task V3) where the raw markdown carried the dollars and the screen did not.
+ * The pairs are pinned verbatim, both halves, because the failure was silent:
+ * the reply still read as a fluent sentence, so nothing flagged it except the
+ * grounding warning naming figures no reader could find.
+ */
+describe('latexToPlainText — currency that inline math used to swallow', () => {
+  test('an approximation tilde does not pair two prices into one math span', () => {
+    // "~" made looksLikeMath accept the whole clause; texToPlain then dropped
+    // the "~", and its trailing trim took the space before the second figure.
+    assert.equal(
+      latexToPlainText("at $0.01 per gallon that's ~$36/year"),
+      "at $0.01 per gallon that's ~$36/year"
+    )
+  })
+
+  test('a price range survives', () => {
+    assert.equal(latexToPlainText('often a $5–$10 part'), 'often a $5–$10 part')
+    assert.equal(
+      latexToPlainText('The repair usually costs $5–$20 for parts.'),
+      'The repair usually costs $5–$20 for parts.'
+    )
+    assert.equal(
+      latexToPlainText('A plumber would charge $150–$400+ for labor alone.'),
+      'A plumber would charge $150–$400+ for labor alone.'
+    )
+  })
+
+  test('every dollar in the captured reply reaches the output', () => {
+    const raw = [
+      'The repair usually costs **$5–$20 for parts** and takes 30–60 minutes.',
+      'A plumber would charge $150–$400+ for labor alone.',
+      'A $10–$20 repair kit usually covers all sizes.'
+    ].join('\n')
+    const count = (s: string): number => (s.match(/\$/g) ?? []).length
+    assert.equal(count(raw), 6)
+    assert.equal(count(latexToPlainText(raw)), 6)
+  })
+
+  test('a figure separated from prose by a TeX marker is still not math', () => {
+    assert.equal(latexToPlainText('Costs $3 for foo_bar and $9 total.'), 'Costs $3 for foo_bar and $9 total.')
+    assert.equal(latexToPlainText('It costs $3 per unit^2 and $9 total.'), 'It costs $3 per unit^2 and $9 total.')
+  })
+
+  test('a tilde inside a genuine single-token span still converts', () => {
+    // Tightening the marker set must not cost the TeX tie its meaning where
+    // the span really is one expression.
+    assert.equal(latexToPlainText('mass $5~kg$ exactly'), 'mass 5 kg exactly')
+  })
+})

@@ -145,6 +145,9 @@ For each run the driver records:
 
 - `transcript.json` — every message, every tool-call record (name, args,
   result, status), and the turn's trace export (`docs/trace-export.md`).
+- `reply.md` / `messages-raw.json` — the **raw markdown**, un-rendered. See
+  "What the renderer was handed" below; everything else in this list is
+  `innerText`, and therefore post-render.
 - `dom/` — `outerHTML` of the assistant message and of any plan block, captured
   at the moments a task's checks name (e.g. `PT2` needs a pre-cancel and a
   post-cancel snapshot).
@@ -276,6 +279,41 @@ conversation) and `waitTurnEnd`. `clickText` matches a control by the text a
 user can see; `key` goes through `Input.dispatchKeyEvent`, so Tab really moves
 focus. Anything marked `optional` is recorded and stepped over on failure;
 anything else fails the run.
+
+### What the renderer was handed
+
+Every text artifact the harness scores comes from `innerText`, deliberately: it
+returns rendered, *visible* text, so a collapsed block contributes its header
+and nothing else — what was actually on screen. The cost is that all of it is
+post-render by construction. A rendering defect cannot be diagnosed from such a
+run, because the run records the defect's output and never its input.
+
+So the capture also writes, **in addition to** and never in place of the
+rendered text:
+
+- `reply.md` — the final assistant message's raw markdown.
+- `messages-raw.json` — `{ index, role, content, reasoning }` per message.
+
+Both are read through `window.api.listConversations()`, the app's own
+already-exposed API for its sidebar, reached the same way `auditExport` is. No
+code path exists in the product for the harness's benefit.
+
+Diffing `reply.md` against `reply.txt` is what separates *the model wrote it
+that way* from *the app drew it that way*: a character present in `reply.md`
+and absent from `reply.txt` was lost by the renderer. Round 6's V3 currency
+loss (`docs/evals.md`) was settled exactly this way and could not have been
+settled without it.
+
+Both files are deliberately narrow — role, content, reasoning. `modelId`,
+`roleName`, `stats` and the conversation title are arm tells and are dropped
+before the file is written, because these are staged into blind pairs like any
+other artifact: neither name begins with `_`, so `make-blind-pairs.mjs` copies
+them, and both extensions (`.md`, `.json`) are in its `SCRUBBABLE` set, so
+absolute paths are replaced with `/RUN` and `/ARM/` as they are everywhere else.
+
+An ephemeral (no-trace) conversation is never persisted, by design, so no raw
+markdown can be recovered from one. `reply.md` is then empty and `run.json`
+`rawMarkdown.error` says why. That is a gap in the artifact, not a failed run.
 
 ### The turn's own record
 
