@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
-import { describeRevisionOutcome } from '../lib/toolGrounding'
+import { describeRevisionOutcome, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, contextItemLabel, markCitedContextItems } from '../lib/libraryRecall'
@@ -199,6 +199,15 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         <div className="mt-1">
           ⚠️ Quoted as exact but in no tool output this turn:{' '}
           {quotes.map((q) => `“${q}”`).join('; ')}.
+          {/*
+            v1.17: the excerpt is a window centred on the break, not the first
+            72 characters — twice in round 6 the clamp cut the sentence off
+            before the words being complained about, which is a warning the
+            reader cannot check. The legend rides along only when a marker is
+            actually there.
+          */}
+          {quotes.some(marksABreak) &&
+            ` ${QUOTE_BREAK_MARKS.join('')} marks where it stops matching the source.`}
         </div>
       )}
       {attributions.length > 0 && (

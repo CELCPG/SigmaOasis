@@ -1324,6 +1324,96 @@ check that reads a quantity **adjacent to** the one it means — the categories 
 the items, one direction of a set difference instead of both, the figures instead of the
 reply.
 
+### Pending fold-in — the quote warning that hid the difference it was warning about (v1.17)
+
+Two round-6 critics, on two different tasks, found the same defect from opposite sides. Every
+string below is the round-6 checker's own output, replayed against the round-6 code, not a
+paraphrase of it.
+
+**The cry-wolf (TH3).** `packs/food-safety/docs/refrigerator-thermometers.md` reads
+`the simple rule is: “When in doubt, throw it out.”`. The reply quoted the sentence *around*
+that, so its own outer pair took the double marks and the source's nested pair came back out as
+`‘When in doubt, throw it out.’`. Two glyphs out of a hundred and four, not one word different.
+`flattenQuote` had folded curly to straight since v1.14 and never folded single to double, so:
+
+```
+⚠️ Quoted as exact but in no tool output this turn: "If you're not sure or if the food
+   looks questionable, the simple rule is…"
+```
+
+The 72-character clamp stops *two characters short* of the first glyph that differs. The critic
+checked the flagged span against the pack, found it verbatim, and wrote that this
+*"trains them to ignore it"* — which is round 4's lesson, arriving for the second time.
+
+**The same clamp, leaking its own source (V2).** The reply bolded the figure inside a passage it
+had copied word for word — `rises to **$30,000**, an increase of $800` — and the badge printed
+`…the standard deduction rises to **$3…`. The critique was that raw markdown had reached
+user-facing text and *"the reader cannot see which words were altered"*. Both true, and there was
+a third thing wrong underneath: `**` is not a word either, so this too was a fabrication warning
+on a verbatim quotation.
+
+**What the clamp cost, stated exactly.** Feed the round-6 checker the correct quotation and the
+falsified one, and it prints the *same string* for both — the cut lands on the character before
+the one that differs:
+
+| Reply | Round 6 printed | Round 7 prints |
+| --- | --- | --- |
+| `rises to **$30,000**` — verbatim | `…rises to **$3…` | *nothing* |
+| `rises to **$32,000**` — invented | `…rises to **$3…` | `…jointly, the standard deduction rises to $3⟪2⟫,000, an increase of $800 from tax year…` |
+| `…the simple rule is: ‘When in doubt, throw it out.’` — verbatim | `…the simple rule is…` | *nothing* |
+| `…the simple rule is: ‘When in doubt’, throw it out.` — the source's sentence made to end early | `…the simple rule is…` | `…or if the food looks questionable, the simple rule is: 'When in doubt⟪'⟫, throw it out.` |
+
+A warning that is byte-identical whether the quotation is honest or invented carries no
+information at all. Both halves had to move: the fold, so it stops firing on the honest one, and
+the excerpt, so the reader can see what is wrong with the other.
+
+**Where the normalisation stops.** Widening a fold is how a checker is quietly turned off, so the
+line is drawn at one rule: **fold how a mark is drawn, never whether it is there or where.**
+
+- Every quotation glyph — `' ‘ ’ ‚ ‛ " “ ” „ ‟ ′ ″ « » ‹ ›` — folds to one character, and the
+  dash family to one hyphen. Swapping `«` for `"` cannot change which words are quoted.
+- Paired markdown emphasis and link syntax are removed from **both** sides and from the displayed
+  span, under CommonMark's flanking rule (no space just inside the delimiters, `]` against `(`).
+  The rule matters more here than in a renderer: the fold runs over the corpus and the reply
+  separately, so a delimiter that pairs on one side and not the other would manufacture the very
+  false positive it exists to remove. A lone `*` in a footnoted source line stays put, and a
+  single `_` is never emphasis — `use_by_date` is ordinary tool output.
+- Nothing is deleted or moved. `"when in doubt", throw it out` and `"when in doubt, throw it out"`
+  are different claims about where the source's sentence ended, and they stay different strings
+  through the fold — which is the fourth row of the table above.
+
+**The excerpt.** The reported span is now a window centred on the break rather than the first 72
+characters, with `⟪⟫` marking where the quotation stops matching. The break is found by growing
+the longest run from each end that occurs in the corpus; a run under five characters is discarded
+as coincidence (`s.` and `, and` are in every English paragraph), and the tail end rounds out to
+the end of the word it lands in, while the head is reported exactly — `check⟪ing⟫ leftovers daily`
+is precisely how far the reply and the source agree. The same window rule now governs the
+48-character label on the `✎ Revised` line, which would otherwise have re-introduced the original
+bug one line lower down.
+
+**The cases, with a true negative beside every true positive** (10 new, `test/toolGrounding.test.ts`;
+suite 1911 → 1921, `./scripts/test.sh` exit 0):
+
+| True negative — must stay silent | True positive — must still fire |
+| --- | --- |
+| The TH3 sentence with the nested pair re-drawn as single quotes, and again curly throughout | The same sentence with `looks questionable` → `smells strange`, reported as `⟪smells strange⟫` |
+| The V2 blockquote with `**$30,000**` bolded inside it, and the same quotation inline | `**$32,000**` in the same blockquote, reported as `$3⟪2⟫,000` with no asterisk in the output |
+| A footnoted line quoted with its unpaired `*` intact | The same line with `2 hours*` → `4 hours*` |
+| The TH3 turn end-to-end through `checkToolGrounding` — no report at all | A wholly invented CPSC-style quotation, flagged whole and unmarked, because none of it matches |
+
+Seven existing assertions moved, every one of them by demanding more: the span they already
+pinned, *plus* where the break inside it is. Nothing was relaxed and no case was dropped — the
+TH1 stitched quotation (`Ground meats, such as beef and pork — 160°F`, two separate lines of
+passage [2] joined by a dash the reply supplied) is still flagged and now names the join,
+`pork ⟪—⟫ 160°F`; the wrong-figure case that used to assert the truncated `…rises to $32,…` now
+asserts the digit itself.
+
+**What this does not fix.** A quotation containing inline code is still stripped to a space before
+the comparison runs (`INLINE_CODE` is applied to the whole reply so that a string literal in a
+snippet is not read as a citation), so a quoted line with a backticked word in it can still be
+faulted for a word it does say. Nothing in the round-6 runs exercised it, and it is recorded here
+rather than fixed.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
