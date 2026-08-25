@@ -220,6 +220,18 @@ interface Capture {
   viewport: { w: number; h: number; dpr: number }
 }
 
+/**
+ * One message as the renderer was GIVEN it — the model's own markdown, before
+ * any rendering. The counterpart to CapturedMessage, which is what the reader
+ * saw after rendering.
+ */
+interface RawMessage {
+  index: number
+  role: 'user' | 'assistant'
+  content: string
+  reasoning?: string
+}
+
 interface ShotRecord {
   file: string
   phase: 'mid' | 'turn-end' | 'turn-end-expanded'
@@ -661,6 +673,43 @@ const CAPTURE = String.raw`(() => {
   }
   return JSON.stringify(out)
 })()`
+
+/**
+ * Reads the raw markdown the renderer was HANDED, as opposed to what it drew.
+ *
+ * Every text artifact beside this one comes from `innerText`, which is
+ * post-render by construction: a rendering defect is invisible in them, because
+ * they record its output rather than its input. Diffing this against reply.txt
+ * separates "the model wrote it that way" from "the app drew it that way".
+ *
+ * It goes through `window.api.listConversations()` — the same already-exposed
+ * production API the app itself uses to populate the sidebar, reached the same
+ * way the audit export below is reached. No hook is added to the product for
+ * the harness's benefit, and nothing is written back.
+ *
+ * The newest conversation by updatedAt is the one the turn just ran in. An
+ * ephemeral (no-trace) conversation is never persisted and so cannot appear
+ * here; that is a product guarantee, and the caller reports it as a gap rather
+ * than treating it as a failure.
+ */
+const RAW_MARKDOWN = String.raw`window.api.listConversations().then(function (cs) {
+  var newest = null
+  for (var i = 0; i < cs.length; i++) {
+    if (!newest || (cs[i].updatedAt || 0) > (newest.updatedAt || 0)) newest = cs[i]
+  }
+  if (!newest) return JSON.stringify({ ok: false, error: 'no persisted conversation' })
+  // Deliberately narrow: role, the raw content, and the raw reasoning. modelId,
+  // roleName, stats and titles are all arm tells, and this file is staged into
+  // blind pairs.
+  var msgs = (newest.messages || []).map(function (m, i) {
+    var out = { index: i, role: m.role, content: m.content || '' }
+    if (m.reasoning) out.reasoning = m.reasoning
+    return out
+  })
+  return JSON.stringify({ ok: true, messages: msgs })
+}).catch(function (e) {
+  return JSON.stringify({ ok: false, error: String((e && e.message) || e) })
+})`
 
 /**
  * Opens every collapsed disclosure. Only buttons carrying the app's collapsed
@@ -1665,6 +1714,24 @@ async function main(): Promise<void> {
       if (!res.ok) notes.push(`audit export failed: ${res.error ?? 'unknown'}`)
     }
 
+    // The markdown the renderer was handed, beside the pixels it produced. See
+    // RAW_MARKDOWN: this is the only artifact in the directory that is not
+    // post-render, and it is what makes a rendering defect diagnosable at all.
+    let rawMessages: RawMessage[] = []
+    let rawError: string | null = null
+    try {
+      const res = JSON.parse(await cdp.evalString(RAW_MARKDOWN)) as {
+        ok?: boolean
+        messages?: RawMessage[]
+        error?: string
+      }
+      if (res.ok) rawMessages = res.messages ?? []
+      else rawError = res.error ?? 'unknown'
+    } catch (e) {
+      rawError = e instanceof Error ? e.message : String(e)
+    }
+    if (rawError) notes.push(`raw markdown unavailable: ${rawError}`)
+
     if (!cap.rootFound) notes.push('the transcript container could not be resolved; text artifacts may be empty')
     if (timedOut) notes.push(`the turn had not finished after ${args.timeoutMs} ms; capture is of an unfinished turn`)
     if (shots.filter((s) => s.phase === 'mid').length === 0) {
@@ -1683,6 +1750,13 @@ async function main(): Promise<void> {
     writeFileSync(join(runDir, 'transcript.txt'), cap.transcript)
     writeFileSync(join(runDir, 'transcript-expanded.txt'), capExp.transcript)
     writeFileSync(join(runDir, 'transcript.json'), JSON.stringify(capExp.messages, null, 2))
+
+    // Raw markdown, added rather than substituted: reply.txt stays the rendered
+    // text every score is computed from, and reply.md is what produced it.
+    const rawAssistants = rawMessages.filter((m) => m.role === 'assistant')
+    const rawReply = rawAssistants.length ? rawAssistants[rawAssistants.length - 1].content : ''
+    writeFileSync(join(runDir, 'reply.md'), rawReply ? `${rawReply}\n` : '')
+    writeFileSync(join(runDir, 'messages-raw.json'), `${JSON.stringify(rawMessages, null, 2)}\n`)
 
     const blockCount = capExp.messages.reduce((n, m) => n + m.blocks.length, 0)
     const citationCount = capExp.messages.reduce((n, m) => n + m.citations.length, 0)
@@ -1791,6 +1865,20 @@ async function main(): Promise<void> {
         }
       },
       reply: { file: 'reply.txt', chars: replyText.length, words: replyText.split(/\s+/).filter(Boolean).length },
+      rawMarkdown: {
+        replyFile: 'reply.md',
+        messagesFile: 'messages-raw.json',
+        chars: rawReply.length,
+        messageCount: rawMessages.length,
+        error: rawError,
+        note:
+          'The markdown the renderer was GIVEN, read through the app\'s own listConversations API. ' +
+          'Every other text artifact here is innerText, which is post-render: reply.txt records what ' +
+          'the renderer drew, reply.md records what it was asked to draw. Diff them to tell a model ' +
+          'defect from a rendering defect — if a figure is present in reply.md and absent from ' +
+          'reply.txt, the app lost it. Absent when the run used an ephemeral conversation, which is ' +
+          'never persisted; "error" then says so.'
+      },
       transcript: {
         visibleFile: 'transcript.txt',
         expandedFile: 'transcript-expanded.txt',
@@ -1952,11 +2040,26 @@ const README = `WHAT THIS DIRECTORY IS
 
 One task, sent once to one chat application by a script that drove the real UI:
 it typed the prompt into the composer and pressed Enter, then recorded what
-appeared on screen. Nothing here was read out of the application's internals.
+appeared on screen. Every measurement here is a screen measurement. The two
+exceptions are named as such below (reply.md / messages-raw.json, and
+trace/audit.jsonl): they are read back through the application's own public
+APIs, and they exist precisely so that what is on screen can be checked
+against what the application was working from.
 
 FILES
   prompt.txt               the task, verbatim, as it was typed
   reply.txt                the final answer's rendered text
+  reply.md                 the same answer's RAW markdown — what the renderer
+                           was handed, before it drew anything. reply.txt is
+                           post-render by construction, so a defect in the
+                           rendering is invisible there; diff the two and a
+                           character present in reply.md but missing from
+                           reply.txt was lost by the application, not by the
+                           model. Empty if the run used an ephemeral chat,
+                           which is never persisted (run.json says so).
+  messages-raw.json        every message's raw content (and raw reasoning),
+                           in order — the un-rendered counterpart to
+                           transcript.json
   transcript.txt           everything visible in the transcript at turn end.
                            Collapsed sections appear as their headers only,
                            because that is all the user could see.

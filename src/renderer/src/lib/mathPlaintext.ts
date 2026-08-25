@@ -170,12 +170,40 @@ function texToPlain(tex: string): string {
   return s.replace(/[ \t]{2,}/g, ' ').trim()
 }
 
-/** A $...$ span is math only when it looks like TeX or is a single token. */
+/**
+ * A $...$ span is math only when it spells a TeX command, or is a single short
+ * token that reads as an expression.
+ *
+ * This is a currency guard as much as a math test: `$` is both the inline-math
+ * delimiter and the dollar sigil, so every time this says "math" about a span
+ * that was really the prose between two prices, that prose is converted and
+ * both figures are deleted from the page. The old test said math whenever the
+ * span contained any of \ ^ _ { } ~, or was a single token of any shape, and a
+ * head-to-head capture (docs/evals.md, task V3) caught it destroying every
+ * dollar in a reply — six raw, none on screen. Two ways in:
+ *
+ *   "at $0.01 per gallon that's ~$36/year" — the `~` (prose for "about",
+ *   sitting right in front of money) made a whole clause look like TeX. It was
+ *   converted, and texToPlain's closing trim took the space with it:
+ *   "at 0.01 per gallon that's36/year".
+ *
+ *   "a $5–$20 part" — the fragment "5–" is a single token, so it passed as an
+ *   expression. It is a price RANGE.
+ *
+ * Hence: a marker only counts across whitespace when it is a backslash, because
+ * TeX that spans words always names a command — "214 \text{ atm}", "a \leq b".
+ * Anything else has to be one short token, and carry either a script/grouping
+ * marker (2^{10}) or a letter (x, n+1, 5~kg) to be an expression at all.
+ *
+ * The cost is that inline "$E = mc^2$" now renders as written rather than as
+ * E = mc². That is the right way to be wrong: this module's contract is that
+ * what it cannot recognize is left close to the source, and leaving a caret on
+ * screen loses a reader nothing, while eating two prices loses them the answer.
+ */
 function looksLikeMath(inner: string): boolean {
-  if (/[\\^_{}~]/.test(inner)) return true
-  // Single short tokens like x, n+1, E=mc2. Multi-word spans ("20 and ")
-  // are currency text such as "$20 and $30" and must be left alone.
-  return /^\S+$/.test(inner) && inner.length <= 24
+  if (inner.includes('\\')) return true
+  if (!/^\S+$/.test(inner) || inner.length > 24) return false
+  return /[\^_{}~]/.test(inner) || /[A-Za-z]/.test(inner)
 }
 
 export function latexToPlainText(input: string): string {

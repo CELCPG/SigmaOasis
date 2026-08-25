@@ -1279,6 +1279,84 @@ there, in either arm. In the other direction, `unsourcedFigures` had been findin
 reported. A true negative and a true positive from the same round, which is the standing
 requirement for a new case here.
 
+### ADDENDUM — V3's missing dollars: the product, and the blind spot that hid it
+
+*(Written after the round; fold into the round-6 body. It settles the open question the
+next section used to carry, so that bullet is now a pointer rather than a question.)*
+
+The verdict is **the product**. `latexToPlainText` was deleting currency from replies, and
+had been since the module shipped. The instrument was not at fault — but the instrument is
+why nobody could tell for four rounds, and that is the other half of this entry.
+
+**Why it was undiagnosable.** Every text artifact a run directory held — `reply.txt`,
+`transcript.txt`, `transcript.json` — came from `innerText`. That is deliberate and stays:
+`innerText` is what the reader saw. But it is post-render *by construction*, so a run
+recorded a rendering defect's output and never its input. Asked "did the model write `$36`
+or did the app eat it?", a completed run had nothing to say. The four statements the round
+left standing included *"`latexToPlainText` preserves all five dollars on the real
+paragraph"* and *"so does the full `renderMarkdown` path"*. Both were true of the string
+they were run on and both were false of the reply, because that string was a
+**reconstruction** of the raw markdown — the only thing available — and the reconstruction
+was wrong in exactly the two characters that mattered.
+
+The harness now writes `reply.md` and `messages-raw.json` beside the rendered text, read
+through `window.api.listConversations()` — the app's own sidebar API, reached the way the
+audit export already is, with no product code path added for the bench. Nothing that was
+scored before is scored differently; this is an addition.
+
+**What the diff showed.** One V3 reproduction, first run with the new artifact:
+
+| | `$` count |
+| --- | --- |
+| `reply.md` (what the renderer was handed) | **6** |
+| `reply.txt` (what the reader saw) | **0** |
+
+`$5–$20 for parts` reached the screen as `5–20 for parts`; `$150–$400+` as `150–400+`;
+`$10–$20 repair kit` as `10–20 repair kit`. Not a subtle degradation — every price in a
+reply about what a repair costs, gone, in prose that still read as fluent English.
+
+**The mechanism.** `$` is both the inline-math delimiter and the dollar sigil, so
+`latexToPlainText` has to decide which each one is. `looksLikeMath` decided wrongly in two
+ways, and round 6's V3 hit both in one reply:
+
+- `if (/[\\^_{}~]/.test(inner)) return true` had **no multi-word guard**. The guard the
+  module documents — "multi-word spans are currency text" — was wired only to the *other*
+  branch. So any two dollars on one line paired into "math" if the prose between them
+  contained a stray `~`, `_`, `^` or brace. `~` is the common one: it is prose for "about"
+  and it sits directly in front of money. `at $0.01 per gallon that's ~$36/year` became
+  `at 0.01 per gallon that's36/year` — the missing space is `texToPlain`'s closing `.trim()`
+  eating the one that the `~` left behind.
+- `return /^\S+$/.test(inner) && inner.length <= 24` accepted **any** single token. Between
+  `$5–$10` the token is `5–`, so a price *range* passed as an expression: `often a 5–10 part`.
+
+Both observed strings reproduce character-for-character from those inputs, and the
+surviving dollars corroborate rather than contradict: `for under $10.` lived because it was
+unpaired, and V2's four all lived because the prose between `$30,000` and `$800` carries no
+TeX marker at all. The rule was never "strip dollars" — it was "pair them, if something
+between them looks like TeX", which is why it looked random.
+
+The fix makes a marker count across whitespace only when it is a **backslash**, because TeX
+that spans words always names a command (`214 \text{ atm}`, `a \leq b`); anything else must
+be one short token carrying a script marker or a letter. Inline `$E = mc^2$` now renders as
+written instead of as `E = mc²`. That is the right way to be wrong: this module's stated
+contract is that what it cannot recognize is left close to the source, and a caret on
+screen costs a reader nothing while two deleted prices cost them the answer.
+
+**The case.** `test/mathPlaintext.test.ts`, "currency that inline math used to swallow":
+the two captured sentences pinned verbatim in both halves, the six-dollar count from the
+reproduction, `foo_bar` and `unit^2` for the other two weak markers, and `$5~kg$` to hold
+the line that tightening the marker set must not cost a genuine single-token span its
+tilde. The failure was silent — the reply read fluently and only the grounding warning,
+naming figures no reader could find, disagreed — so the outputs are pinned exactly.
+
+**What this cost.** Four rounds scored V2 and V3 on replies whose figures had been deleted
+between the model and the screen, and scored them as wins. The grounding warning was
+*correct* every time it named `$0.01, $36, $10`; it was read as a cry-wolf because the
+figures were genuinely not on screen. A check disagreeing with the page was treated as the
+check being wrong, when the page was wrong — which is the round-5 species inverted, and
+worth adding to that list: **when a check and the screen disagree, the screen is a
+measurement too, and it can be the one that is broken.**
+
 ### What this round does not measure
 
 - **The reference-app comparison is still absent.** These are 17 tasks against this
@@ -1288,15 +1366,14 @@ requirement for a new case here.
   covers both themes in the render harness, but no head-to-head run has ever screenshotted
   dark, so `N_fail` and `MIN_RATIO` for dark are unmeasured on both arms. The VC3 numbers
   quoted anywhere in this document are light theme only.
-- **One critique may be the instrument, not the product, and is unresolved.** On V3 the
-  warning names `$0.01, $36, $10` while the captured on-screen prose reads
-  `at 0.01 per gallon that's36/year` — the reader cannot locate the figure. The checker
-  cannot be inventing the `$`: `CURRENCY` requires a literal one in the model's text.
-  But `latexToPlainText` preserves all five dollars on the real paragraph, so does the
-  full `renderMarkdown` path, and the harness reads bare `innerText`. One of those four
-  statements is wrong and it is not yet known which. Until it is, this is recorded as an
-  open question rather than a product defect — if it turns out to be the capture, it is a
-  measurement fault of the same family as the handicapped baseline arm.
+- ~~**One critique may be the instrument, not the product, and is unresolved.**~~
+  **Settled — it was the product.** `looksLikeMath` was pairing two dollar sigils into a
+  math span and converting the prose between them, deleting both figures. Two of the four
+  statements were wrong, and wrong for the same reason: `latexToPlainText` and
+  `renderMarkdown` were both exonerated against a *reconstruction* of the raw markdown,
+  because no run directory contained the real thing. See the addendum above; the harness
+  now captures `reply.md`, and the fix ships with pinned cases in
+  `test/mathPlaintext.test.ts`.
 - **Turn totals across arms are not a speed comparison.** Several round-6 turns are
   longer than the baseline's because they run a bounded verification tail the baseline
   never ran at all (TH2: 112.8 s against 58.0 s, of which 60.0 s is the disclosed
