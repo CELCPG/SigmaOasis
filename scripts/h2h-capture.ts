@@ -1733,6 +1733,19 @@ async function main(): Promise<void> {
     })
     for (const p of preconditionReports) if (p.reason) validityReasons.push(p.reason)
 
+    // A turn that never ended is not a result. The precondition guard asks
+    // whether the run COULD exercise its task; this asks whether it DID. One
+    // arm once timed out at 300 s with the composer still on Stop, mid
+    // verification pass, and was written out VALID — so a hang in the build
+    // under test read as a comparable capture. It is not: there is no turn to
+    // compare, and the timing figures are floors, not measurements.
+    if (timedOut) {
+      validityReasons.push(
+        `the turn had not finished after ${args.timeoutMs} ms — the capture is of an unfinished turn, ` +
+          'so this run did not produce a result to compare'
+      )
+    }
+
     const validity = validityReasons.length ? 'INVALID' : 'VALID'
 
     const run = {
