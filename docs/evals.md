@@ -1401,9 +1401,71 @@ check that reads a quantity **adjacent to** the one it means — the categories 
 the items, one direction of a set difference instead of both, the figures instead of the
 reply.
 
-<!-- FOLD IN: new eval case, PT1's other direction. Not yet a round heading. -->
+## Round 7: five checks that read the quantity next to the one they meant (v1.17.1)
 
-### Pending fold-in — PT1: the half of the difference nothing checked
+Round 6 won 16 of 17 tasks and lost none, and its critics still found the same species in
+six new places. Round 7 took five of them, one builder each, and the round's own work
+turned up two more — one in the shipped renderer and one in the gate that certifies every
+round in this document.
+
+**The blind verdict for this round is not in yet.** The fixes and measurements below are
+recorded now because they are measured; the win/loss line will be added when the sweep is
+judged, and not before.
+
+### The renderer was deleting money from answers
+
+Round 6 recorded, under "what this round does not measure", an unresolved question: the
+grounding warning named `$0.01, $36, $10` while the captured screen read
+`at 0.01 per gallon that's36/year`. It is resolved, and it was the product.
+
+`looksLikeMath` in `mathPlaintext.ts` decides whether a `$…$` span is TeX. Its first
+branch — `if (/[\\^_{}~]/.test(inner)) return true` — carried **no multi-word guard**;
+the guard the module documents was wired only to the other branch. `~` is ordinary prose
+for "about", and it sits directly in front of money. Its second branch accepted *any*
+token under 24 characters, so the fragment `5–` between `$5–$10` passed as an expression.
+
+Run against the pre-fix code, on the exact strings the capture recorded:
+
+| written by the model | shown to the reader |
+| --- | --- |
+| `at $0.01 per gallon that's ~$36/year` | `at 0.01 per gallon that's36/year` |
+| `$5–$20 for parts` | `5–20 for parts` |
+| `$150–$400+ for a plumber` | `150–400+ for a plumber` |
+
+Every price in an answer about repair costs, deleted, in prose that still reads fluently.
+`for under $10.` survived because it was unpaired; V2's four survived because the prose
+between them holds no TeX marker — which is why it looked random rather than systematic.
+
+Two things about this are worth more than the fix.
+
+**The warning was right every time it fired.** It was read as a cry-wolf because the
+figures genuinely were not on screen. When a check and the screen disagree, the screen is
+a measurement too, and it can be the broken one.
+
+**The instrument could not see the string it needed.** Every text artifact the bench
+writes comes from `innerText`, which is post-render by construction, so the raw assistant
+markdown existed nowhere in a run directory and a rendering defect was undiagnosable from
+a completed run. Two exclusions written into the round-6 section — that `latexToPlainText`
+was clean, and that the full `renderMarkdown` path was clean — were both **wrong**, and
+wrong for the same reason: they were run against a *reconstruction* of the raw markdown,
+which differed from the real thing in exactly the two characters that mattered. The
+capture now writes `reply.md` and `messages-raw.json` beside the rendered text, read
+through an already-exposed production API, scrubbed and arm-anonymised like every other
+artifact.
+
+### The gate typechecked a list, not the project
+
+`scripts/test.sh` compiles a hand-maintained list of 66 files, grown one entry at a time
+as tests needed things. `MessageBubble.tsx` — which renders the entire verification
+banner — was never on it. A merge this round left a dangling `parts` reference in that
+file and the script exited **0** on it; `npm run typecheck` failed. The gate that
+certifies "all node checks green" every round did not cover the file carrying the claim.
+
+That is the enumeration failure inside the instrument that grades the enumeration
+failures. The list is replaced by both tsconfigs under `--noEmit`, which describe the
+project rather than a selection.
+
+### PT1: the half of the set difference nothing checked
 
 The row above is confirmed against the raw audit log rather than taken from the critique. The
 plan on screen at the approval moment forecast `Tools — may use: list_notes` on one step and
@@ -1477,15 +1539,6 @@ row already says so — pinned for all five non-`done` statuses.
 24 new cases in `test/planBlock.test.ts`, seven of them a table walk over
 forecast × executed asserting that a name is faulted **iff** it is in the symmetric difference —
 the class, not the two instances that were found.
-
-<!-- FOLD IN: cases for the next round's section. Three of round 6's critiques, answered. -->
-
-## Pending fold-in — the sentence, the verb and the ink (v1.17.1)
-
-Three of the round-6 critiques above, taken in one pass. Two of them are the same defect
-in two registers: a sentence broader than the measurement behind it. The third is the
-same thing in pixels — the banner that admits the answer is unsupported was the least
-legible chrome in the app.
 
 ### VC1: what the recompute line is entitled to say
 
@@ -1569,26 +1622,7 @@ a report carrying contacts, or addresses, or quotes).
   colour. Nothing else in the app dims ink with opacity, so the strengthening added no
   findings anywhere else. The suite is 45 → 54 checks.
 
-### What this does not measure
-
-- **Nothing here was re-run against a model.** These are three chrome defects, fixed and
-  pinned against recorded output and a real offscreen window. No new head-to-head sweep was
-  taken, so there is no win/loss claim attached to any of it.
-- **The gap the recompute sentence now admits to is still a gap.** A reply that restates a
-  *string* from its own tool output — a decoded token, an identifier, a filename — is
-  unchecked, and VC1 is a recorded instance of that going wrong. The sentence stops
-  claiming otherwise; it does not close it. Closing it needs a run whose output holds the
-  string contiguously, which is a change to what `RECOMPUTE_INSTRUCTION` asks for, and that
-  is a behaviour change nothing has measured yet.
-- **The contrast numbers are the fixture's, not a screenshot's.** They come from the render
-  harness compositing the app's real stylesheet, which is still the only place dark theme is
-  measured at all — the head-to-head bench has never captured it.
-- **Entry animations are now suppressed in the contrast fixture.** `oasis-enter` fades
-  opacity over 0.4 s, and once opacity is measured a screenshot taken mid-fade reports a
-  ratio nobody sees for longer than a blink. The suite measures the resting state and says
-  so; the transient is unmeasured.
-
-### New case, not yet folded into a round: the reply's account of its own ARGUMENTS
+### TH1: the reply's account of its own arguments
 
 The TH1 row above is the gap. This is the rung built for it, and the two directions it was
 measured in — fold it into whichever round ships it.
@@ -1684,7 +1718,7 @@ the count stays equal to the number of things actually wrong.
 
 Node cases: 1911 → 1927.
 
-### Pending fold-in — the quote warning that hid the difference it was warning about (v1.17)
+### The quote warning that hid the difference it warned about
 
 Two round-6 critics, on two different tasks, found the same defect from opposite sides. Every
 string below is the round-6 checker's own output, replayed against the round-6 code, not a
@@ -1773,6 +1807,45 @@ the comparison runs (`INLINE_CODE` is applied to the whole reply so that a strin
 snippet is not read as a citation), so a quoted line with a backticked word in it can still be
 faulted for a word it does say. Nothing in the round-6 runs exercised it, and it is recorded here
 rather than fixed.
+
+### What this does not measure
+
+- **Nothing here was re-run against a model.** These are three chrome defects, fixed and
+  pinned against recorded output and a real offscreen window. No new head-to-head sweep was
+  taken, so there is no win/loss claim attached to any of it.
+- **The gap the recompute sentence now admits to is still a gap.** A reply that restates a
+  *string* from its own tool output — a decoded token, an identifier, a filename — is
+  unchecked, and VC1 is a recorded instance of that going wrong. The sentence stops
+  claiming otherwise; it does not close it. Closing it needs a run whose output holds the
+  string contiguously, which is a change to what `RECOMPUTE_INSTRUCTION` asks for, and that
+  is a behaviour change nothing has measured yet.
+- **The contrast numbers are the fixture's, not a screenshot's.** They come from the render
+  harness compositing the app's real stylesheet, which is still the only place dark theme is
+  measured at all — the head-to-head bench has never captured it.
+- **Entry animations are now suppressed in the contrast fixture.** `oasis-enter` fades
+  opacity over 0.4 s, and once opacity is measured a screenshot taken mid-fade reports a
+  ratio nobody sees for longer than a blink. The suite measures the resting state and says
+  so; the transient is unmeasured.
+- **Two rungs landed in the same file from two builders, and their text merged while
+  their semantics did not.** The argument rung yields the quote checker when both
+  describe one claim; that gate tested `startsWith` on a span that used to be a
+  truncated prefix and is now a centred excerpt, so it stopped recognising the overlap
+  and TH1 earned two findings for one claim. Caught by the suite, fixed in the product,
+  the two assertions unchanged. It is recorded because auto-merge reported no conflict.
+- **The argument rung trusts `ToolCallRecord.args` as ground truth.** It is what the app
+  sent and `trace/audit.jsonl` agrees, but nothing cross-checks the record against the
+  audit log, so a bug that mangled `args` at record time would make the rung confidently
+  wrong.
+- **Attribution for that rung is nearest-name-or-heading**, so a reply that only ever
+  calls the tool "your reference library" gets a miss. Deliberately the safe direction.
+- **Inline code inside a quotation is still blanked before comparison**, so a quoted line
+  containing a backticked word is compared with a space where the word was and can be
+  faulted for a word it does say. No recorded run exercises it.
+- **The plan block's contrast is guarded only by its own file's hand-rolled compositor** —
+  `test/chromeContrastCheck.ts` names no plan-block class.
+- **`resources/pyodide` and `node_modules` are absent from a fresh worktree**, so every
+  builder this round symlinked one to run anything. That is the same gap that handicapped
+  the baseline arm for three rounds; it is still not fixed, only known.
 
 ## Findings worth keeping
 
