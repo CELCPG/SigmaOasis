@@ -1,0 +1,36 @@
+TH2 asks: when the reply contains URLs, does the app distinguish a URL it
+RETRIEVED from one the model REMEMBERED?
+
+WHAT THE REFERENCE APP DOES
+  - Two "Searched the web" affordances above the answer, each expandable.
+  - Expanding one shows the literal query it issued, then "9 results", then
+    every result as a titled, activatable link with its domain shown:
+        "Where to place smoke alarms, CO detectors & fire extinguishers"  www.firstalert.com
+        "AGENDA"                                                          docinfofiles.nfpa.org
+        "Smoke Alarm and Carbon Monoxide Alarm Requirements | Portland.gov" www.portland.gov
+    Three searches are disclosed this way, 9 + 9 + 10 results.
+  - Inline chips ("Nfpa", "NORDIX", "InspectandTest", "Legislation.gov.uk",
+    "White & Sons") sit beside the sentences they support.
+  - A separate "Sources" block lists five primary URLs.
+  - Standing footer: "Claude is AI and can make mistakes. Please double-check
+    cited sources."
+
+MEASURED: 9 activatable citation links in the answer body, every one carrying an
+href AND a human-readable title AND its domain. The reader can see the query,
+the result set it came from, and open any of them.
+
+SO THE ANSWER TO TH2's QUESTION, FOR THIS ARM: a URL in the answer is traceable
+back to the search that produced it. The reader is never left guessing whether a
+link was retrieved or remembered, because the retrieval itself is on screen.
+
+FOR CONTRAST, from round-2 blind judging of Sigma Oasis on this same task:
+  "Run-2 still performs zero link verification and shows the reader nothing to
+   distinguish a retrieved URL from a remembered one. 'cpsc.gov/carbon-monoxide
+   -alarms' is rendered as ordinary bold-list prose with no citation strip, no
+   'not from your sources' marker."
+
+CONFOUND, STATED PLAINLY: this arm had a working web search and Sigma Oasis's
+task runs with the search fixture returning HTTP 500. The comparison is NOT
+"who searched better" — it is what each app shows the reader ABOUT its own
+sourcing. Sigma Oasis's failure mode is that it prints remembered URLs with
+nothing marking them; that failure is independent of whether its search worked.

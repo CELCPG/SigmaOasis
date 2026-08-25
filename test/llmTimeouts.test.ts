@@ -1,6 +1,14 @@
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { load, resetState, state } from './harness'
+import {
+  armWatchdog,
+  streamChat,
+  FIRST_BYTE_TIMEOUT_MS,
+  STREAM_STALL_MS
+} from '../src/renderer/src/hooks/chatTransport'
+import { replyAffordances } from '../src/renderer/src/lib/replyRecovery'
+import type { ApiMessage } from '../src/renderer/src/lib/agentLoop'
 
 const llm = load<typeof import('../src/main/ipc/llm')>('llm')
 
@@ -320,5 +328,323 @@ describe('chatCompleteJson · stepping down when a server refuses a constraint',
     })
     const sent = state.completionBodies[0] as { messages: { role: string }[] }
     assert.equal(sent.messages[sent.messages.length - 1].role, 'user')
+  })
+})
+
+/**
+ * The renderer's streaming transport, against a stub that behaves the way the
+ * live server behaves.
+ *
+ * v1.6 added a diagnosis for the failure LM Studio reports in-band — a request
+ * over the loaded context length answers 200, streams one `{"error": {...}}`
+ * frame, and ends. v1.12.1 found the diagnosis unreachable: it was thrown from
+ * inside the try whose `catch` exists to tolerate a half-arrived JSON chunk, so
+ * the throw was swallowed as one and the turn finished as a blank bubble with
+ * no cause and no next action — exactly the behaviour the feature removed.
+ */
+
+const encoder = new TextEncoder()
+
+function abortError(): Error {
+  const err = new Error('The operation was aborted.')
+  err.name = 'AbortError'
+  return err
+}
+
+/** A 200 that streams the given SSE text and ends, like the real server. */
+function sseResponse(chunks: string[]): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+        controller.close()
+      }
+    }),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } }
+  )
+}
+
+const HELLO: ApiMessage[] = [{ role: 'user', content: 'hi' }]
+
+/** Run one round against a scripted server; returns what the user would see. */
+async function round(fetchStub: typeof fetch): Promise<{ content: string; reasoning: string }> {
+  const original = globalThis.fetch
+  globalThis.fetch = fetchStub
+  let content = ''
+  let reasoning = ''
+  try {
+    await streamChat(
+      'http://localhost:1234/v1',
+      'qwen3.8-9b',
+      HELLO,
+      [],
+      new AbortController().signal,
+      (chunk) => {
+        content += chunk
+      },
+      (chunk) => {
+        reasoning += chunk
+      }
+    )
+    return { content, reasoning }
+  } finally {
+    globalThis.fetch = original
+  }
+}
+
+describe('streamChat · a failure the server puts in the stream', () => {
+  test('a context-overflow frame reaches the user as a named cause', async () => {
+    await assert.rejects(
+      () =>
+        round((async () =>
+          sseResponse([
+            'data: {"error":{"message":"The number of tokens to keep from the initial prompt is greater than the context length","type":"invalid_request_error"}}\n\n'
+          ])) as typeof fetch),
+      // Swallowed through v1.12.1: this resolved with an empty answer instead.
+      /larger than the context the model is loaded with/
+    )
+  })
+
+  test('the diagnosis says what to do about it', async () => {
+    await assert.rejects(
+      () =>
+        round((async () =>
+          sseResponse(['data: {"error":{"message":"context length exceeded"}}\n\n'])) as typeof fetch),
+      /Load the model with a larger context in LM Studio, or attach less/
+    )
+  })
+
+  test('a failure that is not about context is reported verbatim', async () => {
+    await assert.rejects(
+      () =>
+        round((async () =>
+          sseResponse(['data: {"error":{"message":"Model has been unloaded"}}\n\n'])) as typeof fetch),
+      /Model has been unloaded/
+    )
+  })
+
+  test('a bare string error is reported too', async () => {
+    await assert.rejects(
+      () => round((async () => sseResponse(['data: {"error":"prediction-error"}\n\n'])) as typeof fetch),
+      /prediction-error/
+    )
+  })
+
+  test('the turn still ends non-empty: what streamed before the frame is kept', async () => {
+    let seen = ''
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"Half an answer. "}}]}\n\n',
+        'data: {"error":{"message":"context length exceeded"}}\n\n'
+      ])) as typeof fetch
+    try {
+      await assert.rejects(
+        () =>
+          streamChat(
+            'http://localhost:1234/v1',
+            'q',
+            HELLO,
+            [],
+            new AbortController().signal,
+            (c) => {
+              seen += c
+            }
+          ),
+        /larger than the context/
+      )
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.match(seen, /Half an answer/)
+  })
+
+  /**
+   * The tolerance the swallowing `catch` was there for in the first place. It
+   * has to survive the fix: a delta split across two socket reads is normal.
+   */
+  test('a frame split across chunks is still assembled, not reported as a failure', async () => {
+    const out = await round((async () =>
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"Hel',
+        'lo"}}]}\n\ndata: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+      ])) as typeof fetch)
+    assert.equal(out.content, 'Hello world')
+  })
+
+  test('a malformed frame mid-stream still does not fail the round', async () => {
+    const out = await round((async () =>
+      sseResponse([
+        'data: {not json}\n\ndata: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'
+      ])) as typeof fetch)
+    assert.equal(out.content, 'ok')
+  })
+})
+
+/**
+ * The third member of the same family: chatTransport called `fetch` with a
+ * signal and nothing else — no timeoutMs, no stall detection, unlike every
+ * main-process path, which goes through auditedFetch and has both. A server
+ * that accepted the POST and then wrote nothing held the turn open forever.
+ */
+describe('streamChat · a server that goes quiet', () => {
+  test('the budgets are bounded, and the silent-start one is the looser', () => {
+    assert.ok(STREAM_STALL_MS > 0 && STREAM_STALL_MS <= 120_000)
+    assert.ok(FIRST_BYTE_TIMEOUT_MS >= STREAM_STALL_MS)
+    assert.ok(FIRST_BYTE_TIMEOUT_MS <= 300_000)
+  })
+
+  test('a POST that is never answered fails with a cause, not a hang', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const pending = round(((_url: string, init: { signal: AbortSignal }) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(abortError()))
+      })) as unknown as typeof fetch)
+    t.mock.timers.tick(FIRST_BYTE_TIMEOUT_MS)
+    await assert.rejects(() => pending, /sent nothing for 300s/)
+  })
+
+  test('a stream that dies mid-answer says so, and keeps what arrived', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    let seen = ''
+    const original = globalThis.fetch
+    globalThis.fetch = ((_url: string, init: { signal: AbortSignal }) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode('data: {"choices":[{"delta":{"content":"Half an answer. "}}]}\n\n')
+              )
+              init.signal.addEventListener('abort', () => controller.error(abortError()))
+            }
+          }),
+          { status: 200 }
+        )
+      )) as unknown as typeof fetch
+    try {
+      const pending = streamChat(
+        'http://localhost:1234/v1',
+        'q',
+        HELLO,
+        [],
+        new AbortController().signal,
+        (c) => {
+          seen += c
+        }
+      )
+      for (let i = 0; i < 200 && seen === ''; i++) await new Promise((r) => setImmediate(r))
+      t.mock.timers.tick(STREAM_STALL_MS)
+      await assert.rejects(() => pending, /stalled — nothing received for 60s/)
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.match(seen, /Half an answer/)
+  })
+})
+
+describe('armWatchdog', () => {
+  test('a silent stream is stopped, and the reason is available afterwards', async () => {
+    const watchdog = armWatchdog(new AbortController().signal)
+    watchdog.touch(5, 'nothing for 5ms')
+    await new Promise((r) => setTimeout(r, 30))
+    assert.equal(watchdog.signal.aborted, true)
+    assert.match(String(watchdog.expired()?.message), /nothing for 5ms/)
+    watchdog.stop()
+  })
+
+  test('every chunk restarts the clock', async () => {
+    const watchdog = armWatchdog(new AbortController().signal)
+    watchdog.touch(40, 'stalled')
+    for (let i = 0; i < 4; i++) {
+      await new Promise((r) => setTimeout(r, 15))
+      watchdog.touch(40, 'stalled')
+    }
+    assert.equal(watchdog.signal.aborted, false)
+    watchdog.stop()
+  })
+
+  test('the user pressing Stop is not a failure with a cause', () => {
+    const outer = new AbortController()
+    const watchdog = armWatchdog(outer.signal)
+    watchdog.touch(60_000, 'stalled')
+    outer.abort()
+    assert.equal(watchdog.signal.aborted, true)
+    // Nothing to report: the turn unwinds quietly, as an abort must.
+    assert.equal(watchdog.expired(), null)
+    watchdog.stop()
+  })
+
+  test('an already-aborted caller never starts a request', () => {
+    const outer = new AbortController()
+    outer.abort()
+    const watchdog = armWatchdog(outer.signal)
+    assert.equal(watchdog.signal.aborted, true)
+    watchdog.stop()
+  })
+
+  test('stop disarms it — a finished round leaves no timer behind', async () => {
+    const watchdog = armWatchdog(new AbortController().signal)
+    watchdog.touch(5, 'stalled')
+    watchdog.stop()
+    await new Promise((r) => setTimeout(r, 30))
+    assert.equal(watchdog.signal.aborted, false)
+    assert.equal(watchdog.expired(), null)
+  })
+})
+
+/**
+ * And the bubble the failure lands in. Through v1.12.1 the entire action row
+ * was gated on `message.content`, so an empty reply — the one that most needs
+ * it — offered no way forward at all, not even Regenerate.
+ */
+describe('replyAffordances', () => {
+  const empty = { content: '' }
+  const answered = { content: 'The answer.' }
+
+  test('an empty last reply still gets the action row', () => {
+    assert.equal(replyAffordances(empty, true, false).actions, true)
+  })
+
+  test('an empty reply is named as one', () => {
+    assert.equal(replyAffordances(empty, true, false).empty, true)
+  })
+
+  test('the text actions stay off when there is no text to act on', () => {
+    assert.equal(replyAffordances(empty, true, false).onText, false)
+  })
+
+  test('an answered reply gets the row and the text actions', () => {
+    assert.deepEqual(replyAffordances(answered, false, false), {
+      empty: false,
+      actions: true,
+      onText: true
+    })
+  })
+
+  test('whitespace is not an answer', () => {
+    assert.equal(replyAffordances({ content: '   \n ' }, true, false).empty, true)
+  })
+
+  test('a turn that ran tools is not an empty reply', () => {
+    const out = replyAffordances(
+      { content: '', toolCalls: [{ id: '1', name: 'web_search', args: {}, status: 'done' }] },
+      true,
+      false
+    )
+    assert.equal(out.empty, false)
+  })
+
+  test('a turn that only thought is not an empty reply either', () => {
+    assert.equal(replyAffordances({ content: '', reasoning: 'hmm' }, true, false).empty, false)
+  })
+
+  test('nothing is offered while the reply is still streaming', () => {
+    assert.equal(replyAffordances(answered, true, true).actions, false)
+    assert.equal(replyAffordances(answered, true, true).onText, false)
+  })
+
+  test('an older empty bubble mid-history offers nothing new', () => {
+    assert.equal(replyAffordances(empty, false, false).actions, false)
   })
 })

@@ -1,37 +1,40 @@
 import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
-import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
+import { buildCriticMessages, NO_REVIEW_TEXT, pickCritic } from '../lib/secondOpinion'
 import {
   buildRecomputeMessages,
   buildRecomputeReference,
   codeFailureFinding,
+  compareToOutput,
   describeRecompute,
   extractRecomputeProgram,
   isSelfContained,
-  longestPythonFence
+  longestPythonFence,
+  recomputeIsCircular,
+  LAUNDERED_OUTPUT_MARKER
 } from '../lib/workbenchChecks'
 import { parseRanCode } from '../lib/ranCode'
-import type { WorkbenchCheck } from '../lib/workbenchChecks'
+import { composeFailure, explainFailure } from '../../../shared/failure'
+import type { OutputComparison, WorkbenchCheck } from '../lib/workbenchChecks'
 import {
   buildReviewMessages,
   buildRevisionMessages,
+  classifyReview,
   figuresChanged,
-  pickReviewer,
-  reviewFoundProblems
+  pickReviewer
 } from '../lib/deliberation'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { describeGroundingFindings } from '../lib/toolGrounding'
 import {
   buildExtractionMessages,
   buildJudgeMessages,
-  firstResultUrl,
+  claimCheckBlocked,
   parseClaims,
-  parseVerdict
+  settleClaims
 } from '../lib/claimCheck'
 import { runAgentLoop, TOOL_TURN_BUDGETS, type ApiMessage } from '../lib/agentLoop'
 import type {
   ChatMessage,
-  CheckedClaim,
   ClaimCheckRecord,
   Conversation,
   DeliberationRecord,
@@ -190,10 +193,14 @@ export async function runAutoCritic(
       undefined,
       critic.sampling
     )
-    if (!signal.aborted && !text.trim()) patchRecord('(the reviewer returned an empty reply)')
+    if (!signal.aborted && !text.trim()) patchRecord(NO_REVIEW_TEXT)
   } catch (err) {
     if (!signal.aborted) {
-      patchRecord(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)
+      // The reader gets a reading; the runtime's own words ride underneath it,
+      // attributed, instead of standing in for a sentence.
+      patchRecord(
+        `⚠️ ${composeFailure(explainFailure(err, { subject: 'The second opinion' }))}`
+      )
     }
   }
 }
@@ -237,6 +244,19 @@ export async function runClaimCheck(
     useAppStore
       .getState()
       .patchMessage(convo.id, messageId, { claimCheck: { ...record, claims: [...record.claims] } })
+
+  // The pass is worth a model round trip only if a source could settle
+  // something. A switched-off search tool says no outright; this turn's own
+  // failed searches say it just as plainly. Either way, say so now rather than
+  // after an extraction and five searches that cannot come back with anything.
+  const blocked = !settings.tools.web_search
+    ? 'Could not check: web_search is switched off (Settings → Tools), so no claim could be checked against a source.'
+    : claimCheckBlocked(allRecords)
+  if (blocked) {
+    record.budgetNote = blocked
+    patchRecord()
+    return
+  }
 
   /** A tool call by the checker: recorded, displayed, and audited like any other. */
   const runTool = async (
@@ -303,45 +323,27 @@ export async function runClaimCheck(
       return
     }
 
-    if (!settings.tools.web_search) {
-      record.claims = claims.map((text) => ({ text, verdict: 'unverifiable' as const }))
-      record.budgetNote = 'web_search is disabled, so no claim could be checked against a source.'
-      patchRecord()
-      return
-    }
-
     // 2. Settlement — budget enforced in code: one search, at most one fetch,
-    //    one judgment per claim.
-    for (const claim of claims) {
-      if (signal.aborted) return
-      const checked: CheckedClaim = { text: claim, verdict: 'unverifiable' }
-      const search = await runTool('web_search', { query: claim })
-      const url = search.ok && search.output ? firstResultUrl(search.output) : null
-      let passage = ''
-      if (url && settings.tools.fetch_webpage) {
-        const page = await runTool('fetch_webpage', { url, query: claim })
-        if (page.ok && page.output) {
-          passage = page.output
-          checked.source = url
-        }
-      }
-      if (passage) {
-        if (signal.aborted) return
-        const judged = await complete(buildJudgeMessages(critic, claim, passage))
-        if (signal.aborted) return
-        const { verdict, basis } = parseVerdict(judged)
-        checked.verdict = verdict
-        if (basis) checked.basis = basis
-      } else if (!search.ok) {
-        // Declined (confirmBeforeSearch) or failed — disclosed, never guessed.
-        checked.basis = 'Search was declined or failed.'
-      }
-      record.claims.push(checked)
-      patchRecord()
-    }
+    //    one judgment per claim. The loop itself lives in lib/claimCheck.ts so
+    //    node:test can watch it stop; everything it touches is passed in here.
+    const outcome = await settleClaims(claims, {
+      search: (claim) => runTool('web_search', { query: claim }),
+      fetchPage: settings.tools.fetch_webpage
+        ? (url, claim) => runTool('fetch_webpage', { url, query: claim })
+        : null,
+      judge: (claim, passage) => complete(buildJudgeMessages(critic, claim, passage)),
+      onClaim: (claim) => {
+        record.claims.push(claim)
+        patchRecord()
+      },
+      aborted: () => signal.aborted
+    })
+    if (outcome.aborted) return
+    if (outcome.budgetNote) record.budgetNote = outcome.budgetNote
+    patchRecord()
   } catch (err) {
     if (!signal.aborted) {
-      record.budgetNote = `Claim check failed: ${err instanceof Error ? err.message : String(err)}`
+      record.budgetNote = `Claim check failed. ${explainFailure(err, { subject: 'The check' }).sentence}`
       patchRecord()
     }
   }
@@ -366,7 +368,9 @@ export async function reviseAgainstFindings(
   convo: Conversation,
   answer: string,
   report: GroundingReport,
-  records: ToolCallRecord[]
+  records: ToolCallRecord[],
+  /** Publish `records` to the message, as every other tool path in the turn does. */
+  onRecords: () => void
 ): Promise<string> {
   const findings = describeGroundingFindings(report)
   if (!findings) return ''
@@ -377,7 +381,16 @@ export async function reviseAgainstFindings(
   // while the right ones sat in a tool record it never looked at.
   const recompute = [...records]
     .reverse()
-    .find((r) => r.name === 'run_python' && r.status === 'done' && /recomputing the figures/i.test(r.preamble ?? ''))
+    // …and never a run already marked as checking nothing: handing a circular
+    // recomputation over as "correct values, already verified" is the same
+    // contradiction the footer stopped making.
+    .find(
+      (r) =>
+        r.name === 'run_python' &&
+        r.status === 'done' &&
+        !r.checksNothing &&
+        /recomputing the figures/i.test(r.preamble ?? '')
+    )
   const recomputeStdout = recompute?.result ? parseRanCode(recompute.result, true).stdout : ''
   const recomputeBlock = recomputeStdout ? `\n\n${buildRecomputeReference(recomputeStdout)}` : ''
 
@@ -396,8 +409,12 @@ export async function reviseAgainstFindings(
       ),
       // Tool calls made while correcting join the turn's own record list, so
       // the work done to verify a figure is as visible as the work that
-      // produced it.
+      // produced it. The publish is what makes that true: `records` is also the
+      // corpus the re-check grades the revision against, so a call that lands
+      // there unpublished can clear a flagged figure with a passage the reader
+      // never sees — and the disclosure then reports the finding as resolved.
       records,
+      onRecordChange: onRecords,
       signal,
       maxIterations: MAX_PLAN_STEP_ITERATIONS,
       deps: {
@@ -501,9 +518,12 @@ export async function runDeliberation(
       kind: 'assistant_output',
       roleName: reviewer.roleName,
       modelId: reviewer.modelId,
-      text: `[think harder — ${self ? 'self-review' : 'review'}]\n${review}`
+      text: `[think harder — ${self ? 'self-review' : 'review'}]\n${review || '(nothing came back)'}`
     })
-    if (!reviewFoundProblems(review)) {
+    // A review that never came back and a review that found nothing are
+    // different states; both keep the draft, only one of them checked it, and
+    // the disclosure (describeDeliberation) reads them apart off `review`.
+    if (classifyReview(review) !== 'problems') {
       patchRecord({ status: 'done', revised: false })
       return
     }
@@ -544,7 +564,7 @@ export async function runDeliberation(
     })
   } catch (err) {
     if (!signal.aborted) {
-      patchRecord({ status: 'error', note: err instanceof Error ? err.message : String(err) })
+      patchRecord({ status: 'error', note: explainFailure(err, { subject: 'The revision' }).sentence })
     }
   }
 }
@@ -582,7 +602,17 @@ export async function runRecompute(
       { ...slot.sampling, temperature: 0 }
     )
   } catch (err) {
-    return describeRecompute({ ran: false, ok: false, note: err instanceof Error ? err.message : String(err) })
+    // Measured: `🧮 Recompute skipped — BodyStreamBuffer was aborted`. That is
+    // a DOMException's wording, on a line with no disclosure to open. The
+    // headline is now a clause a reader can act on and the raw text rides in
+    // `detail`, which the banner renders as a quotation.
+    const failure = explainFailure(err, { subject: 'The recomputation' })
+    return describeRecompute({
+      ran: false,
+      ok: false,
+      note: failure.headline,
+      ...(failure.detail ? { detail: failure.detail } : {})
+    })
   }
   if (signal.aborted) return describeRecompute({ ran: false, ok: false, note: 'cancelled' })
   const code = extractRecomputeProgram(text)
@@ -601,6 +631,12 @@ export async function runRecompute(
     .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
   record.status = result.ok ? 'done' : 'error'
   record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+  // A run whose inputs the model invented — or whose output the sandbox marked
+  // as pure literals — checked nothing, whatever its exit status. Marked on the
+  // record itself so the grounding footer cannot go on to name it as something
+  // the answer was checked against (v1.12.3).
+  const circular = recomputeIsCircular(code, question) || (record.result ?? '').includes(LAUNDERED_OUTPUT_MARKER)
+  if (circular) record.checksNothing = true
   onRecords()
   audit(convo, {
     kind: 'tool_call',
@@ -610,7 +646,7 @@ export async function runRecompute(
     ok: result.ok,
     text: `[recompute] run_python(${JSON.stringify({ code })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
   })
-  return describeRecompute({ ran: true, ok: result.ok, note: result.ok ? undefined : 'the recomputation raised an error' })
+  return describeRecompute({ ran: true, ok: result.ok, circular, note: result.ok ? undefined : 'the recomputation raised an error' })
 }
 
 /**
@@ -626,7 +662,7 @@ export async function runCodeCheck(
   records: ToolCallRecord[],
   toolContext: { modelId?: string; attachments?: { name: string; sourcePath: string }[] },
   onRecords: () => void
-): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string }> {
+): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string; compared?: OutputComparison }> {
   const code = longestPythonFence(answer)
   if (!code) return { finding: null, ran: false, ok: false, note: 'no Python block' }
   if (!isSelfContained(code)) return { finding: null, ran: false, ok: false, note: 'the code needs input, files or the network, so it cannot be checked in the sandbox' }
@@ -653,7 +689,9 @@ export async function runCodeCheck(
     ok: result.ok,
     text: `[code check] run_python(${JSON.stringify({ code })})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
   })
-  if (result.ok) return { finding: null, ran: true, ok: true }
+  // A clean run says only that nothing was raised. What it printed is right
+  // here, and so are the figures the reply states — compare them (TTU2).
+  if (result.ok) return { finding: null, ran: true, ok: true, compared: compareToOutput(answer, result.output ?? '') }
   const finding = codeFailureFinding(result.error ?? '')
   return { finding, ran: true, ok: false, note: finding ? undefined : 'the failure was environmental, not the code’s' }
 }

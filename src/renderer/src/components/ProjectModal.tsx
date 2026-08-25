@@ -23,7 +23,7 @@ const MODE_LABELS: Record<ChatMode, string> = {
 
 const field =
   'w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-sm outline-none focus:border-accent'
-const label = 'mb-1 block text-[11px] font-medium uppercase tracking-[0.08em] text-ink-muted'
+const label = 'mb-1 block text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary'
 
 /**
  * v1.10 project editor: what every chat in the project inherits. Name and
@@ -211,7 +211,7 @@ function ProjectEditor({
               }
               className={`${field} resize-y leading-relaxed`}
             />
-            <p className="mt-1 text-[11px] text-ink-muted">
+            <p className="mt-1 text-[11px] text-ink-tertiary">
               Appended to the role’s system prompt in each chat of this project. Stable across turns, so it
               costs nothing to re-read.
             </p>
@@ -231,7 +231,7 @@ function ProjectEditor({
               </button>
             </div>
             {project.files.length === 0 ? (
-              <p className="text-[11px] text-ink-muted">
+              <p className="text-[11px] text-ink-tertiary">
                 None yet. A pinned file is read from its path and indexed in RAM; every chat in the project
                 retrieves the passages relevant to each message — like an attached document, without
                 re-attaching it.
@@ -246,8 +246,8 @@ function ProjectEditor({
                     <span className="shrink-0">{fileStatus[f.id] && !fileStatus[f.id]!.exists ? '⚠' : '📄'}</span>
                     <span className="min-w-0 flex-1 truncate" title={f.sourcePath}>
                       {f.name}
-                      <span className="ml-2 text-[10px] text-ink-muted">{f.sourcePath}</span>
-                      <span className="block text-[10px] text-ink-muted">
+                      <span className="ml-2 text-[10px] text-ink-tertiary">{f.sourcePath}</span>
+                      <span className="block text-[10px] text-ink-tertiary">
                         {fileNote[f.id] ??
                           (!fileStatus[f.id]
                             ? '…'
@@ -263,7 +263,7 @@ function ProjectEditor({
                         type="button"
                         onClick={() => void reindex(f)}
                         disabled={busyFileId === f.id}
-                        className="rounded px-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 disabled:opacity-40"
+                        className="rounded px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-40"
                         title="Read and index this file now (otherwise it happens on the first message that needs it)"
                       >
                         {busyFileId === f.id ? '…' : '⟳'}
@@ -272,7 +272,7 @@ function ProjectEditor({
                     <button
                       type="button"
                       onClick={() => onPatch({ files: project.files.filter((x) => x.id !== f.id) })}
-                      className="rounded px-1 text-neutral-400 hover:text-red-500"
+                      className="rounded px-1 text-ink-tertiary hover:text-red-500"
                       title="Unpin"
                     >
                       ✕
@@ -293,7 +293,7 @@ function ProjectEditor({
               />
               <span>
                 <span className="font-medium">Chats in this project recall from each other</span>
-                <span className="mt-0.5 block text-[11px] text-ink-muted">
+                <span className="mt-0.5 block text-[11px] text-ink-tertiary">
                   Before each reply, the passages of the project’s other chats most relevant to your message are
                   given to the model, and shown under the reply as “🗂 From this project’s other chats”. Only
                   chats saved to disk are read — ephemeral chats never surface.
@@ -306,7 +306,7 @@ function ProjectEditor({
             <span className={label}>Defaults for new chats in this project</span>
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <span className="mb-1 block text-[10px] text-ink-muted">Strategy</span>
+                <span className="mb-1 block text-[10px] text-ink-tertiary">Strategy</span>
                 <select
                   value={project.defaults.mode ?? ''}
                   onChange={(e) =>
@@ -325,7 +325,7 @@ function ProjectEditor({
                 </select>
               </div>
               <div>
-                <span className="mb-1 block text-[10px] text-ink-muted">Role</span>
+                <span className="mb-1 block text-[10px] text-ink-tertiary">Role</span>
                 <select
                   value={project.defaults.activeModelSlotId ?? ''}
                   onChange={(e) =>
@@ -342,7 +342,7 @@ function ProjectEditor({
                 </select>
               </div>
               <div>
-                <span className="mb-1 block text-[10px] text-ink-muted">Long-term memory</span>
+                <span className="mb-1 block text-[10px] text-ink-tertiary">Long-term memory</span>
                 <select
                   value={memoryValue}
                   onChange={(e) => {
@@ -362,14 +362,14 @@ function ProjectEditor({
                 </select>
               </div>
             </div>
-            <p className="mt-1 text-[11px] text-ink-muted">
+            <p className="mt-1 text-[11px] text-ink-tertiary">
               Applied when a chat is started inside the project. Existing chats are never changed.
             </p>
           </section>
         </div>
 
         <div className="flex items-center gap-3 border-t border-black/10 dark:border-white/10 px-5 py-3 text-xs">
-          <span className="text-ink-muted">
+          <span className="text-ink-tertiary">
             {chatCount} chat{chatCount === 1 ? '' : 's'} in this project
           </span>
           <button

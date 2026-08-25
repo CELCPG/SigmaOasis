@@ -51,7 +51,7 @@ export function ChatPanel(): JSX.Element {
         <button
           type="button"
           onClick={() => setRightPanelCollapsed(true)}
-          className="rounded-lg px-1.5 py-1 text-xs text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          className="rounded-lg px-1.5 py-1 text-xs text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Collapse chat panel (⌘J)"
           aria-label="Collapse chat panel"
           aria-expanded={true}
@@ -79,7 +79,7 @@ export function ChatPanel(): JSX.Element {
             <DetailsSection conversation={conversation} />
           </>
         ) : (
-          <p className="px-4 py-6 text-center text-xs text-ink-muted">
+          <p className="px-4 py-6 text-center text-xs text-ink-tertiary">
             Open or start a chat to see its settings here.
           </p>
         )}
@@ -109,7 +109,7 @@ function CollapsedStrip({ conversation }: { conversation: Conversation | undefin
       <button
         type="button"
         onClick={() => setRightPanelCollapsed(false)}
-        className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+        className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
         title="Expand chat panel (⌘J)"
         aria-label="Expand chat panel"
         aria-expanded={false}
@@ -139,7 +139,7 @@ function CollapsedStrip({ conversation }: { conversation: Conversation | undefin
             </button>
           )}
           <span
-            className="mt-auto text-[10px] text-ink-muted"
+            className="mt-auto text-[10px] text-ink-tertiary"
             title={`${conversation.messages.length} messages`}
           >
             {conversation.messages.length}
@@ -204,7 +204,7 @@ function ProjectSection({ conversation }: { conversation: Conversation }): JSX.E
                 📝 {current.instructions.trim().split('\n')[0]}
               </span>
             ) : null}
-            <span className="block text-ink-muted">
+            <span className="block text-ink-tertiary">
               Inherits: {projectInheritanceSummary(current).join(' · ')}
             </span>
             {missing.length > 0 && (
@@ -264,7 +264,22 @@ function DetailsSection({ conversation }: { conversation: Conversation }): JSX.E
           label="Messages"
           value={`${stats.userMessages} sent · ${stats.assistantMessages} replies`}
         />
-        {stats.toolCalls > 0 && <Row label="Tool calls" value={stats.toolCalls} />}
+        {stats.toolCalls > 0 && (
+          <Row
+            label="Tool calls"
+            value={
+              stats.declinedCalls > 0
+                ? `${stats.toolCalls} · ${stats.declinedCalls} declined`
+                : stats.toolCalls
+            }
+            title={
+              stats.declinedCalls > 0
+                ? `${stats.declinedCalls} of ${stats.toolCalls} were declined by the app and never ran — ` +
+                  'a refused search query, or a confirmation that was cancelled.'
+                : undefined
+            }
+          />
+        )}
         {stats.roles.length > 0 && (
           <Row label="Answered by" value={stats.roles.join(', ')} title={stats.roles.join(', ')} />
         )}

@@ -156,7 +156,7 @@ export function Sidebar(): JSX.Element {
         >
           {c.title}
           {c.mode === 'collaborative' && (
-            <span className="ml-1.5 text-xs text-neutral-400">⛓</span>
+            <span className="ml-1.5 text-xs text-ink-tertiary">⛓</span>
           )}
           {c.ephemeral && (
             <span
@@ -182,7 +182,7 @@ export function Sidebar(): JSX.Element {
             <button
               type="button"
               onClick={() => openSplit(c.id)}
-              className="ml-1 hidden shrink-0 rounded px-1 text-neutral-400 hover:text-accent-ink group-hover:block"
+              className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-accent-ink group-hover:block"
               title="Open beside the current chat (⌘\)"
             >
               ⊞
@@ -192,7 +192,7 @@ export function Sidebar(): JSX.Element {
             <button
               type="button"
               onClick={() => setMoveMenuId(moveMenuId === c.id ? null : c.id)}
-              className="ml-1 hidden shrink-0 rounded px-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 group-hover:block"
+              className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-ink-primary group-hover:block"
               title="Move to project"
               aria-haspopup="menu"
               aria-expanded={moveMenuId === c.id}
@@ -206,7 +206,7 @@ export function Sidebar(): JSX.Element {
               setEditingId(c.id)
               setDraft(c.title)
             }}
-            className="ml-1 hidden shrink-0 rounded px-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 group-hover:block"
+            className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-ink-primary group-hover:block"
             title="Rename conversation"
           >
             ✏️
@@ -214,7 +214,7 @@ export function Sidebar(): JSX.Element {
           <button
             type="button"
             onClick={() => void removeConversation(c.id)}
-            className="ml-1 hidden shrink-0 rounded px-1 text-neutral-400 hover:text-red-500 group-hover:block"
+            className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-red-500 group-hover:block"
             title="Delete conversation"
           >
             ✕
@@ -274,7 +274,7 @@ export function Sidebar(): JSX.Element {
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Expand conversations (⌘B)"
           aria-label="Expand conversations"
           aria-expanded={false}
@@ -295,7 +295,7 @@ export function Sidebar(): JSX.Element {
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Search conversations"
           aria-label="Search conversations"
         >
@@ -306,7 +306,7 @@ export function Sidebar(): JSX.Element {
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
-            className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+            className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
             title="Settings (⌘,)"
             aria-label="Settings"
           >
@@ -344,7 +344,7 @@ export function Sidebar(): JSX.Element {
           <button
             type="button"
             onClick={() => setCollapsed(true)}
-            className="rounded-lg px-1.5 py-1 text-xs text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+            className="rounded-lg px-1.5 py-1 text-xs text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
             title="Collapse conversations (⌘B)"
             aria-label="Collapse conversations"
             aria-expanded={true}
@@ -355,7 +355,7 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {/* Its own row — beside the two buttons it wrapped mid-phrase at 280px. */}
-      <p className="px-4 pb-3 text-[10px] text-ink-muted">Private AI — you own your data</p>
+      <p className="px-4 pb-3 text-[10px] text-ink-tertiary">Private AI — you own your data</p>
 
       {conversations.length > 0 && (
         <div className="px-4 pb-2">
@@ -364,18 +364,18 @@ export function Sidebar(): JSX.Element {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search conversations…"
-            className="w-full rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-1.5 text-xs outline-none placeholder:text-neutral-400 focus:border-accent"
+            className="w-full rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-1.5 text-xs outline-none placeholder:text-ink-tertiary focus:border-accent"
           />
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto px-3 pb-2">
         {sorted.length === 0 && projects.length === 0 ? (
-          <p className="px-2 py-4 text-center text-xs text-neutral-400">
+          <p className="px-2 py-4 text-center text-xs text-ink-tertiary">
             No conversations yet
           </p>
         ) : filtered.length === 0 && searching ? (
-          <p className="px-2 py-4 text-center text-xs text-neutral-400">
+          <p className="px-2 py-4 text-center text-xs text-ink-tertiary">
             No matches for “{query.trim()}”
           </p>
         ) : (
@@ -422,7 +422,7 @@ export function Sidebar(): JSX.Element {
                           {project.name}
                         </span>
                       )}
-                      <span className="text-[10px] text-ink-muted">{items.length}</span>
+                      <span className="text-[10px] text-ink-tertiary">{items.length}</span>
                     </button>
                     {editingProjectId !== project.id && (
                       <span className="hidden shrink-0 items-center group-hover/project:flex">
@@ -438,7 +438,7 @@ export function Sidebar(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => useAppStore.getState().setProjectEditorId(project.id)}
-                          className="rounded px-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                          className="rounded px-1 text-xs text-ink-tertiary hover:text-ink-primary"
                           title="Project settings — instructions, pinned files, recall, defaults"
                         >
                           ⚙
@@ -449,7 +449,7 @@ export function Sidebar(): JSX.Element {
                             setEditingProjectId(project.id)
                             setProjectDraft(project.name)
                           }}
-                          className="rounded px-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                          className="rounded px-1 text-xs text-ink-tertiary hover:text-ink-primary"
                           title="Rename project"
                         >
                           ✏️
@@ -457,7 +457,7 @@ export function Sidebar(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => confirmDeleteProject(project, items.length)}
-                          className="rounded px-1 text-xs text-neutral-400 hover:text-red-500"
+                          className="rounded px-1 text-xs text-ink-tertiary hover:text-red-500"
                           title="Delete project (keeps its chats)"
                         >
                           ✕
@@ -467,7 +467,7 @@ export function Sidebar(): JSX.Element {
                   </div>
                   {isOpen &&
                     (items.length === 0 ? (
-                      <p className="px-6 py-1 text-[11px] text-ink-muted">
+                      <p className="px-6 py-1 text-[11px] text-ink-tertiary">
                         No chats yet — hover the project for +
                       </p>
                     ) : (
@@ -480,7 +480,7 @@ export function Sidebar(): JSX.Element {
             })}
 
             {projects.length > 0 && grouped.unfiled.length > 0 && (
-              <p className="mt-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+              <p className="mt-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-tertiary">
                 Unfiled
               </p>
             )}
@@ -489,7 +489,7 @@ export function Sidebar(): JSX.Element {
             <button
               type="button"
               onClick={newProject}
-              className="mt-2 w-full rounded-xl px-2.5 py-1.5 text-left text-[11px] text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 hover:text-ink-secondary"
+              className="mt-2 w-full rounded-xl px-2.5 py-1.5 text-left text-[11px] text-ink-tertiary hover:bg-black/5 dark:hover:bg-white/5 hover:text-ink-secondary"
               title="Group related chats under a name"
             >
               ＋ New project
@@ -510,7 +510,7 @@ export function Sidebar(): JSX.Element {
               ⬇ Restart to update to {updateStatus.version}
             </button>
           ) : (
-            <p className="px-1 text-xs text-neutral-500">
+            <p className="px-1 text-xs text-ink-secondary">
               ⬇ Downloading update… {updateStatus.percent ?? 0}%
             </p>
           )}
@@ -519,18 +519,18 @@ export function Sidebar(): JSX.Element {
 
       <div className="flex items-center gap-2 border-t border-black/10 dark:border-white/10 p-4">
         <span className={`h-2 w-2 rounded-full ${dotClass}`} title={`LM Studio: ${connection}`} />
-        <span className="text-xs text-neutral-500">
+        <span className="text-xs text-ink-secondary">
           {connection === 'online' ? 'LM Studio connected' : connection}
         </span>
         {appVersion && (
-          <span className="text-[10px] text-neutral-400 dark:text-neutral-600" title="Sigma Oasis build version">
+          <span className="text-[10px] text-ink-tertiary" title="Sigma Oasis build version">
             v{appVersion}
           </span>
         )}
         <button
           type="button"
           onClick={() => useAppStore.getState().setOnboardingOpen(true)}
-          className="ml-auto rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          className="ml-auto rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Setup checklist"
         >
           🧭
@@ -538,7 +538,7 @@ export function Sidebar(): JSX.Element {
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+          className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Settings (⌘,)"
         >
           ⚙️

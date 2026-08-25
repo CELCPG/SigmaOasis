@@ -293,6 +293,29 @@ export function looksFactual(text: string): boolean {
 }
 
 /**
+ * Does this turn make claims the app should have checked before it spoke?
+ *
+ * v1.12.2, and it is deliberately wider than `looksFactual`. That heuristic
+ * decides whether to spend a web_search, so it is tuned for the confabulation
+ * cases of v1.1 — albums, tickers, release dates. It is also the sole gate on
+ * the `unverified` badge, and most of what the shipped packs cover reads as
+ * non-factual to it: "how long do leftovers last in the fridge", "what
+ * internal temperature should chicken be cooked to", "how much can my landlord
+ * raise the rent", "what is the standard deduction this year", "how do I stop
+ * a leaking faucet", "how much water per person for a hurricane kit". In those
+ * domains the app could never say "I could not verify this" — not because it
+ * had verified anything, but because the badge did not know the question
+ * counted.
+ *
+ * A library lookup that returns passages IS a consulted source, so this only
+ * ever speaks when the lookup found nothing (or never ran) — the turn where a
+ * reference answer came entirely from a 9B model's memory.
+ */
+export function needsVerification(text: string): boolean {
+  return looksFactual(text) || looksReference(text)
+}
+
+/**
  * Openers that mark a message as meaningless without the conversation around
  * it — "lets go with the first one", "and the price?". A search provider has
  * never seen the conversation, so a query built from this text alone comes back
@@ -437,13 +460,55 @@ export function stripTurnNotesEcho(reply: string): { text: string; echoed: boole
  * tool's `isSource`, with its rationale — the run_python and market_data
  * inclusions were both measured omissions).
  */
-import { SOURCE_TOOLS } from '../../../shared/tools'
+import { EMPTY_RESULT_LEADS, SOURCE_TOOLS, wasDeclined } from '../../../shared/tools'
 
 /**
- * Did this turn consult any source? The badge decision is mechanical:
- * a source counts only when its tool call completed successfully. Memory
- * recall is not a source — it reminds, it does not verify.
+ * Did this call come back empty-handed?
+ *
+ * A retrieval that found nothing succeeded as a *call* and failed as a
+ * *lookup*, and only the second sense is what "consulted a source" means. The
+ * tool that wrote the output names its own empty lead in the tool table, so
+ * this reads back the one string the handler printed.
+ *
+ * Measured (TH2, `.h2h-runs/judge-r4/TH2/run-1`): the search fixture answered
+ * HTTP 500 for every query and the library was empty, so the turn consulted
+ * nothing — but `reference_lookup` returned `ok` with "No reference passages
+ * found … The reference library is empty", `consultedSources` counted it, and
+ * the reply lost the line saying it came from memory. The older build printed
+ * that line on the identical fixture for one reason only: its model had named
+ * a pack that is not installed, so the same nothing landed as an error. A
+ * disclosure must not turn on which argument the model happened to send.
+ */
+export function foundNothing(record: ToolCallRecord): boolean {
+  const lead = EMPTY_RESULT_LEADS.get(record.name)
+  return lead !== undefined && (record.result ?? '').trimStart().startsWith(lead)
+}
+
+/**
+ * Did the app decline to make this call?
+ *
+ * The sibling of `foundNothing`, on the other glyph. A refused query, a
+ * confirmation the user cancelled: nothing was contacted, nothing ran, nothing
+ * broke — so `✗` is the wrong mark, and the reader who counts ✗ rows as
+ * failures (or as egress) is counting something that did not happen.
+ *
+ * Measured (TH2, `.h2h-runs/judge-r5/TH2/run-1`): the turn's first `web_search`
+ * is marked `✗`, identical to the HTTP 500 below it, over "That query is a
+ * sentence about you, not search terms, so it was not sent."
+ *
+ * Like `foundNothing`, this reads back one string the handler wrote through the
+ * shared composer — never the handler's prose, which is free to change.
+ */
+export function declinedToCall(record: ToolCallRecord): boolean {
+  return record.status === 'error' && wasDeclined(record.result ?? '')
+}
+
+/**
+ * Did this turn consult any source? The badge decision is mechanical: a source
+ * counts only when its tool call completed successfully *and came back with
+ * something to quote*. Memory recall is not a source — it reminds, it does not
+ * verify — and neither is a search that matched nothing.
  */
 export function consultedSources(records: ToolCallRecord[]): boolean {
-  return records.some((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name))
+  return records.some((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name) && !foundNothing(r))
 }

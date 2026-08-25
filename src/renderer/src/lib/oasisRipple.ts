@@ -70,6 +70,8 @@ export interface OasisState {
   runningCount: number
   /** Stable id of the running tool call — the component keys droplets off it. */
   activeToolId: string | null
+  /** Name of that tool, so a wait can say what it is waiting on. */
+  activeToolName: string | null
 }
 
 export const THINKING_VISUAL: ToolVisual = {
@@ -99,10 +101,10 @@ export function describeOasisState(
   toolCalls: ToolCallRecord[]
 ): OasisState {
   if (!isStreaming) {
-    return { mode: 'hidden', tool: null, runningCount: 0, activeToolId: null }
+    return { mode: 'hidden', tool: null, runningCount: 0, activeToolId: null, activeToolName: null }
   }
   if (content !== '') {
-    return { mode: 'hidden', tool: null, runningCount: 0, activeToolId: null }
+    return { mode: 'hidden', tool: null, runningCount: 0, activeToolId: null, activeToolName: null }
   }
   const running = toolCalls.filter((t) => t.status === 'running')
   const active = running[running.length - 1]
@@ -111,10 +113,84 @@ export function describeOasisState(
       mode: 'tool',
       tool: toolVisualForName(active.name),
       runningCount: running.length,
-      activeToolId: active.id
+      activeToolId: active.id,
+      activeToolName: active.name || null
     }
   }
-  return { mode: 'ambient', tool: null, runningCount: 0, activeToolId: null }
+  return { mode: 'ambient', tool: null, runningCount: 0, activeToolId: null, activeToolName: null }
+}
+
+// ---- The silent wait ------------------------------------------------------------
+
+/**
+ * A stream can go quiet for a long time and stay perfectly healthy — prompt
+ * processing on a 30k-token conversation is most of a minute of nothing. What
+ * cannot stand is that the indicator looks *identical* at five seconds and at
+ * ninety: measured, a 90.8 s turn showed the same animated disc the whole way,
+ * and the reader only learned anything because they pressed Stop. These two
+ * thresholds are where the disc starts saying something instead.
+ */
+
+/** Past this, the wait has left the ordinary range and gets a counter. */
+export const WAIT_COUNT_MS = 10_000
+/** Past this, the counter is joined by what is being waited on, and the deadline. */
+export const WAIT_ESCALATE_MS = 30_000
+/** Counter resolution. */
+export const WAIT_TICK_MS = 1_000
+
+export interface WaitNotice {
+  /** 'quiet' renders nothing; the other two are text the reader gets. */
+  level: 'quiet' | 'counting' | 'escalated'
+  /** Elapsed silence, formatted. Null while quiet. */
+  elapsed: string | null
+  /** What the wait is on. Null until it escalates. */
+  detail: string | null
+  /** When the transport gives up on its own. Null until it escalates. */
+  deadline: string | null
+}
+
+/** Seconds under a minute, m:ss over it. Truncated, never rounded up. */
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  if (total < 60) return `${total}s`
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/**
+ * What the indicator adds once a stream has been silent too long. `deadlineMs`
+ * is the transport's own give-up for this phase (FIRST_BYTE_TIMEOUT_MS before
+ * anything has arrived, STREAM_STALL_MS between chunks) — naming it is what
+ * turns "hung forever" into "recovers by itself at 5:00".
+ */
+export function describeWait(silentMs: number, state: OasisState, deadlineMs: number): WaitNotice {
+  const quiet: WaitNotice = { level: 'quiet', elapsed: null, detail: null, deadline: null }
+  if (state.mode === 'hidden' || silentMs < WAIT_COUNT_MS) return quiet
+  const elapsed = formatElapsed(silentMs)
+  if (silentMs < WAIT_ESCALATE_MS) return { level: 'counting', elapsed, detail: null, deadline: null }
+  return {
+    level: 'escalated',
+    elapsed,
+    detail: `still waiting on ${state.activeToolName ?? 'the model'}`,
+    deadline: silentMs < deadlineMs ? `gives up at ${formatElapsed(deadlineMs)}` : null
+  }
+}
+
+/**
+ * The one thing that makes a silent stream visible without the user touching
+ * anything: a clock. Elapsed is read off the wall clock rather than counted in
+ * ticks, because Chromium throttles intervals in an occluded window — a
+ * backgrounded window then updates the counter less often, never wrongly.
+ *
+ * Lives here, free of React, so a 60-second silence can be driven by mock
+ * timers instead of waited out.
+ */
+export function startWaitClock(
+  tick: (silentMs: number) => void,
+  tickMs: number = WAIT_TICK_MS
+): () => void {
+  const startedAt = Date.now()
+  const timer = setInterval(() => tick(Date.now() - startedAt), tickMs)
+  return () => clearInterval(timer)
 }
 
 // ---- Ripple bookkeeping ---------------------------------------------------------

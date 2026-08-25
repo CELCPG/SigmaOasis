@@ -1,0 +1,27 @@
+TTU3 asks: how long after the answer finishes do Copy and Regenerate become
+usable, and does anything on screen explain the gap?
+
+REFERENCE ARM, observed on a finished turn:
+  Action row present on the assistant message: Copy, Read aloud, Good response,
+  Bad response, Retry — all as real buttons.
+  The page also carries an explicit completion announcement in the a11y tree:
+  "Claude finished the response", with "Use the up and down arrow keys to move
+  between messages."
+  There is no post-answer verification tail, so there is no gap to explain: the
+  answer finishing and the answer being actionable are the same moment.
+
+WHAT IS NOT MEASURED HERE, STATED PLAINLY: I did not instrument this arm to
+millisecond precision. Sigma Oasis's own figures come from an in-page sampler
+stamped in the same evaluate that dispatches Enter; nothing equivalent was run
+against the browser. So this is a STRUCTURAL observation — the reference app has
+no verification pass between "answer complete" and "answer actionable" — not a
+timing measurement, and it must not be reported as one.
+
+FOR CONTRAST, from round-2 blind judging of Sigma Oasis (a real measurement):
+  "Both builds burn 26-33 seconds of user-visible silence on a verification pass
+   that is structurally guaranteed to produce nothing, and lock the finished
+   answer for the entire duration."
+Note the asymmetry is not purely a loss: Sigma Oasis's tail exists because it
+runs claim checks and grounding checks the reference app does not run at all.
+The defensible criticism is that it runs one that CANNOT succeed and says
+nothing while it does — which is round 3's job — not that it verifies at all.

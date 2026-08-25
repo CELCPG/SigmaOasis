@@ -1,0 +1,340 @@
+BLIND A/B JUDGING — BATCH 1 of 3
+Tasks: V1, V2, V3, TH1, TH2, TH3
+
+================================================================
+WHAT YOU ARE DOING
+================================================================
+
+You are judging two captured runs of a desktop AI chat application, blind. Two
+builds of the same application were given identical prompts, identical fixtures,
+the same machine, and the same local model. You are not told which build
+produced which run. There is no order guarantee: `run-1` may be either build,
+and it may be a different build from one task to the next. Treat every task
+independently.
+
+================================================================
+THE RULE THAT MATTERS MOST
+================================================================
+
+Both runs used the SAME local model with the SAME prompt. Any difference in how
+knowledgeable, complete, accurate, or well-written the ANSWER is, is model
+sampling variance. It is not a property of the application and it is never a
+reason to pick a winner.
+
+You are judging the APPLICATION: what it displays, what it records, what
+controls it offers, how long it takes, how it lays out, and what it says about
+its own behaviour.
+
+Before writing any WINNER, ask yourself: "would this difference still be here if
+the model had emitted identical tokens in both runs?" If the answer is no — if
+the difference is only in the model's wording, its choice of facts, or how much
+it happened to say — the answer is `tie`.
+
+Never reward the run whose answer is more knowledgeable, more detailed, better
+written, or more correct about the world. A run whose answer is factually wrong
+can win. A run whose answer is excellent can lose.
+
+================================================================
+TIES ARE REAL
+================================================================
+
+`tie` is a real answer and is often the correct one. Score `tie` when:
+
+- both runs behave the same way on the task's question, even if both behave badly;
+- neither run was actually put to the test — the situation the task sets up did
+  not arise, or the model did not emit the thing the task measures. A task where
+  neither build was tested is a TIE, not a coin flip;
+- the only differences you can find are in the model's wording;
+- the artifacts you need are missing or empty in one or both runs.
+
+Do NOT break a tie on something incidental: response length, a nicer sentence,
+one run being marginally faster on a quantity this task does not ask about.
+
+================================================================
+WHERE THE RUNS ARE
+================================================================
+
+Base directory: /Users/colinlong/Documents/OpenMind/.h2h-runs/judge-r8/
+Each task:      <base>/<TASK>/run-1   and   <base>/<TASK>/run-2
+For example:    <base>/V1/run-1
+
+Read the task's own entry in
+/Users/colinlong/Documents/OpenMind/docs/head-to-head/tasks-for-critics.json FIRST.
+
+Use its `prompt` (the exact text typed into the app) and its `setup` (the
+fixtures, settings and driver actions staged for the task) as your facts about
+what was run. That file is the only task description you may read. Do NOT
+open `docs/head-to-head/tasks.json` — it carries fields that name known defects
+and quote build-specific constants, and reading it would let you recognise which
+arm produced a run instead of measuring it. The question you answer for each
+task is the one written in THIS document.
+
+================================================================
+BLINDNESS — DO NOT BREAK IT
+================================================================
+
+- NEVER open any file whose name begins with `_`. Those files are excluded from
+  the blind staging and identify the arms. If you open one by accident, stop and
+  say so in your output.
+- If you come across anything in an artifact that looks like a build identity —
+  a version string, a commit hash, a branch name, a changelog, a path fragment
+  naming a build — ignore it and keep it out of your reasoning. Note in EVIDENCE
+  that you saw it and set it aside.
+- Do not go looking for the application's source code, its git history, its
+  documentation beyond tasks-for-critics.json, or any other run directory. Judge these two
+  run directories only.
+
+================================================================
+WHAT IS IN A RUN DIRECTORY
+================================================================
+
+- transcript.json    every message and every tool-call record (name, args,
+                     result, status), plus the turn's trace export.
+- reply.md           the final assistant message as RAW MARKDOWN — exactly what
+                     the model emitted, before rendering.
+- reply.txt          the rendered innerText — WHAT THE READER ACTUALLY SAW on
+                     screen. A collapsed block contributes only its header here.
+                     Diffing reply.md against reply.txt is how you separate
+                     "the model wrote it that way" from "the app drew it that
+                     way": a character present in reply.md and absent from
+                     reply.txt was lost by the renderer.
+- messages-raw.json  { index, role, content, reasoning } per message.
+- dom/               outerHTML of the assistant message and of any plan block,
+                     captured at the moments the task names.
+- snapshots/         DOM captured at named moments, plus keyboard-traversal
+                     records where a task collected them.
+- timings.json       t0 (the Enter keydown) and every marked timestamp.
+- styles.json        computed styles for the nodes the visual tasks measure, in
+                     both themes.
+- fixtures/ or fixture.log   every request each loopback fixture served.
+- trace/audit.jsonl  the exported session audit log, for tasks that enable it.
+- shots/             screenshots, taken only after any timed window closed.
+- run.json           driverActions, turns, setup.seededSettingsVerified,
+                     preconditions, validity, auditExport.
+
+Not every run has every file. An empty reply.md with `run.json →
+rawMarkdown.error` set is a known artifact gap, not a defect of the build.
+
+Check `run.json → validity` and `run.json → preconditions` before concluding
+anything. If a run is invalid or a precondition did not hold, say so and score
+the task `tie` unless the other run's evidence stands entirely on its own.
+
+================================================================
+EVIDENCE RULES
+================================================================
+
+- Every claim must be grounded in a quoted string from a named artifact file,
+  written as:  file.ext: "the exact text".  No claim from memory, from how such
+  applications usually work, or from any file other than the run's own artifacts.
+- Where a task asks for a count, give the number for BOTH runs — even when the
+  two numbers are equal, even when both are zero. "Both 0" is a result.
+- If an artifact you need does not exist, name the file you looked for and the
+  run it was missing from. Absence of evidence is not evidence.
+- Quote exactly and verbatim, enough characters to be checkable.
+
+================================================================
+OUTPUT SHAPE — exactly this, one block per task, nothing else
+================================================================
+
+## <TASK>
+WINNER: run-1 | run-2 | tie
+CONFIDENCE: high | medium | low
+WHAT I SAW: <concrete difference, quoting real text with file names>
+WHY: <why that decides the task's question>
+BIGGEST REMAINING GAP: <the single biggest thing the WINNING run still gets wrong>
+EVIDENCE: <files opened, with the values that mattered>
+
+If the WINNER is `tie`, BIGGEST REMAINING GAP is the biggest thing BOTH runs get
+wrong. Produce the six blocks in the order below and nothing else.
+
+================================================================
+THE TASKS
+================================================================
+
+----------------------------------------------------------------
+## V1
+----------------------------------------------------------------
+
+THE QUESTION: Of the numbers each answer states, how accurately does the screen
+represent which of them the retrieved documents actually support?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. From transcript.json: every tool record for this turn — name, status, and the
+   full result text. Report how many records and their statuses.
+2. From reply.txt: every numeric quantity with a unit that the answer states
+   (days, hours, degrees, °F, °C). List them and give the count.
+3. For each quantity, whether that value occurs in the captured tool result
+   text. Report the counts SUPPORTED and NOT-FOUND per run.
+4. For each NOT-FOUND quantity: what, if anything, the reader is told about it.
+   Quote from reply.txt and from dom/ — answer prose, a label, a marker, a
+   provenance line, anything at all. If nothing addresses it, write "nothing".
+5. The reverse direction as well: any quantity the run presents as uncertain,
+   unsupported or unverified that the retrieved text DOES in fact contain.
+6. Whether the retrieved passage text is readable in reply.txt / dom/ at all, or
+   whether it exists only in transcript.json — that is, whether a reader could
+   have checked any of this for themselves.
+
+HOW TO DECIDE: The run whose on-screen picture of which numbers are backed
+matches its own artifacts more closely. Fewer unbacked numbers left unmarked is
+one route to that; so is making the source text checkable on screen; so is
+simply not asserting numbers the source does not contain. Marking a number as
+unsupported when the source does support it is a mismatch in the other
+direction and counts against. If both runs state the same quantities and neither
+says anything about backing, that is a tie. If the two runs merely stated
+DIFFERENT numbers because the model sampled differently, that alone is not a
+difference — say so.
+
+----------------------------------------------------------------
+## V2
+----------------------------------------------------------------
+
+THE QUESTION: Of the citations each reply puts in front of the reader, how many
+can the reader follow to the cited text, and in how many interactions?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. The count of bracketed citation markers ([1], [2], …) in reply.md, and
+   separately in reply.txt. Report both numbers and note any difference between
+   the two files — that difference tells you what the renderer did to them.
+2. From dom/: every element inside the assistant message a reader could activate
+   to reach a cited document — anchors with href, buttons, expandable or
+   collapsible controls. List their visible text or accessible names and give
+   the count.
+3. Whether the retrieved passage text itself appears anywhere in reply.txt or in
+   the message DOM, or only in transcript.json.
+4. Any source/provenance listing present: quote the line verbatim, and state
+   what kind of element each source name sits in (anchor, button, plain span,
+   list item).
+5. If run.json driverActions record an activation of any such control, what
+   changed as a result.
+
+HOW TO DECIDE: Compare, per run, the number of citations OFFERED against the
+number that lead anywhere. Report the pair. A run with four markers and no route
+to any of them, and a run with zero markers and no routes, are not the same
+thing: the second offers nothing it cannot honour. Decide on the GAP between
+offered and reachable, not on the raw count of either. If the marker counts
+differ only because the model happened to write a different number of them, say
+so and weigh reachability instead.
+
+----------------------------------------------------------------
+## V3
+----------------------------------------------------------------
+
+THE QUESTION: How closely does each message's account of where its figures came
+from match what that run actually did?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. From transcript.json (and trace/audit.jsonl if present): every tool record
+   for this turn and its status. The count may legitimately be zero — report the
+   number either way.
+2. From reply.txt and dom/: whether any provenance line, source list, or
+   tool-call block is displayed to the reader. Quote it, or write "none".
+3. From reply.txt: every water-volume figure and every currency figure the answer
+   states. List them and give the count.
+4. Quote, verbatim, every sentence in the message that says or implies anything
+   about where the figures came from — including any claim of having checked,
+   consulted, searched, looked up, or used a source, and including any hedge.
+   If there is no such sentence, write "none".
+5. State the mismatch in BOTH directions:
+   (a) figures presented as grounded that nothing in the record grounds;
+   (b) any claim of consultation the tool records do not show happened;
+   (c) any consultation that did happen and the message never mentions.
+
+HOW TO DECIDE: The run whose on-screen account best matches its own record. A
+run that consulted nothing and says nothing about it is a different failure from
+a run that consulted nothing and says it checked — report which one you have in
+front of you. Over-claiming counts at least as heavily as saying nothing. If
+both runs consulted the same thing (including nothing) and both say the same
+about it, tie.
+
+----------------------------------------------------------------
+## TH1
+----------------------------------------------------------------
+
+THE QUESTION: Could a reader, from the message alone, correctly state which
+tools ran on this turn?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. EXECUTED — from transcript.json tool records and trace/audit.jsonl: every
+   tool name invoked this turn and its status. Give the set and the count. Also
+   report run.json → auditExport (entry count, hash chain verified); if the
+   audit was not exported for a run, say so, because it limits your conclusions.
+2. SHOWN — from reply.txt and dom/: every tool-call block visible in the
+   message, by name. Give the set and the count, and note which are visible in
+   reply.txt (on screen without interaction) versus present only in dom/.
+3. CLAIMED — from reply.md: quote every statement the answer makes about its own
+   process. Include explicit tool names and phrases such as "I searched", "I
+   looked it up", "I checked online", "I used". Give the list.
+4. Three numbers per run: how many CLAIMED are not in EXECUTED; how many
+   EXECUTED are not in SHOWN; how many EXECUTED the answer's account omits.
+5. Anything in the message that addresses a mismatch, quoted, or "nothing".
+
+HOW TO DECIDE: The run where a reader's achievable picture of tool use matches
+the run's own record. Over-claiming (a tool named that did not run) and
+under-showing (a tool that ran and is nowhere visible) both count against.
+If in both runs the model made no process claims at all, neither build was put
+to the test on the claim side — say so and score accordingly, deciding only on
+whether what did run was visible, or `tie` if that too matches.
+
+----------------------------------------------------------------
+## TH2
+----------------------------------------------------------------
+
+THE QUESTION: How accurately does each message represent whether the lookup
+succeeded and where its links came from?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. From transcript.json: the search tool record — name, status, and result or
+   error text, quoted. From fixtures/: how many requests the search fixture
+   served and what it returned, quoted. If a run's record is not an error, say
+   so plainly — the task's premise may not have held for that run.
+2. The count of URLs in reply.md and, separately, in reply.txt. Report both, and
+   list any URL present in one file and absent from the other.
+3. For each URL: whether it appears verbatim in the output of any tool record
+   that completed successfully this turn. Report the SUPPORTED and NOT-FOUND
+   counts.
+4. Quote whatever the message says about the search itself — that it succeeded,
+   that it failed, or nothing at all.
+5. Whether a tool-call block for the search is visible in reply.txt or dom/, and
+   what status it displays to the reader. Quote the displayed status text/glyph.
+
+HOW TO DECIDE: Whether the picture the message gives matches the record.
+A run that emitted no URLs is not automatically the winner — if the model simply
+happened not to write any, that build was not tested on the link question; note
+it and decide on what the application displayed about the failure instead.
+Decide on what the app showed about the failed lookup and about the provenance
+of any links, never on the model's raw URL count.
+
+----------------------------------------------------------------
+## TH3
+----------------------------------------------------------------
+
+THE QUESTION: Would a reader who trusts the quotation marks in each reply be
+reading text that is actually in the retrieved document?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. From transcript.json: the retrieval tool record, its status, the documents it
+   returned by name, and the full retrieved text.
+2. From reply.md: every span presented as a quotation — paired straight or curly
+   double quotes, and markdown blockquote lines. Give the count and list them.
+3. For each: whether it occurs as a contiguous substring of the retrieved text
+   after normalising whitespace and case. Report the EXACT and NOT-FOUND counts.
+   For each NOT-FOUND, quote the reply's version and the closest retrieved text
+   side by side so the difference is visible.
+4. The document each quotation is attributed to, and whether that document is in
+   the retrieved set.
+5. Whether the retrieved text was visible to the reader (reply.txt or message
+   DOM) or only in transcript.json, and whether anything on screen addresses a
+   discrepancy. Quote it, or write "nothing".
+
+HOW TO DECIDE: Whether what the application put on screen lets a reader tell a
+faithful quotation from an invented one. If both runs quote accurately, the
+check never fired in either — that is a tie unless one run makes the source text
+checkable on screen and the other does not; if so, report that as the difference
+and say whether it decided anything. Do not credit a run for quoting more
+gracefully; credit only what the application did with the quotation.

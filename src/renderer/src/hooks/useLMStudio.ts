@@ -4,12 +4,13 @@ import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/vo
 import { estimateTokens } from '../lib/contextBudget'
 import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
-import { buildCriticMessages, pickCritic } from '../lib/secondOpinion'
+import { buildCriticMessages, NO_REVIEW_TEXT, pickCritic } from '../lib/secondOpinion'
 import {
   buildTurnContext,
   consultedSources,
   looksFactual,
   looksReference,
+  needsVerification,
   stripTurnNotesEcho,
   TURN_CONTEXT_HEADER,
   withGrounding,
@@ -18,11 +19,19 @@ import {
 import { checkToolGrounding, revisionIsAnImprovement,
   conflictingToolFigures
 } from '../lib/toolGrounding'
+import { composeFailure, explainFailure } from '../../../shared/failure'
 import { looksLikeShopping } from '../lib/shopping'
 import { isOffline } from '../lib/libraryRecall'
 import { attachmentFileRefs, TABULAR_FILE } from '../lib/attachmentRecall'
 import { projectInstructionsBlock } from '../lib/projectContext'
 import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProviders'
+import {
+  createVerifyBudget,
+  gatheringPhase,
+  verifyingPhase,
+  VERIFY_BUDGET_MS,
+  type VerifyStep
+} from '../lib/turnPhase'
 import { makeProviderIO } from './providerIO'
 import {
   consultModelSchema,
@@ -116,6 +125,18 @@ async function runTurn(
   const convo = store.conversations.find((c) => c.id === conversationId)
   if (!convo) return
 
+  /**
+   * v1.12.6: the turn's one origin — the moment the reader's wait begins.
+   *
+   * Everything below this line is the turn: pinning the model, the context
+   * providers, the stream, the checks. `turnStartedAt` further down is the
+   * STREAM's origin and is stamped after the providers have returned, so
+   * measuring the turn from it silently drops however long they took — 8.8 s
+   * on the recorded TTU1 runs, all of it the app's own web_search running
+   * before the model was asked anything (lib/turnCost.ts).
+   */
+  const turnOpenedAt = Date.now()
+
   // v1.3: the slot's per-role allowlist intersected with the globally-enabled
   // list. Everything this turn offers the model — tools, the auto-search
   // check, the context budget — works from this set, never the global one.
@@ -136,6 +157,14 @@ async function runTurn(
   const patch = (p: Partial<ChatMessage>): void =>
     useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
   const tail = makeTailStream(assistantMsg, patch)
+  /**
+   * Name the wait (lib/turnPhase.ts). Both ends of a turn make the user wait
+   * on work the model is not doing — the pre-model providers below, and the
+   * checks that run after the last token — and both used to be silent. The
+   * verifying phases are also what unlock the finished reply's action row.
+   */
+  const verifying = (step: VerifyStep | null): void =>
+    useAppStore.getState().setTurnPhase(step ? verifyingPhase(assistantMsg.id, step) : null)
 
   // Pin before the memory RAG below: its embedding call JIT-loads the
   // embedding model, and LM Studio's default auto-evict would unload this
@@ -196,6 +225,8 @@ async function runTurn(
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
   const referenceTurn = lastUserContent ? looksReference(lastUserContent) : false
   const shoppingTurn = lastUserContent ? looksLikeShopping(lastUserContent) : false
+  // The badge gate is wider than the search gate — see needsVerification.
+  const checkableTurn = lastUserContent ? needsVerification(lastUserContent) : false
 
   // The pre-flight context blocks — auto search, library passages, playbook,
   // ledger, price check, memory/project/attachment recall, tabular profile —
@@ -230,7 +261,14 @@ async function runTurn(
       ledger: turnLedger,
       patch,
       settings: () => useAppStore.getState().settings ?? null
-    })
+    }),
+    // The count on that line is of the whole pre-model wait, not of whichever
+    // provider is holding it — the walk changes label, the reader's wait does
+    // not (lib/turnPhase.ts).
+    (wait) =>
+      useAppStore
+        .getState()
+        .setTurnPhase(wait ? gatheringPhase(assistantMsg.id, wait, turnOpenedAt) : null)
   )
   if (gathered.aborted) return
   if (offline) patch({ offline: true })
@@ -349,12 +387,22 @@ async function runTurn(
 
   // Stats span the whole turn, not one round: a turn with three tool calls is
   // four completions, and the user experienced it as one wait.
+  //
+  // This is the STREAM's origin, and the providers above have already run by
+  // the time it is stamped — which is why it cannot also be the turn's.
   const turnStartedAt = Date.now()
+  /** The pre-model wait, as the distance between the turn's two origins. */
+  const gatherMs = turnStartedAt - turnOpenedAt
   let firstTtftMs: number | null = null
   let promptTokens: number | undefined
   let completionTokens = 0
   let sawUsage = false
   let generationMs = 0
+  /**
+   * The last figures the stream produced, kept so the tail can re-stamp them
+   * with the turn's true length once it is over (lib/turnCost.ts).
+   */
+  let lastStats: ResponseStats | null = null
 
   const recordStats = (
     usage: ApiUsage | null,
@@ -373,6 +421,7 @@ async function runTurn(
     const stats: ResponseStats = {
       ttftMs: firstTtftMs ?? 0,
       totalMs: Date.now() - turnStartedAt,
+      gatherMs,
       ...(project ? { projectTokens } : {}),
       ...(sawUsage
         ? {
@@ -385,6 +434,7 @@ async function runTurn(
           }
         : {})
     }
+    lastStats = stats
     patch({ stats })
   }
 
@@ -519,6 +569,19 @@ async function runTurn(
     slotTools.some((t) => t.function.name === 'run_python')
   const checks: NonNullable<ChatMessage['checks']> = []
 
+  /**
+   * v1.12.5: the deadline over everything from here to the composer being
+   * released. It starts at the last token — the only thing between that and
+   * the first costly pass is a regex — so what it bounds is exactly the wait
+   * the reader is held through with no answer to the question "how long?".
+   *
+   * `signal` rides along, so Stop still stops the checking; only an expiry
+   * leaves a notice.
+   */
+  const budget = createVerifyBudget(VERIFY_BUDGET_MS, signal)
+  /** Stopped by the user, or stopped by the deadline — both leave the answer standing. */
+  const stopped = (): boolean => signal.aborted || budget.signal.aborted
+
   // v1.7: scrub a verbatim echo of the turn-notes scaffold before any check
   // reads the content (the eval caught a 9B opening its reply with the header
   // sentence). Mechanical, disclosed, and shares its marker with the prompt.
@@ -537,12 +600,15 @@ async function runTurn(
       patch({ checks: [...checks] })
     }
   }
-  const codeCheckMemo = new Map<string, { finding: string | null; ran: boolean; ok: boolean; note?: string }>()
-  const codeFindingFor = async (content: string): Promise<{ finding: string | null; ran: boolean; ok: boolean; note?: string }> => {
+  type CodeCheck = Awaited<ReturnType<typeof runCodeCheck>>
+  const codeCheckMemo = new Map<string, CodeCheck>()
+  const codeFindingFor = async (content: string): Promise<CodeCheck> => {
     if (!workbenchChecksOn) return { finding: null, ran: false, ok: false }
     const hit = codeCheckMemo.get(content)
     if (hit) return hit
+    if (!budget.admits('code')) return { finding: null, ran: false, ok: false }
     const out = await runCodeCheck(convo, slot, content, allRecords, toolContext, () => patch({ toolCalls: [...allRecords] }))
+    budget.ran('code')
     codeCheckMemo.set(content, out)
     return out
   }
@@ -579,7 +645,7 @@ async function runTurn(
     // v1.6 code check, disclosed whether or not it found anything.
     const firstCode = await codeFindingFor(assistantMsg.content)
     if (firstCode.ran || firstCode.note === 'the code needs input, files or the network, so it cannot be checked in the sandbox') {
-      checks.push(describeCodeCheck({ ran: firstCode.ran, ok: firstCode.ok, finding: firstCode.finding, note: firstCode.note }))
+      checks.push(describeCodeCheck({ ran: firstCode.ran, ok: firstCode.ok, finding: firstCode.finding, note: firstCode.note, compared: firstCode.compared }))
       patch({ checks: [...checks] })
     }
     let report = await groundingReport()
@@ -594,42 +660,53 @@ async function runTurn(
     const numericRan = allRecords.some(
       (r) => (r.name === 'run_python' || r.name === 'finance_calculator' || r.name === 'analyze_file') && r.status === 'done'
     )
+    // `admits` counts what it is asked about, so it goes last: the budget must
+    // not record a pass this turn was never going to run.
     if (
       workbenchChecksOn &&
       lastUserContent &&
-      !signal.aborted &&
+      !stopped() &&
       looksArithmetic(allUserText(), assistantMsg.content) &&
-      (!numericRan || (report?.figures.length ?? 0) > 0)
+      (!numericRan || (report?.figures.length ?? 0) > 0) &&
+      budget.admits('recompute')
     ) {
       checks.push(
-        await runRecompute(convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, signal, () =>
+        await runRecompute(convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, budget.signal, () =>
           patch({ toolCalls: [...allRecords] })
         )
       )
+      // Only a pass that got to finish counts as run: `reviseAgainstFindings`
+      // and `runRecompute` both swallow an abort and return, so their returning
+      // is not on its own evidence that the reader got the check.
+      if (!budget.signal.aborted) budget.ran('recompute')
       patch({ checks: [...checks] })
       report = await groundingReport()
     }
     if (!report) return
     const autoCorrect = useAppStore.getState().settings?.grounding.autoCorrect !== false
-    if (!autoCorrect || signal.aborted) {
+    if (!autoCorrect || stopped() || !budget.admits('revising')) {
       patch({ grounding: report })
       return
     }
 
+    verifying('revising')
     const before = assistantMsg.content
     const revised = await reviseAgainstFindings(
       slot,
       baseUrl,
       tools,
-      signal,
+      budget.signal,
       convo,
       before,
       report,
-      allRecords
+      allRecords,
+      () => patch({ toolCalls: [...allRecords] })
     )
-    // A revision that came back empty, or that the user cancelled, leaves the
-    // original standing: a flagged answer beats no answer.
-    if (!revised.trim() || signal.aborted) {
+    if (!budget.signal.aborted) budget.ran('revising')
+    // A revision that came back empty, that the user cancelled, or that the
+    // deadline cut off, leaves the original standing: a flagged answer beats no
+    // answer, and a half-written one beats neither.
+    if (!revised.trim() || stopped()) {
       patch({ grounding: report })
       return
     }
@@ -655,16 +732,21 @@ async function runTurn(
       patch({ content: original, grounding: report })
       return
     }
-    // The revision's code ran clean where the draft's did not: say so.
+    // The revision's code ran clean where the draft's did not: say so — but the
+    // comparison rides along (memoised, no second run), so "the revised code
+    // runs" cannot become the tick over a figure its output contradicts.
     if (report.code?.length && !after?.code?.length) {
       const i = checks.findIndex((c) => c.kind === 'code')
-      const line = describeCodeCheck({ ran: true, ok: false, revisedRuns: true })
+      const line = describeCodeCheck({ ran: true, ok: false, revisedRuns: true, compared: (await codeFindingFor(revised)).compared })
       if (i >= 0) checks[i] = line
       else checks.push(line)
     }
+    // Both reports, not just the first. The revision was kept because it
+    // reduced the findings, which is not the same as clearing them — what
+    // survived is the half the disclosure line most needs to say.
     patch({
       content: revised,
-      corrected: { before: report, at: Date.now() },
+      corrected: { before: report, after, at: Date.now() },
       grounding: after ?? undefined,
       checks: [...checks]
     })
@@ -686,42 +768,76 @@ async function runTurn(
     patch({ escalation: { slotId: candidate.id, roleName: candidate.roleName, reason } })
   }
 
+  /**
+   * Everything after the last token, under one deadline, ending in a number
+   * the reader can trust.
+   *
+   * Both endings — a completed answer and one that ran out of tool rounds —
+   * ran a byte-identical copy of this, which is how a bound added to one could
+   * have missed the other.
+   */
+  const runVerificationTail = async (): Promise<void> => {
+    try {
+      // v1.1: a factual question answered without consulting any web source is
+      // exactly the confabulation signature — flag it so the UI can say so,
+      // then have a different role name the claims it could not verify.
+      if (checkableTurn && !consultedSources(allRecords)) {
+        patch({ unverified: true })
+        verifying('claims')
+        // v1.2: the claim check settles the critic's list when enabled;
+        // otherwise the v1.1 auto-critic names the checks for the user.
+        const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
+        if (budget.admits('claims')) {
+          if (claimCheckOn) {
+            await runClaimCheck(
+              convo,
+              assistantMsg.id,
+              lastUserContent ?? '',
+              assistantMsg.content,
+              { modelId: slot.modelId, roleName: slot.roleName },
+              baseUrl,
+              budget.signal,
+              allRecords,
+              patch
+            )
+          } else {
+            await runAutoCritic(
+              convo,
+              assistantMsg.id,
+              lastUserContent ?? '',
+              assistantMsg.content,
+              { modelId: slot.modelId, roleName: slot.roleName },
+              baseUrl,
+              budget.signal
+            )
+          }
+          if (!budget.signal.aborted) budget.ran('claims')
+        }
+      }
+      verifying('grounding')
+      await checkGrounding()
+    } finally {
+      budget.stop()
+    }
+    // The deadline fired and it cost the reader something: name it, rather than
+    // letting a check the app skipped look like a check that passed.
+    const notice = budget.notice()
+    if (notice) {
+      checks.push(notice)
+      patch({ checks: [...checks] })
+    }
+    // The tail is over, so the turn's real length is finally known. `totalMs`
+    // stays the stream — tok/s is a rate of that — and this is what the reader
+    // actually waited, from the turn's open rather than from the first request
+    // (lib/turnCost.ts).
+    if (lastStats) patch({ stats: { ...lastStats, turnMs: Date.now() - turnOpenedAt } })
+    verifying(null)
+  }
+
   if (outcome.stopReason === 'completed') {
     // Normal completion — read whatever tail fragment is left unspoken.
     speakNewSentences(true)
-    // v1.1: a factual question answered without consulting any web source is
-    // exactly the confabulation signature — flag it so the UI can say so,
-    // then have a different role name the claims it could not verify.
-    if (factualTurn && !consultedSources(allRecords)) {
-      patch({ unverified: true })
-      // v1.2: the claim check settles the critic's list when enabled;
-      // otherwise the v1.1 auto-critic names the checks for the user.
-      const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
-      if (claimCheckOn) {
-        await runClaimCheck(
-          convo,
-          assistantMsg.id,
-          lastUserContent ?? '',
-          assistantMsg.content,
-          { modelId: slot.modelId, roleName: slot.roleName },
-          baseUrl,
-          signal,
-          allRecords,
-          patch
-        )
-      } else {
-        await runAutoCritic(
-          convo,
-          assistantMsg.id,
-          lastUserContent ?? '',
-          assistantMsg.content,
-          { modelId: slot.modelId, roleName: slot.roleName },
-          baseUrl,
-          signal
-        )
-      }
-    }
-    await checkGrounding()
+    await runVerificationTail()
     audit(convo, {
       kind: 'assistant_output',
       roleName: slot.roleName,
@@ -738,34 +854,7 @@ async function runTurn(
       (assistantMsg.content ? `${assistantMsg.content}\n\n` : '') +
       `⚠️ Stopped after ${MAX_TOOL_ITERATIONS} consecutive tool-call rounds.`
   })
-  if (factualTurn && !consultedSources(allRecords)) {
-    patch({ unverified: true })
-    const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
-    if (claimCheckOn) {
-      await runClaimCheck(
-        convo,
-        assistantMsg.id,
-        lastUserContent ?? '',
-        assistantMsg.content,
-        { modelId: slot.modelId, roleName: slot.roleName },
-        baseUrl,
-        signal,
-        allRecords,
-        patch
-      )
-    } else {
-      await runAutoCritic(
-        convo,
-        assistantMsg.id,
-        lastUserContent ?? '',
-        assistantMsg.content,
-        { modelId: slot.modelId, roleName: slot.roleName },
-        baseUrl,
-        signal
-      )
-    }
-  }
-  await checkGrounding()
+  await runVerificationTail()
   // Read whatever is left unspoken (including the warning above).
   speakNewSentences(true)
   offerEscalation()
@@ -915,7 +1004,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
             createdAt: Date.now()
           })
         }
@@ -978,7 +1067,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
             createdAt: Date.now()
           })
         }
@@ -1139,10 +1228,10 @@ export function useLMStudio(): {
         undefined,
         critic.sampling
       )
-      if (!controller.signal.aborted && !text.trim()) patch('(the reviewer returned an empty reply)')
+      if (!controller.signal.aborted && !text.trim()) patch(NO_REVIEW_TEXT)
     } catch (err) {
       if (!controller.signal.aborted) {
-        patch(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)
+        patch(`⚠️ ${composeFailure(explainFailure(err, { subject: 'The second opinion' }))}`)
       }
     } finally {
       useAppStore.getState().setStreaming(false)
@@ -1191,7 +1280,7 @@ export function useLMStudio(): {
         store.appendMessage(convo.id, {
           id: uid(),
           role: 'assistant',
-          content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+          content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The escalated turn' }))}`,
           createdAt: Date.now()
         })
       }

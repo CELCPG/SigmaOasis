@@ -12,6 +12,10 @@ import { buildSearchContext, buildSearchQuery } from '../grounding'
 export const autoSearchProvider: ContextProvider = {
   id: 'autoSearch',
   phase: 'serial',
+  wait: {
+    label: 'Searching the web',
+    detail: 'the app checks sources before the model is asked'
+  },
   enabled: (input) =>
     input.factualTurn &&
     !input.offline &&

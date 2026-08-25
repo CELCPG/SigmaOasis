@@ -13,6 +13,7 @@ import type {
   ToolResult,
   ToolSchema
 } from '../../types'
+import type { TurnWait } from '../turnPhase'
 
 /**
  * Turn-context providers (STRATEGY-harness-adoptions, Tier 1.1).
@@ -131,6 +132,14 @@ export interface ContextProvider {
    * position, with an abort check after it.
    */
   phase: 'prefetch' | 'serial'
+  /**
+   * What to call this wait while it runs. Every serial provider that can hold
+   * the turn open on network or disk declares one — the reader watches an
+   * empty bubble for that whole window, and an unnamed wait is the only kind
+   * that feels like a hang. Prefetch work overlaps the serial waits, so it
+   * has nothing to name.
+   */
+  wait?: TurnWait
   enabled(input: TurnInput, io: ProviderIO): boolean
   gather(input: TurnInput, io: ProviderIO): Promise<ProviderResult | null>
 }

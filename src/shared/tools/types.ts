@@ -40,9 +40,17 @@ export interface ToolMeta {
   readonly alwaysOn?: boolean
   /**
    * A successful call counts as consulting a source for the unverified badge:
-   * text or figures the model can quote instead of recall.
+   * text or figures the model can quote instead of recall — and only when it
+   * came back with something. See `emptyResultLead`.
    */
   readonly isSource?: boolean
+  /**
+   * The opening words this tool's own handler prints when the call succeeded
+   * and found nothing — no hits, no passages. The handler builds that output
+   * from this string and the source check reads it back off the record, so
+   * "the call worked" and "it supplied something" cannot drift apart.
+   */
+  readonly emptyResultLead?: string
 }
 
 export interface ToolSchema {

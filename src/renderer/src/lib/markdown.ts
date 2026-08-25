@@ -1,8 +1,9 @@
-import { marked } from 'marked'
+import { marked, type TokenizerThis } from 'marked'
 import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 
 import { latexToPlainText } from './mathPlaintext'
+import { CITATION_IN_RUN, CITATION_RUN, webSource, type Citation } from './citations'
 
 // Register only common languages — the full highlight.js bundle is ~1 MB.
 import bash from 'highlight.js/lib/languages/bash'
@@ -51,9 +52,73 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/**
+ * Whether a fenced block should arrive already wrapped.
+ *
+ * The default is to scroll, and the reason is real: a wrapped line is a lie
+ * about the source. Where a line ends, how it is indented and whether two
+ * things are on the same line are all content in code, and soft-wrapping
+ * invents line ends that the file does not contain.
+ *
+ * That argument protects lines that HAVE a shape. A line that is one unbroken
+ * token — a base64 blob, a hash, a signed URL — has none: it contains no
+ * whitespace, so there is no indentation to misplace and no second thing on the
+ * line to imply. Wrapping it cannot misrepresent it, and scrolling it does real
+ * damage: measured in split view, a 220-character token shows 26 characters at
+ * a time behind an 8px scrollbar on a block one line tall.
+ *
+ * So the principle survives and the default follows it more exactly than
+ * "never wrap" did: a block wraps by default only when wrapping can tell no lie
+ * about it. Every other block, including a 200-column line of real code, still
+ * scrolls and still needs the Wrap control.
+ *
+ * 80 characters because below it this decision does not arise — a token that
+ * short fits a reply column at every width the app renders, so it would not
+ * have wrapped anyway and the only visible effect would be a toggle that starts
+ * pressed for no reason.
+ */
+export function startsWrapped(code: string): boolean {
+  return code.split('\n').some((line) => {
+    // trimEnd, not trim: a trailing \r from a CRLF source is not content, but
+    // leading indentation is — an indented long line still has a shape.
+    const trimmed = line.trimEnd()
+    return trimmed.length > 80 && !/\s/.test(trimmed)
+  })
+}
+
 marked.use({
   breaks: true,
   gfm: true,
+  /**
+   * v1.17.1: strikethrough is `~~text~~` only.
+   *
+   * GFM lets a single tilde open a strikethrough, and marked implements that.
+   * In technical prose `~` means "about", and models write it constantly —
+   * `~51 GPH (~0.9 GPM)`, `~84,000 calories (~2,100 cal/person/day)`. Two of
+   * them in one paragraph pair up, so the run between them renders struck
+   * through and BOTH tildes are consumed. What reaches the reader is
+   * `51 GPH (0.9 GPM)`: an approximation turned into an exact figure, in the
+   * line a reader is most likely to quote.
+   *
+   * Found by a blind critic diffing the raw markdown against the rendered text
+   * on a recorded run — the same pair of files that caught latexToPlainText
+   * deleting currency, and a different mechanism with the same consequence.
+   *
+   * `~~` keeps working, so nothing a writer meant as strikethrough is lost.
+   * Returning undefined hands the tilde back to the inline tokenizer as text.
+   */
+  tokenizer: {
+    del(this: TokenizerThis, src: string) {
+      const match = /^~~(?=\S)([\s\S]*?\S)~~/.exec(src)
+      if (!match) return undefined
+      return {
+        type: 'del' as const,
+        raw: match[0],
+        text: match[1]!,
+        tokens: this.lexer.inlineTokens(match[1]!)
+      }
+    }
+  },
   renderer: {
     code(code: string, infostring: string | undefined): string {
       const requested = (infostring ?? '').trim().split(/\s+/)[0]
@@ -64,12 +129,42 @@ marked.use({
       } catch {
         highlighted = escapeHtml(code)
       }
+      // Scrolling is the default and stays the default; startsWrapped names the
+      // one shape of line that wrapping cannot misrepresent. The class and the
+      // button's state are set together — MessageBubble's toggle reads the
+      // class and writes aria-pressed from it, so the two must agree at render.
+      const wrapped = startsWrapped(code)
       return (
-        `<div class="code-block">` +
+        `<div class="code-block${wrapped ? ' code-wrapped' : ''}">` +
         `<div class="code-header"><span>${escapeHtml(language)}</span>` +
-        `<button type="button" class="code-copy-btn">Copy</button></div>` +
+        `<span class="code-actions">` +
+        // Code scrolls by default; this is the reader's way to see the whole of
+        // a long line. Toggled in MessageBubble, same delegation as Copy.
+        `<button type="button" class="code-wrap-btn" aria-pressed="${wrapped}" ` +
+        `title="Wrap long lines">Wrap</button>` +
+        `<button type="button" class="code-copy-btn">Copy</button></span></div>` +
         `<pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>` +
         `</div>`
+      )
+    },
+    /*
+     * A table is the only markdown block a reply can produce whose width its own
+     * contents decide, which makes it the only one that can push the chat column
+     * sideways or be squeezed until words break. It gets a scroll container of
+     * its own (`.md-table-scroll` in index.css) so it can do neither.
+     *
+     * Generated here rather than with `display: block` on the <table>, which
+     * would achieve the same layout in CSS alone at the cost of the element's
+     * implicit `table` role — a screen reader would stop announcing rows and
+     * columns. tabindex="0" because a region that scrolls must be scrollable
+     * from the keyboard; DOMPurify keeps both attributes.
+     */
+    table(header: string, body: string): string {
+      return (
+        `<div class="md-table-scroll" tabindex="0"><table>` +
+        `<thead>${header}</thead>` +
+        (body ? `<tbody>${body}</tbody>` : '') +
+        `</table></div>`
       )
     }
   }
@@ -88,12 +183,79 @@ const SANITIZE_OPTIONS = {
   FORBID_ATTR: ['style']
 }
 
-export function renderMarkdown(markdown: string): string {
+export function renderMarkdown(markdown: string, citations: Citation[] = []): string {
   // Models often wrap numbers and units in TeX ($374^\circ\text{C}$); the
   // renderer has no math engine, so rewrite it to plain text first.
   const html = marked.parse(latexToPlainText(markdown), { async: false }) as string
-  return DOMPurify.sanitize(stripSandboxImages(html), SANITIZE_OPTIONS)
+  return DOMPurify.sanitize(linkCitations(stripSandboxImages(html), citations), SANITIZE_OPTIONS)
 }
+
+/**
+ * v1.13: `[1]` in a reply becomes the passage it names.
+ *
+ * The library already hands the model numbered passages carrying their
+ * document's source URL, and the model already cites them by number — the
+ * marker just resolved to nothing on screen. Linked here rather than in the
+ * markdown source because the number is the app's, not the model's: only a
+ * passage the lookup actually returned gets a link, and an invented number is
+ * left as plain text for the grounding pass to report.
+ *
+ * Rewritten before DOMPurify runs, deliberately: the pack manifest is a file
+ * on disk like any other input, so its `source` goes through the same one
+ * sanitization boundary as model output. Anchors get no `target` — the app
+ * strips it — so a click leaves through `will-navigate`, the same route a
+ * link the model merely typed already takes (src/main/index.ts).
+ *
+ * v1.17.2: three states, not two.
+ *
+ * A marker whose passage carries a web source is a link, as before. One whose
+ * passage is a local file is now a *button* carrying `data-citation` —
+ * MessageBubble opens the provenance strip on that entry — because a bare
+ * `title` is a hover affordance and a keyboard user has none. And a marker
+ * naming no retrieved passage used to be returned untouched, which rendered it
+ * as plain black text a reader cannot tell from prose: measured
+ * (judge-r7/V1/run-2) the reply's `[9]` sat inert in a sentence beside a linked
+ * `[8]`, indistinguishable from a typo. It is now marked as unresolved, which
+ * is the honest rendering of a citation the app cannot follow — the grounding
+ * pass reports the same fact in words.
+ */
+export function linkCitations(html: string, citations: Citation[]): string {
+  if (citations.length === 0) return html
+  const byIndex = new Map(citations.map((c) => [c.index, c]))
+  // Tags, then code regions, then runs of text: only the last are rewritten,
+  // so a `[1]` inside an attribute or a code sample is left alone.
+  return html.replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>|<[^>]+>|[^<]+/g, (chunk) =>
+    chunk.startsWith('<')
+      ? chunk
+      : // A run is rewritten marker by marker, so `[2][5]` yields two.
+        chunk.replace(CITATION_RUN, (run) =>
+          run.replace(CITATION_IN_RUN, (raw, n: string) => {
+            const c = byIndex.get(Number(n))
+            if (!c) {
+              return (
+                `<span class="citation-ref citation-unresolved" title="${escapeHtml(UNRESOLVED_TITLE)}">` +
+                `${raw}</span>`
+              )
+            }
+            // Re-checked here, not trusted from the caller: this function is the
+            // one that writes the href, so it is the one that decides what may
+            // become one. A scheme that is not http(s) reaches neither the
+            // attribute nor the tooltip.
+            const href = webSource(c.href)
+            const title = escapeHtml(href ? `${c.label}\n${href}` : `${c.label}\nOpen this passage in the citation list below.`)
+            return href
+              ? `<a class="citation-ref" href="${escapeHtml(href)}" title="${title}">${raw}</a>`
+              : `<span class="citation-ref" data-citation="${c.index}" role="button" tabindex="0" ` +
+                `title="${title}">${raw}</span>`
+          })
+        )
+  )
+}
+
+/** What an unresolvable marker says on hover. Exported so the suite can pin it. */
+export const UNRESOLVED_TITLE =
+  'This number names no passage this turn retrieved, so there is nothing to open. ' +
+  'The verification banner reports it as a citation that resolves to nothing.'
 
 /**
  * v1.12: a model that saved a chart under /work tends to also write

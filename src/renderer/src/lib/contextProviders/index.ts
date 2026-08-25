@@ -1,4 +1,5 @@
 import type { ContextProvider, ProviderIO, ProviderResult, TurnInput } from './types'
+import type { TurnWait } from '../turnPhase'
 import { autoSearchProvider } from './autoSearch'
 import { libraryPassagesProvider } from './libraryPassages'
 import { playbookProvider } from './playbook'
@@ -46,11 +47,16 @@ export interface GatheredContext {
  * abort is checked after each serial await (prefetch collections deliberately
  * do not abort-check, matching the old inline blocks). A provider failure —
  * rejection or throw — contributes nothing and never breaks the turn.
+ *
+ * `onWait` is told which serial provider the turn is currently blocked on, by
+ * name, and is cleared however the walk ends — this whole sequence happens
+ * before the model is asked anything, in front of an empty bubble.
  */
 export async function gatherTurnContext(
   providers: readonly ContextProvider[],
   input: TurnInput,
-  io: ProviderIO
+  io: ProviderIO,
+  onWait: (wait: TurnWait | null) => void = () => {}
 ): Promise<GatheredContext> {
   const held = new Map<string, Promise<ProviderResult | null>>()
   for (const p of providers) {
@@ -68,15 +74,22 @@ export async function gatherTurnContext(
     if (result.projectTokens?.files) projectTokens.files += result.projectTokens.files
   }
 
-  for (const p of providers) {
-    if (p.phase === 'prefetch') {
-      const pending = held.get(p.id)
-      if (pending) fold(await pending)
-      continue
+  try {
+    for (const p of providers) {
+      if (p.phase === 'prefetch') {
+        const pending = held.get(p.id)
+        if (pending) fold(await pending)
+        continue
+      }
+      if (!p.enabled(input, io)) continue
+      // Announced before the await, cleared by the next provider — a name
+      // that outlived its work would be worse than none.
+      onWait(p.wait ?? null)
+      fold(await p.gather(input, io).catch(() => null))
+      if (input.signal.aborted) return { blocks, projectTokens, aborted: true }
     }
-    if (!p.enabled(input, io)) continue
-    fold(await p.gather(input, io).catch(() => null))
-    if (input.signal.aborted) return { blocks, projectTokens, aborted: true }
+    return { blocks, projectTokens, aborted: false }
+  } finally {
+    onWait(null)
   }
-  return { blocks, projectTokens, aborted: false }
 }

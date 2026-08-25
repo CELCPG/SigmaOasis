@@ -1,9 +1,22 @@
 import type { Conversation } from '../types'
+import { wasDeclined } from '../../../shared/tools/outcomes'
 
 export interface ConversationStats {
   userMessages: number
   assistantMessages: number
   toolCalls: number
+  /**
+   * How many of `toolCalls` the app declined to make — no host contacted, no
+   * command run.
+   *
+   * Measured (TH2, `.h2h-runs/judge-r5/TH2/run-1`): "Tool calls 3" over a turn
+   * whose first search was refused before the wire, which a blind critic read
+   * as three calls onto the network. The count is not wrong — the model made
+   * three calls, and three rows are on screen — it was simply the only thing
+   * said, so it had to mean both "calls made" and "calls that went out". This
+   * is the second number, so neither has to carry the other's meaning.
+   */
+  declinedCalls: number
   /** Prompt tokens the server reported for the most recent reply — roughly the context in use. */
   lastPromptTokens: number | null
   /** Sum of completion tokens across replies that reported them. */
@@ -28,6 +41,7 @@ export function conversationStats(c: Conversation): ConversationStats {
   let userMessages = 0
   let assistantMessages = 0
   let toolCalls = 0
+  let declinedCalls = 0
   let completionTokens = 0
   let lastPromptTokens: number | null = null
   let lastProjectTokens: ConversationStats['lastProjectTokens'] = null
@@ -43,6 +57,9 @@ export function conversationStats(c: Conversation): ConversationStats {
     if (m.role === 'user') userMessages += 1
     else assistantMessages += 1
     toolCalls += m.toolCalls?.length ?? 0
+    for (const t of m.toolCalls ?? []) {
+      if (t.status === 'error' && wasDeclined(t.result ?? '')) declinedCalls += 1
+    }
     if (m.stats) {
       if (typeof m.stats.promptTokens === 'number') lastPromptTokens = m.stats.promptTokens
       if (m.stats.projectTokens) lastProjectTokens = m.stats.projectTokens
@@ -65,6 +82,7 @@ export function conversationStats(c: Conversation): ConversationStats {
     userMessages,
     assistantMessages,
     toolCalls,
+    declinedCalls,
     lastPromptTokens,
     completionTokens,
     avgTokensPerSecond: tpsCount > 0 ? Math.round(tpsSum / tpsCount) : null,

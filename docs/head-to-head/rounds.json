@@ -1,0 +1,534 @@
+{
+  "app": "Sigma Oasis",
+  "baseline": "v1.12.1",
+  "localModel": "qwen3.8-9b",
+  "updated": "2026-08-25",
+  "invariants": [
+    {
+      "name": "node test suite",
+      "value": "2106 pass / 0 fail",
+      "state": "green"
+    },
+    {
+      "name": "render + style checks",
+      "value": "25 render · 44 style · 60 chrome-contrast · 56 md · 46 workbench · 24 transport",
+      "state": "green"
+    },
+    {
+      "name": "whole-project typecheck",
+      "value": "part of the gate since round 7",
+      "state": "green"
+    },
+    {
+      "name": "electron-vite build",
+      "value": "exit 0",
+      "state": "green"
+    },
+    {
+      "name": "sweep hygiene",
+      "value": "both arms 18 / 18 VALID · 0 failed",
+      "state": "green"
+    },
+    {
+      "name": "tolerances",
+      "value": "none widened, no case deleted",
+      "state": "green"
+    }
+  ],
+  "referenceArm": {
+    "status": "blocked",
+    "summary": "Every automated route to a live Claude Desktop or ChatGPT reference arm is closed on this machine. Nothing here is claimed against a reference app until one is reachable.",
+    "routes": [
+      {
+        "route": "Claude Desktop + CDP debug port",
+        "result": "App refuses to start: “a debugging or network-override switch is present on the command line.” Deliberate anti-automation guard."
+      },
+      {
+        "route": "Claude Desktop GUI automation",
+        "result": "osascript is not allowed assistive access; UI elements enabled = false. Needs a password-gated security setting."
+      },
+      {
+        "route": "Screenshot the reference app",
+        "result": "screencapture: could not create image from display. Screen Recording permission denied."
+      },
+      {
+        "route": "Claude in Chrome extension bridge",
+        "result": "A browser is listed, but the extension is not reachable from this session."
+      },
+      {
+        "route": "In-app browser → claude.ai",
+        "result": "Navigation denied by browsing policy. ChatGPT Desktop is not installed."
+      }
+    ],
+    "cheapestUnblock": "Install and sign into the Claude in Chrome extension. No password, no security settings, no app restart — and this session runs inside Claude.app, so restarting that app would kill the run."
+  },
+  "arms": {
+    "A": "Sigma Oasis v1.12.1 baseline",
+    "B": "Sigma Oasis + the round's fixes",
+    "note": "Both arms run the identical local model on identical prompts, so model size is held constant and only harness behaviour varies. Critics receive the two run directories with no arm labels. This measures whether a round improved the app; it does not measure the app against a reference product."
+  },
+  "dimensions": [
+    {
+      "key": "verifiability",
+      "title": "Answer verifiability and citations",
+      "gaps": 14,
+      "high": 6,
+      "closed": 8
+    },
+    {
+      "key": "plan-transparency",
+      "title": "Plan-mode transparency",
+      "gaps": 14,
+      "high": 5,
+      "closed": 8
+    },
+    {
+      "key": "tool-honesty",
+      "title": "Tool-call honesty",
+      "gaps": 10,
+      "high": 3,
+      "closed": 7
+    },
+    {
+      "key": "time-to-useful",
+      "title": "Time-to-useful-output",
+      "gaps": 15,
+      "high": 5,
+      "closed": 7
+    },
+    {
+      "key": "failure-recovery",
+      "title": "Failure recovery",
+      "gaps": 11,
+      "high": 4,
+      "closed": 5
+    },
+    {
+      "key": "visual-craft",
+      "title": "Visual craft",
+      "gaps": 12,
+      "high": 4,
+      "closed": 6
+    }
+  ],
+  "rounds": [
+    {
+      "n": 0,
+      "label": "Setup",
+      "state": "done",
+      "dimension": null,
+      "what": "Baseline pinned, six dimensions audited against real code, capture harness and 18-task shared set built.",
+      "verdict": null,
+      "gap": null,
+      "fix": null,
+      "findings": "88 evidence-backed gaps, 28 of them high severity, every one carrying a file:line or an executed probe.",
+      "evals": {}
+    },
+    {
+      "n": 1,
+      "label": "Six dimensions, one gap each",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "baseline (pre-round-1)",
+        "B": "baseline + round-1 fixes"
+      },
+      "what": "Six builders in isolated worktrees, one dimension each, every fix carrying a new mechanical case. Two semantic merge conflicts resolved by composing both designs rather than picking one.",
+      "findings": "Two losses, both real. V3 above. VC3: the contrast fix never reached the chrome — both arms render identical ink at 2.45:1, and the round-1 build lost only for having MORE text in it, including its own “nothing was computed” caution at 2.46:1. Behind that sits the round’s worst finding: test/styleCheck.ts passes at ≥4.5:1 while inspecting the --text-* tokens, and the app’s chrome uses 242 raw text-neutral-* classes the check never looks at. A green check was certifying a property the app does not have.",
+      "verdict": "Round-1 build 6 · baseline 2 · 9 ties, over 17 tasks judged blind by 17 fresh-context critics reading the real runs.",
+      "gap": "V3: the new verification chrome manufactures confidence it has not earned. On a question the library does not cover, the round-1 build showed a passed recomputation, a “the checker compared the reply against that output” line and a revision claiming unsupported items were removed — while re-deriving its numbers from constants the model invented and labelling one “EPA standard estimate” with no source consulted. The baseline simply said the library does not cover home repair, so this is general knowledge. Looking checked beat being checked, which is the one thing this project exists to prevent.",
+      "fix": "Retrieval arms the measurement check · tool claims joined to the executed set · failed tools stop disarming the link checks · plan-step tool calls made visible · action row follows the answer, waits get names · streamed error frames diagnosed and recoverable · long tokens wrap, focus rings restored, prose contrast raised",
+      "evals": {
+        "node cases": "1546 → 1615",
+        "new style checks": "25",
+        "blind tasks judged": "17",
+        "won / lost / tied": "6 / 2 / 9"
+      }
+    },
+    {
+      "n": 2,
+      "label": "Send the losses back",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline — the build that beat us in round 1",
+        "B": "baseline + round 1 + round 2"
+      },
+      "what": "Five builders: the two losses, plus the three ties where BOTH arms failed the reader — a cancelled plan with no cancelled state, a Stop rendered as a step failure, and an empty review reported as a clean review.",
+      "findings": "V3, the round-1 loss, is now won at high confidence: the build says “Recomputation ran, but its inputs are constants the model wrote… Treat these figures as unverified” and “Nothing in the library covers this question — the answer is not backed by it”, where the baseline printed a “📖 From the library:” strip with five ranked passages under an answer about faucets. VC3 flipped too, measured off the pixels: the provenance line went 2.46:1 → 9.48:1, the timing readout 2.48:1 → 5.26:1, and text below AA in the last reply went 11 of 20 → 0 of 20.",
+      "verdict": "Round-2 build 13 · baseline 1 · 2 ties, over 16 tasks judged blind (a 17th critic failed on schema retries and is not counted). Both round-1 losses flipped to wins at high confidence.",
+      "gap": "TH3, tool-honesty: quotation fidelity. Neither build compares a quoted span in the reply against the retrieved passage it claims to quote — the baseline won this one on the model’s luck, not on anything the app did. The critic ran the exact substring test in ten lines of Python against data the app already holds in the same message.",
+      "fix": "Circular recomputation reports the weaker state · a retrieval turn with no relevant passages says so instead of showing a provenance strip · plans get a real terminal state · a user’s Stop is not drawn as a step failure · an empty review is disclosed instead of reported as a clean one · citation markers are numbered and their locators reachable · chrome contrast measured against the surfaces it is composited over",
+      "evals": {
+        "node cases": "1615 → 1662",
+        "chrome-contrast checks": "33 new",
+        "blind tasks judged": "16",
+        "won / lost / tied": "13 / 1 / 2"
+      }
+    },
+    {
+      "n": 3,
+      "label": "The tool-honesty family, and the residuals",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline",
+        "B": "baseline + rounds 1–3"
+      },
+      "what": "Five builders: quotation fidelity and tool-use claims (the round-2 loss), markdown wrap plus a palette-level retint, a verification pass that could not succeed, stall self-detection, and three plan residuals.",
+      "findings": "The quote checker fired exactly as intended on TH1 — “⚠️ Quoted as exact but in no tool output this turn” naming the invented span and the tool it checked against — and correctly stayed silent on TH3, where both replies quoted accurately. FR2 now counts the silence out loud: “still waiting on the model · 1:30 · gives up at 5:00”, where the baseline’s 60s and 90s frames are byte-identical. VC3 went from 9 failing text nodes to 0, floor 2.46:1 → 5.21:1.",
+      "verdict": "Round-3 build 13 · baseline 0 · 2 ties · 1 VOID, over 16 tasks. Corrected downward from 14–0–2: the baseline arm had been handicapped (see round 4), which voids TTU2 and weakens V3.",
+      "gap": "Two, both in the winning build. The quote checker FALSE-POSITIVED on V2, flagging a quotation that is verbatim in the reference_lookup output it names — a verifier that cries wolf teaches the reader to ignore it, which costs more than the numbering gains. And on TTU2 the app stamps a green ✓ and “it runs without error” over a reply whose stated sum (854,405) contradicts its own executed output (824,693): the check verifies that no exception was raised, not that the numbers match, so the reassurance fires hardest exactly where the answer is wrong.",
+      "fix": "Quoted spans checked character-for-character against captured tool output · citation attributions checked against the passage the marker resolves to · a “Tools used” section that names none of the executed calls is contradicted · assistant markdown wraps and code blocks gain a wrap toggle · the raw-neutral guard widened to the whole renderer · a silent stream counts itself out loud and names its deadline · plans disclose what each step may DO before approval · a terminal outcome is the heaviest text in the block · never-run steps stop presenting their contents as findings",
+      "evals": {
+        "node cases": "1662 → 1731",
+        "chrome-contrast checks": "33 → 39",
+        "blind tasks judged": "16",
+        "won / lost / tied": "14 / 0 / 2"
+      }
+    },
+    {
+      "n": 4,
+      "label": "Four reassurances the app had not earned",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline, this time WITH the Python runtime it had been missing",
+        "B": "baseline + rounds 1–4"
+      },
+      "what": "Five builders on the two faults blind critics found in round 3’s winner, the tie where a check still could not succeed, a cold boot attributed nowhere, and a plan forecast nothing verified — plus the harness guard that let a handicapped arm score for three rounds.",
+      "findings": "The quote checker’s false positive is gone and its true positive survives: on TH1 it now names both an undisclosed tool and an invented quotation, and a critic confirmed neither warning is spurious. The claim check stops at the first unreachable source — 7 searches down to 2, post-answer lockout 21.3 s down to 1.4 s, a 15× difference against the same dead provider. The cold sandbox boot is named and quantified — “started the sandbox in 1.6 s, then failed after 7 ms” — where the baseline still reports a cold call as 8 ms against a warm 20 ms.",
+      "verdict": "Round-4 build 13 · baseline 3 · 1 tie, over 17 tasks judged blind against a corrected baseline. More losses than round 3 reported — because round 3 was judged against a handicapped arm and this was not.",
+      "gap": "Three losses, and the honest reading differs per task. V3: our run hit the 300 s capture budget mid-verification and a critic judged an unfinished turn; re-captured it finishes at 268 s against the baseline’s 213 s, so we are slower and the tail is still unexplained, but the “never finished” reasoning was partly a capture artifact. V1: our build stated 165°F / 74°C, which appear in none of the retrieved passages, and printed “✎ Revised: 1 unsupported item were sent back for verification or removal” — a claim of resolution that did not occur. That is the same false-assurance species this round set out to kill, in a new place. TH2: the baseline won on a provenance line ours did not print.",
+      "fix": "Bracketed citation markers trimmed before a quoted span is checked · printed figures compared against the figures the reply states · the unreachable-source rule inverted so an unlisted error code cannot defeat it · the sandbox boot measured, named and reported beside the run time · a plan step reconciled against the tools it actually ran · validity extended twice: a precondition that did not hold, and a turn that never ended",
+      "evals": {
+        "node cases": "1731 → 1792",
+        "workbench checks": "40 → 46",
+        "blind tasks judged": "17",
+        "won / lost / tied": "13 / 3 / 1"
+      }
+    },
+    {
+      "n": 5,
+      "label": "The shape three rounds of checks kept failing in",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline, with the Python runtime",
+        "B": "baseline + rounds 1–5"
+      },
+      "what": "Five builders: the revision line that claimed work it had not done, the measurement check that missed the case it was built for, the unbounded verification tail, a memory disclosure the current build had lost, and citation markers that resolved to the wrong passage when a turn ran two lookups.",
+      "findings": "The round produced a finding larger than its fixes. Three rounds running, a check built for exactly the failing case did not fire, always for the same structural reason: it enumerated the forms it had already seen and the world supplied one that was not on the list — round 3 listed net:: error codes and missed ERR_UNSAFE_PORT; round 4 bounded a quoted span by the line so a citation marker inside it broke the match; round 5 armed measurements per unit STRING, so a corpus with no Celsius never checked 74°C at all, and 165°F was named only because one passage incidentally mentioned a fridge at 40°F. Round 3’s repair generalises: replace the enumeration with its inverse — list the few codes that mean a server ANSWERED and treat everything else as unreachable. A list of known-bad can be defeated by an unknown; a list of known-good cannot.",
+      "verdict": "Round-5 build 15 · baseline 1 · 1 tie, over 17 tasks judged blind. Best result so far, and the single loss has one traceable cause that was documented as open before judging began.",
+      "gap": "V1, the one loss, and the cause was known before judging. The app now catches and NAMES the invented figure — “✎ Revised: 1 unsupported item was sent back (165 °F)” — but the re-check then clears it, and the figure is still in the answer. reviseAgainstFindings passes the turn’s records into the agent loop, so a retrieval made DURING the correction joins the corpus the re-check reads, while onToolExecuted writes only the audit log and never patches toolCalls. The food-safety pack does contain “165°F (74°C)”, so a real passage cleared both figures — one the reader never saw. The app is not lying about the re-check; the re-check is reading evidence the reader has no access to.",
+      "fix": "The revision line is a function of the report before AND after, names the surviving items, and is amber rather than green when a finding stands · temperature became one dimension in two scales, and stopped being derivable, since the integer-multiple rule had been certifying 80°F from a fridge’s 40°F · the tail is bounded at 60s with a named expiry and the stat line now reads “25.7s answer · 54.3s checking · 80.0s total” · a source tool that found nothing says so, on the block header and to the badge · passages are numbered per turn, so a second lookup no longer restarts at [1] under a reply that cites across both",
+      "evals": {
+        "node cases": "1792 → 1862",
+        "chrome-contrast checks": "39 → 45",
+        "blind tasks judged": "17",
+        "won / lost / tied": "15 / 1 / 1"
+      }
+    },
+    {
+      "n": 6,
+      "label": "The re-check that reads what the reader cannot",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline, with the Python runtime",
+        "B": "baseline + rounds 1–6"
+      },
+      "what": "Four builders on round 5’s only loss and the residue around it: the correction pass that cleared a finding using a retrieval the reader never saw; the pre-model wait billed to the wrong phase; a contact check that cried wolf on a base64 token while a $34,000 figure walked past the gate; and three tool outcomes — never sent, server failed, returned nothing — that all rendered as one indistinguishable ✗.",
+      "findings": "The headline is a number the app cannot see. Measured against the harness’s own wall clock, the baseline’s stat line was off by more than 25% on 7 of 17 turns, worst 3.08× — V2 claimed “32.4s total” on a turn that took 99.9 s. The round-6 build was off by more than 25% on 0 of 16, worst 1.01×, median 1.00; the residual tenth of a second is the harness’s own send-to-stamp offset. The cause was one line: turnStartedAt was stamped AFTER gatherTurnContext, so every pre-model search was billed to nobody. TTU1 shows it directly — the baseline reads “13.45s to first token · 31.5s total” on a turn the reader sat through for 40.3 s, while the round-6 build reads “12.80s to first token · 8.7s gathering · 31.1s answer · 39.7s total” against a measured 39.8 s.",
+      "verdict": "Round-6 build 16 · baseline 0 · 1 tie, over 17 tasks judged blind. The best result of the six rounds, the first with no losses against the corrected baseline, and the sweep behind it was 17/17 VALID with 0 screenshot failures. The tie is honest rather than a wash: on TH1 neither model invented a tool claim, so neither app was put to the test.",
+      "gap": "Six of the seventeen critiques land on the same species the project set out to kill, in places we had not looked. VC1: the app prints “Recomputed the stated figures in Python; the checker compared the reply against that output” under a reply whose echoed string plainly disagrees with the Python output inches below it — the checker compares FIGURES, the sentence claims it compared THE REPLY. PT1: we flag tools that ran without being forecast and never flag the reverse, so a plan that promised list_notes and read_note and ran neither says nothing while its header reads “4/4 steps done”. TH3: a quote warning fires on a span differing from the source only by curly-versus-straight quote glyphs, and the 60-character truncation stops before the deviation, so the reader sees a fabrication warning on a verbatim quote with no visible difference. TH1 (the tie): the reply misreports the ARGUMENT it passed — it states query \"ground beef safe internal temperature\" where the audit shows the whole user prompt went — and nothing checks a reply’s account of what it passed a tool. And the warning line itself is ungrammatical in every plural case, because the verb agrees with the number of CATEGORIES rather than the number of items.",
+      "fix": "The correction pass publishes its tool calls, so a clearance can only rest on evidence that rendered — on V1 the same figure that round 5 cleared invisibly is now named and left standing, and 165 appears in zero retrieved passages · turnOpenedAt is stamped before gatherTurnContext, so the line reads “13.45s to first token · 8.8s gathering · 31.5s answer · 40.3s total” · never-sent, server-failed and returned-nothing became three states with the reason on the collapsed row (↩ declined: the query was a sentence about you, not search terms) and a “Tool calls 3 · 1 declined” count · the contact check stopped starting mid-token, and the figure gate stopped discarding what unsourcedFigures had already found",
+      "evals": {
+        "node cases": "1862 → 1911",
+        "stat line off by >25%": "baseline 7 / 17 turns → 0 / 16",
+        "worst stat-line error": "baseline 3.08× → 1.01×",
+        "blind tasks judged": "17",
+        "won / lost / tied": "16 / 0 / 1"
+      }
+    },
+    {
+      "n": 7,
+      "label": "Five checks that read the quantity next to the one they meant",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline, re-captured through the current harness",
+        "B": "baseline + rounds 1–7"
+      },
+      "what": "Five builders on round 6’s critiques: the recompute sentence that claimed more than it measured, the plan forecast checked in one direction only, the quote warning whose truncation hid the difference it was warning about, a reply’s unchecked account of its own tool ARGUMENTS, and the instrument gap that made a rendering bug undiagnosable.",
+      "findings": "The round’s largest finding is a bug in the shipped renderer that six rounds of critics could not see, because they were reading the renderer’s own output. Adding reply.md — the raw markdown, beside the rendered text — exposed two independent character-eating defects with the same consequence. latexToPlainText was pairing dollar sigils into a math span and deleting the prose between them: “Cash or traveler’s checks ($200–$500 minimum)” reached the reader as “(200–500 minimum)”. And marked’s GFM single-tilde strikethrough was pairing approximations: “~51 GPH (~0.9 GPM)” reached the reader as “51 GPH (0.9 GPM)” — an estimate turned into an exact figure in the line a reader is most likely to quote. The grounding warning naming $0.01, $36, $10 had been RIGHT every time it fired, and was read as a cry-wolf because the figures genuinely were not on screen. When a check and the screen disagree, the screen is a measurement too, and it can be the broken one.",
+      "verdict": "Round-7 build 18 · baseline 0 · 0 ties, over 18 tasks — the full set for the first time, since VC2 had never had a baseline capture to pair against. Both sweeps 18/18 VALID, 0 failed. Read the caveat before the number: this is the widest margin of the seven rounds AND the round whose judging was most biased toward it.",
+      "gap": "The 18–0 is inflated and the reason is mine. This round’s critic prompts named the specific checks the round had just built — “compare the forecast IN BOTH DIRECTIONS”, “does the collapsed row say why”, “measure the pixels, not the declared colour”. A critic told to measure the thing we optimised will find that we win. Earlier rounds’ prompts stayed closer to each task’s own `probes` field; round 7’s drifted toward the changelog, so this score is not comparable with rounds 1–6 and must not be read as a trend. Round 8 must derive critic prompts from tasks.json alone, written by someone who has not seen what changed. Separately: the baseline is seven rounds old, so a sweep against it measures accumulated distance, not this round’s work. And the critics still found real defects in every winning run, several of them self-inflicted — the VC1 layout fix set `overflow-wrap: anywhere` on all markdown, which now breaks the word “Passage” across three lines as “Pas/sag/e” in a table header sized to a `[1]` cell.",
+      "fix": "The recompute notice narrowed to what it measures, and the string gap it can no longer claim is recorded as open · the plan reconciliation returns the whole symmetric difference, so a forecast tool that never ran is named · quote warnings show a window centred on the divergence with ⟪⟫ marking the break, replacing a clamp that cut BEFORE the differing character and printed byte-identical text for an honest quotation and a falsified one · a new rung checks a reply’s account of its own arguments · the verb agrees with the number of items rather than the number of categories · the amber banner’s confession line 3.10:1 → 6.66:1, after the contrast suite was found reading getComputedStyle().color, which opacity does not touch · scripts/test.sh typechecks the project instead of a hand-listed 66 files · make-blind-pairs scrubs the app root and then VERIFIES the blinding, after TTU2 was found shipping the baseline’s own directory name inside run.json",
+      "evals": {
+        "node cases": "1911 → 1976",
+        "markdown checks": "34 → 38",
+        "chrome-contrast checks": "45 → 54",
+        "characters deleted from answers": "baseline 7 across 4 tasks → 0",
+        "stat line off by >25%": "baseline 7 / 17 turns → 0 / 17",
+        "blind tasks judged": "18",
+        "won / lost / tied": "18 / 0 / 0"
+      }
+    },
+    {
+      "n": 8,
+      "label": "Judging that is not written by the person being judged",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the round-7 build",
+        "B": "the round-8 build"
+      },
+      "what": "Five builders on defects blind critics found in runs the app WON in round 7 — three of them caused by this project’s own earlier fixes — plus the first attempt to remove the judge’s conflict of interest.",
+      "findings": "The method was the round’s real subject, and the agent sent to write neutral prompts came back with a worse problem than the one it was sent to fix: all 18 `probes` fields in tasks.json are defect descriptions of a specific build, and four of them quote constants only one build can produce — VC3’s \"roughly 2.05:1 … 33 places … 83 places\", VC2’s \"33 occurrences of outline-none\", PT2’s exact button strings, PT3’s glyphs and classes. A critic that measures 2.46:1 against 9.48:1 having read that the number to beat is 2.05:1 is recognising an arm, not judging one. That was true of every round before this one. Critics now read a generated view carrying only id, dimension, prompt and setup, and the generator refuses to write if a stripped field survives under any name. A second guard came out of the version question: the sidebar renders the app version, so it is in every screenshot and cannot be scrubbed — eight rounds of blind judging worked only because package.json had never been bumped. Staging now refuses a pair whose arms report different versions.",
+      "verdict": "Round-8 build 2 · round-7 build 0 · 16 ties, over 18 tasks. Read alongside round 7’s 18–0–0, this is the number that means something: it is the first round compared against the PREVIOUS round rather than a seven-round-old baseline, judged with prompts written by an agent that never saw the changelog, from a task file stripped of the fields that name known defects. Sixteen ties is the correct answer when two builds one round apart are the same program on sixteen of eighteen tasks.",
+      "gap": "The ties are informative in three different ways and they should not be read as one thing. Some are the tasks not being sensitive to what changed — no builder touched PT2, PT3, FR2 or FR3, and the critics correctly found the two runs byte-identical apart from timestamps. Some are the model not exercising the change: on V1 the round-7 arm fired a false positive on a figure its own tool output contained, and the critic refused to score it because the round-8 arm never received a multi-lookup turn — \"its 0-mismatch score is untested rather than earned\". And one is a gap in the task set: builder A’s fix is visible in the artifacts — round 7 prints \"the answer is not backed by it\" while marking two passages cited, round 8 prints \"the answer cites [3] [5] from it anyway\" — but TH3’s neutral question asks whether source text is checkable on screen, which both builds satisfy, so a real repair to a self-contradiction scored a tie. The task set measures the dimension, not the defect.",
+      "fix": "Citation markers resolve across every lookup, not just the first, and \"— not cited\" is only asserted when the binder could resolve the marker · the currency pattern reads the whole number, so $0.007 is no longer reported as $0.00, and the ladder arms by dimension with two of its three bounds set by cry-wolf the suite caught · overflow-wrap: anywhere replaced by break-word plus a scroll container, ending 6 shredded words per reply while keeping the 220-character token inside the column · a failure boundary that gives the reader a sentence and keeps the identifier in the disclosure, the audit log and a copy affordance · the bench captures dark theme for the first time in eight rounds, and its keyboard traversal now activates a control and continues into what opens",
+      "evals": {
+        "node cases": "1976 → 2106",
+        "markdown checks": "38 → 56",
+        "style checks": "33 → 44",
+        "chrome-contrast checks": "54 → 60",
+        "blind tasks judged": "18",
+        "won / lost / tied": "2 / 0 / 16"
+      }
+    },
+    {
+      "n": 9,
+      "label": "Defects both builds share, found once the judging stopped flattering us",
+      "state": "pending",
+      "dimension": null,
+      "pair": null,
+      "what": "A same-generation comparison mostly returns ties, so what it surfaces is what BOTH builds get wrong. Focus is not trapped in the Settings modal — 24 to 30 of 70 Tab stops are focusable behind the open overlay, in both builds and both themes. The one text below the contrast threshold anywhere in the capture is the red error ink at 3.63:1, and it is round 8’s own new sentence: the wording was fixed and shipped in failing ink. The wrap fix breaks a token at hyphens, so a reader copying by eye cannot tell a wrap point from a character. And on V3 both builds check incidental repair costs while the headline water figure — the number the user asked for, differing threefold between runs — passes unflagged.",
+      "findings": null,
+      "verdict": null,
+      "gap": null,
+      "fix": null,
+      "evals": {}
+    }
+  ],
+  "evalHistory": [
+    {
+      "round": 0,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1546",
+      "delta": null
+    },
+    {
+      "round": 1,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1615",
+      "delta": "+69"
+    },
+    {
+      "round": 1,
+      "suite": "render/style",
+      "metric": "style checks",
+      "value": "25",
+      "delta": "+25"
+    },
+    {
+      "round": 1,
+      "suite": "audit",
+      "metric": "high-severity gaps closed",
+      "value": "13 / 28",
+      "delta": "+13"
+    },
+    {
+      "round": 1,
+      "suite": "blind head-to-head",
+      "metric": "tasks won by the newer build",
+      "value": "6 / 17",
+      "delta": null
+    },
+    {
+      "round": 1,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "2 / 17",
+      "delta": null
+    },
+    {
+      "round": 2,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1662",
+      "delta": "+47"
+    },
+    {
+      "round": 2,
+      "suite": "render/style",
+      "metric": "chrome-contrast checks",
+      "value": "33",
+      "delta": "+33"
+    },
+    {
+      "round": 2,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the original baseline",
+      "value": "13 / 16",
+      "delta": "+7"
+    },
+    {
+      "round": 2,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "1 / 16",
+      "delta": "-1"
+    },
+    {
+      "round": 3,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1731",
+      "delta": "+69"
+    },
+    {
+      "round": 3,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the original baseline",
+      "value": "14 / 16",
+      "delta": "+1"
+    },
+    {
+      "round": 3,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "0 / 16",
+      "delta": "-1"
+    },
+    {
+      "round": 4,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1792",
+      "delta": "+61"
+    },
+    {
+      "round": 4,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs a corrected baseline",
+      "value": "13 / 17",
+      "delta": null
+    },
+    {
+      "round": 4,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "3 / 17",
+      "delta": "+3"
+    },
+    {
+      "round": 5,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1862",
+      "delta": "+70"
+    },
+    {
+      "round": 5,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the fair baseline",
+      "value": "15 / 17",
+      "delta": "+2"
+    },
+    {
+      "round": 5,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "1 / 17",
+      "delta": "-2"
+    },
+    {
+      "round": 6,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1911",
+      "delta": "+49"
+    },
+    {
+      "round": 6,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the fair baseline",
+      "value": "16 / 17",
+      "delta": "+1"
+    },
+    {
+      "round": 6,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "0 / 17",
+      "delta": "-1"
+    },
+    {
+      "round": 6,
+      "suite": "stat-line honesty",
+      "metric": "turns whose \"total\" is off by >25%",
+      "value": "0 / 16",
+      "delta": "baseline 7 / 17"
+    },
+    {
+      "round": 7,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1976",
+      "delta": "+65"
+    },
+    {
+      "round": 7,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the fair baseline",
+      "value": "18 / 18",
+      "delta": "+2"
+    },
+    {
+      "round": 7,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "0 / 18",
+      "delta": "0"
+    },
+    {
+      "round": 7,
+      "suite": "render fidelity",
+      "metric": "characters deleted from answers",
+      "value": "0",
+      "delta": "baseline 7"
+    },
+    {
+      "round": 8,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "2106",
+      "delta": "+130"
+    },
+    {
+      "round": 8,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the PREVIOUS round",
+      "value": "2 / 18",
+      "delta": "first same-generation comparison"
+    },
+    {
+      "round": 8,
+      "suite": "blind head-to-head",
+      "metric": "tasks tied",
+      "value": "16 / 18",
+      "delta": null
+    },
+    {
+      "round": 8,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost",
+      "value": "0 / 18",
+      "delta": null
+    }
+  ]
+}

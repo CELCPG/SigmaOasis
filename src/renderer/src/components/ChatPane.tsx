@@ -84,7 +84,7 @@ export function ChatPane({
             <button
               type="button"
               onClick={focusThisPane}
-              className="w-full rounded-3xl border border-dashed border-black/10 dark:border-white/10 px-4 py-3 text-xs text-ink-muted transition-colors hover:border-[rgba(0,212,170,0.35)] hover:text-ink-secondary"
+              className="w-full rounded-3xl border border-dashed border-black/10 dark:border-white/10 px-4 py-3 text-xs text-ink-tertiary transition-colors hover:border-[rgba(0,212,170,0.35)] hover:text-ink-secondary"
               title="Focus this pane to reply in it"
             >
               {streaming
@@ -117,7 +117,7 @@ function PaneHeader({
       />
       <span
         className={`min-w-0 flex-1 truncate text-[11px] ${
-          focused ? 'font-medium text-ink-secondary' : 'text-ink-muted'
+          focused ? 'font-medium text-ink-secondary' : 'text-ink-tertiary'
         }`}
         title={title}
       >
@@ -126,7 +126,7 @@ function PaneHeader({
       <button
         type="button"
         onClick={onClose}
-        className="shrink-0 rounded-lg px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-600 dark:hover:text-neutral-300"
+        className="shrink-0 rounded-lg px-1.5 py-0.5 text-[11px] text-ink-tertiary hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title="Close this pane (⌘\\ closes the split)"
         aria-label="Close this pane"
       >

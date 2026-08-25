@@ -14,6 +14,10 @@ import { shoppingSubject } from '../shopping'
 export const shoppingPriceProvider: ContextProvider = {
   id: 'shoppingPrice',
   phase: 'serial',
+  wait: {
+    label: 'Checking prices',
+    detail: 'real offers, so the answer is not written around a remembered number'
+  },
   enabled: (input) => input.shoppingTurn && !!input.lastUserContent,
   async gather(input, io) {
     const canCompare = input.slotTools.some((t) => t.function.name === 'shop_compare')

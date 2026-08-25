@@ -42,11 +42,22 @@
    * light theme takes a deep teal instead. Both clear AA on their own surface.
    */
   --accent-ink: #00695a;
+  /* Same idea for amber: --accent-amber is light, and light-on-white is ~2:1.
+     The deep amber below measures 5.9:1 on the panel. */
+  --accent-amber-ink: #8a5a00;
 
-  /* Text */
+  /*
+   * Text. The alphas are set against the *composited* surface, not the canvas:
+   * chrome sits on the glass panel, which is rgba(255,255,255,0.72) over
+   * #f4f4f5 — an effective #fcfcfc. Secondary at 0.68 measured 6.1:1 there and
+   * tertiary at 0.48 only 3.2:1, so tertiary could not carry text at all. The
+   * ramp below clears AA on both the panel and the bare canvas (14.9 / 9.4 /
+   * 5.4:1 on the panel) and keeps three visible ranks. Muted is decorative and
+   * disabled states only — never information.
+   */
   --text-primary: rgba(23, 23, 23, 0.94);
-  --text-secondary: rgba(23, 23, 23, 0.68);
-  --text-tertiary: rgba(23, 23, 23, 0.48);
+  --text-secondary: rgba(23, 23, 23, 0.8);
+  --text-tertiary: rgba(23, 23, 23, 0.64);
   --text-muted: rgba(23, 23, 23, 0.32);
 
   /* Easing */
@@ -70,6 +81,7 @@
   --shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.3);
 
   --accent-ink: #4fffd1;
+  --accent-amber-ink: #ffd166;
 
   /*
    * The ink ramp is deliberately brighter than the original 0.92/0.6/0.35/0.2.
@@ -416,6 +428,20 @@ body {
   color: var(--text-tertiary);
   letter-spacing: 0.04em;
 }
+/* The silent-wait line. Secondary ink while it is only counting; the amber of
+   every other "this is not going well" surface once it escalates. */
+.oasis-wait {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oasis-wait[data-wait-level='escalated'] {
+  color: var(--accent-amber-ink);
+}
 
 /* Reduced motion: no droplets, no rings — the orb keeps its calm pulse. */
 @media (prefers-reduced-motion: reduce) {
@@ -441,7 +467,73 @@ body {
   background: transparent;
 }
 
+/* ---- Focus: one ring, keyboard only ---------------------------------------- */
+
+/*
+ * `outline-none` is on 33 controls in this app and only two of them put anything
+ * back, so a keyboard caret was invisible nearly everywhere. One ring, restored
+ * centrally. `:focus-visible` keeps it off mouse clicks, --accent-ink is the
+ * accent that survives both canvases (plain teal is 1.7:1 on the light one), and
+ * the selectors are element-level so they outrank the .outline-none utility.
+ */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
 /* ---- Markdown rendering (assistant messages) ------------------------------- */
+
+/*
+ * Model output is full of tokens no line-breaking algorithm can break: base64
+ * blobs, absolute paths, hashes, bare URLs. Without a break opportunity one of
+ * them stretches the bubble and, because the bubble is a flex item, the chat
+ * column with it.
+ *
+ * v1.17.2 — this was `anywhere`, and `anywhere` was the wrong half of the
+ * choice. The two keywords break identically: neither splits a word that fits
+ * on a line of its own. They differ in ONE thing — `anywhere` also lets the
+ * break count toward min-content, so a box that is sized by its contents may
+ * shrink to one character. That is precisely why it stopped the blowout, and
+ * precisely why a blind critic found "Passage" rendered "Pas / sag / e" in a
+ * table header: the column was sized against the 3-character `[1]` cell beside
+ * it, and the header was shredded to fit rather than the column widened.
+ *
+ * The shredding and the blowout are not two problems to trade off. They are the
+ * same property — min-content collapse — read once as a rescue and once as a
+ * defect, and they occur in exactly the same set of places: boxes whose width
+ * their own content decides. So the rule is `break-word` everywhere (never
+ * break a word that could have fitted), and every box that content sizes is
+ * given something else to size against instead:
+ *
+ *   - the bubble is `min-w-0 flex-1`, so its width comes from the column;
+ *   - a table gets its own scroll container (`.md-table-scroll`, below);
+ *   - a tool-call header's label is `min-w-0 truncate` (ToolCallBlock.tsx).
+ *
+ * Measured, at a 420px column and again in split view: shredded words 6 → 0,
+ * bubble scrollWidth unchanged at clientWidth. test/styleCheck.ts.
+ */
+.markdown-body {
+  overflow-wrap: break-word;
+}
+
+/*
+ * The same break opportunity for the rest of the reply. A reasoning trace, a
+ * second opinion, a deliberation draft and a tool's output are model output
+ * too — they just never go through the markdown renderer, so they never
+ * inherited the rule above, and one base64 blob in any of them stretched the
+ * bubble by 1600px. Set on the bubble, not on each surface: `overflow-wrap`
+ * inherits, so a surface added later is covered the day it is added. Code opts
+ * back out further down.
+ */
+.reply-surface {
+  overflow-wrap: break-word;
+}
 
 .markdown-body p {
   margin: 0.5em 0;
@@ -484,17 +576,75 @@ body {
   margin: 0.25em 0;
 }
 .markdown-body a {
-  color: #3b82f6;
+  /* blue-500 is 3.6:1 on the panel; blue-700 is 6.5:1. */
+  color: #1d4ed8;
   text-decoration: underline;
 }
 .dark .markdown-body a {
   color: var(--accent-teal-glow);
 }
+/* v1.13: an inline [1] that resolves to a retrieved passage. Small and
+   raised, so a citation reads as a citation rather than as body text; the
+   link colour above still marks the ones that open their source. */
+.markdown-body .citation-ref {
+  font-size: 0.85em;
+  vertical-align: 0.25em;
+  text-decoration: none;
+  cursor: help;
+}
+.markdown-body a.citation-ref {
+  cursor: pointer;
+}
+/* v1.17.2: a marker whose passage has no web source is still followable — it
+   opens the passage in the strip under the reply — so it gets the pointer and
+   the same dotted underline a reader can see without hovering. */
+.markdown-body span.citation-ref[data-citation] {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+.markdown-body span.citation-ref[data-citation]:focus-visible {
+  outline: 2px solid var(--accent-teal-glow);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* …and one the app cannot resolve at all is struck through, rather than left as
+   plain black text no reader can tell from a typo. --text-secondary, not
+   --text-tertiary: the mark has to be legible to be a warning, and the strike
+   is what carries "withdrawn" (so the signal does not rest on colour alone).
+   `not-allowed` because there is genuinely nothing behind it to open. */
+.markdown-body span.citation-unresolved {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
 .markdown-body blockquote {
   margin: 0.5em 0;
   border-left: 3px solid rgba(128, 128, 128, 0.4);
   padding-left: 0.8em;
-  color: rgba(128, 128, 128, 1);
+  /* A quote is the source's own words. The rule sets it apart; the ink does
+     not have to — flat grey was 3.9:1 on the light panel. */
+  color: var(--text-secondary);
+}
+/*
+ * A table is the one markdown block whose width its own contents decide: the
+ * column algorithm reads each cell's min-content, so with `break-word` a
+ * three-column citations table wants the width of its longest words and a cell
+ * holding a 220-character token wants 1795px. Compressing it is what shredded
+ * "Passage"; letting it push is what blew the column out. So it does neither —
+ * it scrolls, inside a container the reply's own width fixes. `overflow-x`
+ * makes this a scroll container, which also drops its flex `min-width: auto`
+ * to 0, so no ancestor can be stretched by it either.
+ *
+ * The wrapper is generated in lib/markdown.ts, so the <table> stays a real
+ * table: `display: block` on the element would have done the same job in CSS
+ * alone and would have dropped the table role from the accessibility tree.
+ * `tabindex` because a region that scrolls has to be scrollable by keyboard
+ * (WCAG 2.1.1); the app-wide `[tabindex]:focus-visible` ring covers it.
+ */
+.md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }
 .markdown-body table {
   margin: 0.5em 0;
@@ -541,7 +691,13 @@ body {
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.code-copy-btn {
+.code-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.code-copy-btn,
+.code-wrap-btn {
   border: none;
   background: transparent;
   color: rgba(255, 255, 255, 0.65);
@@ -550,14 +706,38 @@ body {
   padding: 2px 6px;
   border-radius: 5px;
 }
-.code-copy-btn:hover {
+.code-copy-btn:hover,
+.code-wrap-btn:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
+.code-wrap-btn[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+/* Code opts back out: a wrapped line is a lie about the source. It scrolls. */
 .code-block pre {
   margin: 0;
   padding: 10px 12px;
   overflow-x: auto;
+  overflow-wrap: normal;
+}
+/*
+ * …and scrolling on its own left a 300-character line unreadable: the pane is
+ * narrow, the scrollbar is at the bottom of a block that may be one line tall,
+ * and nothing said there was more to see. The header's Wrap control turns this
+ * on for one block at a time, so the default still shows the source as written.
+ *
+ * v1.17.2: `break-word` rather than `anywhere` here too, so the stylesheet has
+ * exactly one wrapping policy and no `anywhere` left to re-grow from. In a
+ * block whose width is already fixed by its parent the two are identical — a
+ * 220-character token cannot fit a line of its own either way, so it still
+ * breaks. lib/markdown.ts decides which blocks start in this state.
+ */
+.code-block.code-wrapped pre {
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
 }
 .code-block code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

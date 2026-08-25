@@ -5,6 +5,18 @@
 #  - renderCheck:     the page-extraction script, in a real offscreen window.
 #                     Hidden-text stripping depends on getComputedStyle and a real
 #                     layout, so mocking a DOM would only test the mock.
+#  - styleCheck:      the shipped stylesheet, laid out for real: long-token
+#                     wrapping, focus rings, ink contrast. All three are
+#                     properties of a layout, not of a string of CSS.
+#  - chromeContrast:  the contrast of a real reply's ink, in a real window, in
+#                     both themes. Composited over the translucent surfaces the
+#                     app actually stacks — a check that reads the CSS variables
+#                     alone certifies ink the app never renders.
+#  - tabTraverse:     the head-to-head keyboard-traversal and theme instruments,
+#                     driven with real key events in a real window. Whether Tab
+#                     moves focus, what :focus-visible matches, what a click at
+#                     an element's centre would hit and what a translucent ink
+#                     composites to are all properties of a live layout.
 #  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
 #                     window. DOMPurify is a no-op without a DOM, so a node test
 #                     of it would pass while sanitizing nothing.
@@ -54,6 +66,9 @@ fi
   --skipLibCheck \
   --strict \
   test/renderCheck.ts \
+  test/styleCheck.ts \
+  test/chromeContrastCheck.ts \
+  test/tabTraverseCheck.ts \
   test/markdownCheck.ts \
   test/workbenchCheck.ts \
   src/preload/workbench.ts \
@@ -62,7 +77,7 @@ fi
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
 status=0
-for check in renderCheck markdownCheck workbenchCheck httpClientCheck; do
+for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck markdownCheck workbenchCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
 done
 exit "$status"

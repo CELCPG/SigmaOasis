@@ -37,7 +37,7 @@ export function CollaborativeMode({ settings, onChange }: Props): JSX.Element {
 
   if (enabledModels.length === 0) {
     return (
-      <p className="text-sm text-neutral-500">
+      <p className="text-sm text-ink-secondary">
         No model slots are enabled. Enable at least one model under{' '}
         <span className="font-medium">Settings → Models</span> first.
       </p>
@@ -62,7 +62,7 @@ export function CollaborativeMode({ settings, onChange }: Props): JSX.Element {
               />
               <span className={`h-2.5 w-2.5 rounded-full ${ACCENT[m.color].dot}`} />
               {m.roleName}
-              <code className="ml-auto text-xs text-neutral-400">{m.modelId || 'no model'}</code>
+              <code className="ml-auto text-xs text-ink-tertiary">{m.modelId || 'no model'}</code>
             </label>
           ))}
         </div>
@@ -71,7 +71,7 @@ export function CollaborativeMode({ settings, onChange }: Props): JSX.Element {
       <div>
         <div className="mb-2 text-sm font-medium">Chain order</div>
         {ordered.length === 0 ? (
-          <p className="text-sm text-neutral-500">Tick at least one model above.</p>
+          <p className="text-sm text-ink-secondary">Tick at least one model above.</p>
         ) : (
           <ol className="space-y-1.5">
             {ordered.map((m, idx) => (
@@ -79,7 +79,7 @@ export function CollaborativeMode({ settings, onChange }: Props): JSX.Element {
                 key={m.id}
                 className="flex items-center gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm"
               >
-                <span className="w-5 text-center text-xs text-neutral-400">{idx + 1}</span>
+                <span className="w-5 text-center text-xs text-ink-tertiary">{idx + 1}</span>
                 <span className={`h-2.5 w-2.5 rounded-full ${ACCENT[m.color].dot}`} />
                 <span className="font-medium">{m.roleName}</span>
                 <span className="ml-auto flex gap-1">
@@ -106,7 +106,7 @@ export function CollaborativeMode({ settings, onChange }: Props): JSX.Element {
             ))}
           </ol>
         )}
-        <p className="mt-3 text-xs text-neutral-500">
+        <p className="mt-3 text-xs text-ink-secondary">
           In collaborative mode your message flows through the chain in this order — each
           model sees the previous model&apos;s output and posts its own reply.
         </p>

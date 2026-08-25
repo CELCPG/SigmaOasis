@@ -31,6 +31,8 @@ import { marketToolDefs } from './defs/market'
 
 export type { ToolMeta, ToolSchema } from './types'
 export { DEFAULT_PASSAGES, MAX_PASSAGES } from './defs/web'
+/** How a call that failed says so, and how a call the app declined says that instead. */
+export { declinedCall, failureReason, toolFailure, wasDeclined } from './outcomes'
 
 export const TOOL_DEFS = [
   ...fileToolDefs,
@@ -89,6 +91,19 @@ export const ALWAYS_ON_TOOLS: readonly string[] = TOOL_DEFS.filter(
  */
 export const SOURCE_TOOLS: ReadonlySet<string> = new Set(
   TOOL_DEFS.filter((d) => 'isSource' in d && d.isSource === true).map((d) => d.name)
+)
+
+/**
+ * The opening words each tool prints when the call worked and found nothing.
+ * A retrieval that returned nothing succeeded as a *call* and failed as a
+ * *lookup*; only the tool that wrote the text can say which of its outputs
+ * mean the second. Producer and reader share this one string.
+ */
+export const EMPTY_RESULT_LEADS: ReadonlyMap<string, string> = new Map(
+  TOOL_DEFS.filter((d) => 'emptyResultLead' in d && typeof d.emptyResultLead === 'string').map((d) => [
+    d.name,
+    d.emptyResultLead as string
+  ])
 )
 
 /** Settings → Tools checkbox labels, in TOOL_DEFS (wire) order. */

@@ -52,6 +52,18 @@ export function numbersLookHardcoded(code: string, stdout: string): boolean {
   return printed.every((v) => literals.has(v))
 }
 
+/**
+ * v1.12.4: the sentence that carries the one-time runtime start. `durationMs`
+ * only ever covered execution, so the boot — seconds of it — was attributed to
+ * nobody and the first run of a session read as the fastest one. It is stated
+ * as its own section rather than folded into the run time because it is a
+ * session cost, not this snippet's: the same code is not a thousand times
+ * slower the first time it is asked for.
+ */
+function bootLine(bootMs: number): string {
+  return `The sandbox started for this run: ${bootMs} ms (one-time; later runs in this conversation skip it).`
+}
+
 export interface FormattedRun {
   ok: boolean
   output?: string
@@ -99,6 +111,7 @@ export function formatRun(outcome: WorkbenchOutcome, code: string): FormattedRun
     const err = outcome.error ?? 'Python raised an error.'
     const body = [
       `Python run failed after ${outcome.durationMs} ms.`,
+      outcome.bootMs ? bootLine(outcome.bootMs) : '',
       stdout ? `stdout before the error:\n${clip(stdout, MAX_STDOUT_SHOWN, 'stdout')}` : '',
       `error:\n${clip(err, MAX_STDERR_SHOWN, 'traceback')}`,
       stderr && !err.includes(stderr.slice(0, 80)) ? `stderr:\n${clip(stderr, MAX_STDERR_SHOWN, 'stderr')}` : '',
@@ -109,6 +122,7 @@ export function formatRun(outcome: WorkbenchOutcome, code: string): FormattedRun
   }
 
   parts.push(`Python ran in ${outcome.durationMs} ms.`)
+  if (outcome.bootMs) parts.push(bootLine(outcome.bootMs))
   if (stdout) parts.push(`stdout:\n${clip(stdout, MAX_STDOUT_SHOWN, 'stdout')}`)
   if (outcome.result !== null && outcome.result !== '' && outcome.result !== 'None') parts.push(`result (last expression): ${outcome.result}`)
   if (stderr) parts.push(`stderr:\n${clip(stderr, MAX_STDERR_SHOWN, 'stderr')}`)

@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { claimCheckSummary, sourceCaveat, UNREACHABLE_NOTE, UNREACHABLE_REMEDY } from '../lib/claimCheck'
+import { useAppStore } from '../stores/appStore'
 import type { ClaimCheckRecord, ClaimVerdict } from '../types'
 
 interface Props {
@@ -22,6 +24,14 @@ const VERDICT_STYLE: Record<ClaimVerdict, { icon: string; label: string; classes
     icon: '?',
     label: 'Unverifiable',
     classes: 'text-amber-600 dark:text-amber-400'
+  },
+  // Not a verdict — an admission that no verdict was reached, and why.
+  unchecked: {
+    icon: '–',
+    label: 'Not checked',
+    // Quieter than a verdict, but still a statement about the answer's
+    // standing, so it goes through the ink scale rather than a raw grey.
+    classes: 'text-ink-secondary'
   }
 }
 
@@ -36,16 +46,17 @@ const VERDICT_STYLE: Record<ClaimVerdict, { icon: string; label: string; classes
  */
 export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
   const [open, setOpen] = useState(true)
-  const done = check.claims.filter((c) => c.verdict === 'confirmed').length
-  const contradicted = check.claims.filter((c) => c.verdict === 'contradicted').length
-
-  const summary =
-    check.claims.length === 0
-      ? isStreaming
-        ? 'Extracting claims…'
-        : 'Claim check'
-      : `Claim check: ${check.claims.length} claim${check.claims.length === 1 ? '' : 's'}` +
-        (isStreaming ? ' (running…)' : ` — ${done} confirmed, ${contradicted} contradicted`)
+  const openSettingsAt = useAppStore((s) => s.openSettingsAt)
+  // Both lines are decided in lib/claimCheck.ts, where node:test can read them.
+  const summary = claimCheckSummary(check, isStreaming)
+  const caveat = sourceCaveat(check.claims)
+  // A critic's only complaint about UNREACHABLE_NOTE was that its remedy is
+  // prose. It is offered as a control exactly where the app has proved the
+  // remedy is the right one — every search this turn failed to connect — and
+  // nowhere else, because a button that fixes the wrong thing is worse than a
+  // sentence. The prose stays: an export, a screenshot and a copy-paste all
+  // survive this component, and a button does not.
+  const unreachable = check.budgetNote === UNREACHABLE_NOTE || summary === UNREACHABLE_NOTE
 
   return (
     <div className="my-2 overflow-hidden rounded-2xl border border-amber-400/25 bg-amber-400/[0.05] text-xs">
@@ -55,13 +66,13 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-amber-400/10"
       >
         <span className={isStreaming ? 'animate-pulse' : ''}>🧪</span>
-        <span className="font-medium text-amber-700 dark:text-amber-300">{summary}</span>
+        <span className="min-w-0 font-medium text-amber-700 dark:text-amber-300">{summary}</span>
         {check.modelId && (
-          <span className="min-w-0 truncate font-mono text-[10px] text-neutral-400">
+          <span className="min-w-0 truncate font-mono text-[10px] text-ink-tertiary">
             {check.roleName} · {check.modelId}
           </span>
         )}
-        <span className="ml-auto text-neutral-400">{open ? '▾' : '▸'}</span>
+        <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
         <div className="px-3 pb-3 pt-1">
@@ -74,8 +85,8 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
                     {style.icon}
                   </span>
                   <div className="min-w-0">
-                    <p className="text-neutral-600 dark:text-neutral-300">{claim.text}</p>
-                    <p className="mt-0.5 text-[10px] text-neutral-400">
+                    <p className="text-ink-secondary">{claim.text}</p>
+                    <p className="mt-0.5 text-[10px] text-ink-tertiary">
                       <span className={`font-medium ${style.classes}`}>{style.label}</span>
                       {claim.basis && <span> — {claim.basis}</span>}
                       {claim.source && (
@@ -87,13 +98,21 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
               )
             })}
           </ul>
-          {check.budgetNote && (
-            <p className="mt-2 text-[10px] text-neutral-400">{check.budgetNote}</p>
+          {check.budgetNote && check.budgetNote !== summary && (
+            <p className="mt-2 text-[10px] text-ink-tertiary">{check.budgetNote}</p>
           )}
-          {!isStreaming && check.claims.length > 0 && (
-            <p className="mt-2 border-t border-amber-400/15 pt-1.5 text-[10px] text-neutral-400">
-              Each verdict rests on the one source shown. A confirmation is only as good as that
-              source — open it before relying on the claim.
+          {unreachable && (
+            <button
+              type="button"
+              onClick={() => openSettingsAt(UNREACHABLE_REMEDY.tab)}
+              className="mt-2 rounded-lg border border-amber-400/40 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-400/10 dark:text-amber-300"
+            >
+              Open {UNREACHABLE_REMEDY.label}
+            </button>
+          )}
+          {!isStreaming && caveat && (
+            <p className="mt-2 border-t border-amber-400/15 pt-1.5 text-[10px] text-ink-tertiary">
+              {caveat}
             </p>
           )}
         </div>

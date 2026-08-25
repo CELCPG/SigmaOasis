@@ -220,8 +220,15 @@ export interface SecondOpinionSettings {
 
 // ---- v1.2: claim check (settle the critic's list) -----------------------------
 
-/** How one extracted claim fared against sources. Never model self-graded. */
-export type ClaimVerdict = 'confirmed' | 'contradicted' | 'unverifiable'
+/**
+ * How one extracted claim fared against sources. Never model self-graded.
+ *
+ * `unverifiable` and `unchecked` are different admissions and must stay apart:
+ * a source was read and did not settle the claim, versus no source could be
+ * reached at all. Reporting the second as the first is how a structurally
+ * impossible pass looks like a completed one.
+ */
+export type ClaimVerdict = 'confirmed' | 'contradicted' | 'unverifiable' | 'unchecked'
 
 export interface CheckedClaim {
   /** The bare factual claim as extracted by the critic. */
@@ -297,6 +304,26 @@ export interface MemoryContextItem {
   source: string
   score: number
   text: string
+  /**
+   * v1.13: the bracketed number the model was given for this passage, when it
+   * was given one (library lookups number theirs). The strip shows it, so a
+   * `[1]` in the reply has something on screen to name.
+   */
+  index?: number
+  /**
+   * v1.13.1: did the reply actually cite this passage? Derived from the
+   * answer at render time and never stored — the strip lists what was
+   * retrieved, and only the finished answer says what was used.
+   */
+  cited?: boolean
+  /**
+   * v1.17.2: the answer used a marker that names no listed passage, so whether
+   * this one was cited is not something the app can settle. Set instead of
+   * `cited: false`, never beside it — an unmarked entry would read as "cited".
+   */
+  unsettled?: boolean
+  /** The document's own web source, when it has one — shown as a link. */
+  url?: string
 }
 
 // ---- v0.9: session audit log ---------------------------------------------------
@@ -338,13 +365,27 @@ export interface AuditEntryInput {
 
 // ---- v0.9: Plan mode ------------------------------------------------------------
 
-export type PlanStepStatus = 'pending' | 'running' | 'done' | 'failed'
+/**
+ * `stopped` is the user's own Stop landing on the running step — not the step
+ * blowing up. `skipped` is a step that will never run now: the plan ended
+ * before it, so it must not look like a step still waiting its turn.
+ */
+export type PlanStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'stopped' | 'skipped'
+
+/** How a plan ended. Absent while it awaits approval or is still running. */
+export type PlanOutcome = 'completed' | 'cancelled' | 'stopped' | 'failed'
 
 export interface PlanStep {
   id: string
   title: string
   detail: string
   status: PlanStepStatus
+  /**
+   * Tools this step may reach for, named by the planner and filtered to the
+   * ones actually enabled. Shown before approval: the user authorises a plan
+   * on what it will do, and a title is not that (v1.12.3).
+   */
+  tools?: string[]
   /** Capped result of the step's sub-turn, shown expandable in the checklist. */
   output?: string
 }
@@ -353,6 +394,11 @@ export interface ChatPlan {
   steps: PlanStep[]
   /** Execution starts only after the user approves (Settings → General → Plan mode). */
   approved: boolean
+  /**
+   * Terminal state. Once set the plan is over: no approval controls, and the
+   * header says how it ended rather than how many steps are done.
+   */
+  outcome?: PlanOutcome
   createdAt: number
 }
 
@@ -597,7 +643,11 @@ export interface WorkbenchStatus {
   version: string | null
   /** Why it is unavailable, when it is. */
   reason?: string
-  /** A sandbox window is alive right now (the next run skips the cold start). */
+  /**
+   * The runtime is loaded and serving, so the next run skips the cold start.
+   * False for the whole of a boot in progress — which is when a run needs to
+   * be told what it is waiting on (components/RanCodeBlock.tsx).
+   */
   warm: boolean
   /** Top-level packages bundled offline, e.g. numpy, pandas, matplotlib. */
   packages: string[]
@@ -725,10 +775,22 @@ export interface GroundingReport {
   origins?: string[]
   /** Phone numbers and email addresses backed by no tool output (v1.4.5). */
   contacts?: string[]
+  /** v1.12.1: tools the reply says it used that never ran this turn. */
+  toolClaims?: string[]
+  /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
+  toolDisclosure?: string[]
+  /** v1.17: an argument the reply quotes as passed that the call never carried. */
+  toolArgs?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox. */
   code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */
   addresses?: string[]
+  /** v1.13: bracketed citation markers naming a passage the library never returned. */
+  citations?: string[]
+  /** v1.14: spans presented as direct quotations that no tool output contains. */
+  quotes?: string[]
+  /** v1.14: `[n] (Document)` attributions naming a document that is not passage n's. */
+  attributions?: string[]
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }
@@ -764,6 +826,19 @@ export interface ToolCallRecord {
    * content, where the model expects its words to live.
    */
   preamble?: string
+  /**
+   * v1.12.2: the plan step whose sub-turn made this call. Set, the call renders
+   * under that step in the plan block rather than in the message's own list —
+   * twenty calls stay grouped by the step that made them instead of becoming a
+   * wall under the answer.
+   */
+  planStepId?: string
+  /**
+   * v1.12.3: the app has already told the user this run verified nothing — a
+   * recomputation fed by the model's own constants, say. Such a run must not
+   * then be named in "Checked against", and its output supports no figure.
+   */
+  checksNothing?: boolean
 }
 
 export interface ChatMessage {
@@ -793,7 +868,18 @@ export interface ChatMessage {
   /** v1.5.1: the think-harder pass that ran on this reply, if any. */
   deliberation?: DeliberationRecord
   /** v1.6: Workbench verification passes that ran on this reply (recompute / code check). */
-  checks?: { kind: 'recompute' | 'code' | 'echo' | 'conflict'; ok: boolean; summary: string }[]
+  checks?: {
+    /** v1.12.5: 'deadline' — the post-answer budget ran out, and this says what was lost. */
+    kind: 'recompute' | 'code' | 'echo' | 'conflict' | 'deadline'
+    ok: boolean
+    summary: string
+    /**
+     * v1.17.2: the runtime's own words, when this line exists because something
+     * broke — kept out of `summary`, which a reader has to be able to act on,
+     * and kept at all, because whoever is debugging needs them.
+     */
+    detail?: { source: string; text: string }
+  }[]
   /**
    * The long-term memory chunks injected into the system prompt for this turn
    * (v0.9 visible recall). Display-only — never replayed to a model.
@@ -807,6 +893,8 @@ export interface ChatMessage {
   attachmentContext?: MemoryContextItem[]
   /** v1.5: passages the app retrieved from the local reference library for this reply. */
   libraryContext?: MemoryContextItem[]
+  /** v1.12.2: the library was consulted and none of what it returned is about the question. */
+  libraryMiss?: boolean
   /** v1.10: passages recalled from the project's other chats for this reply (source = chat title). */
   projectContext?: MemoryContextItem[]
   /** v1.5: the turn ran while the app was offline (no web tools could work). */
@@ -834,8 +922,15 @@ export interface ChatMessage {
    * the turn's tools did not support. `before` is what that first pass found,
    * kept so the UI can say the answer was corrected rather than silently
    * replacing it. Display-only.
+   *
+   * `after` is the re-check on the revision — kept because `before` alone
+   * cannot tell the reader whether anything was actually fixed. A revision is
+   * adopted whenever it *reduces* the findings, so findings routinely survive
+   * into the answer on screen, and a line written from `before` alone claims a
+   * resolution nobody verified. Optional only for messages persisted before
+   * this existed; those fall back to `grounding`, which is the same report.
    */
-  corrected?: { before: GroundingReport; at: number }
+  corrected?: { before: GroundingReport; after?: GroundingReport | null; at: number }
   /**
    * v1.3 tool grounding: figures or links in this reply that the turn's own
    * tool output does not support — the model overriding or inventing past what
@@ -894,9 +989,34 @@ export interface ResponseStats {
    * panel can say how much of the window the project is spending.
    */
   projectTokens?: { instructions: number; recall: number; files: number }
-  /** Time to the first content or reasoning delta. */
+  /**
+   * Time to the first content or reasoning delta, measured from when the model
+   * was asked — which is after `gatherMs`, not from the send.
+   */
   ttftMs: number
+  /**
+   * First request to the last token — the stream, and only the stream. Stamped
+   * on every streaming round, so it stops at the one that ended the answer.
+   */
   totalMs: number
+  /**
+   * v1.12.6: the turn opening to the first request — everything the app did
+   * before the model was asked anything. On a factual turn that is dominated by
+   * the app's own web_search, which runs as a serial context provider
+   * (lib/contextProviders): 8786 ms and 8891 ms in the two recorded TTU1 runs.
+   * Measured as the distance between the turn's two origins, never estimated.
+   * Absent on turns recorded before v1.12.6.
+   */
+  gatherMs?: number
+  /**
+   * v1.12.5: the turn opening to the composer being released — the wait the
+   * reader actually sat through, gather and post-answer verification tail
+   * included. v1.12.6 moved this origin back ahead of the gather, so the three
+   * measured spans tile the whole turn: `gatherMs + totalMs + tail = turnMs`,
+   * every one of them measured (lib/turnCost.ts). Absent on turns recorded
+   * before v1.12.5, and on turns that ended before the tail ran.
+   */
+  turnMs?: number
 }
 
 export interface Conversation {

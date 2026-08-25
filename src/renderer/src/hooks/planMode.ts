@@ -2,15 +2,19 @@ import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { runAgentLoop, TOOL_TURN_BUDGETS, type ApiMessage } from '../lib/agentLoop'
+import { endPlan } from '../lib/planState'
 import type {
   ChatMessage,
   ChatPlan,
   Conversation,
   ModelConfig,
+  PlanOutcome,
   PlanStep,
+  ToolCallRecord,
   ToolSchema
 } from '../types'
 import { makeTailStream, streamChat } from './chatTransport'
+import { composeFailure, explainFailure } from '../../../shared/failure'
 import { audit, subsetForTurn, uid } from './turnHelpers'
 
 /**
@@ -67,9 +71,38 @@ export function planContext(messages: ChatMessage[]): string {
 export const planApprovals = new Map<string, (approved: boolean) => void>()
 
 /**
+ * Where a plan step's tool calls go.
+ *
+ * v1.12.2. They went nowhere: the step handed the loop a throwaway array, so a
+ * plan that ran twenty searches showed the user none of them, and with the
+ * audit log off by default they were recorded nowhere reachable. The step now
+ * shares the message's own record list — the same list an ordinary turn shows —
+ * and `stepId` tags each call so the plan block can keep it under the step that
+ * made it.
+ */
+export interface StepRecordSink {
+  stepId: string
+  records: ToolCallRecord[]
+  onChange: () => void
+}
+
+/** The calls one plan step made, in the order it made them. */
+export function stepRecords(
+  records: ToolCallRecord[] | undefined,
+  stepId: string
+): ToolCallRecord[] {
+  return (records ?? []).filter((r) => r.planStepId === stepId)
+}
+
+/** The message's own calls — a step's belong under the step, not the answer. */
+export function answerRecords(records: ToolCallRecord[] | undefined): ToolCallRecord[] {
+  return (records ?? []).filter((r) => !r.planStepId)
+}
+
+/**
  * Execute one plan step: a bounded sub-turn with the normal tool list and a
- * tighter iteration cap. Tool calls are audit-logged like any chat turn's.
- * Returns the step's result, capped.
+ * tighter iteration cap. Tool calls are audit-logged like any chat turn's and
+ * shown in the plan block under this step. Returns the step's result, capped.
  */
 export async function runPlanStep(
   slot: ModelConfig,
@@ -78,7 +111,8 @@ export async function runPlanStep(
   tools: ToolSchema[],
   signal: AbortSignal,
   convo: Conversation,
-  context: string
+  context: string,
+  sink: StepRecordSink
 ): Promise<string> {
   const apiMessages: ApiMessage[] = [
     {
@@ -100,9 +134,14 @@ export async function runPlanStep(
   await runAgentLoop({
     messages: apiMessages,
     tools: await subsetForTurn(toolsForSlot(slot, tools), input),
-    // Step tool calls are audit-logged like any chat turn's, but not displayed.
-    records: [],
+    // The step's calls join the message's record list, tagged with the step:
+    // the work a plan did is as visible as the work an ordinary turn does.
+    records: sink.records,
     signal,
+    onRecordChange: (record) => {
+      record.planStepId = sink.stepId
+      sink.onChange()
+    },
     maxIterations: MAX_PLAN_STEP_ITERATIONS,
     deps: {
       streamRound: async (messages, roundTools) => {
@@ -188,11 +227,14 @@ export async function runPlanTurn(
     task,
     slot.modelId,
     settings.plan.maxSteps,
-    context || undefined
+    context || undefined,
+    // What this slot is allowed to call, so each step can say before approval
+    // which of them it may use.
+    toolsForSlot(slot, tools).map((t) => t.function.name)
   )
   if (signal.aborted) return
   if (!gen.ok || !gen.steps || gen.steps.length === 0) {
-    patchPlanErrorNotice(conversationId, gen.error ?? 'the model did not produce a usable plan')
+    patchPlanErrorNotice(conversationId, gen.error ?? 'The model did not produce a usable plan.')
     await runTurn(conversationId, slot, baseUrl, tools, signal)
     return
   }
@@ -206,7 +248,13 @@ export async function runPlanTurn(
     color: slot.color,
     toolCalls: [],
     plan: {
-      steps: gen.steps.map((s) => ({ id: uid(), title: s.title, detail: s.detail, status: 'pending' })),
+      steps: gen.steps.map((s) => ({
+        id: uid(),
+        title: s.title,
+        detail: s.detail,
+        tools: s.tools ?? [],
+        status: 'pending' as const
+      })),
       approved: !settings.plan.confirmPlan,
       createdAt: Date.now()
     },
@@ -227,6 +275,11 @@ export async function runPlanTurn(
       plan: { ...plan, steps: plan.steps.map((s) => (s.id === stepId ? { ...s, ...p } : s)) }
     })
   }
+  /** Record how the plan ended, so the block stops reading as live work. */
+  const finish = (outcome: PlanOutcome): void => {
+    const plan = currentPlan()
+    if (plan) patch({ plan: endPlan(plan, outcome) })
+  }
 
   // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
   if (settings.plan.confirmPlan) {
@@ -237,19 +290,35 @@ export async function runPlanTurn(
     planApprovals.delete(assistantMsg.id)
     const plan = currentPlan()
     if (!approved) {
-      if (plan) patch({ plan: { ...plan, approved: false }, content: 'Plan cancelled — nothing was executed.' })
+      // The refusal has to reach the block, not just the prose: with only
+      // `approved:false` it still read "awaiting approval" with a live Run
+      // button under a message saying nothing was executed.
+      const stopped = signal.aborted
+      finish(stopped ? 'stopped' : 'cancelled')
+      patch({
+        content: stopped
+          ? 'Stopped before the plan ran — nothing was executed.'
+          : 'Plan cancelled — nothing was executed.'
+      })
       return
     }
     if (plan) patch({ plan: { ...plan, approved: true } })
   }
 
   // 3. Execute steps sequentially; each sees the capped results of the ones before.
+  // One record list for the whole turn — the steps' calls and the synthesis's,
+  // in the order they happened, exactly as an ordinary turn keeps them.
+  const allRecords: ToolCallRecord[] = []
+  const publishRecords = (): void => patch({ toolCalls: [...allRecords] })
   const completed: { title: string; output: string }[] = []
   let haltedBy: string | null = null
   const plan = currentPlan()
   if (!plan) return
   for (let i = 0; i < plan.steps.length; i++) {
-    if (signal.aborted) return
+    if (signal.aborted) {
+      finish('stopped')
+      return
+    }
     const step = plan.steps[i]!
     patchStep(step.id, { status: 'running' })
 
@@ -262,19 +331,42 @@ export async function runPlanTurn(
         : '')
 
     try {
-      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo, context)
+      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo, context, {
+        stepId: step.id,
+        records: allRecords,
+        onChange: publishRecords
+      })
       patchStep(step.id, { status: 'done', output })
       completed.push({ title: step.title, output })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      patchStep(step.id, { status: 'failed', output: message })
+      // Stop lands here as an abort. It is the user ending the plan, not the
+      // step blowing up — drawing it in failure red blames them for their own
+      // decision, so it gets its own status and no error output.
+      if (signal.aborted) {
+        patchStep(step.id, { status: 'stopped' })
+        finish('stopped')
+        return
+      }
+      // Measured: `signal is aborted without reason`, alone, as the ENTIRE
+      // body of an interrupted step — a DOMException's wording where the step's
+      // account of itself should be. The body now says what happened and quotes
+      // the runtime underneath it, attributed.
+      const failure = explainFailure(err, { subject: `Step ${i + 1}` })
+      patchStep(step.id, { status: 'failed', output: composeFailure(failure) })
       // A failed step poisons everything built on it: halt, and let the
-      // synthesis say plainly what that leaves unanswered.
-      haltedBy = `Step ${i + 1} ("${step.title}") failed: ${message}`
+      // synthesis say plainly what that leaves unanswered. The synthesis reads
+      // this, so it gets the sentence — the identifier would only invite the
+      // model to repeat it into the answer.
+      haltedBy = `Step ${i + 1} ("${step.title}") failed: ${failure.sentence}`
       break
     }
   }
-  if (signal.aborted) return
+  if (signal.aborted) {
+    finish('stopped')
+    return
+  }
+  // The checklist is settled here; the synthesis below writes the answer.
+  finish(haltedBy ? 'failed' : 'completed')
 
   // 4. Synthesize the final answer from the step results.
   let resultsBlock = plan.steps
@@ -324,8 +416,11 @@ export async function runPlanTurn(
     // The same allowlist any turn gets, with budgets stated. Without tools the
     // synthesis could only fabricate; with them it can actually close the gap.
     tools: withBudgetNotes(await subsetForTurn(toolsForSlot(slot, tools), task), TOOL_TURN_BUDGETS),
-    records: [],
+    // Untagged: the synthesis writes the message's own answer, so its calls sit
+    // with the answer the way any turn's do.
+    records: allRecords,
     signal,
+    onRecordChange: publishRecords,
     maxIterations: MAX_PLAN_STEP_ITERATIONS,
     deps: {
       streamRound: async (messages, roundTools) => {
@@ -374,12 +469,21 @@ export async function runPlanTurn(
   }
 }
 
-/** A planning failure becomes a normal turn; the notice explains why. */
+/**
+ * A planning failure becomes a normal turn; the notice explains why.
+ *
+ * `gen.error` is main's, and main's last resort is a thrown value's message —
+ * so it reaches this line as anything at all. It goes through the boundary
+ * first: a notice that reads `📋 Planning failed (net::ERR_…)` tells the reader
+ * nothing they can use, and the turn has already recovered by answering
+ * directly, which is the part they actually need to know.
+ */
 export function patchPlanErrorNotice(conversationId: string, error: string): void {
+  const failure = explainFailure(error, { subject: 'Planning' })
   useAppStore.getState().appendMessage(conversationId, {
     id: uid(),
     role: 'assistant',
-    content: `📋 Planning failed (${error}) — answering directly instead.`,
+    content: `📋 Planning failed — answering directly instead.\n\n${composeFailure(failure)}`,
     marker: 'notice',
     createdAt: Date.now()
   })

@@ -2,10 +2,18 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   LIBRARY_PASSAGES_PER_TURN,
+  UNCITED_MARK,
+  UNSETTLED_MARK,
   buildLibraryContext,
   citationOf,
+  contextItemLabel,
+  libraryMissCitedLabel,
+  libraryMissScopedLabel,
+  libraryStripSummary,
+  markCitedContextItems,
   shouldConsultLibrary,
-  toLibraryContextItems
+  toLibraryContextItems,
+  unresolvedMarkerNote
 } from '../src/renderer/src/lib/libraryRecall'
 
 /**
@@ -46,10 +54,77 @@ describe('labels', () => {
     assert.equal(citationOf(p), 'First aid › FM 4-25.11 › Burns · 31% in')
     assert.equal(citationOf({ ...p, section: '' }), 'First aid › FM 4-25.11 · 31% in')
   })
-  test('strip items mirror the passages', () => {
-    assert.deepEqual(toLibraryContextItems([p]), [
-      { source: 'First aid › FM 4-25.11 › Burns · 31% in', score: 0.9, text: 'Cool the burn.' }
+  test('strip items mirror the passages, numbered as the model was told to cite them', () => {
+    // v1.13: `index` is the [n] in formatLookup, which numbers this same array
+    // in this same order — without it the strip gave a reply's [1] nothing to
+    // name. `url` is the locator the lookup already retrieved.
+    assert.deepEqual(toLibraryContextItems([p, { ...p, section: 'Shock', source: 'https://example.org/fm' }]), [
+      { source: 'First aid › FM 4-25.11 › Burns · 31% in', score: 0.9, text: 'Cool the burn.', index: 1 },
+      {
+        source: 'First aid › FM 4-25.11 › Shock · 31% in',
+        score: 0.9,
+        text: 'Cool the burn.',
+        index: 2,
+        url: 'https://example.org/fm'
+      }
     ])
+  })
+  test('the strip line leads with the bracketed number the reply cites', () => {
+    const [first, second] = toLibraryContextItems([p, { ...p, section: 'Shock' }])
+    assert.equal(contextItemLabel(first), '[1] First aid › FM 4-25.11 › Burns · 31% in (0.90)')
+    assert.match(contextItemLabel(second), /^\[2\] /)
+  })
+  test('a recalled item with no number (memory, attachments) is unchanged', () => {
+    assert.equal(
+      contextItemLabel({ source: 'note.md', score: 0.42, text: 'x' }),
+      'note.md (0.42)'
+    )
+  })
+  test('a listed passage the reply never cited is marked, a cited one is not', () => {
+    const items = toLibraryContextItems([p, { ...p, section: 'Shock' }])
+    const marked = markCitedContextItems(items, 'Cool it under running water [1].')
+    assert.deepEqual(marked.map((i) => i.cited), [true, false])
+    assert.equal(contextItemLabel(marked[0]), '[1] First aid › FM 4-25.11 › Burns · 31% in (0.90)')
+    assert.equal(contextItemLabel(marked[1]), `[2] First aid › FM 4-25.11 › Shock · 31% in (0.90) ${UNCITED_MARK}`)
+  })
+  test('an answer that cites nothing marks every listed passage', () => {
+    const marked = markCitedContextItems(toLibraryContextItems([p]), 'Run it under cool water.')
+    assert.deepEqual(marked.map((i) => i.cited), [false])
+  })
+  test('an item that was never given a number is not accused of going uncited', () => {
+    const [only] = markCitedContextItems([{ source: 'note.md', score: 0.42, text: 'x' }], 'no markers here')
+    assert.equal(only.cited, undefined)
+    assert.equal(only.unsettled, undefined)
+    assert.equal(contextItemLabel(only), 'note.md (0.42)')
+  })
+  // v1.17.2: "— not cited" is a claim, and the app may only make it while it can
+  // account for every marker the answer used.
+  test('a marker naming nothing on the list withdraws the negative from all of it', () => {
+    const items = toLibraryContextItems([p, { ...p, section: 'Shock' }])
+    const marked = markCitedContextItems(items, 'Cool it under running water [7].')
+    assert.deepEqual(marked.map((i) => i.cited), [undefined, undefined])
+    assert.deepEqual(marked.map((i) => i.unsettled), [true, true])
+    assert.equal(contextItemLabel(marked[0]), `[1] First aid › FM 4-25.11 › Burns · 31% in (0.90) ${UNSETTLED_MARK}`)
+    assert.ok(!contextItemLabel(marked[0]).includes(UNCITED_MARK))
+  })
+  test('the positive is never withdrawn — a marker that names a listed passage still counts', () => {
+    const items = toLibraryContextItems([p, { ...p, section: 'Shock' }])
+    const marked = markCitedContextItems(items, 'Cool it [1], and watch for shock [7].')
+    assert.deepEqual(marked.map((i) => i.cited), [true, undefined])
+    assert.deepEqual(marked.map((i) => i.unsettled), [undefined, true])
+    assert.equal(contextItemLabel(marked[0]), '[1] First aid › FM 4-25.11 › Burns · 31% in (0.90)')
+  })
+  test('the two marks are mutually exclusive — an entry never carries both', () => {
+    for (const answer of ['no markers', '[1] only', '[9] only', '[1] and [9]']) {
+      for (const i of markCitedContextItems(toLibraryContextItems([p]), answer)) {
+        assert.ok(!(i.cited === false && i.unsettled === true), answer)
+        assert.ok(!(i.cited === true && i.unsettled === true), answer)
+      }
+    }
+  })
+  test('a folder pack\'s local path is not offered as a link', () => {
+    const [item] = toLibraryContextItems([{ ...p, source: '/Users/me/docs/lease.pdf' }])
+    assert.equal(item.url, undefined)
   })
   test('the turn block says why it is there, differently offline, and carries the formatted text', () => {
     const on = buildLibraryContext('[1] First aid › …', false)
@@ -61,5 +136,42 @@ describe('labels', () => {
   })
   test('the per-turn cap is small', () => {
     assert.ok(LIBRARY_PASSAGES_PER_TURN >= 3 && LIBRARY_PASSAGES_PER_TURN <= 8)
+  })
+})
+
+/**
+ * v1.17.2: the four sentences the strip can lead with, and what each of them is
+ * allowed to claim. Each replaces a claim the app could not support; none of
+ * them may quietly grow one back.
+ */
+describe('what the strip is allowed to say', () => {
+  test('a floor miss the answer cited names the marker instead of denying it', () => {
+    const label = libraryMissCitedLabel(['[5]'])
+    assert.equal(label, '📖 Nothing in the library covers this question — the answer cites [5] from it anyway.')
+    // The claim about the ANSWER is what was wrong; the measured half stays.
+    assert.doesNotMatch(label, /not backed by it/)
+    assert.match(label, /Nothing in the library covers this question/)
+    assert.equal(libraryMissCitedLabel(['[2]', '[5]']), '📖 Nothing in the library covers this question — the answer cites [2] [5] from it anyway.')
+  })
+
+  test('a floor miss whose turn retrieved more says how much it judged', () => {
+    const label = libraryMissScopedLabel(5, 12)
+    assert.equal(label, '📖 Nothing in the 5 passages the app looked up covers this question; the model then retrieved 12 more.')
+    // It must not read as a verdict on the whole strip, which it never saw.
+    assert.doesNotMatch(label, /Nothing in the library/)
+    assert.match(libraryMissScopedLabel(1, 6), /^📖 Nothing in the 1 passage the app looked up/)
+  })
+
+  test('a multi-lookup header counts what is there and names what was used', () => {
+    assert.equal(libraryStripSummary(17, 3, ['[8]', '[9]', '[14]']), '17 passages from 3 lookups — the answer cites [8] [9] [14].')
+    assert.equal(libraryStripSummary(11, 2, []), '11 passages from 2 lookups — the answer cites none of them.')
+  })
+
+  test('the withheld-negative warning names the markers that caused it', () => {
+    assert.equal(unresolvedMarkerNote(['[9]']), '⚠️ [9] names no passage listed here, so the rest are left unjudged.')
+    assert.equal(
+      unresolvedMarkerNote(['[8]', '[14]']),
+      '⚠️ [8] [14] name no passage listed here, so the rest are left unjudged.'
+    )
   })
 })

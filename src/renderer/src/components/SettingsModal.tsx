@@ -74,7 +74,7 @@ function ProfileLine({ modelId, scores }: { modelId: string; scores: EvalScoreSu
   if (!line) return null
   const tip = [profile.toolCalling.detail, ...profile.notes].filter(Boolean).join('\n')
   return (
-    <p className="mt-1 text-xs text-neutral-400" title={tip}>
+    <p className="mt-1 text-xs text-ink-tertiary" title={tip}>
       Profile: {line}
     </p>
   )
@@ -93,7 +93,7 @@ function EvalScoreLine({
   if (!text) return null
   return (
     <p
-      className="mt-1 text-xs text-neutral-400"
+      className="mt-1 text-xs text-ink-tertiary"
       title={`Measured by the local tool-choice eval (npm run eval:tools) against canned tool results; newest run ${new Date(score.ranAt).toLocaleString()}.`}
     >
       Eval: {text} · {new Date(score.ranAt).toLocaleDateString()}
@@ -182,6 +182,16 @@ export function SettingsModal(): JSX.Element | null {
     void window.api.getSttStatus().then(setSttStatus)
     return () => window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
   }, [tab])
+
+  // v1.17.2: a remedy control asked for a specific tab. Honour it once, then
+  // clear it, so the next manual open lands where the reader left off.
+  const requestedTab = useAppStore((s) => s.settingsTab)
+  const clearSettingsTab = useAppStore((s) => s.clearSettingsTab)
+  useEffect(() => {
+    if (!requestedTab) return
+    setTab(requestedTab)
+    clearSettingsTab()
+  }, [requestedTab, clearSettingsTab])
 
   // Load memory stats when the Memory tab opens.
   useEffect(() => {
@@ -404,7 +414,7 @@ export function SettingsModal(): JSX.Element | null {
           <button
             type="button"
             onClick={attemptClose}
-            className="rounded-lg p-1.5 text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10"
+            className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           >
             ✕
           </button>
@@ -441,7 +451,7 @@ export function SettingsModal(): JSX.Element | null {
                     placeholder="http://127.0.0.1:1234/v1"
                     className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/40"
                   />
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     OpenAI-compatible endpoint. Default is{' '}
                     <code>http://127.0.0.1:1234/v1</code>.
                   </p>
@@ -487,7 +497,7 @@ export function SettingsModal(): JSX.Element | null {
                         <li key={m.id} className="font-mono">
                           {m.id}
                           {describeModel(m) && (
-                            <span className="ml-2 font-sans text-neutral-500">
+                            <span className="ml-2 font-sans text-ink-secondary">
                               {describeModel(m)}
                             </span>
                           )}
@@ -505,7 +515,7 @@ export function SettingsModal(): JSX.Element | null {
                   <div className="flex items-center gap-3">
                     <div className="flex-1">
                       <div className="text-sm font-medium">Tool-choice eval</div>
-                      <p className="mt-0.5 text-xs text-neutral-400">
+                      <p className="mt-0.5 text-xs text-ink-tertiary">
                         Measures whether each loaded model calls the right tool, against canned
                         results (the same harness as <code>npm run eval:tools</code>). Scores appear
                         under each model picker. A big model can take minutes per fixture.
@@ -532,14 +542,14 @@ export function SettingsModal(): JSX.Element | null {
                     )}
                   </div>
                   {evalRun && (
-                    <p className="mt-2 text-xs text-neutral-500">
+                    <p className="mt-2 text-xs text-ink-secondary">
                       Model {evalRun.modelIndex}/{evalRun.modelCount} ({evalRun.model}) — fixture{' '}
                       {evalRun.fixtureIndex}/{evalRun.fixtureCount}{' '}
                       <span className="font-mono">{evalRun.last}</span>
                     </p>
                   )}
                   {evalNotice && !evalRun && (
-                    <p className="mt-2 text-xs text-neutral-500">{evalNotice}</p>
+                    <p className="mt-2 text-xs text-ink-secondary">{evalNotice}</p>
                   )}
                 </div>
 
@@ -564,7 +574,7 @@ export function SettingsModal(): JSX.Element | null {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                        <label className="mb-1 block text-xs font-medium text-ink-secondary">
                           Model (from LM Studio)
                         </label>
                         <select
@@ -587,7 +597,7 @@ export function SettingsModal(): JSX.Element | null {
                         <EvalScoreLine scores={evalScores} modelId={m.modelId} />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                        <label className="mb-1 block text-xs font-medium text-ink-secondary">
                           Role name
                         </label>
                         <input
@@ -599,7 +609,7 @@ export function SettingsModal(): JSX.Element | null {
                     </div>
 
                     <div className="mt-3">
-                      <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      <label className="mb-1 block text-xs font-medium text-ink-secondary">
                         Context window override (tokens)
                       </label>
                       <input
@@ -615,7 +625,7 @@ export function SettingsModal(): JSX.Element | null {
                         }
                         className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
                       />
-                      <p className="mt-1 text-xs text-neutral-400">
+                      <p className="mt-1 text-xs text-ink-tertiary">
                         History compaction and the context meter budget against this number. Leave
                         empty to trust LM Studio; set it when the server under-reports the window
                         or you loaded the model with a larger one.
@@ -623,7 +633,7 @@ export function SettingsModal(): JSX.Element | null {
                     </div>
 
                     <div className="mt-3">
-                      <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      <label className="mb-1 block text-xs font-medium text-ink-secondary">
                         System prompt
                       </label>
                       <textarea
@@ -636,7 +646,7 @@ export function SettingsModal(): JSX.Element | null {
 
                     <div className="mt-3 flex flex-wrap items-end gap-4">
                       <div className="min-w-64 flex-1">
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                        <label className="mb-1 block text-xs font-medium text-ink-secondary">
                           Capability
                         </label>
                         <input
@@ -650,7 +660,7 @@ export function SettingsModal(): JSX.Element | null {
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">
+                        <label className="mb-1 block text-xs font-medium text-ink-secondary">
                           Specialty
                         </label>
                         <select
@@ -670,7 +680,7 @@ export function SettingsModal(): JSX.Element | null {
                         </select>
                       </div>
                     </div>
-                    <p className="mt-1 text-xs text-neutral-400">
+                    <p className="mt-1 text-xs text-ink-tertiary">
                       How other models and the pre-flight router decide what to send this role.
                       Capability is the one-line declaration shown in the consult roster; Specialty
                       is what the router matches on (code → Coding, finance questions → Finance,
@@ -679,7 +689,7 @@ export function SettingsModal(): JSX.Element | null {
                     </p>
 
                     <div className="mt-3 flex items-center gap-2">
-                      <span className="text-xs font-medium text-neutral-500">Accent:</span>
+                      <span className="text-xs font-medium text-ink-secondary">Accent:</span>
                       {ACCENT_KEYS.map((c) => (
                         <button
                           key={c}
@@ -691,15 +701,15 @@ export function SettingsModal(): JSX.Element | null {
                           title={c}
                         />
                       ))}
-                      <span className="ml-2 text-xs text-neutral-400">
+                      <span className="ml-2 text-xs text-ink-tertiary">
                         Route with <code>@{m.roleName.replace(/\s+/g, '')}</code>
                       </span>
                     </div>
 
                     <details className="mt-3">
-                      <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                      <summary className="cursor-pointer text-xs font-medium text-ink-secondary">
                         Tools
-                        <span className="ml-1 font-normal text-neutral-400">
+                        <span className="ml-1 font-normal text-ink-tertiary">
                           {m.tools
                             ? `${m.tools.filter((t) => draft.tools[t as keyof ToolToggles]).length} of ${(Object.keys(TOOL_LABELS) as (keyof ToolToggles)[]).filter((k) => draft.tools[k]).length} enabled`
                             : 'all enabled tools'}
@@ -708,7 +718,7 @@ export function SettingsModal(): JSX.Element | null {
                       <div className="mt-2">
                         {m.tools === undefined ? (
                           <div className="flex items-center gap-3">
-                            <p className="flex-1 text-xs text-neutral-400">
+                            <p className="flex-1 text-xs text-ink-tertiary">
                               This role holds every tool enabled under Settings → Tools. Restrict
                               it when a smaller, focused list would help the model choose — or keep
                               a powerful tool out of the wrong hands.
@@ -754,7 +764,7 @@ export function SettingsModal(): JSX.Element | null {
                                 ))}
                             </div>
                             <div className="mt-1.5 flex items-center gap-3">
-                              <p className="flex-1 text-xs text-neutral-400">
+                              <p className="flex-1 text-xs text-ink-tertiary">
                                 {(m.tools.filter((t) => draft.tools[t as keyof ToolToggles])).length === 0
                                   ? 'This role holds no tools — it answers from its own knowledge only.'
                                   : 'Only checked tools reach this role. Tools disabled globally never do.'}
@@ -773,7 +783,7 @@ export function SettingsModal(): JSX.Element | null {
                     </details>
 
                     <details className="mt-3">
-                      <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                      <summary className="cursor-pointer text-xs font-medium text-ink-secondary">
                         Sampling
                       </summary>
                       <div className="mt-2 grid grid-cols-4 gap-3">
@@ -788,7 +798,7 @@ export function SettingsModal(): JSX.Element | null {
                                 className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                                   activePreset(m.sampling.temperature)?.value === p.value
                                     ? 'bg-accent/20 font-medium text-accent-ink'
-                                    : 'bg-black/5 dark:bg-white/10 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                                    : 'bg-black/5 dark:bg-white/10 text-ink-secondary hover:text-ink-primary'
                                 }`}
                               >
                                 {p.label} {p.value}
@@ -807,7 +817,7 @@ export function SettingsModal(): JSX.Element | null {
                                 onClick={() =>
                                   updateSampling(m.id, recommendedSampling(m.modelId)!.recipe)
                                 }
-                                className="rounded-full bg-black/5 dark:bg-white/10 px-2.5 py-1 text-xs text-neutral-500 transition-colors hover:text-neutral-700 dark:hover:text-neutral-300"
+                                className="rounded-full bg-black/5 dark:bg-white/10 px-2.5 py-1 text-xs text-ink-secondary transition-colors hover:text-ink-primary"
                               >
                                 {recommendedSampling(m.modelId)!.label} defaults
                               </button>
@@ -815,7 +825,7 @@ export function SettingsModal(): JSX.Element | null {
                           </div>
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-neutral-500">Temperature</label>
+                          <label className="mb-1 block text-xs text-ink-secondary">Temperature</label>
                           <input
                             type="number"
                             min={0}
@@ -829,7 +839,7 @@ export function SettingsModal(): JSX.Element | null {
                           />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-neutral-500">Top P</label>
+                          <label className="mb-1 block text-xs text-ink-secondary">Top P</label>
                           <input
                             type="number"
                             min={0.01}
@@ -841,7 +851,7 @@ export function SettingsModal(): JSX.Element | null {
                           />
                         </div>
                         <div className="col-span-4">
-                          <div className="mb-1 text-xs text-neutral-500">Reply length</div>
+                          <div className="mb-1 text-xs text-ink-secondary">Reply length</div>
                           <div className="flex gap-1.5">
                             {LENGTH_PRESETS.map((p) => (
                               <button
@@ -852,7 +862,7 @@ export function SettingsModal(): JSX.Element | null {
                                 className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                                   activeLengthPreset(m.sampling.maxTokens)?.value === p.value
                                     ? 'bg-accent/20 font-medium text-accent-ink'
-                                    : 'bg-black/5 dark:bg-white/10 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                                    : 'bg-black/5 dark:bg-white/10 text-ink-secondary hover:text-ink-primary'
                                 }`}
                               >
                                 {p.label}
@@ -861,7 +871,7 @@ export function SettingsModal(): JSX.Element | null {
                           </div>
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-neutral-500">Max tokens</label>
+                          <label className="mb-1 block text-xs text-ink-secondary">Max tokens</label>
                           <input
                             type="number"
                             min={-1}
@@ -874,7 +884,7 @@ export function SettingsModal(): JSX.Element | null {
                           />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-neutral-500">Top K</label>
+                          <label className="mb-1 block text-xs text-ink-secondary">Top K</label>
                           <input
                             type="number"
                             min={-1}
@@ -886,7 +896,7 @@ export function SettingsModal(): JSX.Element | null {
                           />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-neutral-500">Min P</label>
+                          <label className="mb-1 block text-xs text-ink-secondary">Min P</label>
                           <input
                             type="number"
                             min={-1}
@@ -898,7 +908,7 @@ export function SettingsModal(): JSX.Element | null {
                           />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-neutral-500">Seed</label>
+                          <label className="mb-1 block text-xs text-ink-secondary">Seed</label>
                           <input
                             type="number"
                             placeholder="random"
@@ -912,7 +922,7 @@ export function SettingsModal(): JSX.Element | null {
                           />
                         </div>
                       </div>
-                      <p className="mt-2 text-xs text-neutral-400">
+                      <p className="mt-2 text-xs text-ink-tertiary">
                         Lower temperature = fewer invented facts; higher = more varied prose.
                         Temperature 0 with a fixed seed makes this role reproducible: the same
                         prompt returns the same answer. Max tokens <code>-1</code> leaves the reply
@@ -926,7 +936,7 @@ export function SettingsModal(): JSX.Element | null {
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="text-sm font-medium">Second opinion</div>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Adds a &quot;🔍 2nd opinion&quot; action under replies: a <em>different</em> role
                     reviews the answer and names the factual claims it could not verify, plus the
                     check that would settle each. Never a confidence score — a model grading its
@@ -947,7 +957,7 @@ export function SettingsModal(): JSX.Element | null {
                   </label>
                   {draft.secondOpinion.enabled && (
                     <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-2">
-                      <label className="text-xs text-neutral-500">Reviewing role</label>
+                      <label className="text-xs text-ink-secondary">Reviewing role</label>
                       <select
                         value={draft.secondOpinion.criticSlotId ?? ''}
                         onChange={(e) =>
@@ -969,7 +979,7 @@ export function SettingsModal(): JSX.Element | null {
                             </option>
                           ))}
                       </select>
-                      <p className="col-span-2 text-xs text-neutral-400">
+                      <p className="col-span-2 text-xs text-ink-tertiary">
                         Needs at least two enabled roles; with one, the action explains that no
                         independent review is possible instead of asking the answerer to grade
                         itself.
@@ -985,7 +995,7 @@ export function SettingsModal(): JSX.Element | null {
                         />
                         <span>
                           Check claims automatically
-                          <span className="mt-0.5 block text-xs text-neutral-500">
+                          <span className="mt-0.5 block text-xs text-ink-secondary">
                             On ⚠️ unverified answers, the reviewing role extracts the factual
                             claims and the app checks each against web sources — confirmed,
                             contradicted, or unverifiable, with the source shown. Runs one search
@@ -1027,7 +1037,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Correct unsupported specifics
-                      <span className="mt-0.5 block text-xs text-neutral-500">
+                      <span className="mt-0.5 block text-xs text-ink-secondary">
                         When the grounding check finds an address, price, link or phone number the
                         turn&rsquo;s own tools never returned, the findings go back to the model for
                         one revision — verify it with a tool, or drop it and say so. Costs one extra
@@ -1048,7 +1058,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Playbooks — give the model a method for the kind of question
-                      <span className="mt-0.5 block text-xs text-neutral-500">
+                      <span className="mt-0.5 block text-xs text-ink-secondary">
                         For first-aid, health, finance, legal, home-repair, data, code, comparison
                         and planning questions, a short numbered method rides along with the turn
                         (&ldquo;say to call emergency services first&rdquo;, &ldquo;compute with the
@@ -1070,7 +1080,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Think harder may use self-review when no second role is enabled
-                      <span className="mt-0.5 block text-xs text-neutral-500">
+                      <span className="mt-0.5 block text-xs text-ink-secondary">
                         🧠 Think harder is draft → review → revise, once. With two roles the review
                         comes from a different model. With one, this lets the same model read its
                         own draft as a strict reviewer — weaker, always labelled &ldquo;reviewed its
@@ -1091,7 +1101,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Workbench checks — recompute figures, run the code
-                      <span className="mt-0.5 block text-xs text-neutral-500">
+                      <span className="mt-0.5 block text-xs text-ink-secondary">
                         When a reply states figures that nothing computed, the model is asked for a
                         short Python program that recomputes them and the app runs it in the sandbox;
                         the reply is then checked against that output like any calculator result.
@@ -1112,7 +1122,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Conversation ledger — the app remembers what was established
-                      <span className="mt-0.5 block text-xs text-neutral-500">
+                      <span className="mt-0.5 block text-xs text-ink-secondary">
                         From the fourth turn on, the model is handed a mechanical record of what this
                         conversation has established: figures a tool computed, files attached, Python
                         session variables, and constraints you stated (&ldquo;budget is $2,000&rdquo;) —
@@ -1141,7 +1151,7 @@ export function SettingsModal(): JSX.Element | null {
                         type="button"
                         onClick={() => update({ theme: t })}
                         className={`px-4 py-1.5 rounded-md capitalize ${
-                          draft.theme === t ? 'bg-white dark:bg-neutral-700 shadow-sm' : 'text-neutral-500'
+                          draft.theme === t ? 'bg-white dark:bg-neutral-700 shadow-sm' : 'text-ink-secondary'
                         }`}
                       >
                         {t}
@@ -1174,7 +1184,7 @@ export function SettingsModal(): JSX.Element | null {
                     onChange={(e) => update({ historyLimit: Number(e.target.value) })}
                     className="w-32 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
                   />
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Maximum number of conversations to keep.
                   </p>
                 </div>
@@ -1189,7 +1199,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     Hide tool-call details
                   </label>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     When on, tool activity collapses to a subtle thinking animation — the chat
                     stays clean. Off by default.
                   </p>
@@ -1202,7 +1212,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     Show response stats
                   </label>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Tokens/sec and time to first token under each reply. Token counts come from LM
                     Studio; when a server does not report them, only timing is shown.
                   </p>
@@ -1221,7 +1231,7 @@ export function SettingsModal(): JSX.Element | null {
                       <option value="expanded">Always expanded</option>
                       <option value="hidden">Hidden</option>
                     </select>
-                    <p className="mt-1 text-xs text-neutral-500">
+                    <p className="mt-1 text-xs text-ink-secondary">
                       How a model&apos;s chain-of-thought appears above its reply. Applies to new
                       views of a message; the reasoning itself is always kept.
                     </p>
@@ -1241,7 +1251,7 @@ export function SettingsModal(): JSX.Element | null {
                     <option value="compact">Summarize what no longer fits</option>
                     <option value="trim">Drop it silently</option>
                   </select>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Summarizing costs one extra local model call when the limit is first reached,
                     and keeps the model aware of how the conversation began. Dropping is what
                     versions before 0.8.2 did.
@@ -1258,14 +1268,14 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Show the plan for approval before executing
-                      <span className="block text-xs text-neutral-500">
+                      <span className="block text-xs text-ink-secondary">
                         One dialog with every step before anything runs — the moment to catch a plan
                         that misread the task. Off means generated plans run immediately.
                       </span>
                     </span>
                   </label>
                   <div className="mt-2 flex items-center gap-2">
-                    <label className="text-xs text-neutral-500">Max steps per plan</label>
+                    <label className="text-xs text-ink-secondary">Max steps per plan</label>
                     <input
                       type="number"
                       min={1}
@@ -1274,18 +1284,18 @@ export function SettingsModal(): JSX.Element | null {
                       onChange={(e) => update({ plan: { ...draft.plan, maxSteps: Number(e.target.value) } })}
                       className="w-20 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
                     />
-                    <span className="text-xs text-neutral-400">
+                    <span className="text-xs text-ink-tertiary">
                       Each step is a bounded sub-turn with the enabled tools.
                     </span>
                   </div>
                 </div>
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <label className="mb-1 block text-sm font-medium">About</label>
-                  <p className="text-sm text-neutral-500">
+                  <p className="text-sm text-ink-secondary">
                     Sigma Oasis v{updateStatus?.currentVersion ?? '…'}
                   </p>
                   <div className="mt-2 flex items-center gap-3">
-                    <span className="text-xs text-neutral-500">
+                    <span className="text-xs text-ink-secondary">
                       {updateStatus?.state === 'dev'
                         ? 'Development build — updates apply to packaged releases.'
                         : updateStatus?.state === 'checking'
@@ -1342,7 +1352,7 @@ export function SettingsModal(): JSX.Element | null {
                       Browse…
                     </button>
                   </div>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Relative paths resolve here, and the file tools cannot read or write outside
                     it. Leave empty for unrestricted paths — each write is then confirmed.
                   </p>
@@ -1361,7 +1371,7 @@ export function SettingsModal(): JSX.Element | null {
                       }`}
                     />
                     <span className="text-sm font-medium">Workbench (sandboxed Python)</span>
-                    <span className="text-xs text-neutral-400">
+                    <span className="text-xs text-ink-tertiary">
                       {workbench === null
                         ? 'checking…'
                         : !workbench.available
@@ -1400,7 +1410,7 @@ export function SettingsModal(): JSX.Element | null {
                       </button>
                     )}
                   </div>
-                  <p className="mt-1.5 text-xs text-neutral-500">
+                  <p className="mt-1.5 text-xs text-ink-secondary">
                     {workbench?.available
                       ? `Python runs in WebAssembly inside a sandboxed window: no network — not even your LM Studio server — and no access to your disk beyond the files you attach. Available offline: the standard library${
                           workbench.packages.length > 0 ? ` plus ${workbench.packages.join(', ')}` : ''
@@ -1434,7 +1444,7 @@ export function SettingsModal(): JSX.Element | null {
                           className="accent-accent"
                         />
                         {TOOL_LABELS[key]}
-                        <code className="ml-auto text-xs text-neutral-400">{key}</code>
+                        <code className="ml-auto text-xs text-ink-tertiary">{key}</code>
                       </label>
                     ))}
                   </div>
@@ -1444,7 +1454,7 @@ export function SettingsModal(): JSX.Element | null {
 
             {tab === 'search' && (
               <div className="space-y-5">
-                <p className="rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                <p className="rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
                   Web search is the only feature that sends your words off this machine — and only
                   the query itself, only to the provider you choose below, only when the{' '}
                   <code>web_search</code> / <code>fetch_webpage</code> tools are enabled. Obvious
@@ -1494,7 +1504,7 @@ export function SettingsModal(): JSX.Element | null {
                           />
                           {p.label}
                         </span>
-                        <span className="mt-0.5 block pl-6 text-xs text-neutral-500">{p.hint}</span>
+                        <span className="mt-0.5 block pl-6 text-xs text-ink-secondary">{p.hint}</span>
                       </label>
                     ))}
                   </div>
@@ -1511,7 +1521,7 @@ export function SettingsModal(): JSX.Element | null {
                       placeholder="http://127.0.0.1:8888"
                       className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none"
                     />
-                    <p className="mt-1 text-xs text-neutral-500">
+                    <p className="mt-1 text-xs text-ink-secondary">
                       Run one with <code>docker run -p 8888:8080 searxng/searxng</code> and enable
                       JSON output (<code>formats: [html, json]</code>). A loopback instance means
                       only infrastructure you control ever sees your queries.
@@ -1564,9 +1574,9 @@ export function SettingsModal(): JSX.Element | null {
                       )}
                     </div>
                     {braveKeyNotice && (
-                      <p className="mt-1 text-xs text-neutral-500">{braveKeyNotice}</p>
+                      <p className="mt-1 text-xs text-ink-secondary">{braveKeyNotice}</p>
                     )}
-                    <p className="mt-1 text-xs text-neutral-500">
+                    <p className="mt-1 text-xs text-ink-secondary">
                       Stored via your OS keychain (Electron safeStorage) — never in the settings
                       file the UI can read back.
                     </p>
@@ -1602,13 +1612,13 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Confirm every query
-                      <span className="block text-xs text-neutral-500">
+                      <span className="block text-xs text-ink-secondary">
                         Show the exact outgoing query for approval before each search.
                       </span>
                     </span>
                   </label>
                   <div>
-                    <label className="mb-1 block text-xs text-neutral-500">
+                    <label className="mb-1 block text-xs text-ink-secondary">
                       Deep research budget
                     </label>
                     <select
@@ -1627,7 +1637,7 @@ export function SettingsModal(): JSX.Element | null {
                       <option value="standard">Standard — up to 6 searches, 10 pages, 8 domains</option>
                       <option value="thorough">Thorough — up to 10 searches, 16 pages, 12 domains</option>
                     </select>
-                    <p className="mt-1 text-xs text-neutral-500">
+                    <p className="mt-1 text-xs text-ink-secondary">
                       Hard ceiling on what one <code>deep_research</code> call may spend. The
                       distinct-domain cap is the privacy-relevant one — it limits how many separate
                       sites learn anything at all.
@@ -1646,7 +1656,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Approve research plans
-                      <span className="block text-xs text-neutral-500">
+                      <span className="block text-xs text-ink-secondary">
                         Before a deep research run sends anything, show every sub-question and every
                         outgoing query for approval — one dialog for the whole plan.
                       </span>
@@ -1665,7 +1675,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Read JavaScript-dependent pages
-                      <span className="block text-xs text-neutral-500">
+                      <span className="block text-xs text-ink-secondary">
                         When a page returns no readable text (documentation sites, single-page apps),
                         re-read it in an offscreen browser. Only the page&apos;s own origin is
                         contacted — every third-party request is blocked and logged — and the session
@@ -1711,7 +1721,7 @@ export function SettingsModal(): JSX.Element | null {
               <div className="space-y-5">
                 <div>
                   <div className="text-sm font-medium">The privacy promise</div>
-                  <p className="mt-1 text-sm text-neutral-500">
+                  <p className="mt-1 text-sm text-ink-secondary">
                     Sigma Oasis runs your models locally and stores everything on this machine.
                     The only outbound connections it can make are: your local LM Studio server, the
                     search provider you chose (only when search tools run), and GitHub — only if
@@ -1729,7 +1739,7 @@ export function SettingsModal(): JSX.Element | null {
                   />
                   <span>
                     Automatically check for updates
-                    <span className="block text-xs text-neutral-500">
+                    <span className="block text-xs text-ink-secondary">
                       Contacts GitHub Releases periodically. Off by default — the manual
                       &quot;Check now&quot; button (General tab) always works.
                     </span>
@@ -1739,7 +1749,7 @@ export function SettingsModal(): JSX.Element | null {
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="text-sm font-medium">Proxy (Tor / VPN)</div>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Route search, page reads and rendering through a proxy you run. This is the only
                     control here that hides <em>who is asking</em> rather than what is asked — your
                     provider still sees the query, but no longer your IP address. Your LM Studio
@@ -1803,7 +1813,7 @@ export function SettingsModal(): JSX.Element | null {
                   )}
 
                   {draft.proxy.mode === 'socks5' && (
-                    <p className="mt-2 text-xs text-neutral-500">
+                    <p className="mt-2 text-xs text-ink-secondary">
                       With SOCKS5, hostnames are resolved <strong>at the proxy</strong>, so your local
                       resolver never learns which sites you read. Tor&apos;s daemon listens on port
                       9050; the Tor Browser bundle uses 9150.
@@ -1818,7 +1828,7 @@ export function SettingsModal(): JSX.Element | null {
                       {proxyTest.detail}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-neutral-500">
+                  <p className="mt-2 text-xs text-ink-secondary">
                     &quot;Test proxy&quot; is the one time the app contacts a third party on its own
                     behalf: it asks <code>api.ipify.org</code> which IP address sites see, because a
                     misconfigured proxy otherwise fails silently by simply not being used.
@@ -1827,7 +1837,7 @@ export function SettingsModal(): JSX.Element | null {
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="text-sm font-medium">Shopping</div>
-                  <p className="mt-1 mb-3 text-xs text-neutral-500">
+                  <p className="mt-1 mb-3 text-xs text-ink-secondary">
                     Shopping tools contact retailers, who log the visit. Sigma Oasis never logs in,
                     never fills a cart and never checks out — you finish the purchase in your own
                     browser. The watchlist stays on this machine.
@@ -1843,7 +1853,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Require a proxy for shopping fetches
-                      <span className="block text-xs text-neutral-500">
+                      <span className="block text-xs text-ink-secondary">
                         Refuses rather than going out direct. Big retailers block Tor exits, so this
                         trades success rate for not handing them your IP — deliberately, and in that
                         order.
@@ -1861,14 +1871,14 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Exclude affiliate listicles and content farms
-                      <span className="block text-xs text-neutral-500">
+                      <span className="block text-xs text-ink-secondary">
                         &quot;Top 10 best…&quot; pages are written to rank, not to inform. The domain
                         list is in <code>src/main/ipc/sourceTiers.ts</code> — a ranking you can read.
                       </span>
                     </span>
                   </label>
                   <div className="mt-3">
-                    <label className="mb-1 block text-xs text-neutral-500">
+                    <label className="mb-1 block text-xs text-ink-secondary">
                       Sellers checked per comparison: {draft.shopping.maxSellers}
                     </label>
                     <input
@@ -1883,7 +1893,7 @@ export function SettingsModal(): JSX.Element | null {
                       }
                       className="w-full accent-accent"
                     />
-                    <p className="text-xs text-neutral-500">
+                    <p className="text-xs text-ink-secondary">
                       Each seller is one page fetch. The budget is checked before each fetch and the
                       stop is stated in the result.
                     </p>
@@ -1913,7 +1923,7 @@ export function SettingsModal(): JSX.Element | null {
                       Forget
                     </button>
                   </div>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     When a model reads a web page, the text is held in memory and split into
                     passages so only the relevant parts are shown to it. This is{' '}
                     <strong>never written to disk</strong> and is discarded when you quit — it is
@@ -1924,28 +1934,28 @@ export function SettingsModal(): JSX.Element | null {
                   (researchStats.pages === 0 &&
                     researchStats.searchQueries === 0 &&
                     (researchStats.pinnedDocs ?? 0) === 0) ? (
-                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
                       Nothing held in memory.
                     </p>
                   ) : (
-                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
-                      <strong className="text-neutral-700 dark:text-neutral-300">
+                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
+                      <strong className="text-ink-primary">
                         {researchStats.pages}
                       </strong>{' '}
                       page{researchStats.pages === 1 ? '' : 's'} ·{' '}
-                      <strong className="text-neutral-700 dark:text-neutral-300">
+                      <strong className="text-ink-primary">
                         {researchStats.chunks}
                       </strong>{' '}
                       passages ({researchStats.embeddedChunks} embedded) ·{' '}
                       {Math.round(researchStats.chars / 1024)} KB of text ·{' '}
-                      <strong className="text-neutral-700 dark:text-neutral-300">
+                      <strong className="text-ink-primary">
                         {researchStats.searchQueries}
                       </strong>{' '}
                       cached search{researchStats.searchQueries === 1 ? '' : 'es'}
                       {(researchStats.pinnedDocs ?? 0) > 0 && (
                         <>
                           {' '}·{' '}
-                          <strong className="text-neutral-700 dark:text-neutral-300">
+                          <strong className="text-ink-primary">
                             {researchStats.pinnedDocs}
                           </strong>{' '}
                           attached document{researchStats.pinnedDocs === 1 ? '' : 's'} (
@@ -1959,7 +1969,7 @@ export function SettingsModal(): JSX.Element | null {
 
                 <div className="border-t border-black/10 dark:border-white/10 pt-4">
                   <div className="text-sm font-medium">Session audit log</div>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     An append-only transcript of what was actually said: your inputs, the
                     model&apos;s answers, and each tool call — no system prompts or other hidden
                     layers. Every line is encrypted with your OS keychain and hash-chained, so an
@@ -1984,7 +1994,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <span>
                       Record a session audit log
-                      <span className="block text-xs text-neutral-500">
+                      <span className="block text-xs text-ink-secondary">
                         Takes effect after Save. Entries from before enabling are not recovered —
                         the log starts when you turn it on.
                       </span>
@@ -2003,7 +2013,7 @@ export function SettingsModal(): JSX.Element | null {
                       />
                       <span>
                         Purge the log automatically when the app quits
-                        <span className="block text-xs text-neutral-500">
+                        <span className="block text-xs text-ink-secondary">
                           Verification for the current session only; nothing accumulates.
                         </span>
                       </span>
@@ -2011,12 +2021,12 @@ export function SettingsModal(): JSX.Element | null {
                   )}
 
                   {auditInfo && (
-                    <div className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                    <div className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
                       {auditInfo.sessions.length === 0 ? (
                         <span>No audit logs on disk.</span>
                       ) : (
                         <span>
-                          <strong className="text-neutral-700 dark:text-neutral-300">
+                          <strong className="text-ink-primary">
                             {auditInfo.sessions.length}
                           </strong>{' '}
                           session log{auditInfo.sessions.length === 1 ? '' : 's'} on disk · latest:{' '}
@@ -2091,7 +2101,7 @@ export function SettingsModal(): JSX.Element | null {
                           Purge all
                         </button>
                       </div>
-                      {auditNotice && <p className="mt-2 break-all text-neutral-400">{auditNotice}</p>}
+                      {auditNotice && <p className="mt-2 break-all text-ink-tertiary">{auditNotice}</p>}
                     </div>
                   )}
                 </div>
@@ -2116,18 +2126,18 @@ export function SettingsModal(): JSX.Element | null {
                       Clear
                     </button>
                   </div>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Every request the app makes to the outside, newest first. Only origins are
                     recorded — never full URLs, so your queries stay private even here.
                   </p>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="mt-1 text-xs text-ink-secondary">
                     Not listed: the chat stream itself. Replies stream straight from the chat window
                     to your LM Studio server on this machine ({draft.baseUrl}); that traffic can
                     only ever go to a loopback address, is never proxied, and does not pass through
                     this log. Everything that leaves the machine does.
                   </p>
                   {netActivity.length === 0 ? (
-                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-neutral-500">
+                    <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
                       No network activity yet this session. With search disabled, this list should
                       show nothing but your local LM Studio server.
                     </p>
@@ -2150,10 +2160,10 @@ export function SettingsModal(): JSX.Element | null {
                           <span className="min-w-0 flex-1 truncate font-mono" title={a.origin}>
                             {a.origin}
                           </span>
-                          <span className="shrink-0 text-neutral-400">
+                          <span className="shrink-0 text-ink-tertiary">
                             {a.blocked ? 'blocked' : (a.status ?? a.error?.slice(0, 30) ?? '—')}
                           </span>
-                          <span className="shrink-0 text-neutral-400">
+                          <span className="shrink-0 text-ink-tertiary">
                             {new Date(a.at).toLocaleTimeString()}
                           </span>
                         </li>
@@ -2181,7 +2191,7 @@ export function SettingsModal(): JSX.Element | null {
                     Voice mode — automatically read replies aloud
                   </label>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-neutral-500">Voice</label>
+                    <label className="mb-1 block text-xs font-medium text-ink-secondary">Voice</label>
                     <select
                       value={draft.voice.voiceURI}
                       onChange={(e) => update({ voice: { ...draft.voice, voiceURI: e.target.value } })}
@@ -2196,7 +2206,7 @@ export function SettingsModal(): JSX.Element | null {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                    <label className="mb-1 block text-xs font-medium text-ink-secondary">
                       Speed: {draft.voice.rate.toFixed(1)}×
                     </label>
                     <input
@@ -2224,7 +2234,7 @@ export function SettingsModal(): JSX.Element | null {
                   >
                     🔊 Test voice
                   </button>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-ink-secondary">
                     Uses your operating system&apos;s built-in voices — fully on-device.
                   </p>
                 </div>
@@ -2263,7 +2273,7 @@ export function SettingsModal(): JSX.Element | null {
                     </p>
                   )}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                    <label className="mb-1 block text-xs font-medium text-ink-secondary">
                       whisper-cli path (empty = auto-detect)
                     </label>
                     <div className="flex gap-2">
@@ -2289,7 +2299,7 @@ export function SettingsModal(): JSX.Element | null {
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                    <label className="mb-1 block text-xs font-medium text-ink-secondary">
                       Model file (.bin, empty = auto-detect in ~/.cache/whisper)
                     </label>
                     <div className="flex gap-2">
@@ -2317,7 +2327,7 @@ export function SettingsModal(): JSX.Element | null {
                     </div>
                   </div>
                   {sttStatus?.available && (
-                    <p className="rounded-lg bg-black/5 dark:bg-white/5 p-3 font-mono text-xs text-neutral-500">
+                    <p className="rounded-lg bg-black/5 dark:bg-white/5 p-3 font-mono text-xs text-ink-secondary">
                       cli: {sttStatus.cliPath}
                       <br />
                       model: {sttStatus.modelPath}
@@ -2407,7 +2417,7 @@ export function SettingsModal(): JSX.Element | null {
                       }
                       className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none"
                     />
-                    <p className="mt-1 text-xs text-neutral-500">
+                    <p className="mt-1 text-xs text-ink-secondary">
                       Leave empty to auto-detect from LM Studio. Currently resolved:{' '}
                       <code>{memoryStats?.embeddingModel ?? '—'}</code>
                     </p>
@@ -2440,9 +2450,9 @@ export function SettingsModal(): JSX.Element | null {
                       + Add document
                     </button>
                   </div>
-                  {memoryNotice && <p className="text-xs text-neutral-500">{memoryNotice}</p>}
+                  {memoryNotice && <p className="text-xs text-ink-secondary">{memoryNotice}</p>}
                   {(memoryStats?.sources.length ?? 0) === 0 ? (
-                    <p className="text-xs text-neutral-500">
+                    <p className="text-xs text-ink-secondary">
                       Nothing indexed yet. Notes created by models are indexed automatically;
                       models can also save memories with the <code>memory_save</code> tool.
                     </p>
@@ -2456,7 +2466,7 @@ export function SettingsModal(): JSX.Element | null {
                           <span className="min-w-0 flex-1 truncate" title={s.source}>
                             {s.source}
                           </span>
-                          <span className="shrink-0 text-xs text-neutral-400">
+                          <span className="shrink-0 text-xs text-ink-tertiary">
                             {s.chunks} chunk(s)
                           </span>
                           <button
@@ -2466,7 +2476,7 @@ export function SettingsModal(): JSX.Element | null {
                                 void window.api.memoryStats().then(setMemoryStats)
                               })
                             }
-                            className="shrink-0 rounded px-1.5 text-neutral-400 hover:text-red-500"
+                            className="shrink-0 rounded px-1.5 text-ink-tertiary hover:text-red-500"
                             title="Remove from memory"
                           >
                             ✕
@@ -2487,7 +2497,7 @@ export function SettingsModal(): JSX.Element | null {
             type="button"
             onClick={reset}
             className={`text-sm ${
-              confirmingReset ? 'font-medium text-red-500' : 'text-neutral-500 hover:text-red-500'
+              confirmingReset ? 'font-medium text-red-500' : 'text-ink-secondary hover:text-red-500'
             }`}
           >
             {confirmingReset ? 'Really reset everything? Click again to confirm' : 'Reset to defaults'}

@@ -19,6 +19,13 @@ import { createServer } from 'http'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import type { AddressInfo } from 'net'
+import { parseCitations } from '../src/renderer/src/lib/citations'
+
+/** The shipped stylesheet: this file's markup has to pair with a rule over there. */
+const indexCss = readFileSync(
+  join(__dirname, '..', '..', 'src', 'renderer', 'src', 'assets', 'index.css'),
+  'utf-8'
+)
 
 let passed = 0
 const failures: string[] = []
@@ -76,9 +83,9 @@ async function main(): Promise<void> {
   })
   await win.loadURL(`http://127.0.0.1:${port}/`)
 
-  const render = async (markdown: string): Promise<string> =>
+  const render = async (markdown: string, citations: unknown[] = []): Promise<string> =>
     (await win.webContents.executeJavaScript(
-      `MarkdownUnderTest.renderMarkdown(${JSON.stringify(markdown)})`
+      `MarkdownUnderTest.renderMarkdown(${JSON.stringify(markdown)}, ${JSON.stringify(citations)})`
     )) as string
 
   console.log('\nsanitization: what a model must not be able to inject')
@@ -138,12 +145,106 @@ async function main(): Promise<void> {
   html = await render('```python\ndef f():\n    return 1\n```')
   check('code block keeps its header + copy button', /class="code-header"/.test(html) && /code-copy-btn/.test(html), html)
   check('code block is highlighted', /class="hljs language-python"/.test(html) && /hljs-/.test(html), html)
+  // Code scrolls by default (a wrapped line misrepresents the source), so the
+  // header has to offer the reader a way to unfold one — and the control has to
+  // survive the sanitizer, which is the only reason it can be asserted here.
+  check(
+    'code block offers a wrap control, and it survives sanitization',
+    /class="code-wrap-btn"/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
+  check(
+    'a block of ordinary code still scrolls by default',
+    !/code-wrapped/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
+
+  // v1.17.2: "a wrapped line is a lie about the source" is an argument about
+  // lines that HAVE a shape — indentation, two things on one line, a chosen
+  // line end. A line that is one unbroken token has none of that, and scrolling
+  // it shows 26 of its 220 characters at a time in split view. So that one
+  // shape of line, and only it, arrives wrapped. The class and the control's
+  // state have to agree, because MessageBubble's toggle derives one from the
+  // other.
+  const TOKEN = 'c2lnbWEtb2FzaXMtaGVhZC10by1oZWFkLWxheW91dC1wcm9iZS1hLXNpbmdsZS11bmJyb2tlbi10b2tlbi10aGF0LW11c3Qtbm90LWJsb3ctb3V0LXRoZS1jaGF0LWNvbHVtbg'
+  html = await render('```\n' + TOKEN + '\n```')
+  check(
+    'a fenced line that is one 220-character token arrives already wrapped',
+    /class="code-block code-wrapped"/.test(html) && /aria-pressed="true"/.test(html),
+    html
+  )
+  check('and the token itself is untouched in the DOM', html.includes(TOKEN), html)
+
+  // The true negatives: a long line of real code has a shape to misrepresent,
+  // and a short token would not have wrapped anyway — both still scroll.
+  html = await render('```js\nconst x = [' + Array(30).fill('"aaaaaa"').join(', ') + ']\n```')
+  check(
+    'a 260-character line of real code is left scrolling',
+    !/code-wrapped/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
+  html = await render('```\nabcdefghij\n```')
+  check(
+    'a short unbroken token does not flip the control for nothing',
+    !/code-wrapped/.test(html) && /aria-pressed="false"/.test(html),
+    html
+  )
 
   html = await render('```nosuchlang\nx\n```')
   check('unknown language falls back to plaintext', /language-plaintext/.test(html), html)
 
   html = await render('| a | b |\n|---|---|\n| 1 | 2 |')
   check('tables render', /<table>/.test(html) && /<td>1<\/td>/.test(html), html)
+  // A table is the only block whose width its own cells decide, so it is the
+  // only one that can either push the chat column sideways or be squeezed until
+  // words break. Its own scroll container is what lets it do neither — and the
+  // wrapper has to survive the sanitizer, or the layout silently reverts.
+  check(
+    'a table is wrapped in a scroll container that survives sanitization',
+    /<div class="md-table-scroll" tabindex="0"><table>/.test(html),
+    html
+  )
+  // A scroll region has to be reachable from the keyboard, and a new tab stop
+  // that shows no ring is a VC2 regression — so the stylesheet is read here for
+  // the rule that gives this one its ring. The two live in different files;
+  // nothing else pairs them.
+  check(
+    'the tab stop it adds has a visible focus ring in the shipped stylesheet',
+    /\[tabindex\]:focus-visible/.test(indexCss),
+    'no [tabindex]:focus-visible rule in assets/index.css'
+  )
+  check('header and body rows both survive the wrapper', /<thead>[\s\S]*<th>a<\/th>/.test(html) && /<tbody>[\s\S]*<td>1<\/td>/.test(html), html)
+
+  html = await render('| a |\n|---|\n| 1 |\n\ntext\n\n| b |\n|---|\n| 2 |')
+  check(
+    'two tables get two independent containers, so one cannot drag the other',
+    (html.match(/md-table-scroll/g) ?? []).length === 2,
+    html
+  )
+
+  // v1.17.1: `~` means "about" in technical prose, and models write it
+  // constantly. GFM lets a SINGLE tilde open a strikethrough and marked
+  // implements that, so two approximations in one paragraph pair up: the run
+  // between them renders struck through and both tildes are consumed. A blind
+  // critic caught `~51 GPH (~0.9 GPM)` reaching the reader as `51 GPH (0.9
+  // GPM)` — an estimate turned into an exact figure, in the line a reader is
+  // most likely to quote. Strikethrough is `~~text~~` only; the true negative
+  // below is that real strikethrough still works.
+  html = await render('Flow is ~51 GPH (~0.9 GPM) at the tap.')
+  check(
+    'two approximations in a line stay approximations',
+    html.includes('~51 GPH (~0.9 GPM)') && !/<del>/.test(html),
+    html
+  )
+
+  html = await render('| a |\n|---|\n| **~51 GPH (~0.9 GPM)** |')
+  check('an approximation inside a table cell keeps its tildes', html.includes('~51 GPH (~0.9 GPM)'), html)
+
+  html = await render('Target: ~84,000 calories total (~2,100 cal/person/day)')
+  check('an approximate quantity is not struck through', !/<del>/.test(html) && html.includes('~84,000'), html)
+
+  html = await render('This is ~~definitely struck~~ text.')
+  check('real strikethrough still renders', /<del>definitely struck<\/del>/.test(html), html)
 
   html = await render('[site](https://example.com/path?q=1)')
   check('https links keep their href', /href="https:\/\/example\.com\/path\?q=1"/.test(html), html)
@@ -156,6 +257,101 @@ async function main(): Promise<void> {
 
   html = await render('Water boils at $100^\\circ\\text{C}$.')
   check('inline TeX is rewritten to plain text', !html.includes('$') && html.includes('100'), html)
+
+  console.log('\ncitations: a retrieved passage the reader can actually open')
+
+  // The locators the app itself retrieved, in the shape citations.ts parses
+  // out of a reference_lookup result.
+  const IRS = 'https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025'
+  const cited = [
+    { index: 1, label: 'Personal finance & tax basics › Tax inflation adjustments · 10% in', source: IRS, href: IRS },
+    { index: 2, label: 'Personal finance & tax basics › Tax Topic 501 · 0% in', source: '/Users/me/docs/tc501.md' }
+  ]
+
+  html = await render('The deduction is $30,000 [1].', cited)
+  check(
+    'an inline [1] becomes a link to the passage the app retrieved',
+    new RegExp(`<a[^>]+class="citation-ref"[^>]+href="${IRS.replace(/[.?*+]/g, '\\$&')}"`).test(html) ||
+      new RegExp(`<a[^>]+href="${IRS.replace(/[.?*+]/g, '\\$&')}"[^>]+class="citation-ref"`).test(html),
+    html
+  )
+  check('the marker text survives as [1]', />\[1\]<\/a>/.test(html), html)
+  check('the passage citation is on the marker as a title', /title="Personal finance &amp; tax basics/.test(html), html)
+
+  html = await render('Itemizing may beat it [2].', cited)
+  check(
+    'a passage whose source is a local path is marked, not linked',
+    /<span[^>]+class="citation-ref"[^>]*>\[2\]<\/span>/.test(html) && !html.includes('/Users/me/docs'),
+    html
+  )
+  // v1.17.2. Strengthened from "not a link" to "an affordance a reader can
+  // reach": a `title` on a three-character span is a mouse-only hint and a
+  // keyboard user has nothing at all. It now carries the passage number the
+  // bubble opens the provenance strip on, plus the role and tab stop that make
+  // that reachable — and DOMPurify has to let all three through, which is the
+  // half of this only a real DOM can answer.
+  check(
+    'a passage with no web source is still followable — the strip opens on its number',
+    /data-citation="2"/.test(html) && /role="button"/.test(html) && /tabindex="0"/.test(html),
+    html
+  )
+  check('the followable marker says where it goes', /Open this passage in the citation list below\./.test(html), html)
+
+  html = await render('See Publication 17 [4].', cited)
+  // v1.17.2. This used to assert `!/citation-ref/` — "left inert" — which was
+  // the defect: an unresolvable marker rendered as plain black text a reader
+  // could not tell from prose, next to a linked one in the same sentence
+  // (measured, judge-r7/V1/run-2: `[8][9]`). It must now be visibly marked as
+  // unresolved, and must still be no kind of link.
+  check(
+    'a marker naming no retrieved passage is marked unresolved, not left looking like prose',
+    /<span class="citation-ref citation-unresolved"[^>]*>\[4\]<\/span>/.test(html) &&
+      !/<a[^>]*>\[4\]/.test(html) &&
+      !/data-citation="4"/.test(html),
+    html
+  )
+  check(
+    'and says so on hover, in the same words the grounding pass uses',
+    /title="This number names no passage this turn retrieved/.test(html),
+    html
+  )
+
+  html = await render('The rate is 22% [1][2].', cited)
+  // v1.17.2: `[2]` sits directly after a `]`, which the old single-marker
+  // pattern refused outright — so the second half of every adjacent pair went
+  // unlinked and uncounted.
+  check(
+    'two markers written together are both resolved',
+    />\[1\]<\/a>/.test(html) && /<span[^>]+class="citation-ref"[^>]*>\[2\]<\/span>/.test(html),
+    html
+  )
+
+  html = await render('```python\nvalues[1] = 2\n```\n\nand `rows[1]` inline', cited)
+  check('array indexing in code is never linked', !/citation-ref/.test(html), html)
+
+  html = await render('Read m[0][1] from the matrix.', cited)
+  check('array indexing in prose is never linked either, adjacent or not', !/citation-ref/.test(html), html)
+
+  html = await render('bad [1]', [{ index: 1, label: 'Pack › Doc', href: 'javascript:window.__pwned=1' }])
+  check('a javascript: source cannot become a citation link', !/javascript:/i.test(html), html)
+
+  // v1.17.2, end to end on a captured turn: the reply judge-r7/V1/run-2 actually
+  // produced, against the citations parsed out of that run's own three lookup
+  // records, through the shipping renderer. `[9]` is the one the old pattern
+  // dropped; `[14]` came from the third lookup, which the strip never listed.
+  const captured = JSON.parse(
+    readFileSync(join(__dirname, '..', '..', 'test/fixtures/citations/v1-three-lookups.json'), 'utf-8')
+  ) as { lookups: { result: string }[]; reply: string }
+  const fromTheRun = captured.lookups.flatMap((l) => parseCitations(l.result))
+  html = await render(captured.reply, fromTheRun)
+  check('the captured turn hands over 17 numbered passages', fromTheRun.length === 17, String(fromTheRun.length))
+  for (const n of [14, 8, 9]) {
+    check(
+      `[${n}] in that reply resolves to the passage it names`,
+      new RegExp(`<a class="citation-ref" href="https://[^"]+" title="Food safety[^"]*">\\[${n}\\]</a>`).test(html),
+      html
+    )
+  }
 
   server.close()
   win.destroy()

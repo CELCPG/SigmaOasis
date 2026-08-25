@@ -20,3 +20,8 @@ resources/pyodide/
 # Answer-eval library cache (embedded packs; rebuild with scripts/eval-answers.sh)
 .eval-library/
 .eval-library-synthesis/
+.h2h-build/
+.h2h-runs/
+
+# Claude Code local settings and transient agent worktrees
+.claude/

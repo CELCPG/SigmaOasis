@@ -1,4 +1,5 @@
 import type { ModelConfig } from '../types'
+import type { FailureDetail } from '../../../shared/failure'
 
 /**
  * v1.6 Workbench verification hooks — the headless rules.
@@ -137,18 +138,242 @@ export interface WorkbenchCheck {
   kind: 'recompute' | 'code'
   ok: boolean
   summary: string
+  /**
+   * The runtime's own words, when this line exists because something broke.
+   *
+   * Measured: `🧮 Recompute skipped — BodyStreamBuffer was aborted`. The whole
+   * line was an internal string, and the reader had no disclosure to open. Now
+   * the summary says what happened and this carries the evidence, so the text
+   * is neither printed at a reader nor thrown away.
+   */
+  detail?: FailureDetail
 }
 
-export function describeRecompute(input: { ran: boolean; ok: boolean; note?: string }): WorkbenchCheck {
-  if (!input.ran) return { kind: 'recompute', ok: false, summary: `🧮 Recompute skipped${input.note ? ` — ${input.note}` : ''}` }
-  return input.ok
-    ? { kind: 'recompute', ok: true, summary: '🧮 Recomputed the stated figures in Python; the checker compared the reply against that output.' }
-    : { kind: 'recompute', ok: false, summary: `🧮 Recomputation ran but failed${input.note ? ` — ${input.note}` : ''}; figures could not be checked this way.` }
+/**
+ * The marker workbenchFormat appends when every number a run printed is
+ * already a literal in the code (HARDCODED_NUMBERS_NOTE). toolGrounding keys
+ * on it too — one string, so the checks cannot drift apart.
+ */
+export const LAUNDERED_OUTPUT_MARKER = 'appears as a literal in the code'
+
+/** Numeric literals of a blob, as values (commas stripped). */
+function numbersIn(text: string): number[] {
+  const out: number[] = []
+  for (const m of text.matchAll(/\d[\d,]*(?:\.\d+)?/g)) {
+    const v = Number(m[0].replace(/,/g, ''))
+    if (Number.isFinite(v)) out.push(v)
+  }
+  return out
 }
 
-export function describeCodeCheck(input: { ran: boolean; ok: boolean; finding?: string | null; note?: string; revisedRuns?: boolean }): WorkbenchCheck {
+/** Unit conversions and format widths: present in any program, from nowhere. */
+const CONVERSIONS = new Set([0, 1, 2, 3, 4, 7, 10, 12, 24, 30, 31, 52, 60, 100, 365, 1000, 3600, 86400])
+
+/**
+ * v1.12.2: is a recomputation circular — does it re-derive the answer from
+ * constants the model wrote, rather than from the question? RECOMPUTE_INSTRUCTION
+ * asks for "the inputs given in the question"; when not one literal in the
+ * program appears there, nothing outside the answer constrained the result and
+ * the run proves only that the model can multiply its own assumptions.
+ * Measured (faucet drip, V3): `gallons_per_day = 20  # EPA standard estimate`
+ * and `cost_per_1000_gallons = 5.0` → "600 gallons, $3.00" — the answer's own
+ * figures, returned as if checked. A program built only from conversions is
+ * not circular: it is arithmetic on what the question said in words.
+ */
+export function recomputeIsCircular(code: string, question: string): boolean {
+  const asked = new Set(numbersIn(question))
+  const literals = numbersIn(code)
+  if (literals.every((n) => CONVERSIONS.has(n))) return false
+  return !literals.some((n) => asked.has(n))
+}
+
+export function describeRecompute(input: {
+  ran: boolean
+  ok: boolean
+  circular?: boolean
+  /**
+   * A clause a reader can act on — never a runtime string. Callers that hold a
+   * thrown value pass `explainFailure(err).headline` and hand the raw text
+   * through `detail`, which is where `BodyStreamBuffer was aborted` went.
+   */
+  note?: string
+  detail?: FailureDetail
+}): WorkbenchCheck {
+  if (!input.ran)
+    return {
+      kind: 'recompute',
+      ok: false,
+      summary: `🧮 Recompute skipped${input.note ? ` — ${input.note}` : ''}`,
+      ...(input.detail ? { detail: input.detail } : {})
+    }
+  if (!input.ok) return { kind: 'recompute', ok: false, summary: `🧮 Recomputation ran but failed${input.note ? ` — ${input.note}` : ''}; figures could not be checked this way.` }
+  // The headline reports the weaker of the two states: a program fed by the
+  // model's own constants ran, but it checked nothing.
+  if (input.circular)
+    return {
+      kind: 'recompute',
+      ok: false,
+      summary:
+        '🧮 Recomputation ran, but its inputs are constants the model wrote rather than figures from your question — ' +
+        'it re-derives the answer from itself and checks nothing. Treat these figures as unverified.'
+    }
+  // v1.17.1: what the pass that follows actually reads. `checkToolGrounding`
+  // takes the NUMBERS out of the reply — figures, percentages, measurements —
+  // and judges them against this stdout. Not one of its rungs compares a word
+  // the reply copied out of the run.
+  //
+  // Measured, VC1 run 2 (round 6): the reply pasted back
+  // `sign-my-as-is-head-to-head-layout-probe-…` where the program had decoded
+  // `sigma-oasis-head-to-head-layout-probe-…`, and this line printed inches
+  // above the run that disagreed with it. Re-run against the recorded turn,
+  // `unsourcedFigures` returns [] and `checkToolGrounding` returns null: all
+  // thirteen digit groups in that token WERE compared and did agree. The four
+  // characters that were wrong were letters. So the old sentence — "the checker
+  // compared the reply against that output" — was true of the one dimension
+  // that was right and false of the only one that was wrong.
+  //
+  // Widening rather than narrowing was considered and rejected on the same
+  // recording: the program printed its decoding one character per line, so the
+  // token appears contiguously in that stdout in neither form, and there is no
+  // `label: <string>` line for a string-valued comparison to read at all. A
+  // blunter rule — every long token in the reply must occur in the output —
+  // fires identically on the CORRECT answer, which is round 4's cry-wolf in a
+  // new costume. The check that would catch this does not exist yet; until it
+  // does the sentence says what the app did.
+  return {
+    kind: 'recompute',
+    ok: true,
+    summary:
+      '🧮 Recomputed the stated figures in Python; the reply’s numbers were compared against that ' +
+      'output. Numbers only — text it copies from the run, such as a decoded string or an ' +
+      'identifier, was not checked.'
+  }
+}
+
+/** A figure the reply states where the run printed a different one under the same label. */
+export interface OutputMismatch {
+  label: string
+  printed: string
+  stated: string
+}
+
+export interface OutputComparison {
+  /** Printed labels the reply restates with the value that was printed. */
+  agreed: number
+  mismatches: OutputMismatch[]
+}
+
+/** `Sum of the first 500 prime numbers: 824693` — a printed line stating one plain number. */
+const PRINTED_LINE = /^(.{1,60}?):[ \t]*(-?\d[\d,]*(?:\.\d+)?)[ \t]*$/
+/** Words carrying no identity — a label match on "of" would mean nothing. */
+const LABEL_STOPWORDS = new Set(['the', 'a', 'an', 'of', 'for', 'and', 'in', 'on', 'at', 'to', 'from', 'with', 'by', 'is', 'are', 'was', 'were'])
+const NUMBER = /-?\d[\d,]*(?:\.\d+)?/g
+const tokens = (text: string): string[] => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
+const labelWords = (label: string): string[] => tokens(label).filter((w) => !LABEL_STOPWORDS.has(w))
+const asNumber = (s: string): number => Number(s.replace(/,/g, ''))
+
+/**
+ * v1.15: what the reply says the numbers are, against what its own block printed.
+ *
+ * Measured (task TTU2): the executed block printed
+ * `Sum of the first 500 prime numbers: 824693` — correct — while the prose
+ * directly above it said 854,405 and the reply's own pasted "Output:" said the
+ * same, and the check underneath reported "it runs without error" with a tick.
+ * The chip fired hardest exactly where the answer was wrong, because "no
+ * exception was raised" was all it had ever meant. The comparison that catches
+ * it costs nothing: both numbers are in the same message.
+ *
+ * Every `label: number` line the run printed is matched against the lines of
+ * the reply that use all of that label's words. A line repeating the printed
+ * value agrees; a line carrying some other number in its place disagrees. Only
+ * numbers the label does not itself contain count as a restatement, so "the
+ * first 500 primes" is not read as a claim about 500.
+ *
+ * The reply's Python is excluded — a program is not a claim about a value, and
+ * `primes[499]` would otherwise "contradict" the 3571 it prints. Its pasted
+ * output is not excluded: a block that shows output the code does not produce
+ * is the same lie told earlier.
+ */
+export function compareToOutput(answer: string, stdout: string): OutputComparison {
+  const printed = new Map<string, string>()
+  const ambiguous = new Set<string>()
+  for (const line of stdout.split('\n')) {
+    const m = line.trim().match(PRINTED_LINE)
+    if (!m) continue
+    const label = m[1].trim()
+    if (labelWords(label).length < 2) continue
+    if (printed.has(label) && printed.get(label) !== m[2]) ambiguous.add(label)
+    printed.set(label, m[2])
+  }
+  // Tokenised once: every label is matched against the same lines.
+  const lines = answer
+    .replace(/```(?:python|py|python3)[^\n]*\n[\s\S]*?```/g, ' ')
+    .split('\n')
+    .map((line) => ({ have: new Set(tokens(line)), numbers: line.match(NUMBER) ?? [] }))
+  const mismatches: OutputMismatch[] = []
+  const seen = new Set<string>()
+  let agreed = 0
+  for (const [label, value] of printed) {
+    if (ambiguous.has(label)) continue
+    const words = labelWords(label)
+    const own = new Set((label.match(NUMBER) ?? []).map(asNumber))
+    let matched = false
+    for (const line of lines) {
+      if (!words.every((w) => line.have.has(w))) continue
+      const stated = line.numbers.filter((n) => !own.has(asNumber(n)))
+      if (stated.length === 0) continue
+      if (stated.some((n) => asNumber(n) === asNumber(value))) {
+        matched = true
+        continue
+      }
+      const key = `${label}|${asNumber(stated[0])}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      mismatches.push({ label, printed: value, stated: stated[0] })
+    }
+    if (matched) agreed += 1
+  }
+  return { agreed, mismatches }
+}
+
+export function describeCodeCheck(input: {
+  ran: boolean
+  ok: boolean
+  finding?: string | null
+  note?: string
+  revisedRuns?: boolean
+  compared?: OutputComparison
+}): WorkbenchCheck {
   if (!input.ran) return { kind: 'code', ok: false, summary: `🧪 Code check skipped${input.note ? ` — ${input.note}` : ''}` }
-  if (input.ok) return { kind: 'code', ok: true, summary: '🧪 Ran the Python in this reply in the sandbox — it runs without error.' }
+  const bad = input.compared?.mismatches ?? []
+  // The run succeeding is the weaker fact, so the disagreement is the headline:
+  // a tick over a figure the block itself contradicts is the reassurance this
+  // check has not earned.
+  if (bad.length > 0) {
+    const first = bad[0]
+    const rest = bad.length > 1 ? ` (and ${bad.length - 1} more)` : ''
+    return {
+      kind: 'code',
+      ok: false,
+      summary:
+        `🧪 Ran the Python in this reply — it runs, but its output disagrees with the answer: it printed ` +
+        `“${first.label}: ${first.printed}” where the reply says ${first.stated}${rest}. ` +
+        'The printed value is the one that was computed.'
+    }
+  }
+  if (input.ok) {
+    const agreed = input.compared?.agreed ?? 0
+    // Say which of the two things was checked. "Runs without error" over a
+    // reply whose figures nothing compared is a tick the reader over-reads.
+    return {
+      kind: 'code',
+      ok: true,
+      summary:
+        agreed > 0
+          ? `🧪 Ran the Python in this reply in the sandbox — it runs, and the ${agreed === 1 ? 'figure it prints is the one' : `${agreed} figures it prints are the ones`} the reply states.`
+          : '🧪 Ran the Python in this reply in the sandbox — it runs without error. Nothing in the reply restated a figure it printed, so no figure was checked.'
+    }
+  }
   if (input.revisedRuns) return { kind: 'code', ok: true, summary: '🧪 The Python in the first draft failed when run; the revised code runs.' }
   return { kind: 'code', ok: false, summary: `🧪 Ran the Python in this reply — it fails${input.finding ? `: ${input.finding.replace(/^- The Python code in the answer fails when run: /, '').replace(/\. Fix the code.*$/, '')}` : ''}.` }
 }

@@ -7,7 +7,7 @@ export const PROJECT_ACCENT: Record<ProjectColor, { dot: string; chip: string }>
   purple: { dot: 'bg-purple-500', chip: 'bg-purple-500/15 text-purple-600 dark:text-purple-400' },
   amber: { dot: 'bg-amber-500', chip: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
   rose: { dot: 'bg-rose-500', chip: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' },
-  slate: { dot: 'bg-slate-400', chip: 'bg-slate-400/20 text-slate-600 dark:text-slate-300' }
+  slate: { dot: 'bg-slate-400', chip: 'bg-slate-400/20 text-ink-secondary' }
 }
 
 export const PROJECT_COLORS: ProjectColor[] = ['teal', 'blue', 'purple', 'amber', 'rose', 'slate']

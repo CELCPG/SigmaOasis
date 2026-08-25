@@ -75,7 +75,7 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
     <div className="relative inline-block">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="ml-2 rounded-md p-1 text-xs text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-accent"
+        className="ml-2 rounded-md p-1 text-xs text-ink-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-accent-ink"
         title="Explore alternative response"
       >
         🌿
@@ -99,7 +99,7 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
             {existingBranches.length > 0 && (
               <>
                 <div className="my-1 border-t border-black/10 dark:border-white/10" />
-                <div className="px-3 py-1 text-xs text-neutral-500">Existing branches:</div>
+                <div className="px-3 py-1 text-xs text-ink-secondary">Existing branches:</div>
                 {existingBranches.map((branch, idx) => {
                   const branchConvo = conversations.find(c => c.id === branch.branchId)
                   return (
