@@ -625,7 +625,8 @@ async function runTurn(
       convo,
       before,
       report,
-      allRecords
+      allRecords,
+      () => patch({ toolCalls: [...allRecords] })
     )
     // A revision that came back empty, or that the user cancelled, leaves the
     // original standing: a flagged answer beats no answer.
