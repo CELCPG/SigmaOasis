@@ -1408,9 +1408,26 @@ six new places. Round 7 took five of them, one builder each, and the round's own
 turned up two more — one in the shipped renderer and one in the gate that certifies every
 round in this document.
 
-**The blind verdict for this round is not in yet.** The fixes and measurements below are
-recorded now because they are measured; the win/loss line will be added when the sweep is
-judged, and not before.
+**Blind verdict: 18 won · 0 lost · 0 tied**, over 18 tasks — the full set for the first
+time, because VC2 had never had a baseline capture to pair against. Both sweeps were 18/18
+VALID with 0 failed.
+
+**Read the caveat before the number.** This is the widest margin of the seven rounds and
+also the round whose judging was most biased toward it, for a reason that is mine. The
+critic prompts named the specific checks this round had just built — *"compare the forecast
+IN BOTH DIRECTIONS"*, *"does the collapsed row say why"*, *"measure the pixels, not the
+declared colour"*. A critic told to measure the thing we optimised will find that we win.
+Earlier rounds' prompts stayed closer to each task's own `probes` field; this round's
+drifted toward the changelog. **So 18–0 is not comparable with rounds 1–6 and must not be
+read as a trend.** Round 8 derives its critic prompts from `tasks.json` alone, written
+without sight of what changed.
+
+Two further limits on what the number means. The baseline is seven rounds old, so a sweep
+against it measures accumulated distance rather than this round's work — the informative
+comparison is round N against round N−1. And the critics found real defects in *every*
+winning run, several of them self-inflicted: the VC1 layout fix set
+`overflow-wrap: anywhere` on all markdown, and it now breaks the word "Passage" across
+three lines as "Pas / sag / e" in a table header sized to a `[1]` cell.
 
 ### The renderer was deleting money from answers
 
@@ -1808,6 +1825,56 @@ snippet is not read as a citation), so a quoted line with a backticked word in i
 faulted for a word it does say. Nothing in the round-6 runs exercised it, and it is recorded here
 rather than fixed.
 
+### The approximation that became an exact figure
+
+`reply.md` was added to settle the currency bug. The first independent critic to use it
+found a **second** character-eating defect, unrelated in mechanism and identical in
+consequence.
+
+GFM lets a *single* tilde open a strikethrough, and marked implements that. In technical
+prose `~` means "about", and models write it constantly. Two approximations in one
+paragraph pair up: the run between them renders struck through and both tildes are eaten.
+
+| written by the model | shown to the reader |
+| --- | --- |
+| `| Total system flow | **~51 GPH (~0.9 GPM)** |` | `Total system flow   51 GPH (0.9 GPM)` |
+| `Target: ~84,000 calories (~2,100 cal/person/day)` | `Target: 84,000 calories (2,100 cal/person/day)` |
+
+An estimate reaching the reader as an exact figure, in the line a reader is most likely to
+quote. Strikethrough is now `~~text~~` only, pinned by four checks in the render harness,
+one of them the true negative that real strikethrough still works.
+
+**Recorded because I got it wrong first.** The round-7 sweep showed zero tildes lost in the
+new build, and I reported that as the earlier `latexToPlainText` fix covering the class. It
+does not — the mechanisms are unrelated, and no reply in that sweep happened to put two
+tildes in one paragraph. Absence of a symptom in a sample is not evidence of a fix. It is
+the same error as reading a summary line instead of an exit code, which this document
+already records once.
+
+### The blind pairs named their arm on one task
+
+`make-blind-pairs.mjs` scrubbed the run root and the arm directory — the two paths inside
+the run tree, which are the two anyone thinks of. The build being driven is not inside it.
+`h2h-preconditions` records the absolute path of every file it probes, so TTU2 — the only
+task declaring `python-runtime` — shipped
+
+```
+.../scratchpad/baseline-app/resources/pyodide/pyodide.js
+```
+
+inside `run.json`. **Both** arms were identifiable, not one: the other run carried the
+working repo's own path.
+
+The app root is now read out of the run's own `_arm.json`. That is still a list of things
+someone remembered, so the half that matters is its inverse: `assertBlind` searches every
+staged text file for every string that distinguishes one arm from the other and exits 1 if
+one survives. Verified in both directions — clean staging passes, and with the scrub
+disabled the guard fails and names both tells. No verdict was ever issued from a leaking
+pair; this was caught during staging.
+
+The baseline was also re-captured through the *current* harness for this round, because
+`reply.md` existed in one arm only, and a file present in one arm is itself a tell.
+
 ### What this does not measure
 
 - **Nothing here was re-run against a model.** These are three chrome defects, fixed and
@@ -1846,6 +1913,25 @@ rather than fixed.
 - **`resources/pyodide` and `node_modules` are absent from a fresh worktree**, so every
   builder this round symlinked one to run anything. That is the same gap that handicapped
   the baseline arm for three rounds; it is still not fixed, only known.
+
+- **This round's critic prompts were written by the person being judged.** They named the
+  checks the round had just built, which biases every verdict toward the build that has
+  them. The 18–0 is real as a set of measurements and not comparable with earlier rounds
+  as a score. Round 8's prompts come from `tasks.json` alone.
+- **Dark theme has still never been captured by the bench**, in any round. Round 7 added a
+  40-stop keyboard traversal (VC2's first appearance in seven rounds) and it ran in light
+  theme only, so `N_invisible` for dark is unmeasured on both arms.
+- **VC2's traversal never reaches Settings.** The path arrives at the `Settings (⌘,)`
+  button at stop 26 and the 40 stops end there, so the task's own question — whether a
+  keyboard user can reach both settings the answer names — is unproven even for the winner.
+- **Defects the critics found in the WINNING runs, unfixed:** the citation strip lists
+  `[1]`–`[5]` while the answer cites `[8] [9] [14]`, so the markers a reader most needs
+  resolve to nothing (a consequence of round 5's per-turn passage numbering); `$0.007`
+  printed as `$0.00`, naming a figure that is not on screen while omitting the `$5` that
+  is; `net::ERR_UNSAFE_PORT` on a collapsed row a user cannot interpret; a code block whose
+  wrap control is off by default, so the token VC1 fixed in the bubble still scrolls inside
+  a fence; and `overflow-wrap: anywhere` — this project's own fix for the VC1 blowout —
+  breaking "Passage" into "Pas / sag / e" in a table header.
 
 ## Findings worth keeping
 
