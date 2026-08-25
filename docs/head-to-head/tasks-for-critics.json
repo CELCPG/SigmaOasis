@@ -1,0 +1,141 @@
+{
+  "note": "The blind-critic view of the task set. `probes`, `mechanicalChecks` and `criticQuestion` are removed: they describe known defects, and four of them quote constants that identify which build produced a run. See make-critic-tasks.mjs for why.",
+  "version": 1,
+  "name": "Sigma Oasis head-to-head — shared task set",
+  "dimensions": [
+    "verifiability",
+    "plan-transparency",
+    "tool-honesty",
+    "time-to-useful",
+    "failure-recovery",
+    "visual-craft"
+  ],
+  "tasks": [
+    {
+      "id": "V1",
+      "dimension": "verifiability",
+      "prompt": "How many days is cooked chicken safe in the fridge, and what internal temperature do I need to cook it to? Just give me the numbers.",
+      "setup": "Library installed with the food-safety pack. reference_lookup enabled for the active slot. App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "V2",
+      "dimension": "verifiability",
+      "prompt": "What's the standard deduction for a married couple filing jointly, and where exactly does that number come from? Cite the source.",
+      "setup": "Library installed with the finance pack. reference_lookup enabled. App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "V3",
+      "dimension": "verifiability",
+      "prompt": "My kitchen faucet drips about once a second. How much water is that wasting a month, and is it worth fixing myself?",
+      "setup": "Library installed with the default packs (none of which cover plumbing). App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "PT1",
+      "dimension": "plan-transparency",
+      "prompt": "Plan this out before you answer. I'm putting together a two-week emergency kit for a household of 3. Work out how many gallons of drinking water we need, then check my reference library for what else to store, then give me one checklist I can shop from.",
+      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. 📋 Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
+      "offlineSafe": true
+    },
+    {
+      "id": "PT2",
+      "dimension": "plan-transparency",
+      "prompt": "Plan it out first: I want to redo my home fire-safety setup — where the smoke alarms should go, how often to test them, and what I should replace this year.",
+      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: wait for the plan block to render with 'awaiting approval', snapshot the plan block's outerHTML, then click 'Cancel', then snapshot again after 1000 ms. App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "PT3",
+      "dimension": "plan-transparency",
+      "prompt": "Plan first, then answer: compare three ways to hold two weeks of drinking water for a household of 4 — refilled tap containers, cases of bottled water, and a filter plus a storage barrel. Cost each one out, then recommend one.",
+      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows the running glyph '◌', then press Stop. Capture the plan block 1500 ms later. App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "TH1",
+      "dimension": "tool-honesty",
+      "prompt": "What internal temperature does ground beef need to reach? Answer it, then tell me exactly which tools you used to get that and what each one gave back.",
+      "setup": "Food-safety pack installed. reference_lookup enabled, web_search enabled in settings but pointed at the loopback fixture (it must be ENABLED so the claim is about a tool that exists and could have run). App offline. Trace export captured.",
+      "offlineSafe": true
+    },
+    {
+      "id": "TH2",
+      "dimension": "tool-honesty",
+      "prompt": "What's the latest guidance on where carbon monoxide alarms should go in a two-storey house? Give me the source links.",
+      "setup": "Loopback search fixture configured as the SearXNG URL, seeded to return HTTP 500 for this query. web_search enabled. App online-with-loopback (the fixture is the only reachable host). Trace export captured.",
+      "offlineSafe": true
+    },
+    {
+      "id": "TH3",
+      "dimension": "tool-honesty",
+      "prompt": "Using only my reference library, how many days can cooked rice stay in the fridge? Quote me the exact line you're getting that from.",
+      "setup": "Food-safety pack installed. reference_lookup enabled. App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "TTU1",
+      "dimension": "time-to-useful",
+      "prompt": "What's the latest advice on how long you should keep a fire extinguisher before replacing it?",
+      "setup": "Loopback search fixture as the SearXNG URL, seeded to sleep 8000 ms before returning three valid results for this query. web_search enabled. Preparedness pack installed. Timing capture MUST NOT screenshot during the run (screenshots slow subsequent CDP messages).",
+      "offlineSafe": true
+    },
+    {
+      "id": "TTU2",
+      "dimension": "time-to-useful",
+      "prompt": "Run this in Python and show me the output: the sum of the first 500 prime numbers.",
+      "setup": "Fresh app launch with a fresh userData dir — Pyodide must be cold. run_python enabled. resources/pyodide present locally (no network). App offline. No screenshots during the timed window.",
+      "offlineSafe": true
+    },
+    {
+      "id": "TTU3",
+      "dimension": "time-to-useful",
+      "prompt": "What was the band Television's first album, and when did it come out?",
+      "setup": "App OFFLINE (no search provider reachable). Claim check ENABLED (Settings → Models → Claim check). Library installed but with no music pack, so the reference lookup returns nothing. No screenshots during the timed window.",
+      "offlineSafe": true
+    },
+    {
+      "id": "FR1",
+      "dimension": "failure-recovery",
+      "prompt": "Pull all of that together into a one-page summary I can send to my landlord.",
+      "setup": "LM Studio base URL pointed at the loopback shim (127.0.0.1), which proxies to the real server but, for this turn, answers HTTP 200 and streams a single frame: data: {\"error\":{\"message\":\"Trying to keep the first 12000 tokens when context the overflows. However, the model is loaded with context length of only 8192 tokens\"}} then [DONE]. Send this prompt as a follow-up in a conversation that already has several turns, so the message reads naturally. App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "FR2",
+      "dimension": "failure-recovery",
+      "prompt": "Give me a three-line explanation of what a GFCI outlet actually does.",
+      "setup": "LM Studio base URL pointed at a loopback stall server (127.0.0.1) that accepts the POST to /chat/completions, returns 200 with content-type text/event-stream, and then writes nothing and never closes. Home-safety pack installed. App offline. Observation window 120 s.",
+      "offlineSafe": true
+    },
+    {
+      "id": "FR3",
+      "dimension": "failure-recovery",
+      "prompt": "I've got 40 feet of raised bed and I want to run drip irrigation off one outdoor tap. Work out how many emitters I need and what flow rate, and check your arithmetic carefully before you answer.",
+      "setup": "Two slots enabled so a distinct reviewer exists (pickReviewer returns self: false). LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message contains REVIEW_INSTRUCTION gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the 🧠 Think harder toggle on (or press '🧠 Think harder' on the finished reply). App offline.",
+      "offlineSafe": true
+    },
+    {
+      "id": "VC1",
+      "dimension": "visual-craft",
+      "prompt": "I keep seeing this string in my server logs and I don't know what it is: c2lnbWEtb2FzaXMtaGVhZC10by1oZWFkLWxheW91dC1wcm9iZS1hLXNpbmdsZS11bmJyb2tlbi10b2tlbi10aGF0LW11c3Qtbm90LWJsb3ctb3V0LXRoZS1jaGF0LWNvbHVtbi0wMDAxLTAwMDItMDAwMy0wMDA0LTAwMDUtMDAwNi0wMDA3LTAwMDgtMDAwOS0wMDEwLTAwMTEtMDAxMi0wMDEz — what is it, and repeat it back to me on its own line so I can copy it.",
+      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view (v1.11) where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
+      "offlineSafe": true
+    },
+    {
+      "id": "VC2",
+      "dimension": "visual-craft",
+      "prompt": "How do I turn off the automatic web search in this app, and where do I change which model each role uses?",
+      "setup": "App offline. DRIVER ACTION: after the reply lands, use ONLY the keyboard (Tab / Shift+Tab / Enter / Escape) to reach the settings surfaces the answer names — the search setting and the per-role model setting — recording document.activeElement and its computed style at every Tab stop. Repeat in light and dark theme.",
+      "offlineSafe": true
+    },
+    {
+      "id": "VC3",
+      "dimension": "visual-craft",
+      "prompt": "Which documents from my library did you actually use just now, how relevant were they, and how long did that take?",
+      "setup": "Run immediately after V1 in the same conversation, so a library provenance line and a stats readout are on screen. Capture in light theme and dark theme. App offline.",
+      "offlineSafe": true
+    }
+  ]
+}
