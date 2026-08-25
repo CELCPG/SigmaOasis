@@ -897,8 +897,15 @@ export interface ChatMessage {
    * the turn's tools did not support. `before` is what that first pass found,
    * kept so the UI can say the answer was corrected rather than silently
    * replacing it. Display-only.
+   *
+   * `after` is the re-check on the revision — kept because `before` alone
+   * cannot tell the reader whether anything was actually fixed. A revision is
+   * adopted whenever it *reduces* the findings, so findings routinely survive
+   * into the answer on screen, and a line written from `before` alone claims a
+   * resolution nobody verified. Optional only for messages persisted before
+   * this existed; those fall back to `grounding`, which is the same report.
    */
-  corrected?: { before: GroundingReport; at: number }
+  corrected?: { before: GroundingReport; after?: GroundingReport | null; at: number }
   /**
    * v1.3 tool grounding: figures or links in this reply that the turn's own
    * tool output does not support — the model overriding or inventing past what

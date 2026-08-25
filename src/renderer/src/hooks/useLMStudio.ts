@@ -680,9 +680,12 @@ async function runTurn(
       if (i >= 0) checks[i] = line
       else checks.push(line)
     }
+    // Both reports, not just the first. The revision was kept because it
+    // reduced the findings, which is not the same as clearing them — what
+    // survived is the half the disclosure line most needs to say.
     patch({
       content: revised,
-      corrected: { before: report, at: Date.now() },
+      corrected: { before: report, after, at: Date.now() },
       grounding: after ?? undefined,
       checks: [...checks]
     })

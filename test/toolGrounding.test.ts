@@ -4,7 +4,9 @@ import {
   checkToolGrounding,
   contradictedOrigins,
   describeGroundingFindings,
+  describeRevisionOutcome,
   groundingFindingCount,
+  groundingFindingLabels,
   misattributedCitations,
   misquotedSpans,
   revisionIsAnImprovement,
@@ -550,6 +552,140 @@ describe('revisionIsAnImprovement', () => {
       5
     )
     assert.equal(groundingFindingCount(null), 0)
+  })
+})
+
+/**
+ * The disclosure line under a revised answer, and the one line on screen whose
+ * entire job is to be trusted.
+ *
+ * Measured, blind, round 4 task V1: the reply stated 165°F / 74°C over passages
+ * containing neither string, and the only chrome under it was
+ *
+ *   ✎ Revised: 1 unsupported item were sent back for verification or removal.
+ *
+ * in green. A judge chose the older build over ours and quoted that line as the
+ * reason — "unnamed, ungrammatical, and asserting a resolution that plainly did
+ * not occur". Three faults, one cause: the line was written from the *first*
+ * report only, so it could describe the request and never the result.
+ *
+ * A revision is adopted whenever it REDUCES the findings (see
+ * revisionIsAnImprovement, directly above), so a surviving finding is the
+ * ordinary case, not the exotic one. These cases pin it.
+ */
+describe('describeRevisionOutcome', () => {
+  const report = (over: Partial<GroundingReport> = {}): GroundingReport => ({
+    figures: [],
+    links: [],
+    checkedAgainst: ['reference_lookup'],
+    ...over
+  })
+  /** The V1 finding, verbatim: the checker's own label for what it faulted. */
+  const survived = report({ quantities: ['165°F'] })
+
+  test('a finding still standing in the answer is not reported as resolved', () => {
+    const out = describeRevisionOutcome(survived, survived)
+    assert.equal(out.resolved, false)
+    assert.equal(out.remaining, 1)
+    assert.match(out.text, /still unsupported in this answer/)
+    // The old line's whole text, which asserted a resolution nobody checked.
+    assert.ok(
+      !/sent back for verification or removal\.?$/.test(out.text),
+      `still describes only the request: ${out.text}`
+    )
+  })
+
+  test('the surviving finding is named, so a reader can check it', () => {
+    assert.match(describeRevisionOutcome(survived, survived).text, /165°F/)
+  })
+
+  test('a revision that cleared its findings says so, and names what went back', () => {
+    const out = describeRevisionOutcome(survived, null)
+    assert.equal(out.resolved, true)
+    assert.equal(out.remaining, 0)
+    assert.match(out.text, /165°F/)
+    assert.ok(!/still unsupported/.test(out.text), out.text)
+  })
+
+  test('a partial fix reports both halves, not just the generous one', () => {
+    const before = report({
+      quantities: ['165°F'],
+      figures: ['$5.00'],
+      links: ['https://example.test/invented']
+    })
+    const out = describeRevisionOutcome(before, survived)
+    assert.equal(out.sent, 3)
+    assert.equal(out.remaining, 1)
+    assert.equal(out.resolved, false)
+    assert.match(out.text, /3 unsupported items were sent back/)
+    assert.match(out.text, /1 is still unsupported in this answer: 165°F\./)
+  })
+
+  test('the verb agrees with the count that governs it, for 1 and for N', () => {
+    const two = report({ addresses: ['1 A St', '2 B St'] })
+    const one = report({ addresses: ['1 A St'] })
+    // The measured defect, exactly: singular noun, plural verb.
+    assert.ok(!/1 unsupported item were/.test(describeRevisionOutcome(one, null).text))
+    assert.match(describeRevisionOutcome(one, null).text, /1 unsupported item was sent back/)
+    assert.match(describeRevisionOutcome(two, null).text, /2 unsupported items were sent back/)
+    assert.match(describeRevisionOutcome(two, one).text, /1 is still unsupported/)
+    assert.match(describeRevisionOutcome(two, two).text, /2 are still unsupported/)
+  })
+
+  test('nothing sent back is no line at all', () => {
+    assert.equal(describeRevisionOutcome(null, null).text, '')
+    assert.equal(describeRevisionOutcome(report(), null).text, '')
+    assert.equal(describeRevisionOutcome(report(), null).resolved, false)
+  })
+
+  test('a long list names the first few and counts the rest', () => {
+    const many = report({ addresses: ['1 A St', '2 B St', '3 C St', '4 D St', '5 E St', '6 F St'] })
+    const out = describeRevisionOutcome(many, many)
+    assert.match(out.text, /6 unsupported items were sent back/)
+    assert.match(out.text, /1 A St, 2 B St, 3 C St, 4 D St and 2 more\./)
+  })
+})
+
+/**
+ * The count and the names have to come from the same walk of the report. A line
+ * reading "3 unsupported items" that then names two is worse than one that
+ * names none, because the reader has no way to know which one is the lie.
+ */
+describe('groundingFindingLabels', () => {
+  const everything: GroundingReport = {
+    figures: ['$5.00'],
+    quantities: ['165°F'],
+    links: ['https://example.test/a'],
+    origins: ['France'],
+    addresses: ['1 A St'],
+    contacts: ['555-0100'],
+    toolClaims: ['web_search'],
+    toolDisclosure: ['reference_lookup'],
+    code: ['- The Python code in the answer fails when run: NameError…'],
+    citations: ['[4]'],
+    quotes: ['a line no passage contains'],
+    attributions: ['[1] (Cold Food Storage Chart)'],
+    checkedAgainst: ['reference_lookup']
+  }
+
+  test('names exactly as many things as the count counts, across every category', () => {
+    assert.equal(groundingFindingLabels(everything).length, groundingFindingCount(everything))
+    assert.equal(groundingFindingCount(everything), 12)
+  })
+
+  test('every label is the checker’s own string, so it can be found on screen', () => {
+    const labels = groundingFindingLabels(everything)
+    for (const item of ['$5.00', '165°F', 'France', '1 A St', '555-0100', '[4]', 'web_search']) {
+      assert.ok(labels.includes(item), `expected ${item} among the labels`)
+    }
+    // The one finding that is a traceback plus an instruction, not a quotable
+    // span: named by what it is, with the 🧪 line carrying the detail.
+    assert.ok(labels.includes("the answer's Python"))
+  })
+
+  test('nothing to name is an empty list, not a line with a stray comma', () => {
+    assert.deepEqual(groundingFindingLabels(null), [])
+    assert.deepEqual(groundingFindingLabels({ figures: [], links: [], checkedAgainst: [] }), [])
   })
 })
 
