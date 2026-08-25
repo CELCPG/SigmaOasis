@@ -14,6 +14,7 @@ import {
 } from './embeddings'
 import { Bm25Index, jaccard, mmrSelect, normalizeScores, reciprocalRankFusion, tokenize } from './retrieval'
 import { readTextDocument } from './attachments'
+import { EMPTY_RESULT_LEADS } from '../../shared/tools'
 
 /**
  * The Almanac: an offline reference library the model reads *before* it
@@ -696,8 +697,10 @@ export function citationOf(p: LibraryPassage): string {
 /** Passages formatted for the model, with provenance the model must carry into its answer. */
 export function formatLookup(outcome: LookupOutcome, query: string): string {
   if (outcome.passages.length === 0) {
+    // The lead is the tool table's, not this function's: the badge check reads
+    // it back off the record to tell "worked" from "supplied something".
     return [
-      `No reference passages found for "${query}".`,
+      `${EMPTY_RESULT_LEADS.get('reference_lookup')!} "${query}".`,
       ...outcome.notes,
       'Say plainly that the library has nothing on this; do not invent a reference.'
     ].join('\n')

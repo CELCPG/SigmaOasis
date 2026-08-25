@@ -2,7 +2,7 @@ import { dialog } from 'electron'
 import { hostWindow } from '../hostWindow'
 import { readWebpage, runImageSearch, runWebSearch, fetchImageDataUrl, MAX_IMAGE_RESULTS } from '../search'
 import type { ThumbnailOutcome } from '../search'
-import { DEFAULT_PASSAGES, MAX_PASSAGES } from '../../../shared/tools'
+import { DEFAULT_PASSAGES, EMPTY_RESULT_LEADS, MAX_PASSAGES } from '../../../shared/tools'
 import { provenanceNote, provenanceOf } from '../sourceTiers'
 import { MAX_OUTPUT_CHARS, UNTRUSTED_HEADER, truncate } from './types'
 import type { ToolHandler, ToolImage } from './types'
@@ -111,10 +111,12 @@ const webSearch: ToolHandler = async (args, { sender }) => {
     }
   }
   if (outcome.results.length === 0) {
+    // The lead is the tool table's, not this handler's — the badge check reads
+    // it back off the record to tell "worked" from "supplied something".
     return {
       ok: true,
       output:
-        `No results found for "${outcome.sentQuery}" (${outcome.provider}).${redactionNote} ` +
+        `${EMPTY_RESULT_LEADS.get('web_search')!} "${outcome.sentQuery}" (${outcome.provider}).${redactionNote} ` +
         'Say plainly that the search found nothing usable; do not invent results.'
     }
   }

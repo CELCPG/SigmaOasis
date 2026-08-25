@@ -460,13 +460,36 @@ export function stripTurnNotesEcho(reply: string): { text: string; echoed: boole
  * tool's `isSource`, with its rationale — the run_python and market_data
  * inclusions were both measured omissions).
  */
-import { SOURCE_TOOLS } from '../../../shared/tools'
+import { EMPTY_RESULT_LEADS, SOURCE_TOOLS } from '../../../shared/tools'
 
 /**
- * Did this turn consult any source? The badge decision is mechanical:
- * a source counts only when its tool call completed successfully. Memory
- * recall is not a source — it reminds, it does not verify.
+ * Did this call come back empty-handed?
+ *
+ * A retrieval that found nothing succeeded as a *call* and failed as a
+ * *lookup*, and only the second sense is what "consulted a source" means. The
+ * tool that wrote the output names its own empty lead in the tool table, so
+ * this reads back the one string the handler printed.
+ *
+ * Measured (TH2, `.h2h-runs/judge-r4/TH2/run-1`): the search fixture answered
+ * HTTP 500 for every query and the library was empty, so the turn consulted
+ * nothing — but `reference_lookup` returned `ok` with "No reference passages
+ * found … The reference library is empty", `consultedSources` counted it, and
+ * the reply lost the line saying it came from memory. The older build printed
+ * that line on the identical fixture for one reason only: its model had named
+ * a pack that is not installed, so the same nothing landed as an error. A
+ * disclosure must not turn on which argument the model happened to send.
+ */
+export function foundNothing(record: ToolCallRecord): boolean {
+  const lead = EMPTY_RESULT_LEADS.get(record.name)
+  return lead !== undefined && (record.result ?? '').trimStart().startsWith(lead)
+}
+
+/**
+ * Did this turn consult any source? The badge decision is mechanical: a source
+ * counts only when its tool call completed successfully *and came back with
+ * something to quote*. Memory recall is not a source — it reminds, it does not
+ * verify — and neither is a search that matched nothing.
  */
 export function consultedSources(records: ToolCallRecord[]): boolean {
-  return records.some((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name))
+  return records.some((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name) && !foundNothing(r))
 }

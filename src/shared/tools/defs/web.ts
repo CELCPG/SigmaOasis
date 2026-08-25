@@ -26,7 +26,10 @@ export const webToolDefs = [
     },
     toggleDefault: true,
     turnBudget: 3,
-    isSource: true
+    isSource: true,
+    // A provider that answered "nothing matched" is not a source: the reply
+    // that follows it is memory, whatever the transport did.
+    emptyResultLead: 'No results found for'
   },
   {
     name: 'image_search',

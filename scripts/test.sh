@@ -131,6 +131,7 @@ rm -rf "$OUT"
   src/renderer/src/components/PlanBlockView.tsx \
   src/renderer/src/components/OasisRipple.tsx \
   src/renderer/src/components/RanCodeHeader.tsx \
+  src/renderer/src/components/ToolCallBlock.tsx \
   test/harness.ts \
   test/*.test.ts
 

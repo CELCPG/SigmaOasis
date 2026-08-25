@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from 'react'
 import type { ToolCallRecord } from '../types'
+import { foundNothing } from '../lib/grounding'
 import { toolVisualForName } from '../lib/oasisRipple'
 
 const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
@@ -8,12 +9,25 @@ const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
   error: '✗'
 }
 
+/**
+ * A call that worked and came back with nothing is neither ✓ nor ✗.
+ *
+ * Measured (TH2, `.h2h-runs/judge-r4/TH2/run-1`): a green ✓ on
+ * `reference_lookup` whose result read "No reference passages found … The
+ * reference library is empty" — the same success mark as a lookup that
+ * returned passages, over a lookup that supplied none. Collapsed, the header
+ * is the whole of what a reader sees, so the distinction has to live there.
+ */
+const EMPTY_ICON = '∅'
+export const EMPTY_RESULT_NOTE = 'found nothing'
+
 /** Collapsible block for a tool call — or a model-to-model consultation. */
 export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Element {
   const [open, setOpen] = useState(false)
 
   const isConsult = record.name === 'consult_model'
   const visual = toolVisualForName(record.name)
+  const empty = record.status === 'done' && foundNothing(record)
   const label = isConsult
     ? `🤝 Consulted ${String(record.args.role ?? 'specialist')}`
     : `${visual.icon} ${record.name}`
@@ -32,16 +46,20 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
           className={
             record.status === 'error'
               ? 'text-red-500'
-              : record.status === 'done'
-                ? 'text-green-500'
-                : ''
+              : empty
+                ? 'text-amber-600 dark:text-amber-400'
+                : record.status === 'done'
+                  ? 'text-green-500'
+                  : ''
           }
+          title={empty ? 'The call worked and returned nothing — this reply is not backed by it.' : undefined}
         >
-          {STATUS_ICON[record.status]}
+          {empty ? EMPTY_ICON : STATUS_ICON[record.status]}
         </span>
         <span className="font-medium" style={{ color: record.status === 'running' ? visual.color : undefined }}>
           {label}
         </span>
+        {empty && <span className="text-amber-600 dark:text-amber-400">— {EMPTY_RESULT_NOTE}</span>}
         <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
       {record.preamble && (

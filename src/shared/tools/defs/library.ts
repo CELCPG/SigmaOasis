@@ -35,6 +35,9 @@ export const libraryToolDefs = [
     toggleDefault: true,
     // Local and cheap, but a model that keeps rephrasing the same lookup is looping.
     turnBudget: 3,
-    isSource: true
+    isSource: true,
+    // An empty library and a query nothing matches both land here, `ok` and
+    // with nothing to quote — see formatLookup.
+    emptyResultLead: 'No reference passages found for'
   }
 ] as const satisfies readonly ToolMeta[]
