@@ -191,12 +191,12 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">1731 pass / 0 fail</span>
+          <span class="inv__val">1792 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">render + style checks</span>
-          <span class="inv__val">25 render · 33 style · 39 chrome-contrast · 34 md · 40 workbench · 24 transport</span>
+          <span class="inv__val">25 render · 33 style · 39 chrome-contrast · 34 md · 46 workbench · 24 transport</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -266,33 +266,33 @@
         </article>
         <article class="dim">
           <h3 class="dim__title">Plan-mode transparency</h3>
-          <div class="dim__bar" role="img" aria-label="5 of 5 high-severity gaps closed">
-            <span class="dim__fill" style="width:100%"></span>
+          <div class="dim__bar" role="img" aria-label="6 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:120%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">5<span class="of">/5</span></dd></div>
+            <div><dt>closed</dt><dd class="num">6<span class="of">/5</span></dd></div>
             <div><dt>high</dt><dd class="num">5</dd></div>
             <div><dt>total</dt><dd class="num">14</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Tool-call honesty</h3>
-          <div class="dim__bar" role="img" aria-label="3 of 3 high-severity gaps closed">
-            <span class="dim__fill" style="width:100%"></span>
+          <div class="dim__bar" role="img" aria-label="4 of 3 high-severity gaps closed">
+            <span class="dim__fill" style="width:133%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">3<span class="of">/3</span></dd></div>
+            <div><dt>closed</dt><dd class="num">4<span class="of">/3</span></dd></div>
             <div><dt>high</dt><dd class="num">3</dd></div>
             <div><dt>total</dt><dd class="num">10</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Time-to-useful-output</h3>
-          <div class="dim__bar" role="img" aria-label="3 of 5 high-severity gaps closed">
-            <span class="dim__fill" style="width:60%"></span>
+          <div class="dim__bar" role="img" aria-label="4 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:80%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">3<span class="of">/5</span></dd></div>
+            <div><dt>closed</dt><dd class="num">4<span class="of">/5</span></dd></div>
             <div><dt>high</dt><dd class="num">5</dd></div>
             <div><dt>total</dt><dd class="num">15</dd></div>
           </dl>
@@ -409,7 +409,7 @@
           <dl class="facts">
             <div><dt>what ran</dt><dd>Five builders: quotation fidelity and tool-use claims (the round-2 loss), markdown wrap plus a palette-level retint, a verification pass that could not succeed, stall self-detection, and three plan residuals.</dd></div>
             <div><dt>findings</dt><dd>The quote checker fired exactly as intended on TH1 — “⚠️ Quoted as exact but in no tool output this turn” naming the invented span and the tool it checked against — and correctly stayed silent on TH3, where both replies quoted accurately. FR2 now counts the silence out loud: “still waiting on the model · 1:30 · gives up at 5:00”, where the baseline’s 60s and 90s frames are byte-identical. VC3 went from 9 failing text nodes to 0, floor 2.46:1 → 5.21:1.</dd></div>
-            <div><dt>blind verdict</dt><dd>Round-3 build 14 · baseline 0 · 2 ties, over 16 tasks judged blind. First round with no losses. (A 17th critic died twice on API errors; V1 is unjudged and counted nowhere.)</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-3 build 13 · baseline 0 · 2 ties · 1 VOID, over 16 tasks. Corrected downward from 14–0–2: the baseline arm had been handicapped (see round 4), which voids TTU2 and weakens V3.</dd></div>
             <div><dt>biggest gap</dt><dd>Two, both in the winning build. The quote checker FALSE-POSITIVED on V2, flagging a quotation that is verbatim in the reference_lookup output it names — a verifier that cries wolf teaches the reader to ignore it, which costs more than the numbering gains. And on TTU2 the app stamps a green ✓ and “it runs without error” over a reply whose stated sum (854,405) contradicts its own executed output (824,693): the check verifies that no exception was raised, not that the numbers match, so the reassurance fires hardest exactly where the answer is wrong.</dd></div>
             <div><dt>fix</dt><dd>Quoted spans checked character-for-character against captured tool output · citation attributions checked against the passage the marker resolves to · a “Tools used” section that names none of the executed calls is contradicted · assistant markdown wraps and code blocks gain a wrap toggle · the raw-neutral guard widened to the whole renderer · a silent stream counts itself out loud and names its deadline · plans disclose what each step may DO before approval · a terminal outcome is the heaviest text in the block · never-run steps stop presenting their contents as findings</dd></div>
           </dl>
@@ -421,16 +421,43 @@
           </div>
         </div>
       </li>
-      <li class="round round--pending">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">4</span></div>
         <div class="round__body">
           <header class="round__head">
-            <h3>The verifier that cries wolf</h3>
+            <h3>Four reassurances the app had not earned</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the original baseline, this time WITH the Python runtime it had been missing</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">baseline + rounds 1–4</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Five builders on the two faults blind critics found in round 3’s winner, the tie where a check still could not succeed, a cold boot attributed nowhere, and a plan forecast nothing verified — plus the harness guard that let a handicapped arm score for three rounds.</dd></div>
+            <div><dt>findings</dt><dd>The quote checker’s false positive is gone and its true positive survives: on TH1 it now names both an undisclosed tool and an invented quotation, and a critic confirmed neither warning is spurious. The claim check stops at the first unreachable source — 7 searches down to 2, post-answer lockout 21.3 s down to 1.4 s, a 15× difference against the same dead provider. The cold sandbox boot is named and quantified — “started the sandbox in 1.6 s, then failed after 7 ms” — where the baseline still reports a cold call as 8 ms against a warm 20 ms.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-4 build 13 · baseline 3 · 1 tie, over 17 tasks judged blind against a corrected baseline. More losses than round 3 reported — because round 3 was judged against a handicapped arm and this was not.</dd></div>
+            <div><dt>biggest gap</dt><dd>Three losses, and the honest reading differs per task. V3: our run hit the 300 s capture budget mid-verification and a critic judged an unfinished turn; re-captured it finishes at 268 s against the baseline’s 213 s, so we are slower and the tail is still unexplained, but the “never finished” reasoning was partly a capture artifact. V1: our build stated 165°F / 74°C, which appear in none of the retrieved passages, and printed “✎ Revised: 1 unsupported item were sent back for verification or removal” — a claim of resolution that did not occur. That is the same false-assurance species this round set out to kill, in a new place. TH2: the baseline won on a provenance line ours did not print.</dd></div>
+            <div><dt>fix</dt><dd>Bracketed citation markers trimmed before a quoted span is checked · printed figures compared against the figures the reply states · the unreachable-source rule inverted so an unlisted error code cannot defeat it · the sandbox boot measured, named and reported beside the run time · a plan step reconciled against the tools it actually ran · validity extended twice: a precondition that did not hold, and a turn that never ended</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">1731 → 1792</span></div>
+            <div class="ev"><span class="ev__k">workbench checks</span><span class="ev__v num">40 → 46</span></div>
+            <div class="ev"><span class="ev__k">blind tasks judged</span><span class="ev__v num">17</span></div>
+            <div class="ev"><span class="ev__k">won / lost / tied</span><span class="ev__v num">13 / 3 / 1</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--pending">
+        <div class="round__mark"><span class="round__n num">5</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>The verification tail, and a revision that did not happen</h3>
             <span class="tag tag--pending">pending</span>
           </header>
 
           <dl class="facts">
-            <div><dt>what ran</dt><dd>A false positive in the quote checker and a green tick over a wrong number are worse than the gaps they replaced. Also open: run.json reports VALID on a run whose sandbox never started, because validity is computed only from fixtures.</dd></div>
+            <div><dt>what ran</dt><dd>V1’s “Revised: 1 unsupported item” on a turn where nothing was revised, and a verification tail long enough to blow a 300-second capture budget on one task and cost 136–190 s on another.</dd></div>
           </dl>
 
         </div>
@@ -457,6 +484,9 @@
             <tr><td class="num">3</td><td>node</td><td>cases passing</td><td class="r num">1731</td><td class="r num up">+69</td></tr>
             <tr><td class="num">3</td><td>blind head-to-head</td><td>tasks won vs the original baseline</td><td class="r num">14 / 16</td><td class="r num up">+1</td></tr>
             <tr><td class="num">3</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">0 / 16</td><td class="r num down">-1</td></tr>
+            <tr><td class="num">4</td><td>node</td><td>cases passing</td><td class="r num">1792</td><td class="r num up">+61</td></tr>
+            <tr><td class="num">4</td><td>blind head-to-head</td><td>tasks won vs a corrected baseline</td><td class="r num">13 / 17</td><td class="r num ">—</td></tr>
+            <tr><td class="num">4</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">3 / 17</td><td class="r num up">+3</td></tr>
           </tbody>
         </table>
       </div>

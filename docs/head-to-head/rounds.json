@@ -6,12 +6,12 @@
   "invariants": [
     {
       "name": "node test suite",
-      "value": "1731 pass / 0 fail",
+      "value": "1792 pass / 0 fail",
       "state": "green"
     },
     {
       "name": "render + style checks",
-      "value": "25 render · 33 style · 39 chrome-contrast · 34 md · 40 workbench · 24 transport",
+      "value": "25 render · 33 style · 39 chrome-contrast · 34 md · 46 workbench · 24 transport",
       "state": "green"
     },
     {
@@ -70,21 +70,21 @@
       "title": "Plan-mode transparency",
       "gaps": 14,
       "high": 5,
-      "closed": 5
+      "closed": 6
     },
     {
       "key": "tool-honesty",
       "title": "Tool-call honesty",
       "gaps": 10,
       "high": 3,
-      "closed": 3
+      "closed": 4
     },
     {
       "key": "time-to-useful",
       "title": "Time-to-useful-output",
       "gaps": 15,
       "high": 5,
-      "closed": 3
+      "closed": 4
     },
     {
       "key": "failure-recovery",
@@ -167,7 +167,7 @@
       },
       "what": "Five builders: quotation fidelity and tool-use claims (the round-2 loss), markdown wrap plus a palette-level retint, a verification pass that could not succeed, stall self-detection, and three plan residuals.",
       "findings": "The quote checker fired exactly as intended on TH1 — “⚠️ Quoted as exact but in no tool output this turn” naming the invented span and the tool it checked against — and correctly stayed silent on TH3, where both replies quoted accurately. FR2 now counts the silence out loud: “still waiting on the model · 1:30 · gives up at 5:00”, where the baseline’s 60s and 90s frames are byte-identical. VC3 went from 9 failing text nodes to 0, floor 2.46:1 → 5.21:1.",
-      "verdict": "Round-3 build 14 · baseline 0 · 2 ties, over 16 tasks judged blind. First round with no losses. (A 17th critic died twice on API errors; V1 is unjudged and counted nowhere.)",
+      "verdict": "Round-3 build 13 · baseline 0 · 2 ties · 1 VOID, over 16 tasks. Corrected downward from 14–0–2: the baseline arm had been handicapped (see round 4), which voids TTU2 and weakens V3.",
       "gap": "Two, both in the winning build. The quote checker FALSE-POSITIVED on V2, flagging a quotation that is verbatim in the reference_lookup output it names — a verifier that cries wolf teaches the reader to ignore it, which costs more than the numbering gains. And on TTU2 the app stamps a green ✓ and “it runs without error” over a reply whose stated sum (854,405) contradicts its own executed output (824,693): the check verifies that no exception was raised, not that the numbers match, so the reassurance fires hardest exactly where the answer is wrong.",
       "fix": "Quoted spans checked character-for-character against captured tool output · citation attributions checked against the passage the marker resolves to · a “Tools used” section that names none of the executed calls is contradicted · assistant markdown wraps and code blocks gain a wrap toggle · the raw-neutral guard widened to the whole renderer · a silent stream counts itself out loud and names its deadline · plans disclose what each step may DO before approval · a terminal outcome is the heaviest text in the block · never-run steps stop presenting their contents as findings",
       "evals": {
@@ -179,11 +179,32 @@
     },
     {
       "n": 4,
-      "label": "The verifier that cries wolf",
+      "label": "Four reassurances the app had not earned",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the original baseline, this time WITH the Python runtime it had been missing",
+        "B": "baseline + rounds 1–4"
+      },
+      "what": "Five builders on the two faults blind critics found in round 3’s winner, the tie where a check still could not succeed, a cold boot attributed nowhere, and a plan forecast nothing verified — plus the harness guard that let a handicapped arm score for three rounds.",
+      "findings": "The quote checker’s false positive is gone and its true positive survives: on TH1 it now names both an undisclosed tool and an invented quotation, and a critic confirmed neither warning is spurious. The claim check stops at the first unreachable source — 7 searches down to 2, post-answer lockout 21.3 s down to 1.4 s, a 15× difference against the same dead provider. The cold sandbox boot is named and quantified — “started the sandbox in 1.6 s, then failed after 7 ms” — where the baseline still reports a cold call as 8 ms against a warm 20 ms.",
+      "verdict": "Round-4 build 13 · baseline 3 · 1 tie, over 17 tasks judged blind against a corrected baseline. More losses than round 3 reported — because round 3 was judged against a handicapped arm and this was not.",
+      "gap": "Three losses, and the honest reading differs per task. V3: our run hit the 300 s capture budget mid-verification and a critic judged an unfinished turn; re-captured it finishes at 268 s against the baseline’s 213 s, so we are slower and the tail is still unexplained, but the “never finished” reasoning was partly a capture artifact. V1: our build stated 165°F / 74°C, which appear in none of the retrieved passages, and printed “✎ Revised: 1 unsupported item were sent back for verification or removal” — a claim of resolution that did not occur. That is the same false-assurance species this round set out to kill, in a new place. TH2: the baseline won on a provenance line ours did not print.",
+      "fix": "Bracketed citation markers trimmed before a quoted span is checked · printed figures compared against the figures the reply states · the unreachable-source rule inverted so an unlisted error code cannot defeat it · the sandbox boot measured, named and reported beside the run time · a plan step reconciled against the tools it actually ran · validity extended twice: a precondition that did not hold, and a turn that never ended",
+      "evals": {
+        "node cases": "1731 → 1792",
+        "workbench checks": "40 → 46",
+        "blind tasks judged": "17",
+        "won / lost / tied": "13 / 3 / 1"
+      }
+    },
+    {
+      "n": 5,
+      "label": "The verification tail, and a revision that did not happen",
       "state": "pending",
       "dimension": null,
       "pair": null,
-      "what": "A false positive in the quote checker and a green tick over a wrong number are worse than the gaps they replaced. Also open: run.json reports VALID on a run whose sandbox never started, because validity is computed only from fixtures.",
+      "what": "V1’s “Revised: 1 unsupported item” on a turn where nothing was revised, and a verification tail long enough to blow a 300-second capture budget on one task and cost 136–190 s on another.",
       "findings": null,
       "verdict": null,
       "gap": null,
@@ -282,6 +303,27 @@
       "metric": "tasks lost to the baseline",
       "value": "0 / 16",
       "delta": "-1"
+    },
+    {
+      "round": 4,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "1792",
+      "delta": "+61"
+    },
+    {
+      "round": 4,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs a corrected baseline",
+      "value": "13 / 17",
+      "delta": null
+    },
+    {
+      "round": 4,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost to the baseline",
+      "value": "3 / 17",
+      "delta": "+3"
     }
   ]
 }
