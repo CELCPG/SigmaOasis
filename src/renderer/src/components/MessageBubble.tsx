@@ -9,7 +9,8 @@ import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState } from '../lib/oasisRipple'
 import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
 import { replyAffordances } from '../lib/replyRecovery'
-import { type TurnPhase } from '../lib/turnPhase'
+import { VERIFY_BUDGET_MS, type TurnPhase } from '../lib/turnPhase'
+import { formatTurnCost } from '../lib/turnCost'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { LIBRARY_MISS_LABEL, LIBRARY_STRIP_LABEL, libraryMissDetail } from '../lib/libraryRecall'
 import { useAppStore } from '../stores/appStore'
@@ -391,7 +392,7 @@ function TurnPhaseLine({ phase }: { phase: TurnPhase }): JSX.Element {
       aria-live="polite"
       title={
         phase.stage === 'verifying'
-          ? 'The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed.'
+          ? `The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed. They stop after ${VERIFY_BUDGET_MS / 1000}s and say what was left unchecked.`
           : 'The app is gathering context for this turn. The model has not been asked yet.'
       }
     >
@@ -400,20 +401,6 @@ function TurnPhaseLine({ phase }: { phase: TurnPhase }): JSX.Element {
       <span className="min-w-0 truncate text-ink-secondary">{phase.detail}</span>
     </div>
   )
-}
-
-/**
- * The performance readout under a reply. Token figures appear only when the
- * server reported them — timing is always measured, token counts never
- * estimated, so nothing here is a guess dressed up as a measurement.
- */
-function formatStats(stats: NonNullable<ChatMessage['stats']>): string {
-  const parts: string[] = []
-  if (stats.completionTokens) parts.push(`${stats.completionTokens.toLocaleString()} tok`)
-  if (stats.tokensPerSecond) parts.push(`${stats.tokensPerSecond.toFixed(1)} tok/s`)
-  if (stats.ttftMs) parts.push(`${(stats.ttftMs / 1000).toFixed(2)}s to first token`)
-  parts.push(`${(stats.totalMs / 1000).toFixed(1)}s total`)
-  return parts.join(' · ')
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -891,12 +878,13 @@ export const MessageBubble = memo(function MessageBubble({
           <div
             className="mt-2 text-[10px] text-ink-tertiary"
             title={
-              message.stats.completionTokens
-                ? 'Measured from the server’s own token accounting.'
-                : 'This server did not report token counts, so only timing is shown.'
+              (message.stats.completionTokens
+                ? 'Measured from the server’s own token accounting. '
+                : 'This server did not report token counts, so only timing is shown. ') +
+              '“Answer” is the token stream; “checking” is the verification that ran after it, with the composer still held; “total” is the whole turn, which is what you waited.'
             }
           >
-            {formatStats(message.stats)}
+            {formatTurnCost(message.stats)}
           </div>
         )}
         </div>
