@@ -52,6 +52,40 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/**
+ * Whether a fenced block should arrive already wrapped.
+ *
+ * The default is to scroll, and the reason is real: a wrapped line is a lie
+ * about the source. Where a line ends, how it is indented and whether two
+ * things are on the same line are all content in code, and soft-wrapping
+ * invents line ends that the file does not contain.
+ *
+ * That argument protects lines that HAVE a shape. A line that is one unbroken
+ * token — a base64 blob, a hash, a signed URL — has none: it contains no
+ * whitespace, so there is no indentation to misplace and no second thing on the
+ * line to imply. Wrapping it cannot misrepresent it, and scrolling it does real
+ * damage: measured in split view, a 220-character token shows 26 characters at
+ * a time behind an 8px scrollbar on a block one line tall.
+ *
+ * So the principle survives and the default follows it more exactly than
+ * "never wrap" did: a block wraps by default only when wrapping can tell no lie
+ * about it. Every other block, including a 200-column line of real code, still
+ * scrolls and still needs the Wrap control.
+ *
+ * 80 characters because below it this decision does not arise — a token that
+ * short fits a reply column at every width the app renders, so it would not
+ * have wrapped anyway and the only visible effect would be a toggle that starts
+ * pressed for no reason.
+ */
+export function startsWrapped(code: string): boolean {
+  return code.split('\n').some((line) => {
+    // trimEnd, not trim: a trailing \r from a CRLF source is not content, but
+    // leading indentation is — an indented long line still has a shape.
+    const trimmed = line.trimEnd()
+    return trimmed.length > 80 && !/\s/.test(trimmed)
+  })
+}
+
 marked.use({
   breaks: true,
   gfm: true,
@@ -95,17 +129,42 @@ marked.use({
       } catch {
         highlighted = escapeHtml(code)
       }
+      // Scrolling is the default and stays the default; startsWrapped names the
+      // one shape of line that wrapping cannot misrepresent. The class and the
+      // button's state are set together — MessageBubble's toggle reads the
+      // class and writes aria-pressed from it, so the two must agree at render.
+      const wrapped = startsWrapped(code)
       return (
-        `<div class="code-block">` +
+        `<div class="code-block${wrapped ? ' code-wrapped' : ''}">` +
         `<div class="code-header"><span>${escapeHtml(language)}</span>` +
         `<span class="code-actions">` +
         // Code scrolls by default; this is the reader's way to see the whole of
         // a long line. Toggled in MessageBubble, same delegation as Copy.
-        `<button type="button" class="code-wrap-btn" aria-pressed="false" ` +
+        `<button type="button" class="code-wrap-btn" aria-pressed="${wrapped}" ` +
         `title="Wrap long lines">Wrap</button>` +
         `<button type="button" class="code-copy-btn">Copy</button></span></div>` +
         `<pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>` +
         `</div>`
+      )
+    },
+    /*
+     * A table is the only markdown block a reply can produce whose width its own
+     * contents decide, which makes it the only one that can push the chat column
+     * sideways or be squeezed until words break. It gets a scroll container of
+     * its own (`.md-table-scroll` in index.css) so it can do neither.
+     *
+     * Generated here rather than with `display: block` on the <table>, which
+     * would achieve the same layout in CSS alone at the cost of the element's
+     * implicit `table` role — a screen reader would stop announcing rows and
+     * columns. tabindex="0" because a region that scrolls must be scrollable
+     * from the keyboard; DOMPurify keeps both attributes.
+     */
+    table(header: string, body: string): string {
+      return (
+        `<div class="md-table-scroll" tabindex="0"><table>` +
+        `<thead>${header}</thead>` +
+        (body ? `<tbody>${body}</tbody>` : '') +
+        `</table></div>`
       )
     }
   }
