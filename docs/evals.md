@@ -1123,6 +1123,78 @@ weaker than first recorded. The error ran in the flattering direction, which is 
 precondition guard above exists now: a run that could not exercise its own task must not be
 scoreable, and no reviewer should have to notice that by hand.
 
+## Round 5, and the shape three rounds of checks kept failing in (v1.16)
+
+Round 4 lost three tasks to a corrected baseline. Round 5 took all three plus the residuals, and the
+individual fixes matter less than what finding them revealed.
+
+### The pattern: a check whose vocabulary is narrower than the class it guards
+
+Three rounds running, a check built for exactly the failing case did not fire on it, and each time
+the reason was the same shape — the check enumerated the forms it had already seen, and the world
+supplied one that was not on the list.
+
+| Round | The check | Why it missed |
+| --- | --- | --- |
+| 3 | "is the search provider unreachable?" | It **enumerated** `net::` error codes. The task produces `ERR_UNSAFE_PORT`, which was not among them, so both guards were dead and the app burned 38% of a turn on a provider it had already been told was refusing. |
+| 4 | "is this quotation in the source?" | It bounded a quoted span by the **line**, so a citation marker sitting inside the line was checked as part of the quotation — and a verbatim quote was flagged as invented. |
+| 5 | "is this measurement supported?" | It armed **per normalised unit string**. `°f` and `°c` are unrelated keys to it, the passages held no Celsius, so `74°C` was never checked at all — and `165°F` was named only because one passage incidentally mentioned a refrigerator at `40 °F`. Reword that one line and the check names nothing. |
+
+The round-3 repair is the one worth generalising: the enumeration was replaced by its **inverse** —
+instead of listing the codes that mean unreachable, list the few that mean *a server answered*, and
+treat everything else as unreachable. A list of known-bad cannot be defeated by an unknown; a list of
+known-good can only be defeated by something that genuinely answered.
+
+The round-5 measurement fix does the same thing one level up: temperature became one **dimension** in
+two scales rather than two unrelated unit strings, so a corpus stating any temperature arms both, and
+support crosses the scales but never the dimensions. Temperatures also stopped being *derivable* —
+the integer-multiple rule had been certifying `80°F` from a fridge's `40 °F`.
+
+**What this costs when it goes the other way.** The same rounds show the opposite failure. Round 4's
+quote checker was made stricter and cried wolf on a correctly-sourced quotation; a critic's verdict
+was that this *"teaches the user to ignore it, which costs more than the numbering gains"*. So the
+rule is not "widen everything". It is that a check must be written against the **class** it guards,
+with a true negative beside every true positive — which is now the standing requirement for a new
+case in this document.
+
+### Two failures that were not about vocabulary at all
+
+**A disclosure that turned on which argument the model happened to send.** The
+answered-from-memory badge was absent on a turn where every source failed. It was not a regression —
+`git log -L :consultedSources:` shows one commit, ever. `lookupLibrary` returns `ok:false` for an
+unknown pack and `ok:true` for an **empty library**, so the identical nothing arrived as `status:'error'`
+in one arm and `status:'done'` in the other, and `consultedSources` counted the second. One arm's model
+sent `pack:"home repair"`; the other omitted it. The app's own pre-flight path had honoured the right
+contract all along — `contextProviders/libraryPassages.ts` refuses to record a synthetic call unless
+passages came back — while the model-initiated path did not. A source tool that found nothing now
+says so, on the block header (`∅ … — found nothing`) and to the badge.
+
+**A revision certified by evidence the reader never saw.** The `✎ Revised` line claimed resolution on
+a turn where the invented figure was still standing. The line is now a function of the report *before*
+and *after*, names the surviving items, and is amber rather than green when a finding survives. But
+the deeper cause is recorded here because it is not fixed: `reviseAgainstFindings` passes the turn's
+records into the agent loop, so a tool call made **during** the correction joins the corpus the
+revision is re-checked against — and `onToolExecuted` writes only the audit log, never patching
+`toolCalls`. So the re-check can be satisfied by a retrieval that never appears on screen. The app was
+not lying about the re-check; the re-check was reading evidence the reader had no access to.
+
+### The verification tail, bounded
+
+The post-answer tail was unbounded and under-reported. Measured across four recorded runs, the stat
+line reported the token stream and was read as the turn: `213023` ms against `"76.6s total"`,
+`80032` against `"25.7s"`, `162814` against `"51.9s"`, `42640` against `"19.6s"` — routinely 3–4×
+out, and on one capture the tail exceeded a 300-second budget entirely.
+
+The line now reads `25.7s answer · 54.3s checking · 80.0s total`, where the middle figure is the
+difference of two wall clocks from one origin rather than an estimate, and a turn with no tail keeps
+its single `total`. The whole tail gets one 60-second budget; on expiry it says what ran and what did
+not, and leaves the answer unchanged. 60 s is longer than two of the three tails that finished at all
+in the recorded runs, so this bounds the pathological case without checking less by default.
+
+Worth recording as its own finding: both endings of the turn — the normal one and the iteration-cap
+one — ran a **byte-identical copy** of the tail. That duplication is exactly how a bound added to one
+path silently misses the other, and it was collapsed to a single call site as part of the fix.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
