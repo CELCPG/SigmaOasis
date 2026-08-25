@@ -698,7 +698,8 @@ async function runTurn(
       convo,
       before,
       report,
-      allRecords
+      allRecords,
+      () => patch({ toolCalls: [...allRecords] })
     )
     if (!budget.signal.aborted) budget.ran('revising')
     // A revision that came back empty, that the user cancelled, or that the

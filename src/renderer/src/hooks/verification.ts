@@ -363,7 +363,9 @@ export async function reviseAgainstFindings(
   convo: Conversation,
   answer: string,
   report: GroundingReport,
-  records: ToolCallRecord[]
+  records: ToolCallRecord[],
+  /** Publish `records` to the message, as every other tool path in the turn does. */
+  onRecords: () => void
 ): Promise<string> {
   const findings = describeGroundingFindings(report)
   if (!findings) return ''
@@ -402,8 +404,12 @@ export async function reviseAgainstFindings(
       ),
       // Tool calls made while correcting join the turn's own record list, so
       // the work done to verify a figure is as visible as the work that
-      // produced it.
+      // produced it. The publish is what makes that true: `records` is also the
+      // corpus the re-check grades the revision against, so a call that lands
+      // there unpublished can clear a flagged figure with a passage the reader
+      // never sees — and the disclosure then reports the finding as resolved.
       records,
+      onRecordChange: onRecords,
       signal,
       maxIterations: MAX_PLAN_STEP_ITERATIONS,
       deps: {

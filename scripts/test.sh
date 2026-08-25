@@ -132,6 +132,8 @@ rm -rf "$OUT"
   src/renderer/src/components/OasisRipple.tsx \
   src/renderer/src/components/RanCodeHeader.tsx \
   src/renderer/src/components/ToolCallBlock.tsx \
+  src/preload/index.d.ts \
+  src/renderer/src/hooks/verification.ts \
   test/harness.ts \
   test/*.test.ts
 
