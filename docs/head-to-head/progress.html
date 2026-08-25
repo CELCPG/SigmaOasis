@@ -183,7 +183,7 @@
     <div class="meta">
       <span>baseline <b>v1.12.1</b></span>
       <span>local model <b>qwen3.8-9b</b></span>
-      <span>updated <b>2026-08-24</b></span>
+      <span>updated <b>2026-08-25</b></span>
     </div>
   </header>
 
@@ -191,7 +191,7 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">1862 pass / 0 fail</span>
+          <span class="inv__val">1911 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -202,6 +202,11 @@
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">electron-vite build</span>
           <span class="inv__val">exit 0</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">sweep hygiene</span>
+          <span class="inv__val">17 / 17 VALID · 0 screenshot failures</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -255,55 +260,55 @@
     <div class="grid">
         <article class="dim">
           <h3 class="dim__title">Answer verifiability and citations</h3>
-          <div class="dim__bar" role="img" aria-label="6 of 6 high-severity gaps closed">
-            <span class="dim__fill" style="width:100%"></span>
+          <div class="dim__bar" role="img" aria-label="7 of 6 high-severity gaps closed">
+            <span class="dim__fill" style="width:117%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">6<span class="of">/6</span></dd></div>
+            <div><dt>closed</dt><dd class="num">7<span class="of">/6</span></dd></div>
             <div><dt>high</dt><dd class="num">6</dd></div>
             <div><dt>total</dt><dd class="num">14</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Plan-mode transparency</h3>
-          <div class="dim__bar" role="img" aria-label="6 of 5 high-severity gaps closed">
-            <span class="dim__fill" style="width:120%"></span>
+          <div class="dim__bar" role="img" aria-label="7 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:140%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">6<span class="of">/5</span></dd></div>
+            <div><dt>closed</dt><dd class="num">7<span class="of">/5</span></dd></div>
             <div><dt>high</dt><dd class="num">5</dd></div>
             <div><dt>total</dt><dd class="num">14</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Tool-call honesty</h3>
-          <div class="dim__bar" role="img" aria-label="5 of 3 high-severity gaps closed">
-            <span class="dim__fill" style="width:167%"></span>
+          <div class="dim__bar" role="img" aria-label="6 of 3 high-severity gaps closed">
+            <span class="dim__fill" style="width:200%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">5<span class="of">/3</span></dd></div>
+            <div><dt>closed</dt><dd class="num">6<span class="of">/3</span></dd></div>
             <div><dt>high</dt><dd class="num">3</dd></div>
             <div><dt>total</dt><dd class="num">10</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Time-to-useful-output</h3>
-          <div class="dim__bar" role="img" aria-label="5 of 5 high-severity gaps closed">
-            <span class="dim__fill" style="width:100%"></span>
+          <div class="dim__bar" role="img" aria-label="6 of 5 high-severity gaps closed">
+            <span class="dim__fill" style="width:120%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">5<span class="of">/5</span></dd></div>
+            <div><dt>closed</dt><dd class="num">6<span class="of">/5</span></dd></div>
             <div><dt>high</dt><dd class="num">5</dd></div>
             <div><dt>total</dt><dd class="num">15</dd></div>
           </dl>
         </article>
         <article class="dim">
           <h3 class="dim__title">Failure recovery</h3>
-          <div class="dim__bar" role="img" aria-label="4 of 4 high-severity gaps closed">
-            <span class="dim__fill" style="width:100%"></span>
+          <div class="dim__bar" role="img" aria-label="5 of 4 high-severity gaps closed">
+            <span class="dim__fill" style="width:125%"></span>
           </div>
           <dl class="dim__stats">
-            <div><dt>closed</dt><dd class="num">4<span class="of">/4</span></dd></div>
+            <div><dt>closed</dt><dd class="num">5<span class="of">/4</span></dd></div>
             <div><dt>high</dt><dd class="num">4</dd></div>
             <div><dt>total</dt><dd class="num">11</dd></div>
           </dl>
@@ -475,16 +480,44 @@
           </div>
         </div>
       </li>
-      <li class="round round--pending">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">6</span></div>
         <div class="round__body">
           <header class="round__head">
             <h3>The re-check that reads what the reader cannot</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the original baseline, with the Python runtime</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">baseline + rounds 1–6</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Four builders on round 5’s only loss and the residue around it: the correction pass that cleared a finding using a retrieval the reader never saw; the pre-model wait billed to the wrong phase; a contact check that cried wolf on a base64 token while a $34,000 figure walked past the gate; and three tool outcomes — never sent, server failed, returned nothing — that all rendered as one indistinguishable ✗.</dd></div>
+            <div><dt>findings</dt><dd>The headline is a number the app cannot see. Measured against the harness’s own wall clock, the baseline’s stat line was off by more than 25% on 7 of 17 turns, worst 3.08× — V2 claimed “32.4s total” on a turn that took 99.9 s. The round-6 build was off by more than 25% on 0 of 16, worst 1.01×, median 1.00; the residual tenth of a second is the harness’s own send-to-stamp offset. The cause was one line: turnStartedAt was stamped AFTER gatherTurnContext, so every pre-model search was billed to nobody. TTU1 shows it directly — the baseline reads “13.45s to first token · 31.5s total” on a turn the reader sat through for 40.3 s, while the round-6 build reads “12.80s to first token · 8.7s gathering · 31.1s answer · 39.7s total” against a measured 39.8 s.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-6 build 16 · baseline 0 · 1 tie, over 17 tasks judged blind. The best result of the six rounds, the first with no losses against the corrected baseline, and the sweep behind it was 17/17 VALID with 0 screenshot failures. The tie is honest rather than a wash: on TH1 neither model invented a tool claim, so neither app was put to the test.</dd></div>
+            <div><dt>biggest gap</dt><dd>Six of the seventeen critiques land on the same species the project set out to kill, in places we had not looked. VC1: the app prints “Recomputed the stated figures in Python; the checker compared the reply against that output” under a reply whose echoed string plainly disagrees with the Python output inches below it — the checker compares FIGURES, the sentence claims it compared THE REPLY. PT1: we flag tools that ran without being forecast and never flag the reverse, so a plan that promised list_notes and read_note and ran neither says nothing while its header reads “4/4 steps done”. TH3: a quote warning fires on a span differing from the source only by curly-versus-straight quote glyphs, and the 60-character truncation stops before the deviation, so the reader sees a fabrication warning on a verbatim quote with no visible difference. TH1 (the tie): the reply misreports the ARGUMENT it passed — it states query &quot;ground beef safe internal temperature&quot; where the audit shows the whole user prompt went — and nothing checks a reply’s account of what it passed a tool. And the warning line itself is ungrammatical in every plural case, because the verb agrees with the number of CATEGORIES rather than the number of items.</dd></div>
+            <div><dt>fix</dt><dd>The correction pass publishes its tool calls, so a clearance can only rest on evidence that rendered — on V1 the same figure that round 5 cleared invisibly is now named and left standing, and 165 appears in zero retrieved passages · turnOpenedAt is stamped before gatherTurnContext, so the line reads “13.45s to first token · 8.8s gathering · 31.5s answer · 40.3s total” · never-sent, server-failed and returned-nothing became three states with the reason on the collapsed row (↩ declined: the query was a sentence about you, not search terms) and a “Tool calls 3 · 1 declined” count · the contact check stopped starting mid-token, and the figure gate stopped discarding what unsourcedFigures had already found</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">1862 → 1911</span></div>
+            <div class="ev"><span class="ev__k">stat line off by &gt;25%</span><span class="ev__v num">baseline 7 / 17 turns → 0 / 16</span></div>
+            <div class="ev"><span class="ev__k">worst stat-line error</span><span class="ev__v num">baseline 3.08× → 1.01×</span></div>
+            <div class="ev"><span class="ev__k">blind tasks judged</span><span class="ev__v num">17</span></div>
+            <div class="ev"><span class="ev__k">won / lost / tied</span><span class="ev__v num">16 / 0 / 1</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--pending">
+        <div class="round__mark"><span class="round__n num">7</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>A sentence broader than its measurement, and a check with one direction</h3>
             <span class="tag tag--pending">pending</span>
           </header>
 
           <dl class="facts">
-            <div><dt>what ran</dt><dd>A correction pass may retrieve new evidence, and that evidence clears findings without ever reaching the screen. Until a re-check is confined to what the reader can see, every clearance it issues is unauditable — and it is the last thing standing between the verification chrome and being trustworthy.</dd></div>
+            <div><dt>what ran</dt><dd>Round 6 won every task it was tested on and the critiques still found the same sin in six new places: a recomputation notice that claims to have compared the reply when it compared figures; a plan forecast checked in one direction only; a quote warning whose truncation hides the very difference it is warning about; a reply’s account of its own arguments that nothing checks; and one open question that may be the instrument rather than the product — a $ that the checker proves the model wrote and that innerText says is not on screen.</dd></div>
           </dl>
 
         </div>
@@ -517,6 +550,10 @@
             <tr><td class="num">5</td><td>node</td><td>cases passing</td><td class="r num">1862</td><td class="r num up">+70</td></tr>
             <tr><td class="num">5</td><td>blind head-to-head</td><td>tasks won vs the fair baseline</td><td class="r num">15 / 17</td><td class="r num up">+2</td></tr>
             <tr><td class="num">5</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">1 / 17</td><td class="r num down">-2</td></tr>
+            <tr><td class="num">6</td><td>node</td><td>cases passing</td><td class="r num">1911</td><td class="r num up">+49</td></tr>
+            <tr><td class="num">6</td><td>blind head-to-head</td><td>tasks won vs the fair baseline</td><td class="r num">16 / 17</td><td class="r num up">+1</td></tr>
+            <tr><td class="num">6</td><td>blind head-to-head</td><td>tasks lost to the baseline</td><td class="r num">0 / 17</td><td class="r num down">-1</td></tr>
+            <tr><td class="num">6</td><td>stat-line honesty</td><td>turns whose &quot;total&quot; is off by &gt;25%</td><td class="r num">0 / 16</td><td class="r num ">baseline 7 / 17</td></tr>
           </tbody>
         </table>
       </div>

@@ -1195,6 +1195,135 @@ Worth recording as its own finding: both endings of the turn — the normal one 
 one — ran a **byte-identical copy** of the tail. That duplication is exactly how a bound added to one
 path silently misses the other, and it was collapsed to a single call site as part of the fix.
 
+## Round 6: the re-check that read what the reader could not (v1.17)
+
+Round 5 lost exactly one task, V1, and the cause was documented as open before judging
+began: `reviseAgainstFindings` passed the turn's records into the agent loop, so a
+retrieval made *during* a correction joined the corpus the re-check read, while
+`onToolExecuted` never patched `toolCalls`. A real passage cleared an invented figure;
+the reader never saw it.
+
+**Blind verdict: 16 won · 0 lost · 1 tied**, over 17 tasks, from a sweep that was
+17/17 VALID with 0 screenshot failures. The tie is worth stating precisely rather than
+counting as a wash: on TH1 neither arm's model invented a tool claim, so neither app's
+tool-honesty check was put to the test, and both left the same thing on screen — nothing.
+
+### The stat line, measured against a clock the app cannot see
+
+This is the round's hard number, and it is an eval case in both directions. The capture
+harness stamps `sendToTurnEndMs` in the page, from the same `Runtime.evaluate` that
+dispatches the Enter keydown. The app has no access to it. Comparing every turn's
+on-screen `"Ns total"` against that independent clock:
+
+| | turns off by >25% | worst | median |
+| --- | --- | --- | --- |
+| baseline | **7 of 17** | **3.08×** — V2 claimed `32.4s total` on a turn that took 99.9 s | 1.06 |
+| round 6 | **0 of 16** | **1.01×** | **1.00** |
+
+The residual tenth of a second is the harness's own send-to-stamp offset, so 1.00 is the
+floor, not a rounding.
+
+The cause was one line. `turnStartedAt` was stamped *after* `gatherTurnContext`, so
+every pre-model retrieval was billed to nobody — including the segmented line round 5
+had just added, which is why round 5 fixed the tail and still under-reported the turn.
+TTU1 is the clean demonstration, because its search delay is scripted to 8 s by the
+loopback fixture and therefore identical in both arms:
+
+- baseline: `13.45s to first token · 31.5s total` — measured turn **40.3 s**
+- round 6: `12.80s to first token · 8.7s gathering · 31.1s answer · 39.7s total` — measured turn **39.8 s**
+
+The baseline's "total" is arithmetically the generation phase alone (240 tok ÷ 7.6 tok/s
+= 31.6 s). It deletes the eight seconds the reader actually sat through, and it is the
+only number on screen labelled *total*.
+
+### The clearance that now has to render
+
+V1, the round-5 loss, run against the same library on the same model:
+
+- **Round 5** showed one `reference_lookup` block, then
+  `✎ Revised: 1 unsupported item was sent back (165 °F); the re-check faults none of them.`
+- **Round 6** shows **three** `reference_lookup` blocks — the correction pass publishes
+  its calls — and refuses the clearance:
+  `⚠️ 1 measurement (165°F) in this reply is not backed by the tool output.`
+
+Verified rather than asserted: `165` occurs in **zero** retrieved passages in that run, so
+the warning is a true positive and the model's `[1], [2]` markers are a misattribution.
+The check also discriminated — `3–4 days` and `1 week` are both literally present in
+passage [5] and neither was flagged. One unsupported figure named, no false positives,
+no misses.
+
+### Three ways to fail, three states
+
+An unsent call, a server error and an empty result had all rendered as one `✗`. They now
+separate, with the reason on the collapsed row rather than inside a disclosure:
+
+```
+↩ 🔍 web_search — declined: the query was a sentence about you, not search terms
+✗ 🔍 web_search — SearXNG returned HTTP 500.
+⏱ Checking stopped at its 60s limit. Ran: the claim check, the code check.
+   Not run: the revision. The answer above is unchanged.
+```
+
+with `Tool calls 3 · 1 declined` in the side panel. The baseline's three rows read
+`✗ web_search`, `✗ reference_lookup`, `✗ web_search` — a decline, a missing pack and an
+HTTP 500 collapsed into one indistinguishable glyph.
+
+### The cry-wolf, and the figure that walked past the gate
+
+Round 5's VC1 printed
+`⚠️ Contact details no tool returned: 0001-0002-0003, 0004-0005-0006, …` on a turn
+containing no contacts at all: the `PHONE` pattern had a trailing `\b` and nothing on the
+left, so it started mid-token inside a 220-character base64 blob. Round 6 prints nothing
+there, in either arm. In the other direction, `unsourcedFigures` had been finding
+`$34,000` and `checkToolGrounding` was discarding it at the gate; that figure is now
+reported. A true negative and a true positive from the same round, which is the standing
+requirement for a new case here.
+
+### What this round does not measure
+
+- **The reference-app comparison is still absent.** These are 17 tasks against this
+  build's own baseline on `qwen3.8-9b`. Nothing here is a claim about Claude Desktop or
+  ChatGPT Desktop.
+- **Dark theme has never been captured by the bench.** The 45-check chrome-contrast suite
+  covers both themes in the render harness, but no head-to-head run has ever screenshotted
+  dark, so `N_fail` and `MIN_RATIO` for dark are unmeasured on both arms. The VC3 numbers
+  quoted anywhere in this document are light theme only.
+- **One critique may be the instrument, not the product, and is unresolved.** On V3 the
+  warning names `$0.01, $36, $10` while the captured on-screen prose reads
+  `at 0.01 per gallon that's36/year` — the reader cannot locate the figure. The checker
+  cannot be inventing the `$`: `CURRENCY` requires a literal one in the model's text.
+  But `latexToPlainText` preserves all five dollars on the real paragraph, so does the
+  full `renderMarkdown` path, and the harness reads bare `innerText`. One of those four
+  statements is wrong and it is not yet known which. Until it is, this is recorded as an
+  open question rather than a product defect — if it turns out to be the capture, it is a
+  measurement fault of the same family as the handicapped baseline arm.
+- **Turn totals across arms are not a speed comparison.** Several round-6 turns are
+  longer than the baseline's because they run a bounded verification tail the baseline
+  never ran at all (TH2: 112.8 s against 58.0 s, of which 60.0 s is the disclosed
+  `checking` budget expiring). PT1's 334 s against 202 s is answer length — the round-6
+  reply is multi-column tables where the baseline's is a list — which is model variance,
+  not app behaviour.
+
+### The species, in six new places
+
+Round 5's finding was that a check whose vocabulary is narrower than the class it guards
+gets defeated by a form not on the list. Round 6 won every task it was tested on, and the
+critiques found the same shape again in places nobody had looked:
+
+| Where | The sin |
+| --- | --- |
+| VC1 | `the checker compared the reply against that output` — it compared **figures**. The sentence is broader than the measurement, printed under a reply whose echoed string disagrees with the Python inches below it. |
+| PT1 | Executed ∖ forecast is flagged; **forecast ∖ executed is silent**. A plan promised `list_notes` and `read_note`, ran neither, and the header still reads `4/4 steps done`. |
+| TH3 | A quote warning fires on a span differing from its source only by curly-versus-straight quote glyphs — and the 60-character truncation stops **before** the deviation, so the reader sees a fabrication warning on a verbatim quote with nothing visibly wrong. |
+| V2 | The same truncation leaks raw markdown into user-facing text: `rises to **$3…`. |
+| TH1 | The reply's account of its own **arguments** is unchecked. It states `query: "ground beef safe internal temperature"`; the audit shows the whole user prompt went. |
+| everywhere | `⚠️ 3 figures (…) in this reply **is** not backed` — the verb agrees with the number of *categories*, not the number of items ([`MessageBubble.tsx:166`](../src/renderer/src/components/MessageBubble.tsx)). Every plural case is ungrammatical, on the one sentence carrying the verifiability claim. |
+
+The generalisation holds and sharpens: it is not only *enumeration* that fails. It is any
+check that reads a quantity **adjacent to** the one it means — the categories instead of
+the items, one direction of a set difference instead of both, the figures instead of the
+reply.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
