@@ -759,12 +759,28 @@ const RAW_MARKDOWN = String.raw`window.api.listConversations().then(function (cs
  * Opens every collapsed disclosure. Only buttons carrying the app's collapsed
  * caret (▸) are clicked — Approve/Reject, Regenerate and Branch never carry it,
  * so nothing with a side effect can be triggered by this sweep.
+ *
+ * Native `<details>` are opened by setting `.open`, not by clicking: a summary
+ * click is a toggle, so a second pass would shut what the first pass opened,
+ * and `.open = true` is idempotent and cannot fire anything else.
+ *
+ * They are handled at all because they were invisible here. The caret is the
+ * app's own convention and a native disclosure carries none, so its contents
+ * never reached transcript-expanded.txt — the artifact a critic reads to learn
+ * what the reader could have reached. A blind critic saw `the runtime reported`
+ * with nothing under it and reported it as a dangling label; the text was
+ * there, one click away, and the capture could not see it. An instrument that
+ * misses a whole element type reports the app as worse than it is.
  */
 const EXPAND = String.raw`(async () => {
   // Each button is clicked at most once, ever. React repaints the caret one
   // frame later, so a same-tick second pass would still see ▸ and toggle the
   // section shut again — an even number of clicks leaves everything closed.
   var seen = new Set(), clicked = 0
+  var details = document.querySelectorAll('details')
+  for (var d = 0; d < details.length; d++) {
+    if (!details[d].open) { details[d].open = true; clicked++ }
+  }
   for (var pass = 0; pass < 8; pass++) {
     var btns = document.querySelectorAll('button'), any = false
     for (var i = 0; i < btns.length; i++) {

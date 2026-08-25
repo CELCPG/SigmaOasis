@@ -430,8 +430,15 @@ export function composeFailure(failure: Failure): string {
   return parts.join('\n\n')
 }
 
-/** "The network layer reported:" — a line, so it starts like one. */
-function attribution(detail: FailureDetail): string {
+/**
+ * "The network layer reported:" — a line, so it starts like one.
+ *
+ * Exported because the one place a PERSON reads this label is the message
+ * bubble, and it had hand-rolled its own `${source} reported` — no capital, no
+ * colon — while this module's own contract says it starts like a line. Two
+ * spellings of one label is the drift this file exists to prevent.
+ */
+export function attribution(detail: FailureDetail): string {
   return `${detail.source.charAt(0).toUpperCase()}${detail.source.slice(1)} reported:`
 }
 

@@ -2880,6 +2880,26 @@ A same-generation comparison surfaces what neither build fixed:
 - **`answerEval.ts` holds a third hand-rolled copy of the measurement vocabulary.**
   `shared/measurements.ts` exists because two copies would drift silently. There are three.
 
+## A note on the version numbers in this document
+
+The section headings above carry labels like `v1.14`, `v1.16`, `v1.17.2`. **None of those
+were ever shipped.** `package.json` said `1.12.1` from the baseline through the end of
+round 8 — every recorded run in `.h2h-runs/` is stamped `appVersion: 1.12.1`, and every
+contrast figure, timing and verdict in this document was measured against a build reporting
+that number. The labels are round markers written contemporaneously, and they are left as
+written rather than rewritten, because rewriting them would falsify when each measurement
+was taken.
+
+The first release carrying this work is **2.0.0**. A major, because eight rounds changed
+what the app tells the reader about its own behaviour: the verification chrome, the plan
+block's terminal states, the failure surfaces, the citation binding, and the markdown
+render path — including two defects that were silently deleting characters from answers.
+
+The stale number was not harmless. `Sidebar.tsx` renders `v{appVersion}`, so it appears in
+every screenshot the bench takes, and eight rounds of blind judging worked only because
+both arms rendered the same string. Bumping it is now guarded: `make-blind-pairs.mjs`
+refuses to stage a pair whose arms report different versions.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
