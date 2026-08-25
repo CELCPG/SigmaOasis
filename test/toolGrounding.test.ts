@@ -1537,3 +1537,192 @@ describe('tools-used disclosure (v1.14)', () => {
     assert.match(describeGroundingFindings(report!), /reference_lookup/)
   })
 })
+
+/**
+ * v1.15: the two findings a blind critic pulled out of a real run that the
+ * checks built for exactly those shapes had passed clean.
+ *
+ * Task V1, run-1, verbatim: the prompt, the reply, and the `reference_lookup`
+ * output as the app recorded it. The reply states "165°F / 74°C" over passages
+ * that contain neither string, and attributes the storage figure to
+ * "[1] Cold Food Storage Chart" when [1] is *Safe minimum internal
+ * temperatures* and the chart is [5].
+ *
+ * Run against the shipped code, `unsourcedQuantities` named `165°F` and
+ * nothing else — the Celsius half of the same sentence was skipped because no
+ * passage is written in Celsius, and the Fahrenheit half was named only
+ * because passage [3] happens to mention "40 °F" about a refrigerator. Reword
+ * that one unrelated line and the whole invented claim went unreported.
+ * `misattributedCitations` returned nothing at all: it knows the shape
+ * `[1] (Title)` and the shape that opens a line, not the one the model wrote.
+ */
+
+const V1_PROMPT = `How many days is cooked chicken safe in the fridge, and what internal temperature do I need to cook it to? Just give me the numbers.`
+
+const V1_REPLY = `Cooked chicken storage: 3 to 4 days in the refrigerator (source: [1] Cold Food Storage Chart). The chart does not distinguish between whole, half, or sliced — it lists "Fresh poultry" uniformly at 3 to 4 days.
+
+Safe internal cooking temperature: 165°F / 74°C for all poultry (whole bird, breasts, legs, thighs, wings, ground poultry) measured with a food thermometer before removing from the heat source (sources: [1], [2], [4]).`
+
+const V1_PASSAGES = `Reference passages for "How many days is cooked chicken safe in the fridge, and what internal temperature do I need to cook it to? Just give me the numbers." from the local library (keyword ranking), most relevant first. These are the user's own installed reference documents, not the live web: cite the bracketed number and the document when you use one, quote figures, dosages and steps rather than paraphrasing them, and if the passages do not answer the question say so instead of filling the gap.
+
+[1] Food safety › Safe minimum internal temperatures › Cook to a Safe Minimum Internal Temperature · 6% in
+    source: https://www.foodsafety.gov/food-safety-charts/safe-minimum-internal-temperatures
+    date: page reviewed November 21, 2024; retrieved 2026-08-16
+    license: Public domain (US federal work)
+    relevance 1
+# Cook to a Safe Minimum Internal Temperature
+
+Follow the guidelines below for how to cook raw meat, poultry, seafood, and other foods to a safe minimum internal temperature. Always use a food thermometer to check whether meat has reached a safe minimum internal temperature that is hot enough to kill harmful germs that cause food poisoning.
+
+Some meats also need rest time after cooking. Rest time is important for certain meats because it allows the innermost parts and juices of the meats to become fully and safely cooked.
+[2] Food safety › Preventing food poisoning (CDC) › Cook to the right temperature · 45% in
+    source: https://www.cdc.gov/food-safety/prevention/index.html
+    date: retrieved 2026-08-16
+    license: Public domain (US federal work)
+    relevance 0.818
+to ensure foods are cooked to a safe internal temperature. Learn how to place the thermometer correctly in different food to get an accurate reading.
+[3] Food safety › Refrigerator thermometers — cold facts (FDA) › In Case of Disaster... · 45% in
+    source: https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-thermometers-cold-facts-about-food-safety
+    date: retrieved 2026-08-16
+    license: Public domain (US federal work)
+    relevance 0.767
+## In Case of Disaster...
+
+If your home loses power, how do you know what foods you can safely keep and eat?
+
+- If you have adequate warning that you may lose power, freeze water in quart size sealable plastic food storage bags and place them in your freezer and fridge to help food stay cold when the power goes out.
+- If you do lose power, keep the doors to your fridge and freezer closed as much as possible to keep foods cold.
+- Before using any foods, check your refrigerator and freezer thermometers. If the fridge is still at or below 40 °F, or the food has been above 40 °F for only 2 hours or less, it should be safe to eat.
+- Frozen food that still has ice crystals or is at 40 °F or below (to be sure, check the appliance thermometer or use a food thermometer to check each individual food package) can be safely refrozen or cooked.
+- If you’re unsure how long the temperature has been at or above 40 °F, don’t take a chance. Throw the food out.
+[4] Food safety › Preventing food poisoning (CDC) › Keep in mind · 37% in
+    source: https://www.cdc.gov/food-safety/prevention/index.html
+    date: retrieved 2026-08-16
+    license: Public domain (US federal work)
+    relevance 0.72
+### Keep in mind
+
+- Raw chicken is ready to cook and doesn't need to be washed first. Washing these foods can spread germs to other foods, the sink, and the counter and make you sick.
+
+- If you choose to wash chicken, do so as safely as possible ( see steps ).
+[5] Food safety › Cold food storage chart · 37% in
+    source: https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts
+    date: page reviewed September 19, 2023; retrieved 2026-08-16
+    license: Public domain (US federal work)
+    relevance 0.718
+ths |
+| Fresh, uncured, cooked | 3 to 4 days | 3 to 4 months |
+| Cured, cook-before-eating, uncooked | 5 to 7 days or “use by” date | 3 to 4 months |
+| Fully-cooked, vacuum-sealed at plant, unopened | 2 weeks or “use by” date | 1 to 2 months |
+| Cooked, store-wrapped, whole | 1 week | 1 to 2 months |
+| Cooked, store-wrapped, slices, half, or spiral cut | 3 to 5 days | 1 to 2 months |
+| Country ham, cooked | 1 week | 1 month |
+| Canned, labeled "Keep Refrigerated," unopened | 6 to 9 months | Do not freeze |
+| Canned, shelf-stable, opened Note: An unopened, shelf-stable, canned ham can be stored at room temperature for 2 years. | 3 to 4 days | 1 to 2 months |
+| Prosciutto, Parma or Serrano ham, dry Italian or Spanish type, cut | 2 to 3 months | 1 month |
+| Fresh poultry | Chicken or turkey, whole | 1 to 2 days | 1 year |
+| Chicken or turkey, pieces | 1 to 2 days | 9 months |
+| Fin Fish | Fatty Fish (bluefish, catfish, mackerel, mullet, salmon, tuna, etc.) | 1 - 3 Days | 2 - 3 Months |`
+
+describe('a temperature invented over the passages it cites (v1.15)', () => {
+  const records = [rec('reference_lookup', V1_PASSAGES)]
+
+  test('both scales of the invented temperature are named, not just the one', () => {
+    const flagged = unsourcedQuantities(V1_REPLY, V1_PASSAGES, V1_PROMPT)
+    assert.ok(flagged.includes('165°F'), `expected 165°F, got ${JSON.stringify(flagged)}`)
+    assert.ok(flagged.includes('74°C'), `expected 74°C, got ${JSON.stringify(flagged)}`)
+  })
+
+  test('the temperature the passages DO state is clean in either scale — the true negative', () => {
+    // Passage [3]'s own threshold, and its exact conversion. Nothing in the
+    // passages is written in Celsius, so this is the case the new arming must
+    // not turn into a finding.
+    assert.deepEqual(
+      unsourcedQuantities('Keep the fridge at 40°F (4°C) or below.', V1_PASSAGES, V1_PROMPT),
+      []
+    )
+  })
+
+  test('a conversion that is wrong is still a finding', () => {
+    assert.deepEqual(
+      unsourcedQuantities('Keep the fridge at 40°F (10°C) or below.', V1_PASSAGES, V1_PROMPT),
+      ['10°C']
+    )
+  })
+
+  test('a temperature is not derivable: a fridge at 40 °F does not license 80 °F', () => {
+    assert.deepEqual(
+      unsourcedQuantities('Leftovers stay safe up to 80°F.', V1_PASSAGES, V1_PROMPT),
+      ['80°F']
+    )
+  })
+
+  test('the days figure the chart does state stays clean', () => {
+    // "3 to 4 days" is in the chart verbatim; only the temperature is invented.
+    const flagged = unsourcedQuantities(V1_REPLY, V1_PASSAGES, V1_PROMPT)
+    assert.deepEqual(flagged.filter((q) => /day/i.test(q)), [])
+  })
+
+  test('a turn whose passages measure no temperature still arms nothing', () => {
+    assert.deepEqual(
+      unsourcedQuantities(
+        'Cook it to 165°F / 74°C.',
+        'Reference passages for "chicken": always use a food thermometer.',
+        'what temperature'
+      ),
+      []
+    )
+  })
+
+  test('reported through checkToolGrounding, and named in the disclosure', () => {
+    const report = checkToolGrounding(V1_REPLY, records, V1_PROMPT)
+    assert.ok(report, 'expected a report on the recorded turn')
+    assert.deepEqual(report!.quantities, ['165°F', '74°C'])
+    const text = describeGroundingFindings(report!)
+    assert.match(text, /165°F/)
+    assert.match(text, /74°C/)
+  })
+})
+
+describe('a citation that resolves to the wrong document, written inline (v1.15)', () => {
+  const retrieved = retrievedCitations([rec('reference_lookup', V1_PASSAGES)])
+
+  test('the attribution the run actually wrote is a finding', () => {
+    assert.deepEqual(misattributedCitations(V1_REPLY, retrieved), ['[1] Cold Food Storage Chart'])
+  })
+
+  test('the same sentence pointed at the chart is not — the true negative', () => {
+    assert.deepEqual(
+      misattributedCitations(
+        'Cooked chicken storage: 3 to 4 days in the refrigerator (source: [5] Cold Food Storage Chart).',
+        retrieved
+      ),
+      []
+    )
+  })
+
+  test('a bare marker list names no document', () => {
+    assert.deepEqual(
+      misattributedCitations(
+        '…before removing from the heat source (sources: [1], [2], [4]).',
+        retrieved
+      ),
+      []
+    )
+  })
+
+  test('a parenthetical aside carrying a marker is not an attribution', () => {
+    assert.deepEqual(
+      misattributedCitations('The chart is elsewhere (see [1] and the note below).', retrieved),
+      []
+    )
+  })
+
+  test('reported through checkToolGrounding alongside the temperature', () => {
+    const report = checkToolGrounding(V1_REPLY, [rec('reference_lookup', V1_PASSAGES)], V1_PROMPT)
+    assert.ok(report, 'expected a report on the recorded turn')
+    assert.deepEqual(report!.attributions, ['[1] Cold Food Storage Chart'])
+    assert.equal(groundingFindingCount(report), 3)
+    assert.match(describeGroundingFindings(report!), /wrong document/)
+  })
+})
