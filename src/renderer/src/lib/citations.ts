@@ -74,9 +74,67 @@ export function parseCitations(output: string): Citation[] {
 }
 
 /**
- * Every passage this turn's library lookups produced. Two lookups both number
- * from [1]; the first one to claim a number keeps it, which is also how the
- * model read them — it saw the earlier block first.
+ * The highest passage number this turn's finished lookups have already handed
+ * the model. `renumberPassages` continues from here.
+ */
+export function passagesHandedOver(records: ToolCallRecord[]): number {
+  let high = 0
+  for (const r of records) {
+    if (r.name !== 'reference_lookup' || r.status !== 'done') continue
+    for (const c of parseCitations(r.result ?? '')) if (c.index > high) high = c.index
+  }
+  return high
+}
+
+/**
+ * v1.13.1: continue a lookup's numbering from where the turn left off.
+ *
+ * `formatLookup` numbers each result from [1] — correct for one lookup, a trap
+ * for two. Measured (judge-r4/TH3/run-1): a turn ran `reference_lookup` twice,
+ * so the model was handed two different `[1]`s — an FDA power-outage checklist
+ * and the USDA line "Leftovers can be kept in the refrigerator for 3 to 4
+ * days". It quoted the USDA line and cited "[1]"; every resolver in the app
+ * read the first block's, so a correctly-sourced quote pointed the reader at a
+ * passage about losing power. Nothing was dangling and nothing was invented —
+ * the marker simply named two passages, and the reader could only follow one.
+ *
+ * Numbering per turn rather than per lookup is the fix, and it beats the
+ * alternatives: scoping markers per lookup (`[2.1]`) changes the notation the
+ * model is asked to emit and a 9B model would keep writing `[1]`, and
+ * re-resolving after the fact cannot work — the reply is already written, and
+ * a duplicated number carries no evidence of which block it meant. Renumbering
+ * before the text reaches the model means the collision is never created.
+ *
+ * Done in the renderer because "the turn" only exists here: the lookup handler
+ * is stateless by design and answers one call at a time.
+ */
+export function renumberPassages(output: string, handedOver: number): string {
+  if (handedOver <= 0) return output
+  // `.test()` is avoided deliberately: PASSAGE_HEADER is global, and a probe
+  // would leave lastIndex behind for the next parse. `.replace()` resets it.
+  let numbered = false
+  const shifted = output.replace(PASSAGE_HEADER, (_m, n: string, rest: string) => {
+    numbered = true
+    return `[${Number(n) + handedOver}] ${rest}`
+  })
+  // A lookup that found nothing has no numbering to continue.
+  if (!numbered) return output
+  const lines = shifted.split('\n')
+  // Said out loud, so a model that reads "[6]" does not helpfully renumber it
+  // back to [1] on its way into the answer.
+  lines[0] +=
+    ` This turn already handed you ${handedOver} numbered passage${handedOver === 1 ? '' : 's'}, so these ` +
+    `continue from [${handedOver + 1}] — the earlier ones keep their own numbers.`
+  return lines.join('\n')
+}
+
+/**
+ * Every passage this turn's library lookups produced.
+ *
+ * A number is claimed once: `renumberPassages` keeps a turn's lookups from
+ * colliding, so on a fresh turn every index here is unique. A conversation
+ * recorded before that landed can still hold two `[1]`s — the first to claim
+ * it keeps it, which is also how the model read them.
  */
 export function retrievedCitations(records: ToolCallRecord[]): Citation[] {
   const byIndex = new Map<number, Citation>()

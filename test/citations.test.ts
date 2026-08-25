@@ -4,6 +4,8 @@ import {
   citedIndices,
   danglingCitations,
   parseCitations,
+  passagesHandedOver,
+  renumberPassages,
   retrievedCitations,
   webSource
 } from '../src/renderer/src/lib/citations'
@@ -76,6 +78,42 @@ describe('retrievedCitations', () => {
     const merged = retrievedCitations([rec(LOOKUP), rec(second)])
     assert.deepEqual(merged.map((c) => c.index), [1, 2, 3])
     assert.match(merged[0].label, /^Personal finance/)
+  })
+})
+
+describe('passagesHandedOver', () => {
+  test('the highest number this turn has already given the model', () => {
+    assert.equal(passagesHandedOver([]), 0)
+    assert.equal(passagesHandedOver([rec(LOOKUP)]), 2)
+  })
+
+  test('an unfinished lookup, or another tool, has handed over nothing', () => {
+    assert.equal(passagesHandedOver([rec(LOOKUP, 'reference_lookup', 'error')]), 0)
+    assert.equal(passagesHandedOver([rec(LOOKUP, 'web_search')]), 0)
+  })
+})
+
+describe('renumberPassages', () => {
+  test('the turn\'s second lookup continues where the first stopped', () => {
+    const shifted = renumberPassages(LOOKUP, 2)
+    assert.deepEqual(parseCitations(shifted).map((c) => c.index), [3, 4])
+    assert.match(shifted, /^\[3\] Personal finance & tax basics › Tax inflation adjustments/m)
+    // The passages themselves are untouched — only their numbers move.
+    assert.match(shifted, /the standard deduction rises to \$30,000/)
+  })
+
+  test('the head says the numbering continues, so the model does not reset it', () => {
+    assert.match(renumberPassages(LOOKUP, 5), /already handed you 5 numbered passages, so these continue from \[6\]/)
+    assert.match(renumberPassages(LOOKUP, 1), /handed you 1 numbered passage, so/)
+  })
+
+  test('the turn\'s first lookup is left byte-identical', () => {
+    assert.equal(renumberPassages(LOOKUP, 0), LOOKUP)
+  })
+
+  test('a lookup that found nothing has no numbering to continue', () => {
+    const empty = 'No reference passages found for "x".\nSay plainly that the library has nothing on this.'
+    assert.equal(renumberPassages(empty, 4), empty)
   })
 })
 

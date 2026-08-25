@@ -2,9 +2,11 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   LIBRARY_PASSAGES_PER_TURN,
+  UNCITED_MARK,
   buildLibraryContext,
   citationOf,
   contextItemLabel,
+  markCitedContextItems,
   shouldConsultLibrary,
   toLibraryContextItems
 } from '../src/renderer/src/lib/libraryRecall'
@@ -72,6 +74,22 @@ describe('labels', () => {
       contextItemLabel({ source: 'note.md', score: 0.42, text: 'x' }),
       'note.md (0.42)'
     )
+  })
+  test('a listed passage the reply never cited is marked, a cited one is not', () => {
+    const items = toLibraryContextItems([p, { ...p, section: 'Shock' }])
+    const marked = markCitedContextItems(items, 'Cool it under running water [1].')
+    assert.deepEqual(marked.map((i) => i.cited), [true, false])
+    assert.equal(contextItemLabel(marked[0]), '[1] First aid › FM 4-25.11 › Burns · 31% in (0.90)')
+    assert.equal(contextItemLabel(marked[1]), `[2] First aid › FM 4-25.11 › Shock · 31% in (0.90) ${UNCITED_MARK}`)
+  })
+  test('an answer that cites nothing marks every listed passage', () => {
+    const marked = markCitedContextItems(toLibraryContextItems([p]), 'Run it under cool water.')
+    assert.deepEqual(marked.map((i) => i.cited), [false])
+  })
+  test('an item that was never given a number is not accused of going uncited', () => {
+    const [only] = markCitedContextItems([{ source: 'note.md', score: 0.42, text: 'x' }], 'no markers here')
+    assert.equal(only.cited, undefined)
+    assert.equal(contextItemLabel(only), 'note.md (0.42)')
   })
   test('a folder pack\'s local path is not offered as a link', () => {
     const [item] = toLibraryContextItems([{ ...p, source: '/Users/me/docs/lease.pdf' }])

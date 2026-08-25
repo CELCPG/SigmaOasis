@@ -1,5 +1,6 @@
 import type { ToolCallRecord, ToolResult, ToolSchema } from '../types'
 import { detectProseParenCall } from './nativeToolCall'
+import { passagesHandedOver, renumberPassages } from './citations'
 import { validateToolArgs } from './toolArgs'
 import { CLOSED_THINK_PREFILL } from '../../../shared/thinking'
 import { TOOL_TURN_BUDGETS } from '../../../shared/tools'
@@ -450,6 +451,15 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
           }
         } else {
           result = await deps.executeTool(tc.function.name, args)
+          // A library lookup numbers its own passages from [1]; a turn's
+          // second one would hand the model a number it has already used for
+          // a different passage, and the reply's marker would then name two.
+          // Continued here — before the record, the wire history or the
+          // ledger sees the text — so the collision is never created.
+          if (tc.function.name === 'reference_lookup' && result.ok && result.output) {
+            const output = renumberPassages(result.output, passagesHandedOver(records))
+            if (output !== result.output) result = { ...result, output }
+          }
           ledger.note(tc.function.name, args, result)
         }
       }

@@ -1,5 +1,5 @@
 import type { LibraryPassage, MemoryContextItem } from '../types'
-import { webSource } from './citations'
+import { citedIndices, webSource } from './citations'
 
 /**
  * v1.5: app-initiated reference lookup — the renderer half.
@@ -50,6 +50,9 @@ export function citationOf(p: LibraryPassage): string {
  * numbers this same array in this same order, so item i carries the marker
  * the reply cites; without it on screen an inline `[1]` named nothing, and
  * the URL the lookup had already retrieved was shown nowhere.
+ *
+ * These stay 1..N: this lookup is the turn's first, so `renumberPassages`
+ * leaves its numbering alone and a later lookup continues past it.
  */
 export function toLibraryContextItems(passages: LibraryPassage[]): MemoryContextItem[] {
   return passages.map((p, i) => {
@@ -64,9 +67,37 @@ export function toLibraryContextItems(passages: LibraryPassage[]): MemoryContext
   })
 }
 
+/**
+ * v1.13.1: what the strip appends to a passage the answer never cited.
+ *
+ * Measured (judge-r4/V2/run-1): the strip listed five passages under "📖 From
+ * the library:" and the reply cited one. Among the four it did not was a
+ * scraped "Related" block — a list of page links and a share widget, no figure
+ * in it — offered at 0.65 as though it had contributed. The passages stay
+ * listed: the model saw them, and hiding that would be its own dishonesty.
+ * Provenance is the claim being withdrawn, not the disclosure.
+ */
+export const UNCITED_MARK = '— not cited'
+
 /** One line of the recall strip: the bracketed number, when there is one, then the citation. */
 export function contextItemLabel(item: MemoryContextItem): string {
-  return `${item.index === undefined ? '' : `[${item.index}] `}${item.source} (${item.score.toFixed(2)})`
+  return (
+    `${item.index === undefined ? '' : `[${item.index}] `}${item.source} (${item.score.toFixed(2)})` +
+    (item.cited === false ? ` ${UNCITED_MARK}` : '')
+  )
+}
+
+/**
+ * Mark each listed passage with whether the finished answer cited its number.
+ *
+ * Only numbered items can be judged — a memory or attachment chunk was never
+ * given a marker to cite, so it is left alone rather than accused. An answer
+ * that cites nothing at all marks every entry: five sources listed under a
+ * reply that used none of them is exactly the overclaim.
+ */
+export function markCitedContextItems(items: MemoryContextItem[], answer: string): MemoryContextItem[] {
+  const cited = new Set(citedIndices(answer))
+  return items.map((i) => (i.index === undefined ? i : { ...i, cited: cited.has(i.index) }))
 }
 
 /** Words too common to say a passage is about the question. */
