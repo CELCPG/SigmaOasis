@@ -73,6 +73,42 @@ function armTells(runDir) {
   return [...new Set(tells)].sort((x, y) => y.length - x.length)
 }
 
+/**
+ * A version difference cannot be scrubbed, so it must not exist.
+ *
+ * Sidebar.tsx renders `v{appVersion}` permanently, which puts the number in
+ * every screenshot of every task. Text scrubbing cannot reach a PNG, so two
+ * arms built at different versions are de-blinded on all 18 tasks at once —
+ * and silently, because nothing else about the pair looks wrong.
+ *
+ * Eight rounds of blind judging worked only because package.json had not been
+ * bumped since the baseline, so both arms rendered the same string. That was
+ * luck. This makes it a precondition: stage a mismatched pair and the run
+ * stops here, before a critic can recognise an arm instead of measuring it.
+ */
+function assertSameVersion(pairs) {
+  const bad = []
+  for (const { task, first, second } of pairs) {
+    const v = (dir) => {
+      try {
+        return JSON.parse(readFileSync(join(dir, '_arm.json'), 'utf8')).appVersion ?? null
+      } catch {
+        return null
+      }
+    }
+    const a = v(first)
+    const b = v(second)
+    if (a !== null && b !== null && a !== b) bad.push(`${task}: ${a} vs ${b}`)
+  }
+  if (bad.length > 0) {
+    console.error('\nBLINDING FAILED — the two arms report different app versions.')
+    console.error('The sidebar renders the version, so it is in every screenshot and')
+    console.error('cannot be scrubbed. Build both arms at the same version and re-run.')
+    for (const line of bad) console.error(`  ${line}`)
+    process.exit(1)
+  }
+}
+
 function scrub(text, runRoot, armDir, tells) {
   let out = text.split(runRoot).join('/RUN').split(`/${armDir}/`).join('/ARM/')
   for (const tell of tells) out = out.split(tell).join('/APP')
@@ -132,12 +168,14 @@ mkdirSync(outDir, { recursive: true })
 
 const key = {}
 const allTells = []
+const stagedPairs = []
 for (const task of tasks) {
   // Deterministic but unguessable: A goes first only when the digest is even.
   const digest = createHash('sha256').update(`${salt}:${task}`).digest()
   const aFirst = digest[0] % 2 === 0
   const first = aFirst ? a.get(task) : b.get(task)
   const second = aFirst ? b.get(task) : a.get(task)
+  stagedPairs.push({ task, first, second })
   const firstTells = armTells(first)
   const secondTells = armTells(second)
   allTells.push(firstTells, secondTells)
@@ -146,6 +184,7 @@ for (const task of tasks) {
   key[task] = { 'run-1': aFirst ? 'A' : 'B', 'run-2': aFirst ? 'B' : 'A' }
 }
 
+assertSameVersion(stagedPairs)
 assertBlind(outDir, allTells)
 
 writeFileSync(join(outDir, '_key.json'), `${JSON.stringify(key, null, 2)}\n`)
