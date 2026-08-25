@@ -1401,6 +1401,116 @@ row already says so — pinned for all five non-`done` statuses.
 forecast × executed asserting that a name is faulted **iff** it is in the symmetric difference —
 the class, not the two instances that were found.
 
+<!-- FOLD IN: cases for the next round's section. Three of round 6's critiques, answered. -->
+
+## Pending fold-in — the sentence, the verb and the ink (v1.17.1)
+
+Three of the round-6 critiques above, taken in one pass. Two of them are the same defect
+in two registers: a sentence broader than the measurement behind it. The third is the
+same thing in pixels — the banner that admits the answer is unsupported was the least
+legible chrome in the app.
+
+### VC1: what the recompute line is entitled to say
+
+The critique was `the checker compared the reply against that output` — printed under a
+reply whose echoed token disagrees with the Python inches below it. Re-run against the
+recorded turn, the pipeline reports something sharper than "it missed one":
+
+| | on the recorded VC1 reply |
+| --- | --- |
+| `unsourcedFigures` | `[]` — all **thirteen** digit groups in the pasted token occur in the run's output |
+| `checkToolGrounding` | `null` — **no finding at all** |
+| the two tokens | `sigma-oasis-…` decoded, `sign-my-as-is-…` echoed |
+
+So the numbers genuinely were compared, and genuinely did agree. The four characters that
+were wrong were letters, and no rung in `checkToolGrounding` reads a letter. The old
+sentence was true of the one dimension that was right and false of the only one that was
+wrong, which is the whole of the complaint.
+
+**Widening was considered and rejected on the same recording**, which is the part worth
+keeping. The obvious widening — compare non-numeric `label: value` lines the reply
+restates — has nothing to read here: the program printed its decoding *one character per
+line*, so the token occurs contiguously in that output in neither form, and there is no
+string-valued printed line at all (`compareToOutput` returns `{agreed: 0, mismatches: []}`).
+The blunt version — every long token in the reply must occur in the output — fires
+**identically on the correct answer**, because `sigma-oasis-…` is equally absent from a
+character dump. That is round 4's cry-wolf in a new costume, and round 4's verdict on it
+stands. The check that would catch this does not exist yet; until it does the sentence
+says what the app did:
+
+- before: `🧮 Recomputed the stated figures in Python; the checker compared the reply against that output.`
+- after: `🧮 Recomputed the stated figures in Python; the reply's numbers were compared against that output. Numbers only — text it copies from the run, such as a decoded string or an identifier, was not checked.`
+
+The pinning assertion changed with it, and strictly upward: `test/unearnedVerification.test.ts`
+used to assert `/compared the reply against that output/` — it pinned the defect — and now
+pins the claim and its limit together, so the claim cannot widen again without failing.
+
+### The verb, and the quantity next to the one it meant
+
+`parts.length > 1 ? 'are' : 'is'` counted the **categories** the banner names. The sentence
+now lives in `describeUnbackedItems` (`lib/toolGrounding.ts`), where it has a test, and the
+verb agrees with the items.
+
+| | before | after |
+| --- | --- | --- |
+| true positive | `2 measurements (165°F, 74°C) … **is** not backed` | `… **are** not backed` |
+| true positive | `3 figures ($0.01, $36, $10) … **is** not backed` | `… **are** not backed` |
+| true positive | `4 links … **is** not backed` | `… **are** not backed` |
+| **true negative** | `1 measurement (165°F) … **is** not backed` | unchanged — still `is` |
+| **true negative** | `1 figure ($36) and 1 link … **are**` | unchanged — plural, now for the right reason |
+
+The last row is the one that made this hard to see: a compound subject is plural however
+its halves count, so the wrong quantity happened to cross the threshold with the right one
+in exactly the case a reader was most likely to check. Three categories also stopped
+reading as `A and B and C`.
+
+### The banner that admits the answer is unsupported
+
+A critic measured `Checked against: reference_lookup.` at **3.06:1**. The chrome-contrast
+suite said 4.78:1 and passed it, because it read `getComputedStyle(el).color` and the line
+was dimmed with `opacity-75`. Opacity is not a colour: it composites the ink *and the
+surface under it* against everything behind them, so the tone chosen is not the tone
+rendered. The suite now walks the opacity chain root→node. Reproduced, in the harness, on
+the shipped v1.17 markup:
+
+| light theme, over the banner's own wash `#fcf7f0` | v1.17 as read before | v1.17 as it rendered | v1.17.1 |
+| --- | --- | --- | --- |
+| warning line | 4.78:1 | 4.71:1 | **8.52:1** |
+| list of invented links (`opacity-90`) | 4.78:1 | **3.99:1** ✗ | **8.52:1** |
+| `Checked against:` footer (`opacity-75`) | 4.78:1 | **3.10:1** ✗ | **6.66:1** |
+
+Dark went 10.98 / 9.06 / 6.61 → 12.71 / 12.71 / 10.98. The ranks are ink tokens now —
+`amber-900` over `amber-800` in light, `amber-300` over `amber-400` in dark — each measured
+over the surface actually composited beneath it, and a static guard fails the build if any
+ink in that banner is dimmed with `opacity` again (it catches the states no fixture renders:
+a report carrying contacts, or addresses, or quotes).
+
+- **True positive:** with the v1.17 banner restored, the suite exits **1** with
+  `light: "grounding link" clears AA — 3.99:1` and `light: "grounding provenance" clears AA — 3.10:1`.
+- **True negative:** under the same opacity-aware reading, all 45 pre-existing checks still
+  pass and every one of the 36 ink rows they read reports a **byte-identical** ratio and
+  colour. Nothing else in the app dims ink with opacity, so the strengthening added no
+  findings anywhere else. The suite is 45 → 54 checks.
+
+### What this does not measure
+
+- **Nothing here was re-run against a model.** These are three chrome defects, fixed and
+  pinned against recorded output and a real offscreen window. No new head-to-head sweep was
+  taken, so there is no win/loss claim attached to any of it.
+- **The gap the recompute sentence now admits to is still a gap.** A reply that restates a
+  *string* from its own tool output — a decoded token, an identifier, a filename — is
+  unchecked, and VC1 is a recorded instance of that going wrong. The sentence stops
+  claiming otherwise; it does not close it. Closing it needs a run whose output holds the
+  string contiguously, which is a change to what `RECOMPUTE_INSTRUCTION` asks for, and that
+  is a behaviour change nothing has measured yet.
+- **The contrast numbers are the fixture's, not a screenshot's.** They come from the render
+  harness compositing the app's real stylesheet, which is still the only place dark theme is
+  measured at all — the head-to-head bench has never captured it.
+- **Entry animations are now suppressed in the contrast fixture.** `oasis-enter` fades
+  opacity over 0.4 s, and once opacity is measured a screenshot taken mid-fade reports a
+  ratio nobody sees for longer than a blink. The suite measures the resting state and says
+  so; the transient is unmeasured.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

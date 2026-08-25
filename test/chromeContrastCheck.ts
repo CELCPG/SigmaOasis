@@ -118,6 +118,16 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
     source: section('function RevisedLine', 'v1.5.1 think-harder'),
     re: /:\s*'(mt-2 text-\[11px\] text-amber[^']*)'/
   },
+  // The amber grounding banner — the one place the app says the answer above it
+  // is not supported by anything it ran, and therefore the last place that may
+  // be hard to read. Three separate inks, because it had three: the warning,
+  // the list of invented links, and the "Checked against" provenance footer.
+  groundingBanner: { source: bubble, re: /className="(mt-2 rounded-lg border border-amber-500\/30[^"]*)"/ },
+  groundingLinks: { source: bubble, re: /<ul className="(mt-1 list-disc[^"]*)"/ },
+  groundingFooter: {
+    source: bubble,
+    re: /className="(mt-1 text-amber-[^"]*)">\s*Checked against:/
+  },
   userTimestamp: {
     source: section("if (message.role === 'user')", 'const accent ='),
     re: /className="(text-\[10px\][^"]*)"/
@@ -187,6 +197,9 @@ const LOAD_BEARING = [
   'library provenance',
   'revision cleared',
   'revision unresolved',
+  'grounding warning',
+  'grounding link',
+  'grounding provenance',
   'stats readout',
   'user timestamp',
   'sidebar search placeholder',
@@ -201,7 +214,12 @@ const LOAD_BEARING = [
  */
 function fixture(dark: boolean): string {
   return `<!doctype html>
-<html lang="en" class="${dark ? 'dark' : ''}"><head><meta charset="utf-8"><style>__CSS__</style></head>
+<html lang="en" class="${dark ? 'dark' : ''}"><head><meta charset="utf-8"><style>__CSS__</style>
+<!-- Entry animations are transient and \`oasis-enter\` fades opacity in over
+     0.4s; now that opacity is measured, a screenshot taken mid-fade would
+     report a ratio nobody ever sees for longer than a blink. This suite
+     measures the resting state, so it says so rather than racing the clock. -->
+<style>*, *::before, *::after { animation: none !important; transition: none !important; }</style></head>
 <body>
   <div class="${c('appShell')}">
     <div class="ambient-orbs" aria-hidden="true"></div>
@@ -246,6 +264,11 @@ function fixture(dark: boolean): string {
             </div>
             <div class="${c('revisedResolved')}" data-ink="revision cleared">✎ Revised: 1 unsupported item was sent back (165°F); the re-check faults none of them.</div>
             <div class="${c('revisedUnresolved')}" data-ink="revision unresolved">✎ Revised: 2 unsupported items were sent back; 1 is still unsupported in this answer: 165°F.</div>
+            <div class="${c('groundingBanner')}">
+              <div data-ink="grounding warning">⚠️ 2 measurements (165°F, 74°C) in this reply are not backed by the tool output.</div>
+              <ul class="${c('groundingLinks')}"><li class="break-all" data-ink="grounding link">https://www.fsis.usda.gov/safe-minimum-internal-temperature-chart</li></ul>
+              <div class="${c('groundingFooter')}" data-ink="grounding provenance">Checked against: reference_lookup.</div>
+            </div>
             <div class="${c('stats')}" data-ink="stats readout">238 tok · 10.1 tok/s · 7.84s to first token · 23.6s total</div>
           </div>
         </div>
@@ -261,6 +284,21 @@ function fixture(dark: boolean): string {
 /**
  * Runs in the page. Composites every measured node's colour over the whole
  * stack of backgrounds above it, then reports the WCAG 2.1 ratio.
+ *
+ * `opacity` counts, and through v1.17 it did not. It is not a colour: it
+ * composites the ink — and the surface it sits on — against everything behind
+ * them, so `getComputedStyle(el).color` reports a tone the reader never gets.
+ * Measured on the grounding banner, whose ink was `text-amber-700` and reads
+ * #b45309 either way: the `opacity-75` footer painted with it rendered #c67c43
+ * at **3.10:1** and the `opacity-90` link list #bb6320 at **3.99:1** — the two
+ * least legible things in the app, on the banner that admits the answer is
+ * unsupported, and this suite called them both 4.71:1 and passed them. A critic
+ * reading a screenshot of the same footer got 3.06:1.
+ *
+ * The cumulative factor is gathered root→node so each layer is dimmed by its
+ * own opacity and its ancestors', never by its descendants'. Every ratio this
+ * can report is ≤ the one the old reading gave; in practice all 36 pre-existing
+ * ink rows come back byte-identical, because nothing else dims ink this way.
  */
 const MEASURE = `(() => {
   const parse = (s) => {
@@ -275,16 +313,30 @@ const MEASURE = `(() => {
     return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
   }
   const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
-  const bgOf = (el) => {
-    const layers = []
-    for (let n = el; n; n = n.parentElement) layers.push(parse(getComputedStyle(n).backgroundColor))
-    let out = [255, 255, 255]
-    for (let i = layers.length - 1; i >= 0; i--) out = over(layers[i], out)
+  // Root → node. \`dim\` at each level is the product of that node's opacity and
+  // every ancestor's, which is exactly what reaches the eye there.
+  const chain = (el) => {
+    const nodes = []
+    for (let n = el; n; n = n.parentElement) nodes.push(n)
+    nodes.reverse()
+    const out = []
+    let dim = 1
+    for (const n of nodes) {
+      const s = getComputedStyle(n)
+      const o = parseFloat(s.opacity)
+      dim *= Number.isFinite(o) ? o : 1
+      const c = parse(s.backgroundColor)
+      out.push({ bg: [c[0], c[1], c[2], c[3] * dim], color: s.color, dim })
+    }
     return out
   }
   return [...document.querySelectorAll('[data-ink]')].map((el) => {
-    const bg = bgOf(el)
-    const fg = over(parse(getComputedStyle(el).color), bg)
+    const layers = chain(el)
+    let bg = [255, 255, 255]
+    for (const layer of layers) bg = over(layer.bg, bg)
+    const own = layers[layers.length - 1]
+    const ink = parse(own.color)
+    const fg = over([ink[0], ink[1], ink[2], ink[3] * own.dim], bg)
     return { id: el.getAttribute('data-ink'), fg: hex(fg), bg: hex(bg), ratio: Math.round(ratio(fg, bg) * 100) / 100 }
   })
 })()`
@@ -360,6 +412,23 @@ async function main(): Promise<void> {
     `${rawSites} site(s) in ${offenders.length} file(s): ${offenders.slice(0, 6).join(', ')}${offenders.length > 6 ? ' …' : ''}`
   )
 
+  // A rank made of `opacity` is a colour nobody chose: it composites the ink
+  // against whatever is behind it, so the tone is a property of the surface, not
+  // of the design. In the grounding banner it produced 3.10:1 and 3.99:1 out of
+  // an ink that measures 4.71:1 on its own — and it did it on the one panel that
+  // exists to say the answer above it is unsupported. The measurement below
+  // catches the ratio on the two rows the fixture renders; this catches the
+  // mechanism, including in the states no fixture renders (a report carrying
+  // contacts, or addresses, or quotes).
+  // Comments stripped first: the component's own note records the ratios the
+  // two dimmed pieces measured, and a guard that its own explanation trips is a
+  // guard nobody keeps.
+  const banner = section('function GroundingWarning', 'function RevisedLine')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
+    .replace(/^[ \t]*\/\/.*$/gm, ' ')
+  const dimmed = banner.match(/\bopacity-\d+/g) ?? []
+  check('the grounding banner dims no ink with opacity', dimmed.length === 0, dimmed.join(', '))
+
   const win = new BrowserWindow({
     show: false,
     width: 1280,
@@ -418,6 +487,17 @@ async function main(): Promise<void> {
       `${theme.name}: a surviving finding is not painted as a resolved one`,
       cleared.fg !== unresolved.fg,
       `both ${cleared.fg}`
+    )
+    // The banner had ranks before too — they were just made of `opacity`, which
+    // is how the quietest of them ended up at 3.10:1. Legibility is the AA loop
+    // above; this is only the ordering, and the static `opacity-` guard earlier
+    // in this file is what keeps the rank from being made of opacity again.
+    const warning = by('grounding warning')
+    const provenance = by('grounding provenance')
+    check(
+      `${theme.name}: the grounding banner keeps two ranks`,
+      warning.fg !== provenance.fg && warning.ratio > provenance.ratio,
+      `${warning.fg} (${warning.ratio}:1) vs ${provenance.fg} (${provenance.ratio}:1)`
     )
   }
 

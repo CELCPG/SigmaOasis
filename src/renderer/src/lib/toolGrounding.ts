@@ -263,6 +263,54 @@ export function describeRevisionOutcome(
   }
 }
 
+/** `a`, `a and b`, `a, b and c` — never `a and b and c`. */
+function andList(parts: string[]): string {
+  if (parts.length < 2) return parts.join('')
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
+/**
+ * The amber banner's first line: the categories that were faulted, the items in
+ * each, and a verb that agrees with the items.
+ *
+ * v1.17.1, and it is round 6's own generalisation applied to the sentence that
+ * carries the whole verifiability claim. `MessageBubble` wrote
+ * `parts.length > 1 ? 'are' : 'is'`, and `parts` holds one entry per CATEGORY —
+ * figures, links, measurements — not per item. So the app shipped, verbatim,
+ * from recorded runs:
+ *
+ *     ⚠️ 2 measurements (165°F, 74°C) in this reply is not backed by the tool output.
+ *     ⚠️ 3 figures ($0.01, $36, $10) in this reply is not backed by the tool output.
+ *     ⚠️ 4 links in this reply is not backed by the tool output.
+ *
+ * Every plural-within-one-category case was ungrammatical, and the two-category
+ * case read correctly only by accident — a compound subject is plural however
+ * its halves count, so the wrong quantity happened to cross the threshold with
+ * the right one. The verb now agrees with the total, which is what the subject
+ * denotes.
+ *
+ * It lives here rather than in the component for the reason the count and the
+ * names of `describeRevisionOutcome` do: a sentence with no test is how "1 item
+ * were sent back" survived to a blind judge in round 4.
+ */
+export function describeUnbackedItems(report: GroundingReport): string {
+  const parts: string[] = []
+  let items = 0
+  const add = (named: string[], noun: string, list: boolean): void => {
+    if (named.length === 0) return
+    items += named.length
+    // Named in full where naming is possible: a figure is checked by looking at
+    // it. Links carry their own bulleted list under this line, so counting them
+    // here and listing them there says each URL once.
+    parts.push(`${named.length} ${noun}${named.length === 1 ? '' : 's'}${list ? ` (${named.join(', ')})` : ''}`)
+  }
+  add(report.figures, 'figure', true)
+  add(report.links, 'link', false)
+  add(report.quantities ?? [], 'measurement', true)
+  if (items === 0) return ''
+  return `${andList(parts)} in this reply ${items === 1 ? 'is' : 'are'} not backed by the tool output.`
+}
+
 export function describeGroundingFindings(report: GroundingReport): string {
   const lines: string[] = []
   if (report.code?.length) lines.push(...report.code)
