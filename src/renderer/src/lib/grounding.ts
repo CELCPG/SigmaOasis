@@ -460,7 +460,7 @@ export function stripTurnNotesEcho(reply: string): { text: string; echoed: boole
  * tool's `isSource`, with its rationale — the run_python and market_data
  * inclusions were both measured omissions).
  */
-import { EMPTY_RESULT_LEADS, SOURCE_TOOLS } from '../../../shared/tools'
+import { EMPTY_RESULT_LEADS, SOURCE_TOOLS, wasDeclined } from '../../../shared/tools'
 
 /**
  * Did this call come back empty-handed?
@@ -482,6 +482,25 @@ import { EMPTY_RESULT_LEADS, SOURCE_TOOLS } from '../../../shared/tools'
 export function foundNothing(record: ToolCallRecord): boolean {
   const lead = EMPTY_RESULT_LEADS.get(record.name)
   return lead !== undefined && (record.result ?? '').trimStart().startsWith(lead)
+}
+
+/**
+ * Did the app decline to make this call?
+ *
+ * The sibling of `foundNothing`, on the other glyph. A refused query, a
+ * confirmation the user cancelled: nothing was contacted, nothing ran, nothing
+ * broke — so `✗` is the wrong mark, and the reader who counts ✗ rows as
+ * failures (or as egress) is counting something that did not happen.
+ *
+ * Measured (TH2, `.h2h-runs/judge-r5/TH2/run-1`): the turn's first `web_search`
+ * is marked `✗`, identical to the HTTP 500 below it, over "That query is a
+ * sentence about you, not search terms, so it was not sent."
+ *
+ * Like `foundNothing`, this reads back one string the handler wrote through the
+ * shared composer — never the handler's prose, which is free to change.
+ */
+export function declinedToCall(record: ToolCallRecord): boolean {
+  return record.status === 'error' && wasDeclined(record.result ?? '')
 }
 
 /**

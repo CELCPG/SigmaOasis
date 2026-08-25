@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import type { ToolCallRecord } from '../types'
-import { foundNothing } from '../lib/grounding'
+import { declinedToCall, foundNothing } from '../lib/grounding'
+import { failureReason } from '../../../shared/tools/outcomes'
 import { toolVisualForName } from '../lib/oasisRipple'
 
 const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
@@ -21,6 +22,24 @@ const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
 const EMPTY_ICON = '∅'
 export const EMPTY_RESULT_NOTE = 'found nothing'
 
+/**
+ * And a call the app declined to make is not a failure either.
+ *
+ * Measured (TH2, `.h2h-runs/judge-r5/TH2/run-1`): the turn's first web_search
+ * row reads `✗ 🔍 web_search`, the same mark as the fixture's HTTP 500 two rows
+ * below it, over a result that begins "That query is a sentence about you, not
+ * search terms, so it was not sent". Nothing broke; the app made a judgement,
+ * and the reader was shown a breakage.
+ *
+ * Measured (TTU3, `.h2h-runs/judge-r5/TTU3/run-1`): seven rows of bare
+ * `✗ 🔍 web_search`, with `net::ERR_UNSAFE_PORT` — the reason for all seven —
+ * only readable once a disclosure is opened. Collapsed, the row said something
+ * went wrong and nothing else, so it earns a reason next to the glyph the way
+ * `∅` earns "— found nothing".
+ */
+const DECLINED_ICON = '↩'
+export const DECLINED_NOTE = 'declined'
+
 /** Collapsible block for a tool call — or a model-to-model consultation. */
 export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -28,6 +47,11 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
   const isConsult = record.name === 'consult_model'
   const visual = toolVisualForName(record.name)
   const empty = record.status === 'done' && foundNothing(record)
+  const declined = declinedToCall(record)
+  // A failure the reader cannot name is a failure they have to open a
+  // disclosure to understand. Both broken states carry their reason; a decline
+  // has no provider error to quote, so the reason is the app's own sentence.
+  const reason = record.status === 'error' ? failureReason(record.result ?? '') : ''
   const label = isConsult
     ? `🤝 Consulted ${String(record.args.role ?? 'specialist')}`
     : `${visual.icon} ${record.name}`
@@ -44,22 +68,40 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
       >
         <span
           className={
-            record.status === 'error'
-              ? 'text-red-500'
-              : empty
-                ? 'text-amber-600 dark:text-amber-400'
-                : record.status === 'done'
-                  ? 'text-green-500'
-                  : ''
+            declined
+              ? 'text-ink-secondary'
+              : record.status === 'error'
+                ? 'text-red-500'
+                : empty
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : record.status === 'done'
+                    ? 'text-green-500'
+                    : ''
           }
-          title={empty ? 'The call worked and returned nothing — this reply is not backed by it.' : undefined}
+          title={
+            declined
+              ? 'The app declined this call — it never ran, so nothing failed and nothing was sent.'
+              : empty
+                ? 'The call worked and returned nothing — this reply is not backed by it.'
+                : undefined
+          }
         >
-          {empty ? EMPTY_ICON : STATUS_ICON[record.status]}
+          {declined ? DECLINED_ICON : empty ? EMPTY_ICON : STATUS_ICON[record.status]}
         </span>
         <span className="font-medium" style={{ color: record.status === 'running' ? visual.color : undefined }}>
           {label}
         </span>
         {empty && <span className="text-amber-600 dark:text-amber-400">— {EMPTY_RESULT_NOTE}</span>}
+        {/* The row states the state in words too: a glyph is not a reading. */}
+        {reason && (
+          <span
+            className={declined ? 'min-w-0 truncate text-ink-secondary' : 'min-w-0 truncate text-red-500'}
+            title={record.result}
+          >
+            — {declined ? `${DECLINED_NOTE}: ` : ''}
+            {reason}
+          </span>
+        )}
         <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
       {record.preamble && (

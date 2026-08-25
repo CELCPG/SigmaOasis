@@ -2,7 +2,13 @@ import { dialog } from 'electron'
 import { hostWindow } from '../hostWindow'
 import { readWebpage, runImageSearch, runWebSearch, fetchImageDataUrl, MAX_IMAGE_RESULTS } from '../search'
 import type { ThumbnailOutcome } from '../search'
-import { DEFAULT_PASSAGES, EMPTY_RESULT_LEADS, MAX_PASSAGES } from '../../../shared/tools'
+import {
+  DEFAULT_PASSAGES,
+  EMPTY_RESULT_LEADS,
+  MAX_PASSAGES,
+  declinedCall,
+  toolFailure
+} from '../../../shared/tools'
 import { provenanceNote, provenanceOf } from '../sourceTiers'
 import { MAX_OUTPUT_CHARS, UNTRUSTED_HEADER, truncate } from './types'
 import type { ToolHandler, ToolImage } from './types'
@@ -89,6 +95,18 @@ async function fetchThumbnails(
   return results
 }
 
+/**
+ * What the model is to do when a search does not come back. Split out of the
+ * error string it used to be glued to: everything before it is what happened,
+ * which is the reader's half and all the collapsed row shows.
+ */
+const SEARCH_FAILURE_GUIDANCE =
+  'Tell the user plainly what you could not verify — never invent products, brands, ' +
+  'prices, or sources to fill the gap.'
+
+const IMAGE_FAILURE_GUIDANCE =
+  'Tell the user you could not retrieve images — never describe pictures you cannot show.'
+
 function redactionNoteFor(redactions: string[]): string {
   return redactions.length > 0
     ? `\n(Note: the query was sanitized before sending — redacted: ${redactions.join(', ')}.)`
@@ -102,12 +120,16 @@ const webSearch: ToolHandler = async (args, { sender }) => {
   const outcome = await runWebSearch(String(args.query ?? ''), (q) => confirmSearch(sender, q))
   const redactionNote = redactionNoteFor(outcome.redactions)
   if (!outcome.ok) {
+    // A provider that answered badly and a call that never went out are both
+    // errors to the model and different facts to the reader, so the two are
+    // composed apart. `declined` is the search layer's word, not this
+    // handler's guess at one.
+    const detail = `${outcome.error ?? 'Search failed.'}${redactionNote}`
     return {
       ok: false,
-      error:
-        `${outcome.error ?? 'Search failed.'}${redactionNote} ` +
-        'Tell the user plainly what you could not verify — never invent products, brands, ' +
-        'prices, or sources to fill the gap.'
+      error: outcome.declined
+        ? declinedCall(outcome.declined, `${detail} ${SEARCH_FAILURE_GUIDANCE}`)
+        : toolFailure(detail, SEARCH_FAILURE_GUIDANCE)
     }
   }
   if (outcome.results.length === 0) {
@@ -152,11 +174,12 @@ const imageSearch: ToolHandler = async (args, { sender }) => {
   )
   const redactionNote = redactionNoteFor(outcome.redactions)
   if (!outcome.ok) {
+    const detail = `${outcome.error ?? 'Image search failed.'}${redactionNote}`
     return {
       ok: false,
-      error:
-        `${outcome.error ?? 'Image search failed.'}${redactionNote} ` +
-        'Tell the user you could not retrieve images — never describe pictures you cannot show.'
+      error: outcome.declined
+        ? declinedCall(outcome.declined, `${detail} ${IMAGE_FAILURE_GUIDANCE}`)
+        : toolFailure(detail, IMAGE_FAILURE_GUIDANCE)
     }
   }
   if (outcome.images.length === 0) {

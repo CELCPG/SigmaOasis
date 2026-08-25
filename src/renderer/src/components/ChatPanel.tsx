@@ -264,7 +264,22 @@ function DetailsSection({ conversation }: { conversation: Conversation }): JSX.E
           label="Messages"
           value={`${stats.userMessages} sent · ${stats.assistantMessages} replies`}
         />
-        {stats.toolCalls > 0 && <Row label="Tool calls" value={stats.toolCalls} />}
+        {stats.toolCalls > 0 && (
+          <Row
+            label="Tool calls"
+            value={
+              stats.declinedCalls > 0
+                ? `${stats.toolCalls} · ${stats.declinedCalls} declined`
+                : stats.toolCalls
+            }
+            title={
+              stats.declinedCalls > 0
+                ? `${stats.declinedCalls} of ${stats.toolCalls} were declined by the app and never ran — ` +
+                  'a refused search query, or a confirmation that was cancelled.'
+                : undefined
+            }
+          />
+        )}
         {stats.roles.length > 0 && (
           <Row label="Answered by" value={stats.roles.join(', ')} title={stats.roles.join(', ')} />
         )}
