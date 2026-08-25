@@ -153,6 +153,30 @@ async function main(): Promise<void> {
   html = await render('| a | b |\n|---|---|\n| 1 | 2 |')
   check('tables render', /<table>/.test(html) && /<td>1<\/td>/.test(html), html)
 
+  // v1.17.1: `~` means "about" in technical prose, and models write it
+  // constantly. GFM lets a SINGLE tilde open a strikethrough and marked
+  // implements that, so two approximations in one paragraph pair up: the run
+  // between them renders struck through and both tildes are consumed. A blind
+  // critic caught `~51 GPH (~0.9 GPM)` reaching the reader as `51 GPH (0.9
+  // GPM)` — an estimate turned into an exact figure, in the line a reader is
+  // most likely to quote. Strikethrough is `~~text~~` only; the true negative
+  // below is that real strikethrough still works.
+  html = await render('Flow is ~51 GPH (~0.9 GPM) at the tap.')
+  check(
+    'two approximations in a line stay approximations',
+    html.includes('~51 GPH (~0.9 GPM)') && !/<del>/.test(html),
+    html
+  )
+
+  html = await render('| a |\n|---|\n| **~51 GPH (~0.9 GPM)** |')
+  check('an approximation inside a table cell keeps its tildes', html.includes('~51 GPH (~0.9 GPM)'), html)
+
+  html = await render('Target: ~84,000 calories total (~2,100 cal/person/day)')
+  check('an approximate quantity is not struck through', !/<del>/.test(html) && html.includes('~84,000'), html)
+
+  html = await render('This is ~~definitely struck~~ text.')
+  check('real strikethrough still renders', /<del>definitely struck<\/del>/.test(html), html)
+
   html = await render('[site](https://example.com/path?q=1)')
   check('https links keep their href', /href="https:\/\/example\.com\/path\?q=1"/.test(html), html)
 

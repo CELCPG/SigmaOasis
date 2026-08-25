@@ -1,4 +1,4 @@
-import { marked } from 'marked'
+import { marked, type TokenizerThis } from 'marked'
 import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 
@@ -55,6 +55,36 @@ function escapeHtml(text: string): string {
 marked.use({
   breaks: true,
   gfm: true,
+  /**
+   * v1.17.1: strikethrough is `~~text~~` only.
+   *
+   * GFM lets a single tilde open a strikethrough, and marked implements that.
+   * In technical prose `~` means "about", and models write it constantly —
+   * `~51 GPH (~0.9 GPM)`, `~84,000 calories (~2,100 cal/person/day)`. Two of
+   * them in one paragraph pair up, so the run between them renders struck
+   * through and BOTH tildes are consumed. What reaches the reader is
+   * `51 GPH (0.9 GPM)`: an approximation turned into an exact figure, in the
+   * line a reader is most likely to quote.
+   *
+   * Found by a blind critic diffing the raw markdown against the rendered text
+   * on a recorded run — the same pair of files that caught latexToPlainText
+   * deleting currency, and a different mechanism with the same consequence.
+   *
+   * `~~` keeps working, so nothing a writer meant as strikethrough is lost.
+   * Returning undefined hands the tilde back to the inline tokenizer as text.
+   */
+  tokenizer: {
+    del(this: TokenizerThis, src: string) {
+      const match = /^~~(?=\S)([\s\S]*?\S)~~/.exec(src)
+      if (!match) return undefined
+      return {
+        type: 'del' as const,
+        raw: match[0],
+        text: match[1]!,
+        tokens: this.lexer.inlineTokens(match[1]!)
+      }
+    }
+  },
   renderer: {
     code(code: string, infostring: string | undefined): string {
       const requested = (infostring ?? '').trim().split(/\s+/)[0]
