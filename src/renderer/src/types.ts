@@ -310,6 +310,12 @@ export interface MemoryContextItem {
    * `[1]` in the reply has something on screen to name.
    */
   index?: number
+  /**
+   * v1.13.1: did the reply actually cite this passage? Derived from the
+   * answer at render time and never stored — the strip lists what was
+   * retrieved, and only the finished answer says what was used.
+   */
+  cited?: boolean
   /** The document's own web source, when it has one — shown as a link. */
   url?: string
 }
