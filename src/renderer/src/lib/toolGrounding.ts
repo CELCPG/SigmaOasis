@@ -2021,9 +2021,29 @@ export function checkToolGrounding(
   // tool output" is the wrong accusation against a query string: it was never
   // offered as something a tool returned. It is what the reply says it *sent*,
   // which is the sentence above, with the actual argument beside it.
+  //
+  // v1.17.1: matched against the excerpt's *content*, not its head. The span a
+  // misquote now reports is a window centred on the divergence, carrying the
+  // ⟪⟫ break marks and an ellipsis on whichever side was trimmed — so the old
+  // `startsWith` test, written when a span was a truncated prefix, stopped
+  // recognising the very overlap it exists to catch. Strip the presentation
+  // and ask whether either string contains the other.
+  const bare = (text: string): string =>
+    flattenQuote(text)
+      .split(QUOTE_BREAK_MARKS[0])
+      .join('')
+      .split(QUOTE_BREAK_MARKS[1])
+      .join('')
+      .replace(/^…/, '')
+      .replace(/…$/, '')
+      .trim()
   const quotes = misquotedSpans(answer, quotedCorpus).filter((span) => {
-    const flat = flattenQuote(span).replace(/…$/, '')
-    return !misstatedArgs.some((arg) => flattenQuote(arg.stated).startsWith(flat))
+    const flat = bare(span)
+    if (flat === '') return true
+    return !misstatedArgs.some((arg) => {
+      const stated = bare(arg.stated)
+      return stated.includes(flat) || flat.includes(stated)
+    })
   })
   const attributions = misattributedCitations(answer, retrieved)
 
