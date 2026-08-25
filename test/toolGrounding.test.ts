@@ -1862,3 +1862,195 @@ describe('a citation that resolves to the wrong document, written inline (v1.15)
     assert.match(describeGroundingFindings(report!), /wrong document/)
   })
 })
+
+// ---- v1.16: a decoded token is not a phone book --------------------------------
+
+/**
+ * Task VC1, run 2, 2026-08-25. The user pasted a 220-character base64 probe out
+ * of a server log and asked what it was. The reply decoded it correctly and put
+ * the decoded string on a line of its own to be copied; `run_python` printed the
+ * decoding one character per line, which is what the recorded output holds.
+ *
+ * The badge underneath read:
+ *
+ *   ⚠️ Contact details no tool returned: 0001-0002-0003, 0004-0005-0006,
+ *      0007-0008-0009, 0010-0011-0012. Verify before sending these anywhere.
+ *
+ * There are no contact details in that turn. The scanner had started in the
+ * middle of one unbroken 165-character token and read its trailing digit groups
+ * as four phone numbers — then told the reader to verify them before sending
+ * them anywhere. Same species as the round-4 quote checker, and the lesson
+ * recorded then stands: findings against honest answers teach the reader to
+ * dismiss the badge on the turn it matters.
+ */
+const VC1_PROMPT =
+  "I keep seeing this string in my server logs and I don't know what it is: c2lnbWEtb2FzaXM… — what is it, and repeat it back to me on its own line so I can copy it."
+
+/** The line the reply put up to be copied — the model's own rendering. */
+const VC1_TOKEN =
+  'sign-my-as-is-head-to-head-layout-probe-a-single-unbroken-token-that-must-not-blow-out-the-chat-column-0001-0002-0003-0004-0005-0006-0007-0008-0009-0010-0011-0012-0013'
+
+/** What the token actually decodes to, per the sandbox's own character dump. */
+const VC1_DECODED =
+  'sigma-oasis-head-to-head-layout-probe-a-single-unbroken-token-that-must-not-blow-out-the-chat-column-0001-0002-0003-0004-0005-0006-0007-0008-0009-0010-0011-0012-0013'
+
+const VC1_REPLY = `This is a Base64-encoded string. When decoded, it reads as plain ASCII text (not binary data). Here's what it decodes to:
+
+${VC1_TOKEN}
+
+What it is: This appears to be a test token or marker string used to verify log line length handling.`
+
+/** What the sandbox actually printed: the decoding, one character per line. */
+const VC1_PYTHON_OUTPUT = [
+  'encoded length: 220',
+  `decoded length: ${VC1_DECODED.length}`,
+  ...[...VC1_DECODED].map((ch, i) => `${i}: '${ch}'`)
+].join('\n')
+
+describe('a decoded token is not a run of phone numbers (v1.16)', () => {
+  test('the recorded output joins no digit groups, so the corpus cannot rescue this', () => {
+    assert.equal(VC1_DECODED.length, 165)
+    assert.equal(VC1_TOKEN.length, 167)
+    assert.ok(!VC1_PYTHON_OUTPUT.includes('0001-0002'), 'a char dump joins nothing')
+  })
+
+  test('the four "phone numbers" the badge named are not contacts', () => {
+    assert.deepEqual(unsourcedContacts(VC1_REPLY, VC1_PYTHON_OUTPUT), [])
+  })
+
+  test('…and the recorded turn produces no contacts finding at all', () => {
+    const report = checkToolGrounding(VC1_REPLY, [rec('run_python', VC1_PYTHON_OUTPUT)], VC1_PROMPT)
+    assert.equal(report?.contacts, undefined, `expected no contacts: ${JSON.stringify(report)}`)
+  })
+
+  test('an invented support line in the same reply is still named — the true positive', () => {
+    const flagged = unsourcedContacts(
+      `${VC1_REPLY}\n\nIf you need help reading it, call support at 1-800-555-0134.`,
+      VC1_PYTHON_OUTPUT
+    )
+    assert.deepEqual(flagged, ['1-800-555-0134'])
+  })
+
+  test('a digit chain that starts a token is not a number either', () => {
+    // Nothing to the left to start inside, so the giveaway is on the right: the
+    // chain runs on past where a phone number would have ended.
+    assert.deepEqual(
+      unsourcedContacts('The job id is 0001-0002-0003-0004-0005 in the queue.', ''),
+      []
+    )
+  })
+
+  test('the shapes a real number is written in survive the narrowing', () => {
+    // Each of these is a number of its own, however it is wrapped.
+    assert.deepEqual(unsourcedContacts('Reach them at **1-800-555-0134**.', ''), ['1-800-555-0134'])
+    assert.deepEqual(unsourcedContacts('Reach them at (212) 308-6922.', ''), ['(212) 308-6922'])
+    assert.deepEqual(unsourcedContacts('Tel.212-308-6922', ''), ['212-308-6922'])
+    assert.deepEqual(unsourcedContacts("Call 1-800-SAM'S-CUB", ''), ["1-800-SAM'S-CUB"])
+  })
+})
+
+// ---- v1.16: the app checked the link and skipped the number ---------------------
+
+/**
+ * Task V2, run 1, 2026-08-25. Asked for the standard deduction "and where
+ * exactly does that number come from", the reply opened with a bolded headline —
+ * "For tax year 2026: $34,000" — over a passage that states $30,000 for tax year
+ * 2025 and carries no 2026 figure at all. Neither "$34,000" nor "34,000" appears
+ * anywhere in the tool output. A blind critic checked, and wrote: "the app
+ * checked the link and skipped the number" — the link check DID fire on the same
+ * reply, over an invented tc551 anchor, which is what made the silence loud.
+ *
+ * `unsourcedFigures` was never the problem. Run against the recorded reply and
+ * the recorded passage it returns exactly ["$34,000"], correctly treating the
+ * $30,000 and the $800 the same reply states as sourced. `checkToolGrounding`
+ * then threw the finding away: `reference_lookup` is not in NUMERIC_TOOLS, so
+ * nothing armed the money rung, and one figure is below MIN_UNPROMPTED_FIGURES.
+ *
+ * The measurements rung settled this same question in v1.12.2 — passages are not
+ * a computation, but they are authoritative about what they state — and the
+ * money rung now answers it the same way, with the same limit: passages that
+ * quote no money arm nothing.
+ */
+const V2_PROMPT =
+  "What's the standard deduction for a married couple filing jointly, and where exactly does that number come from? Cite the source."
+
+const V2_PASSAGES = `Reference passages for "${V2_PROMPT}" from the local library (keyword ranking), most relevant first.
+
+[1] Personal finance & tax basics › Tax inflation adjustments for tax year 2025 › Notable changes for tax year 2025 · 10% in
+    source: https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025
+    date: retrieved 2026-08-16
+    relevance 1
+## Notable changes for tax year 2025
+
+- Standard deductions. For single taxpayers and married individuals filing separately for tax year 2025, the standard deduction rises to $15,000 for 2025, an increase of $400 from 2024. For married couples filing jointly, the standard deduction rises to $30,000, an increase of $800 from tax year 2024. For heads of households, the standard deduction will be $22,500 for tax year 2025, an increase of $600 from the amount for tax year 2024.`
+
+const V2_REPLY = `Standard Deduction: Married Filing Jointly
+
+For tax year 2026: $34,000
+(derived by inflating the 2025 amount of $30,000 using the projected inflation adjustment)
+
+For tax year 2025 (the last confirmed figure): $30,000 — this is an increase of $800 from tax year 2024. [1]`
+
+describe('an invented figure on a retrieval-grounded turn (v1.16)', () => {
+  test('the detector always saw it — the gate is what dropped it', () => {
+    assert.deepEqual(unsourcedFigures(V2_REPLY, `\n${V2_PROMPT}`, V2_PASSAGES), ['$34,000'])
+  })
+
+  test('the headline figure the passage never states is a finding', () => {
+    const report = checkToolGrounding(V2_REPLY, [rec('reference_lookup', V2_PASSAGES)], V2_PROMPT)
+    assert.ok(report, 'expected a report — this named no figure through v1.15')
+    assert.ok(
+      report!.figures.includes('$34,000'),
+      `expected the invented 2026 figure, got ${JSON.stringify(report!.figures)}`
+    )
+  })
+
+  test('the figures the passage does state are not named', () => {
+    const report = checkToolGrounding(V2_REPLY, [rec('reference_lookup', V2_PASSAGES)], V2_PROMPT)
+    assert.deepEqual(report!.figures, ['$34,000'], JSON.stringify(report!.figures))
+  })
+
+  test('a reply that states only the passage figures is clean — the true negative', () => {
+    const report = checkToolGrounding(
+      'For tax year 2025 the standard deduction for a married couple filing jointly is $30,000, an increase of $800 from tax year 2024 [1].',
+      [rec('reference_lookup', V2_PASSAGES)],
+      V2_PROMPT
+    )
+    assert.equal(
+      report,
+      null,
+      `a correctly quoted figure must stay clean: ${JSON.stringify(report)}`
+    )
+  })
+
+  test('a retrieval turn whose passages quote no money arms nothing', () => {
+    // The limit the measurements rung already draws: with no money in the
+    // passages there is nothing authoritative to stand outside of, and "about
+    // $20 a bag" is the `unverified` badge's business, not this one.
+    const report = checkToolGrounding(
+      'A bag runs about $20 and you let it cure before sealing.',
+      [
+        rec(
+          'reference_lookup',
+          'Reference passages for "grout": let the grout cure before sealing it.'
+        )
+      ],
+      'how long before I can seal grout'
+    )
+    assert.equal(report, null, JSON.stringify(report))
+  })
+
+  test('with nothing retrieved, one passing mention of money is still not a finding', () => {
+    // MIN_UNPROMPTED_FIGURES is untouched: this is the noise it exists to stop.
+    assert.equal(checkToolGrounding('Coffee runs about $5 there.', [], 'tell me about lisbon'), null)
+  })
+
+  test('the finding reaches the user: named in the disclosure, counted in the report', () => {
+    const report = checkToolGrounding(V2_REPLY, [rec('reference_lookup', V2_PASSAGES)], V2_PROMPT)
+    assert.equal(groundingFindingCount(report), 1)
+    const text = describeGroundingFindings(report!)
+    assert.match(text, /Figures nothing retrieved or computed supports/)
+    assert.match(text, /\$34,000/)
+    assert.match(text, /reference_lookup/)
+  })
+})
