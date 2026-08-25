@@ -1,4 +1,5 @@
 import type { ModelConfig } from '../types'
+import type { FailureDetail } from '../../../shared/failure'
 
 /**
  * v1.6 Workbench verification hooks — the headless rules.
@@ -137,6 +138,15 @@ export interface WorkbenchCheck {
   kind: 'recompute' | 'code'
   ok: boolean
   summary: string
+  /**
+   * The runtime's own words, when this line exists because something broke.
+   *
+   * Measured: `🧮 Recompute skipped — BodyStreamBuffer was aborted`. The whole
+   * line was an internal string, and the reader had no disclosure to open. Now
+   * the summary says what happened and this carries the evidence, so the text
+   * is neither printed at a reader nor thrown away.
+   */
+  detail?: FailureDetail
 }
 
 /**
@@ -177,8 +187,25 @@ export function recomputeIsCircular(code: string, question: string): boolean {
   return !literals.some((n) => asked.has(n))
 }
 
-export function describeRecompute(input: { ran: boolean; ok: boolean; circular?: boolean; note?: string }): WorkbenchCheck {
-  if (!input.ran) return { kind: 'recompute', ok: false, summary: `🧮 Recompute skipped${input.note ? ` — ${input.note}` : ''}` }
+export function describeRecompute(input: {
+  ran: boolean
+  ok: boolean
+  circular?: boolean
+  /**
+   * A clause a reader can act on — never a runtime string. Callers that hold a
+   * thrown value pass `explainFailure(err).headline` and hand the raw text
+   * through `detail`, which is where `BodyStreamBuffer was aborted` went.
+   */
+  note?: string
+  detail?: FailureDetail
+}): WorkbenchCheck {
+  if (!input.ran)
+    return {
+      kind: 'recompute',
+      ok: false,
+      summary: `🧮 Recompute skipped${input.note ? ` — ${input.note}` : ''}`,
+      ...(input.detail ? { detail: input.detail } : {})
+    }
   if (!input.ok) return { kind: 'recompute', ok: false, summary: `🧮 Recomputation ran but failed${input.note ? ` — ${input.note}` : ''}; figures could not be checked this way.` }
   // The headline reports the weaker of the two states: a program fed by the
   // model's own constants ran, but it checked nothing.

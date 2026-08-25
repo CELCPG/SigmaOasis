@@ -14,6 +14,7 @@ import type {
   ToolSchema
 } from '../types'
 import { makeTailStream, streamChat } from './chatTransport'
+import { composeFailure, explainFailure } from '../../../shared/failure'
 import { audit, subsetForTurn, uid } from './turnHelpers'
 
 /**
@@ -233,7 +234,7 @@ export async function runPlanTurn(
   )
   if (signal.aborted) return
   if (!gen.ok || !gen.steps || gen.steps.length === 0) {
-    patchPlanErrorNotice(conversationId, gen.error ?? 'the model did not produce a usable plan')
+    patchPlanErrorNotice(conversationId, gen.error ?? 'The model did not produce a usable plan.')
     await runTurn(conversationId, slot, baseUrl, tools, signal)
     return
   }
@@ -338,7 +339,6 @@ export async function runPlanTurn(
       patchStep(step.id, { status: 'done', output })
       completed.push({ title: step.title, output })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       // Stop lands here as an abort. It is the user ending the plan, not the
       // step blowing up — drawing it in failure red blames them for their own
       // decision, so it gets its own status and no error output.
@@ -347,10 +347,17 @@ export async function runPlanTurn(
         finish('stopped')
         return
       }
-      patchStep(step.id, { status: 'failed', output: message })
+      // Measured: `signal is aborted without reason`, alone, as the ENTIRE
+      // body of an interrupted step — a DOMException's wording where the step's
+      // account of itself should be. The body now says what happened and quotes
+      // the runtime underneath it, attributed.
+      const failure = explainFailure(err, { subject: `Step ${i + 1}` })
+      patchStep(step.id, { status: 'failed', output: composeFailure(failure) })
       // A failed step poisons everything built on it: halt, and let the
-      // synthesis say plainly what that leaves unanswered.
-      haltedBy = `Step ${i + 1} ("${step.title}") failed: ${message}`
+      // synthesis say plainly what that leaves unanswered. The synthesis reads
+      // this, so it gets the sentence — the identifier would only invite the
+      // model to repeat it into the answer.
+      haltedBy = `Step ${i + 1} ("${step.title}") failed: ${failure.sentence}`
       break
     }
   }
@@ -462,12 +469,21 @@ export async function runPlanTurn(
   }
 }
 
-/** A planning failure becomes a normal turn; the notice explains why. */
+/**
+ * A planning failure becomes a normal turn; the notice explains why.
+ *
+ * `gen.error` is main's, and main's last resort is a thrown value's message —
+ * so it reaches this line as anything at all. It goes through the boundary
+ * first: a notice that reads `📋 Planning failed (net::ERR_…)` tells the reader
+ * nothing they can use, and the turn has already recovered by answering
+ * directly, which is the part they actually need to know.
+ */
 export function patchPlanErrorNotice(conversationId: string, error: string): void {
+  const failure = explainFailure(error, { subject: 'Planning' })
   useAppStore.getState().appendMessage(conversationId, {
     id: uid(),
     role: 'assistant',
-    content: `📋 Planning failed (${error}) — answering directly instead.`,
+    content: `📋 Planning failed — answering directly instead.\n\n${composeFailure(failure)}`,
     marker: 'notice',
     createdAt: Date.now()
   })

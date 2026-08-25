@@ -19,6 +19,7 @@ import {
 import { checkToolGrounding, revisionIsAnImprovement,
   conflictingToolFigures
 } from '../lib/toolGrounding'
+import { composeFailure, explainFailure } from '../../../shared/failure'
 import { looksLikeShopping } from '../lib/shopping'
 import { isOffline } from '../lib/libraryRecall'
 import { attachmentFileRefs, TABULAR_FILE } from '../lib/attachmentRecall'
@@ -1003,7 +1004,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
             createdAt: Date.now()
           })
         }
@@ -1066,7 +1067,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
             createdAt: Date.now()
           })
         }
@@ -1230,7 +1231,7 @@ export function useLMStudio(): {
       if (!controller.signal.aborted && !text.trim()) patch(NO_REVIEW_TEXT)
     } catch (err) {
       if (!controller.signal.aborted) {
-        patch(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)
+        patch(`⚠️ ${composeFailure(explainFailure(err, { subject: 'The second opinion' }))}`)
       }
     } finally {
       useAppStore.getState().setStreaming(false)
@@ -1279,7 +1280,7 @@ export function useLMStudio(): {
         store.appendMessage(convo.id, {
           id: uid(),
           role: 'assistant',
-          content: `⚠️ ${err instanceof Error ? err.message : String(err)}`,
+          content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The escalated turn' }))}`,
           createdAt: Date.now()
         })
       }

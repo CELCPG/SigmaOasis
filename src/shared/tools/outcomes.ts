@@ -25,7 +25,14 @@
  *
  * Pure data and string work: main writes it, the renderer reads it, and the
  * node:test suite loads it outside Electron.
+ *
+ * v1.17.2: the row's reason is no longer whatever text happened to arrive. It
+ * goes through `shared/failure.ts` first — see `readToolFailure` at the bottom
+ * — because TTU3's row said `net::ERR_UNSAFE_PORT`, which is a true thing to
+ * print and not a thing a reader can do anything with.
  */
+
+import { explainFailure, type Failure, type FailureContext } from '../failure'
 
 /** The opening words of an error the app produced by declining the call. */
 const DECLINED_LEAD = 'Declined —'
@@ -63,18 +70,55 @@ export function wasDeclined(errorText: string): boolean {
   return errorText.trimStart().startsWith(DECLINED_LEAD)
 }
 
+/** The fact, with the model's coaching and the decline lead taken off. */
+function statedFact(errorText: string): string {
+  let text = errorText.trim()
+  if (wasDeclined(text)) text = text.slice(DECLINED_LEAD.length).trim()
+  return (text.split(GUIDANCE_MARK)[0] ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function cap(text: string): string {
+  return text.length > MAX_REASON_CHARS ? `${text.slice(0, MAX_REASON_CHARS - 1).trimEnd()}…` : text
+}
+
+/**
+ * What a tool failure means for the reader — the one call every surface that
+ * shows a failed tool call goes through.
+ *
+ * A decline never reaches the translator: `declinedCall` composed that clause,
+ * so the app knows it wrote it, and no shape test can be more reliable than
+ * knowing. Everything else is a string that arrived from somewhere — a
+ * provider, Chromium's network stack, a handler's own prose — and is treated
+ * as such.
+ *
+ * The error text itself is left alone. It is what the model reads on the next
+ * loop and what `providerIO` writes to the audit log, and both of those want
+ * the identifier.
+ */
+export function readToolFailure(errorText: string, context: FailureContext = {}): Failure {
+  const fact = statedFact(errorText)
+  if (wasDeclined(errorText)) {
+    const reason = fact || 'the app declined this call'
+    return {
+      headline: cap(reason),
+      sentence: `${DECLINED_LEAD} ${reason}`,
+      remedy: null,
+      detail: null,
+      recognised: true
+    }
+  }
+  return explainFailure(fact || 'The call failed.', { subject: 'The call', ...context })
+}
+
 /**
  * The reason a collapsed row carries beside the glyph.
  *
- * Errors this module did not compose still get an answer — first sentence,
- * capped — because the alternative is the row saying nothing at all, which is
- * the state TTU3 measured. The disclosure still holds the whole text.
+ * Errors this module did not compose still get an answer — because the
+ * alternative is the row saying nothing at all, which is the state TTU3
+ * measured. What changed in v1.17.2 is *which* answer: a runtime identifier is
+ * no longer one of the possibilities, and the identifier itself moves into the
+ * disclosure under an attribution line.
  */
 export function failureReason(errorText: string): string {
-  let text = errorText.trim()
-  if (wasDeclined(text)) text = text.slice(DECLINED_LEAD.length).trim()
-  text = (text.split(GUIDANCE_MARK)[0] ?? '').replace(/\s+/g, ' ').trim()
-  const stop = text.search(/[.!?](?:\s|$)/)
-  if (stop > 0) text = text.slice(0, stop + 1)
-  return text.length > MAX_REASON_CHARS ? `${text.slice(0, MAX_REASON_CHARS - 1).trimEnd()}…` : text
+  return cap(readToolFailure(errorText).headline)
 }

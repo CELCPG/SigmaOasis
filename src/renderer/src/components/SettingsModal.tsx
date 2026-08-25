@@ -183,6 +183,16 @@ export function SettingsModal(): JSX.Element | null {
     return () => window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
   }, [tab])
 
+  // v1.17.2: a remedy control asked for a specific tab. Honour it once, then
+  // clear it, so the next manual open lands where the reader left off.
+  const requestedTab = useAppStore((s) => s.settingsTab)
+  const clearSettingsTab = useAppStore((s) => s.clearSettingsTab)
+  useEffect(() => {
+    if (!requestedTab) return
+    setTab(requestedTab)
+    clearSettingsTab()
+  }, [requestedTab, clearSettingsTab])
+
   // Load memory stats when the Memory tab opens.
   useEffect(() => {
     if (tab === 'memory') void window.api.memoryStats().then(setMemoryStats)

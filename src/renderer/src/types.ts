@@ -867,6 +867,12 @@ export interface ChatMessage {
     kind: 'recompute' | 'code' | 'echo' | 'conflict' | 'deadline'
     ok: boolean
     summary: string
+    /**
+     * v1.17.2: the runtime's own words, when this line exists because something
+     * broke — kept out of `summary`, which a reader has to be able to act on,
+     * and kept at all, because whoever is debugging needs them.
+     */
+    detail?: { source: string; text: string }
   }[]
   /**
    * The long-term memory chunks injected into the system prompt for this turn

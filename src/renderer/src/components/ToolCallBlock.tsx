@@ -1,7 +1,8 @@
 import { useState, type CSSProperties } from 'react'
 import type { ToolCallRecord } from '../types'
 import { declinedToCall, foundNothing } from '../lib/grounding'
-import { failureReason } from '../../../shared/tools/outcomes'
+import { readToolFailure } from '../../../shared/tools/outcomes'
+import { composeFailure, copyableFailure } from '../../../shared/failure'
 import { toolVisualForName } from '../lib/oasisRipple'
 
 const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
@@ -43,6 +44,7 @@ export const DECLINED_NOTE = 'declined'
 /** Collapsible block for a tool call — or a model-to-model consultation. */
 export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const isConsult = record.name === 'consult_model'
   const visual = toolVisualForName(record.name)
@@ -51,7 +53,15 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
   // A failure the reader cannot name is a failure they have to open a
   // disclosure to understand. Both broken states carry their reason; a decline
   // has no provider error to quote, so the reason is the app's own sentence.
-  const reason = record.status === 'error' ? failureReason(record.result ?? '') : ''
+  //
+  // v1.17.2: and neither state carries a runtime identifier any more. TTU3's
+  // rows read `✗ 🔍 web_search — net::ERR_UNSAFE_PORT`, twice in one turn, over
+  // a failure the reader had no way to interpret. `readToolFailure` decides
+  // what the row says; `record.result` is untouched, so the model and the audit
+  // log still get the code, and the disclosure below quotes it as the network
+  // layer's words rather than the app's.
+  const failure = record.status === 'error' ? readToolFailure(record.result ?? '') : null
+  const reason = failure?.headline ?? ''
   const label = isConsult
     ? `🤝 Consulted ${String(record.args.role ?? 'specialist')}`
     : `${visual.icon} ${record.name}`
@@ -93,10 +103,13 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         </span>
         {empty && <span className="text-amber-600 dark:text-amber-400">— {EMPTY_RESULT_NOTE}</span>}
         {/* The row states the state in words too: a glyph is not a reading. */}
-        {reason && (
+        {reason && failure && (
           <span
             className={declined ? 'min-w-0 truncate text-ink-secondary' : 'min-w-0 truncate text-red-500'}
-            title={record.result}
+            // The hover text is the same reading the disclosure gives, evidence
+            // and all — not the raw result, which also carries the model's
+            // coaching and has no business in a tooltip.
+            title={composeFailure(failure)}
           >
             — {declined ? `${DECLINED_NOTE}: ` : ''}
             {reason}
@@ -123,7 +136,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
               {isConsult ? String(record.args.task ?? '') : JSON.stringify(record.args, null, 2)}
             </pre>
           </div>
-          {record.result !== undefined && (
+          {record.result !== undefined && failure === null && (
             <div>
               <div className="mb-1 font-medium text-ink-secondary">
                 {isConsult ? 'Specialist reply' : 'Result'}
@@ -131,6 +144,46 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
               <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono">
                 {record.result}
               </pre>
+            </div>
+          )}
+          {/* A failure's disclosure is not a dump of the error text. TTU3 put
+              `net::ERR_UNSAFE_PORT` here as the ENTIRE body — the whole of what
+              opening the row bought. It now leads with what happened, says what
+              to do where there is anything to do, and only then quotes the
+              runtime, attributed, so a reader can tell whose words are whose. */}
+          {failure && (
+            <div>
+              <div className="mb-1 font-medium text-ink-secondary">What happened</div>
+              <p className="text-ink-secondary">{failure.sentence}</p>
+              {failure.remedy && <p className="mt-1 text-ink-secondary">{failure.remedy.text}</p>}
+              {failure.detail && (
+                <>
+                  <div className="mb-1 mt-2 font-medium text-ink-tertiary">
+                    {failure.detail.source} reported
+                  </div>
+                  <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono text-ink-secondary">
+                    {failure.detail.text}
+                  </pre>
+                </>
+              )}
+              {/* The identifier is one keystroke away for whoever needs it —
+                  which is the person filing the bug, not the person reading
+                  the answer. */}
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard
+                    ?.writeText(copyableFailure(failure, `${record.name} failed`))
+                    .then(() => {
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 1500)
+                    })
+                    .catch(() => setCopied(false))
+                }}
+                className="mt-2 rounded-lg border border-black/10 px-2 py-0.5 text-ink-secondary hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5"
+              >
+                {copied ? 'Copied' : 'Copy details'}
+              </button>
             </div>
           )}
         </div>

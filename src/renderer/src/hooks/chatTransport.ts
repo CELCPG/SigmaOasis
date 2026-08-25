@@ -5,6 +5,7 @@ import { getFromCache, setInCache } from '../lib/responseCache'
 import { resolveSampling } from '../lib/sampling'
 import type { ApiMessage, ApiToolCall, ApiUsage } from '../lib/agentLoop'
 import type { ChatMessage, SamplingSettings, ToolSchema } from '../types'
+import { ExplainedError, explainFailure } from '../../../shared/failure'
 import { uid } from './turnHelpers'
 
 /**
@@ -338,10 +339,16 @@ export async function streamChat(
         // over the loaded context — still ended as an empty bubble.
         if (json.error) {
           const message = typeof json.error === 'string' ? json.error : json.error.message ?? JSON.stringify(json.error)
-          throw new Error(
-            /context/i.test(message)
-              ? `${message} — this conversation (with its attachments and notes) is larger than the context the model is loaded with. Load the model with a larger context in LM Studio, or attach less.`
-              : message
+          // v1.17.2: whose words are these? The frame is LM Studio's, so the
+          // app names LM Studio as the author and leads with its own reading.
+          //
+          // Measured, verbatim: `⚠️ Trying to keep the first 12000 tokens when
+          // context the overflows.` — LM Studio's clause, garbled word order
+          // and all, relayed as if the app had written it, with our diagnosis
+          // trailing behind as an afterthought. Their text is evidence and is
+          // never dropped; it is simply quoted rather than ventriloquised.
+          throw new ExplainedError(
+            explainFailure(message, { subject: 'The request', source: 'LM Studio' })
           )
         }
         // The usage block rides a final chunk whose `choices` is empty.

@@ -851,6 +851,20 @@ export const MessageBubble = memo(function MessageBubble({
                 title="Workbench verification: the app ran Python in the sandbox to check this reply — recomputing its figures, or running the code it contains. Settings → Models → Workbench checks."
               >
                 {c.summary}
+                {/* This line used to BE the runtime string — measured,
+                    `🧮 Recompute skipped — BodyStreamBuffer was aborted`. The
+                    summary is now a reading, and the words the runtime actually
+                    used live here, one click away, attributed to it. */}
+                {c.detail && (
+                  <details className="mt-0.5">
+                    <summary className="cursor-pointer text-ink-tertiary">
+                      {c.detail.source} reported
+                    </summary>
+                    <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/5 p-1.5 font-mono text-ink-secondary dark:bg-white/5">
+                      {c.detail.text}
+                    </pre>
+                  </details>
+                )}
               </div>
             ))}
           </div>
