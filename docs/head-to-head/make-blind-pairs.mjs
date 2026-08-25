@@ -47,23 +47,79 @@ function indexRuns(dir) {
  */
 const SCRUBBABLE = /\.(txt|json|jsonl|md|html)$/i
 
-function scrub(text, runRoot, armDir) {
-  return text
-    .split(runRoot)
-    .join('/RUN')
-    .split(`/${armDir}/`)
-    .join('/ARM/')
+/**
+ * v1.17.1: the APP root is scrubbed too, and it is read out of the run's own
+ * `_arm.json` rather than guessed.
+ *
+ * The run root and the arm directory were the two paths anyone thought of, and
+ * they are both inside the run tree. The build being driven is not: the
+ * baseline arm lives in a scratch directory called `baseline-app`, and
+ * `h2h-preconditions` records the absolute path of every file it probed. So
+ * TTU2 — the only task declaring the python-runtime precondition — shipped
+ * `.../scratchpad/baseline-app/resources/pyodide/pyodide.js` inside run.json,
+ * naming its arm to any critic who opened it.
+ */
+function armTells(runDir) {
+  const tells = []
+  try {
+    const sidecar = JSON.parse(readFileSync(join(runDir, '_arm.json'), 'utf8'))
+    for (const key of ['appRoot', 'electronBinary', 'mainEntry']) {
+      if (typeof sidecar[key] === 'string' && sidecar[key] !== '') tells.push(sidecar[key])
+    }
+  } catch {
+    // No sidecar is not fatal — the run root and arm dir are still scrubbed.
+  }
+  // Longest first, so a parent path never truncates a child before it is seen.
+  return [...new Set(tells)].sort((x, y) => y.length - x.length)
 }
 
-function copyVisible(from, to, runRoot, armDir) {
+function scrub(text, runRoot, armDir, tells) {
+  let out = text.split(runRoot).join('/RUN').split(`/${armDir}/`).join('/ARM/')
+  for (const tell of tells) out = out.split(tell).join('/APP')
+  return out
+}
+
+function copyVisible(from, to, runRoot, armDir, tells) {
   mkdirSync(to, { recursive: true })
   for (const name of readdirSync(from)) {
     if (name.startsWith('_')) continue // identifying sidecars stay behind
     const src = join(from, name)
     const dst = join(to, name)
-    if (statSync(src).isDirectory()) copyVisible(src, dst, runRoot, armDir)
-    else if (SCRUBBABLE.test(name)) writeFileSync(dst, scrub(readFileSync(src, 'utf8'), runRoot, armDir))
+    if (statSync(src).isDirectory()) copyVisible(src, dst, runRoot, armDir, tells)
+    else if (SCRUBBABLE.test(name))
+      writeFileSync(dst, scrub(readFileSync(src, 'utf8'), runRoot, armDir, tells))
     else copyFileSync(src, dst)
+  }
+}
+
+/**
+ * Verify the blinding rather than trust it.
+ *
+ * Scrubbing is a list of things someone remembered; this is its inverse. Every
+ * staged text file is searched for every string that distinguishes one arm from
+ * the other, and staging fails loudly if one survives. A tell that reaches a
+ * critic does not announce itself — it just quietly decides a verdict.
+ */
+function assertBlind(stagedDir, tellSets) {
+  const tells = [...new Set(tellSets.flat())].filter((t) => t.length >= 4)
+  const found = []
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name)
+      if (statSync(full).isDirectory()) walk(full)
+      else if (SCRUBBABLE.test(name) && !name.startsWith('_')) {
+        const text = readFileSync(full, 'utf8')
+        for (const tell of tells) {
+          if (text.includes(tell)) found.push(`${full}: ${tell}`)
+        }
+      }
+    }
+  }
+  walk(stagedDir)
+  if (found.length > 0) {
+    console.error(`\nBLINDING FAILED — ${found.length} arm tell(s) survived staging:`)
+    for (const f of found.slice(0, 20)) console.error(`  ${f}`)
+    process.exit(1)
   }
 }
 
@@ -75,16 +131,22 @@ rmSync(outDir, { recursive: true, force: true })
 mkdirSync(outDir, { recursive: true })
 
 const key = {}
+const allTells = []
 for (const task of tasks) {
   // Deterministic but unguessable: A goes first only when the digest is even.
   const digest = createHash('sha256').update(`${salt}:${task}`).digest()
   const aFirst = digest[0] % 2 === 0
   const first = aFirst ? a.get(task) : b.get(task)
   const second = aFirst ? b.get(task) : a.get(task)
-  copyVisible(first, join(outDir, task, 'run-1'), first, basename(aFirst ? armADir : armBDir))
-  copyVisible(second, join(outDir, task, 'run-2'), second, basename(aFirst ? armBDir : armADir))
+  const firstTells = armTells(first)
+  const secondTells = armTells(second)
+  allTells.push(firstTells, secondTells)
+  copyVisible(first, join(outDir, task, 'run-1'), first, basename(aFirst ? armADir : armBDir), firstTells)
+  copyVisible(second, join(outDir, task, 'run-2'), second, basename(aFirst ? armBDir : armADir), secondTells)
   key[task] = { 'run-1': aFirst ? 'A' : 'B', 'run-2': aFirst ? 'B' : 'A' }
 }
+
+assertBlind(outDir, allTells)
 
 writeFileSync(join(outDir, '_key.json'), `${JSON.stringify(key, null, 2)}\n`)
 console.log(`staged ${tasks.length} blind pairs in ${outDir}`)
