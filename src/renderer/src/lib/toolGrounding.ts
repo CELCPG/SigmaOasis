@@ -1,5 +1,10 @@
 import type { ToolCallRecord } from '../types'
-import { inScale, measurementsIn, temperatureScale } from '../../../shared/measurements'
+import {
+  convertUnit,
+  isRatioScale,
+  measurementGroup,
+  measurementsIn
+} from '../../../shared/measurements'
 import { TOOL_DEFS } from '../../../shared/tools'
 import { LAUNDERED_OUTPUT_MARKER } from './workbenchChecks'
 import { danglingCitations, retrievedCitations, type Citation } from './citations'
@@ -436,8 +441,30 @@ export function describeGroundingFindings(report: GroundingReport): string {
  * Currency amounts, with or without cents and with optional `~`/`about`.
  * Deliberately money-only: bare integers appear constantly in prose ("2017
  * models", "60 months") and flagging those would bury the signal.
+ *
+ * v1.17.2: the fraction is `\d+`, not `\d{1,2}`.
+ *
+ * The cap was an enumeration of the shapes money is *usually* written in —
+ * whole dollars, tenths, cents — and a per-unit rate is not on that list. Over
+ * `$0.007 per gallon` the pattern matched `$0.00` and left the `7` behind, so
+ * the badge named **`$0.00`**: a figure that appears nowhere on screen, over a
+ * figure that does. A reader who searches the answer for it finds nothing and
+ * learns to discount the badge, which is round 4's cry-wolf in a new place.
+ *
+ * The cap was also, quietly, wrong about the *verdict* and not only the label.
+ * `precisionOf` reads the matched text, so a sub-cent rate was checked at two
+ * decimals against a value the reply never stated — and a reply quoting a
+ * source's own `$0.007` came back unsupported, because 0.007 does not round to
+ * 0.00. Reading the whole number makes the comparison strictly stricter (three
+ * decimals must agree to three) as well as truthful about what it read.
+ *
+ * The digit group also has to *end* in a digit. `\d[\d,]*` is greedy about the
+ * separator, so the sentence "rises to $30,000, an increase of…" yielded the
+ * label **`$30,000,`** — the same defect as `$0.00` in miniature, a reader
+ * searching the answer for a string it does not contain. Found by the v1.17.2
+ * sweep, on the recorded V2 passage.
  */
-const CURRENCY = /\$\s?(\d[\d,]*(?:\.\d{1,2})?)/g
+const CURRENCY = /\$\s?(\d(?:[\d,]*\d)?(?:\.\d+)?)/g
 
 /**
  * Money amounts in a blob of text — the only legitimate bases for arithmetic.
@@ -462,6 +489,34 @@ function moneyIn(text: string): number[] {
 function numbersIn(text: string): number[] {
   const found: number[] = []
   for (const m of text.matchAll(/(\d[\d,]*(?:\.\d+)?)/g)) {
+    const value = Number(m[1].replace(/,/g, ''))
+    if (Number.isFinite(value)) found.push(value)
+  }
+  return found
+}
+
+/**
+ * Every number in a blob of text that is **not** already spoken for by a unit.
+ *
+ * v1.17.2, and it is `moneyIn`'s argument applied to the other side of the
+ * same comparison. That function exists because deriving prices from every
+ * bare number was "a hole big enough to drive the whole check through"; the
+ * *support* side kept the hole. Measured on the recorded V3 run: the reply
+ * stated `$5` for a washer kit and the badge said nothing, because a passage
+ * mentioning "every 5 months" put a bare 5 in the corpus and a whole-dollar
+ * figure is judged at zero decimals. A count of months is not an amount of
+ * money, and the app already has one vocabulary that knows the difference —
+ * shared/measurements.ts, the same one the quantities rung reads.
+ *
+ * Only the number a unit claims is dropped, by offset rather than by value, so
+ * a corpus that prints `36.5` on one line and `36.5 miles` on another still
+ * supports `$36.50` from the first.
+ */
+function amountsIn(text: string): number[] {
+  const measured = new Set(measurementsIn(text).map((m) => m.index))
+  const found: number[] = []
+  for (const m of text.matchAll(/(\d[\d,]*(?:\.\d+)?)/g)) {
+    if (measured.has(m.index)) continue
     const value = Number(m[1].replace(/,/g, ''))
     if (Number.isFinite(value)) found.push(value)
   }
@@ -520,13 +575,13 @@ function isDerivable(value: number, decimals: number, known: number[]): boolean 
  * simple arithmetic on a corpus number (see `isDerivable`).
  */
 export function unsourcedFigures(answer: string, corpus: string, sourceText = ''): string[] {
-  const known = numbersIn(corpus)
+  const known = amountsIn(corpus)
   const bases = [...new Set(moneyIn(corpus))].slice(0, MAX_DERIVATION_BASES)
   // v1.11.2: a figure that appears verbatim in a page or search result the
   // model was handed is SOURCED, not invented — that is the whole point of the
   // source. Presence only, never derivation: a fetched page full of numbers
   // must not become a derivation base that certifies arbitrary arithmetic.
-  const inSources = numbersIn(sourceText)
+  const inSources = amountsIn(sourceText)
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const match of answer.matchAll(CURRENCY)) {
@@ -602,48 +657,130 @@ export function unsourcedQuantities(answer: string, toolOutput: string, userText
   //
   // But once armed, a value is supported by either corpus — a measurement the
   // user gave is theirs to restate, and always has been here.
+  //
+  // v1.17.2: armed by DIMENSION, not by unit string. v1.15 made temperature
+  // "one dimension in two scales" because a corpus written in Fahrenheit armed
+  // nothing about Celsius and half an invented "165°F / 74°C" went unnamed.
+  // That was an instance of the rule, applied to one dimension; every other
+  // quantity kept the enumeration. Measured consequence, recorded run V3: a
+  // reply stated "2,000 to 3,600 gallons per year", "170 to 300 gallons" and
+  // "7,570 to 13,640 liters", and the only rung that fired was currency —
+  // litres and gallons were unrelated keys, so the corpus armed neither
+  // against the other. See shared/measurements.ts.
   const armed = new Set(measurementsIn(toolOutput).map((m) => m.unit))
-  const byUnit = new Map<string, number[]>()
-  for (const m of [...measurementsIn(toolOutput), ...measurementsIn(userText)]) {
-    const list = byUnit.get(m.unit)
-    if (list) list.push(m.value)
-    else byUnit.set(m.unit, [m.value])
+  const armedGroups = new Set<string>()
+  for (const unit of armed) {
+    const group = measurementGroup(unit)
+    if (group) armedGroups.add(group)
   }
-  // v1.15: one dimension, two scales. A corpus that states any temperature
-  // arms BOTH — see temperatureScale for the measured turn where it did not,
-  // and half an invented "165°F / 74°C" went unnamed because the passages
-  // happened to be written in Fahrenheit. Support crosses the scales, never
-  // the dimensions: a reply restating a retrieved 165 °F as 74 °C has quoted
-  // its source and must stay clean, while 74 °C over a corpus whose only
-  // temperature is a fridge's 40 °F is the invention this rung exists for.
-  const corpusTemps: { value: number; scale: 'c' | 'f' }[] = []
-  for (const [unit, values] of byUnit) {
-    const scale = temperatureScale(unit)
-    if (scale) for (const value of values) corpusTemps.push({ value, scale })
-  }
-  const armedTemperature = [...armed].some((u) => temperatureScale(u) !== null)
+  const corpus = [...measurementsIn(toolOutput), ...measurementsIn(userText)]
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const m of measurementsIn(answer)) {
-    const scale = temperatureScale(m.unit)
-    if (!armed.has(m.unit) && !(scale && armedTemperature)) continue
-    const known = scale
-      ? corpusTemps.map((t) => inScale(t.value, t.scale, scale))
-      : byUnit.get(m.unit)
-    if (!known || known.length === 0) continue
+    const group = measurementGroup(m.unit)
+    if (!armed.has(m.unit) && !(group && armedGroups.has(group))) continue
+    // Two support corpora, because the two say different things. A corpus
+    // value in the SAME unit is the reply restating a number, and is judged at
+    // the precision the reply wrote it. A corpus value in another unit of the
+    // same dimension is the reply *converting* a number, which is arithmetic
+    // it performed with a factor of its own choosing — see CONVERSION_SLACK.
+    const exact: number[] = []
+    const converted: number[] = []
+    for (const c of corpus) {
+      if (c.unit === m.unit) {
+        exact.push(c.value)
+        continue
+      }
+      if (!group || measurementGroup(c.unit) !== group) continue
+      const inUnit = convertUnit(c.value, c.unit, m.unit)
+      if (inUnit !== null && comparableMagnitude(m.value, inUnit, m.unit)) converted.push(inUnit)
+    }
+    if (exact.length === 0 && converted.length === 0) continue
     const decimals = precisionOf(String(m.value))
-    if (known.some((k) => roundTo(k, decimals) === m.value)) continue
-    // Temperatures are not derivable. Multiplying one by a pack size is
-    // meaningless — a fridge held at 40 °F does not license 80 °F, and the
-    // integer-multiple rule that keeps per-case pricing quiet was certifying
-    // exactly that. It also keeps the conversion above honest: a converted
-    // value is a fraction, and fractions multiply into almost anything.
-    if (!scale && isDerivable(m.value, decimals, known.slice(0, MAX_DERIVATION_BASES))) continue
+    if (exact.some((k) => roundTo(k, decimals) === m.value)) continue
+    if (converted.some((k) => agreesAfterConversion(m.value, k, decimals, m.unit))) continue
+    // An interval scale is not derivable. Multiplying a temperature by a pack
+    // size is meaningless — a fridge held at 40 °F does not license 80 °F, and
+    // the integer-multiple rule that keeps per-case pricing quiet was
+    // certifying exactly that. Ratio scales keep it, across the dimension: a
+    // corpus that measured 950 miles supports "1900 miles" and, for the same
+    // reason, supports it when the corpus wrote 1,528.9 km instead.
+    if (
+      isRatioScale(m.unit) &&
+      isDerivable(m.value, decimals, [...exact, ...converted].slice(0, MAX_DERIVATION_BASES))
+    )
+      continue
     if (seen.has(m.raw)) continue
     seen.add(m.raw)
     flagged.push(m.raw)
   }
   return flagged
+}
+
+/**
+ * Are two values of one dimension claims about the same thing at all?
+ *
+ * This is the bound on what dimension-arming is allowed to add, and the sweep
+ * that built it is why it exists. Duration spans five orders of magnitude
+ * between `second` and `week`, so a passage reading "rest for 3 minutes" armed
+ * every duration in the reply and reported **`4 days`** — a storage figure
+ * faulted because an unrelated line mentioned a resting time. Measured on the
+ * recorded food-safety fixtures; it is round 4's cry-wolf with more units
+ * armed, which is this change's whole risk.
+ *
+ * The bound is the one the file already uses: `isDerivable` says a corpus
+ * value within `MAX_DERIVATION_FACTOR` can *explain* a stated value, as a pack
+ * size or a case count. Past that factor it can neither produce the stated
+ * value nor contradict it — it is a different quantity that happens to share a
+ * dimension, and a check has nothing to say about it. Temperature is exempt
+ * because a ratio between two points on an interval scale means nothing (0 °C
+ * is not "no temperature"), and because the scale is narrow by nature: that is
+ * why v1.15's two-scale rule needed no bound.
+ *
+ * Same-unit support is deliberately not gated. There the reply is speaking the
+ * corpus's own language and a magnitude gap is a disagreement, not an
+ * inference the check made — and that path keeps exactly the behaviour it has
+ * had since v1.9.2.
+ */
+function comparableMagnitude(stated: number, corpus: number, unit: string): boolean {
+  if (!isRatioScale(unit)) return true
+  if (stated === 0 || corpus === 0) return stated === corpus
+  const ratio = Math.abs(stated) / Math.abs(corpus)
+  return ratio <= MAX_DERIVATION_FACTOR && ratio >= 1 / MAX_DERIVATION_FACTOR
+}
+
+/**
+ * How far a converted value may sit from the stated one before the two are a
+ * disagreement rather than the same quantity written twice.
+ *
+ * Half a percent, and only on a ratio scale. The argument for it is that a
+ * unit conversion is arithmetic the *reply* did: it picks the factor (3.785,
+ * 3.79, 3.8) and it picks how many digits to keep, and a value written to
+ * three significant figures does not land on the exact product. Measured on
+ * the run this rung was extended for: 2,000 gallons is 7,570.8 litres and the
+ * reply wrote "7,570"; 3,600 gallons is 13,627.5 and the reply wrote
+ * "13,640". Both are the same quantity, and a rung that named them would be
+ * round 4's cry-wolf with more units armed.
+ *
+ * It is deliberately not applied to same-unit support, which keeps exactly the
+ * rule it has had since v1.9.2, nor to an interval scale: °F↔°C is exact
+ * arithmetic on small integers with no factor to round, so `74.2 °C` over a
+ * retrieved `165 °F` (73.889) stays a finding. Half a percent is also far
+ * tighter than the integer-multiple rule the same function grants two lines
+ * below, so this is the strictest path to support, not a new loophole.
+ */
+const CONVERSION_SLACK = 0.005
+
+function agreesAfterConversion(
+  stated: number,
+  converted: number,
+  decimals: number,
+  unit: string
+): boolean {
+  const rounding = 0.5 * 10 ** -decimals
+  const slack = isRatioScale(unit) ? CONVERSION_SLACK * Math.abs(stated) : 0
+  // 1e-9 absorbs the float error of the conversion itself, never a digit.
+  return Math.abs(stated - converted) <= Math.max(rounding, slack) + 1e-9
 }
 
 /**

@@ -19,6 +19,12 @@ import {
   unrunToolClaims
 } from '../src/renderer/src/lib/toolGrounding'
 import { retrievedCitations } from '../src/renderer/src/lib/citations'
+import {
+  convertUnit,
+  inScale,
+  isRatioScale,
+  measurementGroup
+} from '../src/shared/measurements'
 import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 
 /**
@@ -2416,5 +2422,302 @@ That is the general shape of it.`
       null,
       JSON.stringify(checkToolGrounding(paraphrase, [TH1_CALL], TH1_PROMPT))
     )
+  })
+})
+
+// ---- v1.17.2: the warning that named a figure the reader could not find ------
+
+/**
+ * A blind critic, reading the recorded V3 run:
+ *
+ *   run-1's ⚠️ is currency-only — the volume claims ("2,000 to 3,600 gallons
+ *   per year", "170 to 300 gallons", "7,570 to 13,640 liters") are never
+ *   checked — and it mis-renders $0.007 as $0.00, naming a figure that is not
+ *   on screen while omitting the $5 that is.
+ *
+ * Two defects, and the run directory is not in this repository, so the shapes
+ * below are a reconstruction of that turn rather than a transcript: a plumbing
+ * lookup whose passage states one volume and one count of months, and a reply
+ * of the shape the critic describes. Every claim about the *old* behaviour was
+ * replayed against the v1.17.1 code before this fixture was written down.
+ *
+ * v1.17.1 on DRIP_REPLY: figures `["$0.00", "$14"]`, quantities `[]` — one
+ * label that appears nowhere in the answer, one honest figure omitted because
+ * "every 5 months" put a bare 5 in the corpus, and both volumes unlooked-at.
+ */
+const DRIP_PROMPT = `My kitchen faucet drips about once a second. How much water is that wasting a month, and is it worth fixing myself?`
+
+const DRIP_PASSAGES = `Reference passages for "kitchen faucet drips once a second" from the local library (keyword ranking), most relevant first.
+
+[1] Home water › Fixing leaks › Drips add up · 12% in
+    source: https://example.gov/fixing-leaks
+    relevance 0.64
+A faucet that drips once per second wastes about 2,000 gallons per year. Check the aerator every 5 months and replace the washer if the drip comes back.`
+
+const DRIP_REPLY = `A faucet dripping once a second wastes roughly **2,000 gallons per year** — about **7,570 liters per year**.
+
+At a typical water rate of **$0.007 per gallon** that is about **$14** a year, and a replacement washer kit runs **$5** at any hardware store.`
+
+describe('a currency label the reader can find (v1.17.2)', () => {
+  test('a sub-cent rate is named as it is written, not truncated to $0.00', () => {
+    const flagged = unsourcedFigures('at $0.007 per gallon', '')
+    assert.deepEqual(flagged, ['$0.007'], 'the label must be the string on screen')
+    assert.ok(!flagged.includes('$0.00'), 'v1.17.1 named $0.00, which the answer does not contain')
+  })
+
+  test('the true negative: a rate quoted from its source is silent', () => {
+    // v1.17.1 FLAGGED this. The answer's $0.007 was read as 0.00 and compared
+    // at two decimals, so a figure copied verbatim out of the passage came
+    // back unsupported — the badge firing on a correctly-sourced number, which
+    // is round 4's lesson exactly.
+    assert.deepEqual(
+      unsourcedFigures('at $0.007 per gallon', '', 'the utility charges $0.007 per gallon'),
+      []
+    )
+  })
+
+  test('reading the whole number makes the comparison stricter, not looser', () => {
+    // Both figures truncated to `0.00` under v1.17.1, so a corpus rate of
+    // $0.002 certified a stated $0.009. Three decimals must now agree to three.
+    assert.deepEqual(unsourcedFigures('we charge $0.009 per gallon', 'cost is $0.002 per gallon'), [
+      '$0.009'
+    ])
+  })
+
+  test('a figure that really is $0.00 still reads as $0.00', () => {
+    assert.deepEqual(unsourcedFigures('a fee of $0.00', ''), ['$0.00'])
+  })
+
+  test('the digit group stops at a digit, so a sentence comma is not part of the label', () => {
+    // Found by the v1.17.2 sweep on the recorded V2 passage: `\d[\d,]*` ate the
+    // comma after "$30,000," and printed a label the answer does not contain.
+    assert.deepEqual(unsourcedFigures('the deduction rises to $30,000, an increase of $800', ''), [
+      '$30,000',
+      '$800'
+    ])
+  })
+
+  test('grouped thousands and cents are unaffected', () => {
+    assert.deepEqual(unsourcedFigures('$1,234,567.89 and $20,000.00 and $5', ''), [
+      '$1,234,567.89',
+      '$20,000.00',
+      '$5'
+    ])
+  })
+})
+
+describe('a count with a unit is not an amount of money (v1.17.2)', () => {
+  test('the omitted $5: a passage saying "every 5 months" no longer certifies it', () => {
+    const flagged = unsourcedFigures(DRIP_REPLY, `\n${DRIP_PROMPT}`, DRIP_PASSAGES)
+    assert.ok(flagged.includes('$5'), `expected $5, got ${JSON.stringify(flagged)}`)
+    assert.ok(flagged.includes('$0.007'), `expected $0.007, got ${JSON.stringify(flagged)}`)
+    assert.ok(!flagged.includes('$0.00'), JSON.stringify(flagged))
+  })
+
+  test('the true negative: a price the passage does state is still silent', () => {
+    assert.deepEqual(
+      unsourcedFigures(
+        'a washer kit runs $5.49',
+        '',
+        'Faucet washer kit — $5.49 at the hardware store'
+      ),
+      []
+    )
+  })
+
+  test('the true negative: a computed number with no unit still supports a figure', () => {
+    // The rule narrows what counts as money, never what counts as computed.
+    assert.deepEqual(unsourcedFigures('that is $396.02 a month', 'Monthly payment: 396.02'), [])
+  })
+
+  test('the same value measured on one line and bare on another still supports it', () => {
+    // Dropped by offset, not by value: the miles occurrence is spoken for, the
+    // standalone one is not.
+    assert.deepEqual(unsourcedFigures('$36.50 of fuel', 'Leg: 36.5 miles\nFuel cost: 36.50'), [])
+  })
+
+  test('the true negative: the whole car answer is unchanged by the narrowing', () => {
+    // The v1.3 session this module was built from, pinned byte for byte
+    // against the v1.17.1 output so a support corpus that never held a unit
+    // cannot drift. `5 year(s)` is the only measured number in it, and no
+    // figure ever leaned on it.
+    assert.deepEqual(unsourcedFigures(CAR_ANSWER, CAR_TOOL_OUTPUT), [
+      '$15,000',
+      '$293.50',
+      '$2,610'
+    ])
+  })
+})
+
+// ---- v1.17.2: one dimension, many units --------------------------------------
+
+/**
+ * v1.15 made temperature "one dimension in two scales". Every other quantity
+ * kept the enumeration, so a corpus stating gallons armed nothing about
+ * litres. These are the two directions the generalisation is measured in.
+ */
+describe('the measurement ladder covers the dimension, not the spelling (v1.17.2)', () => {
+  const records = [rec('reference_lookup', DRIP_PASSAGES)]
+
+  test('the true negative: a retrieved volume restated in the other unit is silent', () => {
+    // 2,000 US gallons is 7,570.8 litres and the reply wrote 7,570. That is
+    // the same quantity written twice, and naming it would be cry-wolf.
+    const report = checkToolGrounding(DRIP_REPLY, records, DRIP_PROMPT)
+    assert.deepEqual(report?.quantities ?? [], [], JSON.stringify(report?.quantities))
+  })
+
+  test('a volume the passages do not support IS named, in either unit', () => {
+    const inflated = DRIP_REPLY.replace('2,000 gallons per year', '3,600 gallons per year').replace(
+      '7,570 liters per year',
+      '13,640 liters per year'
+    )
+    const report = checkToolGrounding(inflated, records, DRIP_PROMPT)
+    assert.deepEqual(
+      report?.quantities,
+      ['3,600 gallons per year', '13,640 liters per year'],
+      JSON.stringify(report?.quantities)
+    )
+  })
+
+  test('through v1.17.1 the litres half was invisible whatever it said', () => {
+    // The half of the failure that mirrors V1's unnamed Celsius: with the
+    // passages written in gallons, `liter` was an unrelated key.
+    const wild = DRIP_REPLY.replace('7,570 liters per year', '95,000 liters per year')
+    const flagged = unsourcedQuantities(wild, DRIP_PASSAGES, DRIP_PROMPT)
+    assert.deepEqual(flagged, ['95,000 liters per year'], JSON.stringify(flagged))
+  })
+
+  test('a dimension the corpus never measured still arms nothing', () => {
+    // The gate that keeps this rung off ordinary prose is untouched: the
+    // passages measure a volume and a count of months, not a distance.
+    assert.deepEqual(
+      unsourcedQuantities('the store is 4 miles away', DRIP_PASSAGES, DRIP_PROMPT),
+      []
+    )
+  })
+
+  /**
+   * One row per dimension, so the rule is asserted against the class rather
+   * than against the two units that were found failing. Each corpus states a
+   * quantity in one unit; the reply restates it in another (silent) and then
+   * misstates it by 10% (named).
+   */
+  const DIMENSIONS: { dimension: string; corpus: string; same: string; wrong: string }[] = [
+    { dimension: 'volume', corpus: 'holds 2 gallons', same: '7.5708 liters', wrong: '8.33 liters' },
+    { dimension: 'duration', corpus: 'wait 90 minutes', same: '1.5 hours', wrong: '1.65 hours' },
+    { dimension: 'length', corpus: 'run 5 km', same: '3.10686 miles', wrong: '3.4175 miles' },
+    { dimension: 'mass', corpus: 'weighs 2 kg', same: '4.409245 pounds', wrong: '4.85 pounds' },
+    { dimension: 'temperature', corpus: 'hold at 165°F', same: '73.9°C', wrong: '81.3°C' }
+  ]
+
+  for (const row of DIMENSIONS) {
+    test(`${row.dimension}: an exact restatement in another unit is silent`, () => {
+      assert.deepEqual(
+        unsourcedQuantities(`It is ${row.same}.`, row.corpus),
+        [],
+        `${row.same} over "${row.corpus}"`
+      )
+    })
+
+    test(`${row.dimension}: a value 10% out in another unit is named`, () => {
+      const flagged = unsourcedQuantities(`It is ${row.wrong}.`, row.corpus)
+      assert.equal(
+        flagged.length,
+        1,
+        `${row.wrong} over "${row.corpus}": ${JSON.stringify(flagged)}`
+      )
+    })
+  }
+
+  test('a unit with no exact conversion keeps its own company', () => {
+    // A month is not a fixed number of days, so converting one manufactures a
+    // disagreement out of the calendar. `month` is absent from the table, and
+    // absence means the pre-dimension behaviour: armed by its own spelling only.
+    assert.deepEqual(unsourcedQuantities('keep it 3 months', 'discard after 40 days'), [])
+    assert.deepEqual(unsourcedQuantities('discard after 90 days', 'keep it 3 months'), [])
+  })
+
+  test('an ounce is not assigned a dimension, because it has two', () => {
+    // "16 fl oz" and "16 oz" both normalise to `oz`, and the matcher never saw
+    // the word that tells them apart.
+    assert.deepEqual(unsourcedQuantities('pour 16 oz', 'a 500 ml bottle'), [])
+  })
+
+  test('"3h 47m" is a duration, and is not read as 47 metres', () => {
+    // Caught by this suite the moment dimensions were switched on: against a
+    // corpus stating 42.195 km the length dimension armed `m` and named `47m`,
+    // on the recorded marathon answer, which was scored correct.
+    const pace = `Total distance: 42.195 km
+Total time: 3:47
+Pace: 8.6579 minutes per mile`
+    const answer = 'Dividing the total time of 227 minutes (3h 47m) by 26.2188 miles.'
+    assert.deepEqual(unsourcedQuantities(answer, pace), [])
+  })
+
+  test('a quantity nothing in the corpus is the size of is not a competing claim', () => {
+    // Duration spans five orders of magnitude between `second` and `week`. A
+    // passage saying "rest for 3 minutes" is making no claim about how many
+    // days leftovers keep, and a rung that faulted the second because of the
+    // first is round 4's cry-wolf with more units armed.
+    assert.deepEqual(unsourcedQuantities('keeps 4 days in the fridge', 'rest for 3 minutes'), [])
+    // Inside the band, it is a claim, and it is checked.
+    assert.deepEqual(unsourcedQuantities('rest for 40 minutes', 'rest for 3 minutes'), [
+      '40 minutes'
+    ])
+  })
+
+  test('a ratio-scale conversion is still derivable; an interval scale is not', () => {
+    // 950 miles is 1,528.87 km, and two legs of it is the derivation the money
+    // rung has permitted since v1.4.5.
+    assert.deepEqual(unsourcedQuantities('1900 miles over two days', 'Leg 1: 1528.87 km'), [])
+    // A fridge at 40 °F does not license 80 °F, whichever scale either is in.
+    assert.deepEqual(unsourcedQuantities('leftovers keep to 80°F', 'the fridge is at 4.4444°C'), [
+      '80°F'
+    ])
+  })
+})
+
+describe('the conversion table itself (v1.17.2)', () => {
+  test('the affine temperature entries agree with the classic formula', () => {
+    // `inScale` is v1.15's hand-written °F/°C arithmetic. The table expresses
+    // the same conversion as an offset so that one code path serves every
+    // dimension; this is the assertion that the two never drift apart.
+    for (const value of [-40, 0, 4.4444, 32, 40, 74, 165, 212, 500]) {
+      assert.ok(
+        Math.abs(convertUnit(value, '°f', '°c')! - inScale(value, 'f', 'c')) < 1e-9,
+        `${value} °F`
+      )
+      assert.ok(
+        Math.abs(convertUnit(value, '°c', '°f')! - inScale(value, 'c', 'f')) < 1e-9,
+        `${value} °C`
+      )
+    }
+  })
+
+  test('the spacing the matcher permits does not make a different unit', () => {
+    assert.equal(measurementGroup('° c'), 'temperature')
+    assert.equal(measurementGroup('°f'), 'temperature')
+    assert.equal(convertUnit(212, '° f', '°c'), 100)
+  })
+
+  test('a rate is its own group, so a pace never meets a duration', () => {
+    assert.equal(measurementGroup('minute per mile'), 'duration per mile')
+    assert.equal(measurementGroup('minute'), 'duration')
+    assert.equal(convertUnit(1, 'minute per mile', 'hour'), null)
+    assert.equal(convertUnit(60, 'minute per mile', 'hour per mile'), 1)
+  })
+
+  test('a unit outside the table converts to nothing and groups with nothing', () => {
+    for (const unit of ['month', 'year', 'oz', 'ounce', 'degree', 'kwh', 'calorie', 'm', 'widget']) {
+      assert.equal(measurementGroup(unit), null, unit)
+    }
+  })
+
+  test('only an interval scale refuses to be multiplied', () => {
+    assert.equal(isRatioScale('°c'), false)
+    assert.equal(isRatioScale('°f'), false)
+    for (const unit of ['gallon', 'minute', 'mile', 'kg', 'month', 'widget']) {
+      assert.equal(isRatioScale(unit), true, unit)
+    }
   })
 })

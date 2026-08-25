@@ -1933,6 +1933,209 @@ The baseline was also re-captured through the *current* harness for this round, 
   a fence; and `overflow-wrap: anywhere` — this project's own fix for the VC1 blowout —
   breaking "Passage" into "Pas / sag / e" in a table header.
 
+### Pending fold-in — a warning that named a figure the reader could not find
+
+From the list directly above, on the recorded V3 run:
+
+> run-1's ⚠️ is currency-only — the volume claims ("2,000 to 3,600 gallons per year",
+> "170 to 300 gallons", "7,570 to 13,640 liters") are never checked — and it
+> **mis-renders `$0.007` as `$0.00`**, naming a figure that is not on screen while
+> omitting the `$5` that is.
+
+Two defects in one line, and at the altitude of the rung they are one: **neither side of
+the money comparison was reading an amount of money.** The answer side took the `$`
+seriously and not the number — `\$\s?(\d[\d,]*(?:\.\d{1,2})?)` caps the fraction at two
+digits, so over `$0.007` it matched `$0.00` and left the `7` behind. The corpus side took
+the number seriously and not the `$` — `numbersIn` admits every digit group in the
+retrieved text as possible support. So the rung could name a value the reply never wrote
+and clear a value the corpus never stated, and on this run it did both at once.
+
+At the altitude of the regex they are two separate edits, and they need two separate
+arguments. What follows is both, then the ladder.
+
+#### `$0.007`, and the verdict that came with the label
+
+The truncation is not only cosmetic. `precisionOf` reads the *matched* text, so the check
+compared 0.00 at two decimals against a figure the reply never stated. Replayed against
+the v1.17.1 code:
+
+| | v1.17.1 | v1.17.2 |
+| --- | --- | --- |
+| **TP** — the label, `at $0.007 per gallon` | `["$0.00"]` | `["$0.007"]` |
+| **TN** — the same rate, quoted from the passage that states it | `["$0.00"]` ✗ | `[]` |
+| **TP** — `$0.009` over a corpus rate of `$0.002` | `[]` ✗ | `["$0.009"]` |
+| **TN** — a fee that really is `$0.00` | `["$0.00"]` | `["$0.00"]` |
+
+The second row is the one that decided it. A figure copied **verbatim out of the source**
+came back unsupported, because 0.007 does not round to 0.00 — the badge firing on a
+correctly-sourced number, which is round 4's lesson exactly. The third row is the other
+direction: two different sub-cent rates both truncated to `0.00`, so the corpus's $0.002
+certified a stated $0.009. Reading the whole number is *stricter*, not looser: three
+decimals must now agree to three.
+
+The sweep found the same defect in miniature and it is fixed with it. `\d[\d,]*` is greedy
+about the separator, so "the deduction rises to $30,000, an increase of $800" yielded the
+label **`$30,000,`** — again a string the answer does not contain. The digit group now has
+to end in a digit.
+
+#### `$5`, and whether it is the same root cause
+
+It is not the same *regex* defect, and the doc records the difference because the answer
+was not the obvious one. Reproduced on a reconstruction of the turn — a plumbing lookup
+whose passage reads "wastes about 2,000 gallons per year. Check the aerator every 5
+months" — `unsourcedFigures` clears `$5` because **the passage contains a 5**. A
+whole-dollar figure is judged at zero decimals, so any corpus number in [4.5, 5.5)
+supports it, and the one on offer was a count of months.
+
+`moneyIn` already exists for exactly this reason one level over: deriving prices from every
+bare number was "a hole big enough to drive the whole check through", and a menu-pick "1"
+in the conversation certified every integer from 2 to 24. That repair was made to the
+*derivation* bases and the *support* corpus kept the hole.
+
+The narrowing uses the vocabulary the app already has rather than a new one: a number that
+carries a unit is a **measurement**, and a measurement is not an amount of money.
+`shared/measurements.ts` is the same module the quantities rung reads, so the two rungs
+cannot disagree about what a unit is. Numbers are dropped by **offset**, not by value, so a
+corpus printing `36.5 miles` on one line and `36.50` on another still supports `$36.50`
+from the second.
+
+| | v1.17.1 | v1.17.2 |
+| --- | --- | --- |
+| **TP** — `$5` over a passage saying "every 5 months" | silent ✗ | `$5` named |
+| **TN** — `$5.49` over a search result reading `Faucet washer kit — $5.49` | silent | silent |
+| **TN** — `$396.02` over `Monthly payment: 396.02` (computed, no unit) | silent | silent |
+| **TN** — `$36.50` over `Leg: 36.5 miles` **and** `Fuel cost: 36.50` | silent | silent |
+| **TN** — the whole v1.3 car answer against `finance_calculator` | 3 findings | the same 3, byte for byte |
+
+The banner, on the reconstructed reply, before and after:
+
+```
+before:  ⚠️ 2 figures ($0.00, $14) in this reply are not backed by the tool output.
+after:   ⚠️ 3 figures ($0.007, $14, $5) in this reply are not backed by the tool output.
+```
+
+#### The ladder: one dimension, many units
+
+Round 5 made temperature "one dimension in two scales" and wrote down why: a check that
+**enumerates** the forms it has seen is defeated by one that is not on the list. That
+repair was correct and it was **an instance**. Every other quantity kept the enumeration —
+`unsourcedQuantities` armed per normalised unit string — so a corpus written in gallons
+armed nothing about litres, and the reply's `7,570 liters per year` was not skipped for any
+reason a reader would accept; it was skipped because `liter` was an unrelated key. It is
+the shape round 5's table records for rounds 3, 4 and 5, and that round 7 found again
+inside `scripts/test.sh` — the enumeration in the instrument that grades the enumerations.
+Here it is inside the *repair* for one: a fix written against one dimension, in a file
+whose whole purpose is to be the vocabulary both rungs share.
+
+A unit now belongs to a **dimension**, and a corpus stating any unit of a dimension arms
+all of them. Support crosses the units by conversion and never crosses the dimensions,
+which is v1.15's rule with the word "scale" replaced by the word it should always have
+been. Conversion is affine (`canonical = value × factor + offset`) so temperature is not a
+special case bolted on the side, and a test pins the table's °F/°C entries against v1.15's
+hand-written `inScale` so the two paths cannot drift.
+
+On the reconstructed run, with the volumes inflated to what a fabricating model would say:
+
+```
+before:  ⚠️ 2 figures ($0.00, $14) and 1 measurement (3,600 gallons per year) in this
+             reply are not backed by the tool output.
+after:   ⚠️ 3 figures ($0.007, $14, $5) and 2 measurements (3,600 gallons per year,
+             13,640 liters per year) in this reply are not backed by the tool output.
+```
+
+The litres half is the exact mirror of V1's unnamed Celsius: reword the one passage that
+happens to be written in gallons and the *whole* claim goes unreported.
+
+**Written against the class**, so the rule is asserted per dimension rather than per the two
+units that were found failing. Each row's corpus states a quantity in one unit; the reply
+restates it in another, and then misstates it by 10%:
+
+| dimension | corpus | restated — silent | 10% out — named |
+| --- | --- | --- | --- |
+| volume | `holds 2 gallons` | `7.5708 liters` | `8.33 liters` |
+| duration | `wait 90 minutes` | `1.5 hours` | `1.65 hours` |
+| length | `run 5 km` | `3.10686 miles` | `3.4175 miles` |
+| mass | `weighs 2 kg` | `4.409245 pounds` | `4.85 pounds` |
+| temperature | `hold at 165°F` | `73.9°C` | `81.3°C` |
+
+**Three bounds, and each one is a cry-wolf finding rather than a precaution.** This was the
+round's highest cry-wolf risk — more units armed is more chances to fault an honest answer
+— so each is recorded with what it was measured against.
+
+- **A unit joins a dimension only when its conversion is exact and unambiguous.** `month`
+  and `year` are absent (a month is not a fixed number of days, and converting one
+  manufactures a disagreement out of the calendar); `ounce`/`oz` are absent (mass or fluid,
+  and "16 fl oz" normalises to `oz` exactly as "16 oz" does); `calorie`/`kcal` are absent
+  (a food calorie is a kilocalorie). An absent unit keeps precisely its pre-dimension
+  behaviour — armed by its own spelling, nothing crossed.
+- **`m` is absent, and the suite is why.** Switched on, the length dimension armed `m`
+  against a corpus stating `42.195 km` and named **`47m`** — in "the total time of 227
+  minutes (3h 47m)", on the recorded marathon answer, which was **scored correct**. A
+  duration reported as an unsupported distance. `metre`, `meter`, `km`, `cm` and `mm` are
+  unambiguous and stay; the single character is metres, minutes or million and the reader
+  cannot tell which.
+- **A corpus value nothing like the size of the stated one is not a competing claim.**
+  Duration spans five orders of magnitude between `second` and `week`, so a passage reading
+  "rest for 3 minutes" armed every duration in the reply and named **`4 days`** — a storage
+  figure faulted because an unrelated line mentioned a resting time. The bound is the one
+  the file already had: `isDerivable` says a corpus value within `MAX_DERIVATION_FACTOR`
+  can *explain* a stated value as a pack size or a case count, and past that factor it can
+  neither produce it nor contradict it. Inside the band the check still fires (`40 minutes`
+  over `rest for 3 minutes` is named). Temperature is exempt, because a ratio between two
+  points on an interval scale means nothing — which is also why v1.15's two-scale rule
+  needed no bound.
+
+**A converted value gets half a percent of slack; a same-unit value gets none.** A
+conversion is arithmetic the *reply* performed: it chose the factor (3.785, 3.79, 3.8) and
+how many digits to keep, so it does not land on the exact product. Measured on the run this
+was built for — 2,000 gallons is 7,570.8 litres and the reply wrote "7,570"; 3,600 gallons
+is 13,627.5 and the reply wrote "13,640". Both are the same quantity written twice. Slack
+is not extended to same-unit support, which keeps the rule it has had since v1.9.2, nor to
+an interval scale, where °F↔°C is exact arithmetic with no factor to round — so `74.2 °C`
+over a retrieved `165 °F` is still a finding.
+
+Derivation follows the same split it always did, stated as a property instead of a name:
+ratio scales are derivable across the dimension (`1900 miles` over a computed `1528.87 km`
+is silent), interval scales are not (`80°F` over a fridge's `4.4444°C` is named).
+
+**Swept for cry-wolf.** All 19 recorded text fixtures in `test/toolGrounding.test.ts` that
+predate this change — replies, prompts, passage blobs and tool output — were re-run through
+v1.17.1 and v1.17.2 side by side against six armed corpora: a route computation, a water
+computation, a dose lookup, a cooking lookup, a price search and a loan calculation, each
+with and without user text. **228 paired runs. Ten findings added, none removed**, and
+every one of the ten is a true positive of the two repairs above: `$5,000` over a search
+result reading "5,000 gallons", `$400` over a passage reading "400 mg", and `5 days` and
+`7 days` over a run that computed `187.5 hours`. Twenty further rows changed a label from
+`$30,000,` to `$30,000` with no change of verdict.
+
+Node cases: 1976 → **2011** on this branch (`test/toolGrounding.test.ts` goes 204 → 239).
+`./scripts/test.sh` exits 0, both typechecks and `npm run build` clean.
+
+**What this does not measure.**
+
+- **The recorded V3 run directory is not in this repository**, so the fixture is a
+  reconstruction of the turn from the critic's quoted strings, not a transcript. Every
+  claim above about the *old* behaviour was replayed against the v1.17.1 code; every claim
+  about the run itself is inference. On V3 as the probe describes it — no tool call at all —
+  the quantities rung is still correctly silent, because there is no corpus to disagree
+  with. That turn is the `unverified` badge's business, and it is a separate gap.
+- **`gallon` is the US liquid gallon.** An imperial gallon is 20% larger, which is far
+  outside the half-percent slack, so a reply converting UK-sourced volumes would be faulted.
+  No recorded run exercises it.
+- **`unsourcedPercentages` still supports a percentage from any bare number**, including
+  one that carries a unit. The same narrowing applies in principle; it was left alone
+  because its ratio rule (`a / b × 100` over 40 bases) already certifies far more than
+  presence does, so the change would move little and would need its own sweep.
+- **`researchGrounding` compares a measurement against every number in its corpus** and
+  arms no units at all, so dimensions do not apply to it — but it is the rung that would
+  fault "500 mg" from a passage's "500 km", and nothing here changed that.
+- **`answerEval.ts` carries a third copy of the measurement vocabulary**, hand-rolled as one
+  regex, and it is the eval scorer rather than a shipped check. `shared/measurements.ts`
+  exists because "two copies would drift, and the drift would be silent"; there are three.
+  Folding it in changes scores on a suite nothing has re-run, so it is recorded, not done.
+- **Nothing here was re-run against a model.** No head-to-head sweep was taken, so there is
+  no win/loss claim attached to any of it.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
