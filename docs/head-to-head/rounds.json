@@ -6,17 +6,17 @@
   "invariants": [
     {
       "name": "node test suite",
-      "value": "1976 pass / 0 fail",
+      "value": "2106 pass / 0 fail",
       "state": "green"
     },
     {
       "name": "render + style checks",
-      "value": "25 render · 33 style · 54 chrome-contrast · 38 md · 46 workbench · 24 transport",
+      "value": "25 render · 44 style · 60 chrome-contrast · 56 md · 46 workbench · 24 transport",
       "state": "green"
     },
     {
       "name": "whole-project typecheck",
-      "value": "now part of the gate (it was not)",
+      "value": "part of the gate since round 7",
       "state": "green"
     },
     {
@@ -278,10 +278,33 @@
     {
       "n": 8,
       "label": "Judging that is not written by the person being judged",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the round-7 build",
+        "B": "the round-8 build"
+      },
+      "what": "Five builders on defects blind critics found in runs the app WON in round 7 — three of them caused by this project’s own earlier fixes — plus the first attempt to remove the judge’s conflict of interest.",
+      "findings": "The method was the round’s real subject, and the agent sent to write neutral prompts came back with a worse problem than the one it was sent to fix: all 18 `probes` fields in tasks.json are defect descriptions of a specific build, and four of them quote constants only one build can produce — VC3’s \"roughly 2.05:1 … 33 places … 83 places\", VC2’s \"33 occurrences of outline-none\", PT2’s exact button strings, PT3’s glyphs and classes. A critic that measures 2.46:1 against 9.48:1 having read that the number to beat is 2.05:1 is recognising an arm, not judging one. That was true of every round before this one. Critics now read a generated view carrying only id, dimension, prompt and setup, and the generator refuses to write if a stripped field survives under any name. A second guard came out of the version question: the sidebar renders the app version, so it is in every screenshot and cannot be scrubbed — eight rounds of blind judging worked only because package.json had never been bumped. Staging now refuses a pair whose arms report different versions.",
+      "verdict": "Round-8 build 2 · round-7 build 0 · 16 ties, over 18 tasks. Read alongside round 7’s 18–0–0, this is the number that means something: it is the first round compared against the PREVIOUS round rather than a seven-round-old baseline, judged with prompts written by an agent that never saw the changelog, from a task file stripped of the fields that name known defects. Sixteen ties is the correct answer when two builds one round apart are the same program on sixteen of eighteen tasks.",
+      "gap": "The ties are informative in three different ways and they should not be read as one thing. Some are the tasks not being sensitive to what changed — no builder touched PT2, PT3, FR2 or FR3, and the critics correctly found the two runs byte-identical apart from timestamps. Some are the model not exercising the change: on V1 the round-7 arm fired a false positive on a figure its own tool output contained, and the critic refused to score it because the round-8 arm never received a multi-lookup turn — \"its 0-mismatch score is untested rather than earned\". And one is a gap in the task set: builder A’s fix is visible in the artifacts — round 7 prints \"the answer is not backed by it\" while marking two passages cited, round 8 prints \"the answer cites [3] [5] from it anyway\" — but TH3’s neutral question asks whether source text is checkable on screen, which both builds satisfy, so a real repair to a self-contradiction scored a tie. The task set measures the dimension, not the defect.",
+      "fix": "Citation markers resolve across every lookup, not just the first, and \"— not cited\" is only asserted when the binder could resolve the marker · the currency pattern reads the whole number, so $0.007 is no longer reported as $0.00, and the ladder arms by dimension with two of its three bounds set by cry-wolf the suite caught · overflow-wrap: anywhere replaced by break-word plus a scroll container, ending 6 shredded words per reply while keeping the 220-character token inside the column · a failure boundary that gives the reader a sentence and keeps the identifier in the disclosure, the audit log and a copy affordance · the bench captures dark theme for the first time in eight rounds, and its keyboard traversal now activates a control and continues into what opens",
+      "evals": {
+        "node cases": "1976 → 2106",
+        "markdown checks": "38 → 56",
+        "style checks": "33 → 44",
+        "chrome-contrast checks": "54 → 60",
+        "blind tasks judged": "18",
+        "won / lost / tied": "2 / 0 / 16"
+      }
+    },
+    {
+      "n": 9,
+      "label": "Defects both builds share, found once the judging stopped flattering us",
       "state": "pending",
       "dimension": null,
       "pair": null,
-      "what": "Round 7 swept 18–0 with critic prompts that named the checks it had just built. Before another number is worth anything, the prompts must come from the task set alone, written without sight of the changelog — and the comparison should be round N against round N−1, not against a seven-round-old baseline. The queue after that is the defects the critics found in the winning runs: a table header broken mid-word by our own overflow rule, a citation strip that stops at [5] while the answer cites [14], $0.007 printed as $0.00, and a dark theme no round has ever captured.",
+      "what": "A same-generation comparison mostly returns ties, so what it surfaces is what BOTH builds get wrong. Focus is not trapped in the Settings modal — 24 to 30 of 70 Tab stops are focusable behind the open overlay, in both builds and both themes. The one text below the contrast threshold anywhere in the capture is the red error ink at 3.63:1, and it is round 8’s own new sentence: the wording was fixed and shipped in failing ink. The wrap fix breaks a token at hyphens, so a reader copying by eye cannot tell a wrap point from a character. And on V3 both builds check incidental repair costs while the headline water figure — the number the user asked for, differing threefold between runs — passes unflagged.",
       "findings": null,
       "verdict": null,
       "gap": null,
@@ -478,6 +501,34 @@
       "metric": "characters deleted from answers",
       "value": "0",
       "delta": "baseline 7"
+    },
+    {
+      "round": 8,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "2106",
+      "delta": "+130"
+    },
+    {
+      "round": 8,
+      "suite": "blind head-to-head",
+      "metric": "tasks won vs the PREVIOUS round",
+      "value": "2 / 18",
+      "delta": "first same-generation comparison"
+    },
+    {
+      "round": 8,
+      "suite": "blind head-to-head",
+      "metric": "tasks tied",
+      "value": "16 / 18",
+      "delta": null
+    },
+    {
+      "round": 8,
+      "suite": "blind head-to-head",
+      "metric": "tasks lost",
+      "value": "0 / 18",
+      "delta": null
     }
   ]
 }

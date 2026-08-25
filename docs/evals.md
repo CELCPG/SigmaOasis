@@ -2784,6 +2784,102 @@ Two guards came out of the work rather than being planned:
   first — but the two disagree, and a caller that normalises a partial object gets dark.
   Found while checking that seven rounds of "light theme only" was actually true. It is.
 
+## Round 8: judging that is not written by the person being judged (v1.17.3)
+
+**Blind verdict: 2 won · 0 lost · 16 tied**, over 18 tasks. Both sweeps 18/18 VALID, 0 failed.
+
+Round 7 scored 18–0–0 and this document said, above the number, that it was not usable as a
+comparison. Round 8 changed three things and the number moved to 2–0–16.
+
+| | rounds 1–7 | round 8 |
+| --- | --- | --- |
+| compared against | the baseline, up to seven rounds old | **the previous round** |
+| critic prompts written by | the person who built the changes | **an agent that never saw the changelog** |
+| task file the critic reads | `tasks.json`, including `probes` | **a generated view: id, dimension, prompt, setup** |
+
+Sixteen ties is the correct answer when two builds one round apart are the same program on
+sixteen of eighteen tasks. The two wins are exactly where builders worked: FR1 (the failure
+boundary) and VC1 (the wrap default).
+
+### The task set was telling the critics which arm to pick
+
+The agent sent to write neutral prompts came back with a worse problem than the one it was
+sent to fix. All 18 `probes` fields are defect descriptions of a specific build — present
+tense, naming a source file, function or CSS class, asserting a live bug. Four quote
+constants only one build can produce:
+
+| task | the constant a critic would read |
+| --- | --- |
+| VC3 | `rgba(23,23,23,0.32)` … `roughly 2.05:1` … `33 places` … `83 places` |
+| VC2 | `33 occurrences of 'outline-none'` … `zero occurrences of 'focus-visible'` |
+| PT2 | the exact strings `▶ Run this plan`, `Cancel`, `awaiting approval` |
+| PT3 | `'✗' in text-red-500`, `'○ text-neutral-400'` |
+
+A critic that measures 2.46:1 against 9.48:1, having read that the value to beat is 2.05:1,
+is recognising an arm rather than judging one. **That was true of every round judged before
+this one**, and it is recorded here rather than quietly fixed. `make-critic-tasks.mjs`
+generates the view a critic may see and refuses to write if a stripped field survives under
+any name — a field that reappears with a new spelling is the same leak.
+
+The agent also disclosed its own contamination: reading `probes` gave it an inventory of
+known weaknesses even without learning what changed. Its recommendation for round 9 is that
+the question-writer be given only `id`, `dimension`, `prompt` and a one-line dimension
+statement.
+
+### Eight rounds of blind judging worked on luck
+
+`Sidebar.tsx` renders `v{appVersion}` permanently, so the version is in every screenshot of
+every task, and text scrubbing cannot reach a PNG. Two arms at different versions are
+de-blinded on all 18 tasks at once, silently. That never happened only because
+`package.json` had said 1.12.1 since the baseline. Staging now refuses a pair whose arms
+report different versions — verified both ways.
+
+### What sixteen ties actually mean
+
+Three different things, which should not be read as one:
+
+- **The task was not sensitive to what changed.** No builder touched PT2, PT3, FR2 or FR3,
+  and the critics found the two runs byte-identical apart from timestamps. That is the
+  instrument working.
+- **The model did not exercise the change.** On V1 the round-7 arm fired a false positive on
+  a figure its own tool output contained; the critic refused to score it because the
+  round-8 arm never received a multi-lookup turn — *"its 0-mismatch score is untested rather
+  than earned"*.
+- **The task set measures the dimension, not the defect.** Builder A's repair is visible in
+  the artifacts — round 7 prints `Nothing in the library covers this question — the answer
+  is not backed by it` while marking two passages cited; round 8 prints `the answer cites
+  [3] [5] from it anyway` — but TH3's neutral question asks whether source text is checkable
+  on screen, which both builds satisfy. A real fix to a self-contradiction scored a tie.
+  This is the cost of neutral questions and it is worth paying; the alternative is round 7.
+
+### What both builds get wrong
+
+A same-generation comparison surfaces what neither build fixed:
+
+- **Focus is not trapped in the Settings modal.** 24 of 70 Tab stops on one route and 30 of
+  70 on the other are `obscured: true` — focusable, ringed, and behind the open overlay —
+  identical counts in both builds and both themes.
+- **The one text below threshold anywhere in the capture is round 8's own new sentence.**
+  Red error ink measures **3.63:1** in light theme on `nothing answered at that address` —
+  the wording was fixed this round and shipped in failing ink.
+- **The wrap fix breaks at hyphens**, so every wrapped line of the copy-me token ends in a
+  real-looking `-` and a reader transcribing by eye cannot tell a wrap point from a
+  character — on a task whose prompt is *"repeat it back to me on its own line so I can copy
+  it"*.
+- **Both builds check the wrong numbers on V3.** The headline water figure — what the user
+  asked for, and differing threefold between the two runs — passes unflagged while
+  incidental repair costs are named.
+
+### What this round does not measure
+
+- **No reference-app comparison**, as in every round.
+- **The two wins are narrow.** Two tasks out of eighteen is not a claim that the round was
+  large; it is a claim that two changes were visible to a neutral judge.
+- **A tie is not proof of equivalence.** On several tasks neither build was put to the test,
+  which the critics said explicitly rather than resolving on something incidental.
+- **`answerEval.ts` holds a third hand-rolled copy of the measurement vocabulary.**
+  `shared/measurements.ts` exists because two copies would drift silently. There are three.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
