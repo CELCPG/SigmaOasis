@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
 import { describeRevisionOutcome } from '../lib/toolGrounding'
 import { ACCENT } from '../lib/colors'
@@ -6,10 +6,10 @@ import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, contextItemLabel, markCitedContextItems } from '../lib/libraryRecall'
 import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
-import { describeOasisState } from '../lib/oasisRipple'
+import { describeOasisState, startWaitClock } from '../lib/oasisRipple'
 import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
 import { replyAffordances } from '../lib/replyRecovery'
-import { VERIFY_BUDGET_MS, type TurnPhase } from '../lib/turnPhase'
+import { VERIFY_BUDGET_MS, waitElapsed, type TurnPhase } from '../lib/turnPhase'
 import { formatTurnCost } from '../lib/turnCost'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { LIBRARY_MISS_LABEL, LIBRARY_STRIP_LABEL, libraryMissDetail } from '../lib/libraryRecall'
@@ -433,8 +433,23 @@ function MemoryContextLine({
  * more. Both used to be a spinner over an unexplained pause — this says which
  * one it is, and (while verifying) that the answer above is already yours to
  * use. Same shape as the compaction line in ChatArea, deliberately.
+ *
+ * v1.12.6: the gathering half also counts. Naming the wait told the reader WHAT
+ * they were waiting on and never that they were STILL waiting, or how long they
+ * had been — and the label changes as the walk moves from the search to the
+ * library, so the only thing on screen reset while the wait did not. The count
+ * runs from the turn's opening (`phase.since`), which is the same origin the
+ * stat line's "gathering" figure is measured from, so the number the reader
+ * watches climb is the number they are shown afterwards.
  */
 function TurnPhaseLine({ phase }: { phase: TurnPhase }): JSX.Element {
+  const [now, setNow] = useState(() => Date.now())
+  // Wall clock rather than a tick count: Chromium throttles intervals in an
+  // occluded window, which must make the counter update less often, never wrongly.
+  useEffect(() => {
+    setNow(Date.now())
+    return startWaitClock(() => setNow(Date.now()))
+  }, [phase.stage, phase.since])
   return (
     <div
       className="mt-2 flex items-center gap-2 text-[11px]"
@@ -444,11 +459,14 @@ function TurnPhaseLine({ phase }: { phase: TurnPhase }): JSX.Element {
       title={
         phase.stage === 'verifying'
           ? `The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed. They stop after ${VERIFY_BUDGET_MS / 1000}s and say what was left unchecked.`
-          : 'The app is gathering context for this turn. The model has not been asked yet.'
+          : 'The app is gathering context for this turn — the model has not been asked yet. The count is how long that has taken so far, and it is the “gathering” figure in the stat line once the turn ends.'
       }
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(0,212,170,0.8)]" />
       <span className="font-medium tracking-[0.08em]">{phase.label}…</span>
+      {phase.stage === 'gathering' && (
+        <span className="tabular-nums text-ink-secondary">{waitElapsed(phase, now)}</span>
+      )}
       <span className="min-w-0 truncate text-ink-secondary">{phase.detail}</span>
     </div>
   )
@@ -921,7 +939,7 @@ export const MessageBubble = memo(function MessageBubble({
               (message.stats.completionTokens
                 ? 'Measured from the server’s own token accounting. '
                 : 'This server did not report token counts, so only timing is shown. ') +
-              '“Answer” is the token stream; “checking” is the verification that ran after it, with the composer still held; “total” is the whole turn, which is what you waited.'
+              '“Gathering” is what the app did before the model was asked — its own web search, the reference library, the playbook; “answer” is the token stream, and “to first token” is measured from the start of it, not from your send; “checking” is the verification that ran after it, with the composer still held; “total” is the whole turn, which is what you waited, and the three add up to it.'
             }
           >
             {formatTurnCost(message.stats)}

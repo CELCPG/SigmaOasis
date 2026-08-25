@@ -975,18 +975,32 @@ export interface ResponseStats {
    * panel can say how much of the window the project is spending.
    */
   projectTokens?: { instructions: number; recall: number; files: number }
-  /** Time to the first content or reasoning delta. */
+  /**
+   * Time to the first content or reasoning delta, measured from when the model
+   * was asked — which is after `gatherMs`, not from the send.
+   */
   ttftMs: number
   /**
-   * Send to the last token — the stream, and only the stream. Stamped on every
-   * streaming round, so it stops at the one that ended the answer.
+   * First request to the last token — the stream, and only the stream. Stamped
+   * on every streaming round, so it stops at the one that ended the answer.
    */
   totalMs: number
   /**
-   * v1.12.5: send to the composer being released — the wait the reader actually
-   * sat through, including the post-answer verification tail. Same origin as
-   * `totalMs`, so `turnMs - totalMs` is the checking, measured rather than
-   * estimated (lib/turnCost.ts). Absent on turns recorded before v1.12.5.
+   * v1.12.6: the turn opening to the first request — everything the app did
+   * before the model was asked anything. On a factual turn that is dominated by
+   * the app's own web_search, which runs as a serial context provider
+   * (lib/contextProviders): 8786 ms and 8891 ms in the two recorded TTU1 runs.
+   * Measured as the distance between the turn's two origins, never estimated.
+   * Absent on turns recorded before v1.12.6.
+   */
+  gatherMs?: number
+  /**
+   * v1.12.5: the turn opening to the composer being released — the wait the
+   * reader actually sat through, gather and post-answer verification tail
+   * included. v1.12.6 moved this origin back ahead of the gather, so the three
+   * measured spans tile the whole turn: `gatherMs + totalMs + tail = turnMs`,
+   * every one of them measured (lib/turnCost.ts). Absent on turns recorded
+   * before v1.12.5, and on turns that ended before the tail ran.
    */
   turnMs?: number
 }

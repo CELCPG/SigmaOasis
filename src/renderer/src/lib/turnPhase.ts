@@ -17,6 +17,8 @@
  * Pure and React-free, so the decisions are node-testable (test/turnPhase.test.ts).
  */
 
+import { formatElapsed } from './oasisRipple'
+
 /** A named wait: what is being waited on, and why, in the reader's terms. */
 export interface TurnWait {
   /** Short name of the work — shown as-is, so no wait is anonymous. */
@@ -36,6 +38,13 @@ export interface TurnPhase extends TurnWait {
   /** The assistant message this work belongs to. */
   messageId: string
   stage: TurnStage
+  /**
+   * v1.12.6: when the reader's wait began — the STAGE's origin, not this
+   * provider's. The gathering walk changes label as it moves from the search to
+   * the library to the playbook, and a count restarted at each of those would
+   * report the app's bookkeeping rather than the wait.
+   */
+  since: number
 }
 
 /** The post-answer passes, named where useLMStudio enters them. */
@@ -194,12 +203,33 @@ export const SANDBOX_BOOT_WAIT: TurnWait = {
   detail: 'one-time for this session; later runs skip it'
 }
 
-export function verifyingPhase(messageId: string, step: VerifyStep): TurnPhase {
-  return { messageId, stage: 'verifying', ...VERIFY_WAITS[step] }
+export function verifyingPhase(
+  messageId: string,
+  step: VerifyStep,
+  since: number = Date.now()
+): TurnPhase {
+  return { messageId, stage: 'verifying', since, ...VERIFY_WAITS[step] }
 }
 
-export function gatheringPhase(messageId: string, wait: TurnWait): TurnPhase {
-  return { messageId, stage: 'gathering', ...wait }
+export function gatheringPhase(
+  messageId: string,
+  wait: TurnWait,
+  since: number = Date.now()
+): TurnPhase {
+  return { messageId, stage: 'gathering', since, ...wait }
+}
+
+/**
+ * How long the reader has been in this stage, in the counter's own vocabulary
+ * (lib/oasisRipple.ts `formatElapsed` — seconds under a minute, m:ss over it,
+ * truncated). Borrowed rather than reinvented: one wait counted two ways would
+ * be two waits as far as the reader is concerned.
+ *
+ * Pure, so eight seconds of gathering can be driven by mock timers instead of
+ * waited out (test/turnPhase.test.ts).
+ */
+export function waitElapsed(phase: TurnPhase, now: number = Date.now()): string {
+  return formatElapsed(Math.max(0, now - phase.since))
 }
 
 /**
