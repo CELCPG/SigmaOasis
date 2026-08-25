@@ -2056,6 +2056,157 @@ DOM, so it is still selectable and copyable in full.
   a reader who cannot hover — a keyboard or touch user — sees the truncation and not the name.
   That is a smaller loss than a shredded identifier and it is still a loss.
 
+### Pending fold-in — internal strings the reader cannot act on
+
+Four rounds of blind critics kept finding the same species on screen, and this one is not a
+check reading the wrong quantity: it is the app saying something true that no reader can use.
+Every string below is verbatim from a recorded run of a build that **won** its task.
+
+| measured, verbatim | where it appeared |
+| --- | --- |
+| `net::ERR_UNSAFE_PORT` | the collapsed tool row, twice in one turn — and again as the *entire* `Result` body once opened |
+| `BodyStreamBuffer was aborted` | after `🧮 Recompute skipped —`, on a line with no disclosure to open |
+| `signal is aborted without reason` | the entire content of an interrupted plan step |
+| `Trying to keep the first 12000 tokens when context the overflows.` | an assistant bubble — and this clause is **LM Studio's**, relayed verbatim, its garbled word order reading as our bug |
+
+A critic on the first: *"an internal error identifier shown to a user who has no way to
+interpret 'unsafe port'."* Another noted that the **losing** arm at least kept it inside a
+disclosure. Round 5 is where it got onto the row: the fix for seven bare `✗ 🔍 web_search`
+rows was to put the reason beside the glyph, which cured the silence and shipped this in its
+place. Round 3 had already inverted the *logic* around these codes — the app stopped
+enumerating which `net::` codes mean "unreachable" and started listing the few that mean "a
+server answered" — and that repair was right and still stands. Nothing ever stopped
+**printing** them.
+
+#### What changed
+
+`src/shared/failure.ts` is one boundary between what the app knows and what it says.
+`explainFailure(raw, { subject, source, settings })` returns a `headline` for a collapsed row,
+a `sentence` for a disclosure, an optional `remedy`, and a `detail` holding the runtime's own
+words attributed to whoever wrote them. One place, not per-call-site: a rule this easy to get
+subtly wrong needs a single test surface, and the reachability half of it
+(`searchUnreachable`, moved here unchanged from `lib/claimCheck.ts`) was already living there
+alone with no voice.
+
+| | before | after |
+| --- | --- | --- |
+| tool row | `✗ 🔍 web_search — net::ERR_UNSAFE_PORT` | `✗ 🔍 web_search — nothing answered at that address` |
+| `Result` body | `net::ERR_UNSAFE_PORT` | `The call could not reach the provider — nothing answered at that address.` / `Check that the provider is running, then try again.` / `The network layer reported:` `“net::ERR_UNSAFE_PORT”` |
+| recompute line | `🧮 Recompute skipped — BodyStreamBuffer was aborted` | `🧮 Recompute skipped — stopped before it finished` (+ a `The runtime reported` disclosure) |
+| plan step body | `signal is aborted without reason` | `Step 2 was stopped before it finished.` (+ the same disclosure) |
+| stream refusal | `⚠️ Trying to keep the first 12000 tokens when context the overflows. — this conversation … is larger than the context …` | `⚠️ The request was refused by LM Studio, which named the context length. This conversation — with its attachments and notes — is larger than the context the model is loaded with.` / `Load the model with a larger context in LM Studio, or attach less.` / `LM Studio reported:` `“Trying to keep the first 12000 tokens when context the overflows.”` |
+
+On the last row: their sentence used to lead and ours trailed behind it as a dash clause, so
+their broken word order read as our defect. Ours leads now and theirs is quoted as theirs.
+Their text is never dropped — it is evidence, and on this failure it is the only thing that
+names a number.
+
+#### Three rules, because a translation layer can lie
+
+A mapping that turns an unfamiliar failure into a confident wrong sentence is worse than the
+raw code: the reader loses the one string they could have searched for. So:
+
+1. **The safe list is of prose, not of identifiers.** `readsAsProse` decides what may stand as
+   the app's own words — a capital, a space, and no token of machine shape. This is round 3's
+   inversion applied to speech instead of logic: a list of known-bad identifiers is defeated by
+   the next code Chromium invents, a list of known-good shapes only by something that genuinely
+   reads as a sentence. The five shapes it rejects are conventions rather than vocabularies —
+   `::` namespacing, `SCREAMING_SNAKE`, a six-letter-or-longer errno, a multi-hump CamelCase
+   name before a colon (`TypeError:`), a hex literal. The asymmetry decides the lean: a
+   rejection costs an admission and a quoted line the reader can still read; a wrong acceptance
+   costs them `net::ERR_UNSAFE_PORT`.
+2. **An abort is recognised by type, never by message.** `signal is aborted without reason` and
+   `BodyStreamBuffer was aborted` are one `DOMException` under two engines' wording. Matching
+   either message is the round-3 mistake one layer down; `name === 'AbortError'` is the class
+   the DOM standard actually fixes, and all four leak sites already hold the thrown object.
+3. **An unrecognised failure gets an honest sentence, not a guess.** It says the attempt did
+   not finish and that the app cannot say why, and it keeps the exact words rather than
+   paraphrasing them.
+
+#### Where the identifier went
+
+It does not vanish — three homes, three different readers:
+
+- **The text handed to the model** (`ToolCallRecord.result`) is untouched, so the tool loop
+  still reasons over the real error. That same string is what `providerIO` writes to the
+  hash-chained audit log, so the log keeps it without a second code path.
+- **The disclosure** quotes it under `The network layer reported:` / `LM Studio reported:` /
+  `The runtime reported:`, so a reader can tell whose words are whose. The recompute line had
+  no disclosure at all and now carries one (`WorkbenchCheck.detail`).
+- **A `Copy details` button** on the tool disclosure yields subject + sentence + verbatim text
+  — what a person pastes into a bug report.
+
+Kept as an absolute: the raw text survives in *every* class the module translates, including
+aborts, where it arguably adds nothing. A rule with a judgement call in it is a rule that gets
+that call wrong somewhere.
+
+#### The remedy, as a control
+
+A critic's only complaint about `UNREACHABLE_NOTE` — *"Could not check: no source is
+reachable … Point Settings → Search at a working provider and ask again."* — was that the
+remedy is prose rather than a control. The claim-check block now renders an `Open Settings →
+Search` button beside it (`openSettingsAt` in the store, honoured once by `SettingsModal` and
+then cleared). The prose stays: an export, a screenshot and a copy-paste all outlive the
+component, and a button does not.
+
+The button is offered **only** where the app has proved the remedy is the right one — every
+search this turn failed to connect. A single failed `web_search` does not prove a
+misconfigured provider, so the tool row gets the sentence and no button. A control that fixes
+the wrong thing is worse than a sentence.
+
+#### The eval cases — `test/failureBoundary.test.ts` (22 cases)
+
+True positives: each of the four measured strings is absent from the reader-facing sentence
+and present, verbatim, in `detail`. Beside every one, a true negative:
+
+| true positive | true negative beside it |
+| --- | --- |
+| `net::ERR_UNSAFE_PORT` never reaches a row or a sentence | 23 error sentences the app writes about itself — harvested from `search.ts`, `net.ts`, `plan.ts`, `toolHandlers/*`, `chatTransport.ts` — come back byte-identical, with `detail: null` |
+| a `net::` code nobody has listed is still classified unreachable (round 3's inversion, re-pinned) | `net::ERR_TOO_MANY_REDIRECTS` says *reached the provider* and never *nothing answered* |
+| a stringified exception (`TypeError: …`, `ENOSPC: …`, `Fatal: 0x8007007e`) is not printed at a reader | its sentence asserts **no** cause: `assert.doesNotMatch(sentence, /reach\|connect\|context\|stopped/i)`, `remedy === null`, `recognised === false` |
+| LM Studio's clause is quoted as theirs and our sentence leads | a *well-formed* server sentence is still not printed as ours — attribution is a fact the call site knows and beats any shape test |
+| shouted `ERROR` in prose is not mistaken for an errno | `ENOENT: no such file` is |
+| a decline's clause survives the boundary untouched | …because `declinedCall` composed it, and knowing beats guessing |
+
+Three invariants run over the whole corpus plus `null`, `undefined`, `42`, `{}`, `''`:
+no reader-facing string ever matches an identifier shape; translating never loses the
+original; a headline is never longer than a glance. A fourth case pins that an
+`ExplainedError` is passed through rather than re-read — a translation of a translation is how
+a layer starts lying.
+
+Two existing assertions in `test/declinedCall.test.ts` changed, both **tightened**:
+`headerText(UNREACHABLE)` was pinned as `/ERR_UNSAFE_PORT/` by round 5 and now requires
+`/nothing answered/i` **and** `assert.doesNotMatch(row, /ERR_UNSAFE_PORT|net::/)`; and the
+"long reason is cut" case now uses a long *sentence*, with the 200-character blob it used to
+use moved to its own case asserting the blob is not printed at all and is kept in `detail`.
+Suite: **2000 passing, 0 failing** (from 1976), `./scripts/test.sh` exit 0, `npm run build`
+and both `--noEmit` typechecks clean.
+
+#### What this does not fix
+
+- **Nothing here was re-run against a model.** The before/after strings are produced by the
+  shipped modules against the recorded inputs, not by a new head-to-head sweep. No win/loss
+  claim attaches to any of it.
+- **An abort that crosses IPC as a bare string is still printed.** `BodyStreamBuffer was
+  aborted` passes `readsAsProse` on its own — capital, space, no machine token. It is caught at
+  all four measured sites because those hold the thrown object and rule 2 reads its `name`. A
+  fifth site that stringifies an abort before the boundary would leak the wording again; it
+  would leak a readable English sentence rather than a code, which is the safe direction, but
+  it is a hole and it is not closed.
+- **Settings and eval surfaces still print raw messages.** `SettingsModal` (`Eval failed: …`,
+  `Could not load eval fixtures: …`), `ProjectModal` and `lib/evalRunner.ts` were left alone:
+  the reader of those lines is operating the machinery, not reading an answer, and the raw text
+  is what they want. That is a judgement, not a proof, and a critic may disagree with it.
+- **The shape test is measured against one corpus.** 23 sentences, harvested by hand from five
+  modules. A handler added later that writes an error as a lower-case fragment gets the
+  honest-unknown sentence with its own words quoted underneath — true, and worse than the
+  sentence it could have had. Nothing detects that but reading the output.
+- **`readToolFailure` names no tool.** Its sentences start "The call", not "The search", so a
+  disclosure under `web_search` is one word blander than it could be. Passing the tool name
+  through is a small change nobody has measured the value of.
+- **The `Copy details` button is untested.** It is a `navigator.clipboard` call inside a React
+  component; the suite pins `copyableFailure` (the string it copies) and nothing pins the
+  click.
 
 ## Findings worth keeping
 

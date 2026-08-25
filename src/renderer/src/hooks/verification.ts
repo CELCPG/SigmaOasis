@@ -14,6 +14,7 @@ import {
   LAUNDERED_OUTPUT_MARKER
 } from '../lib/workbenchChecks'
 import { parseRanCode } from '../lib/ranCode'
+import { composeFailure, explainFailure } from '../../../shared/failure'
 import type { OutputComparison, WorkbenchCheck } from '../lib/workbenchChecks'
 import {
   buildReviewMessages,
@@ -195,7 +196,11 @@ export async function runAutoCritic(
     if (!signal.aborted && !text.trim()) patchRecord(NO_REVIEW_TEXT)
   } catch (err) {
     if (!signal.aborted) {
-      patchRecord(`⚠️ Second opinion failed: ${err instanceof Error ? err.message : String(err)}`)
+      // The reader gets a reading; the runtime's own words ride underneath it,
+      // attributed, instead of standing in for a sentence.
+      patchRecord(
+        `⚠️ ${composeFailure(explainFailure(err, { subject: 'The second opinion' }))}`
+      )
     }
   }
 }
@@ -338,7 +343,7 @@ export async function runClaimCheck(
     patchRecord()
   } catch (err) {
     if (!signal.aborted) {
-      record.budgetNote = `Claim check failed: ${err instanceof Error ? err.message : String(err)}`
+      record.budgetNote = `Claim check failed. ${explainFailure(err, { subject: 'The check' }).sentence}`
       patchRecord()
     }
   }
@@ -559,7 +564,7 @@ export async function runDeliberation(
     })
   } catch (err) {
     if (!signal.aborted) {
-      patchRecord({ status: 'error', note: err instanceof Error ? err.message : String(err) })
+      patchRecord({ status: 'error', note: explainFailure(err, { subject: 'The revision' }).sentence })
     }
   }
 }
@@ -597,7 +602,17 @@ export async function runRecompute(
       { ...slot.sampling, temperature: 0 }
     )
   } catch (err) {
-    return describeRecompute({ ran: false, ok: false, note: err instanceof Error ? err.message : String(err) })
+    // Measured: `🧮 Recompute skipped — BodyStreamBuffer was aborted`. That is
+    // a DOMException's wording, on a line with no disclosure to open. The
+    // headline is now a clause a reader can act on and the raw text rides in
+    // `detail`, which the banner renders as a quotation.
+    const failure = explainFailure(err, { subject: 'The recomputation' })
+    return describeRecompute({
+      ran: false,
+      ok: false,
+      note: failure.headline,
+      ...(failure.detail ? { detail: failure.detail } : {})
+    })
   }
   if (signal.aborted) return describeRecompute({ ran: false, ok: false, note: 'cancelled' })
   const code = extractRecomputeProgram(text)

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { claimCheckSummary, sourceCaveat } from '../lib/claimCheck'
+import { claimCheckSummary, sourceCaveat, UNREACHABLE_NOTE, UNREACHABLE_REMEDY } from '../lib/claimCheck'
+import { useAppStore } from '../stores/appStore'
 import type { ClaimCheckRecord, ClaimVerdict } from '../types'
 
 interface Props {
@@ -45,9 +46,17 @@ const VERDICT_STYLE: Record<ClaimVerdict, { icon: string; label: string; classes
  */
 export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
   const [open, setOpen] = useState(true)
+  const openSettingsAt = useAppStore((s) => s.openSettingsAt)
   // Both lines are decided in lib/claimCheck.ts, where node:test can read them.
   const summary = claimCheckSummary(check, isStreaming)
   const caveat = sourceCaveat(check.claims)
+  // A critic's only complaint about UNREACHABLE_NOTE was that its remedy is
+  // prose. It is offered as a control exactly where the app has proved the
+  // remedy is the right one — every search this turn failed to connect — and
+  // nowhere else, because a button that fixes the wrong thing is worse than a
+  // sentence. The prose stays: an export, a screenshot and a copy-paste all
+  // survive this component, and a button does not.
+  const unreachable = check.budgetNote === UNREACHABLE_NOTE || summary === UNREACHABLE_NOTE
 
   return (
     <div className="my-2 overflow-hidden rounded-2xl border border-amber-400/25 bg-amber-400/[0.05] text-xs">
@@ -91,6 +100,15 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
           </ul>
           {check.budgetNote && check.budgetNote !== summary && (
             <p className="mt-2 text-[10px] text-ink-tertiary">{check.budgetNote}</p>
+          )}
+          {unreachable && (
+            <button
+              type="button"
+              onClick={() => openSettingsAt(UNREACHABLE_REMEDY.tab)}
+              className="mt-2 rounded-lg border border-amber-400/40 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-400/10 dark:text-amber-300"
+            >
+              Open {UNREACHABLE_REMEDY.label}
+            </button>
           )}
           {!isStreaming && caveat && (
             <p className="mt-2 border-t border-amber-400/15 pt-1.5 text-[10px] text-ink-tertiary">

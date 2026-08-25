@@ -7,6 +7,7 @@ import type {
   ModelInfo
 } from '../types'
 import type { TurnPhase } from '../lib/turnPhase'
+import type { SettingsTarget } from '../../../shared/failure'
 
 /**
  * Global renderer state (Zustand). Settings are a mirror of electron-store —
@@ -19,6 +20,19 @@ interface AppState {
 
   settingsOpen: boolean
   setSettingsOpen: (open: boolean) => void
+  /**
+   * The tab Settings should land on when it opens, or null for wherever it was.
+   *
+   * v1.17.2: a failure sentence that says "Point Settings → Search at a working
+   * provider" is a remedy the reader has to go and find. Where the app has
+   * PROVEN which setting is wrong, it offers the place instead of describing
+   * it — and the place has to be reachable from a button, which needs this.
+   * Cleared by SettingsModal once it has honoured it, so a later manual open
+   * does not jump somewhere the reader did not ask for.
+   */
+  settingsTab: SettingsTarget | null
+  openSettingsAt: (tab: SettingsTarget) => void
+  clearSettingsTab: () => void
 
   onboardingOpen: boolean
   setOnboardingOpen: (open: boolean) => void
@@ -130,6 +144,10 @@ export const useAppStore = create<AppState>((set) => ({
 
   settingsOpen: false,
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+
+  settingsTab: null,
+  openSettingsAt: (settingsTab) => set({ settingsTab, settingsOpen: true }),
+  clearSettingsTab: () => set({ settingsTab: null }),
 
   onboardingOpen: false,
   setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),

@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { load } from './harness'
-import { declinedCall, failureReason, toolFailure, wasDeclined } from '../src/shared/tools/outcomes'
+import {
+  declinedCall,
+  failureReason,
+  readToolFailure,
+  toolFailure,
+  wasDeclined
+} from '../src/shared/tools/outcomes'
+import { copyableFailure } from '../src/shared/failure'
 import { ToolCallBlock } from '../src/renderer/src/components/ToolCallBlock'
 import { conversationStats } from '../src/renderer/src/lib/conversationStats'
 import { settleClaims } from '../src/renderer/src/lib/claimCheck'
@@ -156,12 +163,35 @@ describe('a declined call, a failed call and an empty result are three states', 
 })
 
 describe('the collapsed row names the reason', () => {
+  /**
+   * v1.17.2 changed what "says so" means, and this assertion with it.
+   *
+   * Round 5 put the reason on the row and pinned it here as `/ERR_UNSAFE_PORT/`
+   * — which fixed the silence and shipped a new fault in its place. Rounds 5, 6
+   * and 7 all recorded critics reading that row: *"an internal error identifier
+   * shown to a user who has no way to interpret 'unsafe port'."* Both halves are
+   * now required, and the second is the one that was missing: the row names the
+   * failure in words, and the identifier is not among them.
+   */
   test('a host that was never reached says so without being opened (TTU3)', () => {
-    assert.match(
-      headerText(UNREACHABLE),
-      /ERR_UNSAFE_PORT/,
-      `measured (TTU3 run-1): seven rows of "${headerText(UNREACHABLE)}" and the reason inside a disclosure`
+    const row = headerText(UNREACHABLE)
+    assert.match(row, /nothing answered/i, `measured (TTU3 run-1): seven rows of "${row}"`)
+    assert.doesNotMatch(
+      row,
+      /ERR_UNSAFE_PORT|net::/,
+      `measured (rounds 5–7): the row read "${row}" at a reader who cannot interpret it`
     )
+  })
+
+  test('and the identifier is kept, not deleted — the model and the log still hold it', () => {
+    // The record is untouched: it is what the tool loop reasons over on the
+    // next round and what providerIO writes to the hash-chained audit log.
+    assert.match(UNREACHABLE.result!, /net::ERR_UNSAFE_PORT/)
+    // …and the disclosure quotes it, attributed, rather than asserting it.
+    const failure = readToolFailure(UNREACHABLE.result!)
+    assert.equal(failure.detail?.text, UNSAFE_PORT)
+    assert.match(failure.detail?.source ?? '', /network/i)
+    assert.match(copyableFailure(failure), /net::ERR_UNSAFE_PORT/)
   })
 
   test('a provider error names the status (TH2)', () => {
@@ -192,9 +222,22 @@ describe('the collapsed row names the reason', () => {
   })
 
   test('a long reason is cut to a clause, not printed whole', () => {
-    const long = 'x'.repeat(200)
+    // A real sentence, because that is the case this guards: the app's own
+    // prose is printed as written, and a row is a glance either way. (The
+    // 200-character blob this used to use is now handled a rung earlier —
+    // see the true negative below, which is a better test of the same fear.)
+    const long = `The provider answered, ${'and then went on at length '.repeat(12)}and stopped.`
     assert.ok(failureReason(long).length <= 72, failureReason(long))
     assert.match(failureReason(long), /…$/)
+  })
+
+  test('a blob that is not a sentence is not printed at a reader at all', () => {
+    const blob = 'x'.repeat(200)
+    const row = failureReason(blob)
+    assert.ok(row.length <= 72, row)
+    assert.doesNotMatch(row, /x{10}/, `the row printed the blob: "${row}"`)
+    // Not dropped: kept verbatim, and said to be someone else's words.
+    assert.equal(readToolFailure(blob).detail?.text, blob)
   })
 })
 

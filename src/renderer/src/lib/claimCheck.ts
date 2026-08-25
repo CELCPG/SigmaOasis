@@ -1,5 +1,17 @@
 import type { CheckedClaim, ClaimVerdict, ModelConfig, ToolCallRecord } from '../types'
 import { wasDeclined } from '../../../shared/tools/outcomes'
+import { searchUnreachable, type RemedyControl } from '../../../shared/failure'
+
+/**
+ * v1.17.2: the reachability rule moved to `shared/failure.ts`, unchanged.
+ *
+ * It was always half of a boundary — it classifies a transport failure — and
+ * the other half (saying so in words a reader can act on) now lives beside it,
+ * so the classification and the sentence cannot drift apart. Re-exported here
+ * because this module's call sites and tests have read it from this name since
+ * v1.12.3.
+ */
+export { searchUnreachable }
 
 /**
  * v1.2 Claim Check: settle the critic's list.
@@ -30,66 +42,22 @@ const MAX_FETCHES_PER_CLAIM = 1
 // ---- Reachability --------------------------------------------------------------
 
 /**
- * v1.12.3: a check that cannot succeed must not be run.
+ * What the user is told instead of thirty seconds of silence.
  *
- * Measured: with the search provider pointed at a dead port, this pass still
- * extracted five claims, ran five searches that all failed the same way, and
- * held the finished answer for half a minute to end on five UNVERIFIABLEs. The
- * verdict was decided before the first token — every claim rests on a search,
- * and there was no search to be had.
- *
- * Transport failures only. A provider that answered — HTTP 403, no results, a
- * query the sanitizer refused — is reachable, and the next claim may well fare
- * differently; a refused connection will not.
+ * A critic called this the app's best failure sentence — it names a cause and a
+ * remedy — and had one complaint: *the remedy is prose rather than a control*.
+ * So the sentence keeps its wording, and `UNREACHABLE_REMEDY` below names the
+ * place it points at, which `ClaimCheckBlock` renders as a button. The prose
+ * stays because it has to survive an export, a copy-paste and a screenshot,
+ * where no button can go.
  */
-const UNREACHABLE_PATTERNS = [
-  // Kept for codes that reach us stripped of their `net::` prefix; the rule
-  // below covers the prefixed form, including codes nobody has listed here.
-  /\bERR_(?:CONNECTION|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|ADDRESS_UNREACHABLE|NETWORK_CHANGED|PROXY_CONNECTION_FAILED|SOCKET_NOT_CONNECTED|UNSAFE_PORT)/i,
-  /\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|EAI_AGAIN)\b/,
-  /\bfetch failed\b/i,
-  /\brequest timed out after\b/i,
-  /\bconnection was closed before the response completed\b/i,
-  /\bnothing is\s+listening there\b/i,
-  /\bno searxng url configured\b/i,
-  /\bno brave search api key set\b/i,
-  /\begress policy\b/i
-]
-
-/**
- * v1.12.4: the Chromium half of the question, asked the other way round.
- *
- * v1.12.3 listed the `net::ERR_*` codes it had seen — CONNECTION, NAME_NOT_
- * RESOLVED, PROXY_CONNECTION_FAILED — and the code that was actually arriving
- * was not among them. Pointed at `http://127.0.0.1:9`, Chromium refuses the
- * port before it opens a socket (`ERR_UNSAFE_PORT`), so the pass ran a search
- * per claim, each refused in microseconds, and still held the answer. An
- * enumeration is how that mistake gets made twice; the rule below cannot make
- * it, because it does not depend on having seen the code before.
- *
- * Chromium reaches for a `net::` code only when the request did not complete,
- * so the question is which of them nonetheless mean a server answered and the
- * *response* was the problem. Those are nameable and few, and every one of
- * them is per-request — the next claim may fetch a page that decodes. Anything
- * else never reached a provider, and never will this turn.
- */
-const RESPONSE_ARRIVED =
-  /\bERR_(?:CONTENT_(?:DECODING(?:_INIT)?_FAILED|LENGTH_MISMATCH)|IN(?:COMPLETE|VALID)_CHUNKED_ENCODING|INVALID_HTTP_RESPONSE|RESPONSE_HEADERS_(?:TOO_BIG|MULTIPLE_CONTENT_LENGTH)|TOO_MANY_REDIRECTS|UNSAFE_REDIRECT|EMPTY_RESPONSE)\b/i
-
-/** A Chromium transport code, however it was wrapped on the way here. */
-const NET_ERROR = /\bnet::ERR_[A-Z0-9_]+/i
-
-/** Did this search fail because nothing answered, rather than because of what it answered? */
-export function searchUnreachable(error: string): boolean {
-  if (NET_ERROR.test(error)) return !RESPONSE_ARRIVED.test(error)
-  return UNREACHABLE_PATTERNS.some((re) => re.test(error))
-}
-
-/** What the user is told instead of thirty seconds of silence. */
 export const UNREACHABLE_NOTE =
   'Could not check: no source is reachable — every search this turn failed to connect, so ' +
   'nothing could be checked against anything. Point Settings → Search at a working provider ' +
   'and ask again.'
+
+/** The control the note describes. Offered only where the app has PROVEN it. */
+export const UNREACHABLE_REMEDY: RemedyControl = { label: 'Settings → Search', tab: 'search' }
 
 /**
  * The pre-flight. The answering turn has usually already tried to search — that
