@@ -131,7 +131,8 @@ export function toolPreview(step: Pick<PlanStep, 'tools'>): string {
 }
 
 /**
- * The forecast, read back against what the step actually ran.
+ * The forecast, read back against what the step actually ran — in **both**
+ * directions, because a set difference has two.
  *
  * `toolPreview` is a promise made before approval and deliberately not a
  * leash: the names in it are not an allowlist, because a small model that
@@ -142,24 +143,100 @@ export function toolPreview(step: Pick<PlanStep, 'tools'>): string {
  * own installed library, and all the row said afterwards was "🔧 2 tool
  * calls": a count that agreed with itself while the names disagreed.
  *
- * So the step reconciles the two lists it already holds. Same species as
- * `undisclosedToolRuns` in lib/toolGrounding.ts — a call the account of the
- * work leaves out — and the same rule on status: a call that errored still
- * ran, and still ran undisclosed.
+ * v1.17 checked exactly that half. A blind critic then found the other half
+ * open, and the raw audit log of judge-r6/PT1 confirms it: the plan shown at
+ * the approval moment forecast `list_notes` on one step and `read_note` on
+ * another; `trace/audit.jsonl` for that run holds `memory_search` ×1 and
+ * `reference_lookup` ×3 and nothing else. **Neither forecast tool ever ran**,
+ * both lines stayed on screen unannotated, and the header read `4/4 steps
+ * done · finished`. The reader who approved on the strength of "may use:
+ * list_notes" was never told the forecast was worthless — and the two steps
+ * that did reach for tools were the ones that had said "none planned".
  *
- * Only ever names a tool that ran. A forecast tool that never ran is the
- * planner over-reaching, not the step misreporting, and is nothing to warn
- * about.
+ * That is round 5's recurring species in a new place: a check that reads a
+ * quantity *adjacent to* the one it means — here one direction of a set
+ * difference in place of the difference itself. So this returns the whole
+ * symmetric difference from one place, and the block reports every member of
+ * it. Adding a direction later means adding it here, not remembering to.
+ *
+ * Same rule on status as `undisclosedToolRuns` in lib/toolGrounding.ts for the
+ * ran-but-unforecast half: a call that errored still ran, and still ran
+ * undisclosed. The unrun half is gated the other way, on `done`, and the
+ * distinction is *did not* versus *could not have*: only a step that reached
+ * the end of its own sub-turn can be said to have finished without touching
+ * what it forecast. A step that failed, was stopped, or was skipped never got
+ * that far, and its row already says so in its own words.
  */
-export function undisclosedStepRuns(
-  step: Pick<PlanStep, 'tools'>,
+export interface StepToolReconciliation {
+  /** Ran, and the forecast never named it. */
+  undisclosed: string[]
+  /** Forecast, and the step ran to the end without ever calling it. */
+  unrun: string[]
+  /**
+   * The forecast named no tool at all and tools ran anyway. Not the same
+   * failure as adding one to a list: the reader was told in as many words that
+   * this step would only reason, so the row owes them more than a name.
+   */
+  contradicted: boolean
+}
+
+export function reconcileStepTools(
+  step: Pick<PlanStep, 'tools' | 'status'>,
   calls: readonly Pick<ToolCallRecord, 'name'>[]
-): string[] {
-  const forecast = new Set(step.tools ?? [])
-  return [...new Set(calls.map((c) => c.name))].filter((n) => !forecast.has(n)).sort()
+): StepToolReconciliation {
+  const forecast = [...new Set(step.tools ?? [])]
+  const promised = new Set(forecast)
+  const ran = new Set(calls.map((c) => c.name))
+  const undisclosed = [...ran].filter((n) => !promised.has(n)).sort()
+  return {
+    undisclosed,
+    unrun: step.status === 'done' ? forecast.filter((n) => !ran.has(n)).sort() : [],
+    contradicted: promised.size === 0 && undisclosed.length > 0
+  }
+}
+
+/** Did this step do something other than what it said? Either direction counts. */
+export function stepDiverged(r: StepToolReconciliation): boolean {
+  return r.undisclosed.length > 0 || r.unrun.length > 0
 }
 
 /** What the row says when the two disagree — names, because a count is not one. */
-export function undisclosedRunNote(names: string[]): string {
-  return `⚠️ Ran ${names.join(', ')}, which this step did not disclose.`
+export function undisclosedRunNote(names: string[], contradicted = false): string {
+  return (
+    `⚠️ Ran ${names.join(', ')}, which this step did not disclose` +
+    (contradicted ? ' — it planned no tools at all.' : '.')
+  )
+}
+
+/**
+ * What the row says when a forecast tool never ran.
+ *
+ * Deliberately *not* a warning, and the difference is the point. A tool that
+ * ran unannounced is work the reader did not authorise; a tool that was
+ * offered and turned out not to be needed is often the step doing its job. The
+ * defect was never that the forecast over-reached — it was that nothing said
+ * so, so a reader could not tell an informed approval from an uninformed one.
+ * A ⚠️ here would put the two failures at the same volume and teach the reader
+ * to discount both, which is this project's most expensive recurring mistake.
+ * So: no glyph, the step's own body ink, stated as fact.
+ */
+export function unrunForecastNote(names: string[]): string {
+  return `Forecast ${names.join(', ')}, which this step never ran.`
+}
+
+/**
+ * The header's share of the same reconciliation.
+ *
+ * `4/4 steps done` is true — every step reached the end of its sub-turn — and
+ * it is also the whole of what the header said about a run in which half the
+ * forecast was fiction. The count stays, because shrinking it would trade one
+ * false impression for another; what it gets is the clause that stops it being
+ * read as a clean bill. Set at the weight and ink of the count itself: a
+ * reader must not be able to take the one without the other.
+ */
+export function forecastDivergenceNote(diverged: number, total: number): string {
+  return (
+    `${diverged} of ${total} step${total === 1 ? '' : 's'} diverged from ` +
+    `${diverged === 1 ? 'its' : 'their'} forecast`
+  )
 }
