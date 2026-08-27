@@ -192,6 +192,25 @@ body {
   animation: oasis-enter 0.4s var(--ease-spring) both;
 }
 
+/*
+ * The newest word of a streaming reply — see fadeStreamEdge() in
+ * MessageBubble.tsx. The streaming body re-sets its HTML per paced flush, so
+ * this span remounts (and the animation restarts) for as long as its word is
+ * the leading edge; the word settles to full ink once the stream moves past
+ * it. Opacity only — a transform here would shift the line under the reader.
+ */
+@keyframes stream-edge-in {
+  from {
+    opacity: 0.2;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.stream-edge {
+  animation: stream-edge-in 0.4s ease-out both;
+}
+
 /* ---- Empty state ------------------------------------------------------------ */
 
 /* Headline ink, fading toward the bottom so the type feels lit from above. */
@@ -235,6 +254,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .oasis-enter {
+    animation: none;
+  }
+  .stream-edge {
     animation: none;
   }
   .oasis-starter:hover {

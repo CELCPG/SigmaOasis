@@ -13,9 +13,13 @@ const PIN_THRESHOLD_PX = 80
  * auto-scroll.
  *
  * Three rules keep generation clean:
- * 1. Streaming growth scrolls INSTANTLY — a smooth animation restarted on
- *    every token never catches up with the content and reads as the text
- *    sliding away under the composer.
+ * 1. While a reply streams, a rAF loop follows the bottom (v2.1). Scrolling
+ *    on the token event itself measured layout *before* the new text had
+ *    painted, so the view trailed the reply by one flush and visibly bounced;
+ *    a frame callback reads scrollHeight after the previous commit is laid
+ *    out, and glides the residual distance instead of stepping it. (The old
+ *    rule against scrollTo({behavior:'smooth'}) still stands — an animation
+ *    restarted per token never catches up. The glide converges instead.)
  * 2. Auto-scroll only while pinned. Scrolling up to read history unpins; the
  *    stream no longer yanks the view back down. Scrolling back near the
  *    bottom (or sending a message) re-pins.
@@ -80,8 +84,11 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
 
   // Streamed tokens land in the streamingTail slice, which this component
   // deliberately does not subscribe to via a selector — that would re-render
-  // the whole list per flush. A plain store subscription scrolls without
-  // rendering; the layout read happens only while pinned and streaming.
+  // the whole list per flush. A plain store subscription arms a rAF follow
+  // loop instead (rule 1 above): the loop reads layout once per frame, after
+  // the previous frame's commit has painted, and glides the residual distance
+  // while pinned. It lingers half a second past the last tail publish so the
+  // final full-message commit settles too, then stops costing anything.
   //
   // v1.11: scoped to this pane's own conversation. With split view two
   // ChatAreas are mounted, and an unscoped subscription scrolled the pane you
@@ -89,18 +96,38 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   // message is always the last one in its conversation, so identity of the
   // tail against this conversation's last message is the whole test.
   useEffect(() => {
-    let lastLength = -1
-    return useAppStore.subscribe((s) => {
-      const tail = s.streamingTail
-      const length = tail ? tail.text.length : -1
-      if (length === lastLength) return
-      lastLength = length
-      const el = scrollRef.current
-      if (length < 0 || !el || !pinnedRef.current) return
+    let raf = 0
+    let idleFrames = 0
+    const step = (): void => {
+      raf = 0
+      const tail = useAppStore.getState().streamingTail
       const mine = conversationRef.current
-      if (!tail || mine[mine.length - 1] !== tail.messageId) return
-      el.scrollTop = el.scrollHeight
+      const active = tail !== null && mine[mine.length - 1] === tail.messageId
+      idleFrames = active ? 0 : idleFrames + 1
+      const el = scrollRef.current
+      if (el && pinnedRef.current) {
+        const target = el.scrollHeight - el.clientHeight
+        const delta = target - el.scrollTop
+        // Glide ordinary growth; snap a jump (an image landing, a block
+        // committing) rather than chase it across the screen.
+        if (delta > 0.5) {
+          el.scrollTop = delta > 320 ? target : el.scrollTop + Math.max(1, delta * 0.3)
+        }
+      }
+      if (idleFrames < 30) raf = requestAnimationFrame(step)
+    }
+    const unsubscribe = useAppStore.subscribe((s) => {
+      const tail = s.streamingTail
+      if (!tail) return
+      const mine = conversationRef.current
+      if (mine[mine.length - 1] !== tail.messageId) return
+      idleFrames = 0
+      if (!raf) raf = requestAnimationFrame(step)
     })
+    return () => {
+      unsubscribe()
+      if (raf) cancelAnimationFrame(raf)
+    }
   }, [])
 
   if (conversation.messages.length === 0) {

@@ -21,11 +21,27 @@ import { uid } from './turnHelpers'
 // which owns the wire history across tool-loop iterations.
 
 /**
- * Cap on how often streamed text is flushed to the UI (~30 fps). Tokens can
- * arrive far faster than the screen repaints; flushing each one bought nothing
- * visually and cost a store commit per token.
+ * Cap on how often streamed text is published to the UI (~30 fps). Tokens can
+ * arrive far faster than the screen repaints; publishing each one bought
+ * nothing visually and cost a store commit — and a markdown re-parse of the
+ * live tail — per token.
  */
 export const TAIL_FLUSH_MS = 33
+
+/**
+ * How far (in characters) the paced display cursor may trail the buffered
+ * content before it stops gliding and jumps the backlog. Keeps a huge burst —
+ * a cache hit, a reconnect — from turning into seconds of typewriter replay.
+ */
+const CATCH_UP_SNAP_CHARS = 1200
+
+/**
+ * Frames stop entirely in an occluded window. When the last frame is this
+ * stale, the pacer assumes occlusion and flushes whole chunks from the network
+ * callback instead — the pre-v2.1 behavior, which is the one that keeps
+ * working behind another window.
+ */
+const OCCLUDED_AFTER_MS = 250
 
 /**
  * How long the request may produce nothing at all — headers, then the first
@@ -127,36 +143,134 @@ interface SseFrame {
  * calls `schedule()`, commits it into the message at round boundaries with
  * `commit()`, and must call `finish()` when the turn ends, however it ends.
  *
- * Pacing is driven by chunk arrival, never by a timer: Chromium throttles
- * timers in occluded windows (measured here as a stream coalescing into
+ * v2.1: publishes are paced, not raw. Chunks arrive in bursts — a slab of
+ * text, a silence, another slab — and publishing each burst whole made the
+ * reply load in visible jolts. A display cursor now glides toward the
+ * buffered content a few characters per animation frame, faster the further
+ * behind it is, so it smooths a burst over roughly a quarter second without
+ * ever trailing the stream by more than CATCH_UP_SNAP_CHARS.
+ *
+ * The occlusion rule survives the redesign, because rAF stops in an occluded
+ * window exactly like timers do (measured here as a stream coalescing into
  * one-per-minute jumps behind another window), while network callbacks keep
- * firing. A chunk flushes if TAIL_FLUSH_MS has passed since the last flush;
- * a sub-interval remainder is picked up by the next chunk or by commit().
+ * firing. When frames go stale the pacer degrades to the old chunk-driven
+ * flush, throttled by TAIL_FLUSH_MS; each snap also re-arms a frame request,
+ * so pacing resumes by itself once the window is visible again.
+ * Reduced-motion users get the un-paced flush always.
  */
 export function makeTailStream(
   assistantMsg: ChatMessage,
   patch: (p: Partial<ChatMessage>) => void
 ): { schedule: () => void; commit: () => void; finish: () => void } {
-  let lastFlush = 0
-  const setTail = (): void =>
-    useAppStore
-      .getState()
-      .setStreamingTail({ messageId: assistantMsg.id, text: assistantMsg.content })
+  let shown = 0
+  let lastPublish = 0
+  let lastFrame = Date.now()
+  let raf = 0
+  let ended = false
+  let backstop: ReturnType<typeof setTimeout> | null = null
+  const reduceMotion =
+    typeof window !== 'undefined' &&
+    (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
+
+  const publish = (): void =>
+    useAppStore.getState().setStreamingTail({
+      messageId: assistantMsg.id,
+      text:
+        shown >= assistantMsg.content.length
+          ? assistantMsg.content
+          : assistantMsg.content.slice(0, shown)
+    })
+
+  /** A newer message's stream owns the slice now; this one must go quiet. */
+  const usurped = (): boolean => {
+    const tail = useAppStore.getState().streamingTail
+    return tail !== null && tail.messageId !== assistantMsg.id
+  }
+
+  const clear = (): void => {
+    if (backstop) {
+      clearTimeout(backstop)
+      backstop = null
+    }
+    if (raf) {
+      cancelAnimationFrame(raf)
+      raf = 0
+    }
+    if (!usurped()) useAppStore.getState().setStreamingTail(null)
+  }
+
+  const step = (): void => {
+    raf = 0
+    const now = Date.now()
+    lastFrame = now
+    if (usurped()) return
+    const total = assistantMsg.content.length
+    if (shown < total && now - lastPublish >= TAIL_FLUSH_MS) {
+      const remaining = total - shown
+      shown +=
+        remaining > CATCH_UP_SNAP_CHARS
+          ? remaining - CATCH_UP_SNAP_CHARS
+          : Math.max(2, Math.ceil(remaining / 8))
+      if (shown > total) shown = total
+      // Never end the slice on a high surrogate — half an emoji renders as �.
+      if (shown < total) {
+        const edge = assistantMsg.content.charCodeAt(shown - 1)
+        if (edge >= 0xd800 && edge <= 0xdbff) shown += 1
+      }
+      lastPublish = now
+      publish()
+    }
+    if (ended && shown >= assistantMsg.content.length) {
+      clear()
+      return
+    }
+    // Keep ticking even when caught up: an idle-but-visible pane must keep
+    // lastFrame fresh, or the next chunk after a model pause would be
+    // misdiagnosed as occlusion and snapped.
+    raf = requestAnimationFrame(step)
+  }
+
+  /** Flush everything at once — the occluded / reduced-motion / backstop path. */
+  const snap = (): void => {
+    shown = assistantMsg.content.length
+    lastPublish = Date.now()
+    if (!usurped()) publish()
+    if (ended) clear()
+    // Re-arm pacing: if this frame request ever fires, the window is visible
+    // again and the glide takes over; if it never does, it costs nothing.
+    else if (!raf) raf = requestAnimationFrame(step)
+  }
+
+  const paced = (): boolean => !reduceMotion && Date.now() - lastFrame <= OCCLUDED_AFTER_MS
+
   return {
     schedule(): void {
-      const now = Date.now()
-      if (now - lastFlush >= TAIL_FLUSH_MS) {
-        lastFlush = now
-        setTail()
+      if (paced()) {
+        if (!raf) raf = requestAnimationFrame(step)
+      } else if (Date.now() - lastPublish >= TAIL_FLUSH_MS) {
+        snap()
       }
     },
     commit(): void {
       patch({ content: assistantMsg.content })
-      setTail()
+      if (paced()) {
+        if (!raf) raf = requestAnimationFrame(step)
+      } else {
+        snap()
+      }
     },
     finish(): void {
       patch({ content: assistantMsg.content })
-      useAppStore.getState().setStreamingTail(null)
+      ended = true
+      if (paced()) {
+        if (!raf) raf = requestAnimationFrame(step)
+        // If the window is occluded mid-drain, frames stop and the partial
+        // tail would sit on screen indefinitely; a timer still fires, even
+        // throttled, and clears it.
+        backstop = setTimeout(snap, 1500)
+      } else {
+        snap()
+      }
     }
   }
 }
