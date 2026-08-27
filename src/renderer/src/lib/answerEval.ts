@@ -19,6 +19,11 @@
  * against the passages the app actually retrieved.
  */
 
+import {
+  measurementsIn as vocabularyMeasurementsIn,
+  type Measurement
+} from '../../../shared/measurements'
+
 // ---- numbers in an answer -------------------------------------------------------
 
 /** Numbers as written, normalized: "1,249.99" and "$1249.99" both → 1249.99. */
@@ -78,24 +83,28 @@ export function scoreQuantitative(reply: string, expect: QuantExpectation[]): Qu
  * Numbers that carry a unit — the class where inventing one is dangerous:
  * a duration, a temperature, a dose, a distance. Matched with its unit so
  * "20 minutes" and "20 people" are not the same claim.
+ *
+ * v2.1: the vocabulary is `shared/measurements.ts`, not a regex of its own.
+ *
+ * That file exists, in its own words, because "two copies would drift, and the
+ * drift would be silent". There were three, and the drift had happened: this
+ * scorer did not recognise `mcg`, `µg`, `mph`, `km/h`, `kwh`, `watt`, `volt`,
+ * `amp`, `calorie` or `kcal`, so a library reply stating an invented dose in
+ * micrograms scored clean; it matched across a line break, so `"…3:47\nMiles
+ * run: 26.2"` yielded `47 Miles`; and it had no rate suffix, so a pace scored
+ * as a duration. Nothing about the eval justified any of the three — they were
+ * simply what the second author of the same idea happened to write.
+ *
+ * The one deliberate difference is `%`, and it survives as a named flag rather
+ * than a second alternation. A percentage in a reference answer ("your landlord
+ * may raise it by 5%") is exactly the kind of figure this suite scores, and the
+ * shipped rungs leave `%` out of the shared list on purpose — see
+ * `MeasurementOptions`.
  */
-const MEASUREMENT =
-  /(?<![\w.])(\d[\d,]*(?:\.\d+)?)\s*(°\s?[cf]\b|degrees?\b|%|minutes?\b|mins?\b|hours?\b|hrs?\b|days?\b|weeks?\b|months?\b|years?\b|seconds?\b|secs?\b|mg\b|ml\b|grams?\b|g\b|kg\b|litres?\b|liters?\b|l\b|gallons?\b|ounces?\b|oz\b|pounds?\b|lbs?\b|cm\b|mm\b|metres?\b|meters?\b|m\b|inches?\b|feet\b|ft\b|miles?\b|km\b)/gi
-
-export interface Measurement {
-  raw: string
-  value: number
-  unit: string
-}
+export type { Measurement }
 
 export function measurementsIn(text: string): Measurement[] {
-  const out: Measurement[] = []
-  for (const m of text.matchAll(MEASUREMENT)) {
-    const value = Number(m[1].replace(/,/g, ''))
-    if (!Number.isFinite(value)) continue
-    out.push({ raw: m[0].trim(), value, unit: m[2].toLowerCase().replace(/\s+/g, '') })
-  }
-  return out
+  return vocabularyMeasurementsIn(text, { percent: true })
 }
 
 /**

@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
-import { describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
+import { describeCoverage, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
 import { attribution } from '../../../shared/failure'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
@@ -136,6 +136,12 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   // rather than the number of items in them — see `describeUnbackedItems`.
   const unbacked = describeUnbackedItems(report)
   const hasUnbacked = unbacked !== ''
+  // v2.1: what this pass did NOT reach. It sits at the provenance rank, with
+  // the "Checked against" footer, because it is the same kind of statement —
+  // about the check, not about the answer — and it must not be read as a
+  // thirteenth accusation. See `describeCoverage` for why this is a coverage
+  // line and not a guess at which figure the question was about.
+  const coverage = describeCoverage(report)
   const origins = report.origins ?? []
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
@@ -287,6 +293,14 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
             </li>
           ))}
         </ul>
+      )}
+      {/* The other half of the provenance: not what it was measured against but
+          what it never measured. Measured, round 8, task V3 — four repair costs
+          named above a headline water figure the two arms disagreed about
+          threefold, with nothing on screen to say the volumes had not been
+          looked at. */}
+      {coverage !== '' && (
+        <div className="mt-1 text-amber-800 dark:text-amber-400">{coverage}</div>
       )}
       {/* One rank quieter than the warnings above it, and quieter by ink rather
           than by opacity — this is the line that says what the answer was

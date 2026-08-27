@@ -157,6 +157,14 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
     source: bubble,
     re: /className="(mt-1 text-ink-[a-z]+)">\s*Checked against:/
   },
+  // v2.1: the other half of the provenance — not what the answer was measured
+  // against but what the pass never measured. Scraped from its own line rather
+  // than assumed to share the footer's ink, so dimming just this one fails the
+  // extraction instead of quietly measuring the wrong node.
+  groundingCoverage: {
+    source: bubble,
+    re: /\{coverage !== '' && \(\s*<div className="(mt-1 text-amber-[^"]*)"/
+  },
   userTimestamp: {
     source: section("if (message.role === 'user')", 'const accent ='),
     re: /className="(text-\[10px\][^"]*)"/
@@ -387,6 +395,7 @@ const LOAD_BEARING = [
   'revision unresolved',
   'grounding warning',
   'grounding link',
+  'grounding coverage',
   'grounding provenance',
   'stats readout',
   'user timestamp',
@@ -476,6 +485,7 @@ function fixture(dark: boolean): string {
             <div class="${c('groundingBanner')}">
               <div data-ink="grounding warning">⚠️ 2 measurements (165°F, 74°C) in this reply are not backed by the tool output.</div>
               <ul class="${c('groundingLinks')}"><li class="break-all" data-ink="grounding link">https://www.fsis.usda.gov/safe-minimum-internal-temperature-chart</li></ul>
+              <div class="${c('groundingCoverage')}" data-ink="grounding coverage">Covered 1 of the 3 measurements in this reply. Not compared against anything: 4 days, 105 gallons.</div>
               <div class="${c('groundingFooter')}" data-ink="grounding provenance">Checked against: reference_lookup.</div>
             </div>
             <div class="${c('emptyReply')}" data-ink="empty reply">⚠️ Empty reply — nothing came back from the model. Use ↻ Regenerate to ask again.</div>
@@ -794,6 +804,17 @@ async function main(): Promise<void> {
       `${theme.name}: the grounding banner keeps two ranks`,
       warning.fg !== provenance.fg && warning.ratio > provenance.ratio,
       `${warning.fg} (${warning.ratio}:1) vs ${provenance.fg} (${provenance.ratio}:1)`
+    )
+    // v2.1: the coverage line is a statement about the check, not a thirteenth
+    // accusation, so it belongs at the provenance rank and not the warning's. A
+    // reader who reads "not compared against anything" in the same ink as
+    // "not backed by the tool output" has been told the app faulted a figure it
+    // did not fault.
+    const coverage = by('grounding coverage')
+    check(
+      `${theme.name}: the coverage line reads as provenance, not as a finding`,
+      coverage.fg === provenance.fg && coverage.fg !== warning.fg,
+      `${coverage.fg} vs provenance ${provenance.fg} / warning ${warning.fg}`
     )
   }
 

@@ -791,6 +791,23 @@ export interface GroundingReport {
   quotes?: string[]
   /** v1.14: `[n] (Document)` attributions naming a document that is not passage n's. */
   attributions?: string[]
+  /**
+   * v2.1: how much of what the reply measured this pass actually reached.
+   *
+   * The one field here that is not a fault found. Every other entry says "this
+   * is unsupported"; this one says "these were compared against nothing", so
+   * the badge cannot imply a completeness it does not have. See the note on
+   * `GroundingReport.coverage` in lib/toolGrounding.ts for the V3 run that
+   * produced it, and for why it is a coverage statement and not a ranking.
+   */
+  coverage?: {
+    /** Distinct measurements put beside something the turn produced. */
+    checked: number
+    /** Distinct measurements compared against nothing at all. */
+    unchecked: number
+    /** The first few of those, as the reader can find them on screen. */
+    uncheckedNamed: string[]
+  }
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }

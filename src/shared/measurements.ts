@@ -11,6 +11,17 @@
  * passages it was written from, and `toolGrounding` vetting a reply against
  * what the tools returned. Two copies would drift, and the drift would be
  * silent — one rung quietly stops recognising a unit the other still checks.
+ *
+ * v2.1: there were **three**. `answerEval.ts` — the library suite's scorer, the
+ * one place that has scored "stated a measurement the passages do not support"
+ * since v1.6 — carried its own hand-rolled alternation, and the drift this file
+ * warns about had already happened in silence. That copy did not know about
+ * `mcg`, `µg`, `mph`, `km/h`, `kwh`, `watt`, `volt`, `amp`, `calorie` or
+ * `kcal`; it matched across a line break, so a number ending one line and a
+ * word beginning the next became a measurement; and it had no rate suffix, so
+ * `8.66 minutes per mile` scored as a duration. It also carried one unit this
+ * file does not — see `percent` below, which is why the reconciliation is an
+ * option rather than a deletion.
  */
 
 /**
@@ -30,6 +41,26 @@ export const MEASUREMENT_UNITS =
   'mph\\b|km\\/h\\b|kwh\\b|watts?\\b|volts?\\b|amps?\\b|calories\\b|kcal\\b'
 
 /**
+ * What a caller may ask for beyond the units above.
+ *
+ * Exactly one thing, and it is a divergence recorded rather than removed. The
+ * library eval scorer counts a percentage as a measurement; every rung that
+ * ships deliberately does not, because `unsourcedPercentages` already checks
+ * them with a better rule (a percentage is supported by the *ratio* of two
+ * corpus numbers, not only by its own presence) and a `%` in this alternation
+ * would produce two findings for one claim. Worse, it would change what
+ * `amountsIn` treats as money support, since that function drops every number a
+ * unit has already claimed.
+ *
+ * So the vocabulary is single-sourced and the one difference is a named flag
+ * instead of a second regex nobody diffs.
+ */
+export interface MeasurementOptions {
+  /** Count `25%` as a measurement. Eval scoring only — no shipped rung sets it. */
+  percent?: boolean
+}
+
+/**
  * A fresh matcher for "number followed by a unit".
  *
  * Returned rather than exported as a constant because a `/g` regex carries
@@ -41,14 +72,15 @@ export const MEASUREMENT_UNITS =
  * check that treats it as one will compare a pace against a running time and
  * report a disagreement between two things that were never the same quantity.
  */
-export function measurementPattern(): RegExp {
+export function measurementPattern(options: MeasurementOptions = {}): RegExp {
+  const units = options.percent ? `${MEASUREMENT_UNITS}|%` : MEASUREMENT_UNITS
   // Horizontal space only, never a line break. A number ending one line and a
   // word beginning the next are not a measurement: tool output reading
   // "Total time: 3:47\nMiles run: 26.2" would otherwise yield "47 Miles" and
   // put a distance into the corpus that nothing ever computed. Caught by test,
   // and the same trap the address check documents.
   return new RegExp(
-    `(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)[ \\t]*(${MEASUREMENT_UNITS})([ \\t]*(?:per|/)[ \\t]*[a-z]+\\b)?`,
+    `(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)[ \\t]*(${units})([ \\t]*(?:per|/)[ \\t]*[a-z]+\\b)?`,
     'gi'
   )
 }
@@ -121,9 +153,9 @@ export function inScale(value: number, from: 'c' | 'f', to: 'c' | 'f'): number {
 }
 
 /** Every measurement in a body of text. */
-export function measurementsIn(text: string): Measurement[] {
+export function measurementsIn(text: string, options: MeasurementOptions = {}): Measurement[] {
   const out: Measurement[] = []
-  for (const m of text.matchAll(measurementPattern())) {
+  for (const m of text.matchAll(measurementPattern(options))) {
     const value = Number(m[1].replace(/,/g, ''))
     if (!Number.isFinite(value)) continue
     out.push({
