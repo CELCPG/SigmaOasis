@@ -119,7 +119,7 @@
       "dimension": "plan-transparency",
       "prompt": "Plan it out first: I want to redo my home fire-safety setup — where the smoke alarms should go, how often to test them, and what I should replace this year.",
       "probes": "The plan is cancelled before any step runs, so the turn ends in a terminal state — a plan that will never execute — and leaves its block on screen for a reader who scrolls back to it later. What that block still offers, and what it says about its own steps, are both readable from the markup captured before and after the cancel. The task is the comparison of those two captures.",
-      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: wait for the plan block to render with 'awaiting approval', snapshot the plan block's outerHTML, then click 'Cancel', then snapshot again after 1000 ms. App offline.",
+      "setup": "Plan mode enabled with the approval gate ON. Plan toggle on. DRIVER ACTION: wait for the plan block to render in its pre-approval state, snapshot the plan block's outerHTML, then activate its cancel control, then snapshot again after 1000 ms. App offline.",
       "mechanicalChecks": [
         "Assert the assistant message text after cancelling matches /cancell?ed/i.",
         "Assert NO element inside the plan block has accessible text matching /Run this plan/i after the cancel. Presence FAILS.",
@@ -374,7 +374,7 @@
       "dimension": "failure-recovery",
       "prompt": "I've got 40 feet of raised bed and I want to run drip irrigation off one outdoor tap. Work out how many emitters I need and what flow rate, and check your arithmetic carefully before you answer.",
       "probes": "The reviewing model is staged to return nothing, so the turn contains a review that produced no text, and the application prints a line about that review. The record holds what came back; the line holds what the reader is told. The two are directly comparable, and that comparison is the whole task — including the case where the two disagree in the flattering direction.",
-      "setup": "Two slots enabled so a distinct reviewer exists (pickReviewer returns self: false). LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message contains REVIEW_INSTRUCTION gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the 🧠 Think harder toggle on (or press '🧠 Think harder' on the finished reply). App offline.",
+      "setup": "Two slots enabled so a distinct reviewer exists. LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message marks it as a review of a draft gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the deeper-reasoning toggle on, or activate that control on the finished reply. App offline.",
       "mechanicalChecks": [
         "Assert a deliberation line rendered (innerText matching /Deliberated|Think(?:ing)? harder/i).",
         "Assert the reviewer returned an empty review (loopback shim request log confirms the review request was served an empty stream). If the shim was bypassed, the capture is invalid — retry.",
@@ -399,7 +399,7 @@
       "dimension": "visual-craft",
       "prompt": "I keep seeing this string in my server logs and I don't know what it is: c2lnbWEtb2FzaXMtaGVhZC10by1oZWFkLWxheW91dC1wcm9iZS1hLXNpbmdsZS11bmJyb2tlbi10b2tlbi10aGF0LW11c3Qtbm90LWJsb3ctb3V0LXRoZS1jaGF0LWNvbHVtbi0wMDAxLTAwMDItMDAwMy0wMDA0LTAwMDUtMDAwNi0wMDA3LTAwMDgtMDAwOS0wMDEwLTAwMTEtMDAxMi0wMDEz — what is it, and repeat it back to me on its own line so I can copy it.",
       "probes": "The prompt contains one token with no space and no hyphen in it and asks for the token back on its own line, so both the reader’s message and the reply carry a string with no natural break, at several viewport widths. Whether the layout holds is measurable from the captured geometry; whether the string survives is measurable from the captured text. The two can trade against each other, so both have to be reported.",
-      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view (v1.11) where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
+      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
       "mechanicalChecks": [
         "Assert document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 (no horizontal page overflow).",
         "For the scrolling chat container, assert scrollWidth <= clientWidth + 1.",

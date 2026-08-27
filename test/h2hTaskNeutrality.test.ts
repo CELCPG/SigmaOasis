@@ -310,6 +310,18 @@ describe('the generated critic view', () => {
  *
  * They are pinned rather than removed. Adding one fails here; removing one is a
  * deliberate change to the staging and should be recorded as such.
+ *
+ * Round 9 removed eight, in PT2, VC1 and FR3. The freeze on `setup` was written
+ * to protect the EXPERIMENT, and this field is not the experiment: the harness
+ * executes `task-setup.json`, and nothing reads this prose. Rewording it changes
+ * what a critic may infer and nothing about what was run — verified by diffing
+ * `prompt`, `setup`'s machine twin and `mechanicalChecks` against the previous
+ * commit. The three constants that mattered were `'awaiting approval'` and
+ * `'Cancel'` (two of the four de-blinders round 8 found and then left in the one
+ * descriptive field its mitigation KEPT), a version string, and two function
+ * names. Round 8's fix stripped the field it knew leaked and kept one that also
+ * leaked, which is this project's own recurring failure committed inside the
+ * repair for the previous instance of it.
  */
 describe('the frozen surface', () => {
   test('the constants reaching a critic through setup are exactly these', () => {
@@ -323,19 +335,12 @@ describe('the frozen surface', () => {
       'FR1: version: "127.0.0.1"',
       'FR2: dimensioned number: "120 s"',
       'FR2: version: "127.0.0.1"',
-      'FR3: code identifier: "REVIEW_INSTRUCTION"',
-      'FR3: code identifier: "pickReviewer"',
-      'FR3: interface glyph: "🧠"',
-      'FR3: quoted screen string: "\'🧠 Think harder\'"',
       'PT1: interface glyph: "→"',
       'PT1: interface glyph: "📋"',
       'PT1: source path: "trace-export.md"',
       'PT1: tree path: "docs/trace-export.md"',
       'PT2: code identifier: "outerHTML"',
       'PT2: dimensioned number: "1000 ms"',
-      'PT2: interface glyph: "📋"',
-      'PT2: quoted screen string: "\'Cancel\'"',
-      'PT2: quoted screen string: "\'awaiting approval\'"',
       'PT3: dimensioned number: "1500 ms"',
       'PT3: interface glyph: "◌"',
       'PT3: interface glyph: "📋"',
@@ -345,7 +350,6 @@ describe('the frozen surface', () => {
       'TTU2: code identifier: "userData"',
       'TTU2: tree path: "resources/pyodide"',
       'TTU3: interface glyph: "→"',
-      'VC1: version: "v1.11"',
       'VC1: viewport size: "1280x800"',
       'VC1: viewport size: "900x800"',
       'VC2: code identifier: "activeElement"'

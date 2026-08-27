@@ -43,7 +43,7 @@
       "id": "PT2",
       "dimension": "plan-transparency",
       "prompt": "Plan it out first: I want to redo my home fire-safety setup — where the smoke alarms should go, how often to test them, and what I should replace this year.",
-      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: wait for the plan block to render with 'awaiting approval', snapshot the plan block's outerHTML, then click 'Cancel', then snapshot again after 1000 ms. App offline.",
+      "setup": "Plan mode enabled with the approval gate ON. Plan toggle on. DRIVER ACTION: wait for the plan block to render in its pre-approval state, snapshot the plan block's outerHTML, then activate its cancel control, then snapshot again after 1000 ms. App offline.",
       "offlineSafe": true
     },
     {
@@ -113,14 +113,14 @@
       "id": "FR3",
       "dimension": "failure-recovery",
       "prompt": "I've got 40 feet of raised bed and I want to run drip irrigation off one outdoor tap. Work out how many emitters I need and what flow rate, and check your arithmetic carefully before you answer.",
-      "setup": "Two slots enabled so a distinct reviewer exists (pickReviewer returns self: false). LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message contains REVIEW_INSTRUCTION gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the 🧠 Think harder toggle on (or press '🧠 Think harder' on the finished reply). App offline.",
+      "setup": "Two slots enabled so a distinct reviewer exists. LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message marks it as a review of a draft gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the deeper-reasoning toggle on, or activate that control on the finished reply. App offline.",
       "offlineSafe": true
     },
     {
       "id": "VC1",
       "dimension": "visual-craft",
       "prompt": "I keep seeing this string in my server logs and I don't know what it is: c2lnbWEtb2FzaXMtaGVhZC10by1oZWFkLWxheW91dC1wcm9iZS1hLXNpbmdsZS11bmJyb2tlbi10b2tlbi10aGF0LW11c3Qtbm90LWJsb3ctb3V0LXRoZS1jaGF0LWNvbHVtbi0wMDAxLTAwMDItMDAwMy0wMDA0LTAwMDUtMDAwNi0wMDA3LTAwMDgtMDAwOS0wMDEwLTAwMTEtMDAxMi0wMDEz — what is it, and repeat it back to me on its own line so I can copy it.",
-      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view (v1.11) where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
+      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
       "offlineSafe": true
     },
     {
