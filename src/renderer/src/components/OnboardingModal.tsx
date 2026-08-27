@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
 import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
@@ -36,7 +36,12 @@ export function OnboardingModal(): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const setSettings = useAppStore((s) => s.setSettings)
   const { refresh } = useModels()
-  const { mounted, leaving } = useModalPresence(open)
+  // `dismiss` needs `settings`, which is not narrowed until after the early
+  // return below, so Escape goes through a holder.
+  const dismissRef = useRef<() => void>(() => setOpen(false))
+  const { mounted, leaving, surfaceRef, dialogProps } = useModalPresence(open, {
+    onDismiss: () => dismissRef.current()
+  })
 
   const [stt, setStt] = useState<SttStatus | null>(null)
   const [mic, setMic] = useState<PermissionState | 'unsupported' | null>(null)
@@ -71,6 +76,7 @@ export function OnboardingModal(): JSX.Element | null {
     void window.api.setSettings(updated)
     setOpen(false)
   }
+  dismissRef.current = dismiss
 
   const modelReady = settings.models.some((m) => m.enabled && m.modelId.trim())
 
@@ -130,15 +136,18 @@ export function OnboardingModal(): JSX.Element | null {
 
   return (
     <div
+      ref={surfaceRef}
       className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
       onClick={dismiss}
     >
       <div
+        {...dialogProps}
+        aria-labelledby="onboarding-modal-title"
         className={`${modalClasses(leaving).panel} w-full max-w-md rounded-2xl bg-panel-light dark:bg-panel-dark p-6 shadow-xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <p className="mb-1"><Logo size={44} /></p>
-        <h2 className="text-lg font-semibold">Welcome to Sigma Oasis</h2>
+        <h2 id="onboarding-modal-title" className="text-lg font-semibold">Welcome to Sigma Oasis</h2>
         <p className="mt-1 text-sm text-ink-secondary">
           Private, local-first AI chat. Let&apos;s make sure everything is ready:
         </p>

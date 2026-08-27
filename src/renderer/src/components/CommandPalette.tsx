@@ -23,7 +23,12 @@ export function CommandPalette(): JSX.Element | null {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const { mounted, leaving } = useModalPresence(open)
+  const { mounted, leaving, surfaceRef, dialogProps } = useModalPresence(open, {
+    onDismiss: () => {
+      setOpen(false)
+      setQuery('')
+    }
+  })
 
   const conversations = useAppStore((s) => s.conversations)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -38,7 +43,10 @@ export function CommandPalette(): JSX.Element | null {
   const splitConversationId = useAppStore((s) => s.splitConversationId)
   const rightPanelCollapsed = useAppStore((s) => s.settings?.rightPanelCollapsed ?? false)
 
-  // Close on Escape
+  // ⌘K opens and closes it. Escape is not handled here: it belongs to whichever
+  // surface is on top, which the modal-surface stack decides (see
+  // hooks/useModalSurface.ts). This listener used to close the palette from
+  // underneath an overlay that had opened over it.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -46,10 +54,6 @@ export function CommandPalette(): JSX.Element | null {
         setOpen(prev => !prev)
         setQuery('')
         setSelectedIndex(0)
-      }
-      if (e.key === 'Escape' && open) {
-        setOpen(false)
-        setQuery('')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -210,9 +214,12 @@ export function CommandPalette(): JSX.Element | null {
 
   return (
     <div
+      ref={surfaceRef}
       className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]`}
     >
       <div
+        {...dialogProps}
+        aria-label="Command palette"
         className={`${modalClasses(leaving).panel} w-full max-w-xl rounded-2xl border border-white/10 bg-white dark:bg-neutral-900 shadow-2xl overflow-hidden`}
       >
         {/* Search input */}

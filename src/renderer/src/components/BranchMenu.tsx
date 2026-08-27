@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ChatMessage, Conversation } from '../types'
 import { useConversations } from '../hooks/useConversations'
+import { useModalSurface } from '../hooks/useModalSurface'
 import { useAppStore } from '../stores/appStore'
 
 interface BranchMenuProps {
@@ -16,6 +17,18 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
   const [isOpen, setIsOpen] = useState(false)
   const { createConversation, selectConversation } = useConversations()
   const conversations = useAppStore(s => s.conversations)
+
+  // This menu is a covering surface too, and it is the one a check written
+  // against `fixed inset-0 z-50` cannot see: the click-catcher below is z-40
+  // and the menu itself is `absolute`, so the traversal instrument calls every
+  // stop behind it a page stop. While it is open it covers the viewport, so
+  // every control on the page is obscured and still tabbable — the same defect
+  // the four modals had, in the form that was not on the list. It is a menu,
+  // not a dialog, so it is announced as one.
+  const { surfaceRef, dialogProps } = useModalSurface(isOpen, {
+    onDismiss: () => setIsOpen(false),
+    role: 'menu'
+  })
 
   // Only show on assistant messages
   if (message.role !== 'assistant') return null
@@ -82,13 +95,21 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
       </button>
 
       {isOpen && (
-        <>
-          <div 
-            className="fixed inset-0 z-40" 
+        // One wrapper around both halves, because the containment is computed
+        // from this node outward: with the ref on the click-catcher instead,
+        // the menu beside it would be a sibling and would inert itself.
+        <div ref={surfaceRef}>
+          <div
+            className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 z-50 mt-1 w-48 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-neutral-900 py-1 shadow-lg">
+          <div
+            {...dialogProps}
+            aria-label="Alternative responses"
+            className="absolute right-0 z-50 mt-1 w-48 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-neutral-900 py-1 shadow-lg"
+          >
             <button
+              role="menuitem"
               onClick={handleCreateBranch}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5"
             >
@@ -105,6 +126,7 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
                   return (
                     <button
                       key={idx}
+                      role="menuitem"
                       onClick={() => {
                         if (branchConvo) selectConversation(branchConvo.id)
                         setIsOpen(false)
@@ -119,7 +141,7 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
               </>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   )
