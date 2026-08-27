@@ -2900,6 +2900,188 @@ every screenshot the bench takes, and eight rounds of blind judging worked only 
 both arms rendered the same string. Bumping it is now guarded: `make-blind-pairs.mjs`
 refuses to stage a pair whose arms report different versions.
 
+### Pending fold-in — a focus ring on a control the user cannot reach
+
+Round 8's bench walked 70 Tab stops per route and a blind critic reported, with identical
+counts in **both** arms, in **both** themes:
+
+> `"obscured": true` on **24 of 70** stops on the web-search route and **30 of 70** on the
+> role-model route — with identical `obscuredBy` values: stop 9 `"Copy message"` obscured by
+> `"div.flex-1.overflow-y-auto.p-5"`, stops 10–13 (`"Read aloud"`, `"Re-answer the last
+> message"`, `"Think harder…"`, `"Explore alternative response"`) by `"label.mb-1.block.text-sm"`.
+
+The critic was right and the number was low. Measured against the shipped v2.0.0 build by a
+new instrument (below), it is 55 of 70 — and it was never only Settings.
+
+#### The measurement, and why it is not `tabTraverseCheck`
+
+`tabTraverseCheck` proves the **instrument**: that a real Tab press moves focus, that
+`obscured` can see a scrim. Its page is written to have the defect, so it can never prove
+the **product**. Whether the app's overlays contain focus is a property of the app's real
+component tree and real layout, so `test/modalFocusCheck.ts` boots the shipped `out/main` on
+a throwaway seeded profile — offscreen, with the window's `show` suppressed — and drives it
+with real key events, using the same `TAB_BASELINE`/`tabStop` instruments the bench uses.
+One child process per theme, because the theme has to come from seeded settings: the panel
+repaints the document from its own draft when it opens, so toggling the class from outside
+gets overwritten, which is the trap round 7 documented and paid for.
+
+`scripts/test-render.sh` now runs `electron-vite build` before this check, unconditionally.
+A freshness heuristic is one more enumeration to be defeated, and a check that silently
+measures a stale `out/` is worse than no check — three rounds of one bench arm ran
+handicapped on exactly that kind of missing precondition.
+
+**Obscured stops, before → after. Identical in both themes and on both routes**, which is
+itself the finding: nothing about this depended on what was on screen behind the panel.
+
+| Overlay | before | after |
+| --- | --- | --- |
+| `SettingsModal` | 55 / 70 | **0 / 70** |
+| `ProjectModal` | 55 / 70 | **0 / 70** |
+| `CommandPalette` | 57 / 70 | **0 / 70** |
+| `OnboardingModal` | 67 / 70 | **0 / 70** |
+
+Obscured is not the only number, and on its own it is the wrong one: a build that moved the
+background controls out from under the panel instead of out of the tab order would score a
+perfect zero and still be broken. So `pageStops` — stops whose surface is the page behind
+the overlay — is measured beside it, and it moved from the same 55/55/57/67 to 0.
+
+#### The true negative, measured on the same runs
+
+The containment could buy every figure above by inerting the page and forgetting to stop. So
+with **no overlay open**, on both routes and in both themes, before *and* after:
+
+| | before | after |
+| --- | --- | --- |
+| elements carrying `inert` | 0 | **0** |
+| obscured stops | 0 / 70 | **0 / 70** |
+| focusable controls the walk never reached | 0 | **0** |
+
+The last row is the one that matters: every rendered, enabled, non-`tabindex="-1"` control in
+the document is still reached by the walk. Nothing was made unreachable to make the first
+table look good.
+
+#### `inert`, not a Tab handler, not `aria-hidden`
+
+A focus-trap keydown handler has to answer *"what is the first and last tabbable thing inside
+the panel"*, which means re-implementing tabbability — `disabled`, `tabindex="-1"`,
+`display:none`, a closed `<details>`, a `visibility:hidden` ancestor. That is an enumeration,
+and rounds 3–6 are a list of enumerations losing to a form that was not on them. It also only
+covers Tab: a click, find-in-page and a screen reader's virtual cursor all still reach the
+page behind the panel.
+
+`aria-hidden` on the background fixes only the screen-reader half. The element stays focusable
+and stays hittable, so the measured defect — a ring on a control that cannot be clicked —
+survives it untouched. Strictly weaker than what is needed.
+
+`inert` hands the question to the engine that owns the answer: the subtree leaves the tab
+order, hit-testing and the accessibility tree together. It is round 3's repair generalised —
+name what is still live and let everything else follow, rather than listing what to skip.
+
+**What it costs.** It is Chromium 102+; this app ships Electron 31 (Chromium 126), and on an
+engine without it the app degrades to today's behaviour rather than breaking. It is stronger
+than a tab trap in one visible way: text behind an open panel can no longer be selected or
+copied. That is the semantics the app already claimed — every one of these surfaces already
+swallows background clicks with a scrim.
+
+#### The vocabulary, and the fifth surface
+
+The obvious guard is "the four modals", or the `fixed inset-0 … z-50` string the traversal
+instrument uses to name an overlay. Both are narrower than the class, and the app contains
+the proof: `BranchMenu` covers the viewport with a `fixed inset-0` **z-40** click-catcher and
+puts its menu above it, so while it is open every control on the page is obscured and still
+tabbable — and `surfaceOf` calls every one of those stops a *page* stop, because z-40 is not
+on the list. It is the same species in the check that was about to be written to fix it.
+
+So the class is **any element that covers the viewport to take interaction away from what is
+under it** — in this codebase `fixed inset-0`, no z-index, no component name. Containment
+lives in `useModalSurface`, which `useModalPresence` wraps, so a modal that forgets to contain
+focus is now a modal that also forgets to animate, which is visible the first time anyone
+opens it. `test/modalSurfaces.test.ts` fails the build if any renderer file grows a covering
+surface without coming through the hook and attaching the ref it hands back. Its cases:
+
+| Case | Verdict |
+| --- | --- |
+| a `fixed inset-0` surface with no containment hook | **named** |
+| a surface that takes the hook but never attaches `surfaceRef` | **named** — holding the ref is not attaching it |
+| a file with no covering surface | silent |
+| `fixed bottom-4 right-4` — a toast pinned to a corner | silent — widening to bare `fixed` would cry wolf, which is round 4's lesson |
+
+The background is computed by walking **from the surface node outward**, marking the siblings
+at each level up to `<body>`. Nothing enumerates the app's background containers, so a pane or
+rail added anywhere is covered the day it is added. Only the topmost surface is live: without
+a stack, ⌘K over an open Settings panel would have each inert the other and leave the user
+with two panels and no way into either.
+
+#### Escape, and where focus goes
+
+Both halves were missing, and one of them was missing entirely: **Settings and the setup
+checklist had no Escape at all** — measured, `Escape left it open` — so the only way out was
+to find the ✕ by Tab, through the 55 stops that were not in the panel. Escape now belongs to
+the surface stack rather than to each modal's own `window` listener, which also fixes a bug
+nobody had reported: a per-modal listener fires whichever surface is on top, so Escape with
+the palette open over the project editor closed the editor underneath it. It is handled on
+`document` in the capture phase so it settles the key before `InputBar` cancels a recording
+with it.
+
+Focus returns to the control that opened the overlay. Two things had to be right, and the
+instrument caught both after the first implementation looked finished:
+
+- **Reading `document.activeElement` in the effect is too late.** The command palette's query
+  field (`autoFocus`) and a new project's name field are focused during commit, which is
+  before a parent's effect, so the "opener" the effect read was an element *inside* the
+  surface — and closing restored focus to a node that had just unmounted. Measured: focus
+  went to `body` for exactly those two overlays and to the right control for the other two.
+  The opener is now read during **render**, which runs before commit.
+- **A surface opened from inside another one has no opener of its own.** Picking "Setup
+  Checklist" closes the palette and opens the panel in the same tick. The restore target now
+  walks the chain — an opener inside another surface is a handoff, not an origin — so the
+  panel returns focus to what the *palette* would have returned it to.
+
+`body` is not an acceptable answer to either: from `body` the next Tab restarts at the top of
+the document, which is the same "you are not where you think you are" the round-8 critic
+described, one step later.
+
+#### The first stop inside, and what is announced
+
+Focus lands on the dialog element, not on its first control. Focusing the first control
+announces *"Close, button"* and never names what opened; the dialog carries `role="dialog"`,
+`aria-modal="true"` and an accessible name, and is `tabindex="-1"`, so landing there announces
+*"Settings, dialog"* and the next Tab enters the panel — what `dialog.showModal()` does
+natively. A surface that has already put focus somewhere inside itself keeps it, because the
+question asked is *"did focus already land inside me?"* rather than *"which modals
+autofocus?"* — the second is a list that falls out of date.
+
+Before this, three of the four overlays had no `role="dialog"` at all and the fourth
+(`ProjectModal`) had the role but not `aria-modal`, so a screen reader was never told the
+page behind it was unavailable. `BranchMenu` is announced as a `menu`, not a dialog, because
+it is one.
+
+Counts: node 2106 → 2112, and a new `modalFocusCheck` at **177** checks. Tab-traverse,
+render, style, contrast, markdown, workbench and transport are unchanged.
+
+#### What this does not measure, and what was found and not fixed
+
+- **The sidebar's project ⚙ is mouse-only.** It sits in a `hidden shrink-0
+  group-hover/project:flex` span, so it is `display: none` until the pointer is over the row:
+  it cannot take focus and Tab never reaches it. The project editor is therefore driven here
+  through the palette's `Project Settings: …` command, which is the route a keyboard user
+  actually has. Not fixed — it is a different defect (a control reachable only by mouse), and
+  the same pattern is on the row's `+` and delete buttons. Worth a round of its own, because
+  the fix is a `focus-within` rule on the whole family, not on the one button.
+- **`obscured` still hit-tests the centre point only**, as round 8 recorded. A control
+  half-covered at its edges reads as unobscured. The `pageStops` figure does not share that
+  limitation, which is the second reason it is measured.
+- **The routes are this check's own seeds, not the bench's captures.** Two seeded
+  conversations — one with a `web_search` tool block, one with two replies — stand in for the
+  bench's web-search and role-model routes. They produce different background controls, which
+  is what the routes were varying, but a count here is not comparable with a count in a bench
+  run: the bench's 24 and 30 are of a longer transcript, where 70 stops cover less of the page.
+  The before/after numbers above are from one instrument against two builds, which is the
+  comparison that means something.
+- **Nothing here measures a screen reader.** `role`, `aria-modal` and the accessible name are
+  checked as attributes; that they are *announced* well is a claim no assertion in this repo
+  can make.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

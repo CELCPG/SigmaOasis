@@ -17,6 +17,12 @@
 #                     moves focus, what :focus-visible matches, what a click at
 #                     an element's centre would hit and what a translucent ink
 #                     composites to are all properties of a live layout.
+#  - modalFocus:      focus containment on the app's own overlays, measured by
+#                     booting the shipped build on a throwaway profile and
+#                     walking 70 Tab stops in both themes. tabTraverse proves
+#                     the instrument against a page written to have the defect;
+#                     this proves the product, which needs the product's real
+#                     component tree and real layout. Builds first — see below.
 #  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
 #                     window. DOMPurify is a no-op without a DOM, so a node test
 #                     of it would pass while sanitizing nothing.
@@ -69,15 +75,27 @@ fi
   test/styleCheck.ts \
   test/chromeContrastCheck.ts \
   test/tabTraverseCheck.ts \
+  test/modalFocusCheck.ts \
   test/markdownCheck.ts \
   test/workbenchCheck.ts \
   src/preload/workbench.ts \
   test/httpClientCheck.ts
 
+# modalFocusCheck boots out/ — so out/ has to be this tree, not whatever was
+# built last. Unconditionally, not "if it looks stale": a freshness heuristic is
+# one more enumeration to be defeated, and a check that silently measures an old
+# build is worse than no check. Three rounds of one bench arm ran handicapped on
+# exactly this kind of missing precondition.
+echo "building out/ so the modal-focus check measures this tree…"
+"${TSC[@]}" node_modules/electron-vite/bin/electron-vite.js build > "$OUT/build.log" 2>&1 || {
+  echo "error: build failed; see $OUT/build.log" >&2
+  exit 1
+}
+
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
 status=0
-for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck markdownCheck workbenchCheck httpClientCheck; do
+for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck markdownCheck workbenchCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
 done
 exit "$status"

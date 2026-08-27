@@ -105,7 +105,12 @@ function EvalScoreLine({
 export function SettingsModal(): JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const setOpen = useAppStore((s) => s.setSettingsOpen)
-  const { mounted, leaving } = useModalPresence(open)
+  // `attemptClose` is defined further down (it needs the draft), so Escape is
+  // routed through a holder rather than reordering the component around it.
+  const dismiss = useRef<() => void>(() => {})
+  const { mounted, leaving, surfaceRef, dialogProps } = useModalPresence(open, {
+    onDismiss: () => dismiss.current()
+  })
   const settings = useAppStore((s) => s.settings)
   const setSettings = useAppStore((s) => s.setSettings)
   const availableModels = useAppStore((s) => s.availableModels)
@@ -174,6 +179,7 @@ export function SettingsModal(): JSX.Element | null {
     setConfirmingReset(false)
     setOpen(false)
   }
+  dismiss.current = attemptClose
 
   // Load available TTS voices and STT status when the Voice tab opens.
   useEffect(() => {
@@ -405,16 +411,19 @@ export function SettingsModal(): JSX.Element | null {
 
   return (
     <div
+      ref={surfaceRef}
       className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
       onClick={attemptClose}
     >
       <div
+        {...dialogProps}
+        aria-labelledby="settings-modal-title"
         className={`${modalClasses(leaving).panel} flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-panel-light dark:bg-panel-dark shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-black/10 dark:border-white/10 px-5 py-3">
-          <h2 className="text-lg font-semibold">Settings</h2>
+          <h2 id="settings-modal-title" className="text-lg font-semibold">Settings</h2>
           <button
             type="button"
             onClick={attemptClose}
