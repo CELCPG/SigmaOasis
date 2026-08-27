@@ -2784,6 +2784,142 @@ Two guards came out of the work rather than being planned:
   first — but the two disagree, and a caller that normalises a partial object gets dark.
   Found while checking that seven rounds of "light theme only" was actually true. It is.
 
+### Pending fold-in — a fold the reader cannot tell from the string
+
+Round 8 got a 220-character token to stay inside the chat column, which fixed a real defect:
+the same token used to show 26 characters at a time behind a scrollbar on a block one line
+tall. A blind critic then found what the fix cost, in the winning run:
+
+> run-2 wraps the token at hyphen boundaries, so every wrapped line ends in a real-looking
+> `-`: `signme-oasis-head-to-head-` / `layout-probe-a-single-` / `unbroken-token-that-must-` /
+> `not-block-out-the-chat-` / `column-0001-0002-0003-`. A reader transcribing by eye cannot
+> tell a wrap point from a character in the string, which is the failure mode the prompt
+> (*"repeat it back to me on its own line so I can copy it"*) is trying to avoid.
+
+**The hyphen is not incidental to the fix — it is the fix's own mechanism showing through.** A
+hyphen is a soft wrap opportunity in the line-breaking algorithm, and `overflow-wrap` is a
+last-resort rule: it breaks *inside* a run only when the run cannot fit a line of its own.
+Given a hyphenated token it never has to, so it takes the hyphens and every folded row ends in
+one. Measured, and this is the measurement that decided the round: `overflow-wrap: break-word`
+and `overflow-wrap: anywhere` fold this token **identically** — the same 6 rows, the same 4
+hyphen ends. The keyword round 8 chose was never what put the fold there.
+
+What makes a trailing hyphen worse than any other character is not ambiguity in general but one
+specific convention: since print, an end-of-line hyphen has meant *the renderer put this here,
+take it out when you rejoin the lines*. So the failure is not that the reader is unsure — it is
+that a reader who is confident deletes characters from the string they came for.
+
+#### The two options, measured rather than assumed
+
+`word-break: break-all` folds where the row fills instead of where the breaker prefers, so a
+fold lands mid-token on a character no convention says to alter, and — the part that matters
+more — every folded row runs into the block's right padding while a row that *ends* stops
+short. That edge is the signal `break-word` never produces.
+
+One measured surprise governs the implementation: **the two properties do not compose.**
+Setting `word-break: break-all` while `overflow-wrap: break-word` is still in effect gives back
+the hyphen folds exactly — Chromium keeps preferring the breaker's own opportunities. The rule
+has to reset `overflow-wrap: normal` in the same declaration, and that reset is load-bearing,
+not tidiness.
+
+`break-all` is also not free, which is why this is a predicate and not a stylesheet rule.
+Filling every row to the edge breaks an identifier that would have fitted the next row — round
+8's shredding, moved inside a code block. Measured on three lines of ordinary JavaScript at a
+420px column: **0 shredded words under `break-word`, 3 under `break-all`**
+(`mergeDefaults(userConfiguration,`, `synchroniseWorkspaceManifest(workspaceRoot,`,
+`JSON.stringify(nextManifest,`). So the two rules are dispatched, not ranked: `foldsAnywhere`
+in `lib/markdown.ts` marks a block only when it holds an unbreakable line **and** holds no long
+line that could be shredded instead. A block of real code — including one a reader turned Wrap
+on for by hand — keeps the word-preserving rule, because there the goal is to read the code.
+
+#### Measured, in `test/styleCheck.ts`
+
+The app's own stylesheet, compiled the way the app compiles it, laid out in a real offscreen
+window. Both blocks are in the same fixture at the same width, so the control is the same token
+under round 8's rule rather than a remembered figure. A fold is counted **ambiguous** when it
+ends in a hyphen *and* stops short of the content edge by at least one character advance — the
+conjunction is the defect, because a hyphen on a row visibly cut by the edge is plainly content,
+and a row stopping short on any other character claims nothing.
+
+| Chat column | Folds reading as hyphenation, before | After | Contained (`scrollWidth ≤ clientWidth`) |
+| --- | --- | --- | --- |
+| 232px (split view) | **10 of 10** | **0 of 8** | 198 ≤ 198, both |
+| 420px | **2 of 4** (4 of 4 fold on a hyphen) | **0 of 4** | 386 ≤ 386, both |
+| 700px | **1 of 2** | **0 of 2** | 666 ≤ 666, both |
+| 900px | **1 of 1** | **0 of 1** | 866 ≤ 866, both |
+| 1100px | 0 of 1 | 0 of 1 | 1066 ≤ 1066, both |
+
+Round 8's containment is unchanged at every width — that column is the non-regression, and it
+was the whole of round 8's win.
+
+**The true negatives, which are the point.**
+
+| True negative | Measured |
+| --- | --- |
+| Ordinary wrapped code has no word broken that would have fitted a row of the block | 0 at 420px and 0 in split view, against 3 if the fold rule reached it |
+| …and the fold rule visibly did not reach it | rows still stop short of the edge |
+| The control — the same token, round 8's rule, same fixture, same width | 10 / 2 / 1 / 1 ambiguous folds: there is a defect for the fix to move |
+| Every fold under the new rule is cut at the edge | 0 of 4 and 0 of 8 stop short — the mechanism behind the zeros above |
+| The visual rows rejoin to the DOM text | nothing added, nothing lost |
+| A block holding the token *and* a long ordinary line | wraps, but is **not** marked to fold anywhere |
+| A block of ordinary code alone | neither wrapped nor marked |
+
+#### What copy actually yields — and why it changes how much of this matters
+
+This was measured before anything was changed, because it decides how large the defect is.
+Through the shipping renderer, in a real document (`test/markdownCheck.ts`):
+
+| Path | Yields |
+| --- | --- |
+| The header's **Copy** button (`code.textContent`) | the 207-character token, byte-identical |
+| Select the block and copy (`Selection.toString()`) | the same string, byte-identical to `textContent` |
+
+**A fold exists only in the layout. It is not in the DOM, and Chromium does not insert one into
+a selection** — the two paths are equal to each other and to the source string, asserted as
+equality rather than as a length, at both widths and under both rules. So the visual ambiguity
+never corrupted any copy path, and it did not on the day the
+critic filed it. What it corrupts is the reader who transcribes from the screen or from a
+screenshot — which is a real reader, and the one the prompt describes, but a narrower loss than
+"the app hands back the wrong string".
+
+The `Copy` control is also a genuine answer for that reader, and it is discoverable: measured at
+**7.65:1** against the header it sits on, 38.5 × 24px, labelled in words, always rendered — no
+hover, no focus, no disclosure. That is asserted now rather than assumed, because "there is a
+button for it" is only an answer while the button is legible.
+
+#### What this does not measure, and what it does not fix
+
+- **Nothing was re-run against a model, and no sweep was taken.** These are before/after
+  measurements of one build in a render harness. No win/loss claim attaches to any of it.
+- **A fold can still land after a hyphen — it just cannot be misread as hyphenation.** At 420px,
+  2 of 4 folds still end in `-`; they are safe because the row is visibly cut at the edge, not
+  because the character changed. Guaranteeing a mid-token character is not achievable in CSS:
+  `break-all` folds where the row fills, and sometimes a hyphen sits there. The claim being made
+  is the narrower one the layout can actually support.
+- **The fold signal is the flush right edge, and a reader has to notice it.** It is the same
+  signal a terminal gives, and it is unmistakable in a block of monospace with one short last
+  row — but it is not a glyph, and nobody is told to look for it.
+- **A marker was considered and rejected on evidence.** CSS cannot select a line box, so any
+  per-fold marker has to be real content in the `<code>` element — and both copy paths read that
+  element. Measured, `::before`/`::after` generated content is invisible to `textContent`,
+  `innerText` **and** `Selection.toString()`, so a marker *would* have been copy-safe; it is
+  simply not addressable per fold. Trading an exact copy for a visual hint would be the wrong
+  trade when copy is the stated goal, and here the trade was not even available.
+- **An ordinary wrapped block still folds at hyphens, and that is not fixed.** Found while
+  building the fixture: `JSON.stringify(nextManifest, null, 2), "utf-8")` in split view folds as
+  `"utf-` / `8")`, splitting an 8-character literal that would have fitted a row of its own,
+  because the breaker takes the hyphen inside `utf-8`. It is the same defect class in a block
+  the fold rule deliberately does not reach — and reaching it would shred the identifiers around
+  it. The fixture uses hyphen-free code so the shredding assertion measures identifier splitting
+  and nothing else; this case is recorded, not asserted, because no CSS resolves it.
+- **The `Wrap` control's contrast is measured; its discoverability is not.** 7.65:1 says the
+  label is legible. It does not say a reader knows the block folded, or that pressing Wrap would
+  unfold it.
+- **`foldsAnywhere` decides from the source text, never from layout** — deliberately, like
+  `startsWrapped`. A 100-character token that would have fitted a wide window still folds. A
+  default derived from layout changes when you resize the window, and a code block that reflows
+  on drag is worse than either default.
+
 ## Round 8: judging that is not written by the person being judged (v1.17.3)
 
 **Blind verdict: 2 won · 0 lost · 16 tied**, over 18 tasks. Both sweeps 18/18 VALID, 0 failed.

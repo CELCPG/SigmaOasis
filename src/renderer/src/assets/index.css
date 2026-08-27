@@ -951,6 +951,41 @@ summary:focus-visible,
   overflow-wrap: break-word;
   white-space: pre-wrap;
 }
+/*
+ * v1.17.4 — where the fold lands, for the one block whose whole purpose is a
+ * string the reader means to copy.
+ *
+ * A hyphen is a break opportunity in the line-breaking algorithm, so the rule
+ * above folds `signme-oasis-head-to-head-…` at its hyphens and every folded row
+ * ends in a real `-` — 4 of 4 folds at a 420px column, 10 of 10 in split view.
+ * A reader has been trained since print that an end-of-line hyphen was inserted
+ * by the renderer and comes out when the lines are rejoined, so transcribing
+ * the token by eye silently deletes characters from it.
+ *
+ * `break-all` folds where the line fills instead. What that buys is not mainly
+ * the character the row ends on — a hyphen can still sit at the fill point, and
+ * 2 of 4 folds at 420px still do. It is that EVERY folded row now runs to the
+ * content edge while a row that ends stops short of it, so a fold announces
+ * itself and the hyphen on it is plainly content. Counting folds that both end
+ * in a hyphen and stop short — the pair that reads as hyphenation — 10 of 10
+ * and 2 of 4 before, 0 of 8 and 0 of 4 after.
+ *
+ * `overflow-wrap` is reset to `normal` in the same rule and that reset
+ * is load-bearing, not tidiness: measured, `break-word` and `break-all` set
+ * together give back the hyphen folds — Chromium keeps preferring the
+ * line-breaker's own opportunities and only breaks inside a token as a last
+ * resort. The two properties do not compose; one of them has to be off.
+ *
+ * Scoped to the blocks lib/markdown.ts marks, never to `.code-wrapped` at
+ * large, because filling every line to the edge is exactly round 8's shredding:
+ * three lines of ordinary JavaScript lose 0 words under `break-word` and 3
+ * under `break-all`. `foldsAnywhere` names the blocks that have no such word to
+ * lose. test/styleCheck.ts measures both halves.
+ */
+.code-block.code-wrapped.code-fold-anywhere pre {
+  overflow-wrap: normal;
+  word-break: break-all;
+}
 .code-block code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.5px;
