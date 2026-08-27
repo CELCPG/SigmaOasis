@@ -6,17 +6,12 @@
   "invariants": [
     {
       "name": "node test suite",
-      "value": "2106 pass / 0 fail",
+      "value": "2146 pass / 0 fail",
       "state": "green"
     },
     {
       "name": "render + style checks",
-      "value": "25 render · 44 style · 60 chrome-contrast · 56 md · 46 workbench · 24 transport",
-      "state": "green"
-    },
-    {
-      "name": "whole-project typecheck",
-      "value": "part of the gate since round 7",
+      "value": "25 render · 72 style · 114 chrome-contrast · 62 md · 46 workbench · 24 transport · 43 tab-traverse · 177 modal-focus",
       "state": "green"
     },
     {
@@ -25,8 +20,8 @@
       "state": "green"
     },
     {
-      "name": "sweep hygiene",
-      "value": "both arms 18 / 18 VALID · 0 failed",
+      "name": "whole-project typecheck",
+      "value": "exit 0",
       "state": "green"
     },
     {
@@ -301,15 +296,24 @@
     {
       "n": 9,
       "label": "Defects both builds share, found once the judging stopped flattering us",
-      "state": "pending",
+      "state": "running",
       "dimension": null,
-      "pair": null,
-      "what": "A same-generation comparison mostly returns ties, so what it surfaces is what BOTH builds get wrong. Focus is not trapped in the Settings modal — 24 to 30 of 70 Tab stops are focusable behind the open overlay, in both builds and both themes. The one text below the contrast threshold anywhere in the capture is the red error ink at 3.63:1, and it is round 8’s own new sentence: the wording was fixed and shipped in failing ink. The wrap fix breaks a token at hyphens, so a reader copying by eye cannot tell a wrap point from a character. And on V3 both builds check incidental repair costs while the headline water figure — the number the user asked for, differing threefold between runs — passes unflagged.",
-      "findings": null,
+      "pair": {
+        "A": "the round-8 build",
+        "B": "the round-9 build"
+      },
+      "what": "Five builders on defects a same-generation comparison exposed as shared by BOTH builds — the category rounds 1–7 could not see, because a seven-round-old baseline loses everything and the margin hides what neither side fixed.",
+      "findings": "Three of the five found a previous round’s repair incomplete, two of them mine. Round 8 stripped `probes` from the blind-critic view and KEPT `setup`, where two of the four de-blinding constants actually live — the enumeration failure committed inside the fix for the previous instance of it. Round 8’s amber-700 contrast fix measures 4.03–4.38:1 on the wells those lines actually sit on, under AA. And the focus defect was far worse than the bench had reported — 55/70, 57/70 and 67/70 stops obscured across four overlays, not the 24–30 measured, because the bench had only ever walked one route.",
       "verdict": null,
       "gap": null,
-      "fix": null,
-      "evals": {}
+      "fix": "Focus contained on all five covering surfaces by walking outward from the surface node, so a pane added anywhere is covered the day it is added · warning ink became tokens after the diagnosis changed from lightness to chroma — Tailwind ramps desaturate as they darken, so walking down the ramp buys contrast by spending the thing that means \"warning\" · a code fold that lands on a hyphen no longer also stops short of the edge, the pair that reads as hyphenation · the checker now says what it did NOT check, after the ranking it was asked for was judged unreliable and refused · all 18 probes rewritten on the principle that what leaks is not specificity but asserting a value",
+      "evals": {
+        "node cases": "2106 → 2146",
+        "chrome-contrast checks": "60 → 114",
+        "style checks": "44 → 72",
+        "modal-focus checks": "new, 177",
+        "blind verdict": "NOT YET JUDGED — both sweeps capturing"
+      }
     }
   ],
   "evalHistory": [

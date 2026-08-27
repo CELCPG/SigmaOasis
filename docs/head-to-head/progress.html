@@ -191,17 +191,12 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">2106 pass / 0 fail</span>
+          <span class="inv__val">2146 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">render + style checks</span>
-          <span class="inv__val">25 render · 44 style · 60 chrome-contrast · 56 md · 46 workbench · 24 transport</span>
-        </div>
-        <div class="inv inv--green">
-          <span class="inv__dot" aria-hidden="true"></span>
-          <span class="inv__name">whole-project typecheck</span>
-          <span class="inv__val">part of the gate since round 7</span>
+          <span class="inv__val">25 render · 72 style · 114 chrome-contrast · 62 md · 46 workbench · 24 transport · 43 tab-traverse · 177 modal-focus</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -210,8 +205,8 @@
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
-          <span class="inv__name">sweep hygiene</span>
-          <span class="inv__val">both arms 18 / 18 VALID · 0 failed</span>
+          <span class="inv__name">whole-project typecheck</span>
+          <span class="inv__val">exit 0</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -572,18 +567,30 @@
           </div>
         </div>
       </li>
-      <li class="round round--pending">
+      <li class="round round--running">
         <div class="round__mark"><span class="round__n num">9</span></div>
         <div class="round__body">
           <header class="round__head">
             <h3>Defects both builds share, found once the judging stopped flattering us</h3>
-            <span class="tag tag--pending">pending</span>
+            <span class="tag tag--running">running</span>
           </header>
-
+          <div class="pair">
+            <span class="pair__side">the round-8 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-9 build</span>
+          </div>
           <dl class="facts">
-            <div><dt>what ran</dt><dd>A same-generation comparison mostly returns ties, so what it surfaces is what BOTH builds get wrong. Focus is not trapped in the Settings modal — 24 to 30 of 70 Tab stops are focusable behind the open overlay, in both builds and both themes. The one text below the contrast threshold anywhere in the capture is the red error ink at 3.63:1, and it is round 8’s own new sentence: the wording was fixed and shipped in failing ink. The wrap fix breaks a token at hyphens, so a reader copying by eye cannot tell a wrap point from a character. And on V3 both builds check incidental repair costs while the headline water figure — the number the user asked for, differing threefold between runs — passes unflagged.</dd></div>
+            <div><dt>what ran</dt><dd>Five builders on defects a same-generation comparison exposed as shared by BOTH builds — the category rounds 1–7 could not see, because a seven-round-old baseline loses everything and the margin hides what neither side fixed.</dd></div>
+            <div><dt>findings</dt><dd>Three of the five found a previous round’s repair incomplete, two of them mine. Round 8 stripped `probes` from the blind-critic view and KEPT `setup`, where two of the four de-blinding constants actually live — the enumeration failure committed inside the fix for the previous instance of it. Round 8’s amber-700 contrast fix measures 4.03–4.38:1 on the wells those lines actually sit on, under AA. And the focus defect was far worse than the bench had reported — 55/70, 57/70 and 67/70 stops obscured across four overlays, not the 24–30 measured, because the bench had only ever walked one route.</dd></div>
+            <div><dt>fix</dt><dd>Focus contained on all five covering surfaces by walking outward from the surface node, so a pane added anywhere is covered the day it is added · warning ink became tokens after the diagnosis changed from lightness to chroma — Tailwind ramps desaturate as they darken, so walking down the ramp buys contrast by spending the thing that means &quot;warning&quot; · a code fold that lands on a hyphen no longer also stops short of the edge, the pair that reads as hyphenation · the checker now says what it did NOT check, after the ranking it was asked for was judged unreliable and refused · all 18 probes rewritten on the principle that what leaks is not specificity but asserting a value</dd></div>
           </dl>
-
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2106 → 2146</span></div>
+            <div class="ev"><span class="ev__k">chrome-contrast checks</span><span class="ev__v num">60 → 114</span></div>
+            <div class="ev"><span class="ev__k">style checks</span><span class="ev__v num">44 → 72</span></div>
+            <div class="ev"><span class="ev__k">modal-focus checks</span><span class="ev__v num">new, 177</span></div>
+            <div class="ev"><span class="ev__k">blind verdict</span><span class="ev__v num">NOT YET JUDGED — both sweeps capturing</span></div>
+          </div>
         </div>
       </li>
     </ol>
