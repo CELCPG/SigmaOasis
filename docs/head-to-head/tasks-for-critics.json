@@ -1,5 +1,5 @@
 {
-  "note": "The blind-critic view of the task set. `probes`, `mechanicalChecks` and `criticQuestion` are removed: they describe known defects, and four of them quote constants that identify which build produced a run. See make-critic-tasks.mjs for why.",
+  "note": "The blind-critic view of the task set. Everything but the prompt and the staging is removed: why the task earns its place, what the scoring script computes, and the question, the measurements and the weighing — the last three because the critic is asked them by the prompt document instead, and two copies of a question drift. See make-critic-tasks.mjs for why.",
   "version": 1,
   "name": "Sigma Oasis head-to-head — shared task set",
   "dimensions": [
