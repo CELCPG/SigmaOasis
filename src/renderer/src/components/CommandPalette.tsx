@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
 import { useProjects } from '../hooks/useProjects'
+import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
 import { setRightPanelCollapsed } from './ChatPanel'
 
 interface CommandItem {
@@ -22,6 +23,7 @@ export function CommandPalette(): JSX.Element | null {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const { mounted, leaving } = useModalPresence(open)
 
   const conversations = useAppStore((s) => s.conversations)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -204,11 +206,15 @@ export function CommandPalette(): JSX.Element | null {
     return () => window.removeEventListener('keydown', handleNav)
   }, [open, filteredCommands, selectedIndex])
 
-  if (!open) return null
+  if (!mounted) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]">
-      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white dark:bg-neutral-900 shadow-2xl overflow-hidden">
+    <div
+      className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]`}
+    >
+      <div
+        className={`${modalClasses(leaving).panel} w-full max-w-xl rounded-2xl border border-white/10 bg-white dark:bg-neutral-900 shadow-2xl overflow-hidden`}
+      >
         {/* Search input */}
         <div className="flex items-center gap-3 border-b border-black/10 dark:border-white/10 p-4">
           <span className="text-lg">🔎</span>

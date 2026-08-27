@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useProjects } from '../hooks/useProjects'
+import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
 import type { ChatMode, Project } from '../types'
 import { PROJECT_ACCENT, PROJECT_COLORS } from '../lib/projects'
 import { useProjectFileStatus } from '../hooks/useProjectFileStatus'
@@ -39,22 +40,32 @@ export function ProjectModal(): JSX.Element | null {
     (s) => s.conversations.filter((c) => c.projectId === s.projectEditorId).length
   )
   const { updateProject, deleteProject } = useProjects()
+  const { mounted, leaving } = useModalPresence(Boolean(projectId && project))
 
-  if (!projectId || !project) return null
+  // Unlike the other modals, this one's content is derived from the very state
+  // that closing it clears — `projectEditorId` goes null and the project (and
+  // its chat count) resolve to nothing in the same tick. Hold the last pair so
+  // the editor has something to render while it animates out.
+  const last = useRef<{ project: Project; chatCount: number } | null>(null)
+  if (project) last.current = { project, chatCount }
+  const shown = project ? { project, chatCount } : last.current
+
+  if (!mounted || !shown) return null
   return (
     <ProjectEditor
-      key={project.id}
-      project={project}
-      chatCount={chatCount}
+      key={shown.project.id}
+      leaving={leaving}
+      project={shown.project}
+      chatCount={shown.chatCount}
       enabledModels={models.filter((m) => m.enabled).map((m) => ({ id: m.id, roleName: m.roleName }))}
-      onPatch={(patch) => updateProject(project.id, patch)}
+      onPatch={(patch) => updateProject(shown.project.id, patch)}
       onDelete={() => {
         const detail =
-          chatCount > 0
-            ? `Its ${chatCount} chat${chatCount === 1 ? '' : 's'} will be kept and moved out of the project.`
+          shown.chatCount > 0
+            ? `Its ${shown.chatCount} chat${shown.chatCount === 1 ? '' : 's'} will be kept and moved out of the project.`
             : 'It has no chats.'
-        if (window.confirm(`Delete project “${project.name}”?\n\n${detail}`)) {
-          deleteProject(project.id)
+        if (window.confirm(`Delete project “${shown.project.name}”?\n\n${detail}`)) {
+          deleteProject(shown.project.id)
           setProjectEditorId(null)
         }
       }}
@@ -67,6 +78,7 @@ function ProjectEditor({
   project,
   chatCount,
   enabledModels,
+  leaving,
   onPatch,
   onDelete,
   onClose
@@ -74,6 +86,8 @@ function ProjectEditor({
   project: Project
   chatCount: number
   enabledModels: { id: string; roleName: string }[]
+  /** True while the editor is animating out; see useModalPresence. */
+  leaving: boolean
   onPatch: (patch: Partial<Omit<Project, 'id' | 'createdAt'>>) => void
   onDelete: () => void
   onClose: () => void
@@ -151,7 +165,7 @@ function ProjectEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
       onClick={() => {
         commitInstructions()
         commitName()
@@ -161,7 +175,7 @@ function ProjectEditor({
       <div
         role="dialog"
         aria-label={`Project: ${project.name}`}
-        className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-panel-light dark:bg-panel-dark shadow-xl"
+        className={`${modalClasses(leaving).panel} flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-panel-light dark:bg-panel-dark shadow-xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-black/10 dark:border-white/10 px-5 py-4">

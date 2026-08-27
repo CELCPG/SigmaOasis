@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
 import { useUpdates } from '../hooks/useUpdates'
+import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
 import { CollaborativeMode } from './CollaborativeMode'
 import { ACCENT_KEYS, ACCENT } from '../lib/colors'
 import { describeModel, describeEvalScore, modelLabel } from '../lib/modelInfo'
@@ -104,6 +105,7 @@ function EvalScoreLine({
 export function SettingsModal(): JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const setOpen = useAppStore((s) => s.setSettingsOpen)
+  const { mounted, leaving } = useModalPresence(open)
   const settings = useAppStore((s) => s.settings)
   const setSettings = useAppStore((s) => s.setSettings)
   const availableModels = useAppStore((s) => s.availableModels)
@@ -223,7 +225,9 @@ export function SettingsModal(): JSX.Element | null {
     }
   }, [tab])
 
-  if (!open || !draft) return null
+  // `draft` is local state and outlives `open`, so the panel still has
+  // something to render while it animates out.
+  if (!mounted || !draft) return null
 
   const update = (partial: Partial<AppSettings>): void =>
     setDraft((d) => (d ? { ...d, ...partial } : d))
@@ -401,11 +405,11 @@ export function SettingsModal(): JSX.Element | null {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
       onClick={attemptClose}
     >
       <div
-        className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-panel-light dark:bg-panel-dark shadow-2xl"
+        className={`${modalClasses(leaving).panel} flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-panel-light dark:bg-panel-dark shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -428,7 +432,7 @@ export function SettingsModal(): JSX.Element | null {
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key)}
-                className={`mb-0.5 block w-full rounded-lg px-3 py-2 text-left text-sm ${
+                className={`mb-0.5 block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                   tab === t.key
                     ? 'bg-accent/15 text-accent font-medium'
                     : 'hover:bg-black/5 dark:hover:bg-white/5'
@@ -439,8 +443,13 @@ export function SettingsModal(): JSX.Element | null {
             ))}
           </div>
 
-          {/* Tab content */}
-          <div className="flex-1 overflow-y-auto p-5">
+          {/*
+            Tab content. Keyed on the tab so the body remounts and fades up
+            (.tab-face) rather than being swapped under the cursor — and so
+            each tab opens at its own top, instead of inheriting however far
+            down the previous one was scrolled.
+          */}
+          <div key={tab} className="tab-face min-h-0 flex-1 overflow-y-auto p-5">
             {tab === 'connection' && (
               <div className="space-y-4">
                 <div>

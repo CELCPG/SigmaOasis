@@ -243,6 +243,93 @@ body {
   transition: height 0.16s var(--ease-settle);
 }
 
+/*
+ * Modals, arriving and leaving. The backdrop only fades; the panel rises the
+ * last few pixels and settles, which is what makes it read as landing on the
+ * screen rather than being switched on. The leaving half is shorter than the
+ * arriving half — a dismissal the user already decided on should get out of
+ * the way, and the timing is pinned to MODAL_EXIT_MS in useModalPresence.ts.
+ */
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.modal-backdrop {
+  animation: modal-backdrop-in 0.18s ease-out both;
+}
+.modal-panel {
+  animation: modal-panel-in 0.22s var(--ease-spring) both;
+}
+/*
+ * The exits need keyframes of their own. Reusing the entry animation with
+ * `reverse` does NOT work and fails silently in the worst way: an animation
+ * whose name does not change is never restarted, so the leaving panel simply
+ * re-read the finished entry animation at its reversed end — opacity 0 from
+ * the first frame, then an invisible panel loitering for the whole exit.
+ * Measured, before the fix: one opacity value across nine frames, and it was 0.
+ */
+@keyframes modal-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes modal-panel-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+.modal-backdrop.is-leaving {
+  animation: modal-backdrop-out 0.15s ease-in both;
+  /* A fading overlay that still swallows clicks reads as a frozen app. */
+  pointer-events: none;
+}
+.modal-panel.is-leaving {
+  animation: modal-panel-out 0.15s ease-in both;
+  /* Its controls are still in the DOM for another 150ms; a command clicked
+     twice in that window would run twice. */
+  pointer-events: none;
+}
+
+/*
+ * Settings tab bodies. Keyed on the tab in SettingsModal.tsx, so switching
+ * tabs remounts this and the new panel fades up instead of being swapped
+ * under the cursor. Opacity only: the tab rail is right beside it, and a
+ * body that also slid would drag the eye away from the control just clicked.
+ */
+@keyframes tab-face-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.tab-face {
+  animation: tab-face-in 0.18s var(--ease-settle) both;
+}
+
 /* ---- Empty state ------------------------------------------------------------ */
 
 /* Headline ink, fading toward the bottom so the type feels lit from above. */
@@ -295,8 +382,17 @@ body {
   .composer-input {
     transition: none;
   }
-  .oasis-rail-face {
+  .oasis-rail-face,
+  .modal-backdrop,
+  .modal-panel,
+  .tab-face {
     animation: none;
+  }
+  /* useModalPresence unmounts immediately under reduced motion, but anything
+     briefly marked leaving must still not take clicks. */
+  .modal-backdrop.is-leaving,
+  .modal-panel.is-leaving {
+    pointer-events: none;
   }
   .oasis-starter:hover {
     transform: none;

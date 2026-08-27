@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
+import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
 import { Logo } from './Logo'
 import type { SttStatus } from '../types'
 
@@ -35,6 +36,7 @@ export function OnboardingModal(): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const setSettings = useAppStore((s) => s.setSettings)
   const { refresh } = useModels()
+  const { mounted, leaving } = useModalPresence(open)
 
   const [stt, setStt] = useState<SttStatus | null>(null)
   const [mic, setMic] = useState<PermissionState | 'unsupported' | null>(null)
@@ -61,7 +63,7 @@ export function OnboardingModal(): JSX.Element | null {
     return () => clearInterval(timer)
   }, [open, recheck])
 
-  if (!open || !settings) return null
+  if (!mounted || !settings) return null
 
   const dismiss = (): void => {
     const updated = { ...settings, onboardingCompleted: true }
@@ -128,11 +130,11 @@ export function OnboardingModal(): JSX.Element | null {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
       onClick={dismiss}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-panel-light dark:bg-panel-dark p-6 shadow-xl"
+        className={`${modalClasses(leaving).panel} w-full max-w-md rounded-2xl bg-panel-light dark:bg-panel-dark p-6 shadow-xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <p className="mb-1"><Logo size={44} /></p>
