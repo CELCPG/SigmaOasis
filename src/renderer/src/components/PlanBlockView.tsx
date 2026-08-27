@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ChatPlan, ToolCallRecord } from '../types'
 import { stepRecords } from '../hooks/planMode'
 import { ToolCallBlock } from './ToolCallBlock'
+import { Disclosure } from './Disclosure'
 import {
   awaitingApproval,
   forecastDivergenceNote,
@@ -149,8 +150,7 @@ export function PlanBlockView({
                     <span className="text-ink-tertiary">{openSteps[step.id] ? '▾' : '▸'}</span>
                   )}
                 </button>
-                {openSteps[step.id] && (
-                  <>
+                <Disclosure open={Boolean(openSteps[step.id])}>
                     {calls.map((record) => (
                       <ToolCallBlock key={record.id} record={record} />
                     ))}
@@ -165,8 +165,7 @@ export function PlanBlockView({
                         {step.output}
                       </pre>
                     )}
-                  </>
-                )}
+                </Disclosure>
               </div>
             </div>
           </li>

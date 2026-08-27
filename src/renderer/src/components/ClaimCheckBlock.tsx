@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { claimCheckSummary, sourceCaveat, UNREACHABLE_NOTE, UNREACHABLE_REMEDY } from '../lib/claimCheck'
 import { useAppStore } from '../stores/appStore'
 import type { ClaimCheckRecord, ClaimVerdict } from '../types'
+import { Disclosure } from './Disclosure'
 
 interface Props {
   check: ClaimCheckRecord
@@ -74,8 +75,7 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
         )}
         <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
-      {open && (
-        <div className="px-3 pb-3 pt-1">
+      <Disclosure open={open} className="px-3 pb-3 pt-1">
           <ul className="space-y-2">
             {check.claims.map((claim, idx) => {
               const style = VERDICT_STYLE[claim.verdict]
@@ -115,8 +115,7 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
               {caveat}
             </p>
           )}
-        </div>
-      )}
+      </Disclosure>
     </div>
   )
 }

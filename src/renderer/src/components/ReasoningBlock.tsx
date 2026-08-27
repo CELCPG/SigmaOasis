@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Disclosure } from './Disclosure'
 
 interface Props {
   /** The model's chain-of-thought, already separated from the answer. */
@@ -44,11 +45,11 @@ export function ReasoningBlock({ reasoning, reasoningMs, isStreaming, defaultOpe
         <span className={`font-medium ${isStreaming ? 'shimmer-text' : 'text-ink-secondary'}`}>{label}</span>
         <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
-      {open && (
+      <Disclosure open={open}>
         <pre className="max-h-72 overflow-auto whitespace-pre-wrap px-3 pb-3 pt-1 font-mono text-ink-secondary">
           {reasoning}
         </pre>
-      )}
+      </Disclosure>
     </div>
   )
 }

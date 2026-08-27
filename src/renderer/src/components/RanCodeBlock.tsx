@@ -4,6 +4,7 @@ import { renderMarkdown } from '../lib/markdown'
 import { startWaitClock, WAIT_TICK_MS } from '../lib/oasisRipple'
 import { parseRanCode } from '../lib/ranCode'
 import { RanCodeHeader } from './RanCodeHeader'
+import { Disclosure } from './Disclosure'
 
 /**
  * v1.6 "Ran code": what run_python did, visible by default. The code the model
@@ -83,8 +84,7 @@ export function RanCodeBlock({ record, onCodeBlockClick }: { record: ToolCallRec
         onToggle={() => setOpen((o) => !o)}
       />
       {record.preamble && <div className="px-3 pb-1.5 italic text-ink-secondary">“{record.preamble}”</div>}
-      {open && (
-        <div className="space-y-2 px-3 pb-3">
+      <Disclosure open={open} className="space-y-2 px-3 pb-3">
           <div className="markdown-body text-xs" onClick={onCodeBlockClick} dangerouslySetInnerHTML={{ __html: codeHtml }} />
           {parsed && (
             <>
@@ -123,8 +123,7 @@ export function RanCodeBlock({ record, onCodeBlockClick }: { record: ToolCallRec
               {parsed.notes.length > 0 && <div className="text-[11px] text-ink-tertiary">{parsed.notes.join(' · ')}</div>}
             </>
           )}
-        </div>
-      )}
+      </Disclosure>
     </div>
   )
 }

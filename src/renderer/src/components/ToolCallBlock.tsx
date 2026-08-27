@@ -4,6 +4,7 @@ import { declinedToCall, foundNothing } from '../lib/grounding'
 import { readToolFailure } from '../../../shared/tools/outcomes'
 import { composeFailure, copyableFailure } from '../../../shared/failure'
 import { toolVisualForName } from '../lib/oasisRipple'
+import { Disclosure } from './Disclosure'
 
 const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
   running: '⏳',
@@ -140,8 +141,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
       {record.status === 'running' && (
         <div className="tool-scanline" style={{ '--scan-color': visual.color } as CSSProperties} />
       )}
-      {open && (
-        <div className="space-y-2 p-3">
+      <Disclosure open={open} className="space-y-2 p-3">
           <div>
             <div className="mb-1 font-medium text-ink-secondary">
               {isConsult ? 'Task delegated' : 'Arguments'}
@@ -200,8 +200,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
               </button>
             </div>
           )}
-        </div>
-      )}
+      </Disclosure>
     </div>
   )
 }

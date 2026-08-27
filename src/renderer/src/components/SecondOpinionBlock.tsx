@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { reviewCameBack, secondOpinionLabel } from '../lib/secondOpinion'
 import type { SecondOpinionRecord } from '../types'
+import { Disclosure } from './Disclosure'
 
 interface Props {
   opinion: SecondOpinionRecord
@@ -49,8 +50,7 @@ export function SecondOpinionBlock({ opinion, isStreaming }: Props): JSX.Element
         )}
         <span className="ml-auto text-ink-tertiary">{open ? '▾' : '▸'}</span>
       </button>
-      {open && (
-        <div className="px-3 pb-3 pt-1">
+      <Disclosure open={open} className="px-3 pb-3 pt-1">
           <p className="whitespace-pre-wrap text-ink-secondary">
             {opinion.text}
             {isStreaming && <span className="animate-pulse">▌</span>}
@@ -61,8 +61,7 @@ export function SecondOpinionBlock({ opinion, isStreaming }: Props): JSX.Element
               another angle — not verification. Run the checks it names to be sure.
             </p>
           )}
-        </div>
-      )}
+      </Disclosure>
     </div>
   )
 }

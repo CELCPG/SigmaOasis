@@ -16,6 +16,7 @@ import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
+import { BlockEnter, Disclosure } from './Disclosure'
 import { RanCodeBlock } from './RanCodeBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
@@ -366,8 +367,7 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
       >
         {describeDeliberation(record)} {busy ? '' : <span>{open ? '▾' : '▸'}</span>}
       </button>
-      {open && !busy && (
-        <div className="mt-1 space-y-2 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
+      <Disclosure open={open && !busy} className="mt-1 space-y-2 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
           <div>
             <span className="font-medium text-ink-secondary">
               Review{record.self ? ' (self)' : ` by ${record.reviewerRole}`}
@@ -380,8 +380,7 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
               <p className="whitespace-pre-wrap text-ink-secondary">{record.draft}</p>
             </div>
           )}
-        </div>
-      )}
+      </Disclosure>
     </div>
   )
 }
@@ -510,8 +509,7 @@ function MemoryContextLine({
         {note && <span className="text-amber-700 dark:text-amber-400">{note} </span>}
         <span>{open ? '▾' : '▸'}</span>
       </button>
-      {open && (
-        <div className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
+      <Disclosure open={open} className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
           {groups
             ? groups.map((g, gi) => (
                 <div key={gi} className="space-y-1.5">
@@ -524,8 +522,7 @@ function MemoryContextLine({
             : items.map((i, idx) => (
                 <ContextEntry key={idx} item={i} focus={focusOf(i)} />
               ))}
-        </div>
-      )}
+      </Disclosure>
     </div>
   )
 }
@@ -959,15 +956,26 @@ export const MessageBubble = memo(function MessageBubble({
             even when the user hides tool-call blocks. */}
         <ToolImageGallery records={toolCalls} />
 
-        {/* A plan step's calls render inside the plan block, under their step. */}
+        {/*
+          A plan step's calls render inside the plan block, under their step.
+
+          Each block grows into place (.block-enter) rather than appearing at
+          its full height: these land mid-reply, often several in a row, and
+          an instant 60px block shoves everything under it down in one frame.
+          The wrapper is keyed on the record, so the animation runs once when
+          the call first appears and not again as its status goes
+          running → done.
+        */}
         {!hideToolCalls &&
-          answerRecords(toolCalls).map((record) =>
-            record.name === 'run_python' ? (
-              <RanCodeBlock key={record.id} record={record} onCodeBlockClick={handleCodeBlockClick} />
-            ) : (
-              <ToolCallBlock key={record.id} record={record} />
-            )
-          )}
+          answerRecords(toolCalls).map((record) => (
+            <BlockEnter key={record.id}>
+              {record.name === 'run_python' ? (
+                <RanCodeBlock record={record} onCodeBlockClick={handleCodeBlockClick} />
+              ) : (
+                <ToolCallBlock record={record} />
+              )}
+            </BlockEnter>
+          ))}
 
         {message.routingNote && (
           <div

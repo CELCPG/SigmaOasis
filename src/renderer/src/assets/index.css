@@ -330,6 +330,55 @@ body {
   animation: tab-face-in 0.18s var(--ease-settle) both;
 }
 
+/*
+ * Disclosures — a tool call's arguments, a reasoning trace, a plan step. The
+ * row is sized in `fr` so it animates to the content's own height without
+ * anything having to measure it; see Disclosure.tsx for why the body is
+ * mounted a frame before it expands. The body clips while it is shorter than
+ * its content, which is the whole of the effect.
+ */
+.disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s var(--ease-settle);
+}
+.disclosure.is-open {
+  grid-template-rows: 1fr;
+}
+.disclosure-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * A block arriving inside a reply — a tool call, a code run, a check. These
+ * land mid-answer, often several in a row, and at full height each one shoves
+ * the text below it down by that height in a single frame. BlockEnter reuses
+ * the .disclosure grid above to grow it into place instead, and this adds the
+ * fade over the top.
+ *
+ * The height half is a *transition*, not an animation, and that is not a
+ * style choice: measured here, Chromium does not interpolate
+ * grid-template-rows inside @keyframes — an animation between 0fr and 1fr
+ * jumps to the end value on the first frame (one height sample, no steps)
+ * while the identical transition interpolates in thirteen. Only opacity is
+ * keyframed here.
+ */
+@keyframes block-fade-in {
+  from {
+    opacity: 0;
+  }
+  60% {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.block-enter > .disclosure-body {
+  animation: block-fade-in 0.3s var(--ease-settle) both;
+}
+
 /* ---- Empty state ------------------------------------------------------------ */
 
 /* Headline ink, fading toward the bottom so the type feels lit from above. */
@@ -385,8 +434,14 @@ body {
   .oasis-rail-face,
   .modal-backdrop,
   .modal-panel,
-  .tab-face {
+  .tab-face,
+  .block-enter > .disclosure-body {
     animation: none;
+  }
+  /* Disclosure.tsx skips the frame dance under reduced motion, so the row is
+     already at its open value; the transition must not re-introduce one. */
+  .disclosure {
+    transition: none;
   }
   /* useModalPresence unmounts immediately under reduced motion, but anything
      briefly marked leaving must still not take clicks. */
