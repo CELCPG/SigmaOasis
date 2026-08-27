@@ -163,7 +163,7 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   // extraction instead of quietly measuring the wrong node.
   groundingCoverage: {
     source: bubble,
-    re: /\{coverage !== '' && \(\s*<div className="(mt-1 text-amber-[^"]*)"/
+    re: /\{coverage !== '' && <div className="(mt-1 text-ink-[^"]*)"/
   },
   userTimestamp: {
     source: section("if (message.role === 'user')", 'const accent ='),

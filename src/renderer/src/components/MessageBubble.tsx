@@ -299,9 +299,12 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
           named above a headline water figure the two arms disagreed about
           threefold, with nothing on screen to say the volumes had not been
           looked at. */}
-      {coverage !== '' && (
-        <div className="mt-1 text-amber-800 dark:text-amber-400">{coverage}</div>
-      )}
+      {/* v2.2: the provenance rank is `text-ink-tertiary`, not an amber step.
+          This line was written to sit WITH the "Checked against" footer and said
+          so in its own comment, but carried warm ink — so once the ink ranks
+          became tokens it read as a finding, the one thing it is documented not
+          to be. Caught by the rank assertion, not by eye. */}
+      {coverage !== '' && <div className="mt-1 text-ink-tertiary">{coverage}</div>}
       {/* One rank quieter than the warnings above it, and quieter by ink rather
           than by opacity — this is the line that says what the answer was
           measured against, and it was the least legible thing in the app.
