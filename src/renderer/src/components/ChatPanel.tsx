@@ -36,54 +36,61 @@ export function ChatPanel(): JSX.Element {
   )
   const collapsed = settings?.rightPanelCollapsed ?? false
 
-  if (collapsed) {
-    return (
-      <CollapsedStrip conversation={conversation} />
-    )
-  }
-
+  // One shell, two faces. The width glides between them (.oasis-rail) while
+  // the face that is leaving is replaced by one that fades in — see the note
+  // on the left rail in Sidebar.tsx, which this mirrors. The `key` is what
+  // makes the fade run: without it React reuses the div across the swap and
+  // the mount animation never restarts.
   return (
     <aside
-      className="relative z-10 m-3 ml-0 flex w-[296px] shrink-0 flex-col glass-panel"
-      aria-label="Chat panel"
+      className={`oasis-rail relative z-10 m-3 ml-0 flex shrink-0 flex-col overflow-hidden glass-panel ${
+        collapsed ? 'w-[52px]' : 'w-[296px]'
+      }`}
+      aria-label={collapsed ? 'Chat panel (collapsed)' : 'Chat panel'}
     >
-      <div className="flex items-center gap-2 px-4 pb-2 pt-4">
-        <button
-          type="button"
-          onClick={() => setRightPanelCollapsed(true)}
-          className="rounded-lg px-1.5 py-1 text-xs text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
-          title="Collapse chat panel (⌘J)"
-          aria-label="Collapse chat panel"
-          aria-expanded={true}
-        >
-          »
-        </button>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.2px]">
-          {conversation ? conversation.title : 'Chat'}
-        </span>
-        {conversation?.ephemeral && (
-          <span
-            className="rounded-full border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-500 dark:text-violet-300"
-            title="This chat lives only in memory. Nothing is written to disk; it is gone when you close it or quit."
-          >
-            ◌ ephemeral
-          </span>
-        )}
-      </div>
+      {collapsed ? (
+        <CollapsedStrip key="closed" conversation={conversation} />
+      ) : (
+        <div key="open" className="oasis-rail-face flex min-h-0 w-[296px] flex-1 flex-col">
+          <div className="flex items-center gap-2 px-4 pb-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setRightPanelCollapsed(true)}
+              className="rounded-lg px-1.5 py-1 text-xs text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
+              title="Collapse chat panel (⌘J)"
+              aria-label="Collapse chat panel"
+              aria-expanded={true}
+            >
+              »
+            </button>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.2px]">
+              {conversation ? conversation.title : 'Chat'}
+            </span>
+            {conversation?.ephemeral && (
+              <span
+                className="rounded-full border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-500 dark:text-violet-300"
+                title="This chat lives only in memory. Nothing is written to disk; it is gone when you close it or quit."
+              >
+                ◌ ephemeral
+              </span>
+            )}
+          </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {conversation && settings ? (
-          <>
-            <ProjectSection conversation={conversation} />
-            <SessionControls conversation={conversation} />
-            <DetailsSection conversation={conversation} />
-          </>
-        ) : (
-          <p className="px-4 py-6 text-center text-xs text-ink-tertiary">
-            Open or start a chat to see its settings here.
-          </p>
-        )}
-      </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {conversation && settings ? (
+              <>
+                <ProjectSection conversation={conversation} />
+                <SessionControls conversation={conversation} />
+                <DetailsSection conversation={conversation} />
+              </>
+            ) : (
+              <p className="px-4 py-6 text-center text-xs text-ink-tertiary">
+                Open or start a chat to see its settings here.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </aside>
   )
 }
@@ -101,11 +108,11 @@ function CollapsedStrip({ conversation }: { conversation: Conversation | undefin
       : conversation?.mode === 'orchestrated'
         ? 'Orchestrated'
         : 'Independent'
+  // Full width of the shell rather than a fixed 52px: while the shell is still
+  // gliding shut this face is already mounted, and centring on the live width
+  // walks the glyphs into place instead of pinning them to the left edge.
   return (
-    <aside
-      className="relative z-10 m-3 ml-0 flex w-[52px] shrink-0 flex-col items-center gap-2 py-4 glass-panel"
-      aria-label="Chat panel (collapsed)"
-    >
+    <div className="oasis-rail-face flex w-full flex-1 flex-col items-center gap-2 py-4">
       <button
         type="button"
         onClick={() => setRightPanelCollapsed(false)}
@@ -146,7 +153,7 @@ function CollapsedStrip({ conversation }: { conversation: Conversation | undefin
           </span>
         </>
       )}
-    </aside>
+    </div>
   )
 }
 

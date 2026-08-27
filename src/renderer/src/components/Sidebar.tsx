@@ -265,60 +265,67 @@ export function Sidebar(): JSX.Element {
     </div>
   )
 
-  if (collapsed) {
-    // The rail keeps what someone collapses the sidebar *to keep*: a way back,
-    // a new chat, and whether the model is reachable. Everything else is one
-    // click away through the command palette, which search already routes to.
-    return (
-      <aside className="relative z-10 m-3 mr-0 flex w-[52px] shrink-0 flex-col items-center gap-2 py-4 glass-panel">
+  // The rail keeps what someone collapses the sidebar *to keep*: a way back, a
+  // new chat, and whether the model is reachable. Everything else is one click
+  // away through the command palette, which search already routes to.
+  //
+  // v2.1: both faces live inside one shell whose width glides between 280 and
+  // 52 (.oasis-rail), because swapping two differently-sized <aside> elements
+  // snapped the whole chat column sideways in a single frame. Two details make
+  // the glide read cleanly: the open face is a fixed 280px wide, so the shell
+  // wipes across finished text instead of re-wrapping it every frame; and each
+  // face carries a `key`, without which React reuses the div across the swap
+  // and its fade-in never restarts.
+  const face = collapsed ? (
+    <div
+      key="closed"
+      className="oasis-rail-face flex w-full flex-1 flex-col items-center gap-2 py-4"
+    >
+      <button
+        type="button"
+        onClick={() => setCollapsed(false)}
+        className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
+        title="Expand conversations (⌘B)"
+        aria-label="Expand conversations"
+        aria-expanded={false}
+      >
+        »
+      </button>
+      <Logo size={22} />
+      <button
+        type="button"
+        onClick={() => createConversation()}
+        disabled={streaming}
+        className="mt-1 rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-sm text-accent-ink shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
+        title="New conversation (⌘N)"
+        aria-label="New conversation"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={() => setCollapsed(false)}
+        className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
+        title="Search conversations"
+        aria-label="Search conversations"
+      >
+        🔍
+      </button>
+      <div className="mt-auto flex flex-col items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${dotClass}`} title={`LM Studio: ${connection}`} />
         <button
           type="button"
-          onClick={() => setCollapsed(false)}
+          onClick={() => setSettingsOpen(true)}
           className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
-          title="Expand conversations (⌘B)"
-          aria-label="Expand conversations"
-          aria-expanded={false}
+          title="Settings (⌘,)"
+          aria-label="Settings"
         >
-          »
+          ⚙️
         </button>
-        <Logo size={22} />
-        <button
-          type="button"
-          onClick={() => createConversation()}
-          disabled={streaming}
-          className="mt-1 rounded-2xl border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.15)] px-2.5 py-1 text-sm text-accent-ink shadow-[0_0_16px_rgba(0,212,170,0.15)] hover:bg-[rgba(0,212,170,0.22)] disabled:opacity-50"
-          title="New conversation (⌘N)"
-          aria-label="New conversation"
-        >
-          +
-        </button>
-        <button
-          type="button"
-          onClick={() => setCollapsed(false)}
-          className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
-          title="Search conversations"
-          aria-label="Search conversations"
-        >
-          🔍
-        </button>
-        <div className="mt-auto flex flex-col items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${dotClass}`} title={`LM Studio: ${connection}`} />
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
-            title="Settings (⌘,)"
-            aria-label="Settings"
-          >
-            ⚙️
-          </button>
-        </div>
-      </aside>
-    )
-  }
-
-  return (
-    <aside className="relative z-10 m-3 mr-0 flex w-[280px] shrink-0 flex-col glass-panel">
+      </div>
+    </div>
+  ) : (
+    <div key="open" className="oasis-rail-face flex min-h-0 w-[280px] flex-1 flex-col">
       <div className="flex items-center gap-2 px-4 pb-1 pt-4">
         <Logo size={22} />
         <span className="text-[15px] font-semibold tracking-[-0.3px]">Sigma Oasis</span>
@@ -369,7 +376,7 @@ export function Sidebar(): JSX.Element {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-3 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
         {sorted.length === 0 && projects.length === 0 ? (
           <p className="px-2 py-4 text-center text-xs text-ink-tertiary">
             No conversations yet
@@ -544,6 +551,17 @@ export function Sidebar(): JSX.Element {
           ⚙️
         </button>
       </div>
+    </div>
+  )
+
+  return (
+    <aside
+      className={`oasis-rail relative z-10 m-3 mr-0 flex shrink-0 flex-col overflow-hidden glass-panel ${
+        collapsed ? 'w-[52px]' : 'w-[280px]'
+      }`}
+      aria-label={collapsed ? 'Conversations (collapsed)' : 'Conversations'}
+    >
+      {face}
     </aside>
   )
 }

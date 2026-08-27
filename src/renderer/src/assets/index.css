@@ -211,6 +211,38 @@ body {
   animation: stream-edge-in 0.4s ease-out both;
 }
 
+/*
+ * The two side rails, opening and closing. Both faces of a rail live inside
+ * one shell (Sidebar.tsx, ChatPanel.tsx); the shell's width is what moves, and
+ * the arriving face fades up over it. 0.26s is the whole gesture: long enough
+ * to read as a movement, short enough that a ⌘B is not a wait.
+ */
+.oasis-rail {
+  transition: width 0.26s var(--ease-settle);
+}
+@keyframes oasis-rail-face-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.oasis-rail-face {
+  animation: oasis-rail-face-in 0.26s var(--ease-settle) both;
+}
+
+/*
+ * The composer growing with its text (the layout effect in InputBar.tsx sets
+ * the pixel height). Transitioned, so a second line lifts the box instead of
+ * stepping it — and because the composer is a flex sibling of the message
+ * list rather than an overlay, the reply column rides the same glide instead
+ * of jumping a line-height.
+ */
+.composer-input {
+  transition: height 0.16s var(--ease-settle);
+}
+
 /* ---- Empty state ------------------------------------------------------------ */
 
 /* Headline ink, fading toward the bottom so the type feels lit from above. */
@@ -257,6 +289,13 @@ body {
     animation: none;
   }
   .stream-edge {
+    animation: none;
+  }
+  .oasis-rail,
+  .composer-input {
+    transition: none;
+  }
+  .oasis-rail-face {
     animation: none;
   }
   .oasis-starter:hover {

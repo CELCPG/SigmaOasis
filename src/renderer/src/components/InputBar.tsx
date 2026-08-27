@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
@@ -19,6 +19,9 @@ const GHOST_BUTTON =
   'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm text-ink-tertiary ' +
   'transition-colors hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary ' +
   'disabled:opacity-40 disabled:hover:bg-transparent'
+
+/** Tallest the composer grows before it scrolls its own text instead. */
+const MAX_COMPOSER_PX = 200
 
 /**
  * Message composer with attachments. Enter sends, Shift+Enter inserts a
@@ -93,12 +96,8 @@ export function InputBar(): JSX.Element {
     if (!composerPrefill) return
     setText(composerPrefill)
     setComposerPrefill(null)
-    const el = textareaRef.current
-    if (el) {
-      el.focus()
-      el.style.height = 'auto'
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-    }
+    // Height is the resize effect's job now — this only takes the caret.
+    textareaRef.current?.focus()
   }, [composerPrefill, setComposerPrefill])
 
   // Escape cancels an in-progress recording; the mic is always released on unmount.
@@ -291,7 +290,6 @@ export function InputBar(): JSX.Element {
     setText('')
     setAttachments([])
     setNotice(null)
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     void sendMessage(value, attachments, planned || deliberate ? { planned, deliberate } : undefined)
   }
 
@@ -302,12 +300,39 @@ export function InputBar(): JSX.Element {
     }
   }
 
-  const autoResize = (): void => {
+  /**
+   * Grow and shrink the composer with its content, as a glide rather than a
+   * step. Driven by the text itself, so a prefill and a submit-clear resize
+   * the way a keystroke does — through v2.0 those were three separate hand-set
+   * heights and two of them snapped, which shoved the whole reply column
+   * (the composer is a flex sibling of the message list, not an overlay).
+   *
+   * Measuring needs `height: auto`, which is not a value a transition can
+   * start from. Restoring the painted height before yielding and setting the
+   * target in the next frame gives the transition in .composer-input two
+   * pixel values to run between; nothing paints at `auto`, because the restore
+   * happens in the same task as the read.
+   */
+  useLayoutEffect(() => {
     const el = textareaRef.current
     if (!el) return
+    const previous = el.style.height
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-  }
+    const next = `${Math.min(el.scrollHeight, MAX_COMPOSER_PX)}px`
+    // No prior height to glide from (first paint) — and nothing to animate
+    // when the height is unchanged, which is most keystrokes.
+    if (!previous || next === previous) {
+      el.style.height = previous || next
+      return
+    }
+    el.style.height = previous
+    const frame = requestAnimationFrame(() => {
+      el.style.height = next
+    })
+    return () => cancelAnimationFrame(frame)
+    // `compact` re-flows the textarea to full width in split view, which
+    // changes how many lines the same text takes.
+  }, [text, attachments.length, compact])
 
   return (
     <div className="p-4 pt-1">
@@ -319,7 +344,10 @@ export function InputBar(): JSX.Element {
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => void onDrop(e)}
-          className={`glass-panel rounded-3xl p-2 transition-all focus-within:border-[rgba(0,212,170,0.35)] focus-within:shadow-[inset_0_1px_0_var(--glass-inset),0_0_24px_rgba(0,212,170,0.12)] ${
+          // Named properties, not transition-all: the shell's height is driven
+          // by the textarea gliding inside it, and a blanket transition made
+          // the border chase that growth a frame behind the box it outlines.
+          className={`glass-panel rounded-3xl p-2 transition-[border-color,box-shadow,background-color] duration-200 focus-within:border-[rgba(0,212,170,0.35)] focus-within:shadow-[inset_0_1px_0_var(--glass-inset),0_0_24px_rgba(0,212,170,0.12)] ${
             dragOver ? 'border-accent border-dashed' : ''
           } ${streaming ? 'composer-live' : ''}`}
         >
@@ -455,14 +483,11 @@ export function InputBar(): JSX.Element {
             <textarea
               ref={textareaRef}
               value={text}
-              onChange={(e) => {
-                setText(e.target.value)
-                autoResize()
-              }}
+              onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
               rows={1}
               placeholder="Message Sigma Oasis…"
-              className={`max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-tertiary ${
+              className={`composer-input max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-tertiary ${
                 compact ? 'order-first w-full basis-full' : 'flex-1'
               }`}
             />

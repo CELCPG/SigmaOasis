@@ -154,7 +154,15 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   // The sidebar is chrome too, and it is where the ink-token sweep stopped: a
   // reply can be perfect while the panel beside it carries the worst contrast
   // on the screen.
-  sidebarShell: { source: sidebar, re: /<aside className="(relative z-10 m-3 mr-0 flex w-\[280px\][^"]*)"/ },
+  // v2.1: collapsing became an animation, so the rail's width moved into a
+  // conditional and the shell's classes are a template literal. Scrape the
+  // fixed part and put the open width back — the collapsed rail is glyphs
+  // only, and this check is about the ink a panel of prose sits on.
+  sidebarShell: {
+    source: sidebar,
+    re: /<aside\s*\n\s*className=\{`(oasis-rail relative z-10 m-3 mr-0 [^`$]*)\$\{/,
+    wrap: (s) => `${s} w-[280px]`
+  },
   sidebarSearch: {
     source: sidebar,
     re: /placeholder="Search conversations…"\s*\n\s*className="([^"]*)"/
