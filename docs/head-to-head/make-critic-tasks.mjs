@@ -1,31 +1,35 @@
 /**
  * The task set a blind critic is allowed to see.
  *
- * `tasks.json` carries three fields written for the people BUILDING against it:
- * `probes` (why the task exposes something), `mechanicalChecks` (what to compute)
- * and `criticQuestion` (the question as originally phrased). All three are a
- * liability in front of a critic, and two of them are worse than leading.
+ * A critic needs what the user sent and how the app was staged. Everything else
+ * in `tasks.json` is written for the people building and judging against it, and
+ * in front of a critic it is either noise or evidence about the run:
  *
- * They are a defect inventory. Every `probes` field is present tense, names a
- * source file, function or CSS class, and asserts a live bug. A critic reading
- * one is told what at least one build is known to get wrong before it opens a
- * single artifact.
+ *   `probes`             why the task earns its place
+ *   `mechanicalChecks`   what the scoring script computes
+ *   `question`           the question the critic is asked, in its own words
+ *   `measure` `decide`   what to report, and how to weigh it
  *
- * Four of them can DE-BLIND a pair outright, because they quote constants that
- * only one build can produce:
+ * The last three reach the critic anyway — through the prompt document, written
+ * separately and by someone who did not build the changes. Handing them over
+ * twice is how two copies drift, and a critic holding the measurement plan and
+ * the artifacts at once starts fitting one to the other.
  *
- *   VC3  "rgba(23,23,23,0.32) … roughly 2.05:1 … 33 places … 83 places"
- *   VC2  "33 occurrences of 'outline-none' … zero occurrences of 'focus-visible'"
- *   PT2  the exact strings "▶ Run this plan", "Cancel", "awaiting approval"
- *   PT3  the glyphs and classes "'✗' in text-red-500", "'○ text-neutral-400'"
+ * Round 8 stripped these because they were a defect inventory: every `probes`
+ * field named a source file, a function or a CSS class and asserted a live bug,
+ * and four quoted constants only one build could produce. Round 9 rewrote them
+ * so that is no longer true, and put the rule under test — a descriptive field
+ * that carries a path, a class, an identifier, a measured constant, a version or
+ * a glyph now fails the suite. What remains here is defence in depth rather than
+ * the only defence: the reason to keep a field out of this view is now that a
+ * critic has no use for it, not that reading it would tell them the answer.
  *
- * A critic that measures 2.46:1 in one arm and 9.48:1 in the other, having read
- * that the value to beat is 2.05:1, is not judging blind — it is recognising an
- * arm. That was true for every round judged before this file existed, which is
- * recorded in docs/evals.md rather than quietly fixed.
- *
- * A critic needs what the user sent and how the app was set up. Nothing else in
- * this file is evidence about the run in front of it.
+ * `setup` is the exception in the other direction. It stays, because a critic
+ * cannot judge a run without knowing how it was staged, and it is frozen,
+ * because eight rounds of recorded runs are comparable only if it does not move.
+ * It is therefore the one place a constant still reaches a critic; the inventory
+ * of what is in there is pinned in test/h2hTaskNeutrality.test.ts so it cannot
+ * grow unnoticed.
  *
  *   node docs/head-to-head/make-critic-tasks.mjs
  */
@@ -37,14 +41,17 @@ const here = dirname(fileURLToPath(import.meta.url))
 const src = JSON.parse(readFileSync(join(here, 'tasks.json'), 'utf8'))
 
 const KEEP = ['id', 'dimension', 'prompt', 'setup', 'offlineSafe']
-const DROP = ['probes', 'mechanicalChecks', 'criticQuestion']
+// `criticQuestion` no longer exists; it is named so that reintroducing the field
+// round 8 found leading is caught here rather than shipped to a critic.
+const DROP = ['probes', 'mechanicalChecks', 'criticQuestion', 'question', 'measure', 'decide', 'selfConsistency']
 
 const out = {
   note:
-    'The blind-critic view of the task set. `probes`, `mechanicalChecks` and ' +
-    '`criticQuestion` are removed: they describe known defects, and four of them ' +
-    'quote constants that identify which build produced a run. See ' +
-    'make-critic-tasks.mjs for why.',
+    'The blind-critic view of the task set. Everything but the prompt and the ' +
+    'staging is removed: why the task earns its place, what the scoring script ' +
+    'computes, and the question, the measurements and the weighing — the last ' +
+    'three because the critic is asked them by the prompt document instead, and ' +
+    'two copies of a question drift. See make-critic-tasks.mjs for why.',
   version: src.version,
   name: src.name,
   dimensions: src.dimensions,

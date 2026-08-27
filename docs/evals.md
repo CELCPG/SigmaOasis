@@ -2880,6 +2880,205 @@ A same-generation comparison surfaces what neither build fixed:
 - **`answerEval.ts` holds a third hand-rolled copy of the measurement vocabulary.**
   `shared/measurements.ts` exists because two copies would drift silently. There are three.
 
+### Pending fold-in — a task set that named the defects it was supposed to detect
+
+Round 8 left the instrument holding two faults that pull in opposite directions, and fixed
+neither. All 18 `probes` fields were defect reports of one build, so a question-writer who read
+them was contaminated and a critic who read them could recognise an arm. And the neutral
+questions written to replace the leading ones turned out to be **insensitive**: builder A's
+repair to a genuine self-contradiction — the app printing that nothing in the library covered
+the question while simultaneously marking two passages as cited — scored a **tie**, because
+TH3's question asked whether source text was checkable on screen, which both builds satisfied.
+
+The two faults look like one trade: *a question specific enough to detect a real repair is a
+question that names the repair.* They are not. What makes a description leak is not its
+specificity, it is that it **asserts a value** — that it says which side of the observable a
+build falls on. A description can name the coordinate exactly and stay silent on the reading.
+
+> the strip only lists the first lookup's passages
+
+names one coordinate and one build's position on it. It dates, it de-blinds, and it stops being
+true the day it is fixed.
+
+> this prompt produces a turn with two lookups and citations spanning both
+
+names **the same coordinate**, is true of every build including one that gets it right, and
+tells a reader nothing about which arm is which. It is exactly as sensitive and carries none of
+the leak. That is the whole repair, applied 18 times.
+
+**Before and after, three of the eighteen.**
+
+`V2` — a defect report, down to the element:
+
+```
+Retrieved provenance is display-only. MessageBubble renders library citations through
+MemoryContextLine, where each source is a bare <span>{i.source}</span> inside a collapsible
+— no <a href>, no way to open the cited document. … Prompt matches FINANCE_RULE_DOMAINS
+('standard deduction', 'filing status') so packs/finance/standard-deduction.md is retrieved
+```
+
+now a statement about what the task makes happen:
+
+```
+The prompt asks for a citation in as many words, in a domain the installed library covers, so
+the reply arrives with retrieval behind it and the model routinely writes inline bracketed
+markers into the text. The task therefore produces, inside one message, a set of citations
+offered and a set of routes to the cited text. Both are countable from the artifacts, and the
+distance between them is what the dimension is about.
+```
+
+`VC3` — the worst of the four de-blinders, which handed a critic the number to beat:
+
+```
+--text-muted is rgba(23,23,23,0.32) in light theme — roughly 2.05:1 against the app's light
+background — and it is used for load-bearing prose in 33 places (text-ink-muted), while the
+message-level provenance lines use text-neutral-400 in 83 places.
+```
+
+now:
+
+```
+This is the natural follow-up to a retrieval turn, and it puts the application's own account
+of that turn on screen: which documents were used, how relevant they were, and how long it
+took. That account is prose, and prose has a measurable contrast against whatever is behind
+it, in both themes. Every text node in the reply is one measurement, so the result is a
+distribution rather than a reading.
+```
+
+`TH3` — the task that missed the repair. Before, it asserted a defect in the checking code:
+
+```
+Quotation fidelity is unchecked. … Nothing in checkToolGrounding compares quoted spans to the
+source corpus (it checks figures, links, origins, addresses, contacts), so a 9B model that
+paraphrases inside quotation marks … produces a fabricated citation that the app presents
+exactly as it presents a true one.
+```
+
+after, it names both observables the turn puts in play — and the second one is the fix:
+
+```
+The prompt demands a verbatim line from the installed library, so the reply carries a span
+presented as quotation while the turn carries the text it was supposedly taken from — a claim
+that is checkable character by character from the artifacts alone. The same message also
+carries the application's own statements about that retrieval: how much it found, whether it
+treats the answer as backed, which passages it marks as used. So this screen can be checked
+against itself as well as against the record.
+```
+
+**Sensitivity came from the question shape, not from the question's content.** A single
+`criticQuestion` had to be specific and answerable in one sentence, and the shortest sentence
+that is both is *which run leaves more invented numbers standing*. That is a verdict wearing a
+question mark. It is now three fields:
+
+| | what it is | why it is not leading |
+| --- | --- | --- |
+| `question` | non-directional: how many, how much, what the reader ends up with | the specificity moved out of it |
+| `measure` | what to report from **both** runs, in numbers, in both directions | a report is not a verdict |
+| `decide` | how to weigh it, symmetrically, including what a tie means | states the tie rules before the numbers exist |
+
+Every `measure` entry has to stay informative after the thing it measures is fixed. *Report how
+many markers resolve and how many do not* survives a fix; *does the app resolve markers* stops
+saying anything the moment one build says yes. Each one also carries its own degenerate-fix
+guard, because the cheapest way to pass most of these questions is to print less: V3 reports the
+figure count beside the mismatch count, PT2 asks whether the cancelled plan is still legible at
+all, VC1 counts characters lost as well as pixels overflowed, VC3 reports nodes measured beside
+nodes failing, and `selfConsistency` says outright that a screen which says nothing is not
+thereby consistent.
+
+**The TH3 case, specifically.** The file now carries one question asked of every task:
+
+```
+Does anything the application states on this screen contradict anything else it states on the
+same screen?
+```
+
+It presupposes nothing, applies to every build, needs no knowledge of what changed, and is the
+question that would have caught a banner disclaiming the library while markers cited it. TH3
+also carries it in its own `measure`, specialised to retrieval statements. This is the general
+lesson from the miss: a task whose trigger is the model misbehaving needs a **companion
+measurement that fires unconditionally**, or the fix is only visible on the runs where the model
+happens to co-operate. V1, TH1 and TH2 each gained one.
+
+**The guard.** `test/h2hTaskNeutrality.test.ts`, 12 tests. The generated view is a filter on
+what a critic may *read*; this is a check on what may be *written*, which is the thing that stops
+the leak existing. Twelve leak classes, written as classes rather than as the strings round 8
+found — the recurring lesson in this document is that a check whose vocabulary is narrower than
+the class it guards stops catching things the moment the wording moves:
+
+| class | example it catches | why it is a fingerprint |
+| --- | --- | --- |
+| source path, tree path | `index.css`, `packs/finance/…` | a build that renamed it falsifies the task |
+| utility class, css token | `text-neutral-400`, `rgba(23,23,23,0.32)`, `outline-none` | how one build spells a presentation |
+| code identifier | `MessageBubble`, `checkToolGrounding`, `FOOD_DOMAINS` | neither reader nor critic ever sees it |
+| dimensioned number, ratio | `15 s`, `33 occurrences`, `2.05:1` | a measured result: the value to beat |
+| version, viewport size | `v1.6`, `1280x800` | the most direct de-blinder there is |
+| interface glyph, quoted screen string | `▶`, `✗`, `'awaiting approval'` | the arm that prints it is the arm that has it |
+
+It also fails if a `question` contains *which run*, if a field exists that `make-critic-tasks.mjs`
+neither keeps nor drops (a rename is the same leak respelled), and if `tasks-for-critics.json`
+is stale. Two tests keep it honest in both directions: a positive control feeding it the shapes
+round 8 recorded in the field, and a false-positive control feeding it neutral prose. Verified by
+reintroducing a leak: `V1.probes` gains one sentence and the suite names all three constants in
+it and why each is one.
+
+Suite: **2118 tests, 0 failures**, exit 0, plus 252 render/style/traverse/markdown/transport
+checks. Twelve of those tests are new. `prompt` and `setup` are byte-identical to round 8 —
+asserted by diffing the frozen fields before and after the rewrite, not by inspection.
+
+#### The five tasks this did not fix, and why
+
+Named rather than papered over. Two kinds of residue.
+
+**The leak I was not allowed to reach — PT2, VC1, FR3, PT1, TTU2, TH2, TTU1, VC2.** `setup` is
+frozen, because eight rounds of recorded runs are comparable only if the staging has not moved,
+and it is also the one descriptive field the critic view **keeps**. So the constants in it still
+reach a critic, and round 8's mitigation never covered them:
+
+- **PT2** is the worst case, because two of round 8's four de-blinders are in its `setup`, not
+  only in its `probes`: the driver is told to wait for `'awaiting approval'` and then click
+  `'Cancel'`. Its `probes` no longer quotes a label; its staging still does.
+- **VC1**'s setup carries `(v1.11)`, a literal version string in the file a critic reads while
+  being instructed to ignore version strings.
+- **FR3**'s names `pickReviewer` and `REVIEW_INSTRUCTION` — internal identifiers, in front of a
+  blind judge.
+
+These are pinned as an inventory the suite asserts exactly, so the surface cannot grow
+unnoticed, and each is a one-line edit for whoever decides the staging prose may move
+independently of the staging. I did not make that call.
+
+**The insensitivity I could not remove — V1, TH1, TH2, TH3, and VC2 differently.** Four tasks
+have a **model-dependent trigger**. The app-side behaviour they measure only becomes visible
+when the model misbehaves first:
+
+| task | fires only when the model | so a repair is invisible when |
+| --- | --- | --- |
+| V1 | states a quantity the source does not contain | it happens to state only supported ones |
+| TH1 | claims a tool it did not use | it makes no process claim at all |
+| TH2 | writes URLs after a failed lookup | it writes none |
+| TH3 | fabricates inside quotation marks | it quotes faithfully |
+
+No rewording touches this. It is the mechanism behind round 8's *"the model did not exercise the
+change"* ties, and it is why V1 scored a tie on a run the critic refused to score — *"its
+0-mismatch score is untested rather than earned"*. The unconditional companion measurements
+narrow it: TH3 now always asks whether the screen agrees with itself, TH2 always asks what
+status the lookup block displays, V1 always asks whether the retrieved text is legible on screen
+at all, TH1 always asks whether what ran is visible. A run where the model behaves now still
+measures something. But the specific check — does the app catch a fabricated quotation — cannot
+be exercised on a turn with no fabricated quotation, and a task set cannot make a 9B model lie
+on cue.
+
+**VC2** resists for a different reason: the keyboard route is chosen by the model's own answer,
+so the two arms may traverse different routes of different lengths. Totals are not comparable
+between runs; only proportions are, and `decide` now says so. That is weaker than it looks in
+the score line.
+
+**And `mechanicalChecks` is untouched — 18 fields, still a defect inventory in machine form.**
+It names `text-red-500`, `'Run this plan'`, exact glyphs and exact thresholds, because a script
+assertion has to name concrete DOM facts to be decidable at all. It is stripped from the critic
+view and the README now says plainly that nothing but the scoring script may read it, including
+the person writing the critic's prompt. That is a rule, not a mechanism. It is the largest
+remaining contamination surface in the file and the guard does not cover it.
+
 ## A note on the version numbers in this document
 
 The section headings above carry labels like `v1.14`, `v1.16`, `v1.17.2`. **None of those

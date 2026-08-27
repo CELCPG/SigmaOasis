@@ -35,18 +35,75 @@ Each entry in `tasks.json` carries:
 - **`dimension`** — one of the six above.
 - **`prompt`** — the literal text typed into the composer. Nothing is
   paraphrased at run time; the driver types this string exactly.
-- **`probes`** — the specific weakness the task is built to expose, named down
-  to the file and the code path. This is the task's justification and it is
-  what a reviewer should argue with if they think a task is unfair.
+- **`probes`** — what the task **makes happen**: the turn shape the prompt and
+  the fixtures produce, and the observables that shape puts in play. It is the
+  task's justification, and it is what a reviewer should argue with if they
+  think a task is unfair. It states no build's behaviour. See *Neutrality*.
 - **`setup`** — fixtures, settings and driver actions the task needs (see
   *Fixtures* below). Anything the driver must do beyond typing lives here.
 - **`mechanicalChecks`** — assertions a **script** decides from the captured
   run: a regex over visible text, a timing threshold, the presence or absence
   of a DOM affordance, a count, a computed contrast ratio. No check anywhere in
   this file asks a model to grade anything.
-- **`criticQuestion`** — the single question a blind critic answers by
-  comparing two captured runs without being told which build produced which.
+- **`question`** — what a blind critic is asked. Non-directional: it asks how
+  much, how many, or what the reader ends up with. A question that asks *which
+  run* is worse has the verdict in it before anything is measured.
+- **`measure`** — what to report from both runs, in numbers, in both
+  directions. Every entry survives a fix: a count of markers that resolve and a
+  count that do not is still informative once every marker resolves, where *does
+  the app resolve markers* stops being informative the moment one build says yes.
+- **`decide`** — how to weigh what was measured, stated symmetrically, including
+  what to do when neither run was put to the test.
 - **`offlineSafe`** — true for all 18. Nothing in this set reaches the internet.
+
+The file also carries one question asked of **every** task, in `selfConsistency`:
+does anything the application says on this screen contradict anything else it
+says on the same screen. It presupposes nothing, applies to every build, and
+catches the class of repair a per-task question misses — an app that prints a
+banner saying it found nothing while marking two passages as cited is wrong in a
+way no single dimension's question thinks to ask about.
+
+---
+
+## Neutrality
+
+The task set is written twice over: for the people building against it, and for
+the people judging against it. Those two readers want opposite things, and for
+eight rounds the first one won.
+
+A task description that says *the strip only lists the first lookup's passages*
+is a defect report. It dates: it is true of one build, on one day. A critic who
+reads it knows what to look for and which arm to expect it in, and a
+question-writer who reads it is holding an inventory of what at least one build
+is known to get wrong. Round 8 recorded that all 18 `probes` fields were written
+that way and that four quoted constants only one build could produce.
+
+The same task is exactly as sensitive when it is written as *this prompt
+produces a turn with two lookups and citations spanning both*. That names the
+same coordinate. It just does not say which value is the good one, and it is
+true of every build — including one that gets it right.
+
+So the rule is: **a descriptive field names what the task does, never what a
+build does with it.** No source path, no class name or custom property, no code
+identifier, no number with a unit, no ratio, no version, no viewport size, no
+interface glyph, no string quoted off the screen. Any of those is a fact about
+an implementation, and a task that states one has stopped describing an
+experiment and started describing a result.
+
+`test/h2hTaskNeutrality.test.ts` enforces this on `probes`, `question`,
+`measure`, `decide` and the file's own notes. It is a check on what may be
+*written*; `make-critic-tasks.mjs` is a filter on what a critic may *read*. Two
+fields are deliberately outside it:
+
+- **`prompt` and `setup` are frozen.** They are the experiment, and eight rounds
+  of recorded runs are comparable only because they have not moved. `setup` is
+  also the one descriptive field the critic view keeps, so what is still in it —
+  two quoted labels on PT2, a version parenthetical on VC1, two internal
+  identifiers on FR3 — is pinned as an inventory that fails the suite if it grows.
+- **`mechanicalChecks` is a script's assertion list.** It has to name concrete
+  DOM facts to be decidable at all, so it remains a defect inventory in machine
+  form. Nothing but the scoring script may read it — not a critic, not the
+  person writing the critic's prompt.
 
 ---
 
@@ -207,13 +264,25 @@ settled against.
 
 **Pass 2 — blind critic.** A reviewer is given two captured runs of one task,
 labelled only `Run A` and `Run B`, with no build identity, no commit, no order
-guarantee, and no access to Pass 1. They answer that task's `criticQuestion` and
-nothing else. Every `criticQuestion` is phrased so it can be answered from the
-two captures alone.
+guarantee, and no access to Pass 1. They answer that task's `question` and the
+`selfConsistency` question, report every entry in `measure` for **both** runs,
+and weigh them by `decide`. Nothing else. All four are phrased so they can be
+answered from the two captures alone.
+
+The critic reads those from a prompt document, not from `tasks.json`: the
+document is written by someone who did not build the changes, and the task file
+a critic may open is the generated `tasks-for-critics.json`. The person writing
+that document may read `probes`, `question`, `measure` and `decide` — that is
+what the neutrality rule is for — but never `mechanicalChecks`.
 
 A build wins a dimension by taking at least two of its three tasks on Pass 1.
 Pass 2 breaks ties and, more usefully, catches the case where both builds pass
 the script and one of them is still plainly worse to use.
+
+**A tie is three different results**, and Pass 2 must say which one it has:
+the task was insensitive to what changed; the run never exercised the thing the
+task measures; or both builds really do behave the same. Only the third is a
+statement about the builds.
 
 ---
 
@@ -221,16 +290,26 @@ the script and one of them is still plainly worse to use.
 
 A new task earns its place only if all of these hold:
 
-- it names a **specific** code path it is designed to expose, in `probes`;
+- its `probes` names a **specific** observable it puts in play, and says so as a
+  property of the task — a sentence only one build could falsify is a defect
+  report, not a probe;
 - a real person would plausibly type its `prompt` verbatim;
 - every `mechanicalChecks` entry is decidable by a script from the capture;
-- its `criticQuestion` is answerable from two blind captures;
+- its `question` is answerable from two blind captures and names no run;
+- every `measure` entry is a number or a quotation that stays informative after
+  the thing it measures is fixed;
+- `decide` says what to do when the two runs come out the same, and what to do
+  when neither was put to the test;
 - it runs with the network off, and `offlineSafe` says so truthfully;
 - its outcome does not depend on model size or on world knowledge the local 9B
   model would not have.
 
 If a task starts passing on every build, it has stopped measuring anything —
 retire it and write a harder one. Do not weaken it.
+
+Run `node docs/head-to-head/make-critic-tasks.mjs` after any edit; the suite
+fails if `tasks-for-critics.json` is stale, if a new field is one the generator
+neither keeps nor drops, or if a descriptive field carries a build fingerprint.
 
 ---
 
