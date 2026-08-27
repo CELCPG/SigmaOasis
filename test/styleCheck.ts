@@ -49,6 +49,8 @@ const REPLY_TEXT = pick(bubbleSrc, /className="(whitespace-pre-wrap [^"]*)"/)
 const WRAP_BTN = pick(markdownSrc, /class="(code-wrap-btn)"/)
 /** The state class that control turns on, read from the stylesheet that keys on it. */
 const WRAP_STATE = pick(cssSrc, /\.code-block\.([a-z-]+) pre \{/)
+/** The modifier the renderer sets on a block that may fold mid-token. */
+const FOLD_STATE = pick(cssSrc, new RegExp(`\\.code-block\\.${WRAP_STATE}\\.([a-z-]+) pre \\{`))
 /** The scroll container the renderer wraps every table in. */
 const TABLE_SCROLL = pick(markdownSrc, /class="(md-table-scroll)"/)
 
@@ -145,6 +147,38 @@ const BLOB = `/Users/x/Library/Caches/${'QUJDREVGR0hJSktMTU5PUFFSU1RVVld'.repeat
 const CODE_LINE = `const payload = "${'y'.repeat(200)}"`
 
 /**
+ * The token from the round-8 critique, verbatim: hyphenated every few
+ * characters, so every hyphen is a break opportunity the line-breaker will take
+ * in preference to breaking inside a run. It is the shape that made round 8's
+ * fix ambiguous — each folded row ended in a real `-`, which a reader has been
+ * trained to delete when rejoining lines.
+ */
+const HYPHEN_TOKEN =
+  'signme-oasis-head-to-head-layout-probe-a-single-unbroken-token-that-must-not-' +
+  'block-out-the-chat-column-0001-0002-0003-0004-0005-0006-0007-0008-0009-0010-' +
+  '0011-0012-0013-0014-0015-0016-0017-0018-0019-0020-0021'
+
+/**
+ * Three lines of ordinary JavaScript, each too long for the column — the true
+ * negative for the rule above. A reader who pressed Wrap on this wants to read
+ * the code, and filling every row to the edge would break identifiers that
+ * would have fitted the next row: round 8's shredding, inside a code block.
+ * Deliberately hyphen-free, so this measures identifier splitting and nothing
+ * else; the hyphen case has its own control below.
+ */
+const ORDINARY_CODE = [
+  'const resolvedConfiguration = mergeDefaults(userConfiguration, environmentOverrides)',
+  'export async function synchroniseWorkspaceManifest(workspaceRoot, { dryRun } = {}) {',
+  '  await writeFileAtomic(manifestPath, JSON.stringify(nextManifest, null, 2), rootDir)'
+].join('\n')
+
+/** The code-block header the renderer emits, so its controls are measured as they ship. */
+const CODE_HEADER =
+  '<div class="code-header"><span>plaintext</span><span class="code-actions">' +
+  '<button type="button" class="code-wrap-btn" aria-pressed="true">Wrap</button>' +
+  '<button type="button" class="code-copy-btn">Copy</button></span></div>'
+
+/**
  * A citations table exactly like the one a reply builds from retrieved
  * passages: a 3-character marker column beside an English header, and a prose
  * column wide enough that the table cannot have every column at its preferred
@@ -178,6 +212,33 @@ function reply(id: string): string {
 }
 
 /**
+ * The three wrapped code blocks, in a reply of their own at the same width.
+ *
+ * Separate from `reply()` on purpose. The shredded-word detector that runs over
+ * a reply measures each word against the REPLY's width, which is right for a
+ * table cell — the box whose width its own contents decide is the thing under
+ * test — and a category error for a `<pre>`, whose width the column fixes and
+ * which cannot collapse. Code is measured against its own content box, below.
+ *
+ *   fold     the copy-me token, under the rule this round adds
+ *   control  the same token under round 8's rule, unchanged — the before
+ *   ordinary real code a reader turned Wrap on by hand, which must not fold
+ *            the way the token does
+ */
+function codeBlocks(id: string): string {
+  const block = (key: string, classes: string, body: string): string =>
+    `<div class="code-block ${classes}">${CODE_HEADER}` +
+    `<pre id="${key}-${id}"><code>${body}</code></pre></div>`
+  return (
+    `<div class="${REPLY_BUBBLE}" id="codes-${id}"><div class="markdown-body text-sm">` +
+    block('fold', `${WRAP_STATE} ${FOLD_STATE}`, HYPHEN_TOKEN) +
+    block('ctl', WRAP_STATE, HYPHEN_TOKEN) +
+    block('wrapcode', WRAP_STATE, ORDINARY_CODE) +
+    `</div></div>`
+  )
+}
+
+/**
  * The two bubbles as MessageBubble.tsx builds them — same wrappers, same utility
  * classes — inside a chat column squeezed to 420px, and again at the 232px a
  * bubble gets in split view.
@@ -204,6 +265,8 @@ function fixture(css: string, probes: string[]): string {
   </div>
   <div class="column">${reply('wide')}</div>
   <div class="column split">${reply('split')}</div>
+  <div class="column">${codeBlocks('wide')}</div>
+  <div class="column split">${codeBlocks('split')}</div>
   <div class="glass-panel" id="panel">
     ${inks.map((t) => `<p class="text-ink-${t}" id="ink-${t}">ink ${t}</p>`).join('\n    ')}
     <p class="text-accent-ink" id="ink-accent">accent ink</p>
@@ -280,6 +343,89 @@ const PROBE_SCRIPT = `(() => {
     const el = document.getElementById(id)
     return el ? { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth } : null
   }
+  // Every visual row of a <pre>, reconstructed a character at a time from its
+  // line boxes: what is ON each row, and where the row's right edge falls. This
+  // is the only way to see a fold — the DOM holds one string either way, and
+  // where the browser chose to break it exists only in the layout.
+  const folded = (id) => {
+    const pre = document.getElementById(id)
+    const code = pre.querySelector('code')
+    const node = code.firstChild
+    const text = node.nodeValue
+    const rows = []
+    let cur = null
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '\\n') { cur = null; continue }
+      const r = document.createRange()
+      r.setStart(node, i)
+      r.setEnd(node, i + 1)
+      const rect = r.getBoundingClientRect()
+      const top = Math.round(rect.top)
+      if (!cur || cur.top !== top) { cur = { top, text: '', right: 0 }; rows.push(cur) }
+      cur.text += text[i]
+      cur.right = Math.max(cur.right, rect.right)
+    }
+    const s = cs(pre)
+    const box = pre.getBoundingClientRect()
+    // One character's advance, measured not assumed. A row is "flush" — cut by
+    // the edge rather than ended by the string — when not even one more
+    // character would have fitted after it.
+    const probe = document.createRange()
+    probe.setStart(node, 0)
+    probe.setEnd(node, 1)
+    const charWidth = probe.getBoundingClientRect().width
+    const contentWidth = pre.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight)
+    // The shredded-word rule of round 8, measured against the box that is
+    // actually fixed here: a <pre>'s own content width. A word broken across
+    // rows that would have fitted a row of this block on its own was broken
+    // when it did not have to be.
+    const ruler = document.createElement('span')
+    const ps = cs(code)
+    ruler.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:pre;visibility:hidden'
+    for (const p of ['fontStyle','fontVariant','fontWeight','fontStretch','fontSize','fontFamily','letterSpacing','wordSpacing'])
+      ruler.style[p] = ps[p]
+    document.body.appendChild(ruler)
+    const shreddedWords = []
+    for (const m of text.matchAll(/\\S+/g)) {
+      const r = document.createRange()
+      r.setStart(node, m.index)
+      r.setEnd(node, m.index + m[0].length)
+      const tops = new Set([...r.getClientRects()].map((x) => Math.round(x.top)))
+      if (tops.size < 2) continue
+      ruler.textContent = m[0]
+      const needs = ruler.getBoundingClientRect().width
+      if (needs <= contentWidth + 0.5)
+        shreddedWords.push({ word: m[0].slice(0, 24), needs: +needs.toFixed(1), fits: +contentWidth.toFixed(1) })
+    }
+    ruler.remove()
+    // What a reader copies, both ways in: the header button reads textContent;
+    // a drag across the block yields Selection.toString().
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    const range = document.createRange()
+    range.selectNodeContents(code)
+    sel.addRange(range)
+    const selection = sel.toString()
+    sel.removeAllRanges()
+    const contentRight = box.right - parseFloat(s.paddingRight) - parseFloat(s.borderRightWidth)
+    return {
+      rows: rows.map((r) => ({
+        len: r.text.length,
+        last: r.text.slice(-1),
+        // Trailing whitespace hangs past the content edge at a soft wrap, so a
+        // row can measure wider than the box; clamp rather than let that read
+        // as "flush by a mile".
+        gap: +Math.max(0, contentRight - r.right).toFixed(1)
+      })),
+      charWidth: +charWidth.toFixed(2),
+      shredded: shreddedWords,
+      rejoined: rows.map((r) => r.text).join('') === text.replace(/\\n/g, ''),
+      textContent: code.textContent,
+      selection,
+      scrollWidth: pre.scrollWidth,
+      clientWidth: pre.clientWidth
+    }
+  }
   const ink = {}
   const vars = {}
   const rootStyle = cs(document.documentElement)
@@ -311,6 +457,27 @@ const PROBE_SCRIPT = `(() => {
         [...document.getElementById('th-passage-' + w).getClientRects()].map((r) => Math.round(r.top))
       ).size
     })),
+    codes: ['wide', 'split'].map((w) => ({
+      width: w,
+      fold: folded('fold-' + w),
+      control: folded('ctl-' + w),
+      ordinary: folded('wrapcode-' + w)
+    })),
+    // Is the control that already solves this perfectly actually findable? It
+    // is only an answer if it is legible without hovering.
+    codeChrome: (() => {
+      const btn = document.querySelector('.code-copy-btn')
+      if (!btn) return null
+      const r = btn.getBoundingClientRect()
+      return {
+        label: btn.textContent,
+        color: cs(btn).color,
+        headerBg: cs(btn.closest('.code-header')).backgroundColor,
+        blockBg: cs(btn.closest('.code-block')).backgroundColor,
+        width: +r.width.toFixed(1),
+        height: +r.height.toFixed(1)
+      }
+    })(),
     canvas: cs(document.body).backgroundColor,
     panel: cs(panel).backgroundColor,
     ink,
@@ -338,6 +505,24 @@ interface Shred {
   where: string
 }
 
+interface Folded {
+  rows: { len: number; last: string; gap: number }[]
+  charWidth: number
+  shredded: { word: string; needs: number; fits: number }[]
+  rejoined: boolean
+  textContent: string
+  selection: string
+  scrollWidth: number
+  clientWidth: number
+}
+
+interface CodeProbe {
+  width: string
+  fold: Folded
+  control: Folded
+  ordinary: Folded
+}
+
 interface ReplyProbe {
   width: string
   shredded: Shred[]
@@ -345,6 +530,15 @@ interface ReplyProbe {
   citations: Flow
   tokenTable: Flow
   passageLines: number
+}
+
+interface CodeChrome {
+  label: string
+  color: string
+  headerBg: string
+  blockBg: string
+  width: number
+  height: number
 }
 
 interface Probe {
@@ -361,6 +555,8 @@ interface Probe {
   wrappedClientWidth: number
   wrappedLines: number
   replies: ReplyProbe[]
+  codes: CodeProbe[]
+  codeChrome: CodeChrome | null
   canvas: string
   panel: string
   ink: Record<string, string>
@@ -554,6 +750,138 @@ async function main(): Promise<void> {
       r.bubble.scrollWidth <= r.bubble.clientWidth + 1,
       `bubble ${r.bubble.scrollWidth} vs ${r.bubble.clientWidth}, citations table ${r.citations.scrollWidth} vs ${r.citations.clientWidth}`
     )
+  }
+
+  /* -- (a3) …and the fold is not mistakable for the token's own punctuation -- */
+
+  // Round 8 got the token inside the column. WHERE it broke it was the cost: a
+  // hyphen is a break opportunity, so every folded row ended in a real `-`, and
+  // print has trained every reader that an end-of-line hyphen was inserted by
+  // the renderer and comes out when the lines are rejoined. On a task whose
+  // whole request is "repeat it back so I can copy it", that is the string
+  // losing characters between the screen and the reader's hand.
+  console.log('\nand a fold in that token cannot be read as one of its own characters')
+  check(
+    'the stylesheet defines a fold state and the renderer sets it',
+    FOLD_STATE !== '' && markdownSrc.includes(FOLD_STATE),
+    `stylesheet: ${FOLD_STATE || 'MISSING'}; renderer: ${FOLD_STATE && markdownSrc.includes(FOLD_STATE) ? 'ok' : 'never emitted'}`
+  )
+  check(
+    'the fixture token is the hyphenated shape that made the fold ambiguous',
+    HYPHEN_TOKEN.length >= 200 && HYPHEN_TOKEN.split('-').length > 30,
+    `${HYPHEN_TOKEN.length} chars, ${HYPHEN_TOKEN.split('-').length - 1} hyphens`
+  )
+  // A row is CUT if not even one more character could have followed it — its
+  // text runs into the block's right padding. A row that ENDS stops short. That
+  // difference is the only thing in the rendering that tells a reader whether a
+  // row ended because the string did, and it is what makes the last character
+  // of the row readable rather than a guess.
+  const ends = (f: Folded): { last: string; gap: number }[] =>
+    f.rows.slice(0, -1).filter((r) => r.gap >= f.charWidth)
+  // The defect itself, counted: a fold that ends in a hyphen AND stops short of
+  // the edge is indistinguishable from a hyphenated line break, and a reader
+  // rejoining the lines by eye deletes the hyphen. Either half alone is
+  // harmless — a hyphen on a row visibly cut by the edge is plainly content,
+  // and a row that stops short on any other character claims nothing.
+  const ambiguous = (f: Folded): { last: string; gap: number }[] =>
+    ends(f).filter((r) => r.last === '-')
+
+  for (const c of light.codes) {
+    const label = c.width === 'split' ? 'split view' : '420px column'
+    const f = c.fold
+    const folds = f.rows.length - 1
+    check(`${label}: the token folds at all`, folds >= 1, `${f.rows.length} row(s)`)
+    check(
+      `${label}: no fold reads as a hyphenation a reader would undo`,
+      ambiguous(f).length === 0,
+      `${ambiguous(f).length} of ${folds}: ${ambiguous(f).map((r) => `"-" +${r.gap}px`).join(', ')}`
+    )
+    check(
+      `${label}: every fold is cut at the edge, which is what makes that true`,
+      ends(f).length === 0,
+      `${ends(f).length} of ${folds} folds stop short: ${ends(f).map((r) => `"${r.last}" +${r.gap}px`).join(', ')}`
+    )
+    // The control, in the same fixture, at the same width: the same token under
+    // round 8's rule alone. Every fold lands on a hyphen there — the token's
+    // only break opportunities are its hyphens — and the ones that also stop
+    // short of the edge are the defect, in the count the fix has to move.
+    const ctl = c.control
+    const ctlFolds = ctl.rows.length - 1
+    const ctlHyphen = ctl.rows.slice(0, -1).filter((r) => r.last === '-')
+    check(
+      `${label}: (control) under the wrap rule alone every fold lands on a hyphen`,
+      ctlFolds >= 1 && ctlHyphen.length === ctlFolds,
+      `${ctlHyphen.length} of ${ctlFolds}`
+    )
+    check(
+      `${label}: (control) …and some of them read as hyphenation — there is a defect to move`,
+      ambiguous(ctl).length > 0,
+      `${ambiguous(ctl).length} of ${ctlFolds} — nothing for the fix to move`
+    )
+    console.log(
+      `       folds ${folds}, reading as hyphenation ${ambiguous(f).length}` +
+        `   —   control ${ctlFolds} folds, ${ambiguous(ctl).length} reading as hyphenation`
+    )
+    check(
+      `${label}: the folded token still fits its block`,
+      f.scrollWidth <= f.clientWidth + 1,
+      `scrollWidth ${f.scrollWidth} vs clientWidth ${f.clientWidth}`
+    )
+    // The whole point: whatever the rendering does, neither copy path may
+    // contain the fold. The header button reads textContent; a drag reads the
+    // selection. Both must be the string the model emitted.
+    check(
+      `${label}: the Copy button's source is the token, unfolded and unaltered`,
+      f.textContent === HYPHEN_TOKEN,
+      `${f.textContent.length} chars vs ${HYPHEN_TOKEN.length}`
+    )
+    check(
+      `${label}: selecting the block and copying yields exactly the same string`,
+      f.selection === HYPHEN_TOKEN,
+      `${f.selection.length} chars, ${f.selection === f.textContent ? 'equal to textContent' : 'DIFFERS from textContent'}`
+    )
+    check(
+      `${label}: and the rows on screen rejoin to it with nothing added or lost`,
+      f.rejoined,
+      'visual rows do not rejoin to the DOM text'
+    )
+    // The true negative that keeps this rule off ordinary code. Cutting at the
+    // edge breaks an identifier that would have fitted a row of its own —
+    // round 8's shredding, inside a code block. A reader who pressed Wrap on
+    // real code wants to read it, so that block keeps the word-preserving rule.
+    const o = c.ordinary
+    check(
+      `${label}: ordinary wrapped code has no word broken that would have fitted a row`,
+      o.shredded.length === 0,
+      o.shredded.map((s) => `"${s.word}" needs ${s.needs}px of ${s.fits}px`).join(', ')
+    )
+    check(
+      `${label}: …and the fold rule did not reach it`,
+      o.rows.length > 1 && ends(o).length > 0,
+      `${ends(o).length} of ${o.rows.length - 1} rows stop short`
+    )
+    check(
+      `${label}: …and it too fits its block and copies back verbatim`,
+      o.scrollWidth <= o.clientWidth + 1 &&
+        o.textContent === ORDINARY_CODE &&
+        o.selection === ORDINARY_CODE,
+      `${o.scrollWidth} vs ${o.clientWidth}; textContent ${o.textContent === ORDINARY_CODE ? 'ok' : 'DIFFERS'}; selection ${o.selection === ORDINARY_CODE ? 'ok' : 'DIFFERS'}`
+    )
+  }
+
+  // …and the control that answers this perfectly, if the reader can find it.
+  console.log('\nthe Copy control, which is the exact answer if it is findable')
+  const chrome = light.codeChrome
+  check('the code header carries a Copy control', chrome !== null && chrome.label === 'Copy', chrome?.label ?? 'absent')
+  if (chrome) {
+    const headerOverBlock = over(parseColor(chrome.headerBg), parseColor(chrome.blockBg))
+    const ratio = contrast(parseColor(chrome.color), headerOverBlock)
+    check(
+      'its label clears 4.5:1 on the header it sits on, with no hover needed',
+      ratio >= 4.5,
+      `${ratio.toFixed(2)}:1 (${chrome.color} on ${chrome.headerBg} over ${chrome.blockBg})`
+    )
+    console.log(`       Copy: ${chrome.width}×${chrome.height}px, ${ratio.toFixed(2)}:1, always rendered`)
   }
 
   /* -- (b) focus indicators ------------------------------------------------- */

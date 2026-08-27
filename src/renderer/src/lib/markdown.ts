@@ -78,12 +78,69 @@ function escapeHtml(text: string): string {
  * pressed for no reason.
  */
 export function startsWrapped(code: string): boolean {
-  return code.split('\n').some((line) => {
-    // trimEnd, not trim: a trailing \r from a CRLF source is not content, but
-    // leading indentation is — an indented long line still has a shape.
-    const trimmed = line.trimEnd()
-    return trimmed.length > 80 && !/\s/.test(trimmed)
-  })
+  return code.split('\n').some(isUnbreakable)
+}
+
+/**
+ * A line with no break opportunity of its own, long enough that no reply column
+ * holds it. trimEnd, not trim: a trailing \r from a CRLF source is not content,
+ * but leading indentation is — an indented long line still has a shape.
+ */
+function isUnbreakable(line: string): boolean {
+  const trimmed = line.trimEnd()
+  return trimmed.length > 80 && !/\s/.test(trimmed)
+}
+
+/** Long enough to fold, and with somewhere of its own to fold. */
+function isLongProse(line: string): boolean {
+  const trimmed = line.trimEnd()
+  return trimmed.length > 80 && /\s/.test(trimmed)
+}
+
+/**
+ * Whether this block may be folded at an ARBITRARY character position rather
+ * than at the token's own punctuation.
+ *
+ * Wrapping the token was round 8's fix; where it wraps is round 9's defect. A
+ * hyphen is a break opportunity in the line-breaking algorithm, so an
+ * `overflow-wrap` of `break-word` — or of `anywhere`, which measures identically
+ * here — folds a hyphenated token at its hyphens, and every folded row ends in
+ * a real `-`. That is the one character a reader must not see at a line end:
+ * typographic convention says an end-of-line hyphen was INSERTED by the
+ * renderer and should be dropped when rejoining. A reader transcribing
+ * `…head-to-head-` / `layout-probe…` off the screen has no way to know the
+ * hyphen is content, and the string is what they came for.
+ *
+ * `word-break: break-all` folds where the line fills instead. Two things follow,
+ * and the second is the one that carries the fix: a fold lands mid-token on a
+ * character no convention says to alter, and every folded row runs into the
+ * block's right padding while a row that ENDS stops short of it. That edge is
+ * the signal `break-word` never produces.
+ *
+ * Measured on the 207-character token from the critique (test/styleCheck.ts
+ * lays both rules out side by side, same fixture, same width). Counting folds
+ * that end in a hyphen AND stop short — the pair a reader reads as hyphenation:
+ * 10 of 10 in split view and 2 of 4 at 420px before, 0 of 8 and 0 of 4 after.
+ * A fold can still land after a hyphen; it can no longer be misread as one,
+ * because the row is visibly cut. Guaranteeing the character itself is not
+ * achievable in CSS, so that is not what is claimed.
+ *
+ * It is not free, which is why this is a predicate and not a stylesheet rule.
+ * `break-all` fills every line to the edge, so it breaks a word that would have
+ * fitted the NEXT line — round 8's shredding, in a code block. Measured on
+ * three lines of ordinary JavaScript: 0 shredded words under `break-word`, 3
+ * under `break-all` (`mergeDefaults(userConfiguration,`,
+ * `synchroniseWorkspaceManifest(workspaceRoot,`, `JSON.stringify(nextManifest,`).
+ *
+ * So the two rules are not ranked, they are dispatched: a block folds anywhere
+ * only when it holds an unbreakable line and holds no long line that could be
+ * shredded instead. A block of real code — including one a reader turned Wrap on
+ * for by hand — keeps the word-preserving rule, because there the goal is to
+ * read the code, not to transcribe a token.
+ */
+export function foldsAnywhere(code: string): boolean {
+  const lines = code.split('\n')
+  return lines.some(isUnbreakable) && !lines.some(isLongProse)
 }
 
 marked.use({
@@ -134,8 +191,13 @@ marked.use({
       // button's state are set together — MessageBubble's toggle reads the
       // class and writes aria-pressed from it, so the two must agree at render.
       const wrapped = startsWrapped(code)
+      // …and where it folds. Static on the block, not toggled with the state:
+      // the reason arbitrary folding is safe here is a property of the source
+      // text, so it does not change when the reader presses Wrap.
+      const foldAnywhere = foldsAnywhere(code)
       return (
-        `<div class="code-block${wrapped ? ' code-wrapped' : ''}">` +
+        `<div class="code-block${wrapped ? ' code-wrapped' : ''}` +
+        `${foldAnywhere ? ' code-fold-anywhere' : ''}">` +
         `<div class="code-header"><span>${escapeHtml(language)}</span>` +
         `<span class="code-actions">` +
         // Code scrolls by default; this is the reader's way to see the whole of
