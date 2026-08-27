@@ -215,7 +215,10 @@ describe('the tool block distinguishes a call that worked from one that supplied
   test('it does not carry the success glyph', () => {
     assert.ok(!headerText(empty).includes('✓'), `empty lookup still shows ✓: ${headerText(empty)}`)
     assert.ok(
-      !/text-green-500/.test(headerHtml(empty)),
+      !/text-ink-ok/.test(headerHtml(empty)),
+      // v2.2: was text-green-500, which is 2.22:1 on the light panel. The claim
+      // is unchanged — the empty lookup must not wear the success colour —
+      // only the colour it names, which is now the theme-aware ink token.
       'empty lookup still renders in the success colour'
     )
   })
@@ -226,7 +229,7 @@ describe('the tool block distinguishes a call that worked from one that supplied
 
   test('a lookup that returned passages keeps the success glyph', () => {
     assert.ok(headerText(grounded).includes('✓'))
-    assert.ok(/text-green-500/.test(headerHtml(grounded)))
+    assert.ok(/text-ink-ok/.test(headerHtml(grounded)))
     assert.ok(!/found nothing/.test(headerText(grounded)))
   })
 

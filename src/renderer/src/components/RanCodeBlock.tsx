@@ -100,7 +100,7 @@ export function RanCodeBlock({ record, onCodeBlockClick }: { record: ToolCallRec
               )}
               {parsed.error && (
                 <Section label="Error">
-                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-red-500/10 p-2 font-mono text-red-700 dark:text-red-300">{parsed.error}</pre>
+                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-red-500/10 p-2 font-mono text-ink-danger">{parsed.error}</pre>
                 </Section>
               )}
               {parsed.stderr && (

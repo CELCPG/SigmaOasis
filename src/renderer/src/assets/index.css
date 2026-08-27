@@ -60,6 +60,39 @@
   --text-tertiary: rgba(23, 23, 23, 0.64);
   --text-muted: rgba(23, 23, 23, 0.32);
 
+  /*
+   * Status ink — the same argument as the neutral ramp above, one step further.
+   *
+   * A raw Tailwind step cannot be theme-aware: `text-amber-600` composites to
+   * 3.10:1 on the light panel and 6.11:1 on the dark one, so one class means
+   * "legible" in one theme and "failing" in the other. It reached 25 sites,
+   * including every ⚠️ line the app uses to say it could not verify something,
+   * and `text-red-500` (3.67:1 on the panel) carried the transport failure
+   * sentence. The one place the app admits something went wrong was the one
+   * place a reader could least easily read.
+   *
+   * Why these hues and not a darker step of the same ramp: passing AA in the
+   * light theme caps relative luminance, and Tailwind's ramps DESATURATE as
+   * they darken — that is what makes a deep amber read as mud. amber-800 clears
+   * AA at chroma 0.518; amber-700 keeps chroma 0.671 but only reaches 4.03:1 on
+   * the tinted wells it actually sits on. Rotating toward orange and taking the
+   * most saturated sRGB colour available at the required lightness beats both:
+   * #a34300 is chroma 0.639 at 5.01:1 worst-case — more colour than amber-800
+   * and a full rank more legible than amber-700. The hue signal that "brown"
+   * would have cost is carried by the fill and border (`bg-amber-500/10`,
+   * `border-amber-500/30`) and by the ⚠️ glyph, none of which have a contrast
+   * floor. Ink pays for legibility; the surface pays for identity.
+   *
+   * Worst case measured over every surface these land on in their own theme —
+   * bare canvas, glass panel, popover, and the amber/red wells at /5 /10 /15:
+   *   danger  #c10014  5.14:1   warn #a34300  5.01:1   ok #006b4a  5.26:1
+   * Pinned in test/chromeContrastCheck.ts, which composites them in a real
+   * window rather than reading them out of here.
+   */
+  --text-danger: #c10014;
+  --text-warn: #a34300;
+  --text-ok: #006b4a;
+
   /* Easing */
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-settle: cubic-bezier(0.33, 1, 0.68, 1);
@@ -92,6 +125,18 @@
   --text-secondary: rgba(255, 255, 255, 0.72);
   --text-tertiary: rgba(255, 255, 255, 0.55);
   --text-muted: rgba(255, 255, 255, 0.38);
+
+  /*
+   * Status ink, dark. The constraint inverts — luminance has to go up, not
+   * down — so here the hue costs nothing and these are near-maximum chroma.
+   * Same hue family as their light counterparts so a warning is the same
+   * colour in two lights rather than two different colours.
+   * Worst case over the same eight surfaces:
+   *   danger #ff8875  6.62:1   warn #ff9d33  7.42:1   ok #34d399  8.01:1
+   */
+  --text-danger: #ff8875;
+  --text-warn: #ff9d33;
+  --text-ok: #34d399;
 }
 
 body {

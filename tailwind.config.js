@@ -36,7 +36,22 @@ module.exports = {
           primary: 'var(--text-primary)',
           secondary: 'var(--text-secondary)',
           tertiary: 'var(--text-tertiary)',
-          muted: 'var(--text-muted)'
+          muted: 'var(--text-muted)',
+          /*
+           * Status ink. Same rule as the neutral tiers above, for the same
+           * reason: a raw palette step (`text-amber-600`, `text-red-500`) is
+           * one colour for two themes, so it can only be legible in one of
+           * them — and the sites that reached for one are exactly the lines
+           * that report a failure, a warning, or something the app could not
+           * verify. Reader-facing status prose goes through these; the guard
+           * in test/chromeContrastCheck.ts refuses the raw steps.
+           *
+           * Surfaces, not ink, carry the hue: keep `bg-amber-500/10` and
+           * `border-amber-500/30` as they are. Only the text moves.
+           */
+          danger: 'var(--text-danger)',
+          warn: 'var(--text-warn)',
+          ok: 'var(--text-ok)'
         }
       }
     }
