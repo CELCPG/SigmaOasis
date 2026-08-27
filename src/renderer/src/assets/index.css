@@ -379,6 +379,56 @@ body {
   animation: block-fade-in 0.3s var(--ease-settle) both;
 }
 
+/*
+ * A conversation row arriving in the rail. Rows that merely *moved* are
+ * handled by useListFlip, which transforms them from their old place; this is
+ * only for rows that were not there before — a new chat, or one revealed by
+ * clearing the search. Opacity and a short lift, no height: the row's slot
+ * already exists, and animating the height too would make the rows below it
+ * move twice.
+ */
+@keyframes row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/*
+ * `backwards`, never `both`, and this one matters: an animation's declarations
+ * outrank inline style, and `both` keeps the last keyframe applied forever
+ * after it ends. This animation's last keyframe is `transform: translateY(0)`,
+ * so `both` would permanently override the inline transform useListFlip sets
+ * on every row — the flip would silently do nothing on any row that had ever
+ * been mounted. `backwards` gives the pre-start value and then gets out of
+ * the way.
+ */
+.row-enter {
+  animation: row-enter 0.2s var(--ease-settle) backwards;
+}
+
+/*
+ * The move-to-project menu. Grows from the corner it is anchored to rather
+ * than being switched on over the row it belongs to.
+ */
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.menu-pop {
+  transform-origin: top right;
+  animation: menu-pop 0.15s var(--ease-spring) both;
+}
+
 /* ---- Empty state ------------------------------------------------------------ */
 
 /* Headline ink, fading toward the bottom so the type feels lit from above. */
@@ -435,6 +485,8 @@ body {
   .modal-backdrop,
   .modal-panel,
   .tab-face,
+  .row-enter,
+  .menu-pop,
   .block-enter > .disclosure-body {
     animation: none;
   }

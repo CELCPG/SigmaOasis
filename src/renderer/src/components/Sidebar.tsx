@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { useUpdates } from '../hooks/useUpdates'
 import { useProjects } from '../hooks/useProjects'
+import { useListFlip } from '../hooks/useListFlip'
+import { Disclosure } from './Disclosure'
 import { groupConversations, PROJECT_ACCENT } from '../lib/projects'
 import type { Conversation, Project } from '../types'
 import { Logo } from './Logo'
@@ -85,6 +87,10 @@ export function Sidebar(): JSX.Element {
   }
 
   const grouped = useMemo(() => groupConversations(filtered, projects), [filtered, projects])
+  // Rows slide to their new places when the sort changes (see useListFlip).
+  // Keyed on the visible order, so a title edit that moves nothing is cheap.
+  const listRef = useRef<HTMLDivElement>(null)
+  useListFlip(listRef, filtered.map((c) => c.id).join())
   // While searching, every group is forced open: a hit hidden under a fold
   // reads as "no match".
   const searching = query.trim().length > 0
@@ -121,7 +127,11 @@ export function Sidebar(): JSX.Element {
   const renderConversation = (c: Conversation): JSX.Element => (
     <div
       key={c.id}
-      className={`group relative mb-1 flex items-center rounded-2xl px-2.5 py-2 text-sm transition-colors ${
+      // data-flip-key is how useListFlip finds this row again after a sort:
+      // the list is ordered by last activity, so answering in an older chat
+      // moves it to the top and everything above it down a slot.
+      data-flip-key={c.id}
+      className={`row-enter group relative mb-1 flex items-center rounded-2xl px-2.5 py-2 text-sm transition-colors ${
         c.id === activeId
           ? 'border border-[rgba(0,212,170,0.35)] bg-[rgba(0,212,170,0.1)] font-medium shadow-[inset_0_1px_0_rgba(0,212,170,0.25)]'
           : c.id === splitId
@@ -227,7 +237,7 @@ export function Sidebar(): JSX.Element {
         <div className="absolute right-0 top-full z-20 mt-1 w-48" onMouseLeave={() => setMoveMenuId(null)}>
         <div
           role="menu"
-          className="glass-panel glass-popover rounded-2xl p-1.5 text-[11px] shadow-xl"
+          className="menu-pop glass-panel glass-popover rounded-2xl p-1.5 text-[11px] shadow-xl"
         >
           <p className="px-2 pb-1 pt-0.5 font-medium text-ink-secondary">Move to project</p>
           {projects.map((p) => (
@@ -376,7 +386,7 @@ export function Sidebar(): JSX.Element {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
         {sorted.length === 0 && projects.length === 0 ? (
           <p className="px-2 py-4 text-center text-xs text-ink-tertiary">
             No conversations yet
@@ -472,8 +482,8 @@ export function Sidebar(): JSX.Element {
                       </span>
                     )}
                   </div>
-                  {isOpen &&
-                    (items.length === 0 ? (
+                  <Disclosure open={isOpen}>
+                    {items.length === 0 ? (
                       <p className="px-6 py-1 text-[11px] text-ink-tertiary">
                         No chats yet — hover the project for +
                       </p>
@@ -481,7 +491,8 @@ export function Sidebar(): JSX.Element {
                       <div className="ml-3 border-l border-black/10 dark:border-white/10 pl-1.5">
                         {items.map((c) => renderConversation(c))}
                       </div>
-                    ))}
+                    )}
+                  </Disclosure>
                 </div>
               )
             })}
