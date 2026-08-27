@@ -2880,6 +2880,184 @@ A same-generation comparison surfaces what neither build fixed:
 - **`answerEval.ts` holds a third hand-rolled copy of the measurement vocabulary.**
   `shared/measurements.ts` exists because two copies would drift silently. There are three.
 
+<!-- FOLD IN: the coverage line, and the ranking that was not built. Not yet a round heading. -->
+
+### Pending fold-in — the checker spent its attention on the wrong number
+
+The round-8 blind critic, on task V3, reading **both** builds:
+
+> Both apps check the wrong numbers. The question asked how much water is wasted; the
+> headline answers are `"105 gallons (400 liters)"` (run-1) and `"35 gallons (130 liters)"`
+> (run-2) — differing by a factor of three, invented, and flagged by neither strip. Both
+> checkers spent their attention on incidental repair-cost literals (`$10`, `$25`, `$40`,
+> `$80`) while the one figure the user came for passes unmarked.
+
+Replayed against the round-9 build, the two runs produce **byte-identical chrome** — the
+badge is blind to the only thing that differs between them:
+
+| | round 9 | this change |
+| --- | --- | --- |
+| run-1 | `⚠️ 4 figures ($10, $25, $40, $80) …` / `Checked against: no tool output …` | *unchanged*, plus `Covered 0 of the 2 measurements in this reply. Not compared against anything: 105 gallons, 400 liters.` |
+| run-2 | **the same two lines** | *unchanged*, plus `… Not compared against anything: 35 gallons, 130 liters.` |
+
+The mechanism is an asymmetry, not a weak checker. `unsourcedFigures` has an *unprompted*
+path — `MIN_UNPROMPTED_FIGURES`, so several unsupported prices are worth saying so about
+even with no pricing tool. The quantities rung has none: with nothing computed and nothing
+retrieved it does not run, so the volumes were never candidates. Four named figures then
+read as a completed scan of the reply.
+
+#### The ranking was not built, and this is why
+
+The brief's first question is whether the user's own question can rank which stated
+quantities matter. The honest answer is **no**, and the reasoning is worth recording
+because the alternative is attractive.
+
+`buildSearchQuery` offers nothing to build on: it flattens whitespace, caps at 240
+characters, and optionally prepends the previous user message when the current one is short
+and back-referring. It performs no topical analysis of any kind. Ranking therefore means a
+new noun→dimension lexicon, and the app's **own shipped packs** break it:
+
+| question | the dimension a lexicon must return |
+| --- | --- |
+| how much **water** should I store per person | volume |
+| how much **water weight** will I lose | mass |
+| how much can my landlord raise the **rent** | money, or a percentage |
+| how long do **leftovers** last | duration |
+| how much does it **cost** to fix a dripping faucet | money |
+
+The last row is the same reply as V3. Asked what the repair costs, `$10`–`$80` *is* the
+headline and `105 gallons` is the incidental — two questions a hair apart, opposite
+answers, and no mechanical signal in this codebase separates them.
+
+The cost of guessing wrong is not a miss, it is a new way to mislead. A line reading "the
+figure that answers your question is unsupported" pointing at `$25` asserts that the app
+understood the question, in the one place the reader has no way to check it. Round 4's
+stricter quote checker was judged *worse* than the gap it closed, and that finding was at
+least falsifiable by eye; this one would not be. **A design that cannot fail safely is not
+shippable**, so it was not shipped.
+
+#### What was built instead: the pass reports its own coverage
+
+`GroundingReport` gains `coverage` — the one field on it that is not a fault found.
+`quantityCoverage` is the same walk `unsourcedQuantities` always did, with its two
+`continue`s named instead of silent: a measurement is **checked** when a corpus quantity of
+the same kind was genuinely put beside it, and **unchecked** when the dimension was never
+armed, or was armed and the corpus holds nothing of comparable magnitude (a passage's
+"3 minutes" cannot rule on "4 days"). `flagged` ⊆ `checked`, which is the asymmetry the
+field exists to disclose. **No verdict moves**: `unsourcedQuantities` is now a one-line
+wrapper returning `flagged`, and all 239 pre-existing `toolGrounding` cases pass unchanged.
+
+Three properties keep it honest, each pinned:
+
+- **It is not a finding.** `groundingFindingCount` stays 4 on the V3 shape and
+  `groundingFindingLabels` stays `["$10","$25","$40","$80"]` — the `labels.length === count`
+  invariant does not learn a fourteenth category. It never enters
+  `describeGroundingFindings`, so it never goes back to the model: we do not know these
+  numbers are wrong, and a correction prompt naming them invites the deletion of correct
+  figures — the harm this document already records on this very task.
+- **It rides an existing badge.** `checkToolGrounding` still returns `null` when nothing is
+  faulted, so a reply the pass faults nowhere shows no coverage line. Measurements appear in
+  ordinary prose constantly; a permanent grey line under every "8 to 10 minutes" is round
+  4's cry-wolf in a quieter ink. That turn is the `unverified` badge's business —
+  `needsVerification` covers the reference domains, the leaking faucet included.
+- **It reads as provenance, not as an accusation.** It renders at the `Checked against`
+  rank rather than the warning's, pinned in `chromeContrastCheck.ts` as its own scraped row
+  (6.66:1 light, 10.98:1 dark) plus a check that its ink equals the provenance ink and
+  differs from the warning ink, in both themes.
+
+#### The noise it would have made, and the gate that removes it
+
+The first version said "compared against nothing" the moment a dimension was unarmed. That
+is true and it was still wrong to print. Measured while building it:
+
+    passage: "A faucet that drips once per second wastes about 2,000 gallons per year."
+    reply:   "A dripping faucet wastes about 2,000 gallons a year."
+    line:    "Covered 0 of the 1 measurement in this reply.
+              Not compared against anything: 2,000 gallons."
+
+Every word accurate — `gallon per year` and `gallon` are different units here on purpose, so
+a pace never meets a duration — and a reader looking at the passage directly above it would
+have called the app broken. `coverageWorthSaying` now gates the line on at least one skipped
+measurement whose **value** appears nowhere in what the turn produced or the user said. That
+is the V3 shape exactly (nothing ran, so 105 and 400 are in nothing) and not the shape above.
+
+The gate is on the *line*, not on the items, deliberately: filtering item by item would
+leave `checked + unchecked` short of the measurements the reply states, so "covered 1 of 4"
+would name two things and silently drop a third — a count the reader cannot reproduce from
+the screen, which is the defect `describeRevisionOutcome` was fixed for in round 4.
+
+#### The cases
+
+True positive and true negative beside each other, in `test/toolGrounding.test.ts`:
+
+| | case | verdict |
+| --- | --- | --- |
+| **TP** | the V3 shape, no tool ran | `Covered 0 of the 2 … : 105 gallons, 400 liters` |
+| **TP** | the same, run-2's numbers | the two runs' chrome now *differs* |
+| **TP** | temperature armed and faulted, a duration nothing retrieved | `Covered 1 of the 2 … : 9 days` |
+| **TN** | nothing faulted (`Boil the pasta for 8 to 10 minutes.`) | no report at all |
+| **TN** | reply's `2,000 gallons a year` over a passage's `2,000 gallons per year` | no line |
+| **TN** | `3 drips per second`, the number the user supplied | no line |
+| **TN** | a turn whose passage covers both dimensions | `coverage` field absent |
+| **TN** | the gap is not a finding | count 4, labels 4, prompt names no volume |
+| **TN** | a revision dropping every price still `resolved` | coverage never blocks it |
+
+Plus the sentence itself: singular/plural agreement, and `and N more` computed from the
+count rather than the capped array (six named, ten unchecked → "and 6 more").
+
+#### The third copy of the measurement vocabulary
+
+Recorded in this document at the end of round 8 and now closed. `answerEval.ts` carried a
+hand-rolled alternation; `shared/measurements.ts` says in its own header that it exists
+because "two copies would drift, and the drift would be silent". There were three, and the
+drift had already happened. Differential over 265 files — every fixture, every shipped pack,
+and the recorded strings in the two test files — old regex vs shared vocabulary, **31
+occurrences changed in each direction, all of them repairs**:
+
+| what changed | example | why the new reading is right |
+| --- | --- | --- |
+| rate suffixes | `8.66 minutes` → `8.66 minutes per mile` | a pace is not a duration; the old form let a running time support a split |
+| line breaks | `"3:47\nMiles run: 26.2"` → **no match** (was `47 Miles`) | the exact trap `shared/measurements.ts` documents; the copy still had `\s*` |
+| concentrations | `40 mg` → `40 mg/m` | from the shipped home-safety pack; a CO exposure limit could support an invented dose |
+| unknown units | `800 watts`, `250 kcal`, `400 mcg` now matched | the copy knew none of `mcg`, `µg`, `mph`, `km/h`, `kwh`, `watt`, `volt`, `amp`, `calorie`, `kcal` |
+
+One divergence survives and is now a named flag rather than a second regex:
+`MeasurementOptions.percent`. The eval scorer counts `5%` as a measurement — a reference
+answer stating a rent cap is exactly what the library suite scores — and **no shipped rung
+sets it**, because `unsourcedPercentages` already checks percentages with a better rule (the
+*ratio* of two corpus numbers, not merely presence) and a `%` in the shared alternation
+would produce two findings for one claim and change what `amountsIn` treats as money
+support.
+
+Suite: **2128 passing, 0 failing** (from 2106), `./scripts/test.sh` exit 0, chrome-contrast
+60 → 64 checks, `npm run build` and both `--noEmit` typechecks clean.
+
+#### What this does not fix
+
+- **Nothing here was re-run against a model.** The before/after strings are produced by the
+  shipped modules against a reconstruction of the V3 turn from the critic's quoted strings —
+  the run directory is not in this repository. No win/loss claim attaches to any of it.
+- **The library suite's scores were not re-measured.** Folding the vocabulary in makes the
+  scorer strictly stricter, and the four repairs above will move cases. There are no
+  recorded library eval outputs in the repo to re-score against, so the differential over
+  fixture and pack text is the strongest evidence available and it is not a score.
+- **Money has no coverage line.** `unsourcedFigures` runs on every turn and only its
+  *reporting* is gated by `checkFigures`, so a report can exist alongside money figures
+  nothing supports that were suppressed. That is "a suppressed finding", a different fact
+  from "never compared", and it wants its own sentence and its own sweep.
+- **The gate can hide a real gap.** A reply with five unchecked measurements, four of whose
+  numbers appear coincidentally in the corpus and one of which does not, shows the line and
+  names all five. The reverse — every unchecked number coincidentally present — hides the
+  line entirely. Both are suppression-only and fail toward quiet, which is the safe
+  direction, but the second is a miss and nothing detects it.
+- **`researchGrounding` has no coverage notion.** It compares a measurement against every
+  number in its corpus and arms no units at all, so it can neither over- nor under-state
+  coverage in the way fixed here. It also remains the rung that would fault "500 mg" from a
+  passage's "500 km".
+- **"Which claim the reply is about" is still unknown to the app.** This change discloses
+  the gap; it does not close it. A reader who does not read the quieter line still sees four
+  prices named above an unmarked headline.
+
 ## A note on the version numbers in this document
 
 The section headings above carry labels like `v1.14`, `v1.16`, `v1.17.2`. **None of those

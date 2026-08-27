@@ -3,12 +3,15 @@ import assert from 'node:assert/strict'
 import {
   checkToolGrounding,
   contradictedOrigins,
+  describeCoverage,
   describeGroundingFindings,
   describeRevisionOutcome,
+  describeUnbackedItems,
   groundingFindingCount,
   groundingFindingLabels,
   misattributedCitations,
   misquotedSpans,
+  quantityCoverage,
   revisionIsAnImprovement,
   undisclosedToolRuns,
   unsourcedAddresses,
@@ -2719,5 +2722,220 @@ describe('the conversion table itself (v1.17.2)', () => {
     for (const unit of ['gallon', 'minute', 'mile', 'kg', 'month', 'widget']) {
       assert.equal(isRatioScale(unit), true, unit)
     }
+  })
+})
+
+/**
+ * v2.1: what the pass did NOT look at.
+ *
+ * The round-8 blind critic, reading both builds on task V3 — the user asks how
+ * much water a dripping faucet wastes:
+ *
+ *   > Both apps check the wrong numbers. The question asked how much water is
+ *   > wasted; the headline answers are "105 gallons (400 liters)" (run-1) and
+ *   > "35 gallons (130 liters)" (run-2) — differing by a factor of three,
+ *   > invented, and flagged by neither strip. Both checkers spent their
+ *   > attention on incidental repair-cost literals ($10, $25, $40, $80) while
+ *   > the one figure the user came for passes unmarked.
+ *
+ * Replayed against round 9, both runs produce the SAME two lines — the badge is
+ * blind to the only thing that differs between them:
+ *
+ *   ⚠️ 4 figures ($10, $25, $40, $80) in this reply are not backed by the tool output.
+ *   Checked against: no tool output — nothing ran this turn.
+ *
+ * `unsourcedFigures` has an unprompted path (several unsupported prices are
+ * worth saying so about on their own); the quantities rung has none, so with
+ * nothing computed and nothing retrieved the volumes were never candidates.
+ * Four named figures read as a completed scan.
+ */
+const V3_PROMPT = 'how much water does a dripping faucet waste?'
+const V3_RUN1 =
+  'A faucet dripping once per second wastes about **105 gallons (400 liters)** a year.\n\n' +
+  'Fixing it is cheap: a washer kit runs $10 to $25, and a replacement cartridge $40 to $80.'
+const V3_RUN2 = V3_RUN1.replace('105 gallons (400 liters)', '35 gallons (130 liters)')
+
+describe('the pass reports its own coverage (v2.1)', () => {
+  test('the V3 shape: the headline volumes are named as never checked', () => {
+    const report = checkToolGrounding(V3_RUN1, [], V3_PROMPT)
+    // Unchanged: the money findings are exactly what round 9 produced.
+    assert.equal(
+      describeUnbackedItems(report!),
+      '4 figures ($10, $25, $40, $80) in this reply are not backed by the tool output.'
+    )
+    assert.equal(
+      describeCoverage(report!),
+      'Covered 0 of the 2 measurements in this reply. ' +
+        'Not compared against anything: 105 gallons, 400 liters.'
+    )
+  })
+
+  test('the two runs no longer read identically — the figure that differs is on screen', () => {
+    const one = checkToolGrounding(V3_RUN1, [], V3_PROMPT)!
+    const two = checkToolGrounding(V3_RUN2, [], V3_PROMPT)!
+    // Round 9: byte-identical chrome over answers a factor of three apart.
+    assert.equal(describeUnbackedItems(one), describeUnbackedItems(two))
+    assert.notEqual(describeCoverage(one), describeCoverage(two))
+    assert.match(describeCoverage(two), /35 gallons, 130 liters/)
+  })
+
+  test('the true negative: nothing faulted means no badge, so no coverage line', () => {
+    // The noise bound. Measurements appear in ordinary prose constantly, and a
+    // permanent grey line under every "8 to 10 minutes" is round 4's cry-wolf
+    // in a quieter ink. This line corrects a badge; with no badge there is no
+    // coverage claim to correct, and that turn is the `unverified` badge's.
+    assert.equal(checkToolGrounding('Boil the pasta for 8 to 10 minutes.', [], 'how long?'), null)
+  })
+
+  test('the true negative: a number the reader can find in the passage is not named', () => {
+    // Measured while building this. `gallon per year` and `gallon` are
+    // different units here on purpose (a pace is not a duration), so a passage
+    // reading "2,000 gallons per year" arms nothing for a reply reading "2,000
+    // gallons a year" — and the first version of this line said so, directly
+    // above a passage stating the number. Accurate, and a reader would have
+    // called the app broken.
+    const report = checkToolGrounding(
+      'A dripping faucet wastes about 2,000 gallons a year. See https://example.com/invented.',
+      [rec('reference_lookup', DRIP_PASSAGES)],
+      V3_PROMPT
+    )
+    assert.deepEqual(report?.links, ['https://example.com/invented'])
+    assert.equal(describeCoverage(report!), '')
+    assert.equal(report?.coverage, undefined)
+  })
+
+  test('the true negative: a measurement the user themselves supplied is not named', () => {
+    const report = checkToolGrounding(
+      'At 3 drips per second that is a real leak. See https://invented.test/page',
+      [rec('web_search', '  https://real.test/a\n  a result about leaks')],
+      'my tap does 3 drips per second, is that bad?'
+    )
+    assert.deepEqual(report?.links, ['https://invented.test/page'])
+    assert.equal(describeCoverage(report!), '')
+  })
+
+  test('the true negative: a turn that covered every measurement records no gap', () => {
+    const report = checkToolGrounding(
+      'Cook it to 180°F, then keep the leftovers for 9 days.',
+      [rec('reference_lookup', '[1] Cook to 165 °F. Refrigerated leftovers keep for 4 days.')],
+      'what temperature, and how long?'
+    )
+    // Both dimensions armed, so both were reached — and both are faulted.
+    assert.deepEqual(report?.quantities, ['180°F', '9 days'])
+    assert.equal(report?.coverage, undefined)
+    assert.equal(describeCoverage(report!), '')
+  })
+
+  test('partial coverage says which half was reached', () => {
+    const report = checkToolGrounding(
+      'Cook it to 180°F, then keep the leftovers for 9 days.',
+      [rec('reference_lookup', '[1] Cook all poultry to an internal temperature of 165 °F.')],
+      'what temperature, and how long do leftovers keep?'
+    )
+    assert.deepEqual(report?.quantities, ['180°F'])
+    assert.equal(
+      describeCoverage(report!),
+      'Covered 1 of the 2 measurements in this reply. Not compared against anything: 9 days.'
+    )
+  })
+
+  test('a coverage gap is not a finding: the count, the labels and the prompt ignore it', () => {
+    const report = checkToolGrounding(V3_RUN1, [], V3_PROMPT)!
+    assert.equal(report.coverage?.unchecked, 2)
+    // The invariant `labels.length === count` spans the finding categories and
+    // must not learn a fourteenth. A gap in what was checked is not a fault in
+    // the answer.
+    assert.equal(groundingFindingCount(report), 4)
+    assert.deepEqual(groundingFindingLabels(report), ['$10', '$25', '$40', '$80'])
+    // And it never goes back to the model. We do not know these are wrong, and
+    // a correction prompt that names them invites the deletion of correct
+    // figures — the harm round 6 recorded on this very task.
+    const prompt = describeGroundingFindings(report)
+    assert.ok(!prompt.includes('105 gallons'), prompt)
+    assert.ok(!prompt.includes('400 liters'), prompt)
+    assert.ok(prompt.includes('$10'), prompt)
+  })
+
+  test('revision accounting is untouched by a coverage gap', () => {
+    const before = checkToolGrounding(V3_RUN1, [], V3_PROMPT)!
+    // A revision that drops every price resolves the report even though the
+    // volumes are still uncompared — because they were never findings.
+    const after = checkToolGrounding(
+      'A faucet dripping once per second wastes about 105 gallons (400 liters) a year.',
+      [],
+      V3_PROMPT
+    )
+    assert.equal(after, null)
+    assert.equal(revisionIsAnImprovement(before, after), true)
+    assert.equal(describeRevisionOutcome(before, after).resolved, true)
+  })
+})
+
+describe('quantityCoverage partitions what the rung saw (v2.1)', () => {
+  test('checked, unchecked and flagged are one walk over the same measurements', () => {
+    const corpus = 'Cook all poultry to an internal temperature of 165 °F.'
+    const c = quantityCoverage('Cook to 180°F and keep it 9 days.', corpus)
+    assert.deepEqual(c.checked, ['180°F'])
+    assert.deepEqual(c.unchecked, ['9 days'])
+    assert.deepEqual(c.flagged, ['180°F'])
+    // flagged is a subset of checked — a measurement nothing reached can never
+    // be faulted, which is the whole asymmetry this field exists to disclose.
+    assert.ok(c.flagged.every((f) => c.checked.includes(f)))
+  })
+
+  test('an armed dimension with nothing of comparable magnitude counts as unreached', () => {
+    // `comparableMagnitude` keeps a passage's "3 minutes" from ruling on a
+    // reply's "4 days", and quiet is right. Calling it *checked* would be the
+    // same overstatement one rung down.
+    const c = quantityCoverage('Store it for 4 days.', 'Rest the dough for 3 minutes.')
+    assert.deepEqual(c.checked, [])
+    assert.deepEqual(c.unchecked, ['4 days'])
+    assert.deepEqual(c.flagged, [])
+  })
+
+  test('the same span stated twice is one measurement in every bucket', () => {
+    const c = quantityCoverage('105 gallons, or 105 gallons a year.', '')
+    assert.deepEqual(c.unchecked, ['105 gallons'])
+  })
+
+  test('unsourcedQuantities is exactly the flagged bucket', () => {
+    const corpus = 'Cook all poultry to an internal temperature of 165 °F.'
+    const answer = 'Cook to 180°F and keep it 9 days.'
+    assert.deepEqual(unsourcedQuantities(answer, corpus), quantityCoverage(answer, corpus).flagged)
+  })
+})
+
+describe('the coverage sentence (v2.1)', () => {
+  const of = (checked: number, unchecked: number, named: string[]): GroundingReport => ({
+    figures: [],
+    links: [],
+    coverage: { checked, unchecked, uncheckedNamed: named },
+    checkedAgainst: ['reference_lookup']
+  })
+
+  test('the verb agrees with the total, and one measurement is singular', () => {
+    assert.equal(
+      describeCoverage(of(0, 1, ['4 days'])),
+      'Covered 0 of the 1 measurement in this reply. Not compared against anything: 4 days.'
+    )
+    assert.match(describeCoverage(of(1, 1, ['4 days'])), /the 2 measurements/)
+  })
+
+  test('beyond four it names the first four and counts the rest against the true total', () => {
+    // The named list is capped at MAX_REPORTED before it is stored, so the
+    // "and N more" must be computed from the count, never from the array —
+    // a line that says "3 more" over a report holding six is the defect
+    // `describeRevisionOutcome` was fixed for in round 4.
+    const named = ['1 mile', '2 miles', '3 miles', '4 miles', '5 miles', '6 miles']
+    assert.equal(
+      describeCoverage(of(0, 10, named)),
+      'Covered 0 of the 10 measurements in this reply. ' +
+        'Not compared against anything: 1 mile, 2 miles, 3 miles, 4 miles and 6 more.'
+    )
+  })
+
+  test('no gap, no sentence', () => {
+    assert.equal(describeCoverage(of(3, 0, [])), '')
+    assert.equal(describeCoverage({ figures: [], links: [], checkedAgainst: ['run_python'] }), '')
   })
 })

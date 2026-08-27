@@ -105,8 +105,43 @@ export interface GroundingReport {
   quotes?: string[]
   /** v1.14: `[n] (Document)` where the named document is not passage n's. */
   attributions?: string[]
+  /**
+   * v2.1: what the measurement rung did **not** look at.
+   *
+   * Every field above this line is a fault found. This one is the opposite kind
+   * of fact and it is here because the badge was implying it by omission.
+   * Measured, blind, round 8, task V3 — the user asks how much water a dripping
+   * faucet wastes, and the two arms answer `105 gallons (400 liters)` and
+   * `35 gallons (130 liters)`, a factor of three apart and invented by both:
+   *
+   *     ⚠️ 4 figures ($10, $25, $40, $80) in this reply are not backed by the
+   *        tool output.
+   *     Checked against: no tool output — nothing ran this turn.
+   *
+   * Four incidental repair costs named, and the one number the user came for
+   * not mentioned — because `unsourcedFigures` has an unprompted path (several
+   * unsupported prices are worth saying so about on their own) and the
+   * quantities rung has none: with nothing computed and nothing retrieved it
+   * does not run, and the volumes were never candidates. Nothing on screen said
+   * so. A reader looking at four named figures reads a completed scan.
+   *
+   * So the pass now reports its own coverage. This is deliberately **not** a
+   * ranking of which figure matters — see the note on `describeCoverage` for
+   * why that was tried on paper and rejected.
+   */
+  coverage?: QuantityCoverageReport
   /** Tools whose output was used as the corpus, for the disclosure text. */
   checkedAgainst: string[]
+}
+
+/** How much of the reply's measured claims the quantities rung actually reached. */
+export interface QuantityCoverageReport {
+  /** Distinct measurements put beside something the turn produced. */
+  checked: number
+  /** Distinct measurements compared against nothing at all. */
+  unchecked: number
+  /** The first few of those, as the reader can find them on screen. */
+  uncheckedNamed: string[]
 }
 
 /**
@@ -347,6 +382,75 @@ export function describeUnbackedItems(report: GroundingReport): string {
   add(report.quantities ?? [], 'measurement', true)
   if (items === 0) return ''
   return `${andList(parts)} in this reply ${items === 1 ? 'is' : 'are'} not backed by the tool output.`
+}
+
+/** Beyond this many, the coverage line names the first few and counts the rest. */
+const MAX_UNCHECKED_NAMED = 4
+
+/**
+ * The one line that says what this pass did *not* do.
+ *
+ * **Why this and not a ranking.** The obvious reading of the V3 failure is that
+ * the checker needs to know which claim the reply is about, and the prompt is
+ * right there. It was tried on paper and it does not survive contact with this
+ * app's own corpus.
+ *
+ * `buildSearchQuery` offers nothing: it flattens whitespace, caps at 240
+ * characters and optionally prepends the previous user message. It performs no
+ * topical analysis, so there is no existing machinery to lean on. Building it
+ * means a noun→dimension lexicon — "water" is a volume — and the shipped packs
+ * break it immediately. *How much water should I store per person* is a volume;
+ * *how much water weight will I lose* is a mass; *how much can my landlord
+ * raise the rent* is money or a percentage; *how long do leftovers last* is a
+ * duration; and *how much does it cost to fix a dripping faucet* is money —
+ * which on this very reply makes `$10`–`$80` the headline and `105 gallons` the
+ * incidental. Two questions a hair apart, opposite answers, and the app cannot
+ * tell them apart without understanding the sentence.
+ *
+ * The cost of guessing wrong is not a miss, it is a new way to mislead. A line
+ * reading "the figure that answers your question is unsupported" pointing at
+ * `$25` asserts that the app understood the question, in the one place a reader
+ * has no way to check. Round 4's stricter quote checker was judged *worse* than
+ * the gap it closed for exactly this reason, and that finding was at least
+ * falsifiable by eye. This one would not be.
+ *
+ * So the honest smaller thing: report the coverage, name nothing as important,
+ * and let the reader see that the number they came for was never looked at.
+ *
+ * **Its failure mode, stated.** This line can only ever *understate* what the
+ * pass knows. If a named measurement turns out to be perfectly correct, "it was
+ * compared against nothing" is still true — it is a fact about the check, not a
+ * verdict on the answer. It elevates no figure because it names every one the
+ * rung skipped, in the order the reply states them. Its real cost is length on
+ * a reply full of incidental durations, which is why it is capped, and why it
+ * rides an existing badge rather than appearing on its own: a reply the pass
+ * faults nowhere makes no coverage claim to correct, and a permanent grey line
+ * under every mention of "20 minutes" is round 4's cry-wolf in a quieter ink.
+ *
+ * **And the noise it would have made.** The first version of this line said
+ * "compared against nothing" the moment a dimension was unarmed, which is true
+ * and was still wrong to print. Measured while building it: a passage reading
+ * "wastes about 2,000 gallons **per year**" against a reply reading "wastes
+ * about 2,000 gallons **a year**" produced *Covered 0 of the 1 measurement …
+ * Not compared against anything: 2,000 gallons* — because the rate suffix makes
+ * `gallon per year` a different unit from `gallon`, deliberately (a pace is not
+ * a duration). Every word of that was accurate and a reader looking at the
+ * passage would have called the app broken, which is how a disclosure becomes
+ * noise. The line is therefore gated on `coverageWorthSaying`: at least one
+ * skipped measurement whose number the reader cannot find in what the tools
+ * returned. See there for why the gate is on the line and not on the items.
+ */
+export function describeCoverage(report: GroundingReport): string {
+  const gap = report.coverage
+  if (!gap || gap.unchecked === 0) return ''
+  const total = gap.checked + gap.unchecked
+  const shown = gap.uncheckedNamed.slice(0, MAX_UNCHECKED_NAMED)
+  const rest = gap.unchecked - shown.length
+  const named = rest > 0 ? `${shown.join(', ')} and ${rest} more` : shown.join(', ')
+  return (
+    `Covered ${gap.checked} of the ${total} measurement${total === 1 ? '' : 's'} in this reply. ` +
+    `Not compared against anything: ${named}.`
+  )
 }
 
 export function describeGroundingFindings(report: GroundingReport): string {
@@ -628,8 +732,81 @@ export function unsourcedFigures(answer: string, corpus: string, sourceText = ''
  * however it labelled it, because the failure being caught is an invented
  * *number*, and demanding matching labels would flag a reply for converting
  * "0.5 hours" into "30 minutes".
+ *
+ * v2.1: the walk also reports what it *skipped* — see `QuantityCoverage`.
  */
+
+/**
+ * Every measurement the reply states, split by whether this rung could say
+ * anything about it at all.
+ *
+ * v2.1, and it is the same walk `unsourcedQuantities` has always done — the
+ * two `continue`s in the loop below were already deciding "there is nothing
+ * here to compare this against", they just did it in silence. Naming the two
+ * skips is the whole of the change; no verdict moves.
+ *
+ * `checked` means a corpus quantity of the same kind was genuinely put beside
+ * it. `unchecked` means one of the two skips fired: the dimension was never
+ * armed (nothing this turn measured a volume at all), or it was armed and the
+ * corpus holds nothing of comparable magnitude (a passage's "3 minutes" cannot
+ * confirm or contradict "4 days"). Both are honestly "compared against
+ * nothing", and a coverage claim that counted the second as covered would be
+ * the same overstatement one rung down.
+ */
+export interface QuantityCoverage {
+  /** Distinct `raw` spans this rung compared against the corpus. */
+  checked: string[]
+  /** Distinct `raw` spans it compared against nothing. */
+  unchecked: string[]
+  /** The subset of `checked` that nothing supports — the findings. */
+  flagged: string[]
+}
+
+/** The findings only, which is what every caller before v2.1 wanted. */
 export function unsourcedQuantities(answer: string, toolOutput: string, userText = ''): string[] {
+  return quantityCoverage(answer, toolOutput, userText).flagged
+}
+
+/**
+ * Is a coverage gap worth a line, or is it the checker's own vocabulary showing?
+ *
+ * The gap this filters is real but invisible to the reader. `gallon per year`
+ * and `gallon` are different units here on purpose, so a passage stating
+ * "2,000 gallons per year" arms neither the reply's "2,000 gallons" nor
+ * anything else — and the pass then truthfully reports a measurement it never
+ * compared, sitting directly above a passage that states it. The reader cannot
+ * see the unit table; they can see the number, and a warning contradicted by
+ * what is on screen is one they learn to skip.
+ *
+ * So: say it only when at least one skipped measurement's value appears
+ * **nowhere** in what this turn produced or the user said. That is the V3
+ * shape exactly — nothing ran, so 105 and 400 are in nothing — and it is not
+ * the shape above.
+ *
+ * The gate is on the LINE, not on the items, and that is deliberate. Filtering
+ * item by item would leave `checked + unchecked` short of the measurements the
+ * reply states, so "covered 1 of 4" would name two things and silently drop a
+ * third — a count the reader cannot reproduce from the screen, which is the
+ * defect `describeRevisionOutcome` was fixed for in round 4. Every named item
+ * is one the rung genuinely compared against nothing; the gate only decides
+ * whether the set is worth showing.
+ */
+function coverageWorthSaying(unchecked: string[], findable: string): boolean {
+  if (unchecked.length === 0) return false
+  const known = numbersIn(findable)
+  return unchecked.some((raw) => {
+    const [m] = measurementsIn(raw)
+    if (!m) return true
+    const decimals = precisionOf(String(m.value))
+    return !known.some((k) => roundTo(k, decimals) === m.value)
+  })
+}
+
+export function quantityCoverage(
+  answer: string,
+  toolOutput: string,
+  userText = ''
+): QuantityCoverage {
   // Only ever judged against measurements of the same kind. If the tools
   // computed distances and the answer states a distance none of them support,
   // that is a disagreement with the app's own arithmetic — the case this rung
@@ -675,10 +852,28 @@ export function unsourcedQuantities(answer: string, toolOutput: string, userText
   }
   const corpus = [...measurementsIn(toolOutput), ...measurementsIn(userText)]
   const flagged: string[] = []
+  const checked: string[] = []
+  const unchecked: string[] = []
   const seen = new Set<string>()
+  // Distinct by the span as written, like `flagged` — a reply saying
+  // "105 gallons" twice states one measurement, and a coverage count that read
+  // it as two would be arithmetic the reader cannot reproduce from the screen.
+  const seenChecked = new Set<string>()
+  const seenUnchecked = new Set<string>()
+  const record = (into: string[], mark: Set<string>, raw: string): void => {
+    if (mark.has(raw)) return
+    mark.add(raw)
+    into.push(raw)
+  }
   for (const m of measurementsIn(answer)) {
     const group = measurementGroup(m.unit)
-    if (!armed.has(m.unit) && !(group && armedGroups.has(group))) continue
+    if (!armed.has(m.unit) && !(group && armedGroups.has(group))) {
+      // Nothing this turn measured this kind of thing at all. This is the V3
+      // skip: a plumbing reply's volumes over a turn that computed and
+      // retrieved nothing, or over passages that state only money and months.
+      record(unchecked, seenUnchecked, m.raw)
+      continue
+    }
     // Two support corpora, because the two say different things. A corpus
     // value in the SAME unit is the reply restating a number, and is judged at
     // the precision the reply wrote it. A corpus value in another unit of the
@@ -695,7 +890,16 @@ export function unsourcedQuantities(answer: string, toolOutput: string, userText
       const inUnit = convertUnit(c.value, c.unit, m.unit)
       if (inUnit !== null && comparableMagnitude(m.value, inUnit, m.unit)) converted.push(inUnit)
     }
-    if (exact.length === 0 && converted.length === 0) continue
+    if (exact.length === 0 && converted.length === 0) {
+      // The dimension was armed and the corpus still holds nothing that is a
+      // claim about the same thing — a passage's "3 minutes" beside a reply's
+      // "4 days". `comparableMagnitude` is what keeps that quiet, and quiet is
+      // right; calling it *checked* would be the overstatement this whole field
+      // exists to stop.
+      record(unchecked, seenUnchecked, m.raw)
+      continue
+    }
+    record(checked, seenChecked, m.raw)
     const decimals = precisionOf(String(m.value))
     if (exact.some((k) => roundTo(k, decimals) === m.value)) continue
     if (converted.some((k) => agreesAfterConversion(m.value, k, decimals, m.unit))) continue
@@ -710,11 +914,9 @@ export function unsourcedQuantities(answer: string, toolOutput: string, userText
       isDerivable(m.value, decimals, [...exact, ...converted].slice(0, MAX_DERIVATION_BASES))
     )
       continue
-    if (seen.has(m.raw)) continue
-    seen.add(m.raw)
-    flagged.push(m.raw)
+    record(flagged, seen, m.raw)
   }
-  return flagged
+  return { checked, unchecked, flagged }
 }
 
 /**
@@ -2098,18 +2300,24 @@ export function checkToolGrounding(
   // badge's business, not this one. But once passages are in hand, a dose or a
   // temperature they contradict is precisely the claim this rung exists for,
   // and it is the standard the library eval has always scored replies against.
-  const quantities =
-    numericRecords.length > 0 || retrievedCorpus.trim() !== ''
-      ? // The user-text corpus doubles as the passive-support corpus (see the
-        // comment in unsourcedQuantities); source-tool text joins it for the
-        // same reason it supports figures: a measurement read off a fetched
-        // page is sourced, not a disagreement with the app's arithmetic.
-        unsourcedQuantities(
-          answer,
-          `${computedCorpus}\n${retrievedCorpus}`,
-          `${userText}\n${sourceCorpus}`
-        )
-      : []
+  const quantityRungRan = numericRecords.length > 0 || retrievedCorpus.trim() !== ''
+  // The user-text corpus doubles as the passive-support corpus (see the comment
+  // in `quantityCoverage`); source-tool text joins it for the same reason it
+  // supports figures: a measurement read off a fetched page is sourced, not a
+  // disagreement with the app's arithmetic.
+  //
+  // v2.1: the gate feeds the corpus rather than skipping the call, so the walk
+  // happens either way and the turn where the rung does not run is the turn
+  // that reports every measurement as unchecked — which is the V3 turn, and
+  // was previously indistinguishable on screen from a clean scan. An empty
+  // arming corpus arms nothing, so this cannot produce a finding it did not
+  // produce before: `flagged` is [] whenever `quantityRungRan` is false.
+  const coverage = quantityCoverage(
+    answer,
+    quantityRungRan ? `${computedCorpus}\n${retrievedCorpus}` : '',
+    quantityRungRan ? `${userText}\n${sourceCorpus}` : ''
+  )
+  const quantities = coverage.flagged
 
   // On the failure path the user's own words join the link corpus, and only
   // there. A URL they pasted is normally excluded (see the note above — the app
@@ -2198,6 +2406,13 @@ export function checkToolGrounding(
     quotes.length === 0 &&
     attributions.length === 0
   ) {
+    // Deliberately unconditional on `coverage`. A gap in what was checked is
+    // not a fault in the answer, and a badge that appeared on its own to say
+    // "0 of 2 measurements were compared against anything" would land under
+    // every reply that mentions twenty minutes. That turn is the `unverified`
+    // badge's business — `needsVerification` covers the reference domains,
+    // including the leaking faucet — and this line's job is to stop an existing
+    // badge from implying a completeness it does not have.
     return null
   }
 
@@ -2231,6 +2446,24 @@ export function checkToolGrounding(
     ...(citations.length > 0 ? { citations: citations.slice(0, MAX_REPORTED) } : {}),
     ...(quotes.length > 0 ? { quotes: quotes.slice(0, MAX_REPORTED) } : {}),
     ...(attributions.length > 0 ? { attributions: attributions.slice(0, MAX_REPORTED) } : {}),
+    // The two counts are of DISTINCT measurements and are not capped, because
+    // "N of M" is arithmetic the reader reproduces by looking at the reply.
+    // Only the naming is capped, and `describeCoverage` says how many it left
+    // out rather than quietly showing fewer.
+    //
+    // The findable corpus is every tool's output plus the user's own words —
+    // wider than what ARMS the rung, and deliberately so: this asks only
+    // "could the reader find this number", and a wider corpus can therefore
+    // only ever suppress the line, never produce one.
+    ...(coverageWorthSaying(coverage.unchecked, `${outputOf(records, () => true, true)}\n${userText}`)
+      ? {
+          coverage: {
+            checked: coverage.checked.length,
+            unchecked: coverage.unchecked.length,
+            uncheckedNamed: coverage.unchecked.slice(0, MAX_REPORTED)
+          }
+        }
+      : {}),
     checkedAgainst
   }
 }
