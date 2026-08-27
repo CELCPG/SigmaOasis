@@ -465,7 +465,7 @@ export function SettingsModal(): JSX.Element | null {
                     <code>http://127.0.0.1:1234/v1</code>.
                   </p>
                   {!isLoopbackUrl(draft.baseUrl) && (
-                    <p className="mt-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                    <p className="mt-2 rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn">
                       Only servers on this machine are supported. This URL will not be saved —
                       Sigma Oasis reverts to the default. LM Studio traffic carries your
                       conversations in plaintext and is deliberately never proxied, so a
@@ -1427,7 +1427,7 @@ export function SettingsModal(): JSX.Element | null {
                       : 'run_python and analyze_file report themselves unavailable until the runtime is installed. Everything else in the app is unaffected.'}
                   </p>
                   {workbench && !workbench.available && workbench.reason && (
-                    <p className="mt-2 rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-600 dark:text-amber-400">
+                    <p className="mt-2 rounded-lg bg-amber-500/10 p-2.5 text-xs text-ink-warn">
                       {workbench.reason}
                       <br />
                       In a checkout, run <code>bash scripts/fetch-pyodide.sh</code>; packaged builds
@@ -1576,7 +1576,7 @@ export function SettingsModal(): JSX.Element | null {
                               void window.api.braveKeyStatus().then(setBraveKeyInfo)
                             })
                           }
-                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm text-red-500 hover:bg-black/5 dark:hover:bg-white/10"
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm text-ink-danger hover:bg-black/5 dark:hover:bg-white/10"
                         >
                           Remove
                         </button>
@@ -1717,7 +1717,7 @@ export function SettingsModal(): JSX.Element | null {
                   </button>
                   {searchTest && (
                     <span
-                      className={`text-xs ${searchTest.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
+                      className={`text-xs ${searchTest.ok ? 'text-ink-ok' : 'text-ink-danger'}`}
                     >
                       {searchTest.detail}
                     </span>
@@ -1831,7 +1831,7 @@ export function SettingsModal(): JSX.Element | null {
                   {proxyTest && (
                     <p
                       className={`mt-2 text-xs ${
-                        proxyTest.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'
+                        proxyTest.ok ? 'text-ink-ok' : 'text-ink-danger'
                       }`}
                     >
                       {proxyTest.detail}
@@ -1927,7 +1927,7 @@ export function SettingsModal(): JSX.Element | null {
                           .then(() => window.api.researchIndexStats())
                           .then(setResearchStats)
                       }
-                      className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-red-500 hover:bg-black/5 dark:hover:bg-white/10"
+                      className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-ink-danger hover:bg-black/5 dark:hover:bg-white/10"
                     >
                       Forget
                     </button>
@@ -1987,7 +1987,7 @@ export function SettingsModal(): JSX.Element | null {
                   </p>
 
                   {auditInfo && !auditInfo.available && (
-                    <p className="mt-3 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                    <p className="mt-3 rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn">
                       Unavailable: your OS keychain is not accessible, and this log is never
                       written unencrypted.
                     </p>
@@ -2105,7 +2105,7 @@ export function SettingsModal(): JSX.Element | null {
                               void window.api.auditStatus().then(setAuditInfo)
                             })
                           }}
-                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-red-500 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-ink-danger hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
                         >
                           Purge all
                         </button>
@@ -2130,7 +2130,7 @@ export function SettingsModal(): JSX.Element | null {
                       onClick={() =>
                         void window.api.clearNetworkActivity().then(() => setNetActivity([]))
                       }
-                      className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-red-500 hover:bg-black/5 dark:hover:bg-white/10"
+                      className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-ink-danger hover:bg-black/5 dark:hover:bg-white/10"
                     >
                       Clear
                     </button>
@@ -2273,7 +2273,7 @@ export function SettingsModal(): JSX.Element | null {
                     </button>
                   </div>
                   {sttStatus && !sttStatus.available && (
-                    <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                    <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn">
                       {sttStatus.reason}
                       <br />
                       Then download a model (e.g.{' '}
@@ -2373,12 +2373,12 @@ export function SettingsModal(): JSX.Element | null {
                   </button>
                 </div>
                 {memoryStats && !memoryStats.available && (
-                  <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                  <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn">
                     {memoryStats.reason}
                   </p>
                 )}
                 {memoryStats?.mixedModels && (
-                  <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                  <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn">
                     Some sources were indexed with a different embedding model and can&apos;t be
                     searched by the current one. Remove and re-add them below, or switch back to the
                     model that indexed them.
@@ -2485,7 +2485,7 @@ export function SettingsModal(): JSX.Element | null {
                                 void window.api.memoryStats().then(setMemoryStats)
                               })
                             }
-                            className="shrink-0 rounded px-1.5 text-ink-tertiary hover:text-red-500"
+                            className="shrink-0 rounded px-1.5 text-ink-tertiary hover:text-ink-danger"
                             title="Remove from memory"
                           >
                             ✕
@@ -2506,7 +2506,7 @@ export function SettingsModal(): JSX.Element | null {
             type="button"
             onClick={reset}
             className={`text-sm ${
-              confirmingReset ? 'font-medium text-red-500' : 'text-ink-secondary hover:text-red-500'
+              confirmingReset ? 'font-medium text-ink-danger' : 'text-ink-secondary hover:text-ink-danger'
             }`}
           >
             {confirmingReset ? 'Really reset everything? Click again to confirm' : 'Reset to defaults'}

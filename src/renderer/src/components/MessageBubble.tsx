@@ -158,7 +158,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   // it. Pinned in test/chromeContrastCheck.ts.
   return (
     <div
-      className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-300"
+      className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-ink-warn"
       title={
         'These came from the model, not from the tools this turn actually ran ' +
         `(${report.checkedAgainst.join(', ')}). Numbers a calculator did not return, and links ` +
@@ -290,8 +290,13 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       )}
       {/* One rank quieter than the warnings above it, and quieter by ink rather
           than by opacity — this is the line that says what the answer was
-          measured against, and it was the least legible thing in the app. */}
-      <div className="mt-1 text-amber-800 dark:text-amber-400">
+          measured against, and it was the least legible thing in the app.
+          v2.2: the quiet rank is the neutral tertiary token, not a paler amber.
+          Two amber steps could only be told apart by lightness, which is the
+          axis AA has already spent; a neutral reads as the quieter rank in both
+          themes AND leaves the warm ink meaning exactly one thing — warning.
+          5.24:1 light / 6.15:1 dark over this banner's own amber wash. */}
+      <div className="mt-1 text-ink-tertiary">
         Checked against: {report.checkedAgainst.join(', ')}.
       </div>
     </div>
@@ -323,8 +328,8 @@ function RevisedLine({ message }: { message: ChatMessage }): JSX.Element | null 
     <div
       className={
         revision.resolved
-          ? 'mt-2 text-[11px] text-emerald-700 dark:text-emerald-400'
-          : 'mt-2 text-[11px] text-amber-700 dark:text-amber-300'
+          ? 'mt-2 text-[11px] text-ink-ok'
+          : 'mt-2 text-[11px] text-ink-warn'
       }
       title={
         revision.resolved
@@ -444,7 +449,7 @@ function ContextEntry({
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="ml-1 break-all text-sky-600 underline dark:text-sky-400"
+          className="ml-1 break-all text-sky-700 underline dark:text-sky-400"
           title={`Open the source of this passage: ${url}`}
         >
           {url}
@@ -506,7 +511,7 @@ function MemoryContextLine({
         {/* amber-700, not the amber-600 most of this app's warnings use: that
             one composites to 3.10:1 on the light panel and this line is the app
             saying it cannot vouch for the marks beside it. 4.89:1 / 11.66:1. */}
-        {note && <span className="text-amber-700 dark:text-amber-400">{note} </span>}
+        {note && <span className="text-ink-warn">{note} </span>}
         <span>{open ? '▾' : '▸'}</span>
       </button>
       <Disclosure open={open} className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
@@ -945,7 +950,7 @@ export const MessageBubble = memo(function MessageBubble({
         */}
         {!isStreaming && affordances.empty && (
           <div
-            className="text-[11px] text-amber-600 dark:text-amber-400"
+            className="text-[11px] text-ink-warn"
             title="The turn ended without producing any text. If the server said why, the reason is in the next message."
           >
             ⚠️ Empty reply — nothing came back from the model. Use ↻ Regenerate to ask again.
@@ -995,7 +1000,7 @@ export const MessageBubble = memo(function MessageBubble({
             {message.checks.map((c, i) => (
               <div
                 key={i}
-                className={c.ok ? 'text-ink-tertiary' : 'text-amber-600 dark:text-amber-400'}
+                className={c.ok ? 'text-ink-tertiary' : 'text-ink-warn'}
                 title="Workbench verification: the app ran Python in the sandbox to check this reply — recomputing its figures, or running the code it contains. Settings → Models → Workbench checks."
               >
                 {c.summary}
@@ -1068,7 +1073,7 @@ export const MessageBubble = memo(function MessageBubble({
 
         {!isStreaming && message.unverified && (
           <div
-            className="mt-2 text-[11px] text-amber-600 dark:text-amber-400"
+            className="mt-2 text-[11px] text-ink-warn"
             title={
               message.offline
                 ? 'This looked like a factual question, the app was offline so no web source could be consulted, and the local reference library had nothing on it — the answer comes entirely from the model\'s memory.'
@@ -1088,7 +1093,7 @@ export const MessageBubble = memo(function MessageBubble({
         */}
         {!isStreaming && message.truncated && (
           <div
-            className="mt-2 text-[11px] text-amber-600 dark:text-amber-400"
+            className="mt-2 text-[11px] text-ink-warn"
             title="The reply reached this role's max tokens and was cut off. Raise it under Settings → Models → Sampling, or ask for the rest."
           >
             ✂️ Cut off at the length cap — this reply is unfinished. Raise max tokens in Settings

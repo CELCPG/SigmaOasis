@@ -2952,3 +2952,101 @@ refuses to stage a pair whose arms report different versions.
   video caption and aftercare, crowding out the section that says to pinch for 10–15 minutes. The
   reply was useful and honest but missed the step the user needed. Noted rather than tuned away:
   changing ranking on the strength of one case is how an eval stops measuring anything.
+
+### Pending fold-in — the app's warnings were its least legible text
+
+Two independent measurements, from recorded runs of the shipped app, said the same thing about
+the same class of sentence.
+
+> The red error ink is the only text below threshold anywhere in this capture — **3.63:1** in
+> light theme, measured on `"nothing answered at that address"` (`rgb(239, 68, 68)` on
+> `[247, 252, 251]`) — and it is exactly the text a reader most needs to read.
+
+> `text-amber-600` composites to 3.10:1 on the light panel, at ~20 sites including this
+> component's own "⚠️ Empty reply" line.
+
+Both are closed, and the mechanism behind them is closed with them. The figures below are
+measured, in a real offscreen window, over the surfaces the app actually composites — not read
+out of the stylesheet.
+
+#### A raw palette step is one colour for two themes
+
+`text-amber-600` is 3.10:1 on the light panel and 6.11:1 on the dark one. That is not a bad
+choice of amber; it is the absence of a choice. One class cannot be legible in two themes, so
+every site that reached for one was guaranteed to fail in one of them — and the sites that
+reached for one were, almost exactly, the lines that report a failure, a warning, or a claim the
+app could not verify. 25 amber sites and 22 red ones had accumulated behind that single fact.
+
+The neutral ink ramp had already learned this: chrome ink goes through `--text-*`, which is
+defined once per theme, and a guard refuses `text-neutral-400` and its cousins. Status colour is
+the same argument one step further, so it gets the same treatment — `--text-danger`, `--text-warn`
+and `--text-ok`, surfaced as `text-ink-danger|warn|ok`.
+
+#### Where the line is between legible and still-obviously-a-warning
+
+Passing AA in the light theme caps relative luminance, and the usual move — walk down the same
+ramp until it passes — is what makes a deep amber read as mud. The reason is measurable:
+**Tailwind's ramps desaturate as they darken.** `amber-600` is chroma 0.83, `amber-700` 0.67,
+`amber-800` 0.52. Darkening buys contrast by spending exactly the thing that makes the colour
+mean "warning".
+
+Rotating toward orange and taking the most saturated sRGB colour available at the required
+lightness beats it on both axes at once:
+
+| light-theme warning ink | chroma | worst surface it lands on |
+| --- | --- | --- |
+| `amber-600` (shipped) | 0.83 | **2.78:1** |
+| `amber-700` (round 8's fix) | 0.67 | **4.03:1** |
+| `amber-800` | 0.52 | 5.69:1 |
+| `#a34300` (chosen) | 0.64 | 5.01:1 |
+
+More colour than `amber-800` and a full rank more legible than `amber-700`. Round 8's own fix,
+applied at one site, was never safe as a token: on the tinted wells these lines actually sit on it
+measures 4.03–4.38:1, under AA.
+
+The hue that darkening would have cost is carried instead by the parts with no contrast floor —
+`bg-amber-500/10`, `border-amber-500/30`, and the ⚠️ glyph. **Ink pays for legibility; the surface
+pays for identity.** That is the whole trade, and it only works because the warning is never
+carried by colour alone.
+
+#### The measurement that would have flattered every one of these
+
+Half these lines do not sit on the panel. They sit on a wash of their own hue — amber/5 under the
+grounding banner, amber/15 under the second-opinion pill, red/10 under a traceback — and a tint
+makes the surface *brighter*. Measuring on the bare panel reports a number no reader gets. The
+worst case in the app was the second-opinion pill at **2.65:1**, which is a full rank below the
+3.10 the panel would have claimed for the same ink.
+
+#### What the guard has to be
+
+The per-site fix without a guard is how 25 sites accumulated, so the guard is the deliverable.
+But a name ban would have been wrong: the app has two legitimate fixed palettes — which role
+answered, and which project a conversation belongs to — and **an amber project is not a warning.**
+Painting it in warning ink would be a lie no measurement could catch.
+
+So the rule is measured, not named: any raw palette step used as ink must clear AA on a 15% chip
+of its own hue, which is the only surface this app ever puts one on. `text-amber-600` (2.78:1) and
+`text-red-500` (3.17:1) are now unusable as ink anywhere in the renderer — in a label, in a badge,
+and in the prose they were carrying — while a label palette keeps its hues by being legible rather
+than by being exempt. It found three sites nobody had reported: a source-URL link at 3.99:1 and
+two state chips at 4.13:1.
+
+#### Two ways this check passed without measuring anything
+
+Both are worth recording, because they are the same failure the suite was built to catch and it
+caught neither on itself.
+
+- **An unemitted class measures inherited ink.** Tailwind only emits a utility some scanned source
+  writes. A step that appears only as `dark:text-amber-400` compiles to `.dark .dark\:text-amber-400`
+  and there is *no bare rule at all* — so a probe wearing `text-amber-400` inherited the ambient
+  ink and reported 14:1 for a colour it never rendered. Eight dark probes and one light one passed
+  this way. Same trap as the round-6 note about a stale scraped class string: a class that no longer
+  resolves does not fail, it measures something else and says nothing about it.
+- **A delimiter that can appear inside the thing it delimits.** Matching `(dark:)?text-…` after a
+  character class containing `:` let `dark:hover:text-violet-300` match from the colon of `hover:`
+  with no `dark:` captured — a phantom light-theme class, duly reported at 1.50:1 as a failure of a
+  site that does not exist. The fix is to capture the whole variant chain rather than a guessed
+  prefix.
+
+Both were found by mutation: setting a token to a known-bad value and checking the suite says so.
+A check that cannot be made to fail on demand is not yet known to be a check.

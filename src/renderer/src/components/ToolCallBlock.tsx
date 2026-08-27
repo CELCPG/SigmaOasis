@@ -82,11 +82,11 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
             declined
               ? 'text-ink-secondary'
               : record.status === 'error'
-                ? 'text-red-500'
+                ? 'text-ink-danger'
                 : empty
-                  ? 'text-amber-600 dark:text-amber-400'
+                  ? 'text-ink-warn'
                   : record.status === 'done'
-                    ? 'text-green-500'
+                    ? 'text-ink-ok'
                     : ''
           }
           title={
@@ -116,11 +116,11 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         >
           {label}
         </span>
-        {empty && <span className="text-amber-600 dark:text-amber-400">— {EMPTY_RESULT_NOTE}</span>}
+        {empty && <span className="text-ink-warn">— {EMPTY_RESULT_NOTE}</span>}
         {/* The row states the state in words too: a glyph is not a reading. */}
         {reason && failure && (
           <span
-            className={declined ? 'min-w-0 truncate text-ink-secondary' : 'min-w-0 truncate text-red-500'}
+            className={declined ? 'min-w-0 truncate text-ink-secondary' : 'min-w-0 truncate text-ink-danger'}
             // The hover text is the same reading the disclosure gives, evidence
             // and all — not the raw result, which also carries the model's
             // coaching and has no business in a tooltip.

@@ -113,7 +113,7 @@ describe('a plan the user stopped part-way', () => {
 
   test('the interrupted step is not presented as a failure', () => {
     assert.ok(!r[1]!.includes('✗'), 'the stopped step renders the failure glyph')
-    assert.ok(!r[1]!.includes('text-red-500'), 'the stopped step renders in failure red')
+    assert.ok(!r[1]!.includes('text-ink-danger'), 'the stopped step renders in failure red')
     assert.match(r[1]!, /stopped here/)
   })
 
@@ -139,7 +139,7 @@ describe('a plan that failed on its own still reads as a failure', () => {
 
   test('the failed step keeps the failure glyph and colour', () => {
     assert.match(r[1]!, /✗/)
-    assert.match(r[1]!, /text-red-500/)
+    assert.match(r[1]!, /text-ink-danger/)
   })
 
   test('a failure and a user stop are not the same marker', () => {
@@ -270,6 +270,27 @@ const INK_TOKENS = (() => {
   return out
 })()
 
+/**
+ * The status inks — the same idea as the tiers above and read the same way, but
+ * opaque rather than rgba, so they resolve without a surface.
+ *
+ * They exist because a raw palette step cannot be theme-aware: the plan block's
+ * outcomes and step statuses were `text-red-500` / `text-amber-600` / their
+ * `dark:` twins, and the light half of every one of those pairs was under AA
+ * (3.10–3.67:1). Hue still has to separate the four outcomes, which is what the
+ * assertions below check; these only say what each hue *is*.
+ */
+const STATUS_INK = (() => {
+  const css = readFileSync(join(REPO, 'src/renderer/src/assets/index.css'), 'utf8')
+  const out: Record<string, string[]> = {}
+  for (const name of ['danger', 'warn', 'ok']) {
+    const found = css.match(new RegExp(`--text-${name}:\\s*(#[0-9a-fA-F]{6})`, 'g')) ?? []
+    assert.equal(found.length, 2, `index.css no longer defines --text-${name} once per theme`)
+    out[name] = found.map((m) => m.slice(m.indexOf('#')))
+  }
+  return out
+})()
+
 /** The canvas the block sits on, read from the app's own Tailwind config. */
 const CANVAS = (() => {
   const cfg = readFileSync(join(REPO, 'tailwind.config.js'), 'utf8')
@@ -329,6 +350,10 @@ function ink(cls: string, dark: boolean, bg: RGB): RGB {
   if (name === 'accent-ink') return hex(ACCENT_INK[dark ? 1 : 0]!)
   if (name.startsWith('ink-')) {
     const tier = name.slice(4)
+    // The status inks are opaque, so they need no surface; the neutral tiers
+    // carry their own alpha and are composited over the block's background.
+    const status = STATUS_INK[tier]
+    if (status) return hex(status[dark ? 1 : 0]!)
     const token = INK_TOKENS[tier]
     assert.ok(token, `unmeasured ink token "${name}" — index.css defines no --text-${tier}`)
     const [r, g, b, a] = token![dark ? 1 : 0]!

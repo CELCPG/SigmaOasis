@@ -286,7 +286,7 @@ function ProjectEditor({
                     <button
                       type="button"
                       onClick={() => onPatch({ files: project.files.filter((x) => x.id !== f.id) })}
-                      className="rounded px-1 text-ink-tertiary hover:text-red-500"
+                      className="rounded px-1 text-ink-tertiary hover:text-ink-danger"
                       title="Unpin"
                     >
                       ✕
@@ -389,7 +389,7 @@ function ProjectEditor({
           <button
             type="button"
             onClick={onDelete}
-            className="ml-auto rounded-lg px-2 py-1 text-red-500 hover:bg-red-500/10"
+            className="ml-auto rounded-lg px-2 py-1 text-ink-danger hover:bg-red-500/10"
           >
             Delete project
           </button>

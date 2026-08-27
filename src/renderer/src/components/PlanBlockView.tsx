@@ -68,7 +68,7 @@ export function PlanBlockView({
             · {forecastDivergenceNote(divergedCount, plan.steps.length)}
           </span>
         )}
-        {awaiting && <span className="text-amber-600 dark:text-amber-500">awaiting approval</span>}
+        {awaiting && <span className="text-ink-warn">awaiting approval</span>}
         {/* Approved and no outcome yet is the only live state; say so, so the
             header alone tells the six states apart. */}
         {!awaiting && !plan.outcome && <span className="text-accent-ink">running</span>}
@@ -142,7 +142,7 @@ export function PlanBlockView({
                       their own amber tint, this sits on the plan block's grey,
                       where amber-700 measures 4.28:1 and misses AA. */}
                   {undisclosed.length > 0 && (
-                    <span className="block text-amber-800 dark:text-amber-500">
+                    <span className="block text-ink-warn">
                       {undisclosedRunNote(undisclosed, contradicted)}
                     </span>
                   )}
@@ -158,7 +158,7 @@ export function PlanBlockView({
                       <pre
                         className={`mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg p-2 font-mono text-[11px] ${
                           step.status === 'failed'
-                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                            ? 'bg-red-500/10 text-ink-danger'
                             : 'bg-black/5 dark:bg-white/5 text-ink-secondary'
                         }`}
                       >

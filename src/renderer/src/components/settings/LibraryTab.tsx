@@ -15,7 +15,7 @@ import type { LibraryBundledPack, LibraryFreshness, LibraryLookupResult, Library
 const BUTTON =
   'rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40'
 const NOTE = 'rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary'
-const WARN = 'rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400'
+const WARN = 'rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn'
 
 function kb(chars: number): string {
   if (chars >= 1_000_000) return `${(chars / 1_000_000).toFixed(1)} M chars`
@@ -279,7 +279,7 @@ export function LibraryTab(): JSX.Element {
                     </p>
                     {p.sourceNote && <p className="mt-1 text-ink-tertiary break-all">{p.sourceNote}</p>}
                     {driftLine && (
-                      <p className="mt-1 text-amber-600 dark:text-amber-400">
+                      <p className="mt-1 text-ink-warn">
                         {driftLine}
                         {!drift?.missingFolder && ' Update to bring the pack up to date — unchanged documents keep their embeddings.'}
                       </p>
@@ -299,7 +299,7 @@ export function LibraryTab(): JSX.Element {
                         type="button"
                         disabled={busy !== null}
                         onClick={() => void update(p)}
-                        className={drift ? `${BUTTON} border-amber-500/40 text-amber-600 dark:text-amber-400` : BUTTON}
+                        className={drift ? `${BUTTON} border-amber-500/40 text-ink-warn` : BUTTON}
                         title="Re-read the folder this pack was built from. Documents whose text is unchanged keep their embeddings; only new and edited ones are re-embedded."
                       >
                         Update
@@ -320,7 +320,7 @@ export function LibraryTab(): JSX.Element {
                         {fully ? 'Embedded' : p.embeddedChunks > 0 ? 'Finish embedding' : 'Embed'}
                       </button>
                     )}
-                    <button type="button" disabled={busy !== null} onClick={() => void remove(p)} className={`${BUTTON} text-red-500`}>
+                    <button type="button" disabled={busy !== null} onClick={() => void remove(p)} className={`${BUTTON} text-ink-danger`}>
                       Remove
                     </button>
                   </div>

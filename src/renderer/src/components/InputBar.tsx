@@ -392,7 +392,7 @@ export function InputBar(): JSX.Element {
                     <button
                       type="button"
                       onClick={() => removeAttachment(a.id)}
-                      className="text-ink-tertiary hover:text-red-500"
+                      className="text-ink-tertiary hover:text-ink-danger"
                       title="Remove"
                     >
                       ✕
@@ -426,7 +426,7 @@ export function InputBar(): JSX.Element {
               disabled={streaming || micState === 'transcribing'}
               className={
                 micState === 'recording'
-                  ? 'flex h-9 shrink-0 animate-pulse items-center justify-center rounded-full border border-red-500/40 bg-red-500/15 px-3 text-sm text-red-500 transition-colors disabled:opacity-40'
+                  ? 'flex h-9 shrink-0 animate-pulse items-center justify-center rounded-full border border-red-500/40 bg-red-500/15 px-3 text-sm text-ink-danger transition-colors disabled:opacity-40'
                   : GHOST_BUTTON
               }
               title={
@@ -496,7 +496,7 @@ export function InputBar(): JSX.Element {
               <button
                 type="button"
                 onClick={stopStreaming}
-                className="shrink-0 rounded-2xl border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/25"
+                className="shrink-0 rounded-2xl border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm font-medium text-ink-danger transition-colors hover:bg-red-500/25"
               >
                 Stop
               </button>
@@ -516,7 +516,7 @@ export function InputBar(): JSX.Element {
 
         <div className="mt-1.5 flex justify-between px-1 text-xs">
           {micState === 'recording' && !notice ? (
-            <span className="flex items-center gap-2 text-red-500">
+            <span className="flex items-center gap-2 text-ink-danger">
               Recording {recSeconds}s — auto-stops when you stop talking · Esc cancels
               <span className="h-1.5 w-20 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
                 <span
@@ -526,10 +526,10 @@ export function InputBar(): JSX.Element {
               </span>
             </span>
           ) : notice ? (
-            <span className="text-red-500">{notice}</span>
+            <span className="text-ink-danger">{notice}</span>
           ) : blindToImages ? (
             <span
-              className="text-amber-600 dark:text-amber-500"
+              className="text-ink-warn"
               title="LM Studio reports this model as text-only. It will answer as if it saw the image."
             >
               ⚠ {activeSlot?.roleName} cannot see images — pick a vision model
@@ -540,7 +540,7 @@ export function InputBar(): JSX.Element {
           <span className="flex items-center gap-3">
             {armed.length > 0 && (
               <span
-                className="text-amber-600 dark:text-amber-500"
+                className="text-ink-warn"
                 title={`Models can ${armed.join(' and ')} on this machine. Change this under Settings → Tools.`}
               >
                 ⚠ can {armed.join(' + ')}
@@ -549,7 +549,7 @@ export function InputBar(): JSX.Element {
             {contextMeter && (
               <span
                 className={
-                  contextMeter.ratio > 0.9 ? 'text-amber-600 dark:text-amber-500' : 'text-ink-tertiary'
+                  contextMeter.ratio > 0.9 ? 'text-ink-warn' : 'text-ink-tertiary'
                 }
                 title={`Estimated ${contextMeter.used.toLocaleString()} of ${contextMeter.total.toLocaleString()} tokens used. Token counts here are estimated from text length, not tokenized${
                   activeConvo?.summary ? '. Earlier messages have been summarized to fit' : ''

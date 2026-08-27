@@ -55,10 +55,10 @@ export const OUTCOME_CLASS: Record<PlanOutcome, string> = {
   // Weight and contrast from the plan work (the outcome must be the most
   // legible thing in the block); the neutral goes through the ink token rather
   // than a raw Tailwind grey, which the widened contrast guard now refuses.
-  completed: 'font-semibold text-green-900 dark:text-green-300',
+  completed: 'font-semibold text-ink-ok',
   cancelled: 'font-semibold text-ink-primary',
-  stopped: 'font-semibold text-amber-900 dark:text-amber-300',
-  failed: 'font-semibold text-red-900 dark:text-red-300'
+  stopped: 'font-semibold text-ink-warn',
+  failed: 'font-semibold text-ink-danger'
 }
 
 /** The outcome sits in a bordered chip, so it reads as a stamp, not a caption. */
@@ -76,10 +76,10 @@ export const STATUS_ICON: Record<PlanStepStatus, string> = {
 export const STATUS_CLASS: Record<PlanStepStatus, string> = {
   pending: 'text-ink-tertiary',
   running: 'text-accent-ink animate-pulse',
-  done: 'text-green-600 dark:text-green-400',
-  failed: 'text-red-500',
+  done: 'text-ink-ok',
+  failed: 'text-ink-danger',
   // Stopping is not failing: amber, and never the failure red.
-  stopped: 'text-amber-600 dark:text-amber-500',
+  stopped: 'text-ink-warn',
   skipped: 'text-ink-tertiary'
 }
 
