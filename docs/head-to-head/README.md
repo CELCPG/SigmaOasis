@@ -338,7 +338,11 @@ Three figures come out of the columns rather than out of any one of them:
   bite on. A column of ties over eighteen tasks contested on none of them says
   the property was never in play, which is a different claim from two builds
   behaving alike, and the win/loss/tie line cannot tell them apart. **The
-  denominator is `contested`, not 18.**
+  denominator is `contested`, not 18.** A column that bit on nothing anywhere
+  and was silent on most of what it looked at is named as *never put in play*,
+  in the same words as a column measuring the record's coverage: both are
+  columns whose ties are a fact about the instrument or the tasks rather than
+  about either build, and both read identically in the win/loss/tie line.
 
 **The cheapest way to pass any cross-cutting question is to print less**, so
 every one of them reports a volume figure — statements made, statements the
@@ -353,6 +357,137 @@ task set does not ask, leaves a task out of a column, or reports a contested
 denominator it has no counts for. `unrecorded` is a verdict: a question that was
 put and whose answer was not kept is not a tie, and the file may not round it
 into one.
+
+### What a column has to say about its own evidence
+
+Round 11 wrote both cross-cutting columns as eighteen ties and the scorer could
+only print `contested unknown — no counts kept`. Every critic that round had
+reported a statement count and a disagreeing-pair count per task per run; none
+of it reached the file. **A column that was never put in play looked exactly
+like a column both builds passed.**
+
+So a cross-cutting column now declares what stands behind it, in the same three
+words the verdicts use — and a column that declares nothing is refused:
+
+| `evidence` | means | what the printout says |
+| --- | --- | --- |
+| `counted` | the numbers are in this file, task by task and run by run | `contested N/M`, plus why the rest was uncontested |
+| `unrecorded` | the critics counted and the round did not write it down | `contested unrecorded`, and a paragraph saying the ties cannot be read as agreement |
+| `unasked` | the question was not put this round | nothing; the column already says `NOT ASKED` |
+
+`unrecorded` is deliberately cheap to write. A round that lost its numbers can
+always be honest about it; what it can no longer be is silent. A column that
+claims `counted` and carries nothing is refused, and so is one that claims
+`unrecorded` and carries something — a real measurement labelled as an absence
+throws the evidence away just as thoroughly.
+
+Under `counted`, each task carries one block per run:
+
+```json
+"V1": {
+  "verdict": "tie",
+  "A": { "volume": 11, "settleable": 8, "count": 1, "unsettleable": { "absent": 2, "byNature": 1 } },
+  "B": { "volume": 9,  "settleable": 6, "count": 0, "unsettleable": { "absent": 2, "byNature": 1 } }
+}
+```
+
+**What each field means when it is zero** is the whole reason there are four of
+them rather than one:
+
+- `volume` — statements the application made about its own behaviour. **Zero
+  means it said nothing about itself**, and zero on both sides is a tie about
+  the task, not about the builds.
+- `settleable` — how many of those this column could actually decide. **Zero
+  under a volume above it means the run talked and not a word of it could be
+  checked** — a fact about the capture. Both questions' `decide` already orders
+  a critic to report this beside the count; carrying it rather than deriving it
+  from `volume` minus the unsettleable split is what lets a miscount be caught
+  instead of absorbed.
+- `count` — disagreeing pairs, or contradictions. **Zero is an earned agreement
+  only when `settleable` is above zero**; otherwise it is the column failing to
+  look, which is what a lone zero cannot distinguish.
+- `unsettleable.absent` / `.byNature` — optional, and optional *together*. Given,
+  they must account exactly: `settleable + absent + byNature = volume`. Left out,
+  the tie is reported as unsettleable with the kind not stated rather than as an
+  agreement.
+
+Anything that does not add up is refused with exit 2 as *counted from different
+lists*, which is the existing refusal extended rather than a new one: half a
+comparison, more settleable statements than statements, disagreements found
+among nothing settleable, and counts kept for one run and not the other all land
+there. `contested N/M` also reports `uncounted K` when `M` is short of the
+round's tasks, so a column counted on two of eighteen cannot print a ratio that
+reads like a column contested on half of what it saw.
+
+### Where the counts come from
+
+The critics already produce these numbers, in prose. Three ways to get them into
+the file, and the round took two:
+
+- **Parse the prose** — rejected. Round 9's reports are not in the repository and
+  round 11's were a task notification; a parser for prose that no longer exists
+  is tested against nothing, and prose that *nearly* parses yields a number
+  rather than a refusal.
+- **Refuse a file with no counts** — taken, as the `evidence` declaration above.
+  It makes silence visible. On its own it makes nothing easier to keep, and **a
+  schema nobody can fill is worse than no schema.**
+- **Ask for a machine-readable block** — taken, as `critic-counts.mjs`. The
+  critic appends one header line and one line per run, per question, per task,
+  *beside* the prose and not instead of it.
+
+```
+COUNTS V1 self-consistency run-2
+  run-1 statements 11 settleable 8 found 1 unsettleable-absent 2 unsettleable-by-nature 1
+  run-2 statements 9 settleable 6 found 0 unsettleable-absent 2 unsettleable-by-nature 1
+```
+
+`node docs/head-to-head/critic-counts.mjs block` prints that spec for the prompt
+document, generated from `crossCutting` so a question added there gets a block
+without anyone remembering to add one. `critic-counts.mjs read <report…> --key
+<staging>/_key.json` reads filled blocks back into a column, checking the same
+arithmetic the scorer does and refusing rather than guessing. **The verdict word
+rides in the header**, so the word and the numbers behind it are written in one
+place at one moment — round 11's word survived and its numbers did not precisely
+because they were written in two.
+
+The blinding survives it: a critic writes `run-1` and `run-2`, which is all a
+critic knows. Turning those into `A` and `B` needs `_key.json`, which is withheld
+from critics, and without it the tool stops at the run labels and says so.
+
+What it costs, stated rather than buried: a critic now emits a structure as well
+as an argument, which is one more thing to get wrong; a malformed block costs a
+human re-read rather than producing a number nobody counted; a fixed vocabulary
+in front of a critic is a mild pull toward counting what the block asks for
+rather than what the question asks for, which is why the prose stays mandatory
+and the block is checked against itself rather than against the prose; and none
+of it recovers a number from a round already judged.
+
+### When a round overrules its critics
+
+A file may carry `columnsAsReported` beside `columns` — the critics' raw
+verdicts, and the reading the round stands behind. Round 11 carried both and
+explained the difference in a paragraph, so the printout showed a corrected
+column with no sign that anything had been corrected. **A paragraph explaining
+one correction reads exactly like a paragraph explaining nine.**
+
+```json
+"corrections": [
+  {
+    "task": "V1",
+    "columns": ["self-consistency", "record-consistency"],
+    "from": "B", "to": "tie",
+    "rule": "a difference that would vanish under identical tokens is not a difference",
+    "why": "…"
+  }
+]
+```
+
+The check runs both ways, because each direction hides something different. A
+difference between the two readings that no correction names is a verdict
+quietly overruled. A correction matching no difference is a rule invoked over
+nothing — the appearance of rigour with no verdict behind it. Both are refused,
+and the printout carries `verdicts overruled after reporting N of M` with the
+rule beside each one.
 
 ### What a column cannot see
 
@@ -433,12 +568,20 @@ Judging adds two more, in this directory:
 
 - `make-critic-tasks.mjs` / `make-blind-pairs.mjs` — the view a critic may read,
   and the staged pairs it reads it against.
+- `critic-counts.mjs` — the counts block a critic fills in beside the prose, and
+  the transcriber that turns filled blocks into a column. See *Where the counts
+  come from* above. Its output is a document a blind judge reads, so it is
+  guarded for build fingerprints in `test/h2hTaskNeutrality.test.ts` alongside
+  the task view rather than trusted because of where it was generated from.
 - `score-round.mjs` — Pass 2's verdicts, aggregated into columns. It reads
   `verdicts/round-N.json`, which is **the round's record**: one entry per task
   per column, with the volume figures each column is guarded by. Round 9's
   critics answered the self-consistency question on all eighteen tasks and
   nobody wrote the answers down; that column cannot be recomputed and the file
-  says `unrecorded` rather than pretending it was a tie.
+  says `unrecorded` rather than pretending it was a tie. Rounds 10 and 11 kept
+  their verdicts and lost the counts behind them, so their cross-cutting columns
+  declare `evidence: "unrecorded"` and the printout says in words that their
+  ties may not be read as agreement.
 
 `task-setup.json` is this file's `setup` prose written so a machine can run it:
 settings, packs, fixtures, `requires` and driver actions per task id. If the two

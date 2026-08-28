@@ -5453,3 +5453,182 @@ lives, below the banner, and a pass still in flight still renders there too.
 - `Ran: the code check` appears on a reply containing no Python at all, because `runCodeCheck`
   reaches a conclusion either way and the notice reports that it ran. Defensible, and no line
   contradicts it — but there is no `🧪` disclosure on screen for the reader to tie it to.
+
+### Pending fold-in — a column that says nothing is unreadable
+
+Round 11 scored both cross-cutting columns 0-0-18, and `score-round.mjs` printed the only thing it
+could:
+
+```
+self-consistency    A 0 · B 0 · tie 18  ·  contested unknown — no counts kept
+record-consistency  A 0 · B 0 · tie 18  ·  contested unknown — no counts kept
+```
+
+The round's own write-up said the number was ambiguous — *either two clean builds or two columns
+with nothing to bite on* — and could not resolve it. **The critics could.** Every round-11 report
+carried the resolving numbers in prose: *"run-1: 11 application statements, 1 disagreeing pair;
+run-2: 9 statements, 0"*, *"settleable 6 and 6, agreements 6 and 6, contradictions 0 and 0,
+unsettleable 3 and 3"*.
+
+None of it reached `verdicts/round-11.json`, which stores one word per task per column. Round 10 had
+already built and named the vocabulary that wanted those numbers — *never in play*, *unsettleable*,
+*settled and agreed* — and the round-10 file did not carry them either. **The vocabulary existed;
+the data never reached it.** So a column that was never put in play printed exactly like a column
+both builds passed, twice.
+
+#### A column declares what stands behind it
+
+The repair is not a better question and not a better renderer. It is the file being made to say
+which of three things it has, in the words the verdicts already use:
+
+| `evidence` | means | printed as |
+| --- | --- | --- |
+| `counted` | the numbers are here, task by task and run by run | `contested N/M`, and why the rest was uncontested |
+| `unrecorded` | the critics counted and the round did not write it down | `contested unrecorded`, plus a paragraph refusing to read the ties as agreement |
+| `unasked` | the question was not put | nothing — the column already says `NOT ASKED` |
+
+A cross-cutting column that declares none of the three is refused with exit 2. The declaration is
+required and the *data* is not, which is the point: `unrecorded` is cheap to write, so a round that
+lost its numbers can always be honest, and what it can no longer be is silent. The refusal runs both
+ways — a column claiming `counted` with nothing in it is refused, and so is one claiming
+`unrecorded` with counts in it, because a real measurement labelled as an absence is thrown away
+just as thoroughly as one never taken.
+
+#### The fourth number, and what each zero means
+
+The count block gains `settleable` beside `volume` and `count`:
+
+```json
+"A": { "volume": 11, "settleable": 8, "count": 1, "unsettleable": { "absent": 2, "byNature": 1 } }
+```
+
+| field | zero means |
+| --- | --- |
+| `volume` | the application said nothing about itself — a fact about the **task** |
+| `settleable` | it talked and not a word could be checked — a fact about the **capture** |
+| `count` | the column looked and found none, but **only** when `settleable` is above zero |
+
+The scorer could have derived `settleable` as `volume` minus the unsettleable split. It does not,
+for the same reason the existing *counted from different lists* refusal exists: a derived number
+absorbs a miscount and a stated one that has to add up exposes it. `settleable + absent + byNature =
+volume` is now checked, and half a comparison, more settleable than stated, and disagreements found
+among nothing settleable all land in that same exit-2 vocabulary rather than a new one. The
+uncontested breakdown keeps `unsettleable, kind not stated` for a round that can count what it
+settled and not why the rest was unsettleable — folding that into *settled and agreed* would report
+an earned tie nobody established, which is the same failure one level down.
+
+`contested N/M` now also reports `uncounted K`. A column counted on two tasks of eighteen was
+printing `contested 1/2`, which reads like a column contested on half of what it saw — the round-11
+failure hiding inside the figure built to expose it.
+
+#### Where the numbers come from
+
+Three options, and the answer is two of them, because **a schema nobody can fill is worse than no
+schema** and the counts schema had gone four rounds unfilled.
+
+*Parsing the prose* was rejected. Round 9's reports are not in the repository and round 11's were a
+task notification, so a parser would be tested against nothing — and prose that nearly parses
+produces a number instead of a refusal, which is the failure mode this whole document is about.
+
+*Refusing a file with no counts* is the `evidence` declaration above. It makes silence visible and
+makes nothing easier to keep.
+
+*Asking for a block* is `critic-counts.mjs`. One header line and one line per run, per question, per
+task, beside the prose and not instead of it:
+
+```
+COUNTS V1 self-consistency run-2
+  run-1 statements 11 settleable 8 found 1 unsettleable-absent 2 unsettleable-by-nature 1
+  run-2 statements 9 settleable 6 found 0 unsettleable-absent 2 unsettleable-by-nature 1
+```
+
+`critic-counts.mjs block` prints that spec for the prompt document, generated out of `crossCutting`
+so a question added there gets a block without anyone remembering to add one — including the line
+naming what `found` counts, which is read out of the question's own `decide` rather than a list.
+`critic-counts.mjs read <report…> --key <staging>/_key.json` reads filled blocks back into a column,
+checking the same arithmetic the scorer does. **The verdict rides in the header**, so the word and
+the numbers behind it are written in one place at one moment; round 11's word survived and its
+numbers did not precisely because they were written in two.
+
+The blinding survives it. A critic writes `run-1` and `run-2`; turning those into `A` and `B` needs
+`_key.json`, which is withheld from critics, and without it the tool stops at the run labels and
+says why. The block is a new document a blind judge reads, so it is guarded for build fingerprints
+in `test/h2hTaskNeutrality.test.ts` beside the task view — `make-critic-tasks.mjs` filters what a
+critic may read, and there is now a second thing a critic reads.
+
+**What it costs**, stated rather than buried: a critic emits a structure as well as an argument,
+which is one more thing to get wrong; a malformed block costs a human re-read instead of yielding a
+number nobody counted; a fixed vocabulary in front of a critic is a mild pull toward counting what
+the block asks for rather than what the question asks for, which is why the prose stays mandatory
+and the block is checked against itself and never against the prose; and none of it recovers a
+number from a round already judged.
+
+#### Corrections, counted
+
+Round 11's file carried `columnsAsReported`, `columns`, and a paragraph explaining the difference —
+V1 recorded twice, because a critic scored two columns on a difference it had itself excluded from
+the task column as model variance. Nothing read the second reading, so the printout showed a
+corrected column with no sign anything had been corrected. **A paragraph explaining one correction
+reads exactly like a paragraph explaining nine.**
+
+The paragraph is now a list, and the scorer reconciles the two readings in both directions: a
+difference no correction names is refused, and a correction naming no difference is refused too —
+the second being the appearance of rigour with no verdict behind it. A correction whose `rule` is
+too short to be one is refused as a preference. Round 11 now prints:
+
+```
+verdicts overruled after reporting    2 of 54
+    V1 in self-consistency: B → tie — a difference that would vanish under identical tokens is not a difference
+    V1 in record-consistency: B → tie — a difference that would vanish under identical tokens is not a difference
+```
+
+#### What rounds 10 and 11 print under it
+
+Neither round's counts are recoverable — the reports are gone, which is the finding rather than an
+obstacle to it. Both files declare `unrecorded`, and both now say so where the ambiguity was:
+
+```
+round 11
+  self-consistency    A 0 · B 0 · tie 18  ·  contested unrecorded — the critics counted and the round did not keep it
+  record-consistency  A 0 · B 0 · tie 18  ·  contested unrecorded — the critics counted and the round did not keep it
+
+  self-consistency kept no numbers. The critics counted statements and disagreements for both
+  runs and the round wrote down only the word.
+  Its verdicts stand; its ties cannot be read as agreement, because nothing here
+  says the question was ever put in play on any task.
+```
+
+Round 10's two columns get the same declaration and a different closing sentence, because both named
+winners and a column that named a winner was demonstrably in play somewhere:
+
+```
+round 10
+  self-consistency    A 2 · B 2 · tie 14  ·  contested unrecorded — …
+  record-consistency  A 1 · B 3 · tie 14  ·  contested unrecorded — …
+
+  It named 4 winners, so it bit on 4 of 18 tasks; on the
+  rest nothing here says whether the question was in play, and those ties cannot be
+  read as agreement.
+```
+
+Round 9's self-consistency column keeps `unrecorded 18` on the headline and gets **no** closing
+sentence: its verdicts were never recorded either, so it has no ties to describe in the first place.
+Round 8's two columns are `unasked` and print what they printed before.
+
+#### What it still cannot distinguish
+
+- **A count nobody took from a count taken and lost.** `unrecorded` covers both. A round that never
+  put the question to a critic and one whose critic answered and whose answer evaporated write the
+  same word, and only the column's `note` separates them.
+- **A miscount that adds up.** Every arithmetic check here is internal. A critic who under-counts
+  statements consistently across both runs produces a coherent block and an unfalsifiable column,
+  and the block being checked against itself rather than against the prose is a deliberate choice
+  with exactly this cost.
+- **Whether the two runs' statements are the same statements.** `volume 9` against `volume 9` is
+  reported as an even comparison whether the two runs made the same nine claims or nine different
+  ones.
+- **A round already judged.** Rounds 8 through 11 gain a label and no numbers. The first column this
+  can actually populate is the next round's.
+- **Silence that is correct.** A screen that says nothing because there was nothing to say scores
+  `never in play` beside a screen that should have spoken and did not. The volume figure makes both
+  visible; neither is penalised, and that judgement is still left to a reader.

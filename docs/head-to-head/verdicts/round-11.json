@@ -5,10 +5,19 @@
     "B": "the round-11 build"
   },
   "note": "Judged blind on 18 staged pairs, critic prompts generated mechanically from the task set. First capture carrying the `record` and `instrument` blocks, so a critic could distinguish \"the record settles this and they agree\" from \"no record could settle this\" from \"the harness could not measure it\". Critics used that distinction throughout, counting plan-step counts and sandbox timings unsettleable rather than agreed.",
-  "correction": "V1 is recorded twice. As reported, its two cross-cutting columns went to B. But the same critic scored V1’s TASK column a tie on the ground that the entire delta was one space character the model typed — one arm wrote \"165 °F\", the other \"165°F\", and the backing checker matches literally. The protocol’s stated rule is that a difference which would vanish under identical tokens is not a difference. Applied uniformly, V1 ties in all three columns. `columns` carries the corrected reading; `columnsAsReported` carries the critic’s raw verdicts. The difference is one win in each cross-cutting column.",
+  "corrections": [
+    {
+      "task": "V1",
+      "columns": ["self-consistency", "record-consistency"],
+      "from": "B",
+      "to": "tie",
+      "rule": "a difference that would vanish under identical tokens is not a difference",
+      "why": "As reported, V1 took both cross-cutting columns for this build. The same critic scored V1’s TASK column a tie, on the ground that the entire delta was one space character the model typed — one arm wrote \"165 °F\", the other \"165°F\", and the backing checker matches literally. The rule the critic applied to the task column applies to the other two. `columns` carries the corrected reading; `columnsAsReported` carries the critic’s raw verdicts."
+    }
+  ],
   "caveats": [
     "The judging is not evidence that the two builds are equivalent. Sixteen of eighteen tasks tied, and the critics repeatedly said the behaviour under test was never exercised — TTU3’s claim check could not run because every search failed, VC1’s token was never repeated back by either model, PT3 never completed a step.",
-    "Both cross-cutting columns came back 0-0-18 under the corrected reading. That is either two clean builds or two columns with nothing to bite on; the statement counts the critics reported beside each verdict are what distinguishes those, and they are in the reports rather than in this file."
+    "Both cross-cutting columns came back 0-0-18 under the corrected reading. That is either two clean builds or two columns with nothing to bite on; the statement counts the critics reported beside each verdict are what distinguishes those, and they are in the reports rather than in this file. Both columns therefore declare their numbers unrecorded, and the scorer says so in words instead of printing an eighteen-tie line that reads like agreement."
   ],
   "columns": [
     {
@@ -74,6 +83,8 @@
     {
       "id": "self-consistency",
       "asked": true,
+      "evidence": "unrecorded",
+      "note": "Every critic reported a statement count and a disagreeing-pair count per task per run — \"run-1: 11 application statements, 1 disagreeing pair; run-2: 9 statements, 0\" is the shape of it. None of it reached this file, so an eighteen-tie column cannot be told from one that was never put in play.",
       "verdicts": {
         "V1": {
           "verdict": "tie"
@@ -134,6 +145,8 @@
     {
       "id": "record-consistency",
       "asked": true,
+      "evidence": "unrecorded",
+      "note": "Same shape, four numbers per run instead of two — \"settleable 6 and 6, agreements 6 and 6, contradictions 0 and 0, unsettleable 3 and 3\" is a line out of one report. The first capture carrying a record block, and the column that reads it kept none of what it read.",
       "verdicts": {
         "V1": {
           "verdict": "tie"

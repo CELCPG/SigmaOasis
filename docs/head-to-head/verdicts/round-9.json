@@ -70,6 +70,7 @@
     {
       "id": "self-consistency",
       "asked": true,
+      "evidence": "unrecorded",
       "note": "Asked and answered on all eighteen tasks; the answers were not kept. Every contradiction the write-up names is named as shared by both builds — the overflow notice sitting beside the app’s own budget meter, the turn reporting itself over while the tail is still painting — so the recorded evidence supports no win either way, and does not support a tie count either, because a tie is a measurement and this is an absence of one.",
       "verdicts": {
         "V1": {
@@ -131,6 +132,7 @@
     {
       "id": "record-consistency",
       "asked": false,
+      "evidence": "unasked",
       "note": "Not asked. Two verdicts are recoverable from the write-up and neither is attributed to a task there, so neither is attributed to one here: on one task the older arm lost the tail of an answer the record shows the model finished, and on a different task the newer arm lost one. Round 9 booked the first of those as an improvement that scored nothing. Under this column it is one win and one loss.",
       "verdicts": {
         "V1": {
