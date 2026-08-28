@@ -154,6 +154,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
   const toolClaims = report.toolClaims ?? []
+  const toolDenials = report.toolDenials ?? []
   const toolDisclosure = report.toolDisclosure ?? []
   const toolCounts = report.toolCounts ?? []
   const toolArgs = report.toolArgs ?? []
@@ -192,13 +193,30 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         </div>
       )}
       {/*
+        v2.3: the same account in the mirror, and it sits second because it is
+        the worse of the two. A reader who doubts "I searched the web for this"
+        can look at the tool blocks. A reader told the search never happened has
+        been told those blocks mean nothing, and nothing on screen contradicts
+        that — so the line has to.
+      */}
+      {toolDenials.length > 0 && (
+        <div className={hasUnbacked || toolClaims.length > 0 ? 'mt-1' : undefined}>
+          ⚠️ This reply's account of this turn contradicts what ran:{' '}
+          {toolDenials.join('; ')}.
+        </div>
+      )}
+      {/*
         v1.14: the same disclosure read the other way round. A "Tools used"
         section that names documents instead of calls answers the reader's
         question with something that is not a tool, and no name in it is wrong
         — so only the omission gives it away.
       */}
       {toolDisclosure.length > 0 && (
-        <div className={hasUnbacked || toolClaims.length > 0 ? 'mt-1' : undefined}>
+        <div
+          className={
+            hasUnbacked || toolClaims.length > 0 || toolDenials.length > 0 ? 'mt-1' : undefined
+          }
+        >
           ⚠️ This reply lists the tools it used without naming{' '}
           {toolDisclosure.join(', ')}, which {toolDisclosure.length === 1 ? 'is' : 'are'} what
           actually ran this turn.
@@ -215,7 +233,10 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       {toolCounts.length > 0 && (
         <div
           className={
-            hasUnbacked || toolClaims.length > 0 || toolDisclosure.length > 0
+            hasUnbacked ||
+            toolClaims.length > 0 ||
+            toolDenials.length > 0 ||
+            toolDisclosure.length > 0
               ? 'mt-1'
               : undefined
           }
@@ -239,6 +260,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
           className={
             hasUnbacked ||
             toolClaims.length > 0 ||
+            toolDenials.length > 0 ||
             toolDisclosure.length > 0 ||
             toolCounts.length > 0
               ? 'mt-1 break-words'
