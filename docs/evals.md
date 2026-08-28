@@ -4852,3 +4852,110 @@ transitions — the request, the headers, the first body byte — through a smal
 thinking indicator subscribes to (the `streamingTail` pattern, for the `streamingTail` reason: a
 store commit per chunk is what that slice exists to avoid). The turn-scoped pair is untouched, and
 `explainEmptyReply` still reads exactly what it read before.
+
+### Pending fold-in — the instrument that was never the one the round built
+
+Round 10 built paint-settling instrumentation into `scripts/h2h-capture.ts` — `textSettledMs`,
+`textGrewAfterTurnEndChars`, `streamEdgeAtTurnEnd` — so a critic could tell a paint lag from a
+renderer that actually dropped text, closing a false-positive mode round 9 had exposed. The sweep
+was then launched from the repo root, which was sitting on `main`. **All 36 `run.json` files came
+out without those fields.** The instrumentation was never exercised.
+
+A critic found it, and only barely:
+
+> the reply.md-vs-reply.txt growth test could not be applied anywhere
+
+That is the good outcome — the question was reported unanswerable rather than answered from a
+missing field. Nothing in the tooling objected, and nothing could have: both arms used the same
+harness, so the comparison itself was sound. **The round's own instrument improvement went
+unmeasured, and the artifacts could not say so.**
+
+#### Two checkouts that nothing related
+
+The arms are builds, named by `--app <dir>`. The harness is a third checkout — whichever one
+`h2h-capture.sh` was invoked from. Nothing tied the two together, and nothing recorded the second
+one at all. `run.json` carried `schema: 'h2h-capture/1'`, unchanged across the round that added
+three measurements to it, so the schema string could not answer the question either.
+
+Two different failures live here, and conflating them produces a guard that catches the wrong one:
+
+| | what goes wrong | who can see it |
+| --- | --- | --- |
+| **asymmetry** | the arms were measured by *different* harnesses | staging — it holds both runs |
+| **staleness** | both arms, same harness, and it is behind the build | the capture — it holds `--app` |
+
+Asymmetry corrupts every figure in the round. Staleness leaves the comparison sound and silently
+drops the round's new work. **Asserting the arms agree cannot catch staleness, because they do
+agree — they agree on being wrong.** Round 10 was staleness, so recording-and-asserting alone would
+have passed it. Both guards ship.
+
+#### The reference is the build's own checkout
+
+A build carries the harness it was written alongside, at `<appRoot>/scripts/h2h-capture.ts`. That is
+what the harness *should have been* while measuring it. The comparison is a **subset test, and the
+direction is the design**: the running harness may measure more than the build's copy, never less.
+
+Pinning — requiring equality — was the obvious alternative and is wrong. Arm A is always an older
+commit, so its copy always knows less; equality would make every baseline capture impossible.
+Subset-passing *is* the arm-A exemption, and because it is structural there is no flag anyone can
+set wrongly. The refusal fires before the app is launched and before a run directory exists, on the
+first task rather than after thirty-six; `h2h-run.sh` treats its exit 5 as a sweep-level abort
+rather than one more failed task, because the next seventeen would fail identically and bury the
+message.
+
+#### A manifest would have passed the sweep it exists to stop
+
+The tempting design is to have the harness declare its own field list. It fails on the one case
+that matters: **round 10's checkouts predate the guard**, so both sides would have declared nothing,
+the subset would hold trivially, and the sweep would have gone through.
+
+So the vocabulary is read *structurally* out of each harness's own source — `interface TurnRecord`
+and the `definitions:` block, which are where a harness has always declared what it measures, back
+through the baseline. Run against the real round-10 build directories, which survive:
+
+| checkout | measures | verdict against it |
+| --- | --- | --- |
+| `r10-A` (baseline arm) | 13 | fit — nothing behind |
+| `r10-B` (the build under test) | 17 | **behind by 4** |
+
+The four are the three named in *Two instruments that were wrong about themselves* above, plus
+`streamEdgeClearedMs`, which that note omits and round 10's own implementation notes include. **Two
+hand-written lists in this very file already disagree about what the round built.** Reading the
+vocabulary out of the source is how they stop being two lists.
+
+The extractor is a heuristic over real TypeScript, so it is pinned against the actual capture source
+rather than only against samples written to suit it, and it is deliberately *not* line-oriented:
+reading the vocabulary correctly only while the file happens to be formatted one key per line would
+make the guard depend on something nobody checks, which is the shape of the failure it exists to
+prevent, one level down.
+
+#### An absent field and a zero field are not the same artifact
+
+The other half is legibility, and it is the half a critic actually holds. `run.json` now carries
+`instrument`, with `measures` — everything that harness knew how to emit. A name there with no value
+below **was measured and came back null**; a name that is not there **could never have been written
+at all**, and a question about it is unanswerable from that run rather than answered in the
+negative. Before this, those two were the same JSON.
+
+#### The guard nearly became the tell it was guarding
+
+First cut published the fit result in `run.json`. It is arm-identifying by construction: the harness
+is "ahead of" the older build and level with the newer one, which labels the pair as neatly as the
+version number `assertSameVersion` exists to stop. Everything derived from the build moved to
+`_arm.json`; `run.json` keeps only what describes the harness, which is identical in both arms —
+and `make-blind-pairs.mjs` now *asserts* that rather than assuming it, which is what licenses the
+block to be staged at all.
+
+#### What it still cannot catch
+
+- **Round 10's own artifacts.** Runs predating the block record no instrument; staging treats a pair
+  where both are silent as legacy and lets it through, the same courtesy `assertSameVersion` gives
+  an unreadable sidecar. The guard is prospective.
+- **A build with no sources** — a packaged `--app` — states no vocabulary, so there is nothing to
+  check against. Recorded as `fit.skipped` with its reason, because "could not check" and "checked,
+  fine" are different answers.
+- **A harness ahead of both arms in name only.** Adding a field to `TurnRecord` and never populating
+  it makes the vocabulary grow without the measurement existing. `measures` says what the harness
+  *declares*, not what it proved it could produce.
+- **Correctness of a measurement.** This asks whether the instrument was the right one, never
+  whether its numbers are true.
