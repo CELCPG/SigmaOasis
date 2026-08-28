@@ -183,7 +183,7 @@
     <div class="meta">
       <span>baseline <b>v1.12.1</b></span>
       <span>local model <b>qwen3.8-9b</b></span>
-      <span>updated <b>2026-08-25</b></span>
+      <span>updated <b>2026-08-28</b></span>
     </div>
   </header>
 
@@ -191,12 +191,12 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">2146 pass / 0 fail</span>
+          <span class="inv__val">2268 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">render + style checks</span>
-          <span class="inv__val">25 render · 72 style · 114 chrome-contrast · 62 md · 46 workbench · 24 transport · 43 tab-traverse · 177 modal-focus</span>
+          <span class="inv__val">25 render · 119 style · 169 plan-accessibility · 177 modal-focus · 62 md · 46 workbench · 43 tab-traverse · 24 transport</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -207,6 +207,11 @@
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">whole-project typecheck</span>
           <span class="inv__val">exit 0</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">sweep hygiene</span>
+          <span class="inv__val">both arms 18 / 18 VALID</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -598,16 +603,46 @@
           </div>
         </div>
       </li>
-      <li class="round round--pending">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">10</span></div>
         <div class="round__body">
           <header class="round__head">
             <h3>The turn says it is over while the answer is still arriving</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the round-9 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-10 build</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Five builders on defects a same-generation comparison showed BOTH builds shared, plus the first scoring change since the bench began.</dd></div>
+            <div><dt>findings</dt><dd>The turn had been reporting itself over while the answer was still arriving — composer-idle was keyed on the last byte off the socket, not the last paint — and the still-arriving tail was painted at an opacity measured below AA on 71 of 73 frames at the real cadence, because the span is recreated on every paced flush. Not transient, as both a critic and I had assumed. A failed plan step announced itself to a screen reader with an accessible name byte-identical to a finished one, and so did running against pending; the plan-accessibility check that found it reported 9 failures on its own first draft against 128 on its second, because its locator was one of the things being located. And the app had been blaming the reader for a context budget it had mostly spent itself: of 6,508 tokens against an 8,192 window, 2,725 were the tool list the app adds and 2,048 the reply reservation, neither of them on the meter, which showed 1,735.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round 10, scored in three columns that are reported side by side and never added: task — round-10 build 6 · round-9 build 1 · 11 ties. self-consistency — 2 · 2 · 14. record-consistency — 3 · 1 · 14. The columns earned their place immediately: &quot;seen only by a cross-cutting column&quot; is B 1 · A 1 — one fact for this build and one against it that a single verdict per task would have missed entirely.</dd></div>
+            <div><dt>biggest gap</dt><dd>Two losses, and the first is the worse. V1: this build printed &quot;⚠️ 1 measurement (165 °F) in this reply is not backed by the tool output&quot; on a turn whose own retrieved passages state it seventeen times, including &quot;| Chicken, turkey, and other poultry | … | 165°F (74°C) |&quot;. A false unverified on a poultry cooking temperature is the most damaging cry-wolf this app can produce. The distinguishing fact is that this arm ran THREE lookups and the other ran one, so the measurement corpus does not span every lookup in a turn — demonstrated in this build, untested in the other, which was never handed a multi-lookup turn. FR3: the expiry line reads &quot;Ran: the code check. Not run: the recomputation.&quot; directly above the recomputation and its output; the round-9 build gets the same line right. Both were caught only because the task question tied and a cross-cutting column could still take a claim away.</dd></div>
+            <div><dt>fix</dt><dd>The composer waits for the last paint and the streaming tail floor moved to 0.66, first value clearing AA over the reply surface · every plan step state carries an accessible name and a dead row stops being a control · three checks stopped judging the wrong thing, including a quote checker that treated the credit line as part of the quotation · three silences became three sentences, and the token meter, the overflow message and the retry gate now share one arithmetic · cross-cutting questions get their own columns</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2146 → 2268</span></div>
+            <div class="ev"><span class="ev__k">chrome-contrast checks</span><span class="ev__v num">114 → 119</span></div>
+            <div class="ev"><span class="ev__k">plan-accessibility checks</span><span class="ev__v num">new, 169</span></div>
+            <div class="ev"><span class="ev__k">task column</span><span class="ev__v num">6 / 1 / 11</span></div>
+            <div class="ev"><span class="ev__k">self-consistency column</span><span class="ev__v num">2 / 2 / 14</span></div>
+            <div class="ev"><span class="ev__k">record-consistency column</span><span class="ev__v num">3 / 1 / 14</span></div>
+            <div class="ev"><span class="ev__k">seen only by a cross-cutting column</span><span class="ev__v num">B 1 · A 1</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--pending">
+        <div class="round__mark"><span class="round__n num">11</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>A false unverified on a cooking temperature</h3>
             <span class="tag tag--pending">pending</span>
           </header>
 
           <dl class="facts">
-            <div><dt>what ran</dt><dd>Three separate observations in round 9 say the composer is released before the tail finishes painting, in BOTH builds: an answer reaching the screen as &quot;(pet&quot; where the model wrote &quot;(pets, seniors, infants).&quot;, the same shape on another task in the other arm, and a stream-edge span still present 263 ms after the app reported the turn idle — painted at 0.2 opacity, which measures 1.49:1. The word left illegible in that capture was &quot;safe&quot;, in an answer about food safety. It also gives round 7’s reply.md comparison a false-positive mode: a critic diffing raw markdown against rendered text will periodically see a renderer that dropped nothing. Behind it sit the defects both builds still share — plan blocks with no accessible names at all, a post-stop message blaming the model for a transport stall, and a context-overflow message contradicted by the app’s own token meter on the same screen.</dd></div>
+            <div><dt>what ran</dt><dd>The measurement corpus does not span every lookup in a turn: three lookups ran, one returned a table stating 165°F seventeen times, and the app told the reader the figure was unbacked. Behind it: an expiry line that denies the recomputation it is displaying, a summary that calls one call both &quot;found nothing&quot; and &quot;errored&quot;, and a deliberation warning that arrives after the reassurance it contradicts. And one instrument fault of my own — the round-10 sweep ran with main’s harness, so the paint-lag instrumentation this round built was never exercised.</dd></div>
           </dl>
 
         </div>
@@ -657,6 +692,10 @@
             <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks tied</td><td class="r num">14 / 18</td><td class="r num ">—</td></tr>
             <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks void</td><td class="r num">1 / 18</td><td class="r num ">deciding event not attributable to the build</td></tr>
             <tr><td class="num">9</td><td>accessibility</td><td>obscured tab stops behind an overlay</td><td class="r num">0 / 70</td><td class="r num ">was 24–30 / 70</td></tr>
+            <tr><td class="num">10</td><td>node</td><td>cases passing</td><td class="r num">2268</td><td class="r num up">+122</td></tr>
+            <tr><td class="num">10</td><td>blind head-to-head</td><td>task column, won vs the previous round</td><td class="r num">6 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">10</td><td>blind head-to-head</td><td>task column, lost</td><td class="r num">1 / 18</td><td class="r num ">first loss since round 5</td></tr>
+            <tr><td class="num">10</td><td>blind head-to-head</td><td>facts seen only by a cross-cutting column</td><td class="r num">B 1 · A 1</td><td class="r num ">new columns</td></tr>
           </tbody>
         </table>
       </div>

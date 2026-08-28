@@ -2,16 +2,16 @@
   "app": "Sigma Oasis",
   "baseline": "v1.12.1",
   "localModel": "qwen3.8-9b",
-  "updated": "2026-08-25",
+  "updated": "2026-08-28",
   "invariants": [
     {
       "name": "node test suite",
-      "value": "2146 pass / 0 fail",
+      "value": "2268 pass / 0 fail",
       "state": "green"
     },
     {
       "name": "render + style checks",
-      "value": "25 render · 72 style · 114 chrome-contrast · 62 md · 46 workbench · 24 transport · 43 tab-traverse · 177 modal-focus",
+      "value": "25 render · 119 style · 169 plan-accessibility · 177 modal-focus · 62 md · 46 workbench · 43 tab-traverse · 24 transport",
       "state": "green"
     },
     {
@@ -22,6 +22,11 @@
     {
       "name": "whole-project typecheck",
       "value": "exit 0",
+      "state": "green"
+    },
+    {
+      "name": "sweep hygiene",
+      "value": "both arms 18 / 18 VALID",
       "state": "green"
     },
     {
@@ -321,10 +326,34 @@
     {
       "n": 10,
       "label": "The turn says it is over while the answer is still arriving",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the round-9 build",
+        "B": "the round-10 build"
+      },
+      "what": "Five builders on defects a same-generation comparison showed BOTH builds shared, plus the first scoring change since the bench began.",
+      "findings": "The turn had been reporting itself over while the answer was still arriving — composer-idle was keyed on the last byte off the socket, not the last paint — and the still-arriving tail was painted at an opacity measured below AA on 71 of 73 frames at the real cadence, because the span is recreated on every paced flush. Not transient, as both a critic and I had assumed. A failed plan step announced itself to a screen reader with an accessible name byte-identical to a finished one, and so did running against pending; the plan-accessibility check that found it reported 9 failures on its own first draft against 128 on its second, because its locator was one of the things being located. And the app had been blaming the reader for a context budget it had mostly spent itself: of 6,508 tokens against an 8,192 window, 2,725 were the tool list the app adds and 2,048 the reply reservation, neither of them on the meter, which showed 1,735.",
+      "verdict": "Round 10, scored in three columns that are reported side by side and never added: task — round-10 build 6 · round-9 build 1 · 11 ties. self-consistency — 2 · 2 · 14. record-consistency — 3 · 1 · 14. The columns earned their place immediately: \"seen only by a cross-cutting column\" is B 1 · A 1 — one fact for this build and one against it that a single verdict per task would have missed entirely.",
+      "gap": "Two losses, and the first is the worse. V1: this build printed \"⚠️ 1 measurement (165 °F) in this reply is not backed by the tool output\" on a turn whose own retrieved passages state it seventeen times, including \"| Chicken, turkey, and other poultry | … | 165°F (74°C) |\". A false unverified on a poultry cooking temperature is the most damaging cry-wolf this app can produce. The distinguishing fact is that this arm ran THREE lookups and the other ran one, so the measurement corpus does not span every lookup in a turn — demonstrated in this build, untested in the other, which was never handed a multi-lookup turn. FR3: the expiry line reads \"Ran: the code check. Not run: the recomputation.\" directly above the recomputation and its output; the round-9 build gets the same line right. Both were caught only because the task question tied and a cross-cutting column could still take a claim away.",
+      "fix": "The composer waits for the last paint and the streaming tail floor moved to 0.66, first value clearing AA over the reply surface · every plan step state carries an accessible name and a dead row stops being a control · three checks stopped judging the wrong thing, including a quote checker that treated the credit line as part of the quotation · three silences became three sentences, and the token meter, the overflow message and the retry gate now share one arithmetic · cross-cutting questions get their own columns",
+      "evals": {
+        "node cases": "2146 → 2268",
+        "chrome-contrast checks": "114 → 119",
+        "plan-accessibility checks": "new, 169",
+        "task column": "6 / 1 / 11",
+        "self-consistency column": "2 / 2 / 14",
+        "record-consistency column": "3 / 1 / 14",
+        "seen only by a cross-cutting column": "B 1 · A 1"
+      }
+    },
+    {
+      "n": 11,
+      "label": "A false unverified on a cooking temperature",
       "state": "pending",
       "dimension": null,
       "pair": null,
-      "what": "Three separate observations in round 9 say the composer is released before the tail finishes painting, in BOTH builds: an answer reaching the screen as \"(pet\" where the model wrote \"(pets, seniors, infants).\", the same shape on another task in the other arm, and a stream-edge span still present 263 ms after the app reported the turn idle — painted at 0.2 opacity, which measures 1.49:1. The word left illegible in that capture was \"safe\", in an answer about food safety. It also gives round 7’s reply.md comparison a false-positive mode: a critic diffing raw markdown against rendered text will periodically see a renderer that dropped nothing. Behind it sit the defects both builds still share — plan blocks with no accessible names at all, a post-stop message blaming the model for a transport stall, and a context-overflow message contradicted by the app’s own token meter on the same screen.",
+      "what": "The measurement corpus does not span every lookup in a turn: three lookups ran, one returned a table stating 165°F seventeen times, and the app told the reader the figure was unbacked. Behind it: an expiry line that denies the recomputation it is displaying, a summary that calls one call both \"found nothing\" and \"errored\", and a deliberation warning that arrives after the reassurance it contradicts. And one instrument fault of my own — the round-10 sweep ran with main’s harness, so the paint-lag instrumentation this round built was never exercised.",
       "findings": null,
       "verdict": null,
       "gap": null,
@@ -584,6 +613,34 @@
       "metric": "obscured tab stops behind an overlay",
       "value": "0 / 70",
       "delta": "was 24–30 / 70"
+    },
+    {
+      "round": 10,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "2268",
+      "delta": "+122"
+    },
+    {
+      "round": 10,
+      "suite": "blind head-to-head",
+      "metric": "task column, won vs the previous round",
+      "value": "6 / 18",
+      "delta": null
+    },
+    {
+      "round": 10,
+      "suite": "blind head-to-head",
+      "metric": "task column, lost",
+      "value": "1 / 18",
+      "delta": "first loss since round 5"
+    },
+    {
+      "round": 10,
+      "suite": "blind head-to-head",
+      "metric": "facts seen only by a cross-cutting column",
+      "value": "B 1 · A 1",
+      "delta": "new columns"
     }
   ]
 }

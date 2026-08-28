@@ -1,0 +1,194 @@
+{
+  "round": 10,
+  "pair": {
+    "A": "the round-9 build",
+    "B": "the round-10 build"
+  },
+  "note": "Judged blind on 18 staged pairs. Critic prompts were generated mechanically from the task set — no agent and no person wrote them. This file exists because round 9 put the cross-cutting question to every critic, every critic answered it, and none of it was written down. From this round the verdicts file is the record.",
+  "caveats": [
+    "The sweep ran with main’s harness, not round 10’s. textSettledMs, textGrewAfterTurnEndChars and streamEdgeAtTurnEnd are absent from all 36 run.json files, so the paint-lag-versus-renderer-loss test round 10 built could not be applied anywhere. Both arms used the SAME harness, so the comparison is unaffected; the instrument improvement is simply unmeasured. Caught by a critic reporting it as unanswerable rather than inventing a reading.",
+    "trace/audit.jsonl exists only for TH1 and TH2. On the other sixteen tasks tool statuses rest on the transcript alone, and record-consistency counted those statements unsettled rather than agreed."
+  ],
+  "columns": [
+    {
+      "id": "task",
+      "asked": true,
+      "verdicts": {
+        "V1": {
+          "verdict": "A"
+        },
+        "V2": {
+          "verdict": "tie"
+        },
+        "V3": {
+          "verdict": "B"
+        },
+        "TH1": {
+          "verdict": "tie"
+        },
+        "TH2": {
+          "verdict": "B"
+        },
+        "TH3": {
+          "verdict": "tie"
+        },
+        "PT1": {
+          "verdict": "tie"
+        },
+        "PT2": {
+          "verdict": "B"
+        },
+        "PT3": {
+          "verdict": "B"
+        },
+        "FR1": {
+          "verdict": "B"
+        },
+        "FR2": {
+          "verdict": "B"
+        },
+        "FR3": {
+          "verdict": "tie"
+        },
+        "TTU1": {
+          "verdict": "tie"
+        },
+        "TTU2": {
+          "verdict": "tie"
+        },
+        "TTU3": {
+          "verdict": "tie"
+        },
+        "VC1": {
+          "verdict": "tie"
+        },
+        "VC2": {
+          "verdict": "tie"
+        },
+        "VC3": {
+          "verdict": "tie"
+        }
+      }
+    },
+    {
+      "id": "self-consistency",
+      "asked": true,
+      "verdicts": {
+        "V1": {
+          "verdict": "A"
+        },
+        "V2": {
+          "verdict": "tie"
+        },
+        "V3": {
+          "verdict": "tie"
+        },
+        "TH1": {
+          "verdict": "tie"
+        },
+        "TH2": {
+          "verdict": "tie"
+        },
+        "TH3": {
+          "verdict": "tie"
+        },
+        "PT1": {
+          "verdict": "tie"
+        },
+        "PT2": {
+          "verdict": "tie"
+        },
+        "PT3": {
+          "verdict": "tie"
+        },
+        "FR1": {
+          "verdict": "B"
+        },
+        "FR2": {
+          "verdict": "B"
+        },
+        "FR3": {
+          "verdict": "A"
+        },
+        "TTU1": {
+          "verdict": "tie"
+        },
+        "TTU2": {
+          "verdict": "tie"
+        },
+        "TTU3": {
+          "verdict": "tie"
+        },
+        "VC1": {
+          "verdict": "tie"
+        },
+        "VC2": {
+          "verdict": "tie"
+        },
+        "VC3": {
+          "verdict": "tie"
+        }
+      }
+    },
+    {
+      "id": "record-consistency",
+      "asked": true,
+      "verdicts": {
+        "V1": {
+          "verdict": "A"
+        },
+        "V2": {
+          "verdict": "tie"
+        },
+        "V3": {
+          "verdict": "tie"
+        },
+        "TH1": {
+          "verdict": "tie"
+        },
+        "TH2": {
+          "verdict": "tie"
+        },
+        "TH3": {
+          "verdict": "tie"
+        },
+        "PT1": {
+          "verdict": "tie"
+        },
+        "PT2": {
+          "verdict": "tie"
+        },
+        "PT3": {
+          "verdict": "tie"
+        },
+        "FR1": {
+          "verdict": "B"
+        },
+        "FR2": {
+          "verdict": "B"
+        },
+        "FR3": {
+          "verdict": "tie"
+        },
+        "TTU1": {
+          "verdict": "tie"
+        },
+        "TTU2": {
+          "verdict": "tie"
+        },
+        "TTU3": {
+          "verdict": "tie"
+        },
+        "VC1": {
+          "verdict": "tie"
+        },
+        "VC2": {
+          "verdict": "tie"
+        },
+        "VC3": {
+          "verdict": "B"
+        }
+      }
+    }
+  ]
+}

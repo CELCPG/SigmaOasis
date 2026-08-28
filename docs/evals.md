@@ -3673,6 +3673,85 @@ own meter reading `~1.7K / 8.2K`.
 - **A tie is not proof of equivalence.** On several tasks neither build was exercised, and
   the critics said so rather than deciding on something incidental.
 
+## Round 10: three columns, and the first loss since round 5 (v2.2)
+
+**Blind verdict, scored in three columns reported side by side and never added:**
+
+| column | round-10 build | round-9 build | tied |
+| --- | --- | --- | --- |
+| task | **6** | 1 | 11 |
+| self-consistency | 2 | 2 | 14 |
+| record-consistency | 3 | 1 | 14 |
+
+`seen only by a cross-cutting column: B 1 · A 1` — one fact for this build and one against
+it that a single verdict per task would have missed. That symmetry is the point: a column
+that can only add wins is a column that flatters.
+
+### The two losses
+
+**V1 — a false "unverified" on a cooking temperature.** This build printed
+`⚠️ 1 measurement (165 °F) in this reply is not backed by the tool output` on a turn whose
+own retrieved passages state it **seventeen times**, including
+`| Chicken, turkey, and other poultry | … | 165°F (74°C) |`. The other build's identical
+warning is a *true* positive — its single lookup genuinely returned no temperature.
+
+The distinguishing fact is the lookup count: **three against one**. The measurement corpus
+does not span every lookup in a turn. Demonstrated in this build; **untested in the other**,
+which was never handed a multi-lookup turn — the same "untested rather than earned"
+distinction round 8's critics insisted on.
+
+A false unverified on a poultry temperature is the most damaging cry-wolf this app can
+produce, and round 4 established that a checker crying wolf costs more than the gap it
+closes.
+
+**FR3 — the expiry line denies what it displays.**
+
+```
+⏱ Checking stopped at its 60s limit. Ran: the code check. Not run: the recomputation.
+🧮 Recomputed the stated figures in Python; the reply's numbers were compared against that output.
+```
+
+The round-9 build gets the same line right: `Ran: the code check, the recomputation.`
+
+**Neither loss would have been recorded before this round.** Both tasks tied on their own
+question; only a column that can take a claim away found them.
+
+### What the round fixed
+
+- **The turn reported itself over while the answer was still arriving.** `composer-idle` was
+  keyed on the last byte off the socket rather than the last paint. The still-arriving tail
+  was painted below AA on **71 of 73 frames** at the real cadence — not transient, as both a
+  critic and I had assumed, because the span is recreated on every paced flush.
+- **A failed plan step announced itself with an accessible name byte-identical to a finished
+  one.** So did running against pending. Worse than the reported defect, which was that
+  "never ran" reached the reader only as a glyph.
+- **The app blamed the reader for a budget it had mostly spent.** Of 6,508 tokens against an
+  8,192 window, **2,725 were the tool list the app adds** and 2,048 the reply reservation —
+  neither on the meter, which read 1,735.
+
+### Two instruments that were wrong about themselves
+
+- **The plan-accessibility check reported 9 failures on its first draft and 128 on its
+  second.** It located the block by the role it was adding, so every per-row assertion sat
+  behind `if (!found) continue`. *A locator must not be one of the things being located.*
+- **The round-10 sweep ran with `main`'s harness, not round 10's.** `textSettledMs`,
+  `textGrewAfterTurnEndChars` and `streamEdgeAtTurnEnd` are absent from all 36 `run.json`
+  files, so the paint-lag-versus-renderer-loss test this round built was never exercised.
+  Both arms used the same harness, so the comparison is unaffected — the improvement is
+  simply unmeasured. Caught by a critic reporting it unanswerable rather than inventing a
+  reading.
+
+### What this round does not measure
+
+- **`trace/audit.jsonl` exists for only 2 of 18 tasks.** On the rest, tool statuses rest on
+  the transcript alone, and record-consistency counted those statements *unsettled* rather
+  than agreed — which is why its contested count is 4 of 18 rather than higher.
+- **A tie at a low statement count is not equivalence.** VC2's traversal snapshots are
+  byte-identical between the runs; several other ties are two screens making four statements
+  each and agreeing with themselves.
+- **From this round, `docs/head-to-head/verdicts/round-10.json` is the record.** Round 9's
+  cross-cutting answers were given on all 18 tasks and written down nowhere.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my
