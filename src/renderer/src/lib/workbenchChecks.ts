@@ -160,6 +160,15 @@ export interface WorkbenchCheck {
    * line was an internal string, and the reader had no disclosure to open. Now
    * the summary says what happened and this carries the evidence, so the text
    * is neither printed at a reader nor thrown away.
+   *
+   * v2.5: and `FailureDetail.reading` rides in here too. This banner is the one
+   * surface in the app that renders a `detail` without a `sentence` beside it —
+   * it keeps `summary` (the headline) and this, and never sees the rest of the
+   * `Failure` — which is why round 13's critic opened the disclosure and found a
+   * fetch's name for its own response buffer with nothing to read it by. A check
+   * stored before v2.5 has a `detail` and no `reading`; the banner renders the
+   * quote alone, exactly as it did, and nothing claims a meaning that was never
+   * recorded.
    */
   detail?: FailureDetail
 }

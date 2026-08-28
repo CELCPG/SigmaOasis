@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react'
 import type { ToolCallRecord } from '../types'
 import { OUTCOME_NOTE, callOutcome } from '../lib/grounding'
 import { readToolFailure } from '../../../shared/tools/outcomes'
-import { composeFailure, copyableFailure } from '../../../shared/failure'
+import { composeFailure, copyableFailure, readingLine } from '../../../shared/failure'
 import { toolVisualForName } from '../lib/oasisRipple'
 import { Disclosure } from './Disclosure'
 
@@ -185,6 +185,14 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
                   <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono text-ink-secondary">
                     {failure.detail.text}
                   </pre>
+                  {/* v2.5: the same gloss the banner's disclosure carries. This
+                      surface already leads with `failure.sentence`, so the line
+                      is not load-bearing here — it is here because which
+                      surfaces "need" it is a per-case judgement, and the banner
+                      is the case that judgement already got wrong. */}
+                  {readingLine(failure.detail) && (
+                    <p className="mt-1 text-ink-tertiary">{readingLine(failure.detail)}</p>
+                  )}
                 </>
               )}
               {/* The identifier is one keystroke away for whoever needs it —

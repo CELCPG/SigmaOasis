@@ -6244,3 +6244,116 @@ One tool earns one line: a denial swallows the offer beside it.
   resolves the markers, so the pair is mechanically checkable. It is not the *act*, so it is out of
   this rung's scope, and it wants its own recorded true negative (a reply may cite a passage while
   honestly saying the passage did not supply a particular claim) before it is worth building.
+
+### Pending fold-in — the disclosure quoted the runtime and never said what it meant
+
+Third round on one disclosure. Round 11's critics read its **label** introducing nothing; round 12
+named the control (`The runtime reported:` → `What the runtime reported`) and a blind critic saw the
+difference. Round 13's critic **opened** it, in both arms, and read the whole of what opening it
+bought:
+
+> **What the runtime reported**
+>
+> `BodyStreamBuffer was aborted`
+
+#### Why the string reaches the screen, which is not the reason it looks like it is
+
+It is not a leak, and the boundary is not being bypassed. The call site
+(`verification.ts` `runRecompute`) hands the thrown value to `explainFailure`; rule 2 catches it by
+**type** (`name === 'AbortError'`, never by message); the app's own sentence is written
+(`🧮 Recompute skipped — stopped before it finished`); and the raw text is kept in `detail` behind a
+disclosure under a label naming whose words they are. Every one of those is the design working. The
+raw text is kept on purpose, as an absolute the module states about itself: *the raw text survives in
+every class the module translates, including aborts, where it arguably adds nothing.*
+
+So the third possibility — *it is deliberately raw because it is behind a disclosure* — is the
+standing position, and it is right about the **quote**. What is wrong is one structural fact nobody
+had looked at:
+
+**The verification banner is the only surface in the app that renders a `detail` with no `sentence`
+anywhere near it.** `ToolCallBlock` renders *What happened* → `failure.sentence` → remedy → the
+quote. `composeFailure` and `copyableFailure` both put the sentence first. `describeRecompute` is
+handed `headline` and `detail` and never sees the rest of the `Failure`. So a reader who opened the
+disclosure to learn more got **less than the line above it** — a fetch's name for its own response
+buffer, and nothing that says what it means. Round 12 found the same fault one layer up and fixed
+the half it could see: the label was a promise with nothing behind it, and the body is a quotation
+with no reading beside it.
+
+#### What changed
+
+`FailureDetail` gains `reading` — what the app read those words to **mean**, in the app's own voice,
+composed by one exported function (`readingLine`) so the speaker has one spelling and not three.
+
+| | before | after |
+| --- | --- | --- |
+| collapsed | `What the runtime reported` | *unchanged* |
+| opened | `BodyStreamBuffer was aborted` | `BodyStreamBuffer was aborted` — then `The runtime’s wording for: cut off before it finished — nothing crashed; either it was stopped, or the connection dropped.` |
+
+Three properties carry the argument, and each one is a rule already in the file rather than a new
+judgement:
+
+1. **The gloss is of the CLASS, never of the message.** `BodyStreamBuffer was aborted` and `signal
+   is aborted without reason` get **one** reading between them, because they are one `DOMException`
+   under two engines. It glosses *aborted* — the word both of them share — and not `BodyStreamBuffer`,
+   which only one of them names. A gloss keyed on a message would be rule 2's enumeration mistake
+   wearing prose, and a new one would be needed for every wording an engine ships next.
+2. **Present exactly when the app placed the failure.** Rule 3 says an unplaced failure gets an
+   honest sentence and no guess; a gloss on words the app could not read *is* the guess. So
+   `reading !== undefined` ⟺ `recognised`, asserted as an equivalence over the whole corpus rather
+   than as a list of cases — a list is what gets a case added to it without the rule being
+   reconsidered.
+3. **The label and the body still agree.** The summary promises the runtime's own words and
+   something else is now under there with them. What keeps the promise is that the second line
+   *talks about* the first: it names the speaker in the possessive and then reads them, outside the
+   `<pre>` and in the app's ordinary ink, so the two voices are separated by the surface as well as
+   by the words. The verbatim line is still verbatim, still quoted, and still first.
+
+Rendered on both disclosures and in both string forms — the gloss travels with the quote everywhere
+the quote goes. Which surfaces "need" one is a judgement made per call site, and this module's own
+rule about per-case judgements is that one of them comes out wrong somewhere; the banner is where
+that already happened.
+
+#### The eval cases — `test/failureBoundary.test.ts` (55 → 63)
+
+| true positive | the true negative beside it |
+| --- | --- |
+| Opening the disclosure now buys a reading: *cut off before it finished*, *stopped, or the connection dropped* | It reads the words rather than repeating them — `assert.doesNotMatch(line, /BodyStreamBuffer/)` — and `detail.text` is still byte-identical |
+| Both engines' wordings, and a wording no engine ships yet, get the **same** reading | — |
+| — | **A failure the app never placed is not glossed**: `Fatal: 0x8007007e`, `ENOSPC: …`, `TypeError: …`, `write EPIPE`, and a relayed `gpu_layers mismatch: 33 != 0` all keep `reading === undefined` and `readingLine() === null` |
+| — | The equivalence over the corpus: `reading !== undefined` ⟺ `recognised` on every one of 10 runtime strings. The 23 `APP_PROSE` sentences go through the same loop and are skipped by it — the app wrote them, so there is no quote to gloss and no `detail` at all, which is the behaviour their own case already pins |
+| The reading is unmistakable for the quote: `“BodyStreamBuffer was aborted”` precedes `The runtime’s wording for:`, in `composeFailure` and in the pasted bug report alike | **The unglossed disclosure is byte-for-byte what it was** — round 12's two pinned assertions re-pinned with `$` anchors, so an unplaced failure's surface is provably undisturbed |
+| The banner renders `readingLine(c.detail)`, and `ToolCallBlock` renders it too | No `<pre>` block in either component contains it — the gloss is never inside the verbatim block |
+| — | A `WorkbenchCheck` stored **before** v2.5 has a `detail` and no `reading`: it renders the quote alone and claims no meaning nobody recorded (the rule `TurnEnding.completed` is already under) |
+
+Suite: **2499 passing, 0 failing** (from 2491), plus 25 + 72 + 119 + 43 bespoke checks unchanged.
+`bash scripts/test.sh` exit 0.
+
+#### What this does not fix
+
+- **The `readsAsProse` hole is still open, and it is now measured.** `readsAsProse('BodyStreamBuffer
+  was aborted')` returns **true** — capital, space, no machine token — exactly as recorded when the
+  boundary was built. It is not what put the string on the screen here (rule 2 fires first, on the
+  thrown object), but it is live: `readToolFailure` in `shared/tools/outcomes.ts` passes a **string**
+  to `explainFailure`, so every tool failure crosses the boundary with its type already destroyed
+  and this shape test is the only gate. An abort stringified by a handler therefore becomes the
+  app's **own sentence** with `detail: null` — the wording printed unquoted, and the evidence
+  deleted rather than merely raw. That is strictly worse than what this round repaired.
+- **And it cannot be closed by shape.** The obvious repair is to drop the trailing-colon requirement
+  from `MACHINE_TOKEN`'s CamelCase arm, so a bare multi-hump identifier is caught and not only
+  `TypeError:`. Measured against the corpus, that arm rejects three sentences the app writes about
+  itself: `DuckDuckGo returned HTTP 403`, `DuckDuckGo did not issue an image-search token.` and
+  `Rendered with JavaScript because …`. `BodyStreamBuffer` and `DuckDuckGo` are the **same shape** —
+  three humps of concatenated common nouns — and no shape separates them, which is why the hole was
+  documented and left open rather than patched. What separates them is *knowledge*, and the file
+  already has the precedent for it: `declinedCall` marks the app's own clause so the translator can
+  tell it wrote it, and `assert`s that knowing beats guessing. Closing this properly means either
+  preserving `name` across the tool-result IPC (so rule 2 can fire where it currently cannot) or
+  marking the app's own handler prose the way declines are marked. Both are real changes to a
+  boundary the app crosses on every tool call, and neither is a regex.
+- **`ToolCallBlock` still hand-rolls its attribution** (`{failure.detail.source} reported`, no
+  capital, no colon) instead of calling `attribution`. That is the third spelling of a label
+  `attribution` was extracted to prevent, and it is a latent drift rather than a defect anyone has
+  read — the string it produces is correct today. Left alone: no critic has reported it, and
+  changing a rendered line on suspicion is what round 8 ruled against.
+- **Nothing here was re-run against a model.** The before/after strings are produced by the shipped
+  modules against the recorded inputs. No win/loss claim attaches to any of it.

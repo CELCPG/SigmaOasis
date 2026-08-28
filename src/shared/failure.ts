@@ -50,6 +50,10 @@
  *   what `providerIO` writes to the hash-chained audit log, the log keeps it too.
  * - **The disclosure** carries it under an attribution line naming who said it,
  *   so a reader can tell the app's words from the network stack's or a server's.
+ *   v2.5: and, where the app placed the failure, a line saying what those words
+ *   MEAN — because keeping the identifier is not the same as explaining it, and
+ *   a reader who opens a disclosure is asking for the second thing
+ *   (`FailureDetail.reading`, `readingLine`).
  * - **A copy affordance** on that disclosure yields sentence + verbatim text,
  *   which is what a person pastes into a bug report.
  *
@@ -216,6 +220,44 @@ export interface FailureDetail {
   source: string
   /** Verbatim. Never paraphrased, never dropped: it is evidence. */
   text: string
+  /**
+   * v2.5: what the app read those words to MEAN — a gloss on the quote, in the
+   * app's own voice, never mistakable for the quote itself.
+   *
+   * Round 12 repaired the collapsed label on the verification banner's
+   * disclosure (`The runtime reported:` → `What the runtime reported`) and a
+   * blind critic saw the difference. Round 13's critic opened the same
+   * disclosure, in BOTH arms, and read this:
+   *
+   *     What the runtime reported
+   *       BodyStreamBuffer was aborted
+   *
+   * The quote is not wrong and it is not a leak: rule 2 caught this abort by
+   * TYPE, the sentence beside it is the app's, and the raw text is behind a
+   * disclosure under a label that names whose words they are — which is this
+   * module's whole argument about where a runtime string belongs. What is
+   * wrong is that the banner is the ONE surface that renders `detail` with no
+   * reading anywhere near it: it keeps `headline` and `detail` and drops
+   * `sentence`. So a reader who OPENS the disclosure to learn more gets less
+   * than the line above it — a fetch's name for its own response buffer, and
+   * nothing that says what it means.
+   *
+   * Written per CLASS, never per message. `BodyStreamBuffer was aborted` and
+   * `signal is aborted without reason` get one reading between them because
+   * they are one `DOMException`, and the reading glosses the word both of them
+   * share (*aborted*) rather than the object only one of them names. A gloss
+   * keyed on a message would be rule 2's enumeration mistake wearing prose.
+   *
+   * ## Present exactly when the app placed the failure
+   *
+   * `recognised === false` means the app could not say why, and rule 3 says it
+   * then guesses at nothing. So an unplaced failure carries no reading and its
+   * disclosure is the bare quote it always was — the true negative, and it is
+   * structural rather than a judgement call: the invariant is
+   * `reading !== undefined` ⟺ `recognised`, over every failure that has a
+   * detail at all.
+   */
+  reading?: string
 }
 
 export interface Failure {
@@ -416,7 +458,20 @@ export function explainFailure(raw: unknown, context: FailureContext = {}): Fail
       // judgement call in it is a rule that gets it wrong somewhere: the raw
       // text survives in EVERY class the module translates, without exception,
       // so there is no case to argue and no case to forget.
-      detail: { source: 'the runtime', text },
+      //
+      // v2.5: and the wording is now glossed, because "almost nothing to the
+      // sentence" was never "nothing to the reader". The gloss is of *aborted*
+      // — the one word both engines' messages share — and not of
+      // `BodyStreamBuffer`, which only one of them names. It says what an abort
+      // is NOT, because that is the part a reader cannot get from the quote:
+      // an abort is an ending, not a crash.
+      detail: {
+        source: 'the runtime',
+        text,
+        reading:
+          'cut off before it finished — nothing crashed; either it was stopped, or the ' +
+          'connection dropped.'
+      },
       recognised: true
     }
   }
@@ -441,7 +496,11 @@ export function explainFailure(raw: unknown, context: FailureContext = {}): Fail
           headline: 'the provider answered, but the reply could not be read',
           sentence: `${subject} reached the provider, but the reply could not be read.`,
           remedy: { text: 'Ask again — the next request may read cleanly.' },
-          detail: { source: 'the network layer', text },
+          detail: {
+            source: 'the network layer',
+            text,
+            reading: 'a server did answer; the reply it sent could not be decoded.'
+          },
           recognised: true
         }
   }
@@ -467,7 +526,11 @@ function unreachable(subject: string, context: FailureContext, text: string): Fa
     remedy: control
       ? { text: `Point ${control.label} at a working provider and try again.`, control }
       : { text: 'Check that the provider is running, then try again.' },
-    detail: { source: 'the network layer', text },
+    detail: {
+      source: 'the network layer',
+      text,
+      reading: 'nothing accepted the connection — the request never reached a server.'
+    },
     recognised: true
   }
 }
@@ -535,9 +598,19 @@ export function approxTokens(n: number): string {
 function overContext(
   subject: string,
   source: string,
-  detail: FailureDetail,
+  raw: FailureDetail,
   estimate: RequestEstimate | undefined
 ): Failure {
+  // v2.5. The gloss is of THEIR wording and of nothing else: that their text
+  // names the context length is a fact about their text, and what the app makes
+  // of the request is the sentence's business — where it is checked against
+  // arithmetic rather than asserted. Saying more here would be the round-9
+  // defect (repeating a server's claim as our finding) let back in through the
+  // evidence line.
+  const detail: FailureDetail = {
+    ...raw,
+    reading: 'a request the model’s loaded context window had no room for.'
+  }
   if (!estimate) {
     return {
       headline: 'the server refused it, naming the context length',
@@ -863,7 +936,17 @@ export function explainEmptyReply(ending: TurnEnding): Failure {
 export function composeFailure(failure: Failure): string {
   const parts = [failure.sentence]
   if (failure.remedy) parts.push(failure.remedy.text)
-  if (failure.detail) parts.push(`${attribution(failure.detail)}\n“${failure.detail.text}”`)
+  if (failure.detail) {
+    // v2.5: the gloss travels with the quote everywhere the quote goes, rather
+    // than only on the surface whose critic complained. Which surfaces "need"
+    // it is a judgement made per call site, and this module's own rule about
+    // per-case judgements is that one of them comes out wrong somewhere — the
+    // banner is where that already happened.
+    const gloss = readingLine(failure.detail)
+    parts.push(
+      `${attribution(failure.detail)}\n“${failure.detail.text}”${gloss ? `\n${gloss}` : ''}`
+    )
+  }
   return parts.join('\n\n')
 }
 
@@ -912,12 +995,43 @@ export function attributionLabel(detail: FailureDetail): string {
 }
 
 /**
+ * The quoted words in the app's words — one line, or none.
+ *
+ * v2.5, and the third reading of `detail.source` rather than a third spelling
+ * of it: `attribution` opens a line, `attributionLabel` names a closed control,
+ * and this says whose wording is being glossed. All three come off the same
+ * field and none of them writes the speaker's name itself, which is the drift
+ * `attribution` was extracted to prevent.
+ *
+ * The form does the whole job of keeping the two voices apart. `The runtime’s
+ * wording for:` attributes the quote to the runtime and the gloss to the app in
+ * the same breath — a line that TALKS ABOUT the quote cannot be mistaken for
+ * it, which is what the disclosure's label promises about the quote and must go
+ * on promising once something else is under there with it.
+ *
+ * Null where the app did not place the failure. That is not an omission to fill
+ * in later: rule 3 says an unplaced failure gets an honest sentence and no
+ * guess, and a gloss on words the app could not read would be exactly the guess.
+ */
+export function readingLine(detail: FailureDetail): string | null {
+  if (!detail.reading) return null
+  const who = `${detail.source.charAt(0).toUpperCase()}${detail.source.slice(1)}`
+  return `${who}’s wording for: ${detail.reading}`
+}
+
+/**
  * What a person pastes into a bug report: the reading and the raw text, so the
  * identifier the app refused to print at them is still one keystroke away.
  */
 export function copyableFailure(failure: Failure, subject?: string): string {
   const head = subject ? `${subject}\n` : ''
-  return failure.detail
-    ? `${head}${failure.sentence}\n\n${attribution(failure.detail)}\n${failure.detail.text}`
-    : `${head}${failure.sentence}`
+  if (!failure.detail) return `${head}${failure.sentence}`
+  // The gloss rides along: whoever reads the pasted report is a second reader,
+  // and the identifier is no more self-explanatory in a bug tracker than it was
+  // on screen. The verbatim line is still verbatim and still first.
+  const gloss = readingLine(failure.detail)
+  return (
+    `${head}${failure.sentence}\n\n${attribution(failure.detail)}\n${failure.detail.text}` +
+    (gloss ? `\n${gloss}` : '')
+  )
 }
