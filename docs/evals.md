@@ -4714,3 +4714,141 @@ again under exactly one condition: **the same raw text, once, and only when it s
 measurement the first reading lacked.** The caller's subject and source are deliberately *not*
 merged — the first reading knew who wrote the text, and letting an outer layer overwrite that is how
 a relayed message quietly becomes ours.
+
+### Pending fold-in — three places where the screen contradicted itself
+
+Round 10 added a `self-consistency` column — *does anything the application states on this screen
+contradict anything else it states on the same screen* — and it cost this build the round. Three
+findings, all from recorded runs, and all one shape: **two parts of the app answering the same
+question separately, and one of them answering it from something other than the fact.**
+
+#### 1. The expiry line denied the work it was displaying
+
+Measured, FR3 (`.h2h-runs/B10/FR3-20260827-224622`), two lines apart, the second directly under the
+first:
+
+> 🧮 Recomputed the stated figures in Python; the reply's numbers were compared against that output.
+>
+> ⏱ Checking stopped at its 60s limit. Ran: the code check. **Not run: the recomputation.**
+
+The program, its stdout and the comparison were all on screen above the denial. The footer of the
+same capture reads `62.2s checking` against a 60 s budget, and that 2.2 s is the whole story: the
+recomputation's `run_python` is not wired to the budget's abort signal, so a program admitted at
+~57 s booted the sandbox and printed after the deadline. The turn then asked
+
+```ts
+if (!budget.signal.aborted) budget.ran('recompute')
+```
+
+— which is a question about **the clock**, not about the pass. The clock knows when the minute
+passed. Only the pass knows what it got done.
+
+The previous build got the same line right on its own FR3 run
+(`.h2h-runs/A10/FR3-20260827-233154`: `Ran: the code check, the recomputation. Not run: the
+revision.`) for one reason: its recompute finished a moment inside the budget. Identical code, and
+the difference between a pass and a fail was timing.
+
+**Each pass now hands the budget its own account of what it did.** `WorkbenchCheck` carries `ran`
+beside `ok` — the fact its summary already stated in prose, in a field the notice can read;
+`reviseAgainstFindings` returns `''` when nothing came back, so its return value is the evidence;
+`runClaimCheck` and `runAutoCritic` return whether any account of themselves reached the reader — a
+verdict, a budget note, a failure line. `budget.signal.aborted` is consulted for `ran` nowhere.
+
+There was a second half, and without it the fix would have been silent rather than wrong. Both gates
+that precede `admits` tested `stopped()` — which is `signal.aborted || budget.signal.aborted` — so
+once the deadline fired the gate returned *before* the budget was ever asked about the pass, and the
+pass the deadline actually cost went unrecorded and therefore unnamed. Only the reader's own Stop
+belongs in that test, because a Stop leaves no notice by design. With both halves, FR3 reads:
+
+> ⏱ Checking stopped at its 60s limit. Ran: the code check, the recomputation. Not run: the
+> revision. The answer above is unchanged.
+
+**True negatives.** A recomputation the deadline genuinely cut off returns `describeRecompute({ ran:
+false })`, shows `🧮 Recompute skipped — cancelled`, and is still named: `Ran: nothing. Not run: the
+recomputation.` A turn whose tail fits inside the minute still says nothing at all. A turn the
+reader stopped still leaves no notice, because the reader who pressed Stop knows why it stopped.
+
+#### 2. One call, reported two ways on the same screen
+
+> ✗ 🔍 deep_research — No usable sources were found.
+>
+> Checked against: run_python, **deep_research (errored)**.
+
+A search that came back empty-handed and a tool that broke are different facts about one call, and
+the summary line was making up the difference. Round 8 built exactly this distinction —
+never-sent (`↩`), server-failed (`✗`), returned-nothing (`∅`) — and built it **in `ToolCallBlock`
+alone.** The footer classified the same records for itself, off `record.status` and nothing else: so
+every non-`done` source read `(errored)`, and every `done` one read as evidence. B10/TH2 is the same
+fault on the other glyph — `∅ ⚙️ reference_lookup — found nothing`, and four lines below it,
+`Checked against: reference_lookup`, a bare name that has always meant *this supplied something*.
+
+Two causes, and both had to go:
+
+- **`deep_research` never learned the vocabulary at all.** Its "no usable sources" return was
+  `ok: false` with prose, so even the row wore `✗`; its "every query was refused by the privacy
+  filter, nothing was contacted" return was the same plain error. It now declares its
+  `emptyResultLead` in the tool table and returns a fruitless campaign as a call that worked and
+  supplied nothing — the split `web_search` has made since round 5 — while both never-sent cases (a
+  refused query set, a plan the user cancelled) go through `declinedCall`, the one string `↩` reads.
+- **Two classifiers, one question.** `callOutcome` in `lib/grounding.ts` is now the only place a
+  record's outcome is decided, and the row and the footer both ask it. A name is listed bare only
+  when one of its calls actually returned something; anything else carries the row's own word.
+
+| | before | after |
+| --- | --- | --- |
+| FR3 row | `✗ 🔍 deep_research — No usable sources were found.` | `∅ 🔍 deep_research — found nothing` |
+| FR3 footer | `Checked against: run_python, deep_research (errored).` | `Checked against: deep_research (found nothing), run_python.` |
+| TH2 footer | `Checked against: reference_lookup, web_search (errored).` | `Checked against: reference_lookup (found nothing), web_search (errored).` |
+
+**True negatives.** A tool that genuinely broke still reads `✗` on its row and `(errored)` in the
+footer — `web_search` against the TH2 fixture's HTTP 500 is unchanged. A lookup that returned a
+passage keeps `✓` and its bare name. A tool called three times, once successfully, keeps the bare
+name: the answer *was* checked against what that call returned. And the line this must not cost us
+is round 8's reason for naming fruitless calls in the first place — the footer must never fall back
+to `nothing ran this turn` on a turn where a search did run, so a tool whose calls ended differently
+carries both words (`web_search (errored, found nothing)`) rather than the app picking a winner.
+
+#### 3. The warning arrived after the reassurance it contradicted
+
+> ⚠️ Not deliberated — the review request to Researcher came back empty; **the draft was not
+> checked.** Run Think harder again to retry it.
+
+…the last line of a bubble that had already said `🧮 Recomputed the stated figures in Python`,
+`Covered 1 of the 3 measurements in this reply`, and `Checked against: run_python`.
+
+**Both an ordering problem and a wording problem, and they are separable.**
+
+*Wording.* Three passes check something on that screen — a recomputation, a code run, a grounding
+comparison — and none of them is this one. This pass is a second model **reading the prose**; the
+other three are the app comparing figures against output. One word for both left the reader to
+decide which had not happened, with the decision pre-loaded by the two reassurances above it. The
+line says `no reviewer read this draft` now, and no line `describeDeliberation` produces contains
+the word *check* in any form; the predicate is `draftWentUnreviewed` (round 9 shipped it as
+`draftWentUnchecked`), and the audit log and tooltips moved with it.
+
+*Ordering.* Read downward — the only way it is read — an unreviewed reply arrived as a checked one.
+The unreviewed line renders **above** the checks block and the grounding banner now, and the move is
+conditional on purpose. A review that *did* happen ran after the tail and can revise the text those
+checks read, so a line saying it succeeded must not sit above them claiming to describe what they
+saw; a review that did not happen changed nothing, so nothing is misplaced by putting it first.
+`draftWentUnreviewed` is false while the pass is still running, so the live line does not jump on
+its way to a verdict — only a settled failure moves.
+
+*Not the rank.* Round 10 established that a warning carries one ink (`text-ink-warn`) and provenance
+another (`text-ink-tertiary`), and that a provenance line wearing warm ink reads as a finding.
+Promoting these lines to be heard would spend exactly the contrast that distinction runs on. The
+ordering test asserts the two quiet lines stay quiet.
+
+**True negative.** `🧠 Deliberated — reviewed by Researcher, revised.` still renders where provenance
+lives, below the banner, and a pass still in flight still renders there too.
+
+#### What this does not fix
+
+- A code check that ran on the draft and was refused on the revision is still counted as lost, so
+  the expiry can read `Not run: the code check` above the draft's own `🧪` line. The rule is
+  deliberate and documented (*"the notice may under-claim, never over-claim"*), and the honest
+  repair is to say **which** code check — the draft's or the revision's — which is a wording change
+  this round did not have the recorded evidence to design.
+- `Ran: the code check` appears on a reply containing no Python at all, because `runCodeCheck`
+  reaches a conclusion either way and the notice reports that it ran. Defensible, and no line
+  contradicts it — but there is no `🧪` disclosure on screen for the reader to tie it to.

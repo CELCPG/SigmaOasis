@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react'
 import type { ToolCallRecord } from '../types'
-import { declinedToCall, foundNothing } from '../lib/grounding'
+import { OUTCOME_NOTE, callOutcome } from '../lib/grounding'
 import { readToolFailure } from '../../../shared/tools/outcomes'
 import { composeFailure, copyableFailure } from '../../../shared/failure'
 import { toolVisualForName } from '../lib/oasisRipple'
@@ -22,7 +22,13 @@ const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
  * is the whole of what a reader sees, so the distinction has to live there.
  */
 const EMPTY_ICON = '∅'
-export const EMPTY_RESULT_NOTE = 'found nothing'
+/**
+ * v2.3: the words are `lib/grounding.ts`'s, not this file's. The four states
+ * were decided here and read back nowhere else, so the "Checked against"
+ * footer classified the same records for itself off `record.status` and got a
+ * different answer — see `callOutcome`.
+ */
+export const EMPTY_RESULT_NOTE = OUTCOME_NOTE.empty
 
 /**
  * And a call the app declined to make is not a failure either.
@@ -40,7 +46,7 @@ export const EMPTY_RESULT_NOTE = 'found nothing'
  * `∅` earns "— found nothing".
  */
 const DECLINED_ICON = '↩'
-export const DECLINED_NOTE = 'declined'
+export const DECLINED_NOTE = OUTCOME_NOTE.declined
 
 /** Collapsible block for a tool call — or a model-to-model consultation. */
 export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Element {
@@ -49,8 +55,9 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
 
   const isConsult = record.name === 'consult_model'
   const visual = toolVisualForName(record.name)
-  const empty = record.status === 'done' && foundNothing(record)
-  const declined = declinedToCall(record)
+  const outcome = callOutcome(record)
+  const empty = outcome === 'empty'
+  const declined = outcome === 'declined'
   // A failure the reader cannot name is a failure they have to open a
   // disclosure to understand. Both broken states carry their reason; a decline
   // has no provider error to quote, so the reason is the app's own sentence.

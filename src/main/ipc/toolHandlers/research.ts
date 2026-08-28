@@ -4,6 +4,7 @@ import { getSettings } from '../store'
 import { runDeepResearch } from '../deepResearch'
 import type { ResearchDepth, ResearchOutcome, ResearchPlan } from '../deepResearch'
 import { provenanceNote, provenanceOf } from '../sourceTiers'
+import { declinedCall, toolFailure } from '../../../shared/tools/outcomes'
 import { UNTRUSTED_HEADER, truncate } from './types'
 import type { ToolHandler, ToolResult } from './types'
 
@@ -16,6 +17,15 @@ import type { ToolHandler, ToolResult } from './types'
  * call.
  */
 const MAX_RESEARCH_OUTPUT_CHARS = 14_000
+
+/**
+ * What the model must do when the campaign came back without a brief — the
+ * model's half, kept out of the fact so the collapsed row shows only the fact
+ * (see `shared/tools/outcomes.ts`).
+ */
+const RESEARCH_GAP_GUIDANCE =
+  'Tell the user exactly what could not be verified — never invent products, prices, ' +
+  'or sources to fill the gap.'
 
 /**
  * One approval for a whole research plan.
@@ -58,13 +68,16 @@ export function formatResearch(outcome: ResearchOutcome): ToolResult {
     : ''
 
   if (!outcome.ok) {
-    return {
-      ok: false,
-      error:
-        [outcome.error ?? 'Research failed.', cost].filter(Boolean).join(' ') +
-        ' Tell the user exactly what could not be verified — never invent products, prices, ' +
-        'or sources to fill the gap.'
-    }
+    const said = [outcome.error ?? 'Research failed.', cost].filter(Boolean).join(' ')
+    // v2.3: three endings, composed apart — the same split web_search has made
+    // since round 8. A campaign that searched and found nothing usable WORKED,
+    // so it returns as a call that worked and supplied nothing, opening with
+    // the tool table's own empty lead; one where nothing was contacted goes
+    // through `declinedCall`, which is the string both the row's `↩` and the
+    // footer's "(declined)" read back. Only a genuine breakage is an error.
+    if (outcome.kind === 'empty') return { ok: true, output: `${said} ${RESEARCH_GAP_GUIDANCE}` }
+    if (outcome.kind === 'declined') return { ok: false, error: declinedCall(said, RESEARCH_GAP_GUIDANCE) }
+    return { ok: false, error: toolFailure(said, RESEARCH_GAP_GUIDANCE) }
   }
 
   const sources = (outcome.sources ?? [])

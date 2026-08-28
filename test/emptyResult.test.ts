@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { load } from './harness'
-import { consultedSources, needsVerification } from '../src/renderer/src/lib/grounding'
+import { callOutcome, consultedSources, needsVerification } from '../src/renderer/src/lib/grounding'
+import { checkToolGrounding } from '../src/renderer/src/lib/toolGrounding'
+import { declinedCall } from '../src/shared/tools/outcomes'
 import { ToolCallBlock } from '../src/renderer/src/components/ToolCallBlock'
 import type { ToolCallRecord } from '../src/renderer/src/types'
 
@@ -242,5 +244,116 @@ describe('the tool block distinguishes a call that worked from one that supplied
     const python = rec('run_python', 'done', 'ran in 3 ms')
     assert.ok(headerText(python).includes('✓'))
     assert.equal(consultedSources([python]), true)
+  })
+})
+
+/**
+ * Round 11, FR3 (`.h2h-runs/B10/FR3-20260827-224622`): one `deep_research`
+ * call, two accounts of it on one screen —
+ *
+ *   ✗ 🔍 deep_research — No usable sources were found.
+ *   Checked against: run_python, deep_research (errored).
+ *
+ * A search that came back empty-handed and a tool that broke are different
+ * facts, and the summary line was making up the difference. Round 8 built the
+ * distinction — never-sent, server-failed, returned-nothing — and built it in
+ * `ToolCallBlock` alone: the footer classified the same records for itself, off
+ * `record.status` and nothing else, so every non-`done` source read `(errored)`
+ * and every `done` one read as evidence. B10/TH2 shows the other half of the
+ * same fault: `∅ ⚙️ reference_lookup — found nothing`, and four lines below it,
+ * `Checked against: reference_lookup`.
+ *
+ * Both sides ask `callOutcome` now. These hold them to the same answer.
+ */
+describe('the summary line reads a call the way its own row does (round 11)', () => {
+  /** deep_research's own words for a campaign that searched and found nothing. */
+  const NO_USABLE_SOURCES =
+    'No usable sources were found. The search provider may have returned nothing, or every ' +
+    'candidate page failed to yield readable text. Searched 6×, read 0 page(s) across 0 domain(s) in 41s.'
+
+  /** …and for one where the privacy filter refused every query it built. */
+  const NOTHING_SENT = declinedCall(
+    'No search was sent: every query this run built was refused by the privacy filter for reading ' +
+      'as a sentence about you rather than search terms (3 refused). Nothing was contacted.'
+  )
+
+  const answer = 'Roughly 40 emitters at 1.5 GPH is 60 GPH; see https://example.invalid/drip-guide.'
+
+  const footer = (records: ToolCallRecord[]): string[] =>
+    checkToolGrounding(answer, records, 'how many emitters for 40 feet of raised bed')?.checkedAgainst ??
+    []
+
+  test('a campaign that searched and found nothing is not a breakage on its own row', () => {
+    const record = rec('deep_research', 'done', NO_USABLE_SOURCES)
+    assert.equal(callOutcome(record), 'empty')
+    assert.match(headerText(record), /found nothing/)
+    assert.ok(!headerText(record).includes('✗'), 'measured: ✗ over a call that worked')
+  })
+
+  test('…and the footer does not call it a tool that errored', () => {
+    const named = footer([rec('deep_research', 'done', NO_USABLE_SOURCES)])
+    assert.deepEqual(named, ['deep_research (found nothing)'])
+    assert.ok(
+      !named.some((n) => n.includes('errored')),
+      'measured: "deep_research (errored)" under a row reading "No usable sources were found."'
+    )
+  })
+
+  test('a lookup that found nothing is not listed as something the answer was checked against', () => {
+    // B10/TH2: `∅ ⚙️ reference_lookup — found nothing` over `Checked against:
+    // reference_lookup`. A bare name has always meant "this supplied evidence".
+    const record = rec('reference_lookup', 'done', EMPTY_LOOKUP)
+    assert.equal(callOutcome(record), 'empty')
+    assert.deepEqual(footer([record]), ['reference_lookup (found nothing)'])
+  })
+
+  test('a call the app never sent says so, rather than reading as a provider failure', () => {
+    const record = rec('deep_research', 'error', NOTHING_SENT)
+    assert.equal(callOutcome(record), 'declined')
+    assert.match(headerText(record), /declined/)
+    assert.deepEqual(footer([record]), ['deep_research (declined)'])
+  })
+
+  /** The true negatives: the two states that must NOT change what they say. */
+  test('a tool that genuinely broke still reads as errored, in both places', () => {
+    const record = rec('web_search', 'error', SEARXNG_500)
+    assert.equal(callOutcome(record), 'errored')
+    assert.ok(headerText(record).includes('✗'))
+    assert.deepEqual(footer([record]), ['web_search (errored)'])
+  })
+
+  test('a call that returned something is named bare, with no qualifier at all', () => {
+    const record = rec('reference_lookup', 'done', PASSAGES_LOOKUP)
+    assert.equal(callOutcome(record), 'ok')
+    assert.ok(headerText(record).includes('✓'))
+    assert.deepEqual(footer([record]), ['reference_lookup'])
+  })
+
+  test('one good call among empty ones still earns the bare name', () => {
+    // The answer WAS checked against what the third call returned, so the name
+    // is not qualified away by the two that supplied nothing.
+    assert.deepEqual(
+      footer([
+        rec('reference_lookup', 'done', EMPTY_LOOKUP),
+        rec('reference_lookup', 'done', PASSAGES_LOOKUP),
+        rec('reference_lookup', 'done', EMPTY_LOOKUP)
+      ]),
+      ['reference_lookup']
+    )
+  })
+
+  test('a tool whose calls ended differently carries both words, not the app’s pick', () => {
+    assert.deepEqual(
+      footer([rec('web_search', 'done', EMPTY_SEARCH), rec('web_search', 'error', SEARXNG_500)]),
+      ['web_search (errored, found nothing)']
+    )
+  })
+
+  test('the footer still speaks at all when nothing supplied anything', () => {
+    // What this vocabulary must not cost: naming the fruitless calls is why
+    // round 8 listed them at all — the footer otherwise read "nothing ran this
+    // turn" on a turn where a search did run.
+    const named = footer([rec('deep_research', 'done', NO_USABLE_SOURCES)])
+    assert.ok(!named.some((n) => /nothing ran this turn/.test(n)))
   })
 })

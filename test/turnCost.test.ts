@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { formatTurnCost, gatherMs, tailMs } from '../src/renderer/src/lib/turnCost'
 import { VERIFY_BUDGET_MS, createVerifyBudget } from '../src/renderer/src/lib/turnPhase'
+import { describeRecompute } from '../src/renderer/src/lib/workbenchChecks'
 import type { ResponseStats } from '../src/renderer/src/types'
 
 /**
@@ -168,6 +169,87 @@ describe('the post-answer tail has a deadline that fires with a name', () => {
     budget.stop()
   })
 
+  /**
+   * FR3 (`.h2h-runs/B10/FR3-20260827-224622`) replayed against the two pieces
+   * the turn joins: the budget, and the pass's own account of itself. The
+   * recomputation's `run_python` takes no abort signal, so a program admitted at
+   * 57 s prints its output after the 60 s deadline — measured, `62.2s checking`
+   * — and the line the reader gets is `describeRecompute({ ran: true, ok: true })`
+   * with the program and its stdout above it.
+   */
+  test('a pass that finished after the deadline is not named as one that never ran', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const budget = createVerifyBudget()
+    assert.equal(budget.admits('code'), true)
+    budget.ran('code')
+    t.mock.timers.tick(57_000)
+    assert.equal(budget.admits('recompute'), true, 'there was still time when it started')
+    // The model wrote the program, the sandbox booted, the run printed — and
+    // the deadline passed somewhere in the middle of that.
+    t.mock.timers.tick(5_200)
+    assert.equal(budget.expired(), true)
+    const shown = describeRecompute({ ran: true, ok: true })
+    assert.match(shown.summary, /Recomputed the stated figures/)
+    if (shown.ran) budget.ran('recompute')
+    // The revision is the pass this turn really lost, and the gate has to ask
+    // the budget to find that out — see the `!signal.aborted` reordering.
+    assert.equal(budget.admits('revising'), false)
+
+    const notice = budget.notice()
+    assert.ok(notice, 'the deadline still fired, and the pass it cost is still named')
+    assert.doesNotMatch(
+      notice.summary,
+      /Not run:[^.]*the recomputation/,
+      'measured: "Not run: the recomputation" directly under "🧮 Recomputed the stated figures in Python"'
+    )
+    // Which is the line the previous build got right on its own FR3 run
+    // (`.h2h-runs/A10/FR3-20260827-233154`) — by luck of timing, not by rule.
+    assert.match(notice.summary, /Ran: the code check, the recomputation\. Not run: the revision\./)
+    budget.stop()
+  })
+
+  /**
+   * And the reason the notice appears at all on that turn: the gates that
+   * precede `admits` used to test `stopped()`, which is true the moment the
+   * deadline fires. A pass the budget was about to refuse was skipped before
+   * the budget could count it — so the expiry either named the wrong pass or,
+   * once the recomputation stopped being misreported, named none and said
+   * nothing.
+   */
+  test('a pass the deadline refuses is recorded, not skipped silently', () => {
+    const source = readFileSync(USE_LM_STUDIO, 'utf-8')
+    assert.ok(
+      source.includes("!autoCorrect || signal.aborted || !budget.admits('revising')"),
+      'the revision gate must reach `admits` when it is the deadline that stopped it'
+    )
+    assert.ok(
+      !/!stopped\(\) &&\n\s*looksArithmetic/.test(source),
+      'the recompute gate must not skip `admits` on an expired budget'
+    )
+  })
+
+  /**
+   * The true negative, and the reason the old guard existed at all: a pass the
+   * deadline genuinely cut off must still be named. `runRecompute` swallows the
+   * abort and returns, so its returning is not evidence — what it returns is.
+   */
+  test('a pass the deadline actually cut off is still named as not run', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const budget = createVerifyBudget()
+    assert.equal(budget.admits('recompute'), true)
+    t.mock.timers.tick(VERIFY_BUDGET_MS + 1)
+    // The stream was aborted before a program came back, so nothing was run.
+    const shown = describeRecompute({ ran: false, ok: false, note: 'cancelled' })
+    assert.match(shown.summary, /Recompute skipped/)
+    if (shown.ran) budget.ran('recompute')
+
+    const notice = budget.notice()
+    assert.ok(notice)
+    assert.match(notice.summary, /Not run: the recomputation/)
+    assert.match(notice.summary, /Ran: nothing/)
+    budget.stop()
+  })
+
   test('the user pressing Stop is not a deadline, and leaves no notice', (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
     const turn = new AbortController()
@@ -224,6 +306,39 @@ describe('the turn runs its tail under the budget', () => {
       assert.ok(source.includes(`budget.admits('${pass}')`), `${pass} must be gated by the budget`)
       assert.ok(source.includes(`budget.ran('${pass}')`), `${pass} must report completion`)
     }
+  })
+
+  /**
+   * Round 11, FR3 (`.h2h-runs/B10/FR3-20260827-224622`), two lines apart:
+   *
+   *   🧮 Recomputed the stated figures in Python; the reply's numbers were
+   *      compared against that output.
+   *   ⏱ Checking stopped at its 60s limit. Ran: the code check. Not run: the
+   *      recomputation.
+   *
+   * The program, its stdout and the comparison were all on screen, above a line
+   * saying the pass had not run. The capture's own footer reads `62.2s
+   * checking` against a 60 s budget: the recomputation's `run_python` — which
+   * is not wired to the budget signal, so it always finishes — started inside
+   * the deadline and printed 2.2 s after it. `if (!budget.signal.aborted)
+   * budget.ran('recompute')` then withheld the completion, because it asks the
+   * clock what the pass did.
+   *
+   * A10/FR3 got the same line right (`Ran: the code check, the recomputation`)
+   * for one reason: its recompute finished a moment inside the budget. The
+   * difference between the two arms was timing, not code.
+   */
+  test('no pass reports its completion by asking the clock', () => {
+    assert.ok(
+      !/if \(!budget\.signal\.aborted\) budget\.ran\(/.test(source),
+      'the deadline notice must be composed from what each pass did, not from when it returned'
+    )
+  })
+
+  test('each pass hands the budget its own account of what it got done', () => {
+    assert.ok(source.includes("if (recompute.ran) budget.ran('recompute')"), 'the recomputation reports itself')
+    assert.ok(source.includes("if (revised.trim()) budget.ran('revising')"), 'the revision is its own evidence')
+    assert.ok(source.includes("if (checked) budget.ran('claims')"), 'the claim check reports itself')
   })
 
   test('a pass already in flight is handed the budget signal, not just the turn signal', () => {

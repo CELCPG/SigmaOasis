@@ -204,7 +204,10 @@ export interface DeliberationRecord {
    * from `review` being empty; the record never learned it.
    *
    * 'error' is a pass that threw. 'unreviewed' is a pass that returned without
-   * reviewing. Both mean the draft was not checked, and both are failures.
+   * reviewing. Both mean no reviewer read the draft, and both are failures.
+   *
+   * v2.3: "not checked" was this comment's phrase too, and three other passes
+   * on the same bubble check things. See `describeDeliberation`.
    */
   status: 'reviewing' | 'revising' | 'done' | 'unreviewed' | 'error'
   /** The reply as it stood before the pass. */

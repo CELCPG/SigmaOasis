@@ -3,6 +3,9 @@ import assert from 'node:assert/strict'
 import { load, state, resetState } from './harness'
 // Type-only: erased at compile time, so it does not bypass the harness's stubs.
 import type { CandidateSource, ReadSource, SubQuestion } from '../src/main/ipc/deepResearch'
+import { callOutcome, foundNothing } from '../src/renderer/src/lib/grounding'
+import { wasDeclined } from '../src/shared/tools/outcomes'
+import type { ToolCallRecord } from '../src/renderer/src/types'
 
 const research = load<typeof import('../src/main/ipc/deepResearch')>('deepResearch')
 const llm = load<typeof import('../src/main/ipc/llm')>('llm')
@@ -820,5 +823,96 @@ describe('planning fallback produces search terms, not a sentence (v1.9.1)', () 
     assert.match(outcome.error!, /refused by the privacy filter/i)
     assert.match(outcome.error!, /Nothing was contacted/i)
     assert.doesNotMatch(outcome.error!, /provider may have returned nothing/i)
+  })
+})
+
+/**
+ * Round 11, FR3 (`.h2h-runs/B10/FR3-20260827-224622`). One call, two accounts of
+ * it on one screen: `✗ 🔍 deep_research — No usable sources were found.` above
+ * `Checked against: run_python, deep_research (errored).`
+ *
+ * Round 8 gave the tool rows three states — never-sent, server-failed,
+ * returned-nothing. `deep_research` was returning all three as one: an
+ * `ok: false` carrying prose. So the row could only wear `✗`, and everything
+ * downstream that reads a record had to invent the difference or drop it.
+ *
+ * These tests run the real orchestrator to the ending, then push the outcome
+ * through the real handler, so the fixture is the app's own output — the same
+ * discipline as `EMPTY_LOOKUP` in test/emptyResult.test.ts.
+ */
+describe('a campaign with no brief says which kind of nothing it is (round 11)', () => {
+  const handler = load<typeof import('../src/main/ipc/toolHandlers/research')>('toolHandlers/research')
+  const record = (result: string, status: 'done' | 'error'): ToolCallRecord => ({
+    id: 'dr',
+    name: 'deep_research',
+    args: {},
+    status,
+    result
+  })
+
+  test('searched and found nothing usable: a call that worked and supplied nothing', async () => {
+    state.searchHtml = '<html></html>'
+    state.searchRoutes = []
+    const outcome = await runDeepResearch({ question: 'q', modelId: 'fake-chat' })
+    assert.equal(outcome.kind, 'empty')
+
+    const result = handler.formatResearch(outcome)
+    assert.equal(result.ok, true, 'a campaign that ran and found nothing is not a breakage')
+    const rec = record(result.output!, 'done')
+    assert.equal(
+      foundNothing(rec),
+      true,
+      'the handler must open with the tool table’s own empty lead, or nothing downstream can tell'
+    )
+    assert.equal(callOutcome(rec), 'empty')
+    // The model is still told what to do about it — that half never moved.
+    assert.match(result.output!, /never invent products, prices, or sources/)
+  })
+
+  test('nothing was contacted: a call the app declined to make', async () => {
+    const REFUSED_QUERY =
+      'my landlord kept my deposit after I moved out of the flat in June and I want to know what my options are now'
+    state.completions = [JSON.stringify({ subQuestions: [{ question: 'q', queries: [REFUSED_QUERY] }] })]
+    state.responses = []
+    const outcome = await runDeepResearch({ question: 'How do retries work?', modelId: 'fake-chat' })
+    assert.equal(outcome.kind, 'declined')
+
+    const result = handler.formatResearch(outcome)
+    assert.equal(result.ok, false)
+    assert.equal(wasDeclined(result.error!), true, 'nothing was sent, so nothing broke')
+    assert.equal(callOutcome(record(result.error!, 'error')), 'declined')
+  })
+
+  /** The true negative: a campaign that genuinely broke is still a breakage. */
+  test('a run that failed for any other reason is still an error, with no kind', () => {
+    const result = handler.formatResearch({
+      ok: false,
+      error: 'No chat model available in LM Studio to plan and synthesize the research.'
+    })
+    assert.equal(result.ok, false)
+    assert.equal(wasDeclined(result.error!), false)
+    assert.equal(callOutcome(record(result.error!, 'error')), 'errored')
+  })
+
+  /** …and a run that produced a brief is untouched by any of this. */
+  test('a successful campaign still returns its brief', () => {
+    const result = handler.formatResearch({
+      ok: true,
+      brief: 'Heat pumps hold efficiency to about −15 °C [1].',
+      sources: [
+        {
+          index: 1,
+          url: 'https://example.invalid/hp',
+          title: 'Cold-climate heat pumps',
+          subQuestion: 0,
+          passages: [{ text: 'Efficiency holds to about −15 °C.', score: 0.8 }],
+          via: 'static'
+        }
+      ],
+      ledger: { rounds: 1, searches: 3, fetches: 2, hosts: ['example.invalid'], elapsedMs: 12_000, limitsHit: [] }
+    })
+    assert.equal(result.ok, true)
+    assert.match(result.output!, /Research brief/)
+    assert.equal(foundNothing(record(result.output!, 'done')), false)
   })
 })

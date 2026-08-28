@@ -95,6 +95,28 @@ describe('disclosure lines', () => {
     assert.match(describeCodeCheck({ ran: true, ok: false, finding: '- The Python code in the answer fails when run: NameError: name \'x\' is not defined. Fix the code so it runs; do not describe the fix instead of making it.' }).summary, /it fails: NameError: name 'x' is not defined\.$/)
     assert.match(describeCodeCheck({ ran: true, ok: false, revisedRuns: true }).summary, /the revised code runs/)
   })
+
+  /**
+   * v2.3: the summary says whether the pass ran, in prose, and the deadline
+   * notice cannot read prose. `ran` carries the same fact in a field — see
+   * `WorkbenchCheck.ran` and test/turnCost.test.ts, where FR3 is replayed.
+   */
+  test('every line reports in a field whether the pass actually ran', () => {
+    for (const check of [
+      describeRecompute({ ran: true, ok: true }),
+      describeRecompute({ ran: true, ok: true, circular: true }),
+      describeRecompute({ ran: true, ok: false, note: 'the recomputation raised an error' }),
+      describeCodeCheck({ ran: true, ok: true }),
+      describeCodeCheck({ ran: true, ok: false, revisedRuns: true }),
+      describeCodeCheck({ ran: true, ok: false, compared: { agreed: 0, mismatches: [{ label: 'total', printed: '60', stated: '40' }] } })
+    ]) {
+      assert.equal(check.ran, true, `a line that describes work done must say it ran: ${check.summary}`)
+    }
+    // …and the two that describe work NOT done say so, so the notice can name
+    // them without contradicting anything on screen.
+    assert.equal(describeRecompute({ ran: false, ok: false, note: 'cancelled' }).ran, false)
+    assert.equal(describeCodeCheck({ ran: false, ok: false, note: 'no Python block' }).ran, false)
+  })
 })
 
 /**
