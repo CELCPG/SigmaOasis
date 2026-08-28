@@ -5453,3 +5453,170 @@ lives, below the banner, and a pass still in flight still renders there too.
 - `Ran: the code check` appears on a reply containing no Python at all, because `runCodeCheck`
   reaches a conclusion either way and the notice reports that it ran. Defensible, and no line
   contradicts it — but there is no `🧪` disclosure on screen for the reader to tie it to.
+
+### Pending fold-in — three lines that mislead a reader about their own completeness
+
+Round 11's blind critics found three lines, all present in **both** arms, that are true about what
+they measured and misleading about **their own scope**. Round 10's lesson — *a sentence broader than
+its measurement* — with the breadth in the presentation rather than in the claim.
+
+#### 1. The unbacked-figures count was a ceiling wearing a census's clothes
+
+The sibling line on the same screen is what convicts this one. Verbatim, one above the other, from
+`.h2h-runs/B11/V3-20260828-104955`:
+
+> ⚠️ 5 figures ($6, $3.50, $7.00, $10, $15) in this reply are not backed by the tool output.
+>
+> Covered 0 of the 6 measurements in this reply. Not compared against anything: 700 gallons per
+> month, 60 seconds/min, 60 min/hr, 24 hr/day **and 2 more**.
+
+The second names four of six and says so, because `coverage` carries its totals uncapped and caps
+only `uncheckedNamed`. The first took its count off `report.figures`, an array `checkToolGrounding`
+had **already sliced to `MAX_REPORTED`** — so it agreed with itself perfectly and understated the
+reply. `groundingFindingLabels` states the rule two hundred lines above the sentence that broke it:
+
+> The count and the names must come from the same place. […] a line that says "3 unsupported items"
+> and then names two is worse than one that names none.
+
+The place has to be the whole of what was found. Reproduced against the shipped checker, a reply
+stating nine unbacked prices:
+
+| | line |
+| --- | --- |
+| before | `⚠️ 6 figures ($1, $2, $3, $4, $5, $6) in this reply are not backed by the tool output.` |
+| after | `⚠️ 9 figures ($1, $2, $3, $4, $5, $6 and 3 more) in this reply are not backed by the tool output.` |
+
+**Disclose, not raise, and not both.** Raising `MAX_REPORTED` moves the silence one figure along and
+leaves the same reader with the same unreadable ceiling; the cap itself is doing real work, because
+twelve prices enumerated in an amber banner is the noise round 4 established a reader learns to
+scroll past. So `GroundingReport.found` records the true totals for the three categories the banner
+counts, the count becomes the census and the *naming* is what is capped — the shape `coverage` has
+had since v2.1 — and the phrase is the sibling's `and N more`, not a second idiom for the same fact.
+`found` is written only when the cap actually dropped something, so a report that names everything
+cannot claim a truncation it did not make.
+
+Links needed the other half. They are the one counted category the sentence does not name inline —
+they carry a bulleted list beneath it — so raising the count without telling that list would have
+moved the silent truncation rather than ended it. `unlistedLinks` closes it with the same words, in
+the list where the reader is actually looking for them.
+
+**True negatives.** Six unbacked figures with six named produces no `found` field at all and the
+line reads `6 figures ($1, $2, $3, $4, $5, $6) …` with no truncation clause — a build that hedged
+every list, or appended "and 0 more", fails there. One figure still takes a singular verb
+(`1 figure ($36) … is not backed`), because v1.17.1's rule now runs over v2.4's number. And two
+truncated categories in one sentence keep their remainders apart, which is why the totals are
+recorded per category and not as one number: `and 3 more` hung on the wrong noun is a new wrong
+statement.
+
+**What this round got wrong first, and the finding underneath it.** The brief for this work assumed
+the recorded `5 figures` line had been truncated — that `$4` and `$30`, unbacked and unnamed in the
+same reply, were the sixth and seventh of a list capped at five. They were not. That reply's rung
+faulted exactly five figures and the line named all five; `MAX_REPORTED` is 6 and was never reached.
+`$4` and `$30` were dropped one step earlier, by `unsourcedFigures`, and reproducing it takes two
+strings:
+
+```
+unsourcedFigures(reply, '', '[4] CLEAN')   →  $6, $3.50, $7.00, $10, $30, $15   ($4 gone)
+unsourcedFigures(reply, '', 'about 30% in') →  $4, $6, $3.50, $7.00, $10, $15   ($30 gone)
+```
+
+Both come from the retrieval strip of that very run — passage marker `[4]`, and `· 30% in ·`, the
+app's own coverage percentage. `inSources` is presence-only and dimensionless by design (v1.11.2: *a
+figure that appears verbatim in a page the model was handed is sourced*), and `amountsIn` returns
+every number that is not part of a measurement — so a bracketed passage index certifies `$4` and a
+relevance percentage certifies `$30`. **A figure is being certified by a number in the app's own
+retrieval chrome.** That is a real defect of the same family — a check whose corpus is wider than
+the thing it claims to have compared against — and it is not fixed here: the honest repair is to
+decide what counts as *the passage* versus what counts as the app's furniture around it, and this
+round has one run's evidence, not a corpus.
+
+#### 2. A label introducing nothing
+
+In the collapsed transcript of both arms, a section ended here:
+
+> 🧮 Recompute skipped — stopped before it finished
+>
+> **The runtime reported:**
+
+— and nothing followed. The body, `BodyStreamBuffer was aborted`, appears only when the disclosure
+is opened. I recorded this in round 6 as *probably* a capture artefact of reading a closed
+`<details>`; round 11's critics read it off the screen, in both arms.
+
+`attribution()` is not wrong. It ends in a colon because both its other callers — `composeFailure`
+and `copyableFailure` — put the text on the very next line and never fold. The verification banner's
+disclosure is the third caller and it *does* fold, so a closed control was wearing a line's clothes.
+
+| | collapsed | opened |
+| --- | --- | --- |
+| before | `The runtime reported:` | `BodyStreamBuffer was aborted` |
+| after | `What the runtime reported` | `BodyStreamBuffer was aborted` |
+
+**And not by unfolding it.** Round 8's whole argument is that a runtime string belongs behind a
+disclosure, and `BodyStreamBuffer was aborted` — a DOMException's wording for a fetch the app itself
+aborted — is exactly the text that boundary exists to keep off the reader's screen. What was wrong
+was the promise, not the hiding. `attributionLabel` is a second *reading* of the same fact for the
+one caller that is a control rather than a line; both readings still come off `detail.source`, so
+there is one spelling of who spoke and not two, which is the drift `attribution` was extracted to
+prevent.
+
+**True negatives.** `composeFailure` still renders `The runtime reported:\n"Fatal: 0x8007007e"` and
+`copyableFailure` still yields sentence-plus-verbatim for a bug report — both pinned. A relayed
+failure keeps its speaker in both forms (`What LM Studio reported`). And the collapsed control must
+not smuggle the internals up into itself: the label is asserted to contain no `BodyStreamBuffer` and
+to end in no colon.
+
+#### 3. A progress fraction on a plan that will never progress
+
+Verbatim, `.h2h-runs/B11/PT2-20260828-110253` (and the same block in A11):
+
+> 📋 Plan — **0/4 steps done** · cancelled by you — nothing ran
+>
+> – 1. Search for official smoke alarm placement guidelines from the NFPA **never ran**
+> – 2. … **never ran**   – 3. … **never ran**   – 4. … **never ran**
+
+Round 11 taught the badge to attribute the decision (`cancelled` → `cancelled by you — nothing ran`)
+and the count went on describing a run in progress. Not one word of the fraction is false: no step
+is done and there are four of them. A fraction is a **promise** about the steps it leaves out — the
+numerator climbs, the denominator gets reached — and that is what a reader of a checklist takes from
+`0/4`.
+
+| plan | before | after |
+| --- | --- | --- |
+| cancelled, nothing ran | `Plan — 0/4 steps done` | `Plan — 4 steps: 4 never ran` |
+| stopped part-way | `Plan — 1/4 steps done` | `Plan — 4 steps: 1 done, 1 stopped by you, 2 never ran` |
+| failed | `Plan — 1/3 steps done` | `Plan — 3 steps: 1 done, 1 failed, 1 never ran` |
+
+**The rule is not "no fractions on dead plans".** A fraction may stand as long as it is closed:
+`4/4 steps done` beside `finished` leaves nothing out, says the same thing as the census, and says
+it in fewer words. What needed repair is a fraction with a remainder that will never arrive. So the
+census replaces it only when `done < total` on a plan that is over — and it is a census, not `4
+steps` alone, because the badge speaks about the *plan* and the rows are what the reader is about to
+read.
+
+The tally walks `STATUS_LABEL` rather than naming the statuses it expects, so a status added later
+is counted by construction rather than by being remembered — this project's recurring defect is the
+enumeration that stops covering its class. The cost is one echo: a cancelled plan says `4 never ran`
+above four rows that each say `never ran`, which is the same deliberate repetition `STATUS_LABEL`
+already documents accepting.
+
+**True negatives.** A completed plan still reads `2/2 steps done`; an approved plan mid-run still
+reads `0/3 steps done`; an unapproved one still reads `0/2 steps done`. A build that simply stopped
+counting fails all three. Beyond the three fixtures, the class is asserted: for *any* terminal plan
+the numbers in the header sum to the number of rows below it — a tally that forgot a status would
+leave rows unaccounted for, and that is what would catch it. The accessible name carries the same
+contract, measured on the real Chromium tree (`planAccessibilityCheck`): a plan that will not
+progress is named with no progress fraction, and the name accounts for every step it lists.
+
+#### What this does not fix
+
+- **`unsourcedFigures` certifies a dollar amount from a bare number in retrieval chrome** — the
+  finding above. `[4]` supports `$4`; `30% in` supports `$30`. Reproduced, not fixed.
+- **`GroundingReport` is declared twice** — in `types.ts` and in `lib/toolGrounding.ts` — and the
+  two are kept in step by hand. `found` had to be added to both, and the node typechecks pass over
+  `src/` alone, so the second copy went missing until the test build compiled `test/`. Two
+  declarations of one shape is the drift this codebase keeps extracting helpers to prevent.
+- **`groundingFindingCount` and `groundingFindingLabels` still count the capped arrays**, so
+  `describeRevisionOutcome` can say "6 unsupported items were sent back" when nine were found, and
+  `revisionIsAnImprovement` reads 9→7 as no improvement at all. Same species as §1, one rung along;
+  it changes what the correction pass *does* rather than what a line says, so it wants its own
+  round and its own recorded evidence.

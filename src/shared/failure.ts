@@ -768,6 +768,38 @@ export function attribution(detail: FailureDetail): string {
 }
 
 /**
+ * The same fact as the NAME of a control, rather than as the opener of a line.
+ *
+ * v2.4. `attribution` ends in a colon because both its callers put the text on
+ * the very next line — `composeFailure` and `copyableFailure` are read top to
+ * bottom and never fold. The verification banner's disclosure is the third
+ * caller and it *does* fold, so the default view of a collapsed run carried,
+ * verbatim (`.h2h-runs/B11/V3-20260828-104955`):
+ *
+ *     🧮 Recompute skipped — stopped before it finished
+ *     The runtime reported:
+ *
+ * — a label introducing nothing, with `BodyStreamBuffer was aborted` a click
+ * away. Round 6 recorded that as probably an artefact of capturing a closed
+ * `<details>`; round 11's critics saw it on screen in both arms.
+ *
+ * The fix is not to unfold the disclosure. This module's whole argument is that
+ * a runtime string belongs behind one, and `BodyStreamBuffer was aborted` — a
+ * DOMException's wording for a fetch the app itself aborted — is exactly the
+ * text it exists to keep off the reader's screen. What was wrong is that a
+ * closed control was wearing a line's clothes. So the closed state gets a name
+ * for what is inside it, which is what a `<summary>` is; the colon form stays
+ * for the two places the text really does follow.
+ *
+ * Two spellings of one label would be the drift `attribution` was extracted to
+ * prevent, so this is not a second hand-rolled string: both come from
+ * `detail.source`, and neither call site writes the word "reported" itself.
+ */
+export function attributionLabel(detail: FailureDetail): string {
+  return `What ${detail.source} reported`
+}
+
+/**
  * What a person pastes into a bug report: the reading and the raw text, so the
  * identifier the app refused to print at them is still one keystroke away.
  */

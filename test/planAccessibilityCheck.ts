@@ -453,11 +453,33 @@ function judge(readings: BlockReading[]): void {
       r.groupRole === 'group',
       `role=${JSON.stringify(r.groupRole)}`
     )
-    check(
-      `${r.route}: the name carries the step count`,
-      new RegExp(`\\d+/${f.statuses.length} steps done`).test(r.groupName),
-      JSON.stringify(r.groupName)
-    )
+    // v2.4: the count is a progress fraction only while that fraction is
+    // closed — see `planHeaderCount`. A plan that ended with steps it never ran
+    // names what became of each of them instead, so this asks for whichever
+    // form the fixture's own statuses call for, and the census branch carries
+    // the negative round 11 needed: no open fraction over a dead checklist.
+    if (!f.outcome || f.statuses.every((s) => s === 'done')) {
+      check(
+        `${r.route}: the name carries the step count`,
+        new RegExp(`\\d+/${f.statuses.length} steps done`).test(r.groupName),
+        JSON.stringify(r.groupName)
+      )
+    } else {
+      const tallied = Object.values(STATUS_LABEL).reduce((sum, label) => {
+        const m = r.groupName.match(new RegExp(`\\b(\\d+) ${label.toLowerCase()}\\b`))
+        return sum + (m ? Number(m[1]) : 0)
+      }, 0)
+      check(
+        `${r.route}: the name accounts for every step it lists`,
+        tallied === f.statuses.length,
+        `${tallied} of ${f.statuses.length} accounted for in ${JSON.stringify(r.groupName)}`
+      )
+      check(
+        `${r.route}: a plan that will not progress is named with no progress fraction`,
+        !/\d+\/\d+ steps done/.test(r.groupName),
+        JSON.stringify(r.groupName)
+      )
+    }
     if (f.outcome) {
       check(
         `${r.route}: the name carries how the plan ended`,
@@ -664,10 +686,12 @@ function judge(readings: BlockReading[]): void {
       JSON.stringify(region.text)
     )
     // And it must not be the whole header: a live region wrapping the count
-    // would re-announce on every step of a running plan.
+    // would re-announce on every step of a running plan. v2.4: on the word
+    // "step", not on "steps done" — an ended plan's count no longer contains
+    // that phrase, so the older negative had stopped being able to fail.
     check(
       `${r.route}: the step count is outside the live region`,
-      !/steps done/.test(region.text),
+      !/step/i.test(region.text),
       JSON.stringify(region.text)
     )
   }

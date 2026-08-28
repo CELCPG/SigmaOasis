@@ -1,6 +1,10 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
+  attribution,
+  attributionLabel,
   composeFailure,
   copyableFailure,
   explainEmptyReply,
@@ -149,6 +153,65 @@ describe('the four strings a reader could not act on', () => {
     assert.equal(check.summary, '🧮 Recompute skipped — stopped before it finished')
     assert.doesNotMatch(check.summary, /BodyStreamBuffer/)
     assert.equal(check.detail?.text, 'BodyStreamBuffer was aborted')
+  })
+
+  /**
+   * v2.4, and the other half of the line above. Round 6 recorded `The runtime
+   * reported:` standing alone under that summary and filed it as probably an
+   * artefact of capturing a closed `<details>`; round 11's critics saw it on
+   * screen, in the collapsed view, in both arms
+   * (`.h2h-runs/B11/V3-20260828-104955`):
+   *
+   *     🧮 Recompute skipped — stopped before it finished
+   *     The runtime reported:
+   *
+   * A label introducing nothing, because the thing it introduces is folded
+   * away. `attribution` is right where it is used — both its other callers put
+   * the text on the very next line — so the fix is a second reading of the same
+   * fact for the one caller that is a control rather than a line.
+   */
+  test('the closed disclosure is NAMED, not left introducing nothing', () => {
+    const f = explainFailure(new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {
+      subject: 'The recomputation'
+    })
+    assert.ok(f.detail, 'the runtime words were dropped instead of kept')
+    const label = attributionLabel(f.detail!)
+    assert.equal(label, 'What the runtime reported')
+    // The defect itself: a closed control must not end in a colon, which is a
+    // promise about a next line that a collapsed disclosure does not have.
+    assert.doesNotMatch(label, /:\s*$/)
+    // …and it must not smuggle the internals into the collapsed view either.
+    assert.doesNotMatch(label, /BodyStreamBuffer/)
+    // Relayed text keeps whoever said it, so the control names them too.
+    assert.equal(attributionLabel({ source: 'LM Studio', text: 'x' }), 'What LM Studio reported')
+  })
+
+  test('the colon form is untouched where the text really does follow', () => {
+    // The true negative. `composeFailure` and `copyableFailure` are read top to
+    // bottom and never fold, so the label that opens a line stays a label that
+    // opens a line — and both readings still come off `detail.source`, so there
+    // is one spelling of who spoke and not two.
+    const f = explainFailure('Fatal: 0x8007007e')
+    assert.ok(f.detail)
+    assert.equal(attribution(f.detail!), 'The runtime reported:')
+    assert.match(composeFailure(f), /The runtime reported:\n“Fatal: 0x8007007e”/)
+    assert.match(copyableFailure(f), /The runtime reported:\nFatal: 0x8007007e/)
+  })
+
+  test('the banner opens the runtime words behind that control, and only there', () => {
+    // Where the two readings are actually rendered. The summary carries the
+    // control's name; the raw text is inside the disclosure, which is round 8's
+    // whole argument about where a runtime string belongs.
+    const bubble = readFileSync(
+      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
+      'utf-8'
+    )
+    assert.match(bubble, /<summary[^>]*>\s*\{attributionLabel\(c\.detail\)\}/)
+    assert.ok(
+      !/<summary[^>]*>\s*\{attribution\(/.test(bubble),
+      'the collapsed control is back to the colon form'
+    )
+    assert.match(bubble, /<pre[^>]*>[\s\S]{0,200}\{c\.detail\.text\}/)
   })
 
   test('an interrupted plan step says it was stopped, in a sentence', () => {

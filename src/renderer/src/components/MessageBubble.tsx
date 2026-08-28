@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
-import { describeCoverage, describeMatchedMeasurements, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
-import { attribution, composeFailure } from '../../../shared/failure'
+import { describeCoverage, describeMatchedMeasurements, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS, unlistedLinks } from '../lib/toolGrounding'
+import { attributionLabel, composeFailure } from '../../../shared/failure'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
@@ -137,6 +137,8 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   // rather than the number of items in them — see `describeUnbackedItems`.
   const unbacked = describeUnbackedItems(report)
   const hasUnbacked = unbacked !== ''
+  // v2.4: how many links that sentence counts and the list below does not name.
+  const unlisted = unlistedLinks(report)
   // v2.1: what this pass did NOT reach. It sits at the provenance rank, with
   // the "Checked against" footer, because it is the same kind of statement —
   // about the check, not about the answer — and it must not be read as a
@@ -322,6 +324,12 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
               {link}
             </li>
           ))}
+          {/* v2.4: the sentence above counts every unbacked link and this list
+              names the first few, so the list is where the rest have to be
+              admitted — the same "and N more" the coverage line has always
+              used. Without it, raising the count to the true one would only
+              have moved the silent truncation from the sentence to the list. */}
+          {unlisted > 0 && <li>and {unlisted} more</li>}
         </ul>
       )}
       {/* The other half of the provenance: not what it was measured against but
@@ -1145,11 +1153,18 @@ export const MessageBubble = memo(function MessageBubble({
                 {/* This line used to BE the runtime string — measured,
                     `🧮 Recompute skipped — BodyStreamBuffer was aborted`. The
                     summary is now a reading, and the words the runtime actually
-                    used live here, one click away, attributed to it. */}
+                    used live here, one click away, attributed to it.
+
+                    v2.4: `attributionLabel`, not `attribution`. The colon form
+                    is written to be read with the text on the next line, and
+                    this is the one caller where that line is folded away — so
+                    the default view read `The runtime reported:` and stopped,
+                    a label introducing nothing. A `<summary>` names what is
+                    inside it; it does not introduce it. */}
                 {c.detail && (
                   <details className="mt-0.5">
                     <summary className="cursor-pointer text-ink-tertiary">
-                      {attribution(c.detail)}
+                      {attributionLabel(c.detail)}
                     </summary>
                     <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/5 p-1.5 font-mono text-ink-secondary dark:bg-white/5">
                       {c.detail.text}
