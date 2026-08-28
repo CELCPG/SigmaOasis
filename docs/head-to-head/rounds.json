@@ -378,15 +378,28 @@
     {
       "n": 12,
       "label": "The checker never reads what the reply says about the app",
-      "state": "pending",
+      "state": "done",
       "dimension": null,
-      "pair": null,
+      "pair": {
+        "A": "the round-11 build",
+        "B": "the round-12 build"
+      },
       "what": "A reply saying \"I did not call any search or reference lookup tools\" sits directly above three green-ticked reference_lookup blocks, in both builds, and no checking pass looks at it — the grounding ladder checks a reply’s claims about the world and never its claims about the application. Behind it: a backing checker that flags a correctly-sourced temperature over one space character; an unbacked-figures count silently capped at five; round 10’s own \"the reply ran to its end — it was simply empty\" printed directly above the refusal it quotes; and round 11’s own \"not even the reply headers have come back\", which a critic could not settle and which may assert more about the wire than the app can see.",
-      "findings": null,
-      "verdict": null,
-      "gap": null,
-      "fix": null,
-      "evals": {}
+      "findings": "The first round where both sweeps returned 18/18 VALID with no re-runs, after five that each needed two or three. Two builders again refused the brief. One was asked to flag a reply that names the wrong table row and argued the case back from absence: passage [5] begins mid-row with \"ths |\", so the app cannot tell which row a value came from and a wrong-row warning would be a guess wearing a certainty. It shipped the narrower true thing — a value-and-dimension match that no longer breaks over the space in \"165 °F\". The other, asked to make the reply-about-the-app check symmetric, shipped only the denial direction and wrote down why the mirror is not the mirror: a fabricated call inflates authority and the reader can check it against the tool blocks on screen, where a denied call tells the reader those blocks are meaningless and nothing on screen settles that. It also named three neighbouring claims it will not touch, because no artifact here can settle them.",
+      "verdict": "Round 12: task — round-12 build 4 · round-11 build 0 · 14 ties. self-consistency 1 · 0 · 17. record-consistency 2 · 0 · 16. The four task wins land exactly on the four behaviours the round changed — two failure banners that now describe what the server actually did, and two plan headers that stop reporting in-flight progress once a plan is over — found by critics who never saw the changelog. Two verdicts were overruled after reporting, in opposite directions, and both by experiment rather than argument.",
+      "gap": "The round’s only result against the new build did not survive checking, and neither did one of its wins. TH1 was awarded for a screen reconciling \"3 calls accounted for, 1 ran\" — but `overstatedToolCounts` is byte-identical in both arms, and the other run simply never over-claimed, so the win was a shared check firing on one side’s tokens. V3 was scored against the new build for a coverage line reading \"1 of the 4 measurements\" where the critic counted six — but running both arms’ `measurementsIn` over the exact reply bytes returns the same four spans in each, and `quantityCoverage` is byte-identical too, so the app’s 4 matches the app’s own scan. Both became ties. What the second one left behind is real: \"~876 drops per day\" is a quantity the scan has no unit for, so a line that says \"in this reply\" counted less than the reply contains. Two more shared defects: the plan header’s \"N/N steps done\" is the only line visible without interacting and the one number no artifact can settle, because the audit records tools and never steps; and the ledger line miscounts the session variables printed directly beneath it, in both arms, by exactly one, twice. Fourteen ties also mean fourteen tasks that mostly did not exercise what they test — the post-answer wait never happened, the layout probe’s reply side was never echoed, both quotation checks found both replies accurate.",
+      "fix": "A measurement is its value and dimension, not the way a passage spelled it · the reply’s account of the application is checked in the denial direction, against the tool blocks printed above it · a failure banner says what the server did rather than what it did not send · a plan that is over stops reporting how far through it is · a cross-cutting column declares what stands behind its verdicts, so silence stops reading as agreement · the ignore rule matches the symlink as well as the directory",
+      "evals": {
+        "node cases": "2371 → 2491",
+        "sweeps valid without a re-run": "0 / 2 arms → 2 / 2 arms",
+        "statements the record could settle": "234 of 456",
+        "unsettleable for want of a record": "55 of 222",
+        "unsettleable by nature": "167 of 222",
+        "task column": "4 / 0 / 14",
+        "self-consistency column": "1 / 0 / 17",
+        "record-consistency column": "2 / 0 / 16",
+        "verdicts overruled after reporting": "2 of 54"
+      }
     }
   ],
   "evalHistory": [
