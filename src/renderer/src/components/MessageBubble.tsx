@@ -21,7 +21,7 @@ import { BlockEnter, Disclosure } from './Disclosure'
 import { RanCodeBlock } from './RanCodeBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
-import { describeDeliberation, draftWentUnchecked, thinkHarderNote } from '../lib/deliberation'
+import { describeDeliberation, draftWentUnreviewed, thinkHarderNote } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { answerRecords } from '../hooks/planMode'
@@ -409,7 +409,7 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
   // v1.9.2: the reviewer returned nothing (or failed) — the tooltip must not
   // describe a review that did not happen. v1.17.3: and the question is asked
   // in lib/deliberation.ts, once, by the same predicate that gates the retry.
-  const unreviewed = draftWentUnchecked(record)
+  const unreviewed = draftWentUnreviewed(record)
   return (
     <div className="mt-2 text-[11px] text-ink-secondary">
       <button
@@ -418,7 +418,7 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
         className="rounded px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title={
           !busy && unreviewed
-            ? `${record.reviewerRole} returned no review at all, so nothing here checked this reply. Run Think harder again, or use 2nd opinion.`
+            ? `${record.reviewerRole} returned no review at all, so no reviewer read this reply. The figure checks above are a different pass and say nothing about it. Run Think harder again, or use 2nd opinion.`
             : record.self
               ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Models → self-review).'
               : `A different role (${record.reviewerRole}) listed the problems in the draft; the answerer revised once with that list.`
@@ -988,7 +988,7 @@ export const MessageBubble = memo(function MessageBubble({
               control existed and was being hidden by the failure it was for.
             */}
             {affordances.onText &&
-              (!message.deliberation || draftWentUnchecked(message.deliberation)) && (
+              (!message.deliberation || draftWentUnreviewed(message.deliberation)) && (
                 <button
                   type="button"
                   onClick={() => void deliberate(message.id)}
@@ -996,7 +996,7 @@ export const MessageBubble = memo(function MessageBubble({
                   className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
                   title={
                     (message.deliberation
-                      ? 'Retry: the last review came back empty, so this reply has not been checked. '
+                      ? 'Retry: the last review came back empty, so no reviewer has read this reply. '
                       : '') +
                     'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
                     // v1.9.1: on a model that already reasons internally, say what
@@ -1108,6 +1108,29 @@ export const MessageBubble = memo(function MessageBubble({
 
         {!isStreaming && message.memoryContext && message.memoryContext.length > 0 && (
           <MemoryContextLine items={message.memoryContext} />
+        )}
+
+        {/*
+          v2.3: a pass that did NOT happen goes above every line describing one
+          that did.
+
+          Measured (FR3, `.h2h-runs/B10/FR3-20260827-224622`): `⚠️ Not
+          deliberated — … the draft was not checked` was the last line of the
+          bubble, under `🧮 Recomputed the stated figures in Python`, under
+          `Checked against: run_python`. Read downward — which is the only way
+          it is read — an unreviewed reply arrived as a checked one, and the
+          warning turned up after the reader had already been reassured.
+
+          Rank is not the fix here; round 10 settled that a warning has one ink
+          and provenance has another, and promoting these lines to match would
+          spend the contrast that distinction runs on. Order is the fix, and it
+          is conditional on purpose: a review that DID happen ran after the
+          checks and revised the text they read, so its line stays below them.
+          A review that did not happen changed nothing, so nothing is misplaced
+          by putting it first.
+        */}
+        {message.deliberation && draftWentUnreviewed(message.deliberation) && (
+          <DeliberationLine record={message.deliberation} />
         )}
 
         {!isStreaming && message.checks && message.checks.length > 0 && (
@@ -1224,7 +1247,12 @@ export const MessageBubble = memo(function MessageBubble({
           <SecondOpinionBlock opinion={message.secondOpinion} isStreaming={streaming && isLast} />
         )}
 
-        {message.deliberation && (
+        {/* The other half of the rule above: a pass that reviewed the draft,
+            or is reviewing it now, is provenance and belongs down here with
+            the rest of it. `draftWentUnreviewed` is false while the pass is
+            still running, so the live line does not jump on its way to a
+            verdict — only a settled failure moves. */}
+        {message.deliberation && !draftWentUnreviewed(message.deliberation) && (
           <DeliberationLine record={message.deliberation} />
         )}
 

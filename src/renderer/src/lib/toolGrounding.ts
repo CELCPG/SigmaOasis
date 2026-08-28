@@ -7,6 +7,7 @@ import {
   type Measurement
 } from '../../../shared/measurements'
 import { TOOL_DEFS } from '../../../shared/tools'
+import { OUTCOME_NOTE, callOutcome, type CallOutcome } from './grounding'
 import { LAUNDERED_OUTPUT_MARKER } from './workbenchChecks'
 import { danglingCitations, retrievedCitations, type Citation } from './citations'
 
@@ -2884,17 +2885,41 @@ export function checkToolGrounding(
     return null
   }
 
-  const used = [...new Set([...numericRecords, ...sourceRecords].map((r) => r.name))].sort()
-  // Naming the failed calls matters most on exactly the turns this arms: the
-  // disclosure would otherwise read "nothing ran this turn" when a search did
-  // run and came back empty-handed.
-  const failed = [...new Set(failedSources.map((r) => `${r.name} (errored)`))].sort()
+  // One entry per tool, carrying what became of that tool's calls — in the
+  // rows' own vocabulary, decided by the rows' own function (`callOutcome`).
+  //
+  // Naming the calls that supplied nothing matters most on exactly the turns
+  // this arms: the disclosure would otherwise read "nothing ran this turn" when
+  // a search did run and came back empty-handed. What it must not do is name
+  // them all the same way. Until v2.3 every non-`done` source read `(errored)`
+  // and every `done` one read as a source — so `∅ ⚙️ reference_lookup — found
+  // nothing` was listed bare as something the answer had been checked against,
+  // and `deep_research`, which came back with no usable sources, was reported
+  // as a tool that broke (FR3, `.h2h-runs/B10/FR3-20260827-224622`).
+  //
+  // A name goes bare only when one of its calls actually returned something:
+  // that is the state a bare name has always claimed. Anything else is
+  // qualified, and a tool whose calls ended differently carries both words
+  // rather than the app picking a winner.
+  const perTool = new Map<string, Set<CallOutcome>>()
+  for (const r of [...numericRecords, ...sourceRecords, ...failedSources]) {
+    const seen = perTool.get(r.name) ?? new Set<CallOutcome>()
+    seen.add(callOutcome(r))
+    perTool.set(r.name, seen)
+  }
+  const named = [...perTool.entries()]
+    .map(([name, states]) => {
+      if (states.has('ok')) return name
+      const notes = [...new Set([...states].map((s) => OUTCOME_NOTE[s]))].filter(Boolean).sort()
+      return notes.length > 0 ? `${name} (${notes.join(', ')})` : name
+    })
+    .sort()
   // …and when every check that ran is one the app already reported as verifying
   // nothing, say that rather than "nothing ran": something did run, it just
   // settled nothing, and "no tool output" would be its own small lie.
   const checkedAgainst =
-    used.length + failed.length > 0
-      ? [...used, ...failed]
+    named.length > 0
+      ? named
       : records.some(verifiedNothing)
         ? ['nothing — the only checks that ran verified nothing']
         : ['no tool output — nothing ran this turn']

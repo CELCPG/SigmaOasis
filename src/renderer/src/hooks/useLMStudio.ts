@@ -680,6 +680,9 @@ async function runTurn(
     if (hit) return hit
     if (!budget.admits('code')) return { finding: null, ran: false, ok: false }
     const out = await runCodeCheck(convo, slot, content, allRecords, toolContext, () => patch({ toolCalls: [...allRecords] }))
+    // Unconditional, and it is the one pass where that is the honest answer:
+    // `runCodeCheck` takes no signal, so it always reaches a conclusion — even
+    // when the conclusion is that the reply contains no code to check.
     budget.ran('code')
     codeCheckMemo.set(content, out)
     return out
@@ -747,29 +750,43 @@ async function runTurn(
     )
     // `admits` counts what it is asked about, so it goes last: the budget must
     // not record a pass this turn was never going to run.
+    //
+    // v2.3: and the deadline is not one of the reasons to skip asking. This
+    // condition tested `!stopped()`, which is `signal.aborted ||
+    // budget.signal.aborted` — so once the budget expired the gate returned
+    // before `admits` was ever consulted, and the pass the deadline cost went
+    // unrecorded and therefore unnamed. Only the user's own Stop belongs here:
+    // it leaves no notice at all, by design.
     if (
       workbenchChecksOn &&
       lastUserContent &&
-      !stopped() &&
+      !signal.aborted &&
       looksArithmetic(allUserText(), assistantMsg.content) &&
       (!numericRan || (report?.figures.length ?? 0) > 0) &&
       budget.admits('recompute')
     ) {
-      checks.push(
-        await runRecompute(convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, budget.signal, () =>
+      const recompute = await runRecompute(
+        convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, budget.signal, () =>
           patch({ toolCalls: [...allRecords] })
-        )
       )
-      // Only a pass that got to finish counts as run: `reviseAgainstFindings`
-      // and `runRecompute` both swallow an abort and return, so their returning
-      // is not on its own evidence that the reader got the check.
-      if (!budget.signal.aborted) budget.ran('recompute')
+      checks.push(recompute)
+      // Only a pass that got to finish counts as run — and the pass is what says
+      // so. This used to ask `!budget.signal.aborted`, which is a fact about the
+      // clock: a recomputation whose `run_python` (never wired to that signal)
+      // printed its output two seconds past the deadline was recorded as not
+      // run, and the expiry line said so directly under this check's own
+      // "🧮 Recomputed the stated figures in Python" — with the program, its
+      // stdout and the comparison all on screen above it. See `WorkbenchCheck.ran`.
+      if (recompute.ran) budget.ran('recompute')
       patch({ checks: [...checks] })
       report = await groundingReport()
     }
     if (!report) return
     const autoCorrect = useAppStore.getState().settings?.grounding.autoCorrect !== false
-    if (!autoCorrect || stopped() || !budget.admits('revising')) {
+    // Same reordering, same reason: a revision this turn would have run, and
+    // did not because the minute was up, is exactly what the expiry line exists
+    // to name. `admits` records the refusal; `stopped()` used to swallow it.
+    if (!autoCorrect || signal.aborted || !budget.admits('revising')) {
       patch({ grounding: report })
       return
     }
@@ -787,7 +804,17 @@ async function runTurn(
       allRecords,
       () => patch({ toolCalls: [...allRecords] })
     )
-    if (!budget.signal.aborted) budget.ran('revising')
+    // Two builders reached this line from opposite sides of one defect: the
+    // budget was asking the CLOCK what a pass had done, and the report was
+    // published before the pass that changed the record. Both fixes are kept.
+    //
+    // The revision that came back is the evidence it ran — `reviseAgainstFindings`
+    // returns '' when the loop produced nothing, deadline included.
+    if (revised.trim()) budget.ran('revising')
+    // No early return here, deliberately: an abandoned or empty revision still
+    // has to reach `settleRevision` below, because the pass may have appended
+    // records and the report above predates them. Returning early would publish
+    // the stale report, which is the defect this round set out to fix.
 
     // Provisionally adopt the revision so the checker sees it, then keep it
     // only if it actually reduced what can be faulted. Measured against the
@@ -867,30 +894,31 @@ async function runTurn(
         // otherwise the v1.1 auto-critic names the checks for the user.
         const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
         if (budget.admits('claims')) {
-          if (claimCheckOn) {
-            await runClaimCheck(
-              convo,
-              assistantMsg.id,
-              lastUserContent ?? '',
-              assistantMsg.content,
-              { modelId: slot.modelId, roleName: slot.roleName },
-              baseUrl,
-              budget.signal,
-              allRecords,
-              patch
-            )
-          } else {
-            await runAutoCritic(
-              convo,
-              assistantMsg.id,
-              lastUserContent ?? '',
-              assistantMsg.content,
-              { modelId: slot.modelId, roleName: slot.roleName },
-              baseUrl,
-              budget.signal
-            )
-          }
-          if (!budget.signal.aborted) budget.ran('claims')
+          // Both return whether a check reached the reader — a verdict, a
+          // budget note, a failure line: any account of itself. The clock is not
+          // consulted, here or anywhere else in this tail.
+          const checked = claimCheckOn
+            ? await runClaimCheck(
+                convo,
+                assistantMsg.id,
+                lastUserContent ?? '',
+                assistantMsg.content,
+                { modelId: slot.modelId, roleName: slot.roleName },
+                baseUrl,
+                budget.signal,
+                allRecords,
+                patch
+              )
+            : await runAutoCritic(
+                convo,
+                assistantMsg.id,
+                lastUserContent ?? '',
+                assistantMsg.content,
+                { modelId: slot.modelId, roleName: slot.roleName },
+                baseUrl,
+                budget.signal
+              )
+          if (checked) budget.ran('claims')
         }
       }
       verifying('grounding')

@@ -10,6 +10,7 @@ import type { SearchResult } from './search'
 import { embedTexts, toUnitVector, unitDot } from './embeddings'
 import { Bm25Index, normalizeScores, tokenize } from './retrieval'
 import { isLowProvenance } from './sourceTiers'
+import { EMPTY_RESULT_LEADS } from '../../shared/tools'
 import {
   buildResearchRevision,
   checkResearchGrounding,
@@ -139,6 +140,16 @@ export interface ResearchOutcome {
    */
   grounding?: { before: ResearchGroundingReport; after: ResearchGroundingReport | null; revised: boolean; note: string }
   error?: string
+  /**
+   * v2.3: which kind of "no brief" this is — the distinction round 8 built for
+   * the tool rows, which this tool never learned to make. 'empty' is a campaign
+   * that ran and found nothing usable; 'declined' is one where nothing was
+   * contacted at all, because the user cancelled the plan or the privacy filter
+   * refused every query. Both used to arrive as `ok: false` with prose, so the
+   * row said `✗` and the footer said `(errored)` about a search that worked and
+   * a search that never happened alike. Absent means what it says: broken.
+   */
+  kind?: 'empty' | 'declined'
 }
 
 export type ProgressFn = (phase: string, detail: string) => void
@@ -770,7 +781,7 @@ export async function runDeepResearch(options: {
   // strictly more informative: it is the moment to notice a query that carries
   // conversation context it should not.
   if (options.approvePlan && !(await options.approvePlan(plan, allQueries))) {
-    return { ok: false, plan, error: 'The user declined this research plan.' }
+    return { ok: false, kind: 'declined', plan, error: 'The user declined this research plan.' }
   }
 
   const sentQueries: string[] = []
@@ -925,20 +936,24 @@ export async function runDeepResearch(options: {
   }
 
   if (sources.length === 0) {
+    // Nothing went out at all, versus everything went out and nothing came
+    // back. Two different facts about the world, and the `kind` is what carries
+    // the difference past this function — the prose below is for the model.
+    const nothingSent = refusedQueries.length > 0 && sentQueries.length === 0
     return {
       ok: false,
+      kind: nothingSent ? 'declined' : 'empty',
       plan,
       sentQueries,
       redactions: [...redactions],
       ledger: tracker.ledger(),
-      error:
-        refusedQueries.length > 0 && sentQueries.length === 0
-          ? 'No search was sent: every query this run built was refused by the privacy filter for ' +
-            `reading as a sentence about you rather than search terms (${refusedQueries.length} ` +
-            'refused). Nothing was contacted. Ask again with the subject terms, or rephrase the ' +
-            'question without first-person framing.'
-          : 'No usable sources were found. The search provider may have returned nothing, or every ' +
-            'candidate page failed to yield readable text.'
+      error: nothingSent
+        ? 'No search was sent: every query this run built was refused by the privacy filter for ' +
+          `reading as a sentence about you rather than search terms (${refusedQueries.length} ` +
+          'refused). Nothing was contacted. Ask again with the subject terms, or rephrase the ' +
+          'question without first-person framing.'
+        : `${EMPTY_RESULT_LEADS.get('deep_research')!}. The search provider may have returned ` +
+          'nothing, or every candidate page failed to yield readable text.'
     }
   }
 

@@ -504,11 +504,53 @@ export function declinedToCall(record: ToolCallRecord): boolean {
 }
 
 /**
+ * What became of one call, in the four states round 5 and round 8 separated —
+ * and the one function that decides which, for every surface that says so.
+ *
+ * The distinction existed and only the tool block had it. `ToolCallBlock` chose
+ * its glyph through `foundNothing` and `declinedToCall`; the "Checked against"
+ * footer read `record.status` and nothing else, so a declined call, a search
+ * that came back empty-handed and a provider that broke all reached the reader
+ * as `(errored)`, and a lookup that returned no passages was listed bare —
+ * beside its own row reading `∅ … — found nothing`.
+ *
+ * Measured (FR3, `.h2h-runs/B10/FR3-20260827-224622`): one `deep_research`
+ * call, two accounts of it on one screen — `✗ 🔍 deep_research — No usable
+ * sources were found.` above `Checked against: run_python, deep_research
+ * (errored).` A search that found nothing and a tool that broke are different
+ * facts, and the summary line was making up the difference.
+ *
+ * So both sides ask this, and neither one classifies for itself.
+ */
+export type CallOutcome = 'running' | 'ok' | 'empty' | 'declined' | 'errored'
+
+export function callOutcome(record: ToolCallRecord): CallOutcome {
+  if (declinedToCall(record)) return 'declined'
+  if (record.status === 'error') return 'errored'
+  if (record.status === 'running') return 'running'
+  return foundNothing(record) ? 'empty' : 'ok'
+}
+
+/**
+ * The word for each state, where a call is being named in prose rather than
+ * glyphed — the tool block's own words, so the row and the footer cannot say
+ * two things about one call. Empty for the two states a bare name already
+ * covers: a call that returned something, and one that has not finished.
+ */
+export const OUTCOME_NOTE: Record<CallOutcome, string> = {
+  running: '',
+  ok: '',
+  empty: 'found nothing',
+  declined: 'declined',
+  errored: 'errored'
+}
+
+/**
  * Did this turn consult any source? The badge decision is mechanical: a source
  * counts only when its tool call completed successfully *and came back with
  * something to quote*. Memory recall is not a source — it reminds, it does not
  * verify — and neither is a search that matched nothing.
  */
 export function consultedSources(records: ToolCallRecord[]): boolean {
-  return records.some((r) => r.status === 'done' && SOURCE_TOOLS.has(r.name) && !foundNothing(r))
+  return records.some((r) => callOutcome(r) === 'ok' && SOURCE_TOOLS.has(r.name))
 }

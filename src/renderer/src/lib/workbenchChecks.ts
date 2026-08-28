@@ -137,6 +137,21 @@ export function codeFailureFinding(error: string): string | null {
 export interface WorkbenchCheck {
   kind: 'recompute' | 'code'
   ok: boolean
+  /**
+   * v2.3: did this pass actually do its work — the fact the summary states in
+   * prose, in a field the deadline notice can read.
+   *
+   * The turn used to answer this by asking the clock: `if
+   * (!budget.signal.aborted) budget.ran('recompute')`. A recomputation's
+   * `run_python` is not wired to that signal, so a program that started inside
+   * the budget and printed its output two seconds after it expired was recorded
+   * as never having run — and the expiry line said `Not run: the recomputation`
+   * directly beneath this check's own `🧮 Recomputed the stated figures in
+   * Python`, output and all (FR3, `.h2h-runs/B10/FR3-20260827-224622`, 62.2 s of
+   * checking against a 60 s budget). The clock knows when the deadline passed.
+   * Only the pass knows what it got done.
+   */
+  ran: boolean
   summary: string
   /**
    * The runtime's own words, when this line exists because something broke.
@@ -203,16 +218,18 @@ export function describeRecompute(input: {
     return {
       kind: 'recompute',
       ok: false,
+      ran: false,
       summary: `🧮 Recompute skipped${input.note ? ` — ${input.note}` : ''}`,
       ...(input.detail ? { detail: input.detail } : {})
     }
-  if (!input.ok) return { kind: 'recompute', ok: false, summary: `🧮 Recomputation ran but failed${input.note ? ` — ${input.note}` : ''}; figures could not be checked this way.` }
+  if (!input.ok) return { kind: 'recompute', ok: false, ran: true, summary: `🧮 Recomputation ran but failed${input.note ? ` — ${input.note}` : ''}; figures could not be checked this way.` }
   // The headline reports the weaker of the two states: a program fed by the
   // model's own constants ran, but it checked nothing.
   if (input.circular)
     return {
       kind: 'recompute',
       ok: false,
+      ran: true,
       summary:
         '🧮 Recomputation ran, but its inputs are constants the model wrote rather than figures from your question — ' +
         'it re-derives the answer from itself and checks nothing. Treat these figures as unverified.'
@@ -243,6 +260,7 @@ export function describeRecompute(input: {
   return {
     kind: 'recompute',
     ok: true,
+    ran: true,
     summary:
       '🧮 Recomputed the stated figures in Python; the reply’s numbers were compared against that ' +
       'output. Numbers only — text it copies from the run, such as a decoded string or an ' +
@@ -344,7 +362,7 @@ export function describeCodeCheck(input: {
   revisedRuns?: boolean
   compared?: OutputComparison
 }): WorkbenchCheck {
-  if (!input.ran) return { kind: 'code', ok: false, summary: `🧪 Code check skipped${input.note ? ` — ${input.note}` : ''}` }
+  if (!input.ran) return { kind: 'code', ok: false, ran: false, summary: `🧪 Code check skipped${input.note ? ` — ${input.note}` : ''}` }
   const bad = input.compared?.mismatches ?? []
   // The run succeeding is the weaker fact, so the disagreement is the headline:
   // a tick over a figure the block itself contradicts is the reassurance this
@@ -355,6 +373,7 @@ export function describeCodeCheck(input: {
     return {
       kind: 'code',
       ok: false,
+      ran: true,
       summary:
         `🧪 Ran the Python in this reply — it runs, but its output disagrees with the answer: it printed ` +
         `“${first.label}: ${first.printed}” where the reply says ${first.stated}${rest}. ` +
@@ -368,14 +387,15 @@ export function describeCodeCheck(input: {
     return {
       kind: 'code',
       ok: true,
+      ran: true,
       summary:
         agreed > 0
           ? `🧪 Ran the Python in this reply in the sandbox — it runs, and the ${agreed === 1 ? 'figure it prints is the one' : `${agreed} figures it prints are the ones`} the reply states.`
           : '🧪 Ran the Python in this reply in the sandbox — it runs without error. Nothing in the reply restated a figure it printed, so no figure was checked.'
     }
   }
-  if (input.revisedRuns) return { kind: 'code', ok: true, summary: '🧪 The Python in the first draft failed when run; the revised code runs.' }
-  return { kind: 'code', ok: false, summary: `🧪 Ran the Python in this reply — it fails${input.finding ? `: ${input.finding.replace(/^- The Python code in the answer fails when run: /, '').replace(/\. Fix the code.*$/, '')}` : ''}.` }
+  if (input.revisedRuns) return { kind: 'code', ok: true, ran: true, summary: '🧪 The Python in the first draft failed when run; the revised code runs.' }
+  return { kind: 'code', ok: false, ran: true, summary: `🧪 Ran the Python in this reply — it fails${input.finding ? `: ${input.finding.replace(/^- The Python code in the answer fails when run: /, '').replace(/\. Fix the code.*$/, '')}` : ''}.` }
 }
 
 /**
