@@ -6,7 +6,7 @@
   "invariants": [
     {
       "name": "node test suite",
-      "value": "2268 pass / 0 fail",
+      "value": "2371 pass / 0 fail",
       "state": "green"
     },
     {
@@ -27,6 +27,11 @@
     {
       "name": "sweep hygiene",
       "value": "both arms 18 / 18 VALID",
+      "state": "green"
+    },
+    {
+      "name": "harness provenance",
+      "value": "both arms measured by the same harness, asserted at staging",
       "state": "green"
     },
     {
@@ -350,10 +355,33 @@
     {
       "n": 11,
       "label": "A false unverified on a cooking temperature",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the round-10 build",
+        "B": "the round-11 build"
+      },
+      "what": "Five builders on round 10’s own recorded loss and the defects its new columns surfaced, plus a guard against the harness mistake I made last round.",
+      "findings": "My framing of the round’s main task was wrong and a builder proved it. I briefed that the measurement corpus did not span every lookup in a turn; it spans all of them and always did — handed all three lookups the checker returns no finding at all. The defect was WHEN the report was read: lookups two and three were the correction pass’s own, and the app published a verdict older than the evidence. That also meant every rung shared it, so fixing it where I pointed would have repaired one symptom of four. Two other builders refused what they were asked: one declined to enable audit exports everywhere, showing the audit reaches one of twenty statement classes and would make the bench measure an app configured unlike the shipped one, and built a record from already-public APIs instead — settleable statements 9 → 55, runs where nothing was settleable 31/36 → 6, with no file under src/ touched. The other proved the obvious harness guard would have PASSED the sweep it exists to stop, because round 10’s checkouts predate any manifest, and read the measurement vocabulary structurally out of each harness’s source instead — finding a fourth instrumentation field my own hand-written lists had been omitting.",
+      "verdict": "Round 11: task — round-11 build 2 · round-10 build 0 · 16 ties. self-consistency and record-consistency both 0 · 0 · 18. The narrowest result the bench has produced, and the honest one: sixteen tasks tied, and on several of them the critics said outright that the behaviour under test was never exercised.",
+      "gap": "V1 is recorded twice and the difference matters. As reported it took both cross-cutting columns for this build; but the same critic tied V1’s task column because the entire delta was one space character the model typed — one arm wrote \"165 °F\", the other \"165°F\", and the backing checker matches literally. Applied uniformly, the protocol’s own rule makes V1 a tie in all three columns, which is how the round is scored here. Both cross-cutting columns therefore came back 0-0-18, and that is either two clean builds or two columns with nothing to bite on. The critics also found four defects both builds share: a backing checker that over-warns on a space and under-warns on a wrong table row; an unbacked-figures line silently capped at five while its sibling line discloses truncation; \"The runtime reported:\" left as a label introducing nothing in the collapsed view; and a reply denying tool calls the app is displaying directly above it, which no checking pass looks at.",
+      "fix": "The grounding report is graded after the pass that changes the record, so no verdict outlives its evidence · the budget keys on what a pass returned rather than on the clock · a cancelled plan says whose decision it was, and a stalled stream names the party that has not answered · the record block makes 55 of the screen’s statements settleable and names five classes no artifact can settle · a stale harness is refused before the app launches, and both arms’ harness provenance is asserted identical at staging",
+      "evals": {
+        "node cases": "2268 → 2371",
+        "settleable statements per run set": "9 → 55",
+        "runs where nothing was settleable": "31 / 36 → 6",
+        "task column": "2 / 0 / 16",
+        "self-consistency column": "0 / 0 / 18",
+        "record-consistency column": "0 / 0 / 18"
+      }
+    },
+    {
+      "n": 12,
+      "label": "The checker never reads what the reply says about the app",
       "state": "pending",
       "dimension": null,
       "pair": null,
-      "what": "The measurement corpus does not span every lookup in a turn: three lookups ran, one returned a table stating 165°F seventeen times, and the app told the reader the figure was unbacked. Behind it: an expiry line that denies the recomputation it is displaying, a summary that calls one call both \"found nothing\" and \"errored\", and a deliberation warning that arrives after the reassurance it contradicts. And one instrument fault of my own — the round-10 sweep ran with main’s harness, so the paint-lag instrumentation this round built was never exercised.",
+      "what": "A reply saying \"I did not call any search or reference lookup tools\" sits directly above three green-ticked reference_lookup blocks, in both builds, and no checking pass looks at it — the grounding ladder checks a reply’s claims about the world and never its claims about the application. Behind it: a backing checker that flags a correctly-sourced temperature over one space character; an unbacked-figures count silently capped at five; round 10’s own \"the reply ran to its end — it was simply empty\" printed directly above the refusal it quotes; and round 11’s own \"not even the reply headers have come back\", which a critic could not settle and which may assert more about the wire than the app can see.",
       "findings": null,
       "verdict": null,
       "gap": null,
@@ -641,6 +669,34 @@
       "metric": "facts seen only by a cross-cutting column",
       "value": "B 1 · A 1",
       "delta": "new columns"
+    },
+    {
+      "round": 11,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "2371",
+      "delta": "+103"
+    },
+    {
+      "round": 11,
+      "suite": "blind head-to-head",
+      "metric": "task column, won vs the previous round",
+      "value": "2 / 18",
+      "delta": null
+    },
+    {
+      "round": 11,
+      "suite": "blind head-to-head",
+      "metric": "task column, lost",
+      "value": "0 / 18",
+      "delta": null
+    },
+    {
+      "round": 11,
+      "suite": "instrument",
+      "metric": "statements the record can settle",
+      "value": "55",
+      "delta": "was 9"
     }
   ]
 }

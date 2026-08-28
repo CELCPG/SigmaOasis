@@ -3752,6 +3752,93 @@ question; only a column that can take a claim away found them.
 - **From this round, `docs/head-to-head/verdicts/round-10.json` is the record.** Round 9's
   cross-cutting answers were given on all 18 tasks and written down nowhere.
 
+## Round 11: the narrowest result, and the one I got wrong first (v2.3)
+
+| column | round-11 build | round-10 build | tied |
+| --- | --- | --- | --- |
+| task | **2** | 0 | 16 |
+| self-consistency | 0 | 0 | 18 |
+| record-consistency | 0 | 0 | 18 |
+
+Sixteen ties, and on several tasks the critics said outright that the behaviour under test
+was never exercised — TTU3's claim check could not run because every search failed, VC1's
+token was repeated back by neither model, PT3 never completed a step. **A tie is not
+evidence of equivalence and this round is mostly ties.**
+
+### I briefed the round's main task wrongly
+
+Round 10 lost V1 for printing `⚠️ 1 measurement (165 °F) … is not backed by the tool output`
+on a turn whose passages state it seventeen times. I briefed the fix as *the measurement
+corpus does not span every lookup in a turn*. It spans all of them and always did — handed
+all three lookups, the checker returns **no finding at all**:
+
+| corpus | flagged |
+| --- | --- |
+| **lookup 1 only** | `165 °F` — reproduces the shipped text character for character |
+| all three | none |
+
+Lookups two and three were the **correction pass's own** — their queries are the findings
+turned into search terms. The 60-second deadline cut the revision off, and the app published
+a verdict older than the evidence. So every rung shared it: the invented link, the dangling
+citation and the "in no tool output" quotation were all wrong for the same reason. Fixing it
+where I pointed would have repaired one symptom of four.
+
+### V1 is recorded twice, and the difference is the protocol's own rule
+
+As reported, V1 took both cross-cutting columns for this build. But the same critic **tied
+V1's task column** because the whole delta was one space character the model typed:
+
+```
+round-10 arm:  165 °F     flagged
+round-11 arm:  165°F      not flagged
+passage:       165° F  and  165°F
+```
+
+The protocol says a difference that would vanish under identical tokens is not a difference.
+Applied uniformly, V1 ties in all three columns — which is how it is scored here.
+`verdicts/round-11.json` carries both readings.
+
+### Two builders refused what they were asked
+
+- **Audit exports everywhere.** Declined: the audit records what was *said* and reaches one
+  of twenty statement classes, and turning it on for both arms would make the bench measure
+  an app configured unlike the shipped one — the fault that silently handicapped a baseline
+  arm for three rounds. Built a record from already-public APIs instead. **Settleable
+  statements 9 → 55; runs where nothing was settleable 31/36 → 6; no file under `src/`
+  touched.** Its enumeration also showed why `record-consistency` had been contested on only
+  4 of 18 tasks: *the four contested tasks were not where the app talked most — they were
+  where the audit happened to be on.*
+- **The obvious harness guard.** Proved it would have **passed** the sweep it exists to stop:
+  round 10's checkouts predate any manifest, so both sides would declare nothing and a subset
+  test holds trivially. Reads each harness's vocabulary structurally out of its own source
+  instead — and found a **fourth** instrumentation field, `streamEdgeClearedMs`, that two
+  hand-written lists in this document had been omitting.
+
+### What both builds still get wrong
+
+- **No checking pass reads what the reply says about the application.** A reply stating *"I
+  did not call any search or reference lookup tools"* sits directly above three green-ticked
+  `reference_lookup` blocks. The ladder checks a reply's claims about the world and never its
+  claims about its host.
+- **The backing checker matches literally** — it over-warns on `165 °F` against `165° F`, and
+  under-warns on `3 to 4 days (whole)` whose only occurrences are ham rows.
+- **The unbacked-figures line is capped at five and never says so** (`maxClaims: 5`), while
+  its sibling line on the same screen discloses truncation with "and 2 more". Found only
+  because this round put the cap into the artifact.
+- **`The runtime reported:`** is a label introducing nothing in the collapsed view. Recorded
+  in round 6 as probably a capture artifact; it is not.
+- **Round 10's own new sentence contradicts the error it quotes** — *"the reply ran to its
+  end — it was simply empty"* printed directly above the refusal, in both arms.
+
+### What this round does not measure
+
+- **Both cross-cutting columns came back 0-0-18.** That is either two clean builds or two
+  columns with nothing to bite on. The statement counts the critics reported beside each
+  verdict are what distinguishes those, and they live in the reports.
+- **Round 11's own new sentence may assert more than the app can see.** *"Not even the reply
+  headers have come back"* — a critic could not settle it, noting a status chosen by a
+  handler that never writes a body is routinely never flushed.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

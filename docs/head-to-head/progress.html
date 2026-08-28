@@ -191,7 +191,7 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">2268 pass / 0 fail</span>
+          <span class="inv__val">2371 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -212,6 +212,11 @@
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">sweep hygiene</span>
           <span class="inv__val">both arms 18 / 18 VALID</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">harness provenance</span>
+          <span class="inv__val">both arms measured by the same harness, asserted at staging</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -633,16 +638,45 @@
           </div>
         </div>
       </li>
-      <li class="round round--pending">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">11</span></div>
         <div class="round__body">
           <header class="round__head">
             <h3>A false unverified on a cooking temperature</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the round-10 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-11 build</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Five builders on round 10’s own recorded loss and the defects its new columns surfaced, plus a guard against the harness mistake I made last round.</dd></div>
+            <div><dt>findings</dt><dd>My framing of the round’s main task was wrong and a builder proved it. I briefed that the measurement corpus did not span every lookup in a turn; it spans all of them and always did — handed all three lookups the checker returns no finding at all. The defect was WHEN the report was read: lookups two and three were the correction pass’s own, and the app published a verdict older than the evidence. That also meant every rung shared it, so fixing it where I pointed would have repaired one symptom of four. Two other builders refused what they were asked: one declined to enable audit exports everywhere, showing the audit reaches one of twenty statement classes and would make the bench measure an app configured unlike the shipped one, and built a record from already-public APIs instead — settleable statements 9 → 55, runs where nothing was settleable 31/36 → 6, with no file under src/ touched. The other proved the obvious harness guard would have PASSED the sweep it exists to stop, because round 10’s checkouts predate any manifest, and read the measurement vocabulary structurally out of each harness’s source instead — finding a fourth instrumentation field my own hand-written lists had been omitting.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round 11: task — round-11 build 2 · round-10 build 0 · 16 ties. self-consistency and record-consistency both 0 · 0 · 18. The narrowest result the bench has produced, and the honest one: sixteen tasks tied, and on several of them the critics said outright that the behaviour under test was never exercised.</dd></div>
+            <div><dt>biggest gap</dt><dd>V1 is recorded twice and the difference matters. As reported it took both cross-cutting columns for this build; but the same critic tied V1’s task column because the entire delta was one space character the model typed — one arm wrote &quot;165 °F&quot;, the other &quot;165°F&quot;, and the backing checker matches literally. Applied uniformly, the protocol’s own rule makes V1 a tie in all three columns, which is how the round is scored here. Both cross-cutting columns therefore came back 0-0-18, and that is either two clean builds or two columns with nothing to bite on. The critics also found four defects both builds share: a backing checker that over-warns on a space and under-warns on a wrong table row; an unbacked-figures line silently capped at five while its sibling line discloses truncation; &quot;The runtime reported:&quot; left as a label introducing nothing in the collapsed view; and a reply denying tool calls the app is displaying directly above it, which no checking pass looks at.</dd></div>
+            <div><dt>fix</dt><dd>The grounding report is graded after the pass that changes the record, so no verdict outlives its evidence · the budget keys on what a pass returned rather than on the clock · a cancelled plan says whose decision it was, and a stalled stream names the party that has not answered · the record block makes 55 of the screen’s statements settleable and names five classes no artifact can settle · a stale harness is refused before the app launches, and both arms’ harness provenance is asserted identical at staging</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2268 → 2371</span></div>
+            <div class="ev"><span class="ev__k">settleable statements per run set</span><span class="ev__v num">9 → 55</span></div>
+            <div class="ev"><span class="ev__k">runs where nothing was settleable</span><span class="ev__v num">31 / 36 → 6</span></div>
+            <div class="ev"><span class="ev__k">task column</span><span class="ev__v num">2 / 0 / 16</span></div>
+            <div class="ev"><span class="ev__k">self-consistency column</span><span class="ev__v num">0 / 0 / 18</span></div>
+            <div class="ev"><span class="ev__k">record-consistency column</span><span class="ev__v num">0 / 0 / 18</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--pending">
+        <div class="round__mark"><span class="round__n num">12</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>The checker never reads what the reply says about the app</h3>
             <span class="tag tag--pending">pending</span>
           </header>
 
           <dl class="facts">
-            <div><dt>what ran</dt><dd>The measurement corpus does not span every lookup in a turn: three lookups ran, one returned a table stating 165°F seventeen times, and the app told the reader the figure was unbacked. Behind it: an expiry line that denies the recomputation it is displaying, a summary that calls one call both &quot;found nothing&quot; and &quot;errored&quot;, and a deliberation warning that arrives after the reassurance it contradicts. And one instrument fault of my own — the round-10 sweep ran with main’s harness, so the paint-lag instrumentation this round built was never exercised.</dd></div>
+            <div><dt>what ran</dt><dd>A reply saying &quot;I did not call any search or reference lookup tools&quot; sits directly above three green-ticked reference_lookup blocks, in both builds, and no checking pass looks at it — the grounding ladder checks a reply’s claims about the world and never its claims about the application. Behind it: a backing checker that flags a correctly-sourced temperature over one space character; an unbacked-figures count silently capped at five; round 10’s own &quot;the reply ran to its end — it was simply empty&quot; printed directly above the refusal it quotes; and round 11’s own &quot;not even the reply headers have come back&quot;, which a critic could not settle and which may assert more about the wire than the app can see.</dd></div>
           </dl>
 
         </div>
@@ -696,6 +730,10 @@
             <tr><td class="num">10</td><td>blind head-to-head</td><td>task column, won vs the previous round</td><td class="r num">6 / 18</td><td class="r num ">—</td></tr>
             <tr><td class="num">10</td><td>blind head-to-head</td><td>task column, lost</td><td class="r num">1 / 18</td><td class="r num ">first loss since round 5</td></tr>
             <tr><td class="num">10</td><td>blind head-to-head</td><td>facts seen only by a cross-cutting column</td><td class="r num">B 1 · A 1</td><td class="r num ">new columns</td></tr>
+            <tr><td class="num">11</td><td>node</td><td>cases passing</td><td class="r num">2371</td><td class="r num up">+103</td></tr>
+            <tr><td class="num">11</td><td>blind head-to-head</td><td>task column, won vs the previous round</td><td class="r num">2 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">11</td><td>blind head-to-head</td><td>task column, lost</td><td class="r num">0 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">11</td><td>instrument</td><td>statements the record can settle</td><td class="r num">55</td><td class="r num ">was 9</td></tr>
           </tbody>
         </table>
       </div>
