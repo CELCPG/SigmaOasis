@@ -47,6 +47,25 @@
  *   contradiction has fewer statements and fewer contradictions and is right to
  *   win. A human reads the flag; the script does not decide it.
  *
+ * Round 10 then showed that `contested` is itself two facts wearing one number.
+ * Its record column was contested on four tasks of eighteen and tied on the
+ * other fourteen, and those fourteen ties were three different results:
+ *
+ *   never in play      neither run said anything for the question to bite on
+ *   unsettleable       both runs made statements and no artifact could settle
+ *                      one of them — either because the record that would was
+ *                      not kept (fixable by capture), or because the
+ *                      application is the only witness to what it is claiming
+ *                      (not fixable at all, and a different fact)
+ *   settled            statements were settleable, were settled, and agreed.
+ *                      The only one of the three that is an earned tie.
+ *
+ * A column whose ties are mostly the second kind is not reporting on the
+ * application. It is reporting on how much of the run got written down. That
+ * distinction is the difference between "these two builds behave alike" and
+ * "this instrument cannot see", so the renderer below states it in words when
+ * it is true rather than leaving it inside a ratio.
+ *
  *   node docs/head-to-head/score-round.mjs docs/head-to-head/verdicts/round-9.json
  */
 import { readFileSync } from 'node:fs'
@@ -84,12 +103,55 @@ function fail(message) {
 }
 
 /**
+ * One side's `unsettleable` split, checked rather than trusted.
+ *
+ * A statement is unsettleable for one of two reasons and they are not the same
+ * fact, so they are counted apart:
+ *
+ *   absent    an artifact could settle it and this run does not have one — an
+ *             audit the task never asked the app to keep, a fixture that was
+ *             not stood up. A capture problem, and therefore fixable.
+ *   byNature  no artifact can settle it, because the application is the only
+ *             witness to what it is claiming. A duration it timed with its own
+ *             clock is the type case: a record of that number is the app
+ *             writing the same number down twice, which agrees by construction
+ *             and so settles nothing.
+ *
+ * The arithmetic is checked because the failure it prevents is silent: more
+ * unsettleable statements than statements is not a column with a bad number in
+ * it, it is a column whose two halves were counted from different lists.
+ */
+function unsettleableOf(side, where) {
+  const u = side.unsettleable
+  if (u === undefined) return null
+  if (!u || typeof u !== 'object') fail(`${where}: "unsettleable" is present and is not a pair of counts`)
+  for (const k of ['absent', 'byNature']) {
+    if (!Number.isInteger(u[k]) || u[k] < 0) fail(`${where}: unsettleable.${k} is not a count`)
+  }
+  if (typeof side.volume !== 'number') {
+    fail(`${where}: unsettleable statements were counted and the statements they came from were not`)
+  }
+  if (u.absent + u.byNature > side.volume) {
+    fail(
+      `${where}: ${u.absent + u.byNature} unsettleable statements out of ${side.volume} made — ` +
+        'the two halves were counted from different lists'
+    )
+  }
+  return { absent: u.absent, byNature: u.byNature, total: u.absent + u.byNature }
+}
+
+/**
  * One column's tally.
  *
  * `contested` and `quiet` are null rather than zero when the column carries no
  * counts to compute them from. Zero is a measurement; null is the absence of
  * one, and a round that reports the first when it has the second is making a
  * claim it cannot support — which is the failure this whole document is about.
+ *
+ * `uncontested` splits the ties the same way, and keeps `unknown` for the case
+ * a round supplies counts without the unsettleable breakdown. Folding those
+ * into `settled` would report an earned tie the round never established, which
+ * is the same failure one level down.
  */
 function tallyColumn(column, taskIds) {
   const counts = { A: 0, B: 0, tie: 0, void: 0, unrecorded: 0, unasked: 0 }
@@ -97,6 +159,9 @@ function tallyColumn(column, taskIds) {
   let measurable = 0
   let quiet = 0
   let reconstructed = 0
+  const unsettleable = { absent: 0, byNature: 0 }
+  const uncontested = { settled: 0, recordAbsent: 0, byNature: 0, neverInPlay: 0, unknown: 0 }
+  let accounted = 0
 
   for (const id of taskIds) {
     const entry = column.verdicts?.[id]
@@ -109,7 +174,27 @@ function tallyColumn(column, taskIds) {
     const b = entry.B
     if (a && b && typeof a.count === 'number' && typeof b.count === 'number') {
       measurable += 1
-      if (a.count > 0 || b.count > 0) contested += 1
+      const inPlay = a.count > 0 || b.count > 0
+      if (inPlay) contested += 1
+      const ua = unsettleableOf(a, `column "${column.id}", ${id}, first run`)
+      const ub = unsettleableOf(b, `column "${column.id}", ${id}, second run`)
+      if (ua) unsettleable.absent += ua.absent
+      if (ub) unsettleable.absent += ub.absent
+      if (ua) unsettleable.byNature += ua.byNature
+      if (ub) unsettleable.byNature += ub.byNature
+      if (ua || ub) accounted += 1
+
+      if (!inPlay) {
+        const volumed = typeof a.volume === 'number' && typeof b.volume === 'number'
+        const said = volumed ? a.volume + b.volume : null
+        if (said === 0) uncontested.neverInPlay += 1
+        else if (!ua || !ub || !volumed) uncontested.unknown += 1
+        else if (ua.total + ub.total === said) {
+          if (ua.absent + ub.absent >= ua.byNature + ub.byNature) uncontested.recordAbsent += 1
+          else uncontested.byNature += 1
+        } else uncontested.settled += 1
+      }
+
       const winner = entry.verdict === 'A' ? a : entry.verdict === 'B' ? b : null
       const loser = entry.verdict === 'A' ? b : entry.verdict === 'B' ? a : null
       if (winner && loser && typeof winner.volume === 'number' && typeof loser.volume === 'number') {
@@ -125,6 +210,12 @@ function tallyColumn(column, taskIds) {
     if (u.recorded === false) reconstructed += 1
   }
 
+  // A column is "measuring the record's coverage" when more of its ties come
+  // from a record that was never kept than from anything it actually settled.
+  // That is a statement about the instrument, not about either build, and it is
+  // the reason a column can look calm while seeing nothing.
+  const measuringCoverage = uncontested.recordAbsent > uncontested.settled + contested
+
   return {
     id: column.id,
     asked: column.asked !== false,
@@ -134,6 +225,9 @@ function tallyColumn(column, taskIds) {
     measurable,
     quiet: measurable ? quiet : null,
     reconstructed,
+    unsettleable: accounted ? unsettleable : null,
+    uncontested: measurable ? uncontested : null,
+    measuringCoverage: accounted ? measuringCoverage : false,
     unattributed: (column.unattributed ?? []).length ? unattributed : null
   }
 }
@@ -176,7 +270,11 @@ export function score(round, { tasks, columns } = declaredColumns()) {
     columns: tallies,
     seenOnlyByACrossCuttingColumn: seenOnly,
     scoredInMoreThanOne,
-    anyReconstructed: tallies.some((t) => t.reconstructed > 0)
+    anyReconstructed: tallies.some((t) => t.reconstructed > 0),
+    // Columns whose quiet is the instrument's rather than the builds'. Named
+    // here so a reader of the object, and not only a reader of the printout,
+    // has to walk past it.
+    columnsMeasuringRecordCoverage: tallies.filter((t) => t.measuringCoverage).map((t) => t.id)
   }
 }
 
@@ -222,6 +320,27 @@ export function render(result) {
       parts.push(`unattributed A ${u.A} · B ${u.B} · tie ${u.tie}`)
     }
     lines.push(`  ${pad(c.id, width)}${parts.join('  ·  ')}`)
+    // Why the column was uncontested, on its own line: a tie that settled, a
+    // tie nothing could settle, and a tie with nothing to settle are three
+    // results, and the win/loss/tie line spells all three the same way.
+    if (c.id !== 'task' && c.uncontested) {
+      const u = c.uncontested
+      const bits = []
+      if (u.settled) bits.push(`settled and agreed ${u.settled}`)
+      if (u.recordAbsent) bits.push(`unsettleable, record not kept ${u.recordAbsent}`)
+      if (u.byNature) bits.push(`unsettleable by nature ${u.byNature}`)
+      if (u.neverInPlay) bits.push(`never in play ${u.neverInPlay}`)
+      if (u.unknown) bits.push(`unaccounted ${u.unknown}`)
+      if (bits.length) lines.push(`  ${pad('', width)}uncontested: ${bits.join(' · ')}`)
+    }
+    if (c.unsettleable && (c.unsettleable.absent || c.unsettleable.byNature)) {
+      const u = c.unsettleable
+      // Statements, not tasks, and summed over both runs — the line above this
+      // one counts tasks, so the unit is said out loud rather than inferred.
+      lines.push(
+        `  ${pad('', width)}unsettleable statements, both runs: ${u.absent} for want of a record · ${u.byNature} by nature`
+      )
+    }
     for (const line of wrap(c.note, 96 - width)) lines.push(`  ${pad('', width)}${line}`)
   }
   lines.push('')
@@ -231,6 +350,13 @@ export function render(result) {
   lines.push(`  scored in more than one column        ${result.scoredInMoreThanOne.length} of ${result.tasks}`)
   lines.push('')
   lines.push('  columns are reported side by side and are not added together.')
+  for (const id of result.columnsMeasuringRecordCoverage ?? []) {
+    const c = result.columns.find((x) => x.id === id)
+    lines.push('')
+    lines.push(`  ${id} was uncontested on ${c.uncontested.recordAbsent} tasks only because the record`)
+    lines.push('  that would settle them was not kept. On those tasks the column reported on how')
+    lines.push('  much of the run was written down, not on either build. Read its ties as coverage.')
+  }
   if (result.anyReconstructed) {
     lines.push('  some verdicts above were reconstructed from a round write-up rather than')
     lines.push('  recomputed from a critic report. They are not a record; they are an estimate.')

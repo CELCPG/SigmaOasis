@@ -69,6 +69,9 @@ import {
   staleInstrumentMessage
 } from './h2h-instrument'
 import { checkPreconditions, requiredCapabilities } from './h2h-preconditions'
+import { buildRunRecord } from './h2h-record'
+import type { LibraryPackReading } from './h2h-record'
+import { DEFAULT_TOOL_TOGGLES } from '../src/shared/tools'
 import {
   fingerprintChanged,
   mergeUnfocused,
@@ -2187,6 +2190,47 @@ async function main(): Promise<void> {
       if (!res.ok) notes.push(`audit export failed: ${res.error ?? 'unknown'}`)
     }
 
+    /**
+     * The reference corpus this turn was given, for the record block below.
+     *
+     * Read here, AFTER the turn, and deliberately: `library:list` loads every
+     * installed pack into memory, so calling it before the prompt would warm a
+     * cache the turn itself would otherwise have paid to fill. That would make
+     * the harness a participant in the timings it publishes. Afterwards it
+     * cannot, and a turn does not install or remove a pack, so the reading is
+     * of the same library the turn had.
+     *
+     * It runs on every task, not only those that install a pack. A run whose
+     * library is empty is exactly the run on which "nothing in the library
+     * covers this" and "from the library, passage one" are settleable, and
+     * before this the artifacts could not tell an empty library from an
+     * unrecorded one.
+     */
+    let libraryReading: LibraryPackReading[] | null = null
+    let libraryError: string | null = null
+    try {
+      const raw = await cdp.evalString(
+        `window.api.libraryList().then(l => JSON.stringify({ ok: true, packs: l })).catch(e => JSON.stringify({ ok: false, error: String(e && e.message || e) }))`
+      )
+      const res = JSON.parse(raw) as { ok?: boolean; packs?: LibraryPackReading[]; error?: string }
+      if (res.ok && Array.isArray(res.packs)) {
+        // Narrowed on purpose: the summary also carries an install timestamp, a
+        // source folder and an embedding model name, none of which any claim on
+        // screen is about and all of which can differ between two machines.
+        libraryReading = res.packs.map((p) => ({
+          id: p.id,
+          name: p.name,
+          version: p.version,
+          docs: p.docs,
+          chunks: p.chunks,
+          embeddedChunks: p.embeddedChunks
+        }))
+      } else libraryError = res.error ?? 'library list refused'
+    } catch (e) {
+      libraryError = e instanceof Error ? e.message : String(e)
+    }
+    if (libraryError) notes.push(`library not read: ${libraryError}`)
+
     // The markdown the renderer was handed, beside the pixels it produced. See
     // RAW_MARKDOWN: this is the only artifact in the directory that is not
     // post-render, and it is what makes a rendering defect diagnosable at all.
@@ -2295,6 +2339,8 @@ async function main(): Promise<void> {
 
     const validity = validityReasons.length ? 'INVALID' : 'VALID'
 
+    const finishedAt = new Date()
+
     const run = {
       /**
        * Bumped for `instrument` below. The version is deliberately NOT the
@@ -2345,7 +2391,7 @@ async function main(): Promise<void> {
       taskId: args.taskId,
       prompt: args.prompt,
       startedAtIso: startedAt.toISOString(),
-      finishedAtIso: new Date().toISOString(),
+      finishedAtIso: finishedAt.toISOString(),
       send: { method: turns[taskTurnIndex]?.sendMethod ?? sendMethod },
       timings: {
         sendToFirstVisibleMs: turns[taskTurnIndex]?.sendToFirstVisibleMs ?? null,
@@ -2461,6 +2507,34 @@ async function main(): Promise<void> {
        */
       preconditions: preconditionReports,
       auditExport,
+      /**
+       * What this run kept a record OF, listed rather than left to be
+       * discovered. See scripts/h2h-record.ts for why the answer is not "turn
+       * the session audit on everywhere": the audit is an opt-in product
+       * feature with a product's contents, and both halves of that sentence
+       * are reasons.
+       */
+      record: buildRunRecord(
+        {
+          settings: liveSettings,
+          library: libraryReading,
+          libraryError,
+          auditExport: auditExport
+            ? {
+                file: (auditExport.file as string | null) ?? null,
+                entries: (auditExport.entries as number | null) ?? null,
+                error: (auditExport.error as string | null) ?? null
+              }
+            : null,
+          fixtures: fixtureReports.map((f) => ({
+            kind: String(f.kind),
+            file: String(f.file),
+            requestCount: Number(f.requestCount)
+          })),
+          wallClockMs: finishedAt.getTime() - startedAt.getTime()
+        },
+        Object.keys(DEFAULT_TOOL_TOGGLES)
+      ),
       /**
        * VALID or INVALID. INVALID means the run did not exercise the path the
        * task is about — a configured fixture was never contacted, or a
@@ -2657,7 +2731,16 @@ FILES
                            any red/error text
   run.json                 timings, counts, and the definitions behind them,
                            plus every action the driver took and whether the
-                           run is VALID (see below)
+                           run is VALID (see below). Its "record" block is the
+                           list of what this run kept a record OF — the
+                           switches that were live, the reference corpus the
+                           turn was given, the driver's own out-of-page clock,
+                           and, named rather than implied, both what was not
+                           recorded here and what no record could settle.
+                           Read it before deciding that a statement on screen
+                           and the artifacts agree: a statement nothing in that
+                           list covers is UNSETTLED, and unsettled is not
+                           agreed.
   screenshots/             mid-turn frames and the frame at turn end, plus one
                            with every section expanded
   snapshots/               DOM captured at named moments the driver chose (for
@@ -2684,7 +2767,12 @@ FILES
                            audit log: the application's own append-only record
                            of the turn. Where the transcript shows what the
                            reader saw, this shows what the application says
-                           happened — the two are meant to be compared.
+                           happened — the two are meant to be compared. The
+                           log is an opt-in product feature and off by default,
+                           so most tasks do not have one; run.json's record
+                           block says so in words rather than leaving you to
+                           infer it from an empty directory. Its absence is a
+                           property of the staging, never of the build.
 
 VALIDITY
   run.json carries validity: VALID or INVALID. INVALID means the run did not

@@ -4959,3 +4959,173 @@ block to be staged at all.
   *declares*, not what it proved it could produce.
 - **Correctness of a measurement.** This asks whether the instrument was the right one, never
   whether its numbers are true.
+
+### Pending fold-in — a column that was measuring its own capture
+
+Round 10 added a `record-consistency` column — *does what the application says about this turn
+agree with what the run's own record shows the turn did* — and it produced the round's most useful
+findings. It was also **contested on 4 tasks of 18**, and every critic gave the same reason:
+
+> `trace/audit.jsonl` is absent in both runs (`"auditExport": null`, `trace/` empty), so tool
+> statuses rest on the transcript alone.
+
+That is not a finding about either build. It is a finding about how much of the run got written
+down, and the win/loss/tie line spells the two the same way.
+
+#### The enumeration, from the recorded runs
+
+Counted off `transcript-expanded.txt` in all 36 runs of `.h2h-runs/A10` and `.h2h-runs/B10` — every
+line where the application states something about **its own** behaviour on the turn, the model's
+prose excluded:
+
+| what the screen states | instances | tasks | could round 10 settle it? |
+| --- | --- | --- | --- |
+| `📋 Method: <name> playbook` | 24 | 11 | no |
+| `📖 From the library: …` / `Nothing in the library covers this` | 16 | 8 | no |
+| tool-call block status (`⚙️ reference_lookup` and siblings, ✓ / ✗) | 13 | 6 | only where an audit was kept |
+| `⏱ Checking stopped at its 60s limit. Ran: … Not run: …` | 13 | 9 | no |
+| `🧮 Recomputed …` / `Recompute skipped …` | 8 | 5 | no |
+| `⚠️ N figures … not backed by the tool output` | 8 | 6 | only where an audit was kept |
+| `Plan — N/M steps done` | 6 | 3 | no |
+| `started the sandbox in N s, then ran in N ms` | 5 | 3 | no |
+| `⚠️ Answered from model memory — no sources consulted` | 4 | 2 | no |
+| the remaining eleven classes (ledger, routing, revision, deliberation, refusal, empty reply, untrusted content, undisclosed tool, quoted-as-exact, sandbox verification, plan cancelled, stopped turn) | 23 | 12 | 3 instances |
+| **total** | **120** | | **9** |
+
+**Nine statements of a hundred and twenty.** On **31 of the 36 runs the record could settle
+nothing at all.** The four contested tasks were not where the app was most talkative; they were
+where the audit happened to be on.
+
+One correction to round 10's own write-up while counting: `trace/audit.jsonl` exists for **three**
+tasks (`PT1`, `TH1`, `TH2`), not the two its caveat names — six run directories, not four.
+
+#### The refused repair
+
+Make every task keep an audit. It is the obvious move and it is wrong twice.
+
+**It stops measuring the shipped app.** The session audit is opt-in, off by default, and not free:
+`src/main/ipc/audit.ts` encrypts every line with the machine keychain, chains it to the SHA-256 of
+the previous plaintext, and appends it through a serialized queue — one entry per user input, per
+assistant output, per tool call, inside the process whose latency this bench publishes as the
+product's. Three rounds went into recovering from a baseline arm that was quietly not the shipped
+build. Doing it evenly to both arms makes it *harder to see*, not less of a fault.
+
+**And it would not work.** The audit's contents are what it is *for*: what was said, with none of
+the layers in between — no system prompts, no recalled memory, no compaction notes. Four kinds:
+session start, user input, assistant output, tool call. Of the classes above it can reach exactly
+one, tool calls. There are no step boundaries in it, no playbook identity, no timings, and putting
+them there means growing a **product** feature to serve the **bench** — the same fault pointing the
+other way.
+
+#### What was changed instead: the run says what its record is
+
+`run.json` gains a `record` block (`scripts/h2h-record.ts`). The column's question names "the run's
+own record" and no artifact said what that was, so each critic decided — and several decided it
+meant `trace/audit.jsonl` alone.
+
+- **`configuration`** — the switches live in the app when the turn ran, out of the `getSettings()`
+  call the harness *already* makes to verify the seed. It settles **capability, not exercise**: a
+  line saying a pass ran while that pass was switched off is a contradiction; a line saying it ran
+  while it was on is merely possible. The tool half is derived from the product's own
+  `DEFAULT_TOOL_TOGGLES`, so a tool added to the app cannot silently drop out of the record;
+  `notCovered` names every settings group left out **with its reason**, and one nobody has decided
+  about is stamped `UNDECIDED` in the artifact rather than being absent.
+- **`library`** — the corpus the turn was given, through the already-public `libraryList()`, on
+  *every* run rather than only those installing a pack. Taken **after** the turn on purpose:
+  `library:list` loads every pack into memory, so reading it first would warm a cache the turn
+  would otherwise have paid to fill, and the harness would become a participant in the timings it
+  publishes. An empty library is what settles a claim to have retrieved from one.
+- **`driverClock`** — the only clock in the directory the application did not produce. It **bounds**
+  rather than measures, and says so.
+- **`kept` / `notKept`** — one entry per record with what each settles. An absent audit now says
+  *the app was never asked to keep one, which is a property of the staging and not of the build*;
+  `auditExport: null` could not previously be told from an export that failed.
+- **`beyondAnyRecord`** — the claims no artifact here can settle, in the artifact.
+
+**Nothing here changes app behaviour.** Every value comes through an API the product already
+exposes and the harness already calls; not one file under `src/` was touched. What changed is what
+gets written down.
+
+Settleable statements go from **9 of 120 to 55**, plus **41 settleable in part** (that a playbook
+was applied at all — `grounding.playbooks` — not which one), **14 unsettleable by nature**, and
+**10 still wanting a record the task did not stand up**. Runs where nothing at all is settleable
+fall from **31 of 36 to 6**: `PT2`, `PT3`, `VC2` in both arms, whose only self-statements are plan
+step boundaries.
+
+#### The first thing the new record catches
+
+`B10/TH2`:
+
+> ⏱ Checking stopped at its 60s limit. **Ran: the claim check**, the code check. Not run: the revision.
+
+`claimCheck.enabled` is `true` and `secondOpinion.enabled` is `false` in that run. `runClaimCheck`
+(`src/renderer/src/hooks/verification.ts`) returns on its first line when second opinions are off —
+the critic slot does the extraction and the judging, and there is no critic slot. But
+`useLMStudio.ts` books `budget.ran('claims')` on `claimCheckOn && budget.admits('claims')`, without
+asking whether the pass did anything. So the line names a pass that could not have run.
+
+Round 10 counted that statement *unsettled*. It is a contradiction, and the configuration record is
+what settles it. **Left unfixed deliberately** — this is the instrument's round, and changing the
+build under measurement mid-round is the fault the instrument exists to catch.
+
+#### What an honest record of a self-reported number looks like
+
+It does not exist, and that is the finding rather than a gap to close later.
+
+> `started the sandbox in 2.1 s, then ran in 6 ms`
+
+The application timed itself. The sandbox starts inside the renderer and crosses no boundary
+anything outside can watch. Writing 2.1 s into a record produces a record that agrees with the
+screen **by construction** — the same number twice, corroborating nothing. The only honest options
+are an independent clock or silence, and for a segment the app itself defines there is no
+independent clock, because nothing outside knows where the segment begins.
+
+So it is named. `beyondAnyRecord` carries five such classes: sandbox start-up and run duration, the
+named timing segments, playbook *identity* (visible only inside a system prompt — settleable on the
+three tasks routed through a loopback shim, and standing a shim up on all eighteen would move the
+staging that eight rounds of recorded runs are comparable through), per-pass budget consumption,
+and plan step boundaries. **Unsettleable is a third state, not a quiet tie.**
+
+#### The scorer now says why a column was quiet
+
+`contested 4/18` was two facts in one number. A column now reports the breakdown. Round 10's
+verdicts file records no per-task counts, so the figures below are **illustrative** — the real
+output of the real scorer over round 10's real verdicts with plausible counts filled in, kept here
+for the shape of the line rather than for the numbers:
+
+```
+record-consistency  A 1 · B 3 · tie 14  ·  contested 4/18
+                    uncontested: settled and agreed 3 · unsettleable, record not kept 10 · never in play 1
+                    unsettleable statements, both runs: 112 for want of a record · 60 by nature
+```
+
+Three ways to be uncontested, and only one of them is about the two builds:
+
+- **settled and agreed** — the record settled every statement and they agreed. An earned tie.
+- **unsettleable** — statements were made and nothing could settle them. A fact about the capture,
+  split further into *record not kept* (fixable) and *by nature* (not).
+- **never in play** — neither run said anything for the question to bite on.
+
+A round supplying volumes and contradiction counts *without* the unsettleable split is reported as
+`unaccounted`, never folded into `settled` — reporting an earned tie a round never established is
+the same failure one level down. And when a column's ties are mostly *record not kept*, the printout
+says so in words:
+
+> record-consistency was uncontested on 10 tasks only because the record that would settle them was
+> not kept. On those tasks the column reported on how much of the run was written down, not on
+> either build. Read its ties as coverage.
+
+The arithmetic is checked rather than trusted: more unsettleable statements than statements made is
+a refusal (exit 2), not a bad number — the two halves were counted from different lists.
+
+#### What this does not fix
+
+- **The three tasks with an audit are still the only ones whose tool statuses can be settled.**
+  `task-setup.json` is frozen on purpose; eight rounds of recorded runs are comparable only because
+  it does not move, and widening it is a decision for a round that is willing to pay that price.
+- **The record settles capability, not exercise.** A pass that was switched on and did nothing looks
+  exactly like a pass that was switched on and worked. Only the false *positive* direction is
+  catchable, which is the direction the app's own warnings keep failing in.
+- **None of it is exercised against a live capture.** Verified by compiling the harness exactly as
+  `h2h-capture.sh` does and building the record against the settings and run descriptions of all 36
+  round-10 runs; no sweep was run, and no sweep may be run while the harness is being edited.
