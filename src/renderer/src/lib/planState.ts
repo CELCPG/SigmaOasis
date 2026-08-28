@@ -83,10 +83,85 @@ export const STATUS_CLASS: Record<PlanStepStatus, string> = {
   skipped: 'text-ink-tertiary'
 }
 
+/**
+ * The status column's text alternative — v1.18.
+ *
+ * Measured on the real Chromium accessibility tree (test/planAccessibilityCheck
+ * .ts, `Accessibility.getFullAXTree` on the shipped build), the six statuses
+ * reached a screen reader as *four* distinguishable rows, and two of the
+ * collisions were the dangerous ones:
+ *
+ *   running  → button "2. Step 2 detail 2 …" [disabled]   ┐ identical
+ *   pending  → button "3. Step 3 detail 3 …" [disabled]   ┘
+ *   done     → button "1. Step 1 detail 1 … ▸"            ┐ identical
+ *   failed   → button "2. Step 2 detail 2 … ▸"            ┘
+ *
+ * A step that failed and a step that succeeded produced byte-identical
+ * accessible names. The whole of the difference was `✓` versus `✗` — a bare
+ * `StaticText` sitting OUTSIDE the row, which a reader announces as a symbol
+ * name or as nothing at all. Colour carried the rest, which is no carrier.
+ *
+ * So the glyph gets the text alternative that a meaningful icon owes: not a
+ * hidden label bolted beside it, but `role="img"` + `aria-label` on the glyph
+ * itself, which is what that pair is for. It is announced first, before the
+ * step number and title, because the state is what a reader scanning a
+ * checklist is scanning for.
+ *
+ * Every status is labelled, with no exception for the two that already carry a
+ * visible note. A reader of a `skipped` row therefore hears "never ran" twice —
+ * once from the glyph, once from the note beside the title. That echo is the
+ * deliberate price of a rule with no hole in it: a status added later cannot
+ * fall through, because there is nothing to fall through. This project's
+ * recurring defect is the enumeration that stops covering its class, and three
+ * words of repetition is a cheaper failure than a silent row.
+ */
+export const STATUS_LABEL: Record<PlanStepStatus, string> = {
+  pending: 'Queued',
+  running: 'Running',
+  done: 'Done',
+  failed: 'Failed',
+  // Not "Stopped" alone: the row must not read as the plan having failed, and
+  // the outcome badge says "stopped by you" in the same voice.
+  stopped: 'Stopped by you',
+  skipped: 'Never ran'
+}
+
 /** Suffix on the step's own line, for the two statuses a glyph alone underplays. */
 export const STATUS_NOTE: Partial<Record<PlanStepStatus, string>> = {
   stopped: 'stopped here',
   skipped: 'never ran'
+}
+
+/**
+ * The header's single status element — v1.18.
+ *
+ * Through v1.17 this was three sibling spans, each rendered only in its own
+ * state. A live region announces a change to its *contents*; a region that is
+ * itself created and destroyed announces nothing reliably, so a plan that
+ * ended told a screen-reader user precisely as much as one that had not. One
+ * element that always exists and swaps what it says is the difference between
+ * a reader being told and not, and it is why this is a function rather than
+ * three conditionals in the view.
+ *
+ * Same order of precedence the three conditionals had: a plan with an outcome
+ * is over whatever else is true of it.
+ */
+export interface PlanHeaderStatus {
+  text: string
+  className: string
+}
+
+export function planHeaderStatus(plan: ChatPlan): PlanHeaderStatus {
+  if (plan.outcome) {
+    return {
+      text: OUTCOME_LABEL[plan.outcome],
+      className: `${OUTCOME_BADGE} ${OUTCOME_CLASS[plan.outcome]}`
+    }
+  }
+  if (awaitingApproval(plan)) return { text: 'awaiting approval', className: 'text-ink-warn' }
+  // Approved and no outcome yet is the only live state; say so, so the header
+  // alone tells the six states apart.
+  return { text: 'running', className: 'text-accent-ink' }
 }
 
 /**

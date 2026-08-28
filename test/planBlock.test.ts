@@ -9,6 +9,8 @@ import {
   awaitingApproval,
   endPlan,
   OUTCOME_LABEL,
+  planHeaderStatus,
+  STATUS_LABEL,
   STATUS_NOTE
 } from '../src/renderer/src/lib/planState'
 import type {
@@ -1120,5 +1122,159 @@ describe('a step that never reached its forecast is not faulted for it', () => {
     )
     assert.match(html, UNRUN)
     assert.match(html, /Forecast read_note/)
+  })
+})
+
+// ---- v1.18: what the block says to a reader who cannot see it ---------------
+
+/**
+ * The authority on every claim in this section is `test/planAccessibilityCheck
+ * .ts`, which reads the computed accessibility tree out of a real Chromium
+ * window over CDP. A name is *computed*, and markup is not what a reader is
+ * handed: the defect this round closed was invisible in the markup and plain in
+ * the tree — a `<button>` wrapping four lines of prose is named with all four,
+ * and `<ol>` is a list with no `role=` anywhere on it.
+ *
+ * What is pinned here instead is the smaller set of facts the markup alone
+ * decides, so they fail in the fast suite rather than only under Electron: that
+ * a row with nothing to open is not dressed as a control, that a state word
+ * exists at all and differs for every status, and that the header carries
+ * exactly one live region rather than none or one per line.
+ */
+
+const EVERY_STATUS: PlanStepStatus[] = [
+  'pending',
+  'running',
+  'done',
+  'failed',
+  'stopped',
+  'skipped'
+]
+
+/** The tag of the row's disclosure control, if the row rendered one. */
+function stepButton(row: string): string | null {
+  const at = row.indexOf('<button')
+  return at === -1 ? null : row.slice(at, row.indexOf('</button>', at))
+}
+
+describe('every step status says what it is, not only what colour it is', () => {
+  test('all six statuses are named, and no two alike', () => {
+    const labels = EVERY_STATUS.map((s) => STATUS_LABEL[s])
+    for (const [i, label] of labels.entries()) {
+      assert.ok(label && label.trim().length > 0, `${EVERY_STATUS[i]} has no label`)
+    }
+    assert.equal(new Set(labels).size, 6, `two statuses share a label: ${labels.join(' | ')}`)
+    assert.equal(Object.keys(STATUS_LABEL).length, 6, 'a status exists with no label')
+  })
+
+  for (const status of EVERY_STATUS) {
+    test(`a ${status} step carries its state on the glyph`, () => {
+      const html = render(plan([step(1, status)]))
+      assert.match(
+        html,
+        new RegExp(`role="img" aria-label="${STATUS_LABEL[status]}"`),
+        `the ${status} glyph is a bare symbol`
+      )
+    })
+  }
+
+  // The negative: the label is per status, not one word stamped on every row.
+  test('two different statuses in one plan do not share a label', () => {
+    const html = render(plan([step(1, 'done', 'ok'), step(2, 'failed', 'boom'), step(3, 'pending')]))
+    const labels = [...html.matchAll(/aria-label="([^"]+)"/g)].map((m) => m[1])
+    assert.equal(new Set(labels).size, labels.length, `repeated label in ${labels.join(' | ')}`)
+  })
+})
+
+describe('a row is a control only when there is something to open', () => {
+  test('a step with output renders a button that says whether it is open', () => {
+    const row = rows(render(plan([step(1, 'done', 'the result')])))[0]!
+    const button = stepButton(row)
+    assert.ok(button, 'an expandable step renders no control')
+    assert.match(button!, /aria-expanded="false"/)
+  })
+
+  test('a step with nothing to open renders no control at all', () => {
+    const row = rows(render(plan([step(1, 'pending')])))[0]!
+    assert.equal(stepButton(row), null, 'a step with nothing to open is dressed as a button')
+  })
+
+  test('a cancelled plan offers a reader no controls whatsoever', () => {
+    const html = render(CANCELLED)
+    assert.ok(!html.includes('<button'), 'a dead plan still renders buttons')
+    assert.ok(!html.includes('disabled'), 'a dead plan still renders a disabled control')
+  })
+
+  test("the row's prose is outside the control, not swallowed into its name", () => {
+    const row = rows(render(plan([step(1, 'done', 'the result')])))[0]!
+    const button = stepButton(row)!
+    assert.ok(!button.includes('detail 1'), 'the detail line is inside the button')
+    assert.ok(!button.includes('Tools —'), 'the tool forecast is inside the button')
+    // …and the row still carries both, so the two assertions above are not
+    // passing because the lines were dropped.
+    assert.match(row, /detail 1/)
+    assert.match(row, /Tools —/)
+  })
+})
+
+describe('the block has one live region, and it carries the state', () => {
+  const STATES: [string, ChatPlan, string][] = [
+    ['never approved', plan([step(1, 'pending')], { approved: false }), 'awaiting approval'],
+    ['running', plan([step(1, 'running')]), 'running'],
+    ['finished', endPlan(plan([step(1, 'done', 'ok')]), 'completed'), OUTCOME_LABEL.completed],
+    ['cancelled', CANCELLED, OUTCOME_LABEL.cancelled],
+    ['stopped', STOPPED, OUTCOME_LABEL.stopped],
+    ['failed', FAILED, OUTCOME_LABEL.failed]
+  ]
+
+  for (const [name, p, expected] of STATES) {
+    test(`${name}: exactly one live region, saying "${expected}"`, () => {
+      const html = render(p)
+      const live = [...html.matchAll(/aria-live="[^"]*"/g)]
+      // One, never none — a region that only comes into existence when the
+      // plan ends announces nothing, which is what three conditional spans
+      // did — and never more than one, because a block that is live all over
+      // talks over the reader for the whole run.
+      assert.equal(live.length, 1, `${live.length} live regions`)
+      assert.match(html, /role="status" aria-live="polite" aria-atomic="true"/)
+      assert.equal(planHeaderStatus(p).text, expected)
+    })
+  }
+
+  test('the six states put six different words in that one region', () => {
+    const words = STATES.map(([, p]) => planHeaderStatus(p).text)
+    assert.equal(new Set(words).size, 6, `states collapsed to ${words.join(' | ')}`)
+  })
+
+  test('the step count stays outside it, so a run does not narrate itself', () => {
+    const html = render(STOPPED)
+    const at = html.indexOf('aria-live=')
+    const region = html.slice(html.lastIndexOf('<span', at), html.indexOf('</span>', at))
+    assert.ok(!/steps done/.test(region), `the count is inside the live region: ${region}`)
+    assert.match(header(html), /steps done/)
+  })
+})
+
+describe('the block names itself out of the header a reader can see', () => {
+  test('the group is labelled by its own header, not by a hidden string', () => {
+    const html = render(STOPPED)
+    const labelledBy = html.match(/aria-labelledby="([^"]+)"/)
+    assert.ok(labelledBy, 'the block exposes no name at all')
+    assert.match(html, /role="group"/)
+    assert.ok(
+      html.includes(`id="${labelledBy![1]}"`),
+      `aria-labelledby="${labelledBy![1]}" points at no element in the block`
+    )
+    // The named element is the header, so the outcome cannot be announced
+    // without the count it qualifies, or the count without the outcome.
+    const headerText = header(html)
+    assert.ok(headerText.includes(`id="${labelledBy![1]}"`), 'the name points below the header')
+    assert.match(headerText, /steps done/)
+    assert.match(headerText, new RegExp(OUTCOME_LABEL.stopped))
+  })
+
+  test('the decorative glyphs are not part of that name', () => {
+    const html = render(STOPPED)
+    assert.match(html, /aria-hidden="true">📋</, 'the clipboard is announced as "clipboard"')
   })
 })
