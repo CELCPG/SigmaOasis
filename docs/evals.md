@@ -3595,6 +3595,84 @@ render, style, contrast, markdown, workbench and transport are unchanged.
   checked as attributes; that they are *announced* well is a claim no assertion in this repo
   can make.
 
+## Round 9: what both builds get wrong (v2.1)
+
+**Blind verdict: 3 won · 0 lost · 14 tied · 1 void**, over 18 tasks. Both sweeps 18/18
+VALID after three re-runs.
+
+The second same-generation comparison, and the first judged with critic prompts
+**generated mechanically** from the task set. Round 8's prompt-writer disclosed its own
+contamination — reading `probes` had given it "a full inventory of the weaknesses at
+least one build is known to have". There is now no writer to contaminate: the prompts are
+assembled from each task's `question` / `measure` / `decide` fields plus one
+self-consistency question asked of every task.
+
+### The three wins, measured
+
+| task | what decided it |
+| --- | --- |
+| VC2 | obscured Tab stops **24–30 of 70 → 0 of 70**, identical in both themes and on both routes. The focus indicator itself tied at 70/70 visible in every file, so the entire margin is occlusion. |
+| VC3 | the **same warning sentence** at **3.11:1** in one build and **6.09:1** in the other; the same failed-call line at **3.59:1** against **6.19:1**. Both below AA in light theme only — which is the defect a single raw palette step cannot avoid across two themes. |
+| V3 | a coverage line naming what the pass never reached. Credited to the application rather than the sampler because the older build's extractor demonstrably reduced the same ranges and printed nothing. |
+
+The third win came from the builder that **refused the feature it was asked for**. Asked to
+rank findings so the figure the user actually asked about gets checked first, it argued
+that "how much does it *cost* to fix a dripping faucet" would make `$10–$80` the headline
+on the very same reply, and that such a line asserts the app understood the question in the
+one place a reader cannot check it. It shipped the narrower true thing instead. A blind
+critic scored the refusal a win.
+
+### The void, and why it is mine
+
+V2 went to round 9 on the other arm's generation failing with a context overflow. The
+critic flagged its own uncertainty — *"if that failure is environmental, this is a tie"* —
+and lacked the evidence to settle it. Same prompt, same settings, same retrieval, single
+turn, and **round 9 changed no context code**: a server condition is not the change under
+test. Voided rather than banked. Precedent is round 3, which voided a task for the same
+reason.
+
+### What both builds still get wrong
+
+A same-generation comparison mostly returns ties, and what the ties surface is the shared
+defect. Round 9's most important finding is one neither build fixes and neither critic was
+asked about:
+
+**The turn reports itself over while the answer is still arriving.** Three independent
+observations, in both arms:
+
+- an answer reaching the screen as `"(pet"` where the model wrote `"(pets, seniors, infants)."`
+- the same shape on a different task in the other arm
+- a `stream-edge` span still present **263 ms after** the app reported the turn idle,
+  painted at `opacity: 0.2` — which measures **1.49:1**
+
+The word left illegible in that capture was `"safe"`, in an answer about food safety.
+
+It also gives round 7's `reply.md` comparison a **false-positive mode**: that artifact was
+added so a critic could catch the renderer deleting characters, and it found two real
+defects that way. A critic diffing raw markdown against rendered text will now periodically
+see a renderer that dropped nothing. The instrument needs to settle on a paint before
+reading, or record a `textSettledMs` so a lag is distinguishable from a loss.
+
+Also unfixed in both: plan blocks carry **no accessible names at all** (`aria-label`,
+`role`, `title` all empty across the cancelled and stopped captures) — round 9 contained
+focus in five modal surfaces, and the plan block is not one. The post-stop message still
+blames the model (`"nothing came back from the model"`) for what the fixture record shows
+was a transport stall. And a context-overflow message sits on the same screen as the app's
+own meter reading `~1.7K / 8.2K`.
+
+### What this round does not measure
+
+- **Two round-9 improvements scored nothing**, both visible in the artifacts, neither the
+  task's question: the older build draws one fact in two amber ramps on one screen where
+  round 9 uses a single token, and the older build lost an answer's tail where round 9 did
+  not. Builder E's rewrite improved the questions; the tension it was sent to resolve
+  stands. A question neutral enough not to leak can still be blind to a real repair.
+- **FR3 sits close to its own timeout by construction** — the empty-review fixture plus a
+  60-second checking budget. It failed the capture guard in both arms before re-running
+  clean, which is symmetric but marginal.
+- **A tie is not proof of equivalence.** On several tasks neither build was exercised, and
+  the critics said so rather than deciding on something incidental.
+
 ## Findings worth keeping
 
 - **Embedding a pack is not optional in practice.** Keyword-only, "I spilled boiling water on my

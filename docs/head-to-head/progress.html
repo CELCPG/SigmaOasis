@@ -567,12 +567,12 @@
           </div>
         </div>
       </li>
-      <li class="round round--running">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">9</span></div>
         <div class="round__body">
           <header class="round__head">
             <h3>Defects both builds share, found once the judging stopped flattering us</h3>
-            <span class="tag tag--running">running</span>
+            <span class="tag tag--done">done</span>
           </header>
           <div class="pair">
             <span class="pair__side">the round-8 build</span>
@@ -581,7 +581,9 @@
           </div>
           <dl class="facts">
             <div><dt>what ran</dt><dd>Five builders on defects a same-generation comparison exposed as shared by BOTH builds — the category rounds 1–7 could not see, because a seven-round-old baseline loses everything and the margin hides what neither side fixed.</dd></div>
-            <div><dt>findings</dt><dd>Three of the five found a previous round’s repair incomplete, two of them mine. Round 8 stripped `probes` from the blind-critic view and KEPT `setup`, where two of the four de-blinding constants actually live — the enumeration failure committed inside the fix for the previous instance of it. Round 8’s amber-700 contrast fix measures 4.03–4.38:1 on the wells those lines actually sit on, under AA. And the focus defect was far worse than the bench had reported — 55/70, 57/70 and 67/70 stops obscured across four overlays, not the 24–30 measured, because the bench had only ever walked one route.</dd></div>
+            <div><dt>findings</dt><dd>The wins were measured, not argued. VC2: obscured Tab stops 24–30 of 70 down to 0 of 70, identical in both themes and on both routes, with the focus indicator itself tying at 70/70 visible in every file — so the margin is occlusion alone. VC3: the SAME warning sentence at 3.11:1 in one build and 6.09:1 in the other, and the same failed-call line at 3.59:1 against 6.19:1, both below AA in light theme only — the defect a single raw palette step cannot avoid across two themes. V3: a coverage line naming what the pass never reached, which the critic credited to the application rather than the sampler because the older build’s extractor demonstrably handled the same ranges and printed nothing. That third win came from a builder that REFUSED the feature it was asked for, argued that ranking findings by importance would assert the app understood the question in the one place a reader cannot check it, and shipped a narrower true thing instead.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-9 build 3 · round-8 build 0 · 14 ties · 1 void, over 18 tasks. The second same-generation comparison, and the first judged with critic prompts generated MECHANICALLY from the task set — no agent and no person wrote them, so the contamination round 8’s prompt-writer disclosed about itself is structurally gone. The three wins map one-to-one onto three of the five builders; the two that scored ties were the code fold, which no task exercised, and the task set itself, which is the instrument rather than the subject.</dd></div>
+            <div><dt>biggest gap</dt><dd>The void is V2, and voiding it was mine rather than the critic’s: the deciding event was one arm’s request overflowing the model’s 8192-token context on a turn where round 9 changed no context code, same prompt, same settings, same retrieval, single turn. The critic reached the same conclusion and said it lacked the evidence — &quot;if that failure is environmental, this is a tie&quot;. A server condition is not the change under test. Precedent is round 3, which voided a task for the same reason. Separately, two round-9 improvements were visible in the artifacts and scored nothing, because neither was the task’s question: the older build draws one fact in two different amber ramps on one screen where round 9 uses a single token, and the older build lost the tail of an answer where round 9 did not. Builder E’s rewrite improved the questions and the tension it was sent to resolve is still there — a question neutral enough not to leak can still be blind to a real repair.</dd></div>
             <div><dt>fix</dt><dd>Focus contained on all five covering surfaces by walking outward from the surface node, so a pane added anywhere is covered the day it is added · warning ink became tokens after the diagnosis changed from lightness to chroma — Tailwind ramps desaturate as they darken, so walking down the ramp buys contrast by spending the thing that means &quot;warning&quot; · a code fold that lands on a hyphen no longer also stops short of the edge, the pair that reads as hyphenation · the checker now says what it did NOT check, after the ranking it was asked for was judged unreliable and refused · all 18 probes rewritten on the principle that what leaks is not specificity but asserting a value</dd></div>
           </dl>
           <div class="evals">
@@ -589,8 +591,25 @@
             <div class="ev"><span class="ev__k">chrome-contrast checks</span><span class="ev__v num">60 → 114</span></div>
             <div class="ev"><span class="ev__k">style checks</span><span class="ev__v num">44 → 72</span></div>
             <div class="ev"><span class="ev__k">modal-focus checks</span><span class="ev__v num">new, 177</span></div>
-            <div class="ev"><span class="ev__k">blind verdict</span><span class="ev__v num">NOT YET JUDGED — both sweeps capturing</span></div>
+            <div class="ev"><span class="ev__k">obscured tab stops</span><span class="ev__v num">24–30 of 70 → 0 of 70</span></div>
+            <div class="ev"><span class="ev__k">warning ink, light theme</span><span class="ev__v num">3.11:1 → 6.09:1</span></div>
+            <div class="ev"><span class="ev__k">blind tasks judged</span><span class="ev__v num">18</span></div>
+            <div class="ev"><span class="ev__k">won / lost / tied / void</span><span class="ev__v num">3 / 0 / 14 / 1</span></div>
           </div>
+        </div>
+      </li>
+      <li class="round round--pending">
+        <div class="round__mark"><span class="round__n num">10</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>The turn says it is over while the answer is still arriving</h3>
+            <span class="tag tag--pending">pending</span>
+          </header>
+
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Three separate observations in round 9 say the composer is released before the tail finishes painting, in BOTH builds: an answer reaching the screen as &quot;(pet&quot; where the model wrote &quot;(pets, seniors, infants).&quot;, the same shape on another task in the other arm, and a stream-edge span still present 263 ms after the app reported the turn idle — painted at 0.2 opacity, which measures 1.49:1. The word left illegible in that capture was &quot;safe&quot;, in an answer about food safety. It also gives round 7’s reply.md comparison a false-positive mode: a critic diffing raw markdown against rendered text will periodically see a renderer that dropped nothing. Behind it sit the defects both builds still share — plan blocks with no accessible names at all, a post-stop message blaming the model for a transport stall, and a context-overflow message contradicted by the app’s own token meter on the same screen.</dd></div>
+          </dl>
+
         </div>
       </li>
     </ol>
@@ -633,6 +652,11 @@
             <tr><td class="num">8</td><td>blind head-to-head</td><td>tasks won vs the PREVIOUS round</td><td class="r num">2 / 18</td><td class="r num ">first same-generation comparison</td></tr>
             <tr><td class="num">8</td><td>blind head-to-head</td><td>tasks tied</td><td class="r num">16 / 18</td><td class="r num ">—</td></tr>
             <tr><td class="num">8</td><td>blind head-to-head</td><td>tasks lost</td><td class="r num">0 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">9</td><td>node</td><td>cases passing</td><td class="r num">2146</td><td class="r num up">+40</td></tr>
+            <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks won vs the PREVIOUS round</td><td class="r num">3 / 18</td><td class="r num ">second same-generation comparison</td></tr>
+            <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks tied</td><td class="r num">14 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks void</td><td class="r num">1 / 18</td><td class="r num ">deciding event not attributable to the build</td></tr>
+            <tr><td class="num">9</td><td>accessibility</td><td>obscured tab stops behind an overlay</td><td class="r num">0 / 70</td><td class="r num ">was 24–30 / 70</td></tr>
           </tbody>
         </table>
       </div>
