@@ -220,6 +220,27 @@ interface TurnRecord {
   firstVisibleKind: string | null
   endReason: string | null
   timedOut: boolean
+  /**
+   * v2.2. How long after turn-end the reply's rendered text was still changing,
+   * and by how much. Non-zero means the build reported the turn finished while
+   * it was still painting — which is a defect in the build, and, until this
+   * round, a false-positive generator in the reply.md/reply.txt comparison.
+   * `null` when the turn timed out (nothing had ended, so nothing settled).
+   */
+  textSettledMs: number | null
+  textGrewAfterTurnEndChars: number | null
+  streamEdgeAtTurnEnd: boolean | null
+  streamEdgeClearedMs: number | null
+}
+
+/** What SETTLE_TEXT reports back. */
+interface SettleResult {
+  settledMs: number
+  charsAtTurnEnd: number
+  charsWhenSettled: number
+  streamEdgeAtTurnEnd: boolean
+  streamEdgeClearedMs: number | null
+  quiet: boolean
 }
 
 /** What the injected sampler reports back. All times are page `Date.now()`. */
@@ -656,6 +677,96 @@ const READ_STATE = String.raw`(() => {
     sawStreaming: H.sawStreaming, live: H.live, rootFound: H.rootFound, sampleMs: H.sampleMs
   })
 })()`
+
+/**
+ * Waits for the reply's rendered text to stop changing, then for a paint.
+ *
+ * Turn-end is `composer-idle` — the frame the composer stops rendering Stop —
+ * and through v2.1 that was the *stream* ending, not the last paint. The tail
+ * pacer could still be publishing for hundreds of milliseconds afterwards, so
+ * `reply.txt` (innerText, post-render) was read short while `reply.md` (the raw
+ * markdown out of the store) was already complete.
+ *
+ * That is a fault in the instrument, not only in the product. Round 7 added
+ * reply.md precisely so a blind critic could catch the renderer deleting
+ * characters, and it found two real defects that way; a paint lag counterfeits
+ * exactly that signature, so the comparison acquired a false-positive mode —
+ * "the renderer dropped 65 characters" about a renderer that dropped none.
+ *
+ * Both halves of the repair are here on purpose:
+ *
+ *  - **Settle before reading.** Poll the assistant's rendered prose length until
+ *    it has been unchanged for QUIET_MS and no `.stream-edge` span remains, then
+ *    let two frames pass so the final mutation is actually on screen. This is
+ *    what makes the artifact honest, and it works against any build — including
+ *    an arm that has not fixed the product, which is the case that matters,
+ *    because a critic compares two builds and only one of them is ours.
+ *  - **Record what the wait cost.** Settling alone would have quietly absorbed
+ *    the very defect the instrument exists to expose. `textSettledMs`,
+ *    `textGrewAfterTurnEndChars` and `streamEdgeAtTurnEnd` keep it a stated
+ *    fact, so a critic can tell a paint lag from a loss instead of having to
+ *    guess — and can fault a build for reporting itself finished early.
+ *
+ * Polled on a timer rather than on rAF: frames stop in an occluded window and
+ * the whole wait would hang there. The two-frame paint settle is raced against
+ * a timeout for the same reason. Bounded by BUDGET_MS either way.
+ */
+const SETTLE_TEXT = String.raw`(() => new Promise((resolve) => {
+  var H = window.__h2h
+  var QUIET_MS = 100
+  var BUDGET_MS = 2500
+  var t0 = Date.now()
+
+  function proseLen() {
+    var r = H && H.getRoot ? H.getRoot() : null
+    if (!r) return -1
+    var kids = r.children, a = null
+    for (var i = kids.length - 1; i >= 0; i--) {
+      if (H.classify(kids[i]) === 'assistant') { a = kids[i]; break }
+    }
+    if (!a) return -1
+    var n = 0, pn = a.querySelectorAll('.markdown-body')
+    for (var j = 0; j < pn.length; j++) n += (pn[j].textContent || '').length
+    return n
+  }
+
+  var start = proseLen()
+  var last = start
+  var lastChange = t0
+  var edgeAtEntry = !!document.querySelector('.stream-edge')
+  var edgeGoneAt = edgeAtEntry ? null : t0
+
+  function afterPaint(cb) {
+    var fired = false
+    var fire = function () { if (!fired) { fired = true; cb() } }
+    requestAnimationFrame(function () { requestAnimationFrame(fire) })
+    setTimeout(fire, 250)
+  }
+
+  function poll() {
+    var now = Date.now()
+    var n = proseLen()
+    if (n !== last) { last = n; lastChange = now }
+    if (edgeGoneAt === null && !document.querySelector('.stream-edge')) edgeGoneAt = now
+    var quiet = now - lastChange >= QUIET_MS && edgeGoneAt !== null
+    var spent = now - t0
+    if (quiet || spent >= BUDGET_MS) {
+      afterPaint(function () {
+        resolve(JSON.stringify({
+          settledMs: Date.now() - t0,
+          charsAtTurnEnd: start,
+          charsWhenSettled: proseLen(),
+          streamEdgeAtTurnEnd: edgeAtEntry,
+          streamEdgeClearedMs: edgeGoneAt === null ? null : edgeGoneAt - t0,
+          quiet: quiet
+        }))
+      })
+      return
+    }
+    setTimeout(poll, 16)
+  }
+  poll()
+}))()`
 
 /**
  * Reads the transcript as the user sees it.
@@ -1830,15 +1941,28 @@ async function main(): Promise<void> {
     }
 
     /**
-     * Polls the in-page clock until the composer leaves its streaming state.
+     * The last turn's paint settle (SETTLE_TEXT), read by recordTurn. Held in a
+     * slot rather than threaded through, because recordTurn is also called on
+     * the path where no waitTurnEnd ran at all.
+     */
+    let settle: SettleResult | null = null
+
+    /**
+     * Polls the in-page clock until the composer leaves its streaming state,
+     * then waits for the reply's text to stop changing and paint (SETTLE_TEXT).
      * Poll cadence affects only when the driver *learns* a thing happened,
-     * never the recorded time of it.
+     * never the recorded time of it — but the settle is not a poll cadence: it
+     * is the difference between reading the transcript and reading a transcript
+     * that is still being written.
      */
     const waitTurnEnd = async (budgetMs: number): Promise<boolean> => {
       const deadline = Date.now() + budgetMs
       for (;;) {
         const s = await readState()
-        if (s.tEnd !== null) return false
+        if (s.tEnd !== null) {
+          settle = JSON.parse(await cdp!.evalString(SETTLE_TEXT)) as SettleResult
+          return false
+        }
         if (Date.now() > deadline) return true
         const t0 = s.t0 ?? Date.now()
         const elapsed = Date.now() - t0
@@ -1866,8 +1990,32 @@ async function main(): Promise<void> {
         sendToStreamingStartMs: r(s?.tStreamStart),
         firstVisibleKind: s?.firstVisibleKind ?? null,
         endReason: to ? 'timeout' : (s?.endReason ?? null),
-        timedOut: to
+        timedOut: to,
+        textSettledMs: settle ? settle.settledMs : null,
+        textGrewAfterTurnEndChars: settle ? settle.charsWhenSettled - settle.charsAtTurnEnd : null,
+        streamEdgeAtTurnEnd: settle ? settle.streamEdgeAtTurnEnd : null,
+        streamEdgeClearedMs: settle ? settle.streamEdgeClearedMs : null
       })
+      // Said out loud, not left for a reader to spot in a timing table: a build
+      // that releases its composer mid-paint is the exact shape that makes a
+      // reply.md/reply.txt diff lie, and a critic reading these artifacts has
+      // to be told which of the two they are looking at.
+      if (settle && !settle.quiet) {
+        notes.push(
+          `the reply's text was still changing ${settle.settledMs} ms after turn end and had not settled ` +
+            'within the settle budget; the text artifacts may still be short of the finished answer'
+        )
+      } else if (settle && (settle.charsWhenSettled > settle.charsAtTurnEnd || settle.streamEdgeAtTurnEnd)) {
+        notes.push(
+          `the build reported this turn finished while it was still painting: ` +
+            `${settle.charsWhenSettled - settle.charsAtTurnEnd} more character(s) landed over the ` +
+            `${settle.settledMs} ms after turn end` +
+            (settle.streamEdgeAtTurnEnd ? ', with the live-tail edge span still on screen' : '') +
+            '. The text artifacts below were read after that settled, so a shortfall against reply.md ' +
+            'is a real loss and not this lag'
+        )
+      }
+      settle = null
     }
 
     /* -------------------------------------------------------- the driving */
@@ -2153,7 +2301,20 @@ async function main(): Promise<void> {
             'the composer leaving its streaming state — the moment Stop turns back into Send. This is ' +
             'the whole turn as the user experiences it, so it includes any post-stream work done before ' +
             'the composer is released, and may therefore exceed a raw token-stream duration reported ' +
-            'elsewhere on screen.'
+            'elsewhere on screen.',
+          textSettledMs:
+            'how long AFTER turnEnd the driver had to wait for the reply\'s rendered text to stop ' +
+            'changing and paint. Every text artifact in this directory was read after that wait, so ' +
+            'they are the finished answer rather than a half-painted one.',
+          textGrewAfterTurnEndChars:
+            'how many characters of the answer landed during that wait. Above zero, the build released ' +
+            'its composer — turned Stop back into Send, and accepted a new message — while it was still ' +
+            'painting the last one, which is a defect in the build and is reported as a note. It is ' +
+            'ALSO the figure that tells you a short reply.txt is a paint lag rather than a renderer ' +
+            'loss: a shortfall against reply.md is a real loss only if this is zero.',
+          streamEdgeAtTurnEnd:
+            'whether the live-tail edge span (.stream-edge, the newest word of a streaming reply) was ' +
+            'still in the document at turnEnd. True is the same defect seen from the DOM side.'
         }
       },
       reply: { file: 'reply.txt', chars: replyText.length, words: replyText.split(/\s+/).filter(Boolean).length },
@@ -2169,7 +2330,13 @@ async function main(): Promise<void> {
           'the renderer drew, reply.md records what it was asked to draw. Diff them to tell a model ' +
           'defect from a rendering defect — if a figure is present in reply.md and absent from ' +
           'reply.txt, the app lost it. Absent when the run used an ephemeral conversation, which is ' +
-          'never persisted; "error" then says so.'
+          'never persisted; "error" then says so. ' +
+          'One caveat, and it has a number attached: a build that reports its turn finished while it ' +
+          'is still painting makes this diff show a loss that never happened. reply.txt is therefore ' +
+          'read only after the rendered text has settled (see timing.definitions.textSettledMs), and ' +
+          'timing.textGrewAfterTurnEndChars says whether that build needed the wait. A trailing ' +
+          'shortfall against reply.md is a renderer loss; if you are ever unsure, that figure is the ' +
+          'one to check.'
       },
       transcript: {
         visibleFile: 'transcript.txt',
@@ -2356,6 +2523,14 @@ FILES
                            reply.txt was lost by the application, not by the
                            model. Empty if the run used an ephemeral chat,
                            which is never persisted (run.json says so).
+                           One way this diff can lie, and the figure that
+                           settles it: a build that reports its turn finished
+                           while it is still painting leaves reply.txt short of
+                           an answer it never lost. reply.txt is therefore read
+                           only after the rendered text has stopped changing,
+                           and run.json's turns[].textGrewAfterTurnEndChars
+                           says whether this build needed that wait. A trailing
+                           shortfall with that figure at 0 is a real loss.
   messages-raw.json        every message's raw content (and raw reasoning),
                            in order — the un-rendered counterpart to
                            transcript.json

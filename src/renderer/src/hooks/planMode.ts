@@ -457,7 +457,10 @@ export async function runPlanTurn(
     }
     })
   } finally {
-    tail.finish()
+    // Awaited, like the chat turn's: the synthesis step is the one whose text
+    // the user reads, so the plan is not over until its last character is
+    // painted. Stop takes the immediate path — see makeTailStream.
+    await tail.finish(signal.aborted)
   }
   if (!signal.aborted) {
     audit(convo, {

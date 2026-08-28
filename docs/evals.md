@@ -3823,3 +3823,166 @@ caught neither on itself.
 
 Both were found by mutation: setting a token to a known-bad value and checking the suite says so.
 A check that cannot be made to fail on demand is not yet known to be a check.
+
+### Pending fold-in — the turn reported itself over while the answer was still arriving
+
+Three independent observations from round 9's recorded runs, in **both** builds, are the same
+defect seen from three angles.
+
+> An answer reached the screen as `"Customize based on your household's unique needs (pet"`
+> where the model had written `"…(pets, seniors, infants)."` The full text was present in a
+> capture taken moments later.
+
+> The same shape on a different task in the other arm: `"…and inspection require"` against
+> `"…and inspection requirements."`
+
+> A `stream-edge` span still present **263 ms after** `run.json` recorded
+> `"endReason": "composer-idle"`, with the message ~65 characters short — painted at
+> `opacity: 0.2`, which a critic measured at **1.49:1**.
+
+Round 9's streaming work was right about the problem it named: a tail that lands in one jump
+reads worse than one that flows. What it shipped was a paced display cursor, a post-paint follow
+scroll, and a fade on the newest word. Nothing here removes any of that. What it did not do is
+tell the rest of the app that painting takes time.
+
+#### `composer-idle` was keyed on the last byte, not the last paint
+
+`composer-idle` is the harness's name for the frame the composer stops carrying `.composer-live`,
+which is `store.streaming` going false, which is the `finally` of `executeTargets`. Upstream of
+it, `runTurn`'s own `finally` called `tail.finish()` — and v2.1's `finish()` set an `ended` flag,
+requested a frame, and **returned**. The drain it started ran on afterwards with nobody waiting
+for it. So the app released the composer, turned Stop back into Send, and unlocked the finished
+reply's action row while up to `CATCH_UP_SNAP_CHARS` of the answer were still queued to draw.
+
+Nothing about that is a race the reader wins. Every artifact taken at turn end — a screenshot, an
+`innerText` read, a `Copy` click — samples a half-painted answer, and pressing Send lands a new
+message on a turn that is still writing the last one.
+
+`finish()` is now awaitable and resolves on the last publish, and both call sites await it. The
+turn ends when the answer is on screen.
+
+**The drain needed a deadline, not just a waiter.** While tokens are arriving the glide is
+time-free: it takes a fraction of the backlog per frame and the stream keeps refilling it. Once
+the stream stops there is nothing left to smooth against, and that same fraction becomes an
+open-ended typewriter — measured, a 65-character backlog took ~560 ms, and 1,200 characters would
+have taken ~1.3 s with the composer held throughout. The post-end drain is therefore keyed to a
+clock: each frame moves the share of the backlog that fits in the frames left before
+`TAIL_DRAIN_MS`, so the last character lands on the deadline whether five characters are
+outstanding or twelve hundred. 0.4 s, which is exactly one `.stream-edge` fade.
+
+**What Stop means while the tail is still painting.** It means stop. `finish(immediate)` publishes
+the remainder in one flush and resolves at once — a user who pressed Stop asked for the turn to be
+over, not to watch the rest of it type itself out. Every character that had streamed is still
+kept, which is what makes it Stop and not Discard.
+
+#### The 0.2 was not a fade the reader passes through — it is where the word rests
+
+The comment on `fadeStreamEdge` says the remount is deliberate: *the leading edge of the text
+holds soft for as long as it is the leading edge.* That is exactly what it does, and it is the
+defect. The flush cadence is `TAIL_FLUSH_MS` = 33 ms and the span is recreated on every flush, so
+the animation restarts roughly every 33 ms — while the fade needs **149 ms** to climb out of the
+sub-AA band on the light panel. The leading word never once reaches legibility.
+
+Measured in Chromium at the real cadence, 1.2 s of sampling per theme:
+
+| | opacity range | contrast range | frames below AA |
+| --- | --- | --- | --- |
+| light, remounted every 33 ms | 0.20–0.31 (mean 0.249) | **1.49–1.89:1** (mean 1.84) | **71 of 73** |
+| dark, remounted every 33 ms | 0.20–0.31 (mean 0.247) | **1.73–2.11:1** (mean 2.26) | **71 of 73** |
+| light, mounted once and left alone | 0.20 → 1 over 0.4 s | 1.49 → 14.98:1 | 8 of 37 (first 149 ms) |
+| dark, mounted once and left alone | 0.20 → 1 over 0.4 s | 1.73 → 17.53:1 | 5 of 37 (first 99 ms) |
+
+So the question "is this transient?" has a number attached, and the answer is no on both
+readings. Under the cadence the app actually runs, 97% of frames are below AA and the word rests
+there. And even the un-restarted curve — the one the CSS describes — spends its first 149 ms
+illegible, on *every word of every reply*, which is not a fade nobody can catch.
+
+The word left illegible in the recorded capture was `"safe"`, in an answer about food safety.
+
+**The floor is measured, not chosen.** Sweeping opacity against the composited reply surface:
+light theme is the binding one in both directions, because dimming dark ink toward a white panel
+loses contrast faster than dimming light ink toward a black one.
+
+| floor | light | dark |
+| --- | --- | --- |
+| 0.20 (shipped) | **1.49:1** | **1.73:1** |
+| 0.60 | 4.13:1 | 6.65:1 |
+| 0.63 | 4.53:1 | 7.24:1 |
+| **0.66 (chosen)** | **4.97:1** | **7.87:1** |
+| 1.00 (no fade) | 14.98:1 | 17.53:1 |
+
+0.63 is where the light panel first clears AA; 0.66 is the same measurement with margin. The fade
+survives — 0.66 → 1 still visibly softens the newest word — and it also shrinks the step that word
+takes when the stream moves past it and the span disappears: 0.73 → 1 rather than 0.31 → 1.
+
+#### This defect was also an instrument fault
+
+Round 7 added `reply.md` — the raw markdown beside the rendered text — so a blind critic could
+detect the renderer deleting characters. It found two real defects that way. But `reply.txt` is
+`innerText`, read at turn end, and turn end was the last byte: a paint lag counterfeits exactly
+the signature of a renderer loss. The comparison had acquired a **false-positive mode** — "the
+renderer dropped 65 characters" about a renderer that dropped none.
+
+`scripts/h2h-capture.ts` now does **both** available repairs, and doing only one would have been
+wrong either way:
+
+- **Settle before reading.** After turn end, poll the assistant's rendered prose length until it
+  has been unchanged for 100 ms *and* no `.stream-edge` span remains, then let two frames pass so
+  the last mutation is actually on screen. Polled on a timer rather than on rAF, and the paint
+  wait raced against a timeout, because frames stop in an occluded window and the whole wait
+  would hang there; bounded at 2.5 s either way. This works against **any** build, which is the
+  case that matters: a critic compares two arms and only one of them is ours.
+- **Record what the wait cost.** `textSettledMs`, `textGrewAfterTurnEndChars`,
+  `streamEdgeAtTurnEnd` and `streamEdgeClearedMs` land in every `turns[]` entry, and a non-zero
+  growth raises a note in plain words. Settling alone would have quietly absorbed the very defect
+  the instrument exists to expose — the harness would have started hiding a product fault it was
+  built to reveal, which is a worse failure than the false positive it was fixing.
+
+The two together give a critic a decision procedure it did not have: a shortfall against
+`reply.md` with `textGrewAfterTurnEndChars` at 0 is a real loss; above 0, the build released its
+composer mid-paint and that is the finding.
+
+#### Measured, in `test/streamingTail.test.ts` and `test/chromeContrastCheck.ts`
+
+The contrast row is composited in a real offscreen window over the surfaces the app actually
+stacks, in both themes. The floor is **scraped out of the `@keyframes` block**, never restated in
+the test — the same rule as `PICK`, and for the same reason: this file has twice certified ink it
+never rendered because a probe stopped resolving and measured something else in silence. The
+fixture disables every animation, so the scraped floor is applied inline; without that the probe
+would render at full ink and pass while saying nothing.
+
+| True positive | Before | After |
+| --- | --- | --- |
+| `finish()` resolves only once the whole reply has been published | resolves immediately, reply short | resolves on the last publish |
+| the last word is on screen when the turn ends | `…keep them` | `…keep them safe` |
+| the drain lands inside its deadline at 40 / 400 / 4,000 chars | unbounded (~1.3 s at 1,200) | ≤ `TAIL_DRAIN_MS` at every size |
+| a usurped tail still resolves its waiter | never resolves — an awaited `finish()` would hang the turn | resolves |
+| `finish()` resolves with frames stopped (occlusion) | — | resolves off the chunk-flush path |
+| light: streaming tail edge clears AA | **1.49:1** | **4.97:1** |
+| dark: streaming tail edge clears AA | **1.73:1** | **7.87:1** |
+
+**The true negatives, which are the point.** The animation must still animate; every check above
+is satisfiable by deleting it.
+
+| True negative | Measured |
+| --- | --- |
+| A finished tail is still published in more than one step | ≥ 3 publishes for a 600-char backlog; fails when the glide is replaced by a snap |
+| The publishes are monotonic and never overrun the buffer | max published length ≤ buffer length |
+| The first publish of a burst is a fraction of it | < 400 of 400 chars |
+| The newest word still arrives softer than settled ink | fails at `from { opacity: 1 }` — "the fade does nothing" |
+| The fade is still an animation, not a static dimmer | `.stream-edge` still declares `animation: stream-edge-in <duration>` |
+| Stop does not cost the user text that already arrived | 2,000 of 2,000 chars kept, and it does not wait out the drain deadline |
+
+Every row above was confirmed by mutation — reverting `finish()` to fire-and-forget fails 5 of the
+9 transport cases and none of the negatives; replacing the glide with a snap fails exactly the
+negative and none of the positives; setting the floor back to 0.2 reproduces 1.49:1 / 1.73:1;
+setting it to 1 fails the "still fades" negative alone. A check that cannot be made to fail on
+demand is not yet known to be a check.
+
+#### What this does not measure
+
+The paint settle is verified against the app's own DOM, not against a second renderer. And the
+0.4 s drain deadline is a design choice measured for boundedness, not for taste: nothing here
+establishes that 0.4 s is the *right* length for a tail to land in, only that it is a length, that
+it is one `.stream-edge` fade, and that the composer is held for exactly as long as text is still
+appearing and not a frame longer.
