@@ -732,6 +732,10 @@ export const MessageBubble = memo(function MessageBubble({
   // it lasts, and — once the checks start — the signal that this message's
   // text is final enough to copy, read aloud or branch.
   const turnPhase = useAppStore((s) => s.turnPhase)
+  // What the transport has seen of the request in flight — the two facts the
+  // wait line is entitled to speak from. Null for every message but the one
+  // streaming, and null while no request is open.
+  const streamWitness = useAppStore((s) => s.streamWitness)
   const secondOpinionEnabled = useAppStore((s) => s.settings?.secondOpinion.enabled) ?? false
   const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
   const reasoningDisplay = useAppStore((s) => s.settings?.reasoningDisplay) ?? 'collapsed'
@@ -844,10 +848,21 @@ export const MessageBubble = memo(function MessageBubble({
   const streamActivity = `${displayContent.length}:${(message.reasoning ?? '').length}:${toolCalls
     .map((t) => `${t.id}${t.status}`)
     .join(',')}`
-  // Which of the transport's two deadlines is actually counting down: a stream
-  // that has already produced something is under the stall timeout, one that
-  // has produced nothing at all is still under the first-byte ceiling.
-  const streamStarted = (message.reasoning ?? '') !== '' || toolCalls.length > 0
+  /**
+   * Which of the transport's two deadlines is actually counting down, and what
+   * the wait line is allowed to say about the silence.
+   *
+   * v1.17.4: read from the transport, not inferred from the message. This was
+   * `(message.reasoning ?? '') !== '' || toolCalls.length > 0` — a fact about
+   * the TURN standing in for a fact about the REQUEST — and after any tool call
+   * it stayed true for the rest of the turn. Every later round arms the
+   * five-minute first-byte ceiling afresh, so from the first tool call onward
+   * the line promised `gives up at 1:00` against a deadline four minutes
+   * further out. The transport now publishes what it has actually seen of the
+   * request in flight, and this reads it.
+   */
+  const seen = streamWitness?.messageId === message.id ? streamWitness : null
+  const streamStarted = seen?.streamed ?? false
   // The action row follows the ANSWER, not the turn. Verification keeps
   // `streaming` true for seconds after the last token, and none of it can
   // change whether a finished reply may be copied, spoken or branched — so
@@ -1008,6 +1023,7 @@ export const MessageBubble = memo(function MessageBubble({
             state={oasisState}
             activity={streamActivity}
             deadlineMs={streamStarted ? STREAM_STALL_MS : FIRST_BYTE_TIMEOUT_MS}
+            seen={seen}
           />
         )}
 

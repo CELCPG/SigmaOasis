@@ -64,11 +64,31 @@ export function planContext(messages: ChatMessage[]): string {
 }
 
 /**
- * Pending plan approvals, keyed by assistant message id. The Approve/Cancel
- * buttons in PlanBlock resolve these; an aborted stream resolves false so the
- * executor never hangs waiting on a dialog the user already walked away from.
+ * How the approval gate ended — v1.17.4.
+ *
+ * Three outcomes, not two, and the third is the point. Through v1.17.3 this
+ * resolved a boolean and the executor then re-derived which kind of refusal it
+ * had been by reading `signal.aborted` immediately afterwards: a fact about the
+ * turn's abort controller standing in for a fact about which control the reader
+ * pressed. That is this project's named recurring defect — reading a quantity
+ * *adjacent to* the one you mean — and the quantity itself was right there, in
+ * the resolver that was being called.
+ *
+ * So the decision is recorded where it is made. `'stopped'` is written by the
+ * abort listener and by nothing else; `'cancelled'` is written by
+ * `resolvePlan(id, false)` and by nothing else, and that function's only caller
+ * in the app is the Cancel button inside the plan block. That is what entitles
+ * `OUTCOME_LABEL.cancelled` to name the reader.
  */
-export const planApprovals = new Map<string, (approved: boolean) => void>()
+export type PlanDecision = 'approved' | 'cancelled' | 'stopped'
+
+/**
+ * Pending plan approvals, keyed by assistant message id. The Approve/Cancel
+ * buttons in PlanBlock resolve these; an aborted stream resolves 'stopped' so
+ * the executor never hangs waiting on a dialog the user already walked away
+ * from.
+ */
+export const planApprovals = new Map<string, (decision: PlanDecision) => void>()
 
 /**
  * Where a plan step's tool calls go.
@@ -283,22 +303,26 @@ export async function runPlanTurn(
 
   // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
   if (settings.plan.confirmPlan) {
-    const approved = await new Promise<boolean>((resolve) => {
+    const decision = await new Promise<PlanDecision>((resolve) => {
       planApprovals.set(assistantMsg.id, resolve)
-      signal.addEventListener('abort', () => resolve(false), { once: true })
+      signal.addEventListener('abort', () => resolve('stopped'), { once: true })
     })
     planApprovals.delete(assistantMsg.id)
     const plan = currentPlan()
-    if (!approved) {
+    if (decision !== 'approved') {
       // The refusal has to reach the block, not just the prose: with only
       // `approved:false` it still read "awaiting approval" with a live Run
       // button under a message saying nothing was executed.
-      const stopped = signal.aborted
-      finish(stopped ? 'stopped' : 'cancelled')
+      //
+      // v1.17.4: and it names who refused. Both of these are the reader's own
+      // doing — there is no third path out of this gate — so both say so, in
+      // the same voice the outcome badge above them uses.
+      finish(decision)
       patch({
-        content: stopped
-          ? 'Stopped before the plan ran — nothing was executed.'
-          : 'Plan cancelled — nothing was executed.'
+        content:
+          decision === 'stopped'
+            ? 'You stopped this before the plan ran — nothing was executed.'
+            : 'You cancelled this plan — nothing was executed.'
       })
       return
     }

@@ -32,10 +32,31 @@ export function awaitingApproval(plan: ChatPlan): boolean {
   return !plan.outcome && !plan.approved && plan.steps.every((s) => s.status === 'pending')
 }
 
-/** What the header says instead of a step count once the plan is over. */
+/**
+ * What the header says instead of a step count once the plan is over.
+ *
+ * v1.17.4 — a blind critic, on the cancelled badge: *"`cancelled — nothing ran`
+ * attributes the decision to nobody, where the same build family manages
+ * `stopped by you` elsewhere."*
+ *
+ * The first question is whether the app can honestly say otherwise, and here it
+ * can, absolutely rather than usually. `cancelled` has exactly one writer —
+ * `resolvePlan(id, false)` in useLMStudio.ts — and that function's only caller
+ * is the Cancel button inside this block. A plan the app abandons on its own
+ * does not land here: an aborted turn writes `stopped` (from the abort
+ * listener on the approval gate, or from the `signal.aborted` checks around
+ * each step), a step that throws writes `failed`, and a plan that runs out
+ * writes `completed`. There is no fourth way in, so there is no case to hedge
+ * for and no second sentence to write.
+ *
+ * The half that was already right is kept. "nothing ran" is the other thing a
+ * reader of a dead checklist needs — that the steps below are a list of things
+ * that did not happen — and dropping it to make room for the attribution would
+ * have traded one missing fact for another.
+ */
 export const OUTCOME_LABEL: Record<PlanOutcome, string> = {
   completed: 'finished',
-  cancelled: 'cancelled — nothing ran',
+  cancelled: 'cancelled by you — nothing ran',
   stopped: 'stopped by you',
   failed: 'failed'
 }

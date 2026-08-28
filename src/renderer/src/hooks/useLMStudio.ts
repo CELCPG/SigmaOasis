@@ -476,6 +476,16 @@ async function runTurn(
    * a stall the user pressed Stop on — leaves this function by the throw.
    */
   const witness = newWitness()
+  // v1.17.4: and the same record, published while the reader is still waiting
+  // on it. The post-mortem above answers "who fell silent" once the turn is
+  // over; the thinking indicator has to answer "what is happening right now"
+  // at sixty seconds, off the same two facts, from the same one recorder.
+  witness.onChange = (): void =>
+    useAppStore.getState().setStreamWitness({
+      messageId: assistantMsg.id,
+      accepted: witness.round.accepted,
+      streamed: witness.round.streamed
+    })
 
   // The tool-call loop itself lives in lib/agentLoop.ts — a pure state machine
   // with injectable transport, reachable from node:test. The deps below carry
@@ -594,6 +604,10 @@ async function runTurn(
     // not to watch the rest of it type itself out, so the remainder lands in
     // one publish — which still keeps every character that had streamed.
     await tail.finish(signal.aborted)
+    // Nothing is in flight any more, so nothing may still be described as
+    // being waited on. Released here rather than at the return, because the
+    // measured case leaves this function by the throw.
+    useAppStore.getState().setStreamWitness(null)
     // v1.17.3: and record how it ended, on the same three paths. `signal` is
     // the OUTER controller — the watchdog aborts its own inner one — so
     // `signal.aborted` here means the user pressed Stop and nothing else does.
@@ -1082,12 +1096,21 @@ export function useLMStudio(): {
     []
   )
 
-  /** PlanBlock's Approve/Cancel buttons resolve the executor's pending gate. */
+  /**
+   * PlanBlock's Approve/Cancel buttons resolve the executor's pending gate.
+   *
+   * v1.17.4: this is the app's ONLY writer of the `cancelled` outcome, and its
+   * only caller is the Cancel control inside the plan block. Every other way a
+   * plan can end is `stopped` (the abort listener on the turn's signal, i.e.
+   * the composer's Stop), `failed` or `completed`. The reader's Cancel is
+   * therefore not merely the usual cause of `cancelled` — it is the only one,
+   * which is what lets the badge say `cancelled by you` without hedging.
+   */
   const resolvePlan = useCallback((messageId: string, approved: boolean): void => {
     const resolve = planApprovals.get(messageId)
     if (resolve) {
       planApprovals.delete(messageId)
-      resolve(approved)
+      resolve(approved ? 'approved' : 'cancelled')
     }
   }, [])
 

@@ -4714,3 +4714,141 @@ again under exactly one condition: **the same raw text, once, and only when it s
 measurement the first reading lacked.** The caller's subject and source are deliberately *not*
 merged — the first reading knew who wrote the text, and letting an outer layer overwrite that is how
 a relayed message quietly becomes ours.
+
+### Pending fold-in — two silences and a decision, each attributed to nobody
+
+Two findings from round 11's blind critics, and one defect between them: **the app knew who did
+what and printed a sentence that did not say.** Round 10 built the machinery for exactly this —
+`StreamWitness` in `hooks/chatTransport.ts` records `accepted` (response headers arrived) and
+`streamed` (a body byte arrived) and survives the abort that ends a turn — and then read it in
+precisely one place, the post-mortem. Both findings are places the same two facts were already
+available and unspoken.
+
+#### 1. `cancelled — nothing ran` — cancelled by whom?
+
+> `"cancelled — nothing ran"` attributes the decision to nobody, where the same build family
+> manages `"stopped by you"` elsewhere.
+
+The question that has to be answered before the sentence is written is whether the app may name a
+party at all — a badge that says "by you" over a plan the app abandoned is round 9's defect in a
+new place. It may, and absolutely rather than usually:
+
+| how a plan ends | who did it | what the badge says |
+| --- | --- | --- |
+| Cancel, in the plan block | the reader | `cancelled by you — nothing ran` |
+| Stop, in the composer | the reader | `stopped by you` |
+| a step threw | the app | `failed` |
+| every step ran | the app | `completed` |
+
+`cancelled` has **exactly one writer** in the renderer — `resolvePlan(id, false)` in
+`hooks/useLMStudio.ts` — and that function's only caller is the Cancel button inside the block.
+There is no fourth way in, so there is no second case to write words for, and no hedge.
+
+That was not quite true before, and the repair is the interesting half. The approval gate resolved
+a **boolean**, and the executor then worked out which kind of refusal it had been by reading
+`signal.aborted` on the next line: a fact about the turn's abort controller standing in for a fact
+about which control the reader pressed. That is this project's named recurring defect — reading a
+quantity *adjacent to* the one you mean — and the quantity itself was in the resolver being called.
+The gate now resolves a `PlanDecision` (`'approved' | 'cancelled' | 'stopped'`): the abort listener
+writes `'stopped'`, the Cancel button writes `'cancelled'`, and nothing infers anything. The prose
+under the block follows the badge — `You cancelled this plan — nothing was executed.` and
+`You stopped this before the plan ran — nothing was executed.`
+
+The half that was already right is kept: "nothing ran" is what tells a reader that the rows below
+are a list of things that did not happen, and v1.12.3's finding — a reader lifting `Result: ~$1,080`
+off a step that never executed — is why it could not be dropped to make room for the attribution.
+
+**True negatives, asserted:** `completed` and `failed` must *not* name the reader, and a source-level
+guard fails if a second writer of `cancelled` ever appears — a rendered checklist cannot catch a new
+code path that ends a plan without the reader touching it, so the test reads the source.
+
+#### 2. Ninety seconds of silence that never said what kind
+
+> The one thing it knows and never says during the wait is that the server accepted the request and
+> has sent zero bytes since — the distinction between a slow model and a dead stream, which is
+> exactly what the reader needs at 60 seconds to decide whether to keep waiting.
+
+Both builds spent ninety seconds showing `still waiting on the model · 1:31 · gives up at 5:00`.
+Two things were wrong with that line and they are the same thing: it never said what the transport
+had witnessed, and **"the model" was itself an attribution the app had not established** — before
+response headers arrive, what the app is waiting on is the *server*, and no model is known to have
+been reached at all.
+
+The subject is now chosen from the record:
+
+| witnessed | what the reader is told |
+| --- | --- |
+| a tool is running | `still waiting on deep_research` — the wait is on the tool; no witness applies to it |
+| no record at all | `still waiting on the model` — a model call is in flight and nothing finer is known |
+| no headers yet | `LM Studio has not answered the request yet` |
+| headers, no body byte | `LM Studio took the request and has sent nothing back` |
+| body bytes, then silence | `LM Studio started replying, then went quiet` |
+
+The no-record row is the honest minimum rather than a leftover: a plan step's sub-turn, a
+consultation and the claim-check pass all call the transport without a witness, and for those the
+app really does know only that it asked a model something.
+
+**When it escalates, and to what.** At sixty seconds — `STREAM_STALL_MS`, reused rather than
+reinvented, because it is already the app's answer to "how long may a socket that was working go
+quiet before the app stops believing in it" — a second line appears:
+
+> `Nothing has been written back since — the app cannot tell a prompt still being processed from a
+> dead stream.`
+
+**This is the true negative, and it is the whole design.** A model that is genuinely just slow — a
+30k-token prompt is most of a minute of legitimate silence on a 9B, and far more on a CPU — is
+`accepted && !streamed` for the whole of it, byte for byte identical to a server that has died. The
+app *cannot* tell them apart, so it must not claim to. It names both readings, innocent one first,
+and leaves the decision with the reader, whose hardware and prompt it is. Asserted at 30 s, 60 s,
+2 min and 10 min: no line ever says the stream is dead. A stream that produced bytes and went quiet
+gets no note at all — its ceiling is the one-minute stall budget, so the transport ends that turn at
+the exact instant the note would appear, and a sentence the reader cannot finish reading is worse
+than none.
+
+#### 3. `gives up at 5:00`, tested at last — and the sentence it printed was false
+
+Eleven rounds of captures never reached the five-minute ceiling, so nobody knew whether the promise
+on screen was kept. **It is** — proved now on both silences, including the one that was untested:
+the abort has to travel from the watchdog through an *already-delivered* response into a pending
+`read()`, which is a different path from the never-answered POST the suite already covered.
+
+Testing it turned up the sentence it fires with. One constant covered both silences —
+
+> `LM Studio accepted the request and then sent nothing for 300s.`
+
+— and the suite pinned it on a `fetch` that never resolves: a request whose response headers never
+arrived, i.e. one LM Studio had **not** accepted. The test's own name said so ("a POST that is never
+answered") while the string it asserted said the opposite. Round 9's defect, alive inside the module
+built to end it, asserted by the test that was supposed to guard it. The witness already knew which,
+so the message is chosen when the timer *fires* rather than when it is armed — `accepted` being
+precisely the thing that may change in between:
+
+- never answered → `LM Studio never answered the request — no reply headers came back for 300s.`
+- accepted, then nothing → `LM Studio accepted the request and then sent nothing for 300s.`
+
+Each case asserts that it is **not** the other's sentence.
+
+**Five minutes is left where it is, and that is a judgement, not an omission.** A stall and a slow
+answer already get different patience — one minute between chunks, five before the first byte — and
+that split is the right one, because it is drawn on evidence the app has: bytes arrived, or they did
+not. Splitting the five further, into "no headers" versus "headers but no body", would draw a line
+on something the app *cannot* read: whether a server flushes headers before its first token is an
+implementation detail of the server, not a signal about the model's progress. And the silence being
+budgeted is prompt processing, whose real duration scales with prompt size and hardware speed —
+~300 tok/s measured on qwen3.5-9b-mlx, an order of magnitude less on CPU-only inference. Aborting a
+turn that was about to answer is a worse failure than a long wait. What a long wait does not deserve
+is *silence about itself*, and that is what changed.
+
+#### 4. The deadline the line promised was the wrong one after any tool call
+
+Found while wiring the above. `MessageBubble` picked between the two deadlines with
+`(message.reasoning ?? '') !== '' || toolCalls.length > 0` — a fact about the **turn** standing in
+for a fact about the **request** — so from the first tool call onward it declared the stream started
+for the rest of the turn. Every later round of a tool loop arms the five-minute first-byte ceiling
+afresh, so the line promised `gives up at 1:00` against a deadline four minutes further out.
+
+The witness now carries a round-scoped pair beside the turn-scoped one, published at three
+transitions — the request, the headers, the first body byte — through a small store slice only the
+thinking indicator subscribes to (the `streamingTail` pattern, for the `streamingTail` reason: a
+store commit per chunk is what that slice exists to avoid). The turn-scoped pair is untouched, and
+`explainEmptyReply` still reads exactly what it read before.
