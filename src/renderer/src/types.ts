@@ -797,6 +797,13 @@ export interface GroundingReport {
   contacts?: string[]
   /** v1.12.1: tools the reply says it used that never ran this turn. */
   toolClaims?: string[]
+  /**
+   * v2.3: the same account in the mirror — a tool that DID run which the reply
+   * says did not, or whose finished work it offers to begin. See
+   * `contradictedToolAccounts` in lib/toolGrounding.ts for why this direction
+   * is the worse of the two.
+   */
+  toolDenials?: string[]
   /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
   toolDisclosure?: string[]
   /** v2.2: a tool the reply's account credits with more calls than the turn made. */

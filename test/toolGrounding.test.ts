@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import {
   checkToolGrounding,
   contradictedOrigins,
+  contradictedToolAccounts,
+  describeToolAccount,
   describeCoverage,
   describeGroundingFindings,
   describeMatchedMeasurements,
@@ -3534,5 +3536,358 @@ ${rows.join('\n')}`
     assert.deepEqual(measurementSources(coverage.checked, retrieved), [
       { raw: '165°F', passages: ['[2]'], lines: 5 }
     ])
+  })
+})
+
+/**
+ * v2.3, round 11 — the reply's account of the application read in the DENIAL
+ * direction, found in both builds and on more than one task.
+ *
+ * The two strings below are transcribed from recorded runs. The first told a
+ * reader that the three `✓ ⚙️ reference_lookup` blocks directly above it had
+ * not happened; the second offered to begin a web search whose three results
+ * were already on screen. `unrunToolClaims` guards the opposite direction and
+ * stayed silent on both, because `NOT_A_CLAIM` throws out every negation —
+ * which is right for that rung, and is exactly the hole this one fills.
+ *
+ * The pairing is the point. This is the highest cry-wolf risk in the ladder: a
+ * hedge is not a lie, a sentence about a previous turn is not about this one,
+ * and an offer to search *again* is not a denial. Every true positive here has
+ * its true negative beside it.
+ */
+const DENIAL_REPLY =
+  'No documents were used in that response — it came entirely from general knowledge ' +
+  'already in my training data. I did not call any search or reference lookup tools.'
+
+/**
+ * `.h2h-runs/A11/TTU1-20260828-123018`, whole rather than excerpted — and the
+ * whole is what makes it hard. `✓ 🔍 web_search` and `✓ ⚙️ reference_lookup`
+ * both ran; the reply cites three passages, says "The passages mention…" and
+ * "The references do direct you…", and then offers to begin the web search that
+ * had already returned. Every acknowledgment in it is scoped to the library,
+ * and the offer is scoped explicitly beyond the library — so an answer-wide
+ * acknowledgment gate reads the first as covering the second and goes silent on
+ * the recorded failure. It is the reason `acknowledges` is per tool.
+ */
+const OFFER_REPLY =
+  'None of the reference documents in your emergency preparedness library provide specific ' +
+  'guidance on how long you should keep a fire extinguisher before replacing it. The passages ' +
+  'mention having one available [1], keeping one in the kitchen [2], and including one in an ' +
+  'earthquake supply kit [3], but none give replacement intervals or service schedules.\n\n' +
+  'The references do direct you to contact your local fire department for assistance on proper ' +
+  'use and maintenance [2]. For a specific answer on replacement timing, I would need to consult ' +
+  "additional sources beyond what's in your library. Would you like me to search for current " +
+  'guidance on that?'
+
+/** One `reference_lookup` call, distinct per query so three of them are three records. */
+function lookup(query: string): ToolCallRecord {
+  return {
+    id: `reference_lookup-${query}`,
+    name: 'reference_lookup',
+    args: { query },
+    result: `Reference passages for "${query}": [1] Keep the wound covered. [5] Change the dressing daily.`,
+    status: 'done'
+  }
+}
+
+const THREE_LOOKUPS = [lookup('wound care'), lookup('dressing change'), lookup('first aid kit')]
+
+const SEARCH_HIT = rec(
+  'web_search',
+  '1. Current first-aid guidance — https://example.org/guidance\n' +
+    '2. Updated protocol — https://example.org/protocol\n' +
+    '3. Practitioner notes — https://example.org/notes'
+)
+
+/** The recorded turn's own record set: a search and a lookup, both returning. */
+const OFFER_TURN = [SEARCH_HIT, lookup('fire extinguisher replacement')]
+
+describe('the account of what the app did, denied (v2.3)', () => {
+  test('the recorded denial: three lookups ran and the reply says none did', () => {
+    assert.deepEqual(contradictedToolAccounts(DENIAL_REPLY, THREE_LOOKUPS), [
+      { name: 'reference_lookup', kind: 'denied', ran: 3 }
+    ])
+    assert.equal(
+      describeToolAccount({ name: 'reference_lookup', kind: 'denied', ran: 3 }),
+      'reference_lookup ran 3 times and this reply says it did not run'
+    )
+  })
+
+  test('THE TRUE NEGATIVE — the identical reply on a turn that really ran nothing', () => {
+    // Word for word the same sentence, and now it is true. The records are the
+    // whole difference, which is the only thing this rung is allowed to read.
+    assert.deepEqual(contradictedToolAccounts(DENIAL_REPLY, []), [])
+    assert.equal(checkToolGrounding(DENIAL_REPLY, [], 'what should I do about the cut'), null)
+  })
+
+  test('a named denial is read the same way, and one call reads as “once”', () => {
+    assert.deepEqual(
+      contradictedToolAccounts("I didn't use reference_lookup for this.", [lookup('wound care')]),
+      [{ name: 'reference_lookup', kind: 'denied', ran: 1 }]
+    )
+    assert.equal(
+      describeToolAccount({ name: 'reference_lookup', kind: 'denied', ran: 1 }),
+      'reference_lookup ran once and this reply says it did not run'
+    )
+  })
+
+  test('THE TRUE NEGATIVE — denying a tool that genuinely did not run', () => {
+    // web_search was never called, so "I didn't use web_search" is true, and a
+    // reply saying which tool it did NOT reach for is being helpful.
+    assert.deepEqual(
+      contradictedToolAccounts("I didn't use web_search for this.", THREE_LOOKUPS),
+      []
+    )
+    assert.deepEqual(contradictedToolAccounts('I did not run any Python here.', THREE_LOOKUPS), [])
+  })
+
+  test('THE TRUE NEGATIVE — a hedge is not a denial', () => {
+    // The brief's own example, plus one that reaches the guard rather than
+    // failing the lead pattern: "If I did not use…" is a conditional, and a
+    // model reasoning about its own process out loud asserts nothing.
+    for (const answer of [
+      'I may not have searched for this.',
+      'I may not have used reference_lookup for this.',
+      "I don't think I called reference_lookup.",
+      'If I did not use any tools, these came from memory.',
+      'I did not use reference_lookup, though I could be misremembering.'
+    ]) {
+      assert.deepEqual(contradictedToolAccounts(answer, THREE_LOOKUPS), [], answer)
+    }
+  })
+
+  test('THE TRUE NEGATIVE — a denial about a previous turn is not this turn’s', () => {
+    // The recorded reply carries one of each. "No documents were used in that
+    // response" points somewhere this pass never sees; the sentence after it
+    // does not, and only that one is faulted above.
+    assert.deepEqual(
+      contradictedToolAccounts('No documents were used in that response.', THREE_LOOKUPS),
+      []
+    )
+    for (const answer of [
+      'I did not use any tools in that response.',
+      'I did not call reference_lookup earlier in this conversation.',
+      'I had not used any tools before now.'
+    ]) {
+      assert.deepEqual(contradictedToolAccounts(answer, THREE_LOOKUPS), [], answer)
+    }
+  })
+
+  test('THE TRUE NEGATIVE — a reply that AFFIRMS the same tool is dividing a question', () => {
+    // `.h2h-runs/B3/VC3-20260824-171623`, and the first false positive the
+    // sweep over the recorded runs turned up. One lookup ran; the reply says it
+    // used the tool for one half of the question and not for the other. That is
+    // a claim about what the passages covered, which this pass cannot
+    // adjudicate — so the whole tool goes quiet.
+    const answer =
+      'I did use reference_lookup for your cooked chicken question. ' +
+      'I did not use reference_lookup for the cooking temperature part — there were no ' +
+      'specific numbers in your library on that topic.'
+    assert.deepEqual(contradictedToolAccounts(answer, [lookup('cooked chicken')]), [])
+    // Cut the affirming sentence and the denial stands on its own again.
+    assert.deepEqual(
+      contradictedToolAccounts(answer.split('. ').slice(1).join('. '), [lookup('cooked chicken')]),
+      [{ name: 'reference_lookup', kind: 'denied', ran: 1 }]
+    )
+  })
+
+  test('an OFFER to run the tool is not an affirmation that it already ran', () => {
+    // What keeps the recorded failures flagged: all of them close by offering
+    // to run the very tool they have just denied. `AFFIRMED_LEAD` takes no
+    // modals, so "I can run reference_lookup right now" affirms nothing.
+    const answer =
+      'I did not call reference_lookup for this. If you like, I can run reference_lookup right now.'
+    assert.deepEqual(contradictedToolAccounts(answer, [lookup('wound care')]), [
+      { name: 'reference_lookup', kind: 'denied', ran: 1 }
+    ])
+  })
+
+  test('an adverb between the negation and the act does not hide the denial', () => {
+    // `.h2h-runs/A9/VC3-20260827-183015` writes "I did not actually call".
+    assert.deepEqual(
+      contradictedToolAccounts('I did not actually call reference_lookup here.', [
+        lookup('wound care')
+      ]),
+      [{ name: 'reference_lookup', kind: 'denied', ran: 1 }]
+    )
+  })
+
+  test('a call that ERRORED still ran, so denying it is still false', () => {
+    // `unrunToolClaims`' own rule read in the mirror: it has to be the same
+    // rule in both directions or the app says two things about one record.
+    assert.deepEqual(
+      contradictedToolAccounts('I did not use any tools for this.', [
+        rec('web_search', 'HTTP 500 from the provider', 'error')
+      ]),
+      [{ name: 'web_search', kind: 'denied', ran: 1 }]
+    )
+  })
+
+  test('THE TRUE NEGATIVE — a DECLINED call did not run, so denying it is true', () => {
+    // Nothing was contacted and nothing broke; the app itself refused to send
+    // it. A reply saying so agrees with the record.
+    const declined: ToolCallRecord = {
+      id: 'web_search-declined',
+      name: 'web_search',
+      args: { query: 'who are you' },
+      result: 'Declined — that query is a sentence about you, not search terms, so it was not sent.',
+      status: 'error'
+    }
+    assert.deepEqual(contradictedToolAccounts('I did not use any tools for this.', [declined]), [])
+  })
+
+  test('the two directions can never both speak about one sentence', () => {
+    // `NOT_A_CLAIM` throws out every negation, and this rung requires one.
+    const answer = 'I did not use reference_lookup for this.'
+    assert.deepEqual(unrunToolClaims(answer, THREE_LOOKUPS), [])
+    assert.deepEqual(
+      contradictedToolAccounts(answer, THREE_LOOKUPS).map((f) => f.name),
+      ['reference_lookup']
+    )
+  })
+
+  test('reported through checkToolGrounding, with the badge naming the count', () => {
+    const report = checkToolGrounding(
+      DENIAL_REPLY,
+      THREE_LOOKUPS,
+      'which documents did you use for that'
+    )
+    assert.ok(report, 'expected a report: three lookups ran and the reply denies all three')
+    assert.deepEqual(report!.toolDenials, [
+      'reference_lookup ran 3 times and this reply says it did not run'
+    ])
+    assert.match(
+      describeGroundingFindings(report!),
+      /account of this turn contradicts what ran: reference_lookup ran 3 times/
+    )
+    // The count and the names come from the same place — round 4's invariant.
+    assert.equal(groundingFindingLabels(report).length, groundingFindingCount(report))
+  })
+})
+
+describe('the account of what the app did, offered as still to do (v2.3)', () => {
+  test('the recorded offer: a search with three results, offered as future work', () => {
+    // Both tools ran, as they did on the recorded turn. The library work is
+    // acknowledged at length — cited passages, "The passages mention", "The
+    // references do direct you" — so `reference_lookup` draws nothing. Not one
+    // of those sentences is about the web search, which the reply offers as
+    // though it had not happened.
+    assert.deepEqual(contradictedToolAccounts(OFFER_REPLY, OFFER_TURN), [
+      { name: 'web_search', kind: 'offered', ran: 1 }
+    ])
+    assert.equal(
+      describeToolAccount({ name: 'web_search', kind: 'offered', ran: 1 }),
+      'web_search ran once and this reply offers to run it'
+    )
+  })
+
+  test('with only the search running, the same reply is read as acknowledging it', () => {
+    // A documented miss, and the conservative direction. If no lookup ran, the
+    // passages the reply cites can only have come from the search — so "The
+    // passages mention…" IS an acknowledgment of it, and the offer beside an
+    // acknowledgment is a next step. A generic acknowledgment stops counting
+    // for a tool only when the sentence names a DIFFERENT tool's corpus and
+    // that tool actually ran.
+    assert.deepEqual(contradictedToolAccounts(OFFER_REPLY, [SEARCH_HIT]), [])
+  })
+
+  test('THE TRUE NEGATIVE — an offer to search AGAIN is not a denial', () => {
+    // The brief's requirement, and the family of words that concede a first
+    // pass happened.
+    for (const answer of [
+      'Would you like me to search again for more recent guidance?',
+      'Would you like me to search another source for that?',
+      'I can search further if you want the state-level rules.',
+      'Would you like me to search for anything else?'
+    ]) {
+      assert.deepEqual(contradictedToolAccounts(answer, [SEARCH_HIT]), [], answer)
+    }
+  })
+
+  test('THE TRUE NEGATIVE — the qualifier IS the concession', () => {
+    // `.h2h-runs/A7/TTU1-20260825-021621`, the sweep's second false positive: a
+    // search had run, the reply said the packs do not cover replacement
+    // intervals, and it offered "a fresh web search" / "a targeted web search".
+    // Naming what would make the second search different from the first
+    // concedes the first as plainly as "again" does.
+    const answer =
+      'The referenced FEMA materials do not specify replacement intervals. ' +
+      'To get a verified answer I would need a fresh web search targeting the NFPA. ' +
+      'Would you like me to try a targeted web search for replacement intervals?'
+    assert.deepEqual(contradictedToolAccounts(answer, [SEARCH_HIT]), [])
+  })
+
+  test('THE TRUE NEGATIVE — an offer beside an acknowledgment is a next step', () => {
+    // The app cannot tell one subject from another — see `describeCoverage` for
+    // why it must not try — so a reply that says the work happened has not
+    // hidden it, and the offer reads as what it is.
+    for (const answer of [
+      'I searched and found three sources. Would you like me to search for the state rules?',
+      'The results above cover the federal rule. Would you like me to search for the state one?',
+      'Guidance [1] covers this. Would you like me to search for the state rule?'
+    ]) {
+      assert.deepEqual(contradictedToolAccounts(answer, [SEARCH_HIT]), [], answer)
+    }
+  })
+
+  test('THE TRUE NEGATIVE — offering a tool that did not run', () => {
+    // Only `reference_lookup` ran, so offering a web search is an offer to do
+    // something this turn has not done.
+    assert.deepEqual(contradictedToolAccounts(OFFER_REPLY, THREE_LOOKUPS), [])
+  })
+
+  test('THE TRUE NEGATIVE — a search that found nothing, or broke, is still to do', () => {
+    // A call that came back empty-handed succeeded as a call and failed as a
+    // lookup. Offering to go and look is honest — and this is the one place the
+    // two halves part company: denying that call would still be false.
+    const empty = rec('web_search', 'No results found for "current first-aid guidance".')
+    const broken = rec('web_search', 'HTTP 500 from the provider', 'error')
+    const lib = lookup('fire extinguisher replacement')
+    assert.deepEqual(contradictedToolAccounts(OFFER_REPLY, [empty, lib]), [])
+    assert.deepEqual(contradictedToolAccounts(OFFER_REPLY, [broken, lib]), [])
+  })
+
+  test('THE TRUE NEGATIVE — an offer that is not this tool’s work', () => {
+    for (const answer of [
+      'Would you like me to summarise that into a checklist?',
+      'Would you like me to search your library for the pack it came from?',
+      'I can walk through the steps in more detail if that helps.'
+    ]) {
+      assert.deepEqual(contradictedToolAccounts(answer, [SEARCH_HIT]), [], answer)
+    }
+  })
+
+  test('one tool gets one line: a denial swallows the offer beside it', () => {
+    const answer = `${DENIAL_REPLY} Would you like me to look it up?`
+    assert.deepEqual(contradictedToolAccounts(answer, THREE_LOOKUPS), [
+      { name: 'reference_lookup', kind: 'denied', ran: 3 }
+    ])
+  })
+
+  test('reported through checkToolGrounding, with the badge naming the offer', () => {
+    const report = checkToolGrounding(
+      OFFER_REPLY,
+      OFFER_TURN,
+      'how long should I keep a fire extinguisher before replacing it'
+    )
+    assert.ok(report, 'expected a report: web_search returned three results already')
+    assert.deepEqual(report!.toolDenials, ['web_search ran once and this reply offers to run it'])
+    assert.equal(groundingFindingCount(report), 1)
+    assert.equal(groundingFindingLabels(report).length, 1)
+  })
+
+  test('THE TRUE NEGATIVE, on screen — the honest reply draws no badge at all', () => {
+    // The same turn answered honestly: the search is acknowledged and the offer
+    // is for the next thing. Nothing on screen, from any rung.
+    const honest =
+      'I searched and found three sources on this. Change the dressing daily. ' +
+      'Would you like me to search for the state-level rules as well?'
+    assert.equal(
+      checkToolGrounding(honest, [SEARCH_HIT], 'what is the current first-aid guidance'),
+      null,
+      JSON.stringify(
+        checkToolGrounding(honest, [SEARCH_HIT], 'what is the current first-aid guidance')
+      )
+    )
   })
 })
