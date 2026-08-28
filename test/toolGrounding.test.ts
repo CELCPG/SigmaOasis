@@ -1,5 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   checkToolGrounding,
   contradictedOrigins,
@@ -29,7 +31,9 @@ import {
   convertUnit,
   inScale,
   isRatioScale,
-  measurementGroup
+  measurementGroup,
+  measurementsIn,
+  temperatureScale
 } from '../src/shared/measurements'
 import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 
@@ -3319,5 +3323,216 @@ describe('where a supported measurement was matched (v2.2)', () => {
     // It is provenance, not a fault: it must not change what the badge counts.
     assert.equal(groundingFindingCount(report), 1)
     assert.equal(groundingFindingLabels(report).length, 1)
+  })
+})
+
+/**
+ * Round 11 named this and could not test it: *"the backing checker matches
+ * literally — it over-warns on `165 °F` against `165° F`"*. The whole measured
+ * difference between the two arms on task V1 was one space character the model
+ * happened to type, so the critic tied the task as model variance and the
+ * checker's behaviour went unexercised.
+ *
+ * The corpus here is the pack this app ships, read off disk rather than
+ * transcribed, because the point of the failure is that a *corpus* writes one
+ * temperature several ways and nobody chose that.
+ * `refrigerator-thermometers.md` writes `40°F`, `40° F` and `40 °F`;
+ * `safe-temperature-chart.md` writes `165 degrees F`. Together they are the
+ * shape that faulted a correct answer: the fridge temperatures arm the
+ * temperature dimension, so the rung runs — and before v2.4 the poultry
+ * temperature was invisible to it because the chart spelled `degrees` out, so
+ * the only value 165 could be compared against was 40.
+ */
+describe('spacing and spelling cannot decide whether a figure is backed (v2.4)', () => {
+  const pack = (name: string): string =>
+    readFileSync(join(__dirname, '..', '..', 'packs/food-safety/docs', `${name}.md`), 'utf-8')
+
+  const CORPUS = `${pack('refrigerator-thermometers')}\n${pack('safe-temperature-chart')}`
+  /** Written as escapes on purpose: an invisible character in a fixture is a trap. */
+  const NBSP = String.fromCharCode(0xa0)
+  const NNBSP = String.fromCharCode(0x202f)
+
+  test('the fixture is the failure: the pack really does write one value several ways', () => {
+    // If this stops holding, every case below is testing nothing. The spellings
+    // are the corpus's, not the model's — which is why normalising only what
+    // the reply wrote would have fixed nothing.
+    assert.ok(CORPUS.includes('165 degrees F'), 'the chart spells the scale out')
+    assert.ok(CORPUS.includes('40° F'), 'the fridge doc spaces after the degree sign')
+    assert.ok(CORPUS.includes('40 °F'), 'and before it')
+    // And the sharpest fact about this corpus: not one character of it is
+    // written the way a model writes the answer. Literal matching had nothing
+    // to find here, on a value stated five times.
+    assert.ok(!CORPUS.includes('165°F'), 'nothing here writes 165 the way the reply does')
+  })
+
+  /**
+   * The over-warn, one row per spelling. Every one of these is the same claim
+   * about the world and every one is stated in the passages; before v2.4 all
+   * but the fourth flagged, and which arm a reader got decided it.
+   */
+  const SAME_MEASUREMENT = [
+    '165°F',
+    '165° F',
+    '165 °F',
+    '165 degrees F',
+    '165 degrees Fahrenheit',
+    `165${NBSP}°F`
+  ]
+
+  for (const spelling of SAME_MEASUREMENT) {
+    test(`backed: a reply writing ${JSON.stringify(spelling)}`, () => {
+      const coverage = quantityCoverage(
+        `Cook poultry to ${spelling}, and keep the fridge at 40 °F.`,
+        CORPUS,
+        ''
+      )
+      assert.deepEqual(coverage.flagged, [], JSON.stringify(coverage.flagged))
+      // Not merely quiet — genuinely compared. A measurement that fell through
+      // to `unchecked` would also produce no finding, and would be the coverage
+      // line's overstatement rather than a fix.
+      assert.deepEqual(coverage.unchecked, [], JSON.stringify(coverage.unchecked))
+      assert.equal(coverage.checked.length, 2, JSON.stringify(coverage.checked))
+    })
+  }
+
+  test('the recorded V1 sentence, gone', () => {
+    // `⚠️ 1 measurement (165 °F) in this reply is not backed by the tool
+    // output.` — printed over a corpus that states it on five lines.
+    const report = checkToolGrounding(
+      'Cook poultry to 165°F. Keep the fridge at 40°F.',
+      [rec('reference_lookup', CORPUS)],
+      'how hot do I cook chicken?'
+    )
+    assert.equal(report, null, `expected no badge; got ${JSON.stringify(report?.quantities)}`)
+  })
+
+  /**
+   * **The true positives.** Each is one digit or one letter away from a value
+   * the passages do state, and each must still be named — otherwise the fold
+   * above has made every figure match something.
+   */
+  const STILL_CAUGHT = [
+    '185°F', // a temperature no passage states, in the corpus's own spelling
+    '185 degrees F', // the same invention, in the spelling this round armed
+    '165°C', // the right number on the wrong scale
+    '165 degrees C', // the same, spelled out — silently BACKED before v2.4
+    '165 degrees Celsius',
+    '1,650°F', // an order of magnitude out
+    '1,650 degrees F',
+    '16.5°F',
+    '330 degrees F' // twice a stated value: an interval scale is not derivable
+  ]
+
+  for (const invented of STILL_CAUGHT) {
+    test(`still caught: a reply writing ${JSON.stringify(invented)}`, () => {
+      const flagged = unsourcedQuantities(`Cook poultry to ${invented}.`, CORPUS, '')
+      assert.deepEqual(flagged, [invented], JSON.stringify(flagged))
+    })
+  }
+
+  test('the fold is a tightening too: °C is no longer backed by a passage in °F', () => {
+    // Before v2.4 `degrees f` and `degrees c` both normalised to `degree`, so
+    // the scale letter was dropped and a corpus stating `165 degrees F`
+    // certified a reply stating `165 degrees C` — 130 °F out. On the same
+    // corpus `165 °C` was flagged and `165 degrees C` was not, which is the
+    // over-warn's own defect pointing the other way.
+    assert.deepEqual(unsourcedQuantities('Cook poultry to 165 °C.', CORPUS, ''), ['165 °C'])
+    assert.deepEqual(unsourcedQuantities('Cook poultry to 165 degrees C.', CORPUS, ''), [
+      '165 degrees C'
+    ])
+  })
+
+  test('a scale that is genuinely unstated is still not a temperature', () => {
+    // Unchanged, and not a spacing question: nothing can convert a number whose
+    // scale nobody wrote down.
+    assert.equal(measurementGroup('degree'), null)
+    assert.equal(temperatureScale('degree'), null)
+    const coverage = quantityCoverage('Set the oven to 350 degrees.', CORPUS, '')
+    assert.deepEqual(coverage.flagged, [])
+    assert.deepEqual(coverage.unchecked, ['350 degrees'], 'compared against nothing, and says so')
+  })
+
+  test('"90 degrees clockwise" is not a Celsius reading', () => {
+    // `[cf]\b` cannot match the `c` of a longer word, which is what keeps the
+    // scale-bearing branch off the geometry sense of the word.
+    assert.deepEqual(
+      measurementsIn('rotate it 90 degrees clockwise').map((m) => m.unit),
+      ['degree']
+    )
+    assert.deepEqual(
+      measurementsIn('turn 90 degrees counterclockwise, then 45 degrees').map((m) => m.unit),
+      ['degree', 'degree']
+    )
+  })
+
+  test('the degree family has one parser, not three', () => {
+    // `normaliseUnit`, `unitSpec` and `temperatureScale` each knew a different
+    // subset of the spellings — the drift the shared file warns about, inside
+    // the shared file. Every route agrees now.
+    for (const written of ['165°F', '165° F', '165 °F', '165 degrees F', '165 degrees Fahrenheit']) {
+      const [m] = measurementsIn(written)
+      assert.equal(m.unit, '°f', written)
+      assert.equal(measurementGroup(m.unit), 'temperature', written)
+      assert.equal(temperatureScale(m.unit), 'f', written)
+      assert.equal(isRatioScale(m.unit), false, written)
+    }
+    for (const written of ['74°C', '74° C', '74 degrees C', '74 degrees Celsius']) {
+      assert.equal(measurementsIn(written)[0].unit, '°c', written)
+    }
+  })
+
+  test('the reader is shown the span they can find on screen', () => {
+    // The unit is folded for comparison; the reported span stays verbatim,
+    // because a warning naming a figure the reply does not contain is the
+    // defect this file has paid for twice.
+    assert.deepEqual(
+      measurementsIn('Cook to 165 degrees F, not 145 degrees F.').map((m) => m.raw),
+      ['165 degrees F', '145 degrees F']
+    )
+  })
+
+  test('a no-break space joins a number to its unit; a line break still does not', () => {
+    // Opposite claims about the same character class, and `[ \t]` got both
+    // wrong in the same direction: a no-break space is exactly what a
+    // typesetter uses to keep a unit with its number, and it made the
+    // measurement disappear entirely.
+    assert.deepEqual(
+      measurementsIn(`400${NBSP}mg`).map((m) => m.raw),
+      ['400 mg']
+    )
+    assert.deepEqual(
+      measurementsIn(`5${NNBSP}km`).map((m) => m.raw),
+      ['5 km']
+    )
+    // The trap the matcher has guarded since v1.9.2, unchanged.
+    assert.deepEqual(measurementsIn('Total time: 3:47\nMiles run: 26.2'), [])
+    assert.deepEqual(measurementsIn('cook to 165\n°F'), [])
+  })
+
+  test('a passage spelling the scale out can now locate the value', () => {
+    // `measurementSources` keys off the same unit string, so the provenance
+    // line was blind to the chart's rows in exactly the same way — a reply
+    // whose temperature the passage states five times got no line at all.
+    //
+    // The rows are the chart's own, lifted at test time; only the lookup
+    // envelope around them is written here, because a marker is what the
+    // provenance line points at.
+    const rows = pack('safe-temperature-chart')
+      .split('\n')
+      .filter((line) => line.includes('165 degrees F'))
+    assert.equal(rows.length, 5, 'the chart states it on five rows')
+    const lookup = `Reference passages for "safe cooking temperature for poultry" from the local library (keyword ranking), most relevant first.
+
+[2] Food safety › Safe temperature chart (USDA) › Poultry · 22% in
+    source: https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/safe-temperature-chart
+    relevance 0.51
+${rows.join('\n')}`
+
+    const retrieved = retrievedCitations([rec('reference_lookup', lookup)])
+    const coverage = quantityCoverage('Cook poultry to 165°F.', lookup, '')
+    assert.deepEqual(coverage.flagged, [])
+    assert.deepEqual(measurementSources(coverage.checked, retrieved), [
+      { raw: '165°F', passages: ['[2]'], lines: 5 }
+    ])
   })
 })
