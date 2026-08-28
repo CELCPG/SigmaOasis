@@ -371,6 +371,30 @@ function paletteProbes(dark: boolean): string {
 }
 
 /**
+ * The floor of the streaming tail's fade, read out of the keyframe that defines
+ * it rather than copied here.
+ *
+ * `.stream-edge` wraps the newest word of a live reply and animates its opacity
+ * from a floor toward full ink. The floor is not a value the reader glimpses on
+ * the way past: MessageBubble re-sets the streaming body's HTML on every paced
+ * flush, which remounts the span and restarts the animation, so the leading word
+ * sits at the floor for as long as it is the leading word. At 0.2 that was
+ * 1.49:1 on the light panel — measured over 1.2 s of the real 33 ms cadence in
+ * this engine, 71 of 73 frames were below AA — and the word left illegible on a
+ * recorded run was "safe", in an answer about food safety.
+ *
+ * So the floor is measured like any other ink. The value is scraped, not
+ * restated, for the same reason PICK scrapes class strings out of the
+ * components: a copy passes after the thing it copied has changed.
+ */
+const STREAM_EDGE_FLOOR = (() => {
+  const css = readFileSync(CSS_PATH, 'utf8')
+  const block = css.match(/@keyframes\s+stream-edge-in\s*\{([\s\S]*?)\n\}/)
+  const from = block?.[1]?.match(/from\s*\{[^}]*opacity:\s*([\d.]+)/)
+  return { found: !!from, value: from ? Number(from[1]) : NaN }
+})()
+
+/**
  * Every text node here carries information the reply depends on: what was
  * consulted, how long it took, which model answered, what each control does,
  * whether a disclosure is open. A purely decorative glyph may sit lighter —
@@ -420,7 +444,12 @@ const LOAD_BEARING = [
   'ran code error',
   'settings warning',
   'settings test failed',
-  'settings test ok'
+  'settings test ok',
+  // v2.2. The live tail's newest word, at the floor of its fade — where the
+  // remount cadence holds it for the whole time it is the newest word. This is
+  // the only row here that is *animating* text; it is load-bearing because it
+  // is the answer, and the answer arrives through it.
+  'streaming tail edge'
 ]
 
 /**
@@ -476,6 +505,13 @@ function fixture(dark: boolean): string {
               <p><a href="#" data-ink="prose link">The source table</a> lists every cut.</p>
               <blockquote data-ink="prose quote">Rest the meat for three minutes before carving.</blockquote>
               <p>Cook it to 74&nbsp;°C <span class="${c('unresolvedMarker')}" data-ink="unresolved citation">[9]</span>.</p>
+              <!-- The live tail's newest word, held at the floor of its fade.
+                   The floor is applied inline because this fixture disables
+                   every animation (see the head): with \`animation: none\` the
+                   span would render at full ink and the check would certify a
+                   state the streaming reply never passes through. The number
+                   is scraped from the keyframe itself, so it cannot drift. -->
+              <p>Leftovers keep for four days if they are <span class="stream-edge" style="opacity: ${STREAM_EDGE_FLOOR.value}" data-ink="streaming tail edge">safe</span></p>
             </div>
             <div class="${c('provenanceRow')}">
               <button type="button" class="${c('provenanceButton')}" data-ink="library provenance">📖 From the library: Food safety › Safe minimum internal temperatures (0.72)<span class="${c('provenanceMark')}" data-ink="provenance verdict">— not cited</span> <span class="${c('provenanceNote')}" data-ink="provenance note">⚠️ [9] names no passage listed here, so the rest are left unjudged.</span> ▸</button>
@@ -718,6 +754,34 @@ async function main(): Promise<void> {
     .replace(/^[ \t]*\/\/.*$/gm, ' ')
   const dimmed = banner.match(/\bopacity-\d+/g) ?? []
   check('the grounding banner dims no ink with opacity', dimmed.length === 0, dimmed.join(', '))
+
+  // The streaming tail's fade, from both sides. The AA measurement is in the
+  // LOAD_BEARING loop below; these are the two ways to pass it without keeping
+  // the promise.
+  //
+  // Raising the floor to 1 would clear AA by deleting the animation, and the
+  // animation is solving a real problem — a tail that lands in one jump reads
+  // worse than one that flows. Deleting the keyframe would clear it by making
+  // the probe unmeasurable, which is the failure mode this file has hit twice
+  // before (an unemitted class, a stale scraped selector): a probe that no
+  // longer resolves does not fail, it measures something else and says nothing.
+  console.log('\nthe streaming tail still fades, and is legible while it does')
+  check(
+    'the tail fade keyframe was found, with a floor to measure',
+    STREAM_EDGE_FLOOR.found && Number.isFinite(STREAM_EDGE_FLOOR.value),
+    'no `from { opacity: … }` in @keyframes stream-edge-in'
+  )
+  check(
+    'the newest word still arrives softer than settled ink',
+    STREAM_EDGE_FLOOR.value < 1,
+    `floor is ${STREAM_EDGE_FLOOR.value} — the fade does nothing`
+  )
+  const edgeRule = readFileSync(CSS_PATH, 'utf8').match(/\.stream-edge\s*\{([^}]*)\}/)
+  check(
+    'the tail fade is still animated, not a static dimmer',
+    /animation:\s*stream-edge-in\s+[\d.]+m?s/.test(edgeRule?.[1] ?? ''),
+    edgeRule?.[1]?.trim() ?? 'no .stream-edge rule'
+  )
 
   const win = new BrowserWindow({
     show: false,

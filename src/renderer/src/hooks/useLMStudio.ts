@@ -541,7 +541,19 @@ async function runTurn(
   } finally {
     // Release the tail however the loop ended — abort included. This also
     // lands whatever content had streamed, so a stopped reply keeps its text.
-    tail.finish()
+    //
+    // v2.2: awaited, and that await is the fix for a turn that called itself
+    // finished while the answer was still being painted. Everything below —
+    // the checks, the phase labels, the action row, and the `setStreaming
+    // (false)` in the caller that releases the composer and turns Stop back
+    // into Send — now happens after the last character is on screen rather
+    // than after the last byte is off the socket. Bounded: TAIL_DRAIN_MS on a
+    // visible window, the 1500 ms backstop on an occluded one.
+    //
+    // Stop skips the wait entirely. The user asked for the turn to be over,
+    // not to watch the rest of it type itself out, so the remainder lands in
+    // one publish — which still keeps every character that had streamed.
+    await tail.finish(signal.aborted)
   }
 
   if (outcome.stopReason === 'aborted') return

@@ -36,6 +36,25 @@ export const TAIL_FLUSH_MS = 33
 const CATCH_UP_SNAP_CHARS = 1200
 
 /**
+ * How long the tail may still be painting after the stream has ended.
+ *
+ * While tokens are arriving the glide above is time-free: it eats a fraction of
+ * the backlog per frame, and the stream keeps refilling it. Once the stream
+ * ends there is nothing left to smooth against, and that same fraction turns
+ * into an open-ended typewriter — a 65-character backlog took ~560 ms to
+ * finish, which is how a reply reached a screenshot reading
+ * `…household's unique needs (pet` against a model that wrote `(pets, seniors,
+ * infants).`
+ *
+ * So the drain gets a deadline instead of a rate: each frame moves the share of
+ * what is left that the elapsed time is of the time remaining, which lands the
+ * last character on the deadline whether five characters are outstanding or
+ * twelve hundred. 0.4s is the length of the .stream-edge fade, so the final
+ * word gets exactly one of them.
+ */
+export const TAIL_DRAIN_MS = 400
+
+/**
  * Frames stop entirely in an occluded window. When the last frame is this
  * stale, the pacer assumes occlusion and flushes whole chunks from the network
  * callback instead — the pre-v2.1 behavior, which is the one that keeps
@@ -157,17 +176,51 @@ interface SseFrame {
  * flush, throttled by TAIL_FLUSH_MS; each snap also re-arms a frame request,
  * so pacing resumes by itself once the window is visible again.
  * Reduced-motion users get the un-paced flush always.
+ *
+ * v2.2: `finish()` is awaitable, and awaiting it is what makes "the turn is
+ * over" true. v2.1 shipped it as a fire-and-forget — it set `ended` and
+ * returned, leaving up to CATCH_UP_SNAP_CHARS still to paint while the caller
+ * went on to clear `streaming`, release the composer and turn Stop back into
+ * Send. The turn reported itself finished while the answer was still arriving,
+ * on both recorded arms: a `stream-edge` span was still on screen 263 ms after
+ * the harness stamped turn-end, with the message 65 characters short.
+ *
+ * `finish(immediate)` is the answer to "what should Stop mean while the tail is
+ * still painting": with `immediate` the remaining text lands in one publish and
+ * the promise resolves now, because a user who pressed Stop asked for the turn
+ * to be over, not to watch the rest of it type itself out. Without it the glide
+ * finishes on the TAIL_DRAIN_MS deadline and the promise resolves on the last
+ * publish. Either way it resolves exactly once, including when a newer
+ * message's stream has usurped the slice and when the window is occluded and
+ * the backstop is the only thing still running.
  */
 export function makeTailStream(
   assistantMsg: ChatMessage,
   patch: (p: Partial<ChatMessage>) => void
-): { schedule: () => void; commit: () => void; finish: () => void } {
+): {
+  schedule: () => void
+  commit: () => void
+  /** Resolves when the last character has been published — see above. */
+  finish: (immediate?: boolean) => Promise<void>
+} {
   let shown = 0
   let lastPublish = 0
   let lastFrame = Date.now()
   let raf = 0
   let ended = false
+  /** Wall-clock instant the drain must be complete by; set in finish(). */
+  let drainBy = 0
   let backstop: ReturnType<typeof setTimeout> | null = null
+  let settle: (() => void) | null = null
+  const settled = new Promise<void>((resolve) => {
+    settle = resolve
+  })
+  /** Idempotent: every path out of the drain calls it, and only the first counts. */
+  const done = (): void => {
+    const resolve = settle
+    settle = null
+    resolve?.()
+  }
   const reduceMotion =
     typeof window !== 'undefined' &&
     (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
@@ -197,20 +250,46 @@ export function makeTailStream(
       raf = 0
     }
     if (!usurped()) useAppStore.getState().setStreamingTail(null)
+    done()
+  }
+
+  /**
+   * Characters to advance this frame. While the stream is live that is a
+   * fraction of the backlog — the smoothing the pacer exists for. Once it has
+   * ended it is whatever lands the last character on `drainBy`, so the turn's
+   * text is complete within TAIL_DRAIN_MS of the stream stopping no matter how
+   * big the backlog was.
+   */
+  const advance = (remaining: number, now: number): number => {
+    if (ended) {
+      // Publishes are TAIL_FLUSH_MS apart, so this many are left before the
+      // deadline; spread the backlog evenly over them. Derived from the clock
+      // rather than from the gap since the last publish, which goes stale
+      // whenever the pacer was caught up when the last chunk arrived — and a
+      // stale gap would hand the whole tail to one frame, which is the pop.
+      const left = drainBy - now
+      if (left <= TAIL_FLUSH_MS) return remaining
+      return Math.max(2, Math.ceil((remaining * TAIL_FLUSH_MS) / left))
+    }
+    return remaining > CATCH_UP_SNAP_CHARS
+      ? remaining - CATCH_UP_SNAP_CHARS
+      : Math.max(2, Math.ceil(remaining / 8))
   }
 
   const step = (): void => {
     raf = 0
     const now = Date.now()
     lastFrame = now
-    if (usurped()) return
+    // A newer message owns the slice; this drain will never publish again, so
+    // the turn waiting on it must not wait forever.
+    if (usurped()) {
+      done()
+      return
+    }
     const total = assistantMsg.content.length
     if (shown < total && now - lastPublish >= TAIL_FLUSH_MS) {
       const remaining = total - shown
-      shown +=
-        remaining > CATCH_UP_SNAP_CHARS
-          ? remaining - CATCH_UP_SNAP_CHARS
-          : Math.max(2, Math.ceil(remaining / 8))
+      shown += advance(remaining, now)
       if (shown > total) shown = total
       // Never end the slice on a high surrogate — half an emoji renders as �.
       if (shown < total) {
@@ -230,7 +309,7 @@ export function makeTailStream(
     raf = requestAnimationFrame(step)
   }
 
-  /** Flush everything at once — the occluded / reduced-motion / backstop path. */
+  /** Flush everything at once — the occluded / reduced-motion / Stop / backstop path. */
   const snap = (): void => {
     shown = assistantMsg.content.length
     lastPublish = Date.now()
@@ -259,18 +338,21 @@ export function makeTailStream(
         snap()
       }
     },
-    finish(): void {
+    finish(immediate = false): Promise<void> {
       patch({ content: assistantMsg.content })
       ended = true
-      if (paced()) {
+      drainBy = Date.now() + TAIL_DRAIN_MS
+      if (paced() && !immediate) {
         if (!raf) raf = requestAnimationFrame(step)
         // If the window is occluded mid-drain, frames stop and the partial
         // tail would sit on screen indefinitely; a timer still fires, even
-        // throttled, and clears it.
+        // throttled, and clears it. It is also the only thing that resolves
+        // `settled` on that path, so the caller cannot be stranded either.
         backstop = setTimeout(snap, 1500)
       } else {
         snap()
       }
+      return settled
     }
   }
 }

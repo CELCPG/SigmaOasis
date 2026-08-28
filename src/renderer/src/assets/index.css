@@ -243,10 +243,34 @@ body {
  * this span remounts (and the animation restarts) for as long as its word is
  * the leading edge; the word settles to full ink once the stream moves past
  * it. Opacity only — a transform here would shift the line under the reader.
+ *
+ * v2.2: the floor is 0.66, not 0.2, and the difference is the whole point.
+ *
+ * The remount above is not a detail of the effect, it IS the effect: the flush
+ * cadence is TAIL_FLUSH_MS (33 ms) and the fade needs 149 ms to climb out of
+ * the sub-AA band, so the leading word restarted from the floor roughly four
+ * times before it could ever have become legible. Measured in this engine over
+ * 1.2 s of the real cadence: opacity oscillated 0.20–0.31 and 71 of 73 sampled
+ * frames sat below AA — 1.49:1 on the light panel, 1.73:1 on the dark one. It
+ * did not pass through illegibility, it rested there, and the word a critic
+ * could not read on a recorded run was “safe”, in an answer about food safety.
+ *
+ * 0.63 is where the light panel first clears 4.5:1 (4.53:1); 0.66 is the same
+ * measurement with margin — 4.97:1 light, 7.87:1 dark. Light is the binding
+ * theme in both directions, because dimming dark ink toward a white panel
+ * loses contrast faster than dimming light ink toward a black one.
+ *
+ * The fade survives, and so does the reason for it: a leading edge that pops
+ * in reads worse than one that flows. What cannot survive is a leading edge
+ * nobody can read, and 0.66 → 1 still visibly softens the newest word. It also
+ * shrinks the step the word takes when the stream moves past it and the span
+ * disappears — 0.73 → 1 rather than 0.31 → 1. The floor is measured, not
+ * chosen: test/chromeContrastCheck.ts scrapes it out of the keyframe below and
+ * composites it over the real reply surface in both themes.
  */
 @keyframes stream-edge-in {
   from {
-    opacity: 0.2;
+    opacity: 0.66;
   }
   to {
     opacity: 1;
