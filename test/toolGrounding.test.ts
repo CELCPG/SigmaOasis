@@ -5,12 +5,15 @@ import {
   contradictedOrigins,
   describeCoverage,
   describeGroundingFindings,
+  describeMatchedMeasurements,
   describeRevisionOutcome,
   describeUnbackedItems,
   groundingFindingCount,
   groundingFindingLabels,
+  measurementSources,
   misattributedCitations,
   misquotedSpans,
+  overstatedToolCounts,
   quantityCoverage,
   revisionIsAnImprovement,
   undisclosedToolRuns,
@@ -2411,6 +2414,35 @@ That is the general shape of it.`
     assert.equal(report!.quotes, undefined, JSON.stringify(report!.quotes))
   })
 
+  test('v2.2 — and it yields when the argument is RIGHT, which is when it matters', () => {
+    // Found while building the count rung, on that rung's own true negative.
+    // A quotation is checked against what the tools RETURNED, never what they
+    // were sent, so a reply quoting its own narrow query correctly has quoted
+    // something the corpus cannot contain. The dedupe ran on the MISSTATED
+    // arguments only — so getting the query right kept the wrong warning, and
+    // an honest account drew “Quoted as exact but in no tool output this turn:
+    // ‘ground beef safe internal temperature’”. What makes that accusation
+    // wrong is the shape of the claim, not whether the claim is true.
+    const narrow = lookupCall({ query: 'ground beef safe internal temperature' })
+    assert.deepEqual(misstatedToolArguments(TH1_REPLY, [narrow]), [])
+    assert.equal(
+      checkToolGrounding(TH1_REPLY, [narrow], TH1_PROMPT),
+      null,
+      JSON.stringify(checkToolGrounding(TH1_REPLY, [narrow], TH1_PROMPT))
+    )
+  })
+
+  test('v2.2 — and the laundering hole the corpus rule exists to close stays closed', () => {
+    // An invention passed as the query and then blockquoted as a source line
+    // is not written in `param: "value"` shape, so it is a quotation claim and
+    // is still faulted. This is the case the corpus rule was written for.
+    const invention = 'Ground beef is safe at 145 °F if it is held there for three minutes.'
+    const laundered = `The library gives this line:\n\n> "${invention}"\n\n**Tools used:** reference_lookup.`
+    const report = checkToolGrounding(laundered, [lookupCall({ query: invention })], TH1_PROMPT)
+    assert.ok(report, 'expected a report: the blockquoted line is in no passage')
+    assert.equal((report!.quotes ?? []).length, 1, JSON.stringify(report!.quotes))
+  })
+
   test('the honest reply produces no badge at all', () => {
     const honest = TH1_REPLY.replace('ground beef safe internal temperature', TH1_PROMPT)
     assert.equal(checkToolGrounding(honest, [TH1_CALL], TH1_PROMPT), null)
@@ -2937,5 +2969,355 @@ describe('the coverage sentence (v2.1)', () => {
   test('no gap, no sentence', () => {
     assert.equal(describeCoverage(of(3, 0, [])), '')
     assert.equal(describeCoverage({ figures: [], links: [], checkedAgainst: ['run_python'] }), '')
+  })
+})
+
+/**
+ * v2.2, round 9 — three checks that judged the wrong thing, and the fixture
+ * they share.
+ *
+ * Both passages are transcribed from the installed food-safety pack:
+ * `packs/food-safety/docs/cold-food-storage-chart.md` (the rows, verbatim,
+ * including the two ham rows and the whole-bird poultry row) and
+ * `packs/food-safety/docs/refrigerator-thermometers.md` (the sentence under
+ * "Avoid Overpacking"). The temperature passage is the poultry line of
+ * `safe-temperature-chart.md`. Numbered as one turn's lookup numbers them.
+ */
+const FRIDGE_LOOKUP = `Reference passages for "how long does cooked chicken keep in the fridge" from the local library (keyword ranking), most relevant first.
+
+[2] Food safety › Safe minimum internal temperatures (USDA) › Poultry · 22% in
+    source: https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/safe-temperature-chart
+    relevance 0.51
+| Poultry, all (whole, pieces, ground) | 165 °F |
+[5] Food safety › Cold food storage chart (USDA) › Refrigerated storage · 4% in
+    source: https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts
+    relevance 0.58
+| Ham | Fresh, uncured, cooked | 3 to 4 days | 3 to 4 months |
+| Ham | Canned, shelf-stable, opened | 3 to 4 days | 1 to 2 months |
+| Fresh poultry | Chicken or turkey, whole | 1 to 2 days | 1 year |
+| Leftovers | Cooked meat or poultry | 3 to 4 days | 2 to 6 months |
+[7] Food safety › Refrigerator thermometers — cold facts (FDA) › Refrigerator Strategies: Keeping Food Safe · 13% in
+    source: https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-thermometers-cold-facts-about-food-safety
+    relevance 0.604
+- Avoid "Overpacking." Cold air must circulate around refrigerated foods to keep them properly chilled.`
+
+/** Word for word from passage [7]. */
+const CHILLED = 'Cold air must circulate around refrigerated foods to keep them properly chilled.'
+/** The credit line the reply signed it with, and it names [7]'s own document. */
+const RIGHT_CREDIT = '[7] — FDA, Refrigerator thermometers — cold facts'
+const FRIDGE_PROMPT =
+  'Using only my reference library, how cold should the fridge be? Quote me the exact line.'
+
+/**
+ * Round 9, task TH3. The reply blockquoted a pack line and signed it. The
+ * quotation is verbatim inside its marks; the badge said it appears "in no
+ * tool output this turn", because the blockquote pattern bounded the claim by
+ * the LINE and swept the closing mark, the marker and the signature into it.
+ * The ⟪⟫ marker was right about where matching stopped — it wrapped the credit
+ * line — and the headline over it was wrong.
+ *
+ * Two failures in one design, so two tests: the false alarm on a verbatim
+ * quotation, and the silence on a credit line that names the wrong document.
+ */
+describe('a signed blockquote: the quotation and the credit are two claims (v2.2)', () => {
+  const retrieved = retrievedCitations([rec('reference_lookup', FRIDGE_LOOKUP)])
+  const signed = `> "${CHILLED}" ${RIGHT_CREDIT}\n`
+
+  test('THE TRUE NEGATIVE — verbatim words, right document, and the app says nothing', () => {
+    assert.deepEqual(misquotedSpans(signed, FRIDGE_LOOKUP), [])
+    assert.deepEqual(misattributedCitations(signed, retrieved), [])
+    assert.equal(
+      checkToolGrounding(
+        `The library has one line on this:\n\n${signed}`,
+        [rec('reference_lookup', FRIDGE_LOOKUP)],
+        FRIDGE_PROMPT
+      ),
+      null
+    )
+  })
+
+  test('the words are invented — the quotation rung speaks, and only it', () => {
+    const invented = `> "${CHILLED.replace('properly', 'perfectly')}" ${RIGHT_CREDIT}\n`
+    const flagged = misquotedSpans(invented, FRIDGE_LOOKUP)
+    assert.equal(flagged.length, 1)
+    assert.match(flagged[0]!, /⟪erfectly⟫/)
+    // The excerpt is drawn from inside the marks, so the reader is never shown
+    // the signature as if it were part of the source line.
+    assert.ok(!flagged[0]!.includes('FDA'), `credit line leaked into the excerpt: ${flagged[0]}`)
+    assert.deepEqual(misattributedCitations(invented, retrieved), [])
+  })
+
+  test('the credit is glued on wrong — the attribution rung speaks, and only it', () => {
+    // [7] is the FDA thermometer page; the cold food storage chart is [5], and
+    // it is USDA's. Before v2.2 this shape reached no attribution pattern at
+    // all: two of them want the title in parentheses and the third wants the
+    // marker to open the line.
+    const mislabelled = `> "${CHILLED}" [7] — USDA, Cold Food Storage Chart\n`
+    assert.deepEqual(misquotedSpans(mislabelled, FRIDGE_LOOKUP), [])
+    assert.deepEqual(misattributedCitations(mislabelled, retrieved), [
+      '[7] USDA, Cold Food Storage Chart'
+    ])
+  })
+
+  test('reported through checkToolGrounding, the two never speak for each other', () => {
+    const report = checkToolGrounding(
+      `The library has one line on this:\n\n> "${CHILLED}" [7] — USDA, Cold Food Storage Chart\n`,
+      [rec('reference_lookup', FRIDGE_LOOKUP)],
+      FRIDGE_PROMPT
+    )
+    assert.ok(report, 'expected a report: [7] is not the storage chart')
+    assert.deepEqual(report!.quotes ?? [], [])
+    assert.deepEqual(report!.attributions, ['[7] USDA, Cold Food Storage Chart'])
+    assert.match(describeGroundingFindings(report!), /wrong document/)
+  })
+
+  test('the same signature on a blockquote carrying no marks at all', () => {
+    // `carriesAQuotation` cannot help here — there are no marks to bound the
+    // claim — so the signature has to come off the tail instead. Both forms of
+    // the credit line, on one line and on its own.
+    assert.deepEqual(misquotedSpans(`> ${CHILLED} ${RIGHT_CREDIT}\n`, FRIDGE_LOOKUP), [])
+    assert.deepEqual(
+      misquotedSpans(`> ${CHILLED}\n> — FDA, Refrigerator thermometers\n`, FRIDGE_LOOKUP),
+      []
+    )
+  })
+
+  test('a blockquote with no marks is still checked — trimming the credit trims nothing else', () => {
+    // The rule is that the furniture is the quoter's, not that a blockquote
+    // stops being read. Passage [7] does not say "perfectly".
+    assert.equal(
+      misquotedSpans(`> ${CHILLED.replace('properly', 'perfectly')}\n`, FRIDGE_LOOKUP).length,
+      1
+    )
+    assert.equal(
+      misquotedSpans(
+        `> ${CHILLED.replace('properly', 'perfectly')} ${RIGHT_CREDIT}\n`,
+        FRIDGE_LOOKUP
+      ).length,
+      1
+    )
+  })
+
+  test('a stitched span whose tail is a figure, not a title, is still reported', () => {
+    // The recorded TH1 true positive: two separate lines of passage [2] joined
+    // by an em dash the reply supplied. `160°F` is one word and carries no
+    // capital, so `looksLikeTitle` refuses it and nothing is trimmed away.
+    assert.deepEqual(
+      misquotedSpans('> "Ground meats, such as beef and pork — 160°F" [2]\n', CDC_LOOKUP),
+      ['Ground meats, such as beef and pork ⟪—⟫ 160°F']
+    )
+  })
+
+  test('a dash into ordinary prose is not a credit line', () => {
+    // The dash gates the new pattern; `looksLikeTitle` throws out what it lets
+    // through. Neither of these is a finding: the first names no document, and
+    // the second names [5]'s own.
+    assert.deepEqual(
+      misattributedCitations('The chart is passage [5] — but check the date yourself.', retrieved),
+      []
+    )
+    assert.deepEqual(misattributedCitations('See [5] — Cold Food Storage Chart\n', retrieved), [])
+  })
+})
+
+/**
+ * v2.2, round 9 task TH1 — the prompt that asks, in as many words, "tell me
+ * exactly which tools you used". The reply's table gave `reference_lookup` two
+ * rows against a transcript and an audit holding one call, and no rung counted.
+ */
+const TWO_ROW_ACCOUNT = `Ground beef needs to reach an internal temperature of **160 °F**.
+
+**Tools used:**
+
+| Tool | Argument sent | What it gave back |
+|------|---------------|-------------------|
+| reference_lookup | query: "ground beef safe internal temperature" | [2] CDC — 160°F for ground meats |
+| reference_lookup | query: "ground beef doneness" | [3] USDA — measure with a thermometer |`
+
+/** The two queries the account claims, so an honest turn can really have sent them. */
+function beefLookup(query: string): ToolCallRecord {
+  return { id: `reference_lookup-${query}`, name: 'reference_lookup', args: { query }, result: 'passages', status: 'done' }
+}
+
+describe('the account of how many times a tool ran (v2.2)', () => {
+  const one = [beefLookup('ground beef safe internal temperature')]
+  const two = [
+    beefLookup('ground beef safe internal temperature'),
+    beefLookup('ground beef doneness')
+  ]
+  /** The same account with its second row cut: one entry, honestly. */
+  const oneRow = TWO_ROW_ACCOUNT.split('\n').slice(0, -1).join('\n')
+
+  test('two rows against one call is a finding', () => {
+    assert.deepEqual(overstatedToolCounts(TWO_ROW_ACCOUNT, one), [
+      { name: 'reference_lookup', claimed: 2, ran: 1 }
+    ])
+  })
+
+  test('THE TRUE NEGATIVE — two rows against two calls says nothing', () => {
+    assert.deepEqual(overstatedToolCounts(TWO_ROW_ACCOUNT, two), [])
+  })
+
+  test('THE TRUE NEGATIVE — one row against one call says nothing', () => {
+    assert.deepEqual(overstatedToolCounts(oneRow, one), [])
+  })
+
+  test('an account that is SHORT is not this rung’s business', () => {
+    // Three calls, one row. That is a gap in a disclosure, and this check is
+    // deliberately one-directional: only claiming work that did not happen
+    // misleads a reader about what the turn did.
+    assert.deepEqual(overstatedToolCounts(oneRow, [...two, beefLookup('ground beef thermometer')]), [])
+  })
+
+  test('the count said out loud is read the same way', () => {
+    assert.deepEqual(overstatedToolCounts('I made 2 reference_lookup calls.', one), [
+      { name: 'reference_lookup', claimed: 2, ran: 1 }
+    ])
+    assert.deepEqual(overstatedToolCounts('I ran two calls to reference_lookup.', one), [
+      { name: 'reference_lookup', claimed: 2, ran: 1 }
+    ])
+    assert.deepEqual(overstatedToolCounts('Two calls to `reference_lookup` were made.', one), [
+      { name: 'reference_lookup', claimed: 2, ran: 1 }
+    ])
+  })
+
+  test('THE TRUE NEGATIVE — an honest spoken count, and a count of something else', () => {
+    assert.deepEqual(overstatedToolCounts('I made 1 reference_lookup call.', one), [])
+    assert.deepEqual(overstatedToolCounts('I made 2 reference_lookup calls.', two), [])
+    // The noun is the gate: passages are not calls, and three of them came
+    // back from one lookup.
+    assert.deepEqual(overstatedToolCounts('It returned 3 reference_lookup passages.', one), [])
+  })
+
+  test('a tool that never ran is unrunToolClaims’ finding, not a miscount', () => {
+    assert.deepEqual(overstatedToolCounts('I made 2 web_search calls.', one), [])
+  })
+
+  test('the round-9 table of DOCUMENTS is counted by neither name nor row', () => {
+    // Rows that are library documents name no tool, so the count rung is
+    // silent and `undisclosedToolRuns` keeps the finding that is actually
+    // there. The two must not both speak about one table.
+    assert.deepEqual(overstatedToolCounts(TOOLS_USED_TABLE, one), [])
+    assert.deepEqual(undisclosedToolRuns(TOOLS_USED_TABLE, one), ['reference_lookup'])
+  })
+
+  test('prose past the table cannot inflate the count', () => {
+    // The section `undisclosedToolRuns` reads is the whole rest of the answer,
+    // which would make every later mention another call. Only the first
+    // unbroken run of entry lines is counted.
+    const honest = `${oneRow}
+
+Then, separately:
+
+- reference_lookup gave the CDC page
+- reference_lookup gave the USDA page`
+    assert.deepEqual(overstatedToolCounts(honest, one), [])
+  })
+
+  test('reported through checkToolGrounding, with the badge naming both numbers', () => {
+    const report = checkToolGrounding(
+      TWO_ROW_ACCOUNT,
+      one,
+      'What temperature does ground beef need? Tell me exactly which tools you used.'
+    )
+    assert.ok(report, 'expected a report: the table accounts for two calls and one ran')
+    assert.deepEqual(report!.toolCounts, ['reference_lookup: 2 calls accounted for, 1 ran'])
+    assert.match(describeGroundingFindings(report!), /accounts for more calls than the turn made/)
+    // The count and the names come from the same place — round 4's invariant.
+    assert.equal(groundingFindingLabels(report).length, groundingFindingCount(report))
+  })
+
+  test('THE TRUE NEGATIVE, on screen — the honest account draws no badge at all', () => {
+    // The whole point of the pairing. Two rows, two calls, and the queries the
+    // rows quote are the queries that went: nothing on screen, from any rung.
+    assert.equal(
+      checkToolGrounding(
+        TWO_ROW_ACCOUNT,
+        two,
+        'What temperature does ground beef need? Tell me exactly which tools you used.'
+      ),
+      null,
+      JSON.stringify(
+        checkToolGrounding(
+          TWO_ROW_ACCOUNT,
+          two,
+          'What temperature does ground beef need? Tell me exactly which tools you used.'
+        )
+      )
+    )
+  })
+})
+
+/**
+ * v2.2, round 9 tasks V1 and V3 — "a quantity taken from the wrong row of a
+ * cited table passes". It still does, and `measurementSources` sets out why
+ * this app cannot honestly say otherwise: `3 to 4 days` stands in eleven rows
+ * of the storage chart, and on the very question the critics used it is the
+ * RIGHT row (`Leftovers | Cooked meat or poultry`). What can be said is where
+ * the value was found and on how many lines — the fact a reader needs in order
+ * to go and check the row themselves.
+ */
+describe('where a supported measurement was matched (v2.2)', () => {
+  const retrieved = retrievedCitations([rec('reference_lookup', FRIDGE_LOOKUP)])
+
+  test('a value on many rows is located, and its ambiguity is disclosed', () => {
+    const coverage = quantityCoverage(
+      'Cooked chicken keeps 3 to 4 days [5]; cook it to 180 °F.',
+      FRIDGE_LOOKUP,
+      ''
+    )
+    assert.deepEqual(measurementSources(coverage.checked, retrieved), [
+      { raw: '4 days', passages: ['[5]'], lines: 3 }
+    ])
+  })
+
+  test('a value on one row is located without the ambiguity sentence', () => {
+    const line = describeMatchedMeasurements({
+      figures: [],
+      links: [],
+      matched: [{ raw: '165 °F', passages: ['[2]'], lines: 1 }],
+      checkedAgainst: ['reference_lookup']
+    })
+    assert.equal(line, 'Matched by value, not by row: 165 °F — [2], 1 line.')
+    assert.ok(!line.includes('more than one line'))
+  })
+
+  test('the ambiguity sentence appears exactly when there is ambiguity', () => {
+    const line = describeMatchedMeasurements({
+      figures: [],
+      links: [],
+      matched: [{ raw: '4 days', passages: ['[5]'], lines: 3 }],
+      checkedAgainst: ['reference_lookup']
+    })
+    assert.match(line, /^Matched by value, not by row: 4 days — \[5\], 3 lines\./)
+    assert.match(line, /only the passage itself shows which one the answer took it from/)
+  })
+
+  test('it asserts nothing about aptness — a flagged value gets no line at all', () => {
+    // `180 °F` was compared against the poultry passage and matched nothing.
+    // There is no place to point at, so nothing is pointed at.
+    const coverage = quantityCoverage('Cook it to 180 °F.', FRIDGE_LOOKUP, '')
+    assert.deepEqual(coverage.flagged, ['180 °F'])
+    assert.deepEqual(measurementSources(coverage.checked, retrieved), [])
+  })
+
+  test('with no passages retrieved there is no marker to name', () => {
+    assert.deepEqual(measurementSources(['4 days'], []), [])
+    assert.equal(describeMatchedMeasurements({ figures: [], links: [], checkedAgainst: [] }), '')
+  })
+
+  test('the V1 shape end to end: the badge carries the provenance of what it checked', () => {
+    const report = checkToolGrounding(
+      'Cooked chicken keeps 3 to 4 days in the fridge [5]. Cook it to 180 °F [2].',
+      [rec('reference_lookup', FRIDGE_LOOKUP)],
+      'How many days is cooked chicken safe in the fridge, and what temperature do I cook it to?'
+    )
+    assert.ok(report, 'expected a report: no passage states 180 °F')
+    assert.deepEqual(report!.quantities, ['180 °F'])
+    assert.deepEqual(report!.matched, [{ raw: '4 days', passages: ['[5]'], lines: 3 }])
+    assert.match(describeMatchedMeasurements(report!), /4 days — \[5\], 3 lines/)
+    // It is provenance, not a fault: it must not change what the badge counts.
+    assert.equal(groundingFindingCount(report), 1)
+    assert.equal(groundingFindingLabels(report).length, 1)
   })
 })

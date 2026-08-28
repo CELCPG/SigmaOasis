@@ -779,6 +779,8 @@ export interface GroundingReport {
   toolClaims?: string[]
   /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
   toolDisclosure?: string[]
+  /** v2.2: a tool the reply's account credits with more calls than the turn made. */
+  toolCounts?: string[]
   /** v1.17: an argument the reply quotes as passed that the call never carried. */
   toolArgs?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox. */
@@ -808,6 +810,22 @@ export interface GroundingReport {
     /** The first few of those, as the reader can find them on screen. */
     uncheckedNamed: string[]
   }
+  /**
+   * v2.2: the mirror of `coverage`, and the second field here that is not a
+   * fault. Where each measurement the pass DID check was found — which
+   * numbered passage, and on how many of its lines the same value is stated.
+   * See `measurementSources` in lib/toolGrounding.ts for the round-9 finding
+   * that asked for a wrong-row check, and why this is what can honestly be
+   * said instead.
+   */
+  matched?: {
+    /** The span as the reply wrote it. */
+    raw: string
+    /** The passages that state that value, as their markers. */
+    passages: string[]
+    /** Lines of passage text stating it — a table row is a line. */
+    lines: number
+  }[]
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }
