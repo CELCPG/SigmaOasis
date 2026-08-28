@@ -62,6 +62,12 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { startLmShim, startSearchFixture } from './h2h-fixtures'
 import type { FixtureHandle, LmShimConfig, SearchFixtureConfig } from './h2h-fixtures'
+import {
+  compareInstruments,
+  describeInstrument,
+  gitProvenance,
+  staleInstrumentMessage
+} from './h2h-instrument'
 import { checkPreconditions, requiredCapabilities } from './h2h-preconditions'
 import {
   fingerprintChanged,
@@ -1600,6 +1606,33 @@ async function main(): Promise<void> {
     electronNames.map((p) => join(repoRoot, p)).find((p) => existsSync(p))
   if (!electron) throw new Error("no bundled Electron runtime found — run 'npm install'")
 
+  /**
+   * Is this harness fit to measure this build?
+   *
+   * `--app` names a different checkout from the one this script was compiled
+   * out of, and until round 11 nothing related the two. Round 10's sweep was
+   * launched from a repo root sitting on `main` while both arms were builds of
+   * the round's own branch; the paint-settling instrumentation the round had
+   * just built was therefore never exercised, and all 36 run.json files came
+   * out without it. Both arms used the same harness, so the comparison itself
+   * was sound — which is exactly why nothing noticed.
+   *
+   * The build's own checkout carries the harness it expects. If it knows a
+   * measurement this harness cannot emit, this harness is behind the thing it
+   * is measuring, and the sweep stops here — before the app is launched, before
+   * a run directory exists, on the first task rather than after thirty-six.
+   * The reverse (this harness ahead of the build's) is arm A every single
+   * round and passes without comment. See scripts/h2h-instrument.ts.
+   */
+  const invokedInstrument = describeInstrument(repoRoot)
+  const appInstrument = describeInstrument(appRoot)
+  const instrumentVerdict = compareInstruments(invokedInstrument, appInstrument)
+  if (!instrumentVerdict.ok) {
+    process.stderr.write(`\n${staleInstrumentMessage(instrumentVerdict, invokedInstrument, appInstrument)}\n\n`)
+    process.exit(5)
+  }
+  const harnessGit = gitProvenance(repoRoot)
+
   const startedAt = new Date()
   const runDir = join(args.outRoot, `${args.taskId}-${stamp(startedAt)}`)
   mkdirSync(runDir, { recursive: true })
@@ -2263,7 +2296,52 @@ async function main(): Promise<void> {
     const validity = validityReasons.length ? 'INVALID' : 'VALID'
 
     const run = {
-      schema: 'h2h-capture/1',
+      /**
+       * Bumped for `instrument` below. The version is deliberately NOT the
+       * place to look up what this file contains: round 10 added three
+       * measurements without touching it, which is precisely how a reader
+       * ended up unable to tell a missing field from a zero one.
+       */
+      schema: 'h2h-capture/2',
+      /**
+       * What measured this run, so a reader does not have to infer it.
+       *
+       * The problem this solves is small and had teeth: an absent field and a
+       * field that measured zero look identical in JSON. `measures` says what
+       * the harness was CAPABLE of emitting, read structurally out of its own
+       * source rather than hand-listed, so it cannot drift from what the file
+       * actually contains. A name here with no value below is a measurement
+       * that came back null; a name that is not here could never have appeared
+       * at all, and a question about it is unanswerable from this artifact
+       * rather than answered in the negative.
+       *
+       * Every field here describes the HARNESS and nothing else, so it is
+       * identical in both arms of a round by construction — one harness drives
+       * both — and `make-blind-pairs.mjs` asserts that rather than assuming it,
+       * which is what makes the block safe to stage into a blind pair.
+       *
+       * The fit check deliberately does NOT appear here. Its result is a fact
+       * about the build that was driven: this harness is "ahead of" the older
+       * arm's copy of itself and level with the newer one, so publishing it
+       * would label the two arms as neatly as a version number would. It lives
+       * in `_arm.json` with the rest of the identifying metadata.
+       */
+      instrument: {
+        sourceSha: invokedInstrument.sourceSha,
+        sources: invokedInstrument.sources,
+        commit: harnessGit.commit,
+        dirty: harnessGit.dirty,
+        measures: invokedInstrument.measures,
+        note:
+          'The harness that produced this file. "measures" is every figure this harness knows how ' +
+          'to emit, read out of its own source; a figure named there and missing below was measured ' +
+          'and came back null, and a figure not named there could not have been recorded at all — a ' +
+          'question about it is unanswerable from this run rather than answered no. "commit" is where ' +
+          'to find the harness again and is exact only when "dirty" is false; "sourceSha" is what was ' +
+          'actually read. This harness was also checked against the build it drove, and refused to ' +
+          'run had it been the older of the two; that check names the build, so its result is kept ' +
+          'out of this file.'
+      },
       taskId: args.taskId,
       prompt: args.prompt,
       startedAtIso: startedAt.toISOString(),
@@ -2435,6 +2513,40 @@ async function main(): Promise<void> {
           electronBinary: electron,
           mainEntry,
           cdpPort: args.port,
+          /**
+           * The half of the instrument record that names the build.
+           *
+           * `appHarness` is this build's own copy of the capture harness, and
+           * comparing it with the running one is what makes a stale sweep
+           * impossible. The result is arm-identifying — the older build is
+           * "behind" the harness and the newer one is level with it — so it
+           * belongs here rather than in run.json, which is staged blind.
+           *
+           * `harnessRoot` is likewise identifying only by accident of being an
+           * absolute path, but it is the answer to "which checkout produced
+           * this?", which is the question round 10 could not answer.
+           */
+          instrument: {
+            harnessRoot: repoRoot,
+            harnessSourceSha: invokedInstrument.sourceSha,
+            appHarness: {
+              path: join(appRoot, 'scripts', 'h2h-capture.ts'),
+              present: appInstrument.sourceAvailable,
+              sourceSha: appInstrument.sourceSha,
+              measures: appInstrument.measures
+            },
+            fit: {
+              checked: instrumentVerdict.skipped === null,
+              skipped: instrumentVerdict.skipped,
+              harnessAheadOfApp: instrumentVerdict.ahead,
+              harnessBehindApp: instrumentVerdict.behind
+            },
+            note:
+              'The running harness measured against the build it drove. "harnessBehindApp" is always ' +
+              'empty in a run that exists: a non-empty one exits 5 before the app is launched. ' +
+              '"harnessAheadOfApp" is expected to be non-empty for the older build of a round and ' +
+              'means only that the baseline predates the current instrument.'
+          },
           userDataDir: args.keepUserData ? userData : `${userData} (deleted after the run)`,
           seededConfig,
           platform: `${process.platform} ${process.arch}`,
@@ -2589,6 +2701,23 @@ TIMINGS
   numbers exclude the driver's own overhead. run.json states the sampling
   resolution and defines precisely what "first visible" and "turn end" mean.
   Read those definitions before comparing the numbers with anything else.
+
+WHAT MEASURED THIS, AND WHAT IT COULD MEASURE
+  run.json carries "instrument": the harness that produced this directory, and
+  "instrument.measures" — every figure that harness knows how to emit, read out
+  of its own source rather than listed by hand.
+
+  Use it before concluding anything from a figure you cannot find. A name that
+  appears in "measures" and has no value below was measured and came back null.
+  A name that does NOT appear could never have been written here at all: the
+  harness that ran predates it. A question about such a figure is unanswerable
+  from this run, and saying so is the correct answer — do not read the silence
+  as a zero, and do not read it as the build failing to do the thing.
+
+  This distinction is not hypothetical. One round's whole instrument
+  improvement was absent from all thirty-six runs of its own sweep because the
+  harness was launched from the wrong checkout, and the artifacts gave a reader
+  no way to tell that from a build that simply never triggered the measurement.
 
 FILES BEGINNING WITH "_"
   Harness bookkeeping and identifying metadata. If you are reading this

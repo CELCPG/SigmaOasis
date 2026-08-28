@@ -406,8 +406,10 @@ neither keeps nor drops, or if a descriptive field carries a build fingerprint.
 
 ## Running it
 
-The harness is four files:
+The harness is five files:
 
+- `scripts/h2h-instrument.ts` — what the harness is, and whether it is the right
+  one for the build it was pointed at. See *Which harness measured this* below.
 - `scripts/h2h-fixtures.ts` — the loopback servers described above, as a
   reusable module (and a small CLI for poking one by hand). Each keeps a request
   log; a run whose fixture was never contacted is marked `INVALID` rather than
@@ -462,11 +464,54 @@ Runs land in `.h2h-runs/<arm>/<taskId>-<timestamp>/`. Beyond the artifacts the
 capture always wrote, a run now carries `fixtures/` (every request each fixture
 served), `snapshots/` (DOM captured at the moments a task names, per-text-node computed
 styles for the tasks that measure ink, and keyboard-traversal records), and in
-`run.json`: `driverActions` (everything the driver did and when), `turns` (one
+`run.json`: `instrument` (which harness measured this, and what it could
+measure), `driverActions` (everything the driver did and when), `turns` (one
 entry per turn, for the multi-turn tasks), `setup.seededSettingsVerified`,
 `preconditions` (each declared capability and whether it was really there),
 `screenAtTurnEnd` (the theme the run finished in, and whether a modal was
 covering the app when its artifacts were taken), and `validity`.
+
+### Which harness measured this
+
+The arms are builds, named by `--app <dir>`. The harness is a *third* checkout —
+whichever one `h2h-capture.sh` was invoked from — and until round 11 nothing
+related the two or recorded the second at all.
+
+Round 10 paid for that. It built `textSettledMs`, `textGrewAfterTurnEndChars`
+and `streamEdgeAtTurnEnd` into the capture, then ran its sweep from a repo root
+sitting on `main`. All 36 `run.json` files came out without them. Both arms used
+the same harness, so the comparison was sound; the round's own instrument work
+was simply never exercised, and no artifact could say so.
+
+Two guards and one record now cover it.
+
+- **The capture refuses a stale harness.** A build's checkout carries the
+  harness it expects, at `<appRoot>/scripts/h2h-capture.ts`. If it knows a
+  measurement the running harness cannot emit, the run stops with **exit 5**
+  before the app is launched and before a run directory exists;
+  `h2h-run.sh` treats that as a sweep-level abort, not one more failed task.
+  The test is a *subset*, not equality: the running harness may measure more
+  than the build's copy, never less. That is what lets the baseline arm — always
+  an older commit, always knowing less — through without an exemption anyone has
+  to remember to set.
+- **Staging refuses two arms measured by different harnesses.**
+  `make-blind-pairs.mjs` compares each pair's `instrument.sourceSha` and
+  `measures`. The capture cannot see this: each capture observes only its own
+  arm. Runs predating the block record no instrument and are staged as legacy.
+- **`run.json` records the instrument.** `instrument.measures` is every figure
+  that harness knew how to emit, read structurally out of its own source rather
+  than listed by hand, so it cannot drift from what the file contains.
+
+That last one is for the critic, and it closes a real ambiguity: **a name in
+`measures` with no value below was measured and came back null; a name that is
+not in `measures` could never have been recorded at all.** Before it, those two
+were the same JSON, and a question about a missing figure had no honest answer.
+
+Everything in `instrument` describes the harness, which is identical in both
+arms — staging asserts that rather than assuming it, which is what makes the
+block safe to read blind. The fit check's own result is arm-identifying (the
+harness is *ahead of* the older build and level with the newer one), so it lives
+in `_arm.json` with the rest of the metadata a critic does not open.
 
 ### Driver actions
 

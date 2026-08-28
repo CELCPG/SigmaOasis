@@ -66,6 +66,12 @@ function armTells(runDir) {
     for (const key of ['appRoot', 'electronBinary', 'mainEntry']) {
       if (typeof sidecar[key] === 'string' && sidecar[key] !== '') tells.push(sidecar[key])
     }
+    // v1.17.2: the build's own copy of the capture harness. It lives under
+    // appRoot, so scrubbing appRoot already covers it — but this list is what
+    // assertBlind searches for, and a tell that is only covered by accident of
+    // being a substring of another is a tell nobody is actually checking.
+    const appHarness = sidecar.instrument?.appHarness?.path
+    if (typeof appHarness === 'string' && appHarness !== '') tells.push(appHarness)
   } catch {
     // No sidecar is not fatal — the run root and arm dir are still scrubbed.
   }
@@ -104,6 +110,71 @@ function assertSameVersion(pairs) {
     console.error('\nBLINDING FAILED — the two arms report different app versions.')
     console.error('The sidebar renders the version, so it is in every screenshot and')
     console.error('cannot be scrubbed. Build both arms at the same version and re-run.')
+    for (const line of bad) console.error(`  ${line}`)
+    process.exit(1)
+  }
+}
+
+/**
+ * The two arms must have been measured by the SAME instrument.
+ *
+ * This is the other half of the harness-provenance guard, and it catches a
+ * different failure from the one in the capture. The capture refuses a harness
+ * that is behind the build it is driving — staleness, which is what round 10
+ * hit. This refuses two runs that were driven by different harnesses at all —
+ * asymmetry, which the capture cannot see because each capture only ever
+ * observes its own arm.
+ *
+ * Asymmetry is the more serious of the two. A stale sweep still compares like
+ * with like and merely fails to measure the round's new work; a sweep whose
+ * arms were captured by different harnesses is comparing two things that were
+ * not measured the same way, and every figure in it is suspect. Nothing in the
+ * pipeline would have said so: `h2h-run.sh` is invoked once per arm, so two
+ * invocations from two checkouts — a stray terminal on another branch, an
+ * interrupted sweep resumed from elsewhere — produce a set of pairs that looks
+ * entirely normal.
+ *
+ * It is also what licenses `instrument` to be staged into the blind pair at
+ * all. That block is only safe for a critic to read because it is identical on
+ * both sides; identical is asserted here rather than assumed, in the same
+ * spirit as assertBlind below. A round where it is NOT identical is a round
+ * where the instrument block is an arm tell, and this stops that round too.
+ */
+function assertSameInstrument(pairs) {
+  const bad = []
+  const read = (dir) => {
+    try {
+      const inst = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')).instrument
+      if (!inst) return null
+      return {
+        sha: inst.sourceSha ?? null,
+        measures: Array.isArray(inst.measures) ? [...inst.measures].sort().join(',') : null
+      }
+    } catch {
+      return null
+    }
+  }
+  for (const { task, first, second } of pairs) {
+    const a = read(first)
+    const b = read(second)
+    // Runs captured before the instrument block existed carry nothing to
+    // compare. Both silent is a legacy pair and is left alone — the same
+    // treatment assertSameVersion gives an unreadable sidecar. One silent and
+    // one not is itself an asymmetry: the arms were captured by harnesses that
+    // did not even agree on what a run.json contains.
+    if (a === null && b === null) continue
+    if (a === null || b === null) {
+      bad.push(`${task}: one run records its instrument and the other does not`)
+      continue
+    }
+    if (a.sha !== b.sha) bad.push(`${task}: harness ${a.sha} vs ${b.sha}`)
+    else if (a.measures !== b.measures) bad.push(`${task}: same harness sha but different measure sets`)
+  }
+  if (bad.length > 0) {
+    console.error('\nSTAGING REFUSED — the two arms were not measured by the same harness.')
+    console.error('A head-to-head compares two builds through one instrument. These runs used two,')
+    console.error('so no figure in the pair is comparable, and run.json\'s "instrument" block would')
+    console.error('itself tell a critic which arm is which. Re-run both arms from one checkout.')
     for (const line of bad) console.error(`  ${line}`)
     process.exit(1)
   }
@@ -185,6 +256,7 @@ for (const task of tasks) {
 }
 
 assertSameVersion(stagedPairs)
+assertSameInstrument(stagedPairs)
 assertBlind(outDir, allTells)
 
 writeFileSync(join(outDir, '_key.json'), `${JSON.stringify(key, null, 2)}\n`)
