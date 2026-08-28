@@ -2,10 +2,9 @@ import { useCallback } from 'react'
 import { useAppStore } from '../stores/appStore'
 import type { Conversation } from '../types'
 import { conversationDefaultsFromProject } from '../lib/projectContext'
-
-function byUpdatedAtDesc(a: Conversation, b: Conversation): number {
-  return b.updatedAt - a.updatedAt
-}
+import { abandonOrphanedPlans } from '../lib/planState'
+import { historyLimit, planLoad } from '../lib/conversationLoad'
+import { livePlans } from './planMode'
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
@@ -19,6 +18,14 @@ function uid(): string {
  * v0.9: conversations can be ephemeral (RAM-only). The main process refuses
  * to persist them, so every save/delete call here skips them too — two
  * layers, because the no-trace promise should survive a renderer regression.
+ *
+ * v2.0.1: load reconciles with the store instead of replacing it, and settles
+ * the plans it finds abandoned. Both come from the same place — this used to
+ * re-run on every base-URL change, so it happened *during* a session and not
+ * only at the start of one. App.tsx no longer triggers it that way; these two
+ * make it survivable if anything ever does again. See `planLoad` for what the
+ * store may be holding that disk cannot return, and `abandonOrphanedPlans` for
+ * what disk may be holding that no process is behind any more.
  */
 export function useConversations(): {
   load: () => Promise<void>
@@ -37,17 +44,34 @@ export function useConversations(): {
   const load = useCallback(async (): Promise<void> => {
     const store = useAppStore.getState()
     const list = (await window.api.listConversations().catch(() => [])) as Conversation[]
-    list.sort(byUpdatedAtDesc)
 
-    // Enforce the history limit: drop the oldest beyond the cap, on disk too.
-    // Guard the value here as well as on save — a 0 or NaN would prune every
-    // conversation off disk.
-    const configured = Number(store.settings?.historyLimit)
-    const limit = Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : 100
-    const keep = list.slice(0, limit)
-    for (const stale of list.slice(limit)) {
+    // The history limit and the reconciliation, decided together. The store
+    // can be holding an ephemeral chat, a turn being streamed into, or a
+    // conversation created a moment ago — none of which disk is able to
+    // return, and none of which may count against a cap on files. See planLoad
+    // for why those two decisions cannot be taken separately.
+    const { keep: merged, prune } = planLoad(
+      list,
+      store.conversations,
+      historyLimit(store.settings?.historyLimit)
+    )
+    for (const stale of prune) {
       void window.api.deleteConversation(stale.id)
     }
+
+    // A plan still claiming a live executor — waiting to be approved, or
+    // running — when no executor is behind it was abandoned by the app, not
+    // paused by the reader: settle it before it can render controls that
+    // resolve nothing or a step that pulses forever. `livePlans` is what this
+    // process is genuinely working on, so a plan that really is live is left
+    // exactly as it is — as is, now, the whole in-memory conversation carrying
+    // it. Two independent reasons, kept independent: one is about a plan's
+    // executor, the other about what a file can hold, and neither is the
+    // other's backstop.
+    const keep = abandonOrphanedPlans(merged, livePlans)
+    // Nothing is written back here. The sweep is a pure function of what is on
+    // disk, so it re-derives identically on every load; the settled plan
+    // reaches the file with the conversation's next ordinary save.
 
     store.setConversations(keep)
     if (!store.activeConversationId && keep.length > 0) {

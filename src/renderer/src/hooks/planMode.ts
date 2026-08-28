@@ -71,6 +71,22 @@ export function planContext(messages: ChatMessage[]): string {
 export const planApprovals = new Map<string, (approved: boolean) => void>()
 
 /**
+ * Plan messages this session's executor is still behind — from the moment the
+ * message exists to the moment `runPlanTurn` returns, however it returns.
+ *
+ * A plan with no outcome is making one of two claims on screen: "you may still
+ * approve this" or "this is running". Both are claims about a *process*, and
+ * the process is this one — so when a conversation comes back off disk with a
+ * plan in either state and its id is not in here, both claims are false and
+ * `abandonOrphanedPlans` (lib/planState.ts) settles it.
+ *
+ * A superset of `planApprovals`, deliberately: the gate is one of the windows
+ * this covers, not a second mechanism. It is the executor's own bookkeeping
+ * and never persisted — a plan that is live is live in memory or not at all.
+ */
+export const livePlans = new Set<string>()
+
+/**
  * Where a plan step's tool calls go.
  *
  * v1.12.2. They went nowhere: the step handed the loop a throwaway array, so a
@@ -261,211 +277,222 @@ export async function runPlanTurn(
     createdAt: Date.now()
   }
   store.appendMessage(conversationId, assistantMsg)
-  const patch = (p: Partial<ChatMessage>): void =>
-    useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
-  const currentPlan = (): ChatPlan | undefined =>
-    useAppStore
-      .getState()
-      .conversations.find((c) => c.id === conversationId)
-      ?.messages.find((m) => m.id === assistantMsg.id)?.plan
-  const patchStep = (stepId: string, p: Partial<PlanStep>): void => {
+  // From here the executor is behind this plan, and it is the only thing that
+  // can be: the resolver and the loop below live in this process and nothing
+  // else. `livePlans` says so out loud for the one reader that has to know —
+  // the load sweep, which otherwise cannot tell a plan being worked on from a
+  // plan whose worker died. Released in the `finally`, on every path out,
+  // including the ones that leave without recording an outcome.
+  livePlans.add(assistantMsg.id)
+  try {
+    const patch = (p: Partial<ChatMessage>): void =>
+      useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
+    const currentPlan = (): ChatPlan | undefined =>
+      useAppStore
+        .getState()
+        .conversations.find((c) => c.id === conversationId)
+        ?.messages.find((m) => m.id === assistantMsg.id)?.plan
+    const patchStep = (stepId: string, p: Partial<PlanStep>): void => {
+      const plan = currentPlan()
+      if (!plan) return
+      patch({
+        plan: { ...plan, steps: plan.steps.map((s) => (s.id === stepId ? { ...s, ...p } : s)) }
+      })
+    }
+    /** Record how the plan ended, so the block stops reading as live work. */
+    const finish = (outcome: PlanOutcome): void => {
+      const plan = currentPlan()
+      if (plan) patch({ plan: endPlan(plan, outcome) })
+    }
+
+    // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
+    if (settings.plan.confirmPlan) {
+      const approved = await new Promise<boolean>((resolve) => {
+        planApprovals.set(assistantMsg.id, resolve)
+        signal.addEventListener('abort', () => resolve(false), { once: true })
+      })
+      planApprovals.delete(assistantMsg.id)
+      const plan = currentPlan()
+      if (!approved) {
+        // The refusal has to reach the block, not just the prose: with only
+        // `approved:false` it still read "awaiting approval" with a live Run
+        // button under a message saying nothing was executed.
+        const stopped = signal.aborted
+        finish(stopped ? 'stopped' : 'cancelled')
+        patch({
+          content: stopped
+            ? 'Stopped before the plan ran — nothing was executed.'
+            : 'Plan cancelled — nothing was executed.'
+        })
+        return
+      }
+      if (plan) patch({ plan: { ...plan, approved: true } })
+    }
+
+    // 3. Execute steps sequentially; each sees the capped results of the ones before.
+    // One record list for the whole turn — the steps' calls and the synthesis's,
+    // in the order they happened, exactly as an ordinary turn keeps them.
+    const allRecords: ToolCallRecord[] = []
+    const publishRecords = (): void => patch({ toolCalls: [...allRecords] })
+    const completed: { title: string; output: string }[] = []
+    let haltedBy: string | null = null
     const plan = currentPlan()
     if (!plan) return
-    patch({
-      plan: { ...plan, steps: plan.steps.map((s) => (s.id === stepId ? { ...s, ...p } : s)) }
-    })
-  }
-  /** Record how the plan ended, so the block stops reading as live work. */
-  const finish = (outcome: PlanOutcome): void => {
-    const plan = currentPlan()
-    if (plan) patch({ plan: endPlan(plan, outcome) })
-  }
+    for (let i = 0; i < plan.steps.length; i++) {
+      if (signal.aborted) {
+        finish('stopped')
+        return
+      }
+      const step = plan.steps[i]!
+      patchStep(step.id, { status: 'running' })
 
-  // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
-  if (settings.plan.confirmPlan) {
-    const approved = await new Promise<boolean>((resolve) => {
-      planApprovals.set(assistantMsg.id, resolve)
-      signal.addEventListener('abort', () => resolve(false), { once: true })
-    })
-    planApprovals.delete(assistantMsg.id)
-    const plan = currentPlan()
-    if (!approved) {
-      // The refusal has to reach the block, not just the prose: with only
-      // `approved:false` it still read "awaiting approval" with a live Run
-      // button under a message saying nothing was executed.
-      const stopped = signal.aborted
-      finish(stopped ? 'stopped' : 'cancelled')
-      patch({
-        content: stopped
-          ? 'Stopped before the plan ran — nothing was executed.'
-          : 'Plan cancelled — nothing was executed.'
-      })
-      return
+      const stepInput =
+        `Step ${i + 1} of ${plan.steps.length}: ${step.title}\n${step.detail}` +
+        (completed.length > 0
+          ? `\n\nResults of previous steps:\n${completed
+              .map((o, j) => `${j + 1}. ${o.title}:\n${o.output}`)
+              .join('\n\n')}`
+          : '')
+
+      try {
+        const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo, context, {
+          stepId: step.id,
+          records: allRecords,
+          onChange: publishRecords
+        })
+        patchStep(step.id, { status: 'done', output })
+        completed.push({ title: step.title, output })
+      } catch (err) {
+        // Stop lands here as an abort. It is the user ending the plan, not the
+        // step blowing up — drawing it in failure red blames them for their own
+        // decision, so it gets its own status and no error output.
+        if (signal.aborted) {
+          patchStep(step.id, { status: 'stopped' })
+          finish('stopped')
+          return
+        }
+        // Measured: `signal is aborted without reason`, alone, as the ENTIRE
+        // body of an interrupted step — a DOMException's wording where the step's
+        // account of itself should be. The body now says what happened and quotes
+        // the runtime underneath it, attributed.
+        const failure = explainFailure(err, { subject: `Step ${i + 1}` })
+        patchStep(step.id, { status: 'failed', output: composeFailure(failure) })
+        // A failed step poisons everything built on it: halt, and let the
+        // synthesis say plainly what that leaves unanswered. The synthesis reads
+        // this, so it gets the sentence — the identifier would only invite the
+        // model to repeat it into the answer.
+        haltedBy = `Step ${i + 1} ("${step.title}") failed: ${failure.sentence}`
+        break
+      }
     }
-    if (plan) patch({ plan: { ...plan, approved: true } })
-  }
-
-  // 3. Execute steps sequentially; each sees the capped results of the ones before.
-  // One record list for the whole turn — the steps' calls and the synthesis's,
-  // in the order they happened, exactly as an ordinary turn keeps them.
-  const allRecords: ToolCallRecord[] = []
-  const publishRecords = (): void => patch({ toolCalls: [...allRecords] })
-  const completed: { title: string; output: string }[] = []
-  let haltedBy: string | null = null
-  const plan = currentPlan()
-  if (!plan) return
-  for (let i = 0; i < plan.steps.length; i++) {
     if (signal.aborted) {
       finish('stopped')
       return
     }
-    const step = plan.steps[i]!
-    patchStep(step.id, { status: 'running' })
+    // The checklist is settled here; the synthesis below writes the answer.
+    finish(haltedBy ? 'failed' : 'completed')
 
-    const stepInput =
-      `Step ${i + 1} of ${plan.steps.length}: ${step.title}\n${step.detail}` +
-      (completed.length > 0
-        ? `\n\nResults of previous steps:\n${completed
-            .map((o, j) => `${j + 1}. ${o.title}:\n${o.output}`)
-            .join('\n\n')}`
-        : '')
-
-    try {
-      const output = await runPlanStep(slot, stepInput, baseUrl, tools, signal, convo, context, {
-        stepId: step.id,
-        records: allRecords,
-        onChange: publishRecords
+    // 4. Synthesize the final answer from the step results.
+    let resultsBlock = plan.steps
+      .map((s, i) => {
+        const latest = currentPlan()?.steps.find((p) => p.id === s.id) ?? s
+        return `${i + 1}. [${latest.status}] ${latest.title}\n${latest.output ?? '(no output)'}`
       })
-      patchStep(step.id, { status: 'done', output })
-      completed.push({ title: step.title, output })
-    } catch (err) {
-      // Stop lands here as an abort. It is the user ending the plan, not the
-      // step blowing up — drawing it in failure red blames them for their own
-      // decision, so it gets its own status and no error output.
-      if (signal.aborted) {
-        patchStep(step.id, { status: 'stopped' })
-        finish('stopped')
-        return
-      }
-      // Measured: `signal is aborted without reason`, alone, as the ENTIRE
-      // body of an interrupted step — a DOMException's wording where the step's
-      // account of itself should be. The body now says what happened and quotes
-      // the runtime underneath it, attributed.
-      const failure = explainFailure(err, { subject: `Step ${i + 1}` })
-      patchStep(step.id, { status: 'failed', output: composeFailure(failure) })
-      // A failed step poisons everything built on it: halt, and let the
-      // synthesis say plainly what that leaves unanswered. The synthesis reads
-      // this, so it gets the sentence — the identifier would only invite the
-      // model to repeat it into the answer.
-      haltedBy = `Step ${i + 1} ("${step.title}") failed: ${failure.sentence}`
-      break
+      .join('\n\n')
+    if (resultsBlock.length > MAX_PLAN_RESULTS_CHARS) {
+      resultsBlock = `${resultsBlock.slice(0, MAX_PLAN_RESULTS_CHARS)}\n… [later step results truncated]`
     }
-  }
-  if (signal.aborted) {
-    finish('stopped')
-    return
-  }
-  // The checklist is settled here; the synthesis below writes the answer.
-  finish(haltedBy ? 'failed' : 'completed')
 
-  // 4. Synthesize the final answer from the step results.
-  let resultsBlock = plan.steps
-    .map((s, i) => {
-      const latest = currentPlan()?.steps.find((p) => p.id === s.id) ?? s
-      return `${i + 1}. [${latest.status}] ${latest.title}\n${latest.output ?? '(no output)'}`
-    })
-    .join('\n\n')
-  if (resultsBlock.length > MAX_PLAN_RESULTS_CHARS) {
-    resultsBlock = `${resultsBlock.slice(0, MAX_PLAN_RESULTS_CHARS)}\n… [later step results truncated]`
-  }
-
-  const synthesis: ApiMessage[] = [
-    {
-      role: 'system',
-      content:
-        withGrounding(slot.systemPrompt) +
-        (context ? `\n\nThe conversation this task came from:\n${context}` : '')
-    },
-    {
-      role: 'user',
-      content:
-        `Original task: ${task}\n\nA step-by-step plan was executed. Results:\n\n${resultsBlock}\n\n` +
-        (haltedBy
-          ? `${haltedBy}. Answer using what the completed steps produced, and state plainly what the failed step leaves unanswered.`
-          : 'Answer the original task using these results.') +
-        // v1.4.6: the plan is the app's scaffolding, not something the user
-        // saw. A measured run opened with "Step 1 returned no results and Step
-        // 3 lists Spring Lake", which reads to the user as a reference to a
-        // document that does not exist.
-        '\n\nThe user never saw this plan or its steps. Write the answer as your own work: no ' +
-        'step numbers, no mention of a plan. If something could not be established, say what ' +
-        'is missing in ordinary terms.' +
-        // And the reason it needs tools at all: when the steps came back empty
-        // the model wanted to search, had nothing to call, and emitted
-        // `google_search("...")` in a Python fence as though that were a tool.
-        '\n\nYou still have your tools here. If the results are thin, use them rather than ' +
-        'describing a search you did not run.'
-    }
-  ]
-
-  let content = ''
-  const tail = makeTailStream(assistantMsg, patch)
-  try {
-    await runAgentLoop({
-    messages: synthesis,
-    // The same allowlist any turn gets, with budgets stated. Without tools the
-    // synthesis could only fabricate; with them it can actually close the gap.
-    tools: withBudgetNotes(await subsetForTurn(toolsForSlot(slot, tools), task), TOOL_TURN_BUDGETS),
-    // Untagged: the synthesis writes the message's own answer, so its calls sit
-    // with the answer the way any turn's do.
-    records: allRecords,
-    signal,
-    onRecordChange: publishRecords,
-    maxIterations: MAX_PLAN_STEP_ITERATIONS,
-    deps: {
-      streamRound: async (messages, roundTools) => {
-        let roundContent = ''
-        const { toolCalls } = await streamChat(
-          baseUrl,
-          slot.modelId,
-          messages,
-          roundTools,
-          signal,
-          (chunk) => {
-            roundContent += chunk
-            assistantMsg.content += chunk
-            tail.schedule()
-          },
-          undefined,
-          slot.sampling
-        )
-        content += roundContent
-        tail.commit()
-        return { content: roundContent, toolCalls }
+    const synthesis: ApiMessage[] = [
+      {
+        role: 'system',
+        content:
+          withGrounding(slot.systemPrompt) +
+          (context ? `\n\nThe conversation this task came from:\n${context}` : '')
       },
-      executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
-      onToolExecuted: (record, result) => {
-        audit(convo, {
-          kind: 'tool_call',
-          roleName: slot.roleName,
-          modelId: slot.modelId,
-          toolName: record.name,
-          ok: result.ok,
-          text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
-        })
+      {
+        role: 'user',
+        content:
+          `Original task: ${task}\n\nA step-by-step plan was executed. Results:\n\n${resultsBlock}\n\n` +
+          (haltedBy
+            ? `${haltedBy}. Answer using what the completed steps produced, and state plainly what the failed step leaves unanswered.`
+            : 'Answer the original task using these results.') +
+          // v1.4.6: the plan is the app's scaffolding, not something the user
+          // saw. A measured run opened with "Step 1 returned no results and Step
+          // 3 lists Spring Lake", which reads to the user as a reference to a
+          // document that does not exist.
+          '\n\nThe user never saw this plan or its steps. Write the answer as your own work: no ' +
+          'step numbers, no mention of a plan. If something could not be established, say what ' +
+          'is missing in ordinary terms.' +
+          // And the reason it needs tools at all: when the steps came back empty
+          // the model wanted to search, had nothing to call, and emitted
+          // `google_search("...")` in a Python fence as though that were a tool.
+          '\n\nYou still have your tools here. If the results are thin, use them rather than ' +
+          'describing a search you did not run.'
       }
+    ]
+
+    let content = ''
+    const tail = makeTailStream(assistantMsg, patch)
+    try {
+      await runAgentLoop({
+      messages: synthesis,
+      // The same allowlist any turn gets, with budgets stated. Without tools the
+      // synthesis could only fabricate; with them it can actually close the gap.
+      tools: withBudgetNotes(await subsetForTurn(toolsForSlot(slot, tools), task), TOOL_TURN_BUDGETS),
+      // Untagged: the synthesis writes the message's own answer, so its calls sit
+      // with the answer the way any turn's do.
+      records: allRecords,
+      signal,
+      onRecordChange: publishRecords,
+      maxIterations: MAX_PLAN_STEP_ITERATIONS,
+      deps: {
+        streamRound: async (messages, roundTools) => {
+          let roundContent = ''
+          const { toolCalls } = await streamChat(
+            baseUrl,
+            slot.modelId,
+            messages,
+            roundTools,
+            signal,
+            (chunk) => {
+              roundContent += chunk
+              assistantMsg.content += chunk
+              tail.schedule()
+            },
+            undefined,
+            slot.sampling
+          )
+          content += roundContent
+          tail.commit()
+          return { content: roundContent, toolCalls }
+        },
+        executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+        onToolExecuted: (record, result) => {
+          audit(convo, {
+            kind: 'tool_call',
+            roleName: slot.roleName,
+            modelId: slot.modelId,
+            toolName: record.name,
+            ok: result.ok,
+            text: `${record.name}(${JSON.stringify(record.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+          })
+        }
+      }
+      })
+    } finally {
+      tail.finish()
     }
-    })
+    if (!signal.aborted) {
+      audit(convo, {
+        kind: 'assistant_output',
+        roleName: slot.roleName,
+        modelId: slot.modelId,
+        text: assistantMsg.content
+      })
+    }
   } finally {
-    tail.finish()
-  }
-  if (!signal.aborted) {
-    audit(convo, {
-      kind: 'assistant_output',
-      roleName: slot.roleName,
-      modelId: slot.modelId,
-      text: assistantMsg.content
-    })
+    livePlans.delete(assistantMsg.id)
   }
 }
 

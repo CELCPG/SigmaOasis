@@ -369,11 +369,37 @@ export interface AuditEntryInput {
  * `stopped` is the user's own Stop landing on the running step — not the step
  * blowing up. `skipped` is a step that will never run now: the plan ended
  * before it, so it must not look like a step still waiting its turn.
+ *
+ * `interrupted` is the app quitting on a step that was mid-flight, and it is
+ * its own word for the same reason `abandoned` is: `stopped` belongs to the
+ * reader one level down, `failed` blames the step for a process ending, and
+ * `skipped` says it never ran, which is the one thing this step did do. Only
+ * `abandonPlan` in lib/planState.ts writes it.
  */
-export type PlanStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'stopped' | 'skipped'
+export type PlanStepStatus =
+  | 'pending'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'stopped'
+  | 'skipped'
+  | 'interrupted'
 
-/** How a plan ended. Absent while it awaits approval or is still running. */
-export type PlanOutcome = 'completed' | 'cancelled' | 'stopped' | 'failed'
+/**
+ * How a plan ended. Absent while it awaits approval or is still running.
+ *
+ * Two of these are the reader's and may never be written for anything else:
+ * `cancelled` is Cancel pressed at the approval gate, `stopped` is Stop landing
+ * on a plan already running. A badge that says "cancelled" or "stopped by you"
+ * about an ending the reader had no part in credits them with a decision they
+ * never made, which is the same defect as the dead button it would replace.
+ *
+ * `abandoned` is the app's own, and the only one that is: the plan was still
+ * waiting to be approved when the process ended, so the approval it was
+ * waiting on died with it. `abandonOrphanedPlans` in lib/planState.ts is the
+ * one place that writes it, and the executor writes it nowhere.
+ */
+export type PlanOutcome = 'completed' | 'cancelled' | 'stopped' | 'failed' | 'abandoned'
 
 export interface PlanStep {
   id: string

@@ -1,7 +1,8 @@
 /**
- * v1.12: a plan's terminal state, and the six things a reader has to be able
+ * v1.12: a plan's terminal state, and the seven things a reader has to be able
  * to tell apart — never approved, running, finished, cancelled before it ran,
- * stopped part-way by the user, failed on its own.
+ * stopped part-way by the user, failed on its own, abandoned when the app quit
+ * (which the reader must be able to tell from all three of the others).
  *
  * Cancel used to be prose only: the message said "Plan cancelled — nothing was
  * executed" while the block below it still read "awaiting approval" in amber
@@ -9,14 +10,34 @@
  * catch, so the user's own interruption was drawn as the step failing. Both
  * come from the same gap: the plan object had nowhere to record that it ended.
  *
+ * v2.0.1 found the last opening in that gap, on the other side of a restart.
+ * Everything that makes a plan live is a process — the approval resolver, the
+ * step loop, the abort signal — and none of it is on disk, so a plan written
+ * out mid-flight came back claiming a process that had died with the app. In
+ * both of the states that make the claim: unapproved, where the block drew
+ * "▶ Run this plan" and "Cancel" over a resolver that no longer existed and
+ * both buttons did nothing and said nothing; and approved, where it drew
+ * `running` in the accent ink over a step pulsing '◌' forever. One left the
+ * reader holding a decision the app had already taken away by quitting, the
+ * other told them work was happening in a process that no longer existed.
+ * `abandonOrphanedPlans` closes both at the seam a plan crosses back over:
+ * conversation load.
+ *
  * Headless, pinned by test/planBlock.test.ts.
  */
 
-import type { ChatPlan, PlanOutcome, PlanStep, PlanStepStatus, ToolCallRecord } from '../types'
+import type {
+  ChatPlan,
+  Conversation,
+  PlanOutcome,
+  PlanStep,
+  PlanStepStatus,
+  ToolCallRecord
+} from '../types'
 
 /**
  * End a plan. Every step still pending is one that will never run, so it
- * becomes 'skipped' — a queued row and an abandoned row cannot look alike.
+ * becomes 'skipped' — a queued row and a never-run row cannot look alike.
  * Steps that already finished, failed, or were stopped keep what they said.
  */
 export function endPlan(plan: ChatPlan, outcome: PlanOutcome): ChatPlan {
@@ -32,12 +53,116 @@ export function awaitingApproval(plan: ChatPlan): boolean {
   return !plan.outcome && !plan.approved && plan.steps.every((s) => s.status === 'pending')
 }
 
+/**
+ * A plan with no outcome is claiming a process. Which claim it is depends on
+ * whether it was approved — "you may still approve this" or "this is running"
+ * — but both are claims about the executor, and both are made by the plan
+ * object rather than by anything that checks.
+ */
+export function claimsALiveProcess(plan: ChatPlan): boolean {
+  return !plan.outcome
+}
+
+/**
+ * What the block says where the approval buttons, or the pulsing row, used to
+ * be.
+ *
+ * A reader who watched two controls vanish — or a step stop moving — is owed
+ * the reason and the way forward, otherwise the repair reads as the app losing
+ * their plan quietly instead of loudly. Both say who ended it, that it cannot
+ * be picked up, and what to do instead.
+ *
+ * `approved` is the exact discriminator, and it is exact rather than close
+ * enough: the executor patches it true immediately after the gate resolves and
+ * runs no step before that, so an unapproved plan is one that never began and
+ * an approved one is one that did. The second deliberately does not say how
+ * much ran — the rows do, one at a time, and they are the only thing that can.
+ */
+export const ABANDONED_AT_GATE =
+  'The app quit while this plan was waiting to be approved, so nothing ran and nothing here ' +
+  'can start it. Send the request again for a fresh plan.'
+export const ABANDONED_MID_RUN =
+  'The app quit while this plan was running, so it ended where the rows say and nothing here ' +
+  'can pick it up. Send the request again for a fresh plan.'
+
+export function abandonedNote(plan: ChatPlan): string {
+  return plan.approved ? ABANDONED_MID_RUN : ABANDONED_AT_GATE
+}
+
+/**
+ * End a plan the app walked away from.
+ *
+ * `endPlan` settles the steps that never started. This settles the one that
+ * had, because a plan can be abandoned in the middle and `running` is the one
+ * status that survives `endPlan` untouched — it has no executor-side meaning
+ * to survive for. Left alone it renders '◌' in the accent ink with
+ * `animate-pulse`: an animation claiming work is happening, on a row where it
+ * stopped happening when the process died, and unlike a dead button it never
+ * even has to be pressed to lie.
+ */
+export function abandonPlan(plan: ChatPlan): ChatPlan {
+  return endPlan(
+    {
+      ...plan,
+      steps: plan.steps.map((s) => (s.status === 'running' ? { ...s, status: 'interrupted' } : s))
+    },
+    'abandoned'
+  )
+}
+
+/**
+ * Plans that came back from disk with nobody behind them.
+ *
+ * The executor is a process, and everything that makes a plan live lives in it
+ * — the approval resolver in `planApprovals`, the step loop, the abort signal
+ * (all hooks/planMode.ts). None of it is on disk. So a plan read off disk with
+ * no outcome recorded is a plan whose executor died with the process that ran
+ * it, whichever of the two live states it is frozen in: waiting at a gate that
+ * has no other side, or running a step that stopped running. Not paused —
+ * abandoned, and by the app, which is why it may not borrow `cancelled` or
+ * `stopped`. See PlanOutcome in ../types.
+ *
+ * The predicate is `claimsALiveProcess`, not the awaiting-approval shape it was
+ * written for. Two states make the claim; a sweep that names one of them
+ * catches the defect it was shown and leaves its twin — and the twin was the
+ * louder of the two, an animated row rather than an inert button.
+ *
+ * `live` is the executor's own record of the plans it is behind, passed in
+ * rather than imported so this module stays headless — and it is not
+ * decoration. `load()` re-runs whenever the base URL changes, which the reader
+ * can do with the gate open or a step mid-flight, and abandoning a plan whose
+ * executor is right there would be this defect's mirror image: a true
+ * statement replaced by a false one.
+ *
+ * Identity is preserved where nothing changed, so a load that finds no orphan
+ * hands back the objects it was given.
+ */
+export function abandonOrphanedPlans(
+  convos: Conversation[],
+  live: { has: (messageId: string) => boolean }
+): Conversation[] {
+  return convos.map((convo) => {
+    let found = false
+    const messages = convo.messages.map((message) => {
+      if (!message.plan || !claimsALiveProcess(message.plan) || live.has(message.id)) return message
+      found = true
+      return { ...message, plan: abandonPlan(message.plan) }
+    })
+    return found ? { ...convo, messages } : convo
+  })
+}
+
 /** What the header says instead of a step count once the plan is over. */
 export const OUTCOME_LABEL: Record<PlanOutcome, string> = {
   completed: 'finished',
   cancelled: 'cancelled — nothing ran',
   stopped: 'stopped by you',
-  failed: 'failed'
+  failed: 'failed',
+  // Names the agent, because that is the whole of what this outcome adds:
+  // the reader was asked to decide and then had the decision taken away. It
+  // claims nothing about extent — the rows say that — so it stays the length
+  // of a badge rather than a sentence.
+  abandoned: 'abandoned when the app quit'
 }
 
 /**
@@ -48,7 +173,7 @@ export const OUTCOME_LABEL: Record<PlanOutcome, string> = {
  * every other cue said the work was over — which reads as a completed plan.
  *
  * Every ink here clears 4.5:1 on both canvases and is set semibold, one step
- * heavier than any step title. Hue still separates the four (pinned by
+ * heavier than any step title. Hue still separates the five (pinned by
  * test/planBlock.test.ts).
  */
 export const OUTCOME_CLASS: Record<PlanOutcome, string> = {
@@ -58,7 +183,12 @@ export const OUTCOME_CLASS: Record<PlanOutcome, string> = {
   completed: 'font-semibold text-green-900 dark:text-green-300',
   cancelled: 'font-semibold text-ink-primary',
   stopped: 'font-semibold text-amber-900 dark:text-amber-300',
-  failed: 'font-semibold text-red-900 dark:text-red-300'
+  failed: 'font-semibold text-red-900 dark:text-red-300',
+  // Its own hue, and deliberately not amber: amber is the reader's Stop, and
+  // the ending this marks is the one thing in the set they had no hand in.
+  // Blue is unused anywhere else in the block and is nowhere near the teal
+  // `--accent-ink` that means live work.
+  abandoned: 'font-semibold text-blue-900 dark:text-blue-300'
 }
 
 /** The outcome sits in a bordered chip, so it reads as a stamp, not a caption. */
@@ -70,7 +200,11 @@ export const STATUS_ICON: Record<PlanStepStatus, string> = {
   done: '✓',
   failed: '✗',
   stopped: '■',
-  skipped: '–'
+  skipped: '–',
+  // Third in the circle family — empty, in flight, voided — so it reads as
+  // the end of the same story the pulsing '◌' was telling, and never as the
+  // '✗' of a step that broke or the '■' of a Stop the reader pressed.
+  interrupted: '⊘'
 }
 
 export const STATUS_CLASS: Record<PlanStepStatus, string> = {
@@ -80,13 +214,32 @@ export const STATUS_CLASS: Record<PlanStepStatus, string> = {
   failed: 'text-red-500',
   // Stopping is not failing: amber, and never the failure red.
   stopped: 'text-amber-600 dark:text-amber-500',
-  skipped: 'text-ink-tertiary'
+  skipped: 'text-ink-tertiary',
+  // The outcome's blue, one rung brighter for a glyph: the row and the badge
+  // above it are the same event, and the reader should not have to work that
+  // out. Not the accent teal it replaces — that ink means work in progress,
+  // and this is the row where the work stopped being in progress.
+  //
+  // Paired per theme rather than set once, and measured: the single-value
+  // `blue-600` this was first written as reads 4.40:1 on the light block and
+  // 3.88:1 on the dark one — a glyph that carries the row's whole meaning,
+  // missing AA on both canvases at once. 700/400 clears both (5.71:1 / 7.89:1).
+  // The five glyphs beside it are single-value and three of them miss AA in
+  // light; that is older than this row and is recorded in docs/evals.md rather
+  // than fixed by widening what this one is allowed to be.
+  interrupted: 'text-blue-700 dark:text-blue-400'
 }
 
-/** Suffix on the step's own line, for the two statuses a glyph alone underplays. */
+/** Suffix on the step's own line, for the statuses a glyph alone underplays. */
 export const STATUS_NOTE: Partial<Record<PlanStepStatus, string>> = {
   stopped: 'stopped here',
-  skipped: 'never ran'
+  skipped: 'never ran',
+  // Locates, and does not attribute: the badge above already says who ended
+  // it, and repeating "the app quit" on the row would spend the reader's
+  // attention twice on one fact. Deliberately parallel to 'stopped here',
+  // because the two rows mean the same thing about the plan and different
+  // things about who caused it.
+  interrupted: 'cut off here'
 }
 
 /**

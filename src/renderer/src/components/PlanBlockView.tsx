@@ -4,6 +4,7 @@ import { stepRecords } from '../hooks/planMode'
 import { ToolCallBlock } from './ToolCallBlock'
 import { Disclosure } from './Disclosure'
 import {
+  abandonedNote,
   awaitingApproval,
   forecastDivergenceNote,
   OUTCOME_BADGE,
@@ -70,7 +71,7 @@ export function PlanBlockView({
         )}
         {awaiting && <span className="text-amber-600 dark:text-amber-500">awaiting approval</span>}
         {/* Approved and no outcome yet is the only live state; say so, so the
-            header alone tells the six states apart. */}
+            header alone tells the seven states apart. */}
         {!awaiting && !plan.outcome && <span className="text-accent-ink">running</span>}
         {plan.outcome && (
           <span className={`${OUTCOME_BADGE} ${OUTCOME_CLASS[plan.outcome]}`}>
@@ -192,6 +193,19 @@ export function PlanBlockView({
           <span className="ml-auto self-center text-[10px] text-ink-tertiary">
             {streaming ? '' : 'Nothing has run yet. Tools each step may use are the ones enabled in Settings → Tools.'}
           </span>
+        </div>
+      )}
+
+      {/* The same strip, for the plan the app walked out on. It is the one
+          outcome that takes away something the reader was looking at — the
+          approval buttons, or a step that was moving — so it is the one that
+          owes them a sentence in its place; the others are explained by the
+          reader's own action or by a step that says it failed. Not a warning
+          and not struck through: the plan is over, the reason is nobody's
+          fault, and the next move is theirs. */}
+      {plan.outcome === 'abandoned' && (
+        <div className="border-t border-black/10 dark:border-white/10 px-3 py-2 text-ink-secondary">
+          {abandonedNote(plan)}
         </div>
       )}
     </div>
