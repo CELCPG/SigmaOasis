@@ -23,6 +23,14 @@
 #                     the instrument against a page written to have the defect;
 #                     this proves the product, which needs the product's real
 #                     component tree and real layout. Builds first — see below.
+#  - planAccessibility: what a screen reader is handed for a plan block, read
+#                     from the real Chromium accessibility tree over CDP
+#                     (Accessibility.getFullAXTree) against the shipped build.
+#                     A computed name cannot be scraped off markup — an <ol> is
+#                     a list with no role= on it, and a <button> whose contents
+#                     are four lines of prose is named with all four. Both of
+#                     those were true here, and only the tree says so. Builds
+#                     first, like modalFocus — see below.
 #  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
 #                     window. DOMPurify is a no-op without a DOM, so a node test
 #                     of it would pass while sanitizing nothing.
@@ -76,17 +84,18 @@ fi
   test/chromeContrastCheck.ts \
   test/tabTraverseCheck.ts \
   test/modalFocusCheck.ts \
+  test/planAccessibilityCheck.ts \
   test/markdownCheck.ts \
   test/workbenchCheck.ts \
   src/preload/workbench.ts \
   test/httpClientCheck.ts
 
-# modalFocusCheck boots out/ — so out/ has to be this tree, not whatever was
-# built last. Unconditionally, not "if it looks stale": a freshness heuristic is
-# one more enumeration to be defeated, and a check that silently measures an old
-# build is worse than no check. Three rounds of one bench arm ran handicapped on
-# exactly this kind of missing precondition.
-echo "building out/ so the modal-focus check measures this tree…"
+# modalFocusCheck and planAccessibilityCheck boot out/ — so out/ has to be this
+# tree, not whatever was built last. Unconditionally, not "if it looks stale": a
+# freshness heuristic is one more enumeration to be defeated, and a check that
+# silently measures an old build is worse than no check. Three rounds of one
+# bench arm ran handicapped on exactly this kind of missing precondition.
+echo "building out/ so the checks that boot it measure this tree…"
 "${TSC[@]}" node_modules/electron-vite/bin/electron-vite.js build > "$OUT/build.log" 2>&1 || {
   echo "error: build failed; see $OUT/build.log" >&2
   exit 1
@@ -95,7 +104,7 @@ echo "building out/ so the modal-focus check measures this tree…"
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
 status=0
-for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck markdownCheck workbenchCheck httpClientCheck; do
+for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck planAccessibilityCheck markdownCheck workbenchCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
 done
 exit "$status"

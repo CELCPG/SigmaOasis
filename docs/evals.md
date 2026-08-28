@@ -4153,3 +4153,147 @@ The paint settle is verified against the app's own DOM, not against a second ren
 establishes that 0.4 s is the *right* length for a tail to land in, only that it is a length, that
 it is one `.stream-edge` fade, and that the composer is held for exactly as long as text is still
 appearing and not a frame longer.
+
+### Pending fold-in — the plan block said nothing to anyone who could not see it
+
+A blind critic, reading round 9's captures of the cancelled and stopped plan blocks in **both**
+builds:
+
+> the plan block carries no accessible names at all — `snapshots/plan-after-cancel.html` yields
+> `aria-label: []`, `role: []`, `title: []` in both runs. The cancelled state is conveyed entirely
+> by glyph, strikethrough and colour class; a screen-reader user gets the step text and the words
+> "never ran" but no programmatic state on the row, and the disabled step buttons expose no name.
+
+The finding is right and the instrument is wrong, in a way worth recording before the fix. Scraping
+`aria-label`/`role`/`title` off a captured snapshot cannot see what a browser **computes**: an
+`<ol>` is already a `list` with `listitem` children and no `role=` written anywhere, so the critic's
+reading understated one thing. And it cannot see what a browser computes *wrongly* — which is where
+the real damage was. So this round's check boots the shipped build, attaches CDP to the live window
+and reads `Accessibility.getFullAXTree`. Every figure below is out of that tree.
+
+#### What the tree actually said
+
+| step state | status column | the row itself |
+| --- | --- | --- |
+| done | `StaticText "✓"` | `button "1. Step 1 detail 1 Tools — none planned… ▸"` |
+| failed | `StaticText "✗"` | `button "2. Step 2 detail 2 Tools — none planned… ▸"` |
+| running | `StaticText "◌"` | `button "2. Step 2 detail 2 Tools — none planned…"` `[disabled]` |
+| pending | `StaticText "○"` | `button "3. Step 3 detail 3 Tools — none planned…"` `[disabled]` |
+| stopped | `StaticText "■"` | `button "2. Step 2stopped here detail 2 …"` `[disabled]` |
+| skipped | `StaticText "–"` | `button "1. Step 1never ran detail 1 …"` `[disabled]` |
+
+**A step that failed and a step that succeeded had byte-identical accessible names.** So did a step
+still running and a step not yet started. The whole of the difference was a bare glyph parked
+outside the row — `✓` against `✗`, `◌` against `○` — announced as a symbol name or as nothing, plus
+a colour class. That is strictly worse than the reported defect: "never ran" at least reaches the
+reader in words, and a failed step reached them as a success.
+
+Three more, from the same tree. Twelve of the sixteen rows were `<button disabled>` — a control
+that was never a control, announcing "dimmed, unavailable" for a checklist entry nobody was ever
+meant to press. Every disclosure the block had fought for across four rounds — the tool forecast, the
+unrun-forecast note, the ⚠️ undisclosed-run warning — was **inside** that button, and so was
+swallowed into its name and arrived as one run-on breath with no structure and nowhere to stop:
+
+> `"1. Step 1🔧 1 tool call detail 1 Tools — may use: web_search Forecast web_search, which this
+> step never ran. ⚠️ Ran calculator, which this step did not disclose. ▸"`
+
+And the block had no name, no boundary and no live region: nothing announced that a plan had ended.
+
+#### The four judgement calls
+
+**Text where text will do; ARIA only to associate text that already exists.** The block's name is
+`aria-labelledby` pointing at the header the sighted reader already gets, never a hand-written
+`aria-label` — so the two cannot drift, and the count can never be announced without the outcome
+that qualifies it. `group name="Plan — 1/4 steps done stopped by you"`, and for a diverged run
+`"Plan — 1/3 steps done · 1 of 3 steps diverged from its forecast failed"`. `group`, not `region`:
+a conversation can hold many plans and a landmark apiece would bury the document's real ones.
+
+**The state goes on the glyph, as `role="img"` + `aria-label`.** That pair is what a meaningful icon
+takes; it needs no hidden span and no CSS, and it puts the state **first** in the row's reading
+order, which is the order a checklist is scanned in. Every status is labelled, with no exception for
+the two that already carry a visible note — so a reader of a skipped row hears "never ran" twice.
+That echo is the deliberate price of a rule with no hole in it. This project's oldest defect is the
+enumeration that stops covering its class; three words of repetition is a cheaper failure than a
+silent row.
+
+**A dead row stops being a control.** `disabled` says "you cannot press this *yet*"; the truth was
+that there was nothing to press. Rows render a `<button aria-expanded>` only when they have
+something to open, and are plain text otherwise. A cancelled plan now renders no `<button>` at all.
+
+**The prose moves out of the button, and `aria-describedby` is not the answer.** Text inside a
+control is swallowed into that control's name; text beside it is read in document order anyway. So
+the honest structure is not more ARIA, it is less markup — the button wraps the step's identity
+only, and the four prose lines sit under it as prose. They become separately navigable, the ⚠️ line
+can be stopped on, and as a side effect they become selectable with a mouse, which text in a button
+is not. The cost is a smaller click target for expanding a row, taken deliberately.
+
+**One live region, and only one.** `role="status" aria-live="polite" aria-atomic="true"` on the
+header's status word — which is now a single element that always exists and swaps its contents,
+because a region *created* when the plan ends announces nothing. Scoped to the status word alone:
+a plan that runs rewrites its rows and its count continuously, and making those live would narrate
+the entire run and teach the reader to tune it out. What they cannot discover by browsing, and must
+know, is when control comes back. So it speaks two or three times in a plan's life — "awaiting
+approval", "running", "cancelled — nothing ran" — and the steps stay silent and browsable.
+
+#### What a screen reader now gets when a plan is cancelled
+
+Entering the block: *"Plan — 0/3 steps done cancelled — nothing ran, group"*. The status region
+announces *"cancelled — nothing ran"* on its own when the cancel lands. Then a list of three items,
+each read as *"Never ran, image. 1. Step 1 never ran. detail 1. Tools — none planned; this step
+reasons only."* No controls anywhere in the block.
+
+#### The cases
+
+`test/planAccessibilityCheck.ts` — 169 checks on this tree, read from the computed accessibility
+tree of the shipped build across five seeded plans covering all six statuses, three outcomes and
+two live states:
+
+| | case | verdict |
+| --- | --- | --- |
+| **TP** | a running step against a queued one | `image "Running"` vs `image "Queued"` |
+| **TP** | a failed step against a done one | `image "Failed"` vs `image "Done"` |
+| **TP** | all six statuses, pairwise | six distinct names, no collisions |
+| **TP** | an ended plan's group name | carries the count *and* the outcome |
+| **TP** | a row with output or calls | `button` with `expanded=false` |
+| **TP** | the unrun and undisclosed lines | each its own text node outside any control |
+| **TN** | a plan still running | its name contains none of the four terminal words |
+| **TN** | a row with nothing to open | exposes no control at all — not a disabled one |
+| **TN** | any row, any fixture | zero controls announce themselves as disabled |
+| **TN** | a control's name | contains no `detail N`, no `Tools —`, no `▸`/`▾`/`🔧`/`▶` |
+| **TN** | the run control | offered on the awaiting plan and on no other |
+| **TN** | a plan whose forecast held | says neither "never ran." nor "did not disclose" |
+| **TN** | live regions per block | exactly one — not zero, and not the whole block |
+| **TN** | the live region's text | never contains `steps done` |
+
+The negatives are what stop the positives being bought cheaply: a build that labels every row
+"step" passes "every row has a name", and one that marks the whole block `aria-live` passes "the
+outcome is announced" while being unusable.
+
+A check scoped to the rows found the rows. Widening the glyph rule to **every** control in the
+block immediately turned up one more the row scope could never have seen: the approval footer named
+itself `"▶ Run this plan"` — announced as "black right-pointing triangle, Run this plan", the same
+defect as the wrench, one element over, on the one control in the block that authorises execution.
+Fixed with it, and the assertion now runs over every control rather than over the rows that
+happened to be looked at.
+
+`test/planBlock.test.ts` gains 22 markup-level cases for the facts markup alone decides, with the
+tree left as the authority — including the true negative that the prose assertions are not passing
+because the lines were dropped (`detail 1` and `Tools —` must still be present in the row).
+
+#### The check that would have flattered itself
+
+Its first draft found the block in the tree as `role=group` with a name starting `"Plan — "`, which
+is elegant and wrong. Run against the pre-fix build it reported **9 failures**; the real number was
+**128**. The block was not a named group *yet*, so every per-row assertion sat behind
+`if (!found) continue` and was never evaluated — one broken property masking every other
+measurement, which is this project's oldest recurring defect arriving inside the check written to
+close it. **A locator must not be one of the things being located.** The block is now anchored by
+DOM identity, and the naming is measured as one assertion among many.
+
+That mutation is also the proof the check is a check. Against the parent commit — same check, same
+fixtures, `out/` rebuilt from the pre-fix sources — **128 of 163 fail**, spread across every
+category in the table: 16 rows whose prose is unreadable as text, 16 controls named for the whole
+row, 12 rows dressed as controls with nothing to open, 16 unlabelled status glyphs, 5 blocks with
+no group name, 5 with no live region. The two runs execute slightly different numbers of checks —
+a passing build has fewer controls to interrogate and a live region to interrogate instead — which
+is why the totals are not equal on both sides.
