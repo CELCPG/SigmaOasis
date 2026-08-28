@@ -5129,3 +5129,102 @@ a refusal (exit 2), not a bad number — the two halves were counted from differ
 - **None of it is exercised against a live capture.** Verified by compiling the harness exactly as
   `h2h-capture.sh` does and building the record against the settings and run descriptions of all 36
   round-10 runs; no sweep was run, and no sweep may be run while the harness is being edited.
+
+### Pending fold-in — a food-safety temperature called unverified over seventeen passages stating it
+
+Round 10's recorded loss, task V1, and the most damaging shape this app has shipped: the reader
+asked how hot to cook chicken, the app answered `165 °F`, and then printed underneath it
+
+> ⚠️ 1 measurement (165 °F) in this reply is not backed by the tool output.
+> Matched by value, not by row: 4 days — [5], 2 lines; 1 week — [5], 6 lines. Where a value is
+> stated on more than one line, only the passage itself shows which one the answer took it from.
+> Checked against: reference_lookup.
+
+Two lines above it, on the same screen, the provenance strip read **`17 passages from 3 lookups`** —
+and those seventeen passages state `165` seven times — the poultry row of the foodsafety.gov chart
+in passage [7], and `Poultry: Cook all poultry to an internal temperature of 165° F as measured with
+a food thermometer` in passage [8]. The other build printed a byte-identical warning and was
+**right**: its single lookup genuinely returned no temperature. Same sentence, opposite truth
+value, and nothing on either screen distinguished them.
+
+#### What the corpus actually spanned
+
+Not what the hypothesis said. `checkToolGrounding` reads `outputOf(records, …)` over the whole
+record list and always did — handed all three of the run's lookups it returns **no finding at all**,
+which is the correct verdict. Re-run against the recorded artifacts, the corpus that produced the
+shipped warning is exactly **the first lookup, alone**:
+
+| corpus | measurements flagged | `Matched by value, not by row` |
+| --- | --- | --- |
+| lookup 1 only | `165 °F` | `4 days — [5], 2 lines; 1 week — [5], 6 lines` |
+| lookups 1+3 | `165 °F` | `4 days — [5], [14], 3 lines; …` |
+| lookups 2+3 | — | `165 °F — [7], [8], 6 lines; …` |
+| **all three** | **none — no badge** | — |
+
+Only the first row reproduces the shipped text character for character, down to the line counts. So
+the question is not which lookups the corpus reads, it is **when it was read**.
+
+The turn's own tool calls answer that. Lookup 1's query is the user's question verbatim — the app's
+pre-flight `libraryPassages` provider. Lookups 2 and 3 are:
+
+- `safe internal cooking temperature for poultry chicken`
+- `how long cooked chicken lasts in the refrigerator storage time`
+
+which are the two findings above, turned into queries. A model writes those only after it has been
+handed the report. They are the **correction pass's** lookups — `reviseAgainstFindings` runs with the
+turn's real tools and appends to the turn's own record list on purpose — and the 60 s verification
+deadline then cut the revision off before it could rewrite anything (`Not run: the revision. The
+answer above is unchanged.`). The caller published the report it had been carrying since before
+those lookups existed.
+
+So the corpus spanned **the turn as it was when the report was built**. It now spans the turn as it
+finally stands: every report is re-graded against the live record list at the moment it is
+published, never carried across the pass that changes that list.
+
+#### Which rungs shared the defect: all of them
+
+The corpus is built once per report and every rung reads it, so this was never a measurements bug —
+it is the whole `GroundingReport`. On one reply against the same recorded turn, graded against the
+pre-flight lookup alone versus against all three:
+
+| rung | pre-flight corpus | the turn as it stands |
+| --- | --- | --- |
+| measurements | `165 °F`, `165° F` | — |
+| citations | `[8]` dangles | resolves |
+| links | `fsis.usda.gov/…/safe-temperature-chart` unsourced | it is passage [10]'s source line |
+| quotations | the poultry line is "in no tool output" | quoted verbatim from [8] |
+
+Four accusations, four passages on screen refuting them. A fix that repaired measurements and left
+the other three is this project's recurring failure, so the repair is at the report, not at a rung.
+
+#### The rule, and what it is not
+
+`settleRevision` (hooks/verification.ts) now owns the whole publish decision, and the rule is one
+sentence: **nothing it reads may be a report built before the revision ran.** It grades the draft
+*and* the revision after the pass, which also repairs the comparison — `revisionIsAnImprovement` was
+counting a "before" from five passages against an "after" from seventeen, so the difference it
+measured was the corpus growing, and a rewrite that changed nothing scored as a correction the app
+then took credit for.
+
+This deliberately does **not** widen what counts as support. The corpus is still the turn's own tool
+output and nothing else; a corpus that swallowed everything would make every figure supported and
+the rung worthless. Every case above ships with its true negative, on the same three-lookup turn:
+
+- `200 °F` in place of the retrieved `165 °F` — still flagged, badge text pinned in full.
+- `https://www.example.gov/invented-chart` — still flagged.
+- `[42]`, past the seventeen passages retrieved — still flagged.
+- Stop pressed mid-revision on a reply with a real invention — still flagged, answer unchanged.
+- A revision that restates the same claim in different words after retrieving its backing — **not**
+  recorded as a correction, and no before/after pair claimed.
+- A revision that genuinely removes an invented link — still kept.
+
+#### Limits
+
+Two things this does not do. The report is re-graded, not incrementally invalidated: there is no
+fingerprint of the corpus a report was graded against, so nothing *detects* staleness — the fix is
+that no report survives long enough to go stale. And the deadline notice is still wrong about this
+turn in a second way, unrepaired here: `Not run: the revision` stood over a revision that
+demonstrably ran, made two lookups, and put their twelve passages on screen. `createVerifyBudget`
+counts a pass as run only if it returns before the deadline, so an aborted pass reports as never
+started. Round 10 recorded the same defect on FR3 (`Not run: the recomputation`, printed directly
+above the recomputation and its output); it is one defect with two sightings and wants one fix.
