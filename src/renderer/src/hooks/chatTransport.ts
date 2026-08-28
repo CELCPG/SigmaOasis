@@ -77,7 +77,24 @@ export const FIRST_BYTE_TIMEOUT_MS = 300_000
  */
 export const STREAM_STALL_MS = 60_000
 
-const NO_ANSWER = `LM Studio accepted the request and then sent nothing for ${FIRST_BYTE_TIMEOUT_MS / 1000}s. The server is not answering — check that the model is still loaded in LM Studio, then try again.`
+/**
+ * v1.17.4: one silence was two events, and the suite pinned the wrong one.
+ *
+ * Through v1.17.3 a single constant covered the whole first-byte ceiling —
+ * `LM Studio accepted the request and then sent nothing for 300s.` — and
+ * test/llmTimeouts.test.ts asserted it against a `fetch` that never resolves:
+ * a request whose response headers never arrived, i.e. one LM Studio had NOT
+ * accepted. The test's own name says so ("a POST that is never answered")
+ * while the sentence it pinned says the opposite.
+ *
+ * That is round 9's defect living inside the module built to end it — the app
+ * stating as its own finding something it had not established — and the fact
+ * that settles it was already being recorded three lines away. `accepted` is
+ * read when the timer FIRES rather than when it is armed, because `accepted`
+ * is precisely the thing that may change in between.
+ */
+const NEVER_ANSWERED = `LM Studio never answered the request — no reply headers came back for ${FIRST_BYTE_TIMEOUT_MS / 1000}s. Check that LM Studio is running with its server started, then try again.`
+const ACCEPTED_THEN_SILENT = `LM Studio accepted the request and then sent nothing for ${FIRST_BYTE_TIMEOUT_MS / 1000}s. The server took the request, so the address is right — check that the model is still loaded in LM Studio, then try again.`
 const STALLED = `The reply stalled — nothing received for ${STREAM_STALL_MS / 1000}s. LM Studio stopped sending mid-answer; whatever arrived before that is above.`
 
 /**
@@ -95,8 +112,15 @@ const STALLED = `The reply stalled — nothing received for ${STREAM_STALL_MS / 
  */
 export function armWatchdog(outer: AbortSignal): {
   signal: AbortSignal
-  /** Restart the clock. Called before the request, then on every chunk. */
-  touch: (ms: number, message: string) => void
+  /**
+   * Restart the clock. Called before the request, then on every chunk.
+   *
+   * `message` may be a thunk, and the first-byte ceiling passes one: which of
+   * the two silences this is depends on whether response headers arrived,
+   * which is unknown when the timer is armed and settled by the time it fires.
+   * A string that had to be chosen up front could only ever name one of them.
+   */
+  touch: (ms: number, message: string | (() => string)) => void
   /** The watchdog's error, if the watchdog is what stopped the stream. */
   expired: () => Error | null
   stop: () => void
@@ -112,7 +136,7 @@ export function armWatchdog(outer: AbortSignal): {
     touch(ms, message): void {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        expired = new Error(message)
+        expired = new Error(typeof message === 'function' ? message() : message)
         inner.abort()
       }, ms)
     },
@@ -150,12 +174,48 @@ export interface StreamWitness {
   accepted: boolean
   /** At least one byte of the response body arrived. */
   streamed: boolean
+  /**
+   * The same two facts about the request that is open RIGHT NOW — v1.17.4.
+   *
+   * The pair above is turn-scoped and answers a question asked once, at the
+   * end: who fell silent on the turn as a whole. The reader staring at a
+   * motionless disc is asking a different question — *what is happening to the
+   * request I am waiting on* — and a tool loop makes the two disagree. Round
+   * two of a loop arms the first-byte ceiling afresh, so `streamed` being true
+   * of round one says nothing about the silence the reader is in now.
+   *
+   * MessageBubble used to guess this from the message instead (`reasoning !==
+   * '' || toolCalls.length > 0`), and that guess is wrong in exactly the case
+   * it matters: after any tool call it declared the stream started for the
+   * rest of the turn, so the wait line promised `gives up at 1:00` while the
+   * transport was in fact five minutes into a fresh first-byte ceiling.
+   */
+  round: StreamPhase
   /** When the last byte arrived — or, before any did, when the request went out. */
   lastActivityAt: number
+  /**
+   * Called when `round` changes — at the request, at the headers, at the first
+   * body byte. How the screen learns what the transport has seen while it is
+   * still seeing it, rather than only in the post-mortem.
+   */
+  onChange?: () => void
+}
+
+/** The two discriminating facts, as much of the witness as a reader needs. */
+export interface StreamPhase {
+  /** The POST was answered: response headers arrived. */
+  accepted: boolean
+  /** At least one byte of the response body arrived. */
+  streamed: boolean
 }
 
 export function newWitness(): StreamWitness {
-  return { accepted: false, streamed: false, lastActivityAt: Date.now() }
+  return {
+    accepted: false,
+    streamed: false,
+    round: { accepted: false, streamed: false },
+    lastActivityAt: Date.now()
+  }
 }
 
 /**
@@ -465,8 +525,15 @@ export async function streamChat(
   // Armed before the request, reset by every chunk: one watchdog covers a POST
   // that is never answered and a stream that dies mid-answer.
   const watchdog = armWatchdog(signal)
-  watchdog.touch(FIRST_BYTE_TIMEOUT_MS, NO_ANSWER)
+  watchdog.touch(FIRST_BYTE_TIMEOUT_MS, () =>
+    witness.round.accepted ? ACCEPTED_THEN_SILENT : NEVER_ANSWERED
+  )
   witness.lastActivityAt = Date.now()
+  // A fresh request: whatever a previous round of this turn saw is not what
+  // this one has seen. Published immediately, so the screen's account of the
+  // silence starts when the silence does.
+  witness.round = { accepted: false, streamed: false }
+  witness.onChange?.()
   try {
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
@@ -492,6 +559,8 @@ export async function streamChat(
     // Everything after this point that goes wrong is the server's or the
     // model's, and the difference between those two is `streamed` below.
     witness.accepted = true
+    witness.round = { ...witness.round, accepted: true }
+    witness.onChange?.()
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
@@ -554,6 +623,12 @@ export async function streamChat(
       if (done) break
       watchdog.touch(STREAM_STALL_MS, STALLED)
       witness.streamed = true
+      // Published once, on the transition: this runs per chunk, and a store
+      // commit per chunk is the cost the streaming tail exists to avoid.
+      if (!witness.round.streamed) {
+        witness.round = { ...witness.round, streamed: true }
+        witness.onChange?.()
+      }
       witness.lastActivityAt = Date.now()
       buffer += decoder.decode(value, { stream: true })
 

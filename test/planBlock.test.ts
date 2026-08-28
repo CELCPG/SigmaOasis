@@ -1278,3 +1278,76 @@ describe('the block names itself out of the header a reader can see', () => {
     assert.match(html, /aria-hidden="true">📋</, 'the clipboard is announced as "clipboard"')
   })
 })
+
+/* ---- v1.17.4: a cancelled plan was attributed to nobody ------------------- */
+
+/**
+ * A blind critic, on the cancelled badge:
+ *
+ * > `"cancelled — nothing ran"` attributes the decision to nobody, where the
+ * > same build family manages `"stopped by you"` elsewhere.
+ *
+ * The first question is not what to write but whether the app may write it. It
+ * may, and not merely usually: `cancelled` has exactly one writer in the whole
+ * renderer, and that writer's only caller is the Cancel control inside this
+ * block. Every ending the app reaches on its own is a different word —
+ * `stopped` from the abort listener on the approval gate and the
+ * `signal.aborted` checks around each step, `failed` from a step that threw,
+ * `completed` from a plan that ran out. There is no fourth way in, so there is
+ * no second case to write words for.
+ *
+ * That is a property of the source, not of the render, so the last test here
+ * reads the source. A future path that ends a plan without the reader touching
+ * it would make the badge a lie, and nothing in a rendered checklist could
+ * catch that.
+ */
+describe('a plan that ended says whose decision it was', () => {
+  test('the cancelled badge names the reader, and still says nothing ran', () => {
+    assert.equal(OUTCOME_LABEL.cancelled, 'cancelled by you — nothing ran')
+    // Both halves matter: who decided, and what the rows below it are. The
+    // v1.12.3 finding — a reader taking "Result: ~$1,080" off a step that never
+    // ran — is why the second half cannot be dropped for room.
+    assert.match(planHeaderStatus(CANCELLED).text, /by you/)
+    assert.match(planHeaderStatus(CANCELLED).text, /nothing ran/)
+  })
+
+  test('exactly the two outcomes the reader causes name the reader', () => {
+    const byReader = (['completed', 'cancelled', 'stopped', 'failed'] as const).filter((o) =>
+      /\byou\b/.test(OUTCOME_LABEL[o])
+    )
+    // The true negative: a plan that finished and a plan that failed are the
+    // app's own doing, and must not be laid at the reader's door.
+    assert.deepEqual(byReader, ['cancelled', 'stopped'])
+  })
+
+  test('the app has exactly one way to write "cancelled", and it is the reader’s button', () => {
+    const src = (p: string): string => readFileSync(join(REPO, 'src', 'renderer', 'src', p), 'utf-8')
+
+    // The executor never picks the word: it forwards the decision the gate was
+    // resolved with, so it cannot name a party by inference from something
+    // nearby. (Through v1.17.3 it read `signal.aborted` immediately after the
+    // resolve and chose from that — a fact about the turn's abort controller
+    // standing in for a fact about which control was pressed.)
+    const planMode = src('hooks/planMode.ts')
+    assert.ok(!/finish\(\s*'cancelled'/.test(planMode), 'planMode picks the word itself')
+    assert.ok(!/resolve\(\s*'cancelled'/.test(planMode), 'planMode resolves the gate as cancelled')
+    assert.match(planMode, /signal\.addEventListener\('abort', \(\) => resolve\('stopped'\)/)
+
+    // And the single writer is the Approve/Cancel resolver.
+    const hook = src('hooks/useLMStudio.ts')
+    const writes = hook.split('\n').filter((l) => /'cancelled'/.test(l))
+    assert.equal(writes.length, 1, `${writes.length} writers of 'cancelled' in useLMStudio.ts`)
+    assert.match(writes[0]!, /resolve\(approved \? 'approved' : 'cancelled'\)/)
+
+    // Whose only caller is the block's own Cancel button.
+    const view = readFileSync(
+      join(REPO, 'src', 'renderer', 'src', 'components', 'PlanBlockView.tsx'),
+      'utf-8'
+    )
+    assert.equal(
+      (view.match(/onResolve\(false\)/g) ?? []).length,
+      1,
+      'more than one control refuses the plan'
+    )
+  })
+})

@@ -680,6 +680,13 @@ body {
 
 .oasis-status {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+.oasis-status-line {
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -720,8 +727,20 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.oasis-wait[data-wait-level='escalated'] {
+.oasis-wait[data-wait-level='escalated'],
+.oasis-wait[data-wait-level='stalled'] {
   color: var(--accent-amber-ink);
+}
+/* The reading under the clock. Wraps — it is a sentence, not a counter — and
+   stays in the body ink rather than the amber: the amber marks the fact that
+   the wait is long, and repeating it on the explanation would put a statement
+   the app is deliberately not making at the volume of an alarm. */
+.oasis-wait-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  max-width: 52ch;
+  text-wrap: pretty;
 }
 
 /* Reduced motion: no droplets, no rings — the orb keeps its calm pulse. */

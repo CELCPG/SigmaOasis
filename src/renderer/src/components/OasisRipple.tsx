@@ -6,6 +6,7 @@ import {
   resolveMotion,
   startWaitClock,
   type OasisState,
+  type StreamPhase,
   type WaitNotice
 } from '../lib/oasisRipple'
 
@@ -58,7 +59,8 @@ export function OasisRipple({
   state,
   size = 64,
   activity = '',
-  deadlineMs
+  deadlineMs,
+  seen = null
 }: {
   state: OasisState
   size?: number
@@ -66,6 +68,13 @@ export function OasisRipple({
   activity?: string
   /** The transport's own give-up for this phase, named once the wait escalates. */
   deadlineMs: number
+  /**
+   * What the transport has witnessed of the request being waited on. Not part
+   * of `activity` on purpose: headers arriving is news, but it does not restart
+   * the transport's first-byte clock, and a counter that reset there would
+   * count down to a deadline from the wrong origin.
+   */
+  seen?: StreamPhase | null
 }): JSX.Element | null {
   const reducedMotion = useReducedMotion()
   const silentMs = useSilence(`${state.mode}:${state.activeToolId ?? ''}:${activity}`)
@@ -74,7 +83,7 @@ export function OasisRipple({
       state={state}
       size={size}
       reducedMotion={reducedMotion}
-      wait={describeWait(silentMs, state, deadlineMs)}
+      wait={describeWait(silentMs, state, deadlineMs, seen)}
     />
   )
 }
@@ -125,7 +134,14 @@ export function OasisRippleView({
       className="oasis-ripple"
       role="status"
       aria-live="polite"
-      aria-label={`${label.toLowerCase()}${detail}${waitText ? ` — ${waitText}` : ''}`}
+      // The note joins the announced name for the same reason it is on screen:
+      // it is the half of the wait that says what to do about it, and a live
+      // region that reads the clock but not the reading is the visual defect
+      // repeated for a listener.
+      aria-label={
+        `${label.toLowerCase()}${detail}${waitText ? ` — ${waitText}` : ''}` +
+        (wait.note ? `. ${wait.note}` : '')
+      }
     >
       <div
         className="oasis-disc"
@@ -180,23 +196,29 @@ export function OasisRippleView({
       </div>
 
       <div className="oasis-status">
-        {state.mode === 'tool' && state.tool && (
-          <span className="oasis-tool-pill" style={{ borderColor: `${visual.color}50`, boxShadow: `0 0 16px ${visual.color}30` }}>
-            <span style={{ color: visual.color }}>{state.tool.icon}</span>
+        <div className="oasis-status-line">
+          {state.mode === 'tool' && state.tool && (
+            <span className="oasis-tool-pill" style={{ borderColor: `${visual.color}50`, boxShadow: `0 0 16px ${visual.color}30` }}>
+              <span style={{ color: visual.color }}>{state.tool.icon}</span>
+            </span>
+          )}
+          <span
+            className={`oasis-label ${state.mode === 'ambient' && !reducedMotion ? 'shimmer-text' : ''}`}
+            style={state.mode === 'ambient' && !reducedMotion ? undefined : { color: visual.color }}
+          >
+            {label}
+            {detail && <span className="oasis-label-detail">{detail}</span>}
           </span>
-        )}
-        <span
-          className={`oasis-label ${state.mode === 'ambient' && !reducedMotion ? 'shimmer-text' : ''}`}
-          style={state.mode === 'ambient' && !reducedMotion ? undefined : { color: visual.color }}
-        >
-          {label}
-          {detail && <span className="oasis-label-detail">{detail}</span>}
-        </span>
-        {waitText && (
-          <span className="oasis-wait" data-wait-level={wait.level}>
-            {waitText}
-          </span>
-        )}
+          {waitText && (
+            <span className="oasis-wait" data-wait-level={wait.level}>
+              {waitText}
+            </span>
+          )}
+        </div>
+        {/* Its own line, and wrapping: the line above is nowrap with an
+            ellipsis, which is right for a clock and would silently eat a
+            sentence. */}
+        {wait.note && <p className="oasis-wait-note">{wait.note}</p>}
       </div>
     </div>
   )
