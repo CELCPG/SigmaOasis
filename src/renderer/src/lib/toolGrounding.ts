@@ -146,6 +146,30 @@ export interface GroundingReport {
    * this is instead of.
    */
   matched?: MeasurementSource[]
+  /**
+   * v2.4: how many findings the banner's three counted categories actually had,
+   * where the arrays above name fewer.
+   *
+   * Every array in this report is capped at `MAX_REPORTED`, and the banner
+   * derives its count from the array — so a reply with nine unbacked prices
+   * shipped `⚠️ 6 figures ($1, $2, $3, $4, $5, $6) in this reply are not backed
+   * by the tool output.` A reader has no way to see the cap: six named, six
+   * counted, and three more of exactly the same kind left unsaid. The count
+   * reads as a census and is a ceiling.
+   *
+   * The sibling line on the same screen has always got this right — `Not
+   * compared against anything: 700 gallons per month, 60 seconds/min, 60
+   * min/hr, 24 hr/day **and 2 more**` — because `coverage` carries its totals
+   * uncapped and caps only `uncheckedNamed`. This is that shape, for the
+   * categories `describeUnbackedItems` speaks about. Present only when
+   * something really was dropped, so a report that names every finding cannot
+   * claim a truncation it did not make.
+   *
+   * Naming is what is capped; the count is not. Raising `MAX_REPORTED` instead
+   * would have moved the silence one figure along and left the same reader with
+   * the same unreadable ceiling.
+   */
+  found?: { figures?: number; links?: number; quantities?: number }
   /** Tools whose output was used as the corpus, for the disclosure text. */
   checkedAgainst: string[]
 }
@@ -383,23 +407,48 @@ function andList(parts: string[]): string {
  * It lives here rather than in the component for the reason the count and the
  * names of `describeRevisionOutcome` do: a sentence with no test is how "1 item
  * were sent back" survived to a blind judge in round 4.
+ *
+ * v2.4: the count is the census and the naming is what is capped — see `found`.
+ * Until now both came off an array already sliced to `MAX_REPORTED`, so the
+ * line agreed with itself perfectly and understated the reply. The rule it
+ * broke is stated two hundred lines above it, over `groundingFindingLabels`:
+ * *the count and the names must come from the same place* — and the place has
+ * to be the whole of what was found.
  */
 export function describeUnbackedItems(report: GroundingReport): string {
   const parts: string[] = []
   let items = 0
-  const add = (named: string[], noun: string, list: boolean): void => {
-    if (named.length === 0) return
-    items += named.length
+  const add = (named: string[], noun: string, list: boolean, found: number): void => {
+    if (found === 0) return
+    items += found
     // Named in full where naming is possible: a figure is checked by looking at
     // it. Links carry their own bulleted list under this line, so counting them
-    // here and listing them there says each URL once.
-    parts.push(`${named.length} ${noun}${named.length === 1 ? '' : 's'}${list ? ` (${named.join(', ')})` : ''}`)
+    // here and listing them there says each URL once — and the same "and N
+    // more" that closes this parenthesis closes that list (see MessageBubble).
+    const unnamed = found - named.length
+    const names = list
+      ? ` (${named.join(', ')}${unnamed > 0 ? ` and ${unnamed} more` : ''})`
+      : ''
+    parts.push(`${found} ${noun}${found === 1 ? '' : 's'}${names}`)
   }
-  add(report.figures, 'figure', true)
-  add(report.links, 'link', false)
-  add(report.quantities ?? [], 'measurement', true)
+  const quantities = report.quantities ?? []
+  add(report.figures, 'figure', true, report.found?.figures ?? report.figures.length)
+  add(report.links, 'link', false, report.found?.links ?? report.links.length)
+  add(quantities, 'measurement', true, report.found?.quantities ?? quantities.length)
   if (items === 0) return ''
   return `${andList(parts)} in this reply ${items === 1 ? 'is' : 'are'} not backed by the tool output.`
+}
+
+/**
+ * How many links the banner's bulleted list leaves unnamed — the `and N more`
+ * that belongs to that list rather than to the sentence above it.
+ *
+ * Links are the one counted category the sentence does not name inline, so the
+ * v2.4 disclosure has to land where they *are* named. Here rather than in the
+ * component, beside the sentence it has to agree with.
+ */
+export function unlistedLinks(report: GroundingReport): number {
+  return (report.found?.links ?? report.links.length) - report.links.length
 }
 
 /** Beyond this many, the coverage line names the first few and counts the rest. */
@@ -2924,6 +2973,15 @@ export function checkToolGrounding(
         ? ['nothing — the only checks that ran verified nothing']
         : ['no tool output — nothing ran this turn']
 
+  // v2.4: the totals for the three categories the banner counts, kept only
+  // where the slice below really drops something. Recorded per category rather
+  // than as one number because the sentence names each category separately, and
+  // a "and 3 more" hung on the wrong noun is a new wrong statement.
+  const found: NonNullable<GroundingReport['found']> = {}
+  if (figures.length > MAX_REPORTED) found.figures = figures.length
+  if (links.length > MAX_REPORTED) found.links = links.length
+  if (quantities.length > MAX_REPORTED) found.quantities = quantities.length
+
   return {
     figures: figures.slice(0, MAX_REPORTED),
     links: links.slice(0, MAX_REPORTED),
@@ -2964,6 +3022,7 @@ export function checkToolGrounding(
     // does, for the same reason: a permanent provenance line under every reply
     // that mentions a duration is round 4's cry-wolf in a quieter ink.
     ...(matched.length > 0 ? { matched: matched.slice(0, MAX_REPORTED) } : {}),
+    ...(Object.keys(found).length > 0 ? { found } : {}),
     checkedAgainst
   }
 }

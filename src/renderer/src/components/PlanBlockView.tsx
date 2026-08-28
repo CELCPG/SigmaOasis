@@ -6,6 +6,7 @@ import { Disclosure } from './Disclosure'
 import {
   awaitingApproval,
   forecastDivergenceNote,
+  planHeaderCount,
   planHeaderStatus,
   reconcileStepTools,
   STATUS_CLASS,
@@ -45,7 +46,6 @@ export function PlanBlockView({
   // shows — see the group below.
   const headerId = useId()
 
-  const doneCount = plan.steps.filter((s) => s.status === 'done').length
   const awaiting = awaitingApproval(plan)
   const status = planHeaderStatus(plan)
   // Reconciled against everything each step ran, never against the filtered
@@ -67,9 +67,14 @@ export function PlanBlockView({
     >
       <div id={headerId} className="flex items-center gap-2 px-3 py-1.5">
         <span aria-hidden="true">📋</span>
-        <span className="font-medium text-ink-secondary">
-          Plan — {doneCount}/{plan.steps.length} steps done
-        </span>
+        {/* A progress fraction while the plan can still progress, and a census
+            of what became of every step once it cannot — see
+            `planHeaderCount`. The string is built there, beside the outcome
+            labels it has to agree with, for the reason every other sentence in
+            this app moved out of its component: a line with no test is how a
+            dead checklist kept advertising three quarters of the work as still
+            to come. */}
+        <span className="font-medium text-ink-secondary">Plan — {planHeaderCount(plan)}</span>
         {/* The count alone read as a clean bill on a run where half the
             forecast was fiction. Same ink and weight as the count it qualifies
             — the reader must not be able to take the one without the other —

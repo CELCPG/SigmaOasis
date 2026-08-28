@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { compareToOutput, describeRecompute, recomputeIsCircular } from '../src/renderer/src/lib/workbenchChecks'
-import { checkToolGrounding, describeUnbackedItems, unsourcedFigures } from '../src/renderer/src/lib/toolGrounding'
+import { checkToolGrounding, describeUnbackedItems, unlistedLinks, unsourcedFigures } from '../src/renderer/src/lib/toolGrounding'
 import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 import {
   LIBRARY_MISS_LABEL,
@@ -269,5 +269,147 @@ describe('the unbacked-items sentence agrees with the items (v1.17.1)', () => {
     // The banner still renders — it has quotes, contacts, citations of its own —
     // but this line must not appear with an empty subject.
     assert.equal(describeUnbackedItems(report({ contacts: ['1-800-555-0134'] })), '')
+  })
+})
+
+// ---- v2.4: the count was a ceiling wearing a census's clothes ----------------
+
+/**
+ * Round 11, and the sibling line on the same screen is what convicts this one.
+ *
+ *     ⚠️ 5 figures ($6, $3.50, $7.00, $10, $15) in this reply are not backed by
+ *        the tool output.
+ *     Covered 0 of the 6 measurements in this reply. Not compared against
+ *        anything: 700 gallons per month, 60 seconds/min, 60 min/hr, 24 hr/day
+ *        **and 2 more**.
+ *
+ * The second line names four of six and says so. The first took its count off
+ * an array `checkToolGrounding` had already sliced to `MAX_REPORTED`, so it
+ * agreed with itself perfectly and understated the reply: six named, six
+ * counted, and every further unbacked figure silently absent. `groundingFinding
+ * Labels` states the rule two hundred lines above — *the count and the names
+ * must come from the same place* — and the place has to be the whole of what
+ * was found.
+ *
+ * Disclosed rather than uncapped: naming twelve prices in an amber banner is
+ * the noise a reader learns to scroll past, and raising `MAX_REPORTED` would
+ * only move the silence one figure along. The idiom is the sibling's, verbatim.
+ */
+describe('the unbacked-items count is the census, not the cap (v2.4)', () => {
+  const SIX = ['$1', '$2', '$3', '$4', '$5', '$6']
+
+  test('a truncated list says how many it left out', () => {
+    assert.equal(
+      describeUnbackedItems(report({ figures: SIX, found: { figures: 9 } })),
+      '9 figures ($1, $2, $3, $4, $5, $6 and 3 more) in this reply are not backed by the tool output.'
+    )
+  })
+
+  test('the same idiom as the coverage line it sits beside', () => {
+    // Not a second spelling of "there are more of these": the sibling has said
+    // `and N more` since v2.1 and this is that phrase, not a new one.
+    const line = describeUnbackedItems(report({ quantities: ['5 mi', '9 mi'], found: { quantities: 3 } }))
+    assert.equal(
+      line,
+      '3 measurements (5 mi, 9 mi and 1 more) in this reply are not backed by the tool output.'
+    )
+    assert.match(line, /and 1 more/)
+  })
+
+  test('a report that names every finding claims no truncation — the true negative', () => {
+    // Six unbacked figures and six named: the cap was reached and nothing was
+    // dropped, so there is nothing to admit. A build that appended "and 0 more"
+    // — or that hedged every list — would fail here.
+    const line = describeUnbackedItems(report({ figures: SIX }))
+    assert.equal(
+      line,
+      '6 figures ($1, $2, $3, $4, $5, $6) in this reply are not backed by the tool output.'
+    )
+    assert.doesNotMatch(line, /more/)
+    assert.doesNotMatch(describeUnbackedItems(report({ figures: ['$36'] })), /more/)
+  })
+
+  test('the count still governs the verb, so the sentence stays grammatical', () => {
+    // v1.17.1's rule over v2.4's number: the verb agrees with the total, and
+    // the total is now the one the reader is being told.
+    assert.match(
+      describeUnbackedItems(report({ figures: SIX, found: { figures: 9 } })),
+      /9 figures .* are not backed/
+    )
+    assert.match(
+      describeUnbackedItems(report({ figures: ['$36'] })),
+      /1 figure \(\$36\) in this reply is not backed/
+    )
+  })
+
+  test('links are counted in the sentence and admitted in their own list', () => {
+    // Links are the one counted category the sentence does not name inline —
+    // they carry a bulleted list under it — so raising the count without
+    // telling that list would have moved the silent truncation rather than
+    // ending it.
+    const many = report({
+      links: ['a', 'b', 'c', 'd', 'e', 'f'],
+      found: { links: 9 }
+    })
+    assert.equal(
+      describeUnbackedItems(many),
+      '9 links in this reply are not backed by the tool output.'
+    )
+    assert.equal(unlistedLinks(many), 3)
+    // The true negative: a list that names every link admits nothing.
+    assert.equal(unlistedLinks(report({ links: ['a', 'b'] })), 0)
+  })
+
+  test('two truncated categories keep their remainders apart', () => {
+    // "and 3 more" hung on the wrong noun is a new wrong statement, which is
+    // why the totals are recorded per category rather than as one number.
+    assert.equal(
+      describeUnbackedItems(
+        report({
+          figures: SIX,
+          found: { figures: 8, quantities: 7 },
+          quantities: ['5 mi', '9 mi', '2 mi', '4 mi', '6 mi', '8 mi']
+        })
+      ),
+      '8 figures ($1, $2, $3, $4, $5, $6 and 2 more) and 7 measurements ' +
+        '(5 mi, 9 mi, 2 mi, 4 mi, 6 mi, 8 mi and 1 more) in this reply are not backed by the tool output.'
+    )
+  })
+})
+
+/**
+ * And the same thing end to end, because the defect was not in the sentence —
+ * the sentence was told six — but in what the report handed it.
+ */
+describe('the report carries the totals its own cap hides (v2.4)', () => {
+  const ran = (result: string): ToolCallRecord => ({
+    id: 'r1',
+    name: 'web_search',
+    args: {},
+    status: 'done',
+    result
+  })
+
+  test('nine unbacked prices reach the reader as nine', () => {
+    const answer = 'Prices: $1, $2, $3, $4, $5, $6, $7, $8 and $9.'
+    const r = checkToolGrounding(answer, [ran('the page quotes no prices at all')], '')
+    assert.ok(r, 'nine invented prices produced no report')
+    assert.equal(r!.found?.figures, 9)
+    assert.equal(r!.figures.length, 6, 'the naming is what is capped')
+    assert.match(describeUnbackedItems(r!), /^9 figures \(.* and 3 more\)/)
+  })
+
+  test('six unbacked prices carry no total at all — the true negative', () => {
+    // Exactly at the cap: nothing was dropped, so `found` is absent rather
+    // than present-and-equal. A report that always recorded a total would make
+    // "was anything left out?" unanswerable from the record.
+    const r = checkToolGrounding(
+      'Prices: $1, $2, $3, $4, $5 and $6.',
+      [ran('the page quotes no prices at all')],
+      ''
+    )
+    assert.ok(r)
+    assert.equal(r!.found, undefined)
+    assert.doesNotMatch(describeUnbackedItems(r!), /more/)
   })
 })

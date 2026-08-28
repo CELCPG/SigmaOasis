@@ -846,6 +846,17 @@ export interface GroundingReport {
     /** Lines of passage text stating it — a table row is a line. */
     lines: number
   }[]
+  /**
+   * v2.4: how many findings the banner's counted categories really had, where
+   * the arrays above name fewer.
+   *
+   * Every array here is capped, and the banner's count came off the array — so
+   * `⚠️ 6 figures (…)` was a ceiling wearing a census's clothes. Present only
+   * when the cap actually dropped something, so a report that names everything
+   * cannot claim a truncation it did not make. See `GroundingReport.found` in
+   * lib/toolGrounding.ts.
+   */
+  found?: { figures?: number; links?: number; quantities?: number }
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }

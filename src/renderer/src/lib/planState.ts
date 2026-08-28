@@ -186,6 +186,49 @@ export function planHeaderStatus(plan: ChatPlan): PlanHeaderStatus {
 }
 
 /**
+ * What the header says about the steps themselves — v2.4.
+ *
+ * A fraction is a promise about the steps it leaves out. `0/4 steps done` says
+ * four things are not done yet, and *yet* is the whole of the reader's model of
+ * a checklist: the numerator climbs, the denominator is reached. On a plan that
+ * can still run, that promise is good.
+ *
+ * Measured, blind, round 11 (`.h2h-runs/B11/PT2-20260828-110253`, and the same
+ * line in A11), `Plan — 0/4 steps done` also sat above four rows every one of
+ * which read `never ran`, beside a badge reading `cancelled by you — nothing
+ * ran`. Round 11 taught the badge to
+ * attribute the decision; the count went on describing a run in progress. Not
+ * one word of it is false — no step is done, there are four of them — and it
+ * still tells a reader that three quarters of the work is ahead. Round 10's
+ * lesson with the breadth in the presentation rather than in the claim.
+ *
+ * So the fraction survives exactly as long as it is closed. `4/4 steps done`
+ * beside `finished` leaves nothing out and stays, because it is the same
+ * statement as the census and a shorter one; the case to repair is a fraction
+ * with a remainder that will never arrive. That plan gets the census instead:
+ * how many steps there were and what became of every one of them.
+ *
+ * Not `4 steps` alone, which would leave their fate to the badge — the badge
+ * speaks about the plan, and the rows are what the reader is about to read. And
+ * not a shape written for `cancelled`, which is how the next outcome gets
+ * forgotten: the tally walks `STATUS_LABEL`, so a status added later is counted
+ * by construction rather than by being remembered here. The cost is one echo —
+ * a cancelled plan says `4 never ran` above four rows that each say `never ran`
+ * — which is the same deliberate repetition `STATUS_LABEL` already accepts.
+ */
+export function planHeaderCount(plan: ChatPlan): string {
+  const total = plan.steps.length
+  const done = plan.steps.filter((s) => s.status === 'done').length
+  if (!plan.outcome || done === total) return `${done}/${total} steps done`
+  const steps = `${total} step${total === 1 ? '' : 's'}`
+  const tally = (Object.keys(STATUS_LABEL) as PlanStepStatus[])
+    .map((status) => ({ status, count: plan.steps.filter((s) => s.status === status).length }))
+    .filter((group) => group.count > 0)
+    .map((group) => `${group.count} ${STATUS_LABEL[group.status].toLowerCase()}`)
+  return `${steps}: ${tally.join(', ')}`
+}
+
+/**
  * A step's own copy — its detail line and its tool disclosure.
  *
  * v1.12.3: a step that never ran had its title struck through and everything

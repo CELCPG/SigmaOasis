@@ -9,6 +9,7 @@ import {
   awaitingApproval,
   endPlan,
   OUTCOME_LABEL,
+  planHeaderCount,
   planHeaderStatus,
   STATUS_LABEL,
   STATUS_NOTE
@@ -1250,8 +1251,11 @@ describe('the block has one live region, and it carries the state', () => {
     const html = render(STOPPED)
     const at = html.indexOf('aria-live=')
     const region = html.slice(html.lastIndexOf('<span', at), html.indexOf('</span>', at))
-    assert.ok(!/steps done/.test(region), `the count is inside the live region: ${region}`)
-    assert.match(header(html), /steps done/)
+    // v2.4: the negative is on the word "step", not on the phrase "steps done".
+    // A stopped plan's header no longer says "steps done" at all, so the older
+    // assertion had become true of a region that swallowed the whole count.
+    assert.ok(!/step/i.test(region), `the count is inside the live region: ${region}`)
+    assert.match(header(html), /\d+ steps\b/)
   })
 })
 
@@ -1269,7 +1273,7 @@ describe('the block names itself out of the header a reader can see', () => {
     // without the count it qualifies, or the count without the outcome.
     const headerText = header(html)
     assert.ok(headerText.includes(`id="${labelledBy![1]}"`), 'the name points below the header')
-    assert.match(headerText, /steps done/)
+    assert.match(headerText, /\d+ steps\b/)
     assert.match(headerText, new RegExp(OUTCOME_LABEL.stopped))
   })
 
@@ -1348,6 +1352,80 @@ describe('a plan that ended says whose decision it was', () => {
       (view.match(/onResolve\(false\)/g) ?? []).length,
       1,
       'more than one control refuses the plan'
+    )
+  })
+})
+
+/* ---- v2.4: a progress fraction on a plan that will never progress --------- */
+
+/**
+ * Round 11's blind critics, on both arms: `Plan — 0/4 steps done` sat above
+ * four rows every one of which read `never ran`, beside a badge reading
+ * `cancelled by you — nothing ran`.
+ *
+ * Nothing in the fraction is false. It is a *promise*: a numerator that climbs
+ * toward a denominator that gets reached, which is what a reader of a checklist
+ * takes from `0/4`. Round 11 taught the badge to attribute the decision and the
+ * count went on describing a run in progress — round 10's lesson (a sentence
+ * broader than its measurement) with the breadth in the presentation.
+ *
+ * The rule is not "no fractions on dead plans": a fraction may stand as long as
+ * it is closed. `4/4 steps done` leaves nothing out and says the same thing as
+ * the census in fewer words, so it stays. The two true negatives below are that
+ * case and the live case, and they are what stop this being bought cheaply by a
+ * build that simply stopped counting.
+ */
+describe('a plan that is over stops reporting progress (v2.4)', () => {
+  test('the recorded line: nothing ran, and the count no longer implies it might', () => {
+    const FOUR = endPlan(
+      plan([step(1, 'pending'), step(2, 'pending'), step(3, 'pending'), step(4, 'pending')], {
+        approved: false
+      }),
+      'cancelled'
+    )
+    assert.equal(planHeaderCount(FOUR), '4 steps: 4 never ran')
+    // Both halves on one screen, in the markup the reader is handed.
+    const h = header(render(FOUR))
+    assert.ok(!/0\/4 steps done/.test(h), `the dead plan still shows a progress fraction: "${h}"`)
+    assert.match(h, new RegExp(OUTCOME_LABEL.cancelled))
+  })
+
+  test('a plan stopped part-way says what became of every one of its steps', () => {
+    // STOPPED is 1 done, 1 stopped, 2 that never ran — and `1/4 steps done`
+    // was the fraction inviting the reader to wait for steps 3 and 4.
+    assert.equal(planHeaderCount(STOPPED), '4 steps: 1 done, 1 stopped by you, 2 never ran')
+    assert.equal(planHeaderCount(FAILED), '3 steps: 1 done, 1 failed, 1 never ran')
+  })
+
+  test('the census accounts for every step, whatever the statuses are', () => {
+    // The class, not the three instances: for any terminal plan the numbers in
+    // the header sum to the number of rows below it. A tally that walked a
+    // hand-written list of statuses and missed one would leave rows
+    // unaccounted for, and this is the assertion that would catch it.
+    for (const p of [CANCELLED, STOPPED, FAILED]) {
+      const text = planHeaderCount(p)
+      const tallied = Object.values(STATUS_LABEL).reduce((sum, label) => {
+        const m = text.match(new RegExp(`\\b(\\d+) ${label.toLowerCase()}\\b`))
+        return sum + (m ? Number(m[1]) : 0)
+      }, 0)
+      assert.equal(tallied, p.steps.length, `"${text}" accounts for ${tallied} of ${p.steps.length}`)
+    }
+  })
+
+  test('a closed fraction is left alone — the true negative', () => {
+    // Every step done: the fraction leaves nothing out, so it already IS the
+    // census and is the shorter of the two.
+    const DONE = endPlan(plan([step(1, 'done', 'ok'), step(2, 'done', 'ok')]), 'completed')
+    assert.equal(planHeaderCount(DONE), '2/2 steps done')
+  })
+
+  test('a plan still in flight still counts its progress — the true negative', () => {
+    // QUEUED is approved and running: 0 of 3 done, and here `0/3` is exactly
+    // right, because the numerator really is expected to climb.
+    assert.equal(planHeaderCount(QUEUED), '0/3 steps done')
+    assert.equal(
+      planHeaderCount(plan([step(1, 'pending'), step(2, 'pending')], { approved: false })),
+      '0/2 steps done'
     )
   })
 })
