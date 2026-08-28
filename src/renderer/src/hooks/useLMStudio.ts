@@ -16,9 +16,7 @@ import {
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
-import { checkToolGrounding, revisionIsAnImprovement,
-  conflictingToolFigures
-} from '../lib/toolGrounding'
+import { checkToolGrounding, conflictingToolFigures } from '../lib/toolGrounding'
 import { composeFailure, explainFailure } from '../../../shared/failure'
 import { looksLikeShopping } from '../lib/shopping'
 import { isOffline } from '../lib/libraryRecall'
@@ -78,14 +76,10 @@ import {
   runCodeCheck,
   runConsultation,
   runDeliberation,
-  runRecompute
+  runRecompute,
+  settleRevision
 } from './verification'
-import {
-  describeCodeCheck,
-  looksArithmetic,
-  revisionDropsAllFigures,
-  revisionEchoesScaffolding
-} from '../lib/workbenchChecks'
+import { describeCodeCheck, looksArithmetic } from '../lib/workbenchChecks'
 import { planApprovals, runPlanTurn } from './planMode'
 
 /**
@@ -676,6 +670,19 @@ async function runTurn(
     codeCheckMemo.set(content, out)
     return out
   }
+  /**
+   * The report as it stands against the records the turn holds **now**.
+   *
+   * Every rung's corpus is `allRecords` read at the moment of the call, so a
+   * report is only ever true of the turn as it was when it was built. Re-read
+   * it, do not carry it — `settleRevision` carries what carrying it cost.
+   *
+   * Re-running is cheap and cannot lose a finding. `checkToolGrounding` is a
+   * pure pass over text, and the code check is memoised on `content`, so
+   * restating a report the turn has already built re-uses that finding rather
+   * than re-running the sandbox — and does so whether or not the deadline has
+   * since expired.
+   */
   const groundingReport = async (content = assistantMsg.content): Promise<GroundingReport | null> => {
     const base = checkToolGrounding(content, allRecords, allUserText(), { expectPricingTool: shoppingTurn })
     const code = await codeFindingFor(content)
@@ -767,13 +774,6 @@ async function runTurn(
       () => patch({ toolCalls: [...allRecords] })
     )
     if (!budget.signal.aborted) budget.ran('revising')
-    // A revision that came back empty, that the user cancelled, or that the
-    // deadline cut off, leaves the original standing: a flagged answer beats no
-    // answer, and a half-written one beats neither.
-    if (!revised.trim() || stopped()) {
-      patch({ grounding: report })
-      return
-    }
 
     // Provisionally adopt the revision so the checker sees it, then keep it
     // only if it actually reduced what can be faulted. Measured against the
@@ -781,25 +781,26 @@ async function runTurn(
     // different invented addresses, and added a claim that the rest had been
     // "verified against search results" when nothing had run.
     const original = assistantMsg.content
-    assistantMsg.content = revised
-    const after = await groundingReport(revised)
-    // A revision that "fixes" flagged figures by deleting every figure from a
-    // quantitative answer is not an improvement, it is a non-answer (measured:
-    // a correct price replaced by "I could not verify…"). Keep the original,
-    // flagged, and let the badge speak.
-    if (
-      revisionDropsAllFigures(original, revised) ||
-      revisionEchoesScaffolding(revised) ||
-      !revisionIsAnImprovement(report, after)
-    ) {
+    if (revised.trim() && !stopped()) assistantMsg.content = revised
+    // v2.3: every report the verdict reads is graded HERE, after the pass — the
+    // revision's own tool calls have joined `allRecords` by now, so `report`
+    // above is a claim about the turn as it was before them. `settleRevision`
+    // carries the measured case and the argument.
+    const verdict = await settleRevision({
+      draft: original,
+      revised,
+      abandoned: stopped(),
+      grade: groundingReport
+    })
+    if (verdict.keep === 'draft') {
       assistantMsg.content = original
-      patch({ content: original, grounding: report })
+      patch({ content: original, grounding: verdict.grounding ?? undefined })
       return
     }
     // The revision's code ran clean where the draft's did not: say so — but the
     // comparison rides along (memoised, no second run), so "the revised code
     // runs" cannot become the tick over a figure its output contradicts.
-    if (report.code?.length && !after?.code?.length) {
+    if (verdict.corrected.before.code?.length && !verdict.corrected.after?.code?.length) {
       const i = checks.findIndex((c) => c.kind === 'code')
       const line = describeCodeCheck({ ran: true, ok: false, revisedRuns: true, compared: (await codeFindingFor(revised)).compared })
       if (i >= 0) checks[i] = line
@@ -810,8 +811,8 @@ async function runTurn(
     // survived is the half the disclosure line most needs to say.
     patch({
       content: revised,
-      corrected: { before: report, after, at: Date.now() },
-      grounding: after ?? undefined,
+      corrected: { ...verdict.corrected, at: Date.now() },
+      grounding: verdict.grounding ?? undefined,
       checks: [...checks]
     })
   }
