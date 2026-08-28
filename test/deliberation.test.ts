@@ -6,6 +6,7 @@ import {
   buildReviewMessages,
   buildRevisionMessages,
   describeDeliberation,
+  draftWentUnchecked,
   figuresChanged,
   numbersIn,
   pickReviewer,
@@ -142,7 +143,8 @@ describe('a review that never came back', () => {
       assert.doesNotMatch(line, /no substantive problems/i, `must not vouch for ${JSON.stringify(review)}`)
       assert.doesNotMatch(line, /reviewed by/i, 'must not claim the draft was reviewed')
       assert.doesNotMatch(line, /^🧠 Deliberated/, 'must not read as a completed deliberation')
-      assert.match(line, /Researcher returned nothing/)
+      assert.match(line, /review request to Researcher/)
+      assert.match(line, /came back empty/)
       assert.match(line, /not checked/)
     }
   })
@@ -151,7 +153,7 @@ describe('a review that never came back', () => {
     const line = describeDeliberation({ ...unreviewed, self: true })
     assert.doesNotMatch(line, /no substantive problems/i)
     assert.doesNotMatch(line, /reviewed its own draft/i)
-    assert.match(line, /the self-review returned nothing; the draft was not checked/)
+    assert.match(line, /the self-review request came back empty; the draft was not checked/)
   })
 
   test('a failed review is not an approval either', () => {
@@ -166,6 +168,53 @@ describe('a review that never came back', () => {
       describeDeliberation({ ...unreviewed, review: 'No substantive problems.' }),
       '🧠 Deliberated — reviewed by Researcher: no substantive problems found; draft kept.'
     )
+  })
+
+  /**
+   * v1.17.3. Round 9: *"`run.json` records `errorCount: 0, errors: []` on a
+   * turn where the reviewer request was answered with an immediately-closed
+   * empty stream."* The screen said `⚠️ Not deliberated`; the RECORD said
+   * `status: 'done'`. The screen was re-deriving the failure from an empty
+   * `review` string, and nothing that reads the record could learn it.
+   *
+   * `draftWentUnchecked` is the one predicate now — it gates the disclosure's
+   * tooltip and the retry control, so the two cannot drift apart again.
+   */
+  describe('the record, not just the screen (v1.17.3)', () => {
+    test('a reviewer that returned nothing is a failure in the record', () => {
+      // The status the transport now writes for an empty 200.
+      const record = { ...unreviewed, status: 'unreviewed' as const }
+      assert.equal(draftWentUnchecked(record), true)
+      assert.doesNotMatch(describeDeliberation(record), /no substantive problems/i)
+    })
+
+    test('an old record with status "done" and no review is still caught', () => {
+      // Records written before the status existed must still read as failures:
+      // the predicate falls back to the review text rather than trusting a
+      // status that predates the distinction.
+      assert.equal(draftWentUnchecked({ ...unreviewed, status: 'done', review: '' }), true)
+    })
+
+    test('a thrown pass is a failure too', () => {
+      assert.equal(draftWentUnchecked({ ...unreviewed, status: 'error', note: 'x' }), true)
+    })
+
+    /** The true negatives: a pass that ran must not be reported as a failure. */
+    test('a real review — all-clear or with problems — is not a failure', () => {
+      assert.equal(
+        draftWentUnchecked({ ...unreviewed, review: 'No substantive problems.' }),
+        false
+      )
+      assert.equal(
+        draftWentUnchecked({ ...unreviewed, review: '1. 17 × 23 is 391.', revised: true }),
+        false
+      )
+    })
+
+    test('a pass still running is not yet a failure', () => {
+      assert.equal(draftWentUnchecked({ ...unreviewed, status: 'reviewing', review: '' }), false)
+      assert.equal(draftWentUnchecked({ ...unreviewed, status: 'revising', review: '' }), false)
+    })
   })
 })
 

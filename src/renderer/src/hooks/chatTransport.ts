@@ -107,6 +107,39 @@ export function armWatchdog(outer: AbortSignal): {
 }
 
 /**
+ * What the transport saw, for a caller that has to say who fell silent.
+ *
+ * v1.17.3. On a server that accepted the POST and then wrote nothing for 90
+ * seconds until the user pressed Stop, the bubble read `⚠️ Empty reply —
+ * nothing came back from the model.` Every fact needed to name the right party
+ * passed through this function and was discarded at the return statement — and
+ * on the measured case the function did not even reach its return, because a
+ * user abort leaves by the throw.
+ *
+ * So the record is a mutable object the CALLER owns and this function fills in.
+ * A return value cannot carry it out of an abort; this can, and the caller
+ * still has it in the `finally` that ends the turn.
+ *
+ * `accepted` and `streamed` are the discriminating pair, and they are one layer
+ * apart on purpose: headers arriving says the server is there and took the
+ * request, and a body byte arriving says a reply had begun. A turn with
+ * `accepted && !streamed` is the server's silence however it ended; one with
+ * `streamed` and no text is the model's.
+ */
+export interface StreamWitness {
+  /** The POST was answered: response headers arrived. */
+  accepted: boolean
+  /** At least one byte of the response body arrived. */
+  streamed: boolean
+  /** When the last byte arrived — or, before any did, when the request went out. */
+  lastActivityAt: number
+}
+
+export function newWitness(): StreamWitness {
+  return { accepted: false, streamed: false, lastActivityAt: Date.now() }
+}
+
+/**
  * One SSE frame from /chat/completions.
  *
  * v1.6: LM Studio can answer 200 and then put the failure in the stream —
@@ -320,7 +353,9 @@ export async function streamChat(
    * here, and serving any of them a cached verdict would mean re-verifying
    * nothing while still reporting that the check ran.
    */
-  cacheable = false
+  cacheable = false,
+  /** Filled in as the stream progresses; survives an abort, unlike the return. */
+  witness: StreamWitness = newWitness()
 ): Promise<{
   toolCalls: ApiToolCall[]
   usage: ApiUsage | null
@@ -349,6 +384,7 @@ export async function streamChat(
   // that is never answered and a stream that dies mid-answer.
   const watchdog = armWatchdog(signal)
   watchdog.touch(FIRST_BYTE_TIMEOUT_MS, NO_ANSWER)
+  witness.lastActivityAt = Date.now()
   try {
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
@@ -369,6 +405,11 @@ export async function streamChat(
       // watchdog knows which it was, and only it has something to say.
       throw watchdog.expired() ?? err
     })
+
+    // Headers are here: the server exists, is listening, and took the request.
+    // Everything after this point that goes wrong is the server's or the
+    // model's, and the difference between those two is `streamed` below.
+    witness.accepted = true
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
@@ -430,6 +471,8 @@ export async function streamChat(
       })
       if (done) break
       watchdog.touch(STREAM_STALL_MS, STALLED)
+      witness.streamed = true
+      witness.lastActivityAt = Date.now()
       buffer += decoder.decode(value, { stream: true })
 
       // SSE events are separated by blank lines.
@@ -461,9 +504,16 @@ export async function streamChat(
           // and all, relayed as if the app had written it, with our diagnosis
           // trailing behind as an afterthought. Their text is evidence and is
           // never dropped; it is simply quoted rather than ventriloquised.
-          throw new ExplainedError(
-            explainFailure(message, { subject: 'The request', source: 'LM Studio' })
-          )
+          //
+          // v1.17.3: the ingredients travel too. The turn that catches this
+          // knows what the request costs by the app's own arithmetic; the
+          // transport, one layer down, does not — and the refusal that most
+          // needs that number is exactly this one.
+          const frame = { subject: 'The request', source: 'LM Studio' }
+          throw new ExplainedError(explainFailure(message, frame), {
+            raw: message,
+            context: frame
+          })
         }
         // The usage block rides a final chunk whose `choices` is empty.
         if (json.usage) usage = json.usage

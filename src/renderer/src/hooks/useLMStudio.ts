@@ -61,12 +61,13 @@ import type {
   ToolResult,
   ToolSchema
 } from '../types'
-import { makeTailStream, streamChat } from './chatTransport'
+import { makeTailStream, newWitness, streamChat } from './chatTransport'
 import {
   audit,
   planAndCompact,
   subsetForTurn,
   toApiContent,
+  turnRequestEstimate,
   uid,
   visionCapable
 } from './turnHelpers'
@@ -99,6 +100,31 @@ import { planApprovals, runPlanTurn } from './planMode'
 
 interface DelegationContext {
   specialists: ModelConfig[]
+}
+
+/**
+ * Stop was pressed before the request left the app.
+ *
+ * v1.17.3. The turn can bail at two points before `streamChat` is reached — a
+ * context provider was cancelled mid-flight, or compaction returned after the
+ * abort — and both leave an empty bubble. Without a record of that, the bubble
+ * falls back to admitting it does not know how the turn ended, which is honest
+ * but needlessly so: the app does know, and `accepted: false` is exactly how it
+ * says the server was never asked.
+ */
+function stoppedBeforeSending(
+  patch: (p: Partial<ChatMessage>) => void,
+  turnOpenedAt: number
+): void {
+  patch({
+    ending: {
+      accepted: false,
+      streamed: false,
+      produced: false,
+      stoppedByUser: true,
+      silentMs: Date.now() - turnOpenedAt
+    }
+  })
 }
 
 /**
@@ -270,7 +296,10 @@ async function runTurn(
         .getState()
         .setTurnPhase(wait ? gatheringPhase(assistantMsg.id, wait, turnOpenedAt) : null)
   )
-  if (gathered.aborted) return
+  // v1.17.3: Stop landed here — before the request went out at all. That is a
+  // different sentence from "the model said nothing", and the bubble can only
+  // say so if the turn records it (shared/failure.ts `explainEmptyReply`).
+  if (gathered.aborted) return stoppedBeforeSending(patch, turnOpenedAt)
   if (offline) patch({ offline: true })
   projectTokens.recall = gathered.projectTokens.recall
   projectTokens.files = gathered.projectTokens.files
@@ -295,7 +324,7 @@ async function runTurn(
     estimateTokens(systemPrompt) + estimateTokens(turnContextBlock ?? ''),
     estimateTokens(JSON.stringify(turnTools))
   )
-  if (signal.aborted) return
+  if (signal.aborted) return stoppedBeforeSending(patch, turnOpenedAt)
   if (summaryText) {
     // The summary stays in the system prompt rather than joining the per-turn
     // context: it changes only when compaction fires, and compaction has
@@ -438,6 +467,16 @@ async function runTurn(
     patch({ stats })
   }
 
+  /**
+   * v1.17.3: what the transport saw, so the turn can name who fell silent.
+   *
+   * One per turn rather than one per round: the question a reader is asking of
+   * an empty bubble is about the whole turn, and the last round is the one that
+   * ended it. It is read in the `finally` below, because the measured case —
+   * a stall the user pressed Stop on — leaves this function by the throw.
+   */
+  const witness = newWitness()
+
   // The tool-call loop itself lives in lib/agentLoop.ts — a pure state machine
   // with injectable transport, reachable from node:test. The deps below carry
   // this turn's React concerns (content patching, voice, stats, audit).
@@ -477,7 +516,8 @@ async function runTurn(
             // The only cacheable call site: the user-facing answer. Every other
             // streamChat caller is a verification or delegation pass that has to
             // stay live.
-            cacheable
+            cacheable,
+            witness
           )
           recordStats(usage, ttftMs, Date.now() - roundStartedAt)
           // A reply cut off at max_tokens stops mid-thought. Saying so is the
@@ -542,6 +582,18 @@ async function runTurn(
     // Release the tail however the loop ended — abort included. This also
     // lands whatever content had streamed, so a stopped reply keeps its text.
     tail.finish()
+    // v1.17.3: and record how it ended, on the same three paths. `signal` is
+    // the OUTER controller — the watchdog aborts its own inner one — so
+    // `signal.aborted` here means the user pressed Stop and nothing else does.
+    patch({
+      ending: {
+        accepted: witness.accepted,
+        streamed: witness.streamed,
+        produced: assistantMsg.content.trim() !== '' || reasoning.trim() !== '',
+        stoppedByUser: signal.aborted,
+        silentMs: Date.now() - witness.lastActivityAt
+      }
+    })
   }
 
   if (outcome.stopReason === 'aborted') return
@@ -1004,7 +1056,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn', request: turnRequestEstimate(convoId) }))}`,
             createdAt: Date.now()
           })
         }
@@ -1067,7 +1119,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn', request: turnRequestEstimate(convoId) }))}`,
             createdAt: Date.now()
           })
         }

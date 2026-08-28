@@ -3,8 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { WavRecorder } from '../lib/voice'
 import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
-import { conversationContextUsage } from '../lib/contextBudget'
-import { projectInstructionsBlock } from '../lib/projectContext'
+import { turnContextUsage } from '../hooks/turnHelpers'
 import { thinkHarderNote } from '../lib/deliberation'
 import type { Attachment } from '../types'
 
@@ -122,17 +121,16 @@ export function InputBar(): JSX.Element {
   // the window size, since a meter against a guessed denominator misleads.
   // Memoized: the usage estimate reduces over every message and tool result
   // in the conversation, and this component re-renders per keystroke.
+  //
+  // v1.17.3: the tool schemas are in the sum now. Round 9 read this meter at
+  // `~1.7K / 8.2K` on the same screen where the app said the conversation was
+  // larger than the window — and the meter was the one leaving things out. The
+  // tool list is the largest single item in most requests and none of it was
+  // counted; nor was the room `historyBudget` reserves for the reply.
   const contextMeter = useMemo(
-    () =>
-      activeConvo
-        ? conversationContextUsage(
-            activeConvo,
-            activeSlot,
-            availableModels.find((m) => m.id === activeSlot?.modelId),
-            projectInstructionsBlock(projects.find((p) => p.id === activeConvo.projectId))
-          )
-        : null,
-    [activeConvo, activeSlot, availableModels, projects]
+    () => turnContextUsage(activeConversationId),
+    // turnContextUsage reads the store directly; these are what change it.
+    [activeConversationId, activeConvo, activeSlot, availableModels, projects, settings?.tools]
   )
 
   // Models can be steered by anything they read (search results, documents,
@@ -549,9 +547,16 @@ export function InputBar(): JSX.Element {
             {contextMeter && (
               <span
                 className={
-                  contextMeter.ratio > 0.9 ? 'text-ink-warn' : 'text-ink-tertiary'
+                  contextMeter.overflows || contextMeter.ratio > 0.9
+                    ? 'text-ink-warn'
+                    : 'text-ink-tertiary'
                 }
-                title={`Estimated ${contextMeter.used.toLocaleString()} of ${contextMeter.total.toLocaleString()} tokens used. Token counts here are estimated from text length, not tokenized${
+                // The breakdown is the point: the number moved when the tool
+                // schemas joined it, and a reader who is near the ceiling has
+                // to know which term to shrink. Largest first.
+                title={`Estimated ${contextMeter.used.toLocaleString()} of ${contextMeter.total.toLocaleString()} tokens for the next turn — ${contextMeter.terms
+                  .map((t) => `${t.label} ${t.tokens.toLocaleString()}`)
+                  .join(', ')}. Token counts here are estimated from text length, not tokenized${
                   activeConvo?.summary ? '. Earlier messages have been summarized to fit' : ''
                 }.`}
               >

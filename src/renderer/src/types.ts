@@ -57,6 +57,10 @@ export interface ModelConfig {
 import type { ToolToggles } from '../../shared/tools'
 export type { ToolToggles } from '../../shared/tools'
 
+/** v1.17.3: how a turn ended, so an empty bubble can name who fell silent. */
+import type { TurnEnding } from '../../shared/failure'
+export type { TurnEnding } from '../../shared/failure'
+
 export interface ShoppingSettings {
   /** Refuse shopping fetches when no proxy is active. On by default. */
   requireProxy: boolean
@@ -189,7 +193,20 @@ export interface DeliberationRecord {
   reviewerModelId: string
   /** The answerer reviewed its own draft (no second slot) — weaker, and said so. */
   self: boolean
-  status: 'reviewing' | 'revising' | 'done' | 'error'
+  /**
+   * v1.17.3: 'unreviewed' is new, and it is the point of this field.
+   *
+   * A reviewer that answered HTTP 200 with an immediately-closed empty stream
+   * used to be recorded as `'done'`. The screen said the truth — `⚠️ Not
+   * deliberated — Researcher returned nothing` — while the record beside it
+   * said the pass had completed, and the capture's own error count read zero on
+   * a turn where a request had failed. The screen was re-deriving the failure
+   * from `review` being empty; the record never learned it.
+   *
+   * 'error' is a pass that threw. 'unreviewed' is a pass that returned without
+   * reviewing. Both mean the draft was not checked, and both are failures.
+   */
+  status: 'reviewing' | 'revising' | 'done' | 'unreviewed' | 'error'
   /** The reply as it stood before the pass. */
   draft: string
   review: string
@@ -877,6 +894,14 @@ export interface ChatMessage {
   reasoningMs?: number
   /** Measured generation performance. Token counts only when the server reported them. */
   stats?: ResponseStats
+  /**
+   * v1.17.3: what the transport saw of how this turn ended — who fell silent.
+   *
+   * Set on every assistant turn, read only when the bubble has nothing to show.
+   * The observation is stored rather than the sentence: the sentence is a
+   * reading, and shared/failure.ts is where readings are made.
+   */
+  ending?: TurnEnding
   /**
    * A different role's review of this reply (v0.9 Second Opinion). Display-only —
    * never replayed to a model as part of the conversation.
