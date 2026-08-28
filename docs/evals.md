@@ -6244,3 +6244,109 @@ One tool earns one line: a denial swallows the offer beside it.
   resolves the markers, so the pair is mechanically checkable. It is not the *act*, so it is out of
   this rung's scope, and it wants its own recorded true negative (a reply may cite a passage while
   honestly saying the passage did not supply a particular claim) before it is worth building.
+
+### Pending fold-in — the ledger line counted a moment the list beside it did not
+
+Round 12's blind critic found this in **both** builds, on the same task, twice over, and scored it
+a disagreeing pair each time: *"The ledger line miscounts the session variables printed directly
+beneath it, in both arms and by exactly one, twice (TTU2)."*
+
+From the recorded runs, the last two lines of the reply's own bubble:
+
+```
+.h2h-runs/B12/TTU2-20260828-151045
+  Session variables (persist in this conversation): generate_primes, is_prime, prime_sum, primes.
+  📒 Ledger: 3 computed facts, 3 session variables from 2 turns          four named, three counted
+
+.h2h-runs/A12/TTU2-20260828-155621
+  Session variables (persist in this conversation): is_prime, primes, total.
+  📒 Ledger: 2 session variables from 2 turns                          three named, two counted
+```
+
+Both arms, same direction, off by exactly one — which reads like a fencepost and is not one.
+
+#### The name that was missing rules the fencepost out
+
+`buildLedger` holds the newest `Session variables` list any `run_python` result reported. In B12
+that list, at the moment the line was written, was turn 1's:
+
+| | |
+| --- | --- |
+| ledger held | `generate_primes, prime_sum, primes` |
+| block above printed | `generate_primes, is_prime, prime_sum, primes` |
+| the difference | **`is_prime`** — the second of four, sorted |
+
+The missing name is in the *middle* of the list. No fencepost, no `slice`, no cap and no
+private-name filter reaches only that one. It is missing because it did not exist yet when the
+count was taken: `is_prime` was defined by a run **inside the reply the line is printed under**.
+
+#### Two exclusions, and only the first is on screen
+
+**1. The ledger is written before the turn it is printed on.** The ledger exists to be handed to
+the model, so `ledgerProvider` builds it from every message *except the reply being written* — it
+has to, because the block must reach the model before the model answers. The line is then rendered
+at the bottom of that same reply, a few lines under the `run_python` block whose output ends with
+the `Session variables` note. The two lists are one turn apart by construction, and any call in the
+reply that defines a name makes them differ by exactly that name. Both recorded arms are this.
+
+**2. A run that raised was read as having reported nothing.** `buildLedger` gated *everything* on
+`rec.status === 'done'`, session list included. B12's turn 2 is where that shows: both of its runs
+raised — after defining `is_prime` — and the sandbox reported the session it still held in **both**
+error results, because it deliberately keeps its globals through an exception ("a session keeps its
+globals — like a REPL, an exception mid-run leaves earlier definitions standing",
+`src/main/ipc/workbench.ts`), and the `run_python` handler appends the note on the error path for
+exactly that reason. The ledger threw it away and went on carrying turn 1's three names into every
+later turn. This one is not visible in the round's screenshots; it was found reading the recorded
+run that produced them.
+
+The two are different in kind, and so is the repair. A **fact** is something a run computed, so a
+run that did not complete establishes none — that gate stays. The **session list** is not computed;
+it is the sandbox reporting which globals it holds. It is now read from a `run_python` result
+whether the run finished or raised, and from nothing else.
+
+#### The count was right, the list was right, and they were never the same thing
+
+Which is the third of the three possible repairs. The count was a true count of what the app
+carried into the turn; the list was a true list of what the sandbox held after the reply's own run.
+Correcting either would have made it lie. What was wrong was printing them as though they were
+comparable, so the line now names its moment:
+
+```
+📒 Ledger as this turn began: 3 computed facts, 3 session variables from 2 turns
+```
+
+"As this turn began" is exact rather than approximate: the user's message for the turn is in the
+ledger — it is what began the turn — and nothing the turn has since produced is. A reader who sees
+four names above and three counted below can now settle the difference without leaving the screen;
+the line's `title` says the rest — that a call in this reply which defines a variable is not in
+these counts, and joins them next turn — and the Settings copy says it too.
+
+#### What is pinned
+
+| the case | what it fixes in place |
+| --- | --- |
+| B12's two lists, from its own strings | the ledger holds `generate_primes, prime_sum, primes`; the difference is `is_prime`, second of four sorted — the assertion that makes a fencepost explanation fail |
+| A12's two lists, from its own strings | two counted against three named; the difference is `total`, defined by this reply's run |
+| both arms' disclosure lines, character for character | `📒 Ledger as this turn began: …`, and no longer the bare `📒 Ledger: …` that read as a count of the state on screen |
+| a turn whose own run defines nothing new | the moment is named there too — no special case, the wording does not depend on whether the two agree |
+| a `run_python` that raised | its session list is read: 4 variables, not 3 |
+| the same raised run's stdout | establishes **no facts** — the gate that stays |
+| a call still running | contributes nothing; there is no result to read |
+| every count in the line against the block | each number is the length of the list printed under its own heading, for facts, files, constraints, decisions and session variables alike — the line is reconcilable against the one list it does describe |
+| `ledgerProvider` end to end | the in-flight reply is excluded, the patched line is the as-of one, and the block carries the pre-turn list |
+
+#### Limits
+
+- **The lag is real and stays.** The line is a disclosure of what the model was given, so it cannot
+  be recomputed after the turn without ceasing to be one: a post-turn count would claim the model
+  saw a variable it never saw. The fix is that the line says which moment it counts, not that the
+  two moments were merged.
+- **Found and not fixed.** The runs that defined the extra variable in both recorded arms were
+  **app-initiated verification runs** — "running the Python in the answer to check that it works",
+  "recomputing the figures stated in the answer" — executing in the user's conversation session and
+  leaving `is_prime` and `total` behind in it. The app's own comment says the verification runs are
+  "sessionless by construction"; through the `run_python` tool handler with a conversation id, they
+  are not. Whether a check should be able to write to the session the user's next turn will read is
+  a question about the checks, not about the ledger, and it wants its own round.
+- `LEDGER_MAX_FACTS` still truncates silently at 24. The line and the block truncate together — the
+  count is taken after the slice, so the two agree — but neither says that older facts were dropped.

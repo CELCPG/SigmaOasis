@@ -1210,7 +1210,7 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.ledger && (
           <div
             className="mt-2 text-[11px] text-ink-tertiary"
-            title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. Settings → Models → Conversation ledger."
+            title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. It is the record as this turn began, because it had to be written before the model answered: a call in this reply that defines a new Python variable is not in these counts, which is why the “Session variables” list above can be longer. It joins the ledger for the next turn. Settings → Models → Conversation ledger."
           >
             {message.ledger}
           </div>

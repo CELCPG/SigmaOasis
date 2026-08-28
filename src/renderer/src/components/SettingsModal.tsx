@@ -1146,7 +1146,9 @@ export function SettingsModal(): JSX.Element | null {
                         session variables, and constraints you stated (&ldquo;budget is $2,000&rdquo;) —
                         exact strings from tool results and your own words, never from earlier
                         replies, so a small model refers back instead of re-remembering. Disclosed
-                        under the reply (&ldquo;📒 Ledger&rdquo;).
+                        under the reply (&ldquo;📒 Ledger as this turn began&rdquo;) — the record
+                        is written before the model answers, so a variable defined by a call in
+                        that same reply is counted from the next turn on.
                       </span>
                     </span>
                   </label>

@@ -22,7 +22,9 @@ import type { ChatMessage, ToolCallRecord } from '../types'
  *   - computed facts     `label: value` lines from run_python / calculator
  *                        stdout, and single-line calculator results
  *   - files              attachments, with the turn they arrived on
- *   - session state      the newest "Session variables:" list a run reported
+ *   - session state      the newest "Session variables:" list a run reported,
+ *                        whether that run finished or raised — the sandbox
+ *                        keeps its globals either way and says so either way
  *   - user constraints   short imperative sentences from the user's own
  *                        messages that carry a figure or a hard word
  *                        ("budget is $2,000", "must be under 5 kg",
@@ -256,11 +258,29 @@ export function buildLedger(messages: readonly ChatMessage[]): Ledger {
       continue
     }
     for (const rec of m.toolCalls ?? []) {
-      if (rec.status !== 'done' || !rec.result) continue
-      if (rec.name === 'run_python') {
+      if (!rec.result) continue
+      /*
+        The session list is read from a run that RAISED as well as one that
+        finished, and the two are not the same kind of thing.
+
+        A fact is something the run computed, so a run that did not complete
+        establishes none — that gate stays. The session list is not computed:
+        it is the sandbox reporting which globals it holds, and it holds them
+        through an exception on purpose ("A session keeps its globals — like a
+        REPL, an exception mid-run leaves earlier definitions standing",
+        src/main/ipc/workbench.ts). That is why the run_python handler appends
+        the "Session variables" note on the error path too. Skipping it left
+        the ledger carrying a session the sandbox had already moved past, on
+        every turn after the failed run: measured in
+        .h2h-runs/B12/TTU2-20260828-151045, where both of turn 2's runs raised
+        after defining `is_prime`, the sandbox said so in both results, and the
+        ledger went on counting turn 1's three names.
+      */
+      if (rec.name === 'run_python' && (rec.status === 'done' || rec.status === 'error')) {
         const vars = sessionVarsFrom(rec.result)
         if (vars) sessionVars = vars
       }
+      if (rec.status !== 'done') continue
       if (!FACT_TOOLS.has(rec.name)) continue
       for (const f of factsFromToolOutput(rec.result, rec.name, turn)) {
         // A later fact with the same label supersedes: the ledger is a
@@ -360,7 +380,37 @@ export function buildLedgerContext(l: Ledger): string {
   return lines.join('\n')
 }
 
-/** What the bubble discloses under the reply: one line, mechanical. */
+/**
+ * What the bubble discloses under the reply: one line, mechanical.
+ *
+ * The line names the moment it counts, and that is load-bearing rather than
+ * decorative. This ledger exists to be handed to the model, so it is built
+ * before the model answers — `ledgerProvider` builds it from every message
+ * except the reply being written — and the line is then printed at the bottom
+ * of that same reply, a few lines under the `run_python` block whose output
+ * ends "Session variables (persist in this conversation): …". The two lists
+ * are a turn apart, and any run inside the reply that defines a name makes
+ * them differ by exactly that name.
+ *
+ * Round 12 recorded it in both arms, on the same task, twice over:
+ *
+ *   B12/TTU2  Session variables …: generate_primes, is_prime, prime_sum, primes.
+ *             📒 Ledger: 3 computed facts, 3 session variables from 2 turns
+ *   A12/TTU2  Session variables …: is_prime, primes, total.
+ *             📒 Ledger: 2 session variables from 2 turns
+ *
+ * Four named and three counted; three named and two counted. Neither count
+ * was arithmetic and neither list was over-inclusive: B12's ledger held turn
+ * 1's `generate_primes, prime_sum, primes` exactly, so the name it lacked was
+ * `is_prime` — the middle of a sorted list of four, which no fencepost, cap
+ * or slice can reach. They were two true counts of two different moments,
+ * printed as though they were one, and the repair is for each to say which.
+ *
+ * "as this turn began" is the ledger's moment precisely: the user's message
+ * for this turn is in it (it is what began the turn) and nothing this turn
+ * has since produced. What it counts and what the block lists are always the
+ * same set — that pair is pinned by test.
+ */
 export function describeLedger(l: Ledger): string {
   const parts: string[] = []
   if (l.facts.length) parts.push(`${l.facts.length} computed fact${l.facts.length === 1 ? '' : 's'}`)
@@ -368,7 +418,7 @@ export function describeLedger(l: Ledger): string {
   if (l.constraints.length) parts.push(`${l.constraints.length} constraint${l.constraints.length === 1 ? '' : 's'}`)
   if (l.decisions.length) parts.push(`${l.decisions.length} decision${l.decisions.length === 1 ? '' : 's'}`)
   if (l.sessionVars.length) parts.push(`${l.sessionVars.length} session variable${l.sessionVars.length === 1 ? '' : 's'}`)
-  return `📒 Ledger: ${parts.join(', ')} from ${l.turns} turns`
+  return `📒 Ledger as this turn began: ${parts.join(', ')} from ${l.turns} turns`
 }
 
 /** Test seam / display helper: the records that would contribute, for a message. */
