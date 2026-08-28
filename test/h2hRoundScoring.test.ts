@@ -36,7 +36,7 @@ const TASKS = join(ROOT, 'docs', 'head-to-head', 'tasks.json')
 const ROUNDS = join(ROOT, 'docs', 'head-to-head', 'rounds.json')
 
 type Entry = { verdict: string; recorded?: boolean; A?: Counted; B?: Counted }
-type Counted = { volume: number; count: number }
+type Counted = { volume: number; count: number; unsettleable?: { absent: number; byNature: number } }
 type Column = { id: string; asked?: boolean; note?: string; verdicts: Record<string, Entry>; unattributed?: Entry[] }
 type Round = { round: number; pair?: { A: string; B: string }; columns: Column[] }
 
@@ -242,6 +242,167 @@ describe('the guards against winning by saying less', () => {
 
   test('the task column is never annotated with a contested denominator it does not have', () => {
     assert.doesNotMatch(columnLine(run(baseRound()).out, 'task'), /contested/)
+  })
+})
+
+/**
+ * Round 10's record column was contested on four tasks of eighteen. The other
+ * fourteen were reported as ties, and they were three different results wearing
+ * one word: a tie nothing could settle because the artifact that would was
+ * never kept, a tie nothing can ever settle because the app is the only witness
+ * to what it claimed, and a tie that was actually settled and actually agreed.
+ *
+ * Only the last is a fact about the two builds. The first is a fact about the
+ * capture. The second is a fact about the claim. A column made mostly of the
+ * first is reporting on how much of the run got written down, and the round
+ * cannot tell that from equivalence unless the scorer says so.
+ */
+describe('why a column was uncontested', () => {
+  /** A column carrying counts on the first two tasks and nothing on the rest. */
+  function withEntries(a: Entry, b: Entry): Round {
+    const round = baseRound()
+    const col = round.columns[1]
+    col.verdicts[taskIds[0]] = a
+    col.verdicts[taskIds[1]] = b
+    return round
+  }
+
+  const uncontestedLine = (out: string): string => {
+    const line = out.split('\n').find((l) => l.trim().startsWith('uncontested:'))
+    assert.ok(line, `no uncontested breakdown in:\n${out}`)
+    return line!.trim().replace(/ {2,}/g, ' ')
+  }
+
+  test('a tie where neither run said anything is never in play, not agreement', () => {
+    const out = run(
+      withEntries(
+        { verdict: 'tie', A: { volume: 0, count: 0 }, B: { volume: 0, count: 0 } },
+        { verdict: 'tie', A: { volume: 0, count: 0 }, B: { volume: 0, count: 0 } }
+      )
+    ).out
+    assert.match(uncontestedLine(out), /never in play 2/)
+    assert.doesNotMatch(uncontestedLine(out), /settled and agreed/)
+  })
+
+  test('a tie where every statement wanted an absent record is reported as that, not as a tie', () => {
+    const absent = { volume: 6, count: 0, unsettleable: { absent: 6, byNature: 0 } }
+    const out = run(
+      withEntries({ verdict: 'tie', A: absent, B: absent }, { verdict: 'tie', A: absent, B: absent })
+    ).out
+    assert.match(uncontestedLine(out), /unsettleable, record not kept 2/)
+    assert.doesNotMatch(uncontestedLine(out), /settled and agreed/)
+  })
+
+  test('a tie on statements nothing can ever settle is a different fact, and counted apart', () => {
+    const byNature = { volume: 4, count: 0, unsettleable: { absent: 0, byNature: 4 } }
+    const out = run(
+      withEntries({ verdict: 'tie', A: byNature, B: byNature }, { verdict: 'tie', A: byNature, B: byNature })
+    ).out
+    assert.match(uncontestedLine(out), /unsettleable by nature 2/)
+    assert.doesNotMatch(uncontestedLine(out), /record not kept/)
+  })
+
+  test('a tie where the record settled every statement and they agreed is the earned one', () => {
+    const settled = { volume: 5, count: 0, unsettleable: { absent: 0, byNature: 0 } }
+    const out = run(
+      withEntries({ verdict: 'tie', A: settled, B: settled }, { verdict: 'tie', A: settled, B: settled })
+    ).out
+    assert.match(uncontestedLine(out), /settled and agreed 2/)
+  })
+
+  /**
+   * The failure this split exists to prevent, one level down: a round that
+   * supplies volumes and contradiction counts but never says how many of those
+   * statements anything could settle has not established a settled tie, and
+   * must not be reported as having one.
+   */
+  test('counts without the unsettleable split are unaccounted, not settled', () => {
+    const out = run(
+      withEntries(
+        { verdict: 'tie', A: { volume: 5, count: 0 }, B: { volume: 5, count: 0 } },
+        { verdict: 'tie', A: { volume: 5, count: 0 }, B: { volume: 5, count: 0 } }
+      )
+    ).out
+    assert.match(uncontestedLine(out), /unaccounted 2/)
+    assert.doesNotMatch(uncontestedLine(out), /settled and agreed/)
+  })
+
+  test('the unsettleable statement totals are reported, split by which kind', () => {
+    const mixed = { volume: 10, count: 0, unsettleable: { absent: 4, byNature: 3 } }
+    const out = run(
+      withEntries({ verdict: 'tie', A: mixed, B: mixed }, { verdict: 'tie', A: mixed, B: mixed })
+    ).out
+    assert.match(out, /unsettleable statements, both runs: 16 for want of a record · 12 by nature/)
+  })
+
+  test('a column whose ties are mostly an absent record is named as measuring coverage', () => {
+    const round = baseRound()
+    const col = round.columns[1]
+    const absent = { volume: 6, count: 0, unsettleable: { absent: 6, byNature: 0 } }
+    for (const id of taskIds) col.verdicts[id] = { verdict: 'tie', A: absent, B: absent }
+    col.verdicts[taskIds[0]] = {
+      verdict: 'B',
+      A: { volume: 6, count: 2, unsettleable: { absent: 1, byNature: 0 } },
+      B: { volume: 6, count: 0, unsettleable: { absent: 1, byNature: 0 } }
+    }
+    const out = run(round).out
+    assert.match(out, /only because the record/)
+    assert.match(out, /Read its ties as coverage/)
+    assert.match(out, new RegExp(`uncontested on ${taskIds.length - 1} tasks`))
+  })
+
+  test('a column that mostly settled what it looked at is not', () => {
+    const round = baseRound()
+    const col = round.columns[1]
+    const settled = { volume: 6, count: 0, unsettleable: { absent: 0, byNature: 0 } }
+    for (const id of taskIds) col.verdicts[id] = { verdict: 'tie', A: settled, B: settled }
+    assert.doesNotMatch(run(round).out, /Read its ties as coverage/)
+  })
+
+  test('more unsettleable statements than statements made is refused', () => {
+    const round = baseRound()
+    round.columns[1].verdicts[taskIds[0]] = {
+      verdict: 'tie',
+      A: { volume: 3, count: 0, unsettleable: { absent: 2, byNature: 2 } },
+      B: { volume: 3, count: 0, unsettleable: { absent: 0, byNature: 0 } }
+    }
+    const r = run(round)
+    assert.equal(r.status, 2)
+    assert.match(r.err, /counted from different lists/)
+  })
+
+  test('unsettleable statements counted without counting the statements is refused', () => {
+    const round = baseRound()
+    round.columns[1].verdicts[taskIds[0]] = {
+      verdict: 'tie',
+      A: { count: 0, unsettleable: { absent: 1, byNature: 0 } } as unknown as Counted,
+      B: { volume: 3, count: 0 }
+    }
+    const r = run(round)
+    assert.equal(r.status, 2)
+    assert.match(r.err, /the statements they came from were not/)
+  })
+
+  test('an unsettleable split that is not a pair of counts is refused', () => {
+    const round = baseRound()
+    round.columns[1].verdicts[taskIds[0]] = {
+      verdict: 'tie',
+      A: { volume: 3, count: 0, unsettleable: { absent: -1, byNature: 0 } },
+      B: { volume: 3, count: 0 }
+    }
+    const r = run(round)
+    assert.equal(r.status, 2)
+    assert.match(r.err, /is not a count/)
+  })
+
+  test('the task column carries no uncontested breakdown', () => {
+    const round = baseRound()
+    const settled = { volume: 5, count: 0, unsettleable: { absent: 0, byNature: 0 } }
+    for (const id of taskIds) round.columns[0].verdicts[id] = { verdict: 'tie', A: settled, B: settled }
+    const out = run(round).out
+    const taskIndex = out.split('\n').findIndex((l) => l.trim().startsWith('task '))
+    const next = out.split('\n')[taskIndex + 1] ?? ''
+    assert.doesNotMatch(next, /uncontested:/)
   })
 })
 

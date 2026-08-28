@@ -466,7 +466,9 @@ styles for the tasks that measure ink, and keyboard-traversal records), and in
 entry per turn, for the multi-turn tasks), `setup.seededSettingsVerified`,
 `preconditions` (each declared capability and whether it was really there),
 `screenAtTurnEnd` (the theme the run finished in, and whether a modal was
-covering the app when its artifacts were taken), and `validity`.
+covering the app when its artifacts were taken), `record` (what the run kept a
+record *of*, what it did not, and what no record could settle — see below), and
+`validity`.
 
 ### Driver actions
 
@@ -542,3 +544,81 @@ Export-audit path — the launcher answers the native save dialog with a fixed
 path, which is the only part of the app the harness touches, and it touches the
 dialog rather than anything that decides what gets written. `run.json`
 `auditExport` records the entry count and whether the hash chain verified.
+
+#### Why the audit is not turned on everywhere
+
+Round 10 scored a `record-consistency` column over all eighteen tasks and found
+something to bite on in four of them. Across the thirty-six recorded runs the
+application makes **120 statements about its own behaviour on the turn**, and
+the audit could settle **9**. On **31 of 36 runs it could settle nothing at
+all**. A column that only fires where a record exists is measuring the record's
+coverage, not the application.
+
+Turning the audit on for every task is the obvious repair and it is refused,
+for two reasons that both matter:
+
+- **It would stop measuring the shipped app.** The session audit is opt-in and
+  off by default, and it is not free: every user input, assistant output and
+  tool call is then encrypted with the machine keychain, hash-chained against
+  the previous line, and appended to disk through a serialized queue — inside
+  the process whose latency this bench publishes as the product's. This project
+  spent three rounds recovering from a baseline arm that was quietly not the
+  shipped build. Doing it to *both* arms makes it harder to notice, not less of
+  a fault.
+- **It would not settle the claims anyway.** The audit's contents are fixed by
+  what it is for — an append-only record of what was *said*, with no system
+  prompts, no recalled memory and no compaction notes. Session start, user
+  input, assistant output, tool call. No step boundaries, no playbook identity,
+  no timings. Making it settle those means growing the product's audit log to
+  serve the bench, which is the same fault pointing the other way.
+
+#### `run.json` `record` — what the run kept a record *of*
+
+The column's question names "the run's own record" and, until this block
+existed, no artifact said what that was; each critic decided for themselves and
+several decided it meant `trace/audit.jsonl` alone. `record` is the list:
+
+- `configuration` — the switches live in the app when the turn ran, read out of
+  the same `getSettings()` call the harness already makes to verify the seed.
+  It settles **capability, not exercise**: a line saying a check ran while that
+  check was switched off is a contradiction; a line saying it ran while it was
+  on is merely possible. Values are switches, small enums and counts only —
+  `_settings-in-app.json` stays a withheld sidecar because it carries a
+  loopback port, a filesystem path and a model id. `notCovered` names every
+  settings group left out *with the reason*, and a group nobody has decided
+  about is stamped `UNDECIDED` in the artifact rather than silently missing.
+- `library` — the reference corpus the turn was given, through the app's own
+  already-public `libraryList()`, on **every** run rather than only those that
+  install a pack. Read *after* the turn: `library:list` loads every pack into
+  memory, so reading it beforehand would warm a cache the turn itself would
+  have paid to fill, and the harness would become a participant in the timings
+  it publishes. An empty library is what settles a claim to have retrieved from
+  one.
+- `driverClock` — the only clock in the directory the application did not
+  produce. It **bounds** rather than measures: a stated duration longer than
+  the whole run cannot have happened; one that fits inside it is not confirmed.
+- `kept` / `notKept` — one entry per record, with what each settles. An absent
+  audit says *the app was never asked to keep one*, which is a property of the
+  staging and never of the build; before this, `auditExport: null` could not be
+  told from an export that failed.
+- `beyondAnyRecord` — the claims **no** artifact here can settle, named in the
+  artifact instead of rediscovered by each critic. A figure the app timed with
+  its own clock is the type case: a record of it is the same number written
+  down twice, agrees by construction, and is evidence of nothing.
+
+None of this changes what the application does. Every value comes through an
+API the product already exposes and the harness already calls; no product file
+is touched. What changed is what gets written down.
+
+With it, statements the record can settle go from **9 of 120 to 55**, with a
+further **41 settleable in part** (that a playbook was applied at all, not
+which one), **14 unsettleable by nature** and **10 still wanting a record the
+task did not stand up**. Runs where nothing at all is settleable fall from
+**31 of 36 to 6** — `PT2`, `PT3` and `VC2` in both arms, whose only
+self-statements are plan step boundaries.
+
+`score-round.mjs` reports the difference: a column now says whether it was
+uncontested because the question was *settled and agreed*, because *nothing
+could settle it*, or because it was *never in play*, and prints a warning when
+its ties are mostly the second — the case where it is reporting on the capture
+rather than on either build.
