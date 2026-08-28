@@ -163,17 +163,49 @@ export function armWatchdog(outer: AbortSignal): {
  * A return value cannot carry it out of an abort; this can, and the caller
  * still has it in the `finally` that ends the turn.
  *
- * `accepted` and `streamed` are the discriminating pair, and they are one layer
- * apart on purpose: headers arriving says the server is there and took the
- * request, and a body byte arriving says a reply had begun. A turn with
- * `accepted && !streamed` is the server's silence however it ended; one with
- * `streamed` and no text is the model's.
+ * `accepted`, `streamed` and `completed` are the discriminating facts, and they
+ * are one layer apart each: a response arriving says the server is there and
+ * took the request, a body byte arriving says a reply had begun, and the body
+ * reaching its end says the reply finished of its own accord.
+ *
+ * ## v1.17.5: `completed`, because "ran to its end" was never recorded
+ *
+ * Round 10 read `streamed && !produced` as *the reply ran to its end and was
+ * simply empty*. `streamed` says no such thing — it says one byte arrived. On
+ * the recorded context-overflow turn a byte did arrive, it was an
+ * `{"error": …}` frame, the transport threw on it, and the screen carried both
+ * sentences at once: `the reply ran to its end — it was simply empty`, two
+ * lines above the refusal it had thrown. Both blind critics counted it, in both
+ * arms.
+ *
+ * The fact that settles it is the one the loop already had and discarded:
+ * whether the reader ever reported end-of-stream. It is recorded here, at the
+ * same layer as the other two, so the reading stays in shared/failure.ts.
  */
 export interface StreamWitness {
-  /** The POST was answered: response headers arrived. */
+  /**
+   * `fetch` returned a Response — LM Studio answered.
+   *
+   * v1.17.5: this is deliberately weaker than *response headers arrived*, which
+   * is what it claimed to be for two versions. What is recorded is that OUR
+   * `fetch` call resolved. Measured, against a real server on both counts: a
+   * `103 Early Hints` block and a `302` block each put a complete reply header
+   * block on the wire without resolving `fetch`, because a 1xx is not a
+   * response and a redirect is followed internally. So `!accepted` cannot be
+   * read as "no headers came back" — only as "nothing the app can read has".
+   */
   accepted: boolean
   /** At least one byte of the response body arrived. */
   streamed: boolean
+  /**
+   * The response body reached its end — the reader reported done.
+   *
+   * The difference between a reply that finished and a reply that was cut off
+   * by a throw, which is what the two sentences above conflated. False also
+   * before the body starts, so it separates an empty 200 that closed cleanly
+   * from a non-2xx that never had a body to read.
+   */
+  completed: boolean
   /**
    * The same two facts about the request that is open RIGHT NOW — v1.17.4.
    *
@@ -201,9 +233,13 @@ export interface StreamWitness {
   onChange?: () => void
 }
 
-/** The two discriminating facts, as much of the witness as a reader needs. */
+/**
+ * What is known about the request in flight — as much of the witness as a
+ * reader waiting on it needs. `completed` is not here on purpose: a round that
+ * has ended is not a round anyone is still waiting on.
+ */
 export interface StreamPhase {
-  /** The POST was answered: response headers arrived. */
+  /** `fetch` returned a Response — LM Studio answered. See StreamWitness. */
   accepted: boolean
   /** At least one byte of the response body arrived. */
   streamed: boolean
@@ -213,6 +249,7 @@ export function newWitness(): StreamWitness {
   return {
     accepted: false,
     streamed: false,
+    completed: false,
     round: { accepted: false, streamed: false },
     lastActivityAt: Date.now()
   }
@@ -533,6 +570,11 @@ export async function streamChat(
   // this one has seen. Published immediately, so the screen's account of the
   // silence starts when the silence does.
   witness.round = { accepted: false, streamed: false }
+  // Unlike `accepted` and `streamed`, this one does not accumulate over a turn.
+  // Those two answer "did this turn ever get that far"; this answers "did the
+  // round that ended the turn end by itself", and round one having finished
+  // cleanly says nothing about the round that threw.
+  witness.completed = false
   witness.onChange?.()
   try {
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -620,7 +662,12 @@ export async function streamChat(
       const { done, value } = await reader.read().catch((err) => {
         throw watchdog.expired() ?? err
       })
-      if (done) break
+      if (done) {
+        // The one place a reply is known to have finished rather than been cut
+        // off. Every other way out of this loop is a throw.
+        witness.completed = true
+        break
+      }
       watchdog.touch(STREAM_STALL_MS, STALLED)
       witness.streamed = true
       // Published once, on the transition: this runs per chunk, and a store

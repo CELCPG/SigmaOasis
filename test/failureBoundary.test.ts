@@ -406,6 +406,9 @@ describe('an empty turn names who fell silent', () => {
   const ending = (over: Partial<TurnEnding> = {}): TurnEnding => ({
     accepted: true,
     streamed: true,
+    // v1.17.5. The default is the stream that finished by itself — the true
+    // negative — so every case below that ends any other way has to say so.
+    completed: true,
     produced: false,
     stoppedByUser: false,
     silentMs: 0,
@@ -440,13 +443,94 @@ describe('an empty turn names who fell silent', () => {
     assert.doesNotMatch(f.sentence, /The model produced/)
   })
 
-  test('all three are different sentences, which is the entire point', () => {
+  /**
+   * v1.17.5, and the round-11 verdict this whole family exists to answer.
+   *
+   * On a context-overflow turn the screen carried two messages, one above the
+   * other: `The model produced no text. LM Studio answered and the reply ran to
+   * its end — it was simply empty.` and, two lines down, `The request was
+   * refused by LM Studio, which named the context length …`. Both blind critics
+   * counted it — 1 disagreeing pair, 1 contradiction — in both arms.
+   *
+   * The reply did not run to its end. LM Studio wrote one `{"error": …}` frame
+   * and the transport threw on it: `streamed` was true, `completed` was never
+   * recorded at all, and round 10's sentence read the first as if it were the
+   * second.
+   */
+  test('a refusal in the stream is not a reply that ran to its end', () => {
+    const f = explainEmptyReply(ending({ completed: false }))
+    // The exact clauses that contradicted the refusal underneath them.
+    assert.doesNotMatch(f.sentence, /ran to its end/)
+    assert.doesNotMatch(f.sentence, /simply empty/)
+    assert.doesNotMatch(f.sentence, /^The model produced no text/)
+    // What it says instead is what the transport actually witnessed.
+    assert.match(f.sentence, /started sending a reply/)
+    assert.match(f.sentence, /ended before that reply did/)
+  })
+
+  test('the true negative beside it: `completed` is the only difference', () => {
+    // Same turn, same two facts, one extra one — and the sentence that round 10
+    // was right to write is still there for the case it was written for.
+    const cut = explainEmptyReply(ending({ completed: false }))
+    const ran = explainEmptyReply(ending({ completed: true }))
+    assert.match(ran.sentence, /^The model produced no text\./)
+    assert.match(ran.sentence, /ran to its end/)
+    assert.notEqual(cut.sentence, ran.sentence)
+  })
+
+  test('a turn that ended before the reply body began says only that', () => {
+    // A non-2xx status, or a response with no body: the server answered with
+    // something, and it was not a reply that could be read as an answer. The
+    // empty 200 beside it closed cleanly and keeps its own sentence.
+    const cut = explainEmptyReply(ending({ streamed: false, completed: false }))
+    assert.match(cut.sentence, /ended before any of the reply arrived/)
+    assert.doesNotMatch(cut.sentence, /closed the connection without sending a reply/)
+
+    const empty200 = explainEmptyReply(ending({ streamed: false, completed: true }))
+    assert.match(empty200.sentence, /^LM Studio accepted the request and closed the connection/)
+    assert.notEqual(cut.sentence, empty200.sentence)
+  })
+
+  /**
+   * Round 9's defect, one message further down. Both hand-off endings sit
+   * directly above a ⚠️ message that carries the real reason AND the real
+   * remedy — on the recorded turn, one that explains why asking again cannot
+   * fit. A cheerful "Ask again." above it would be the app contradicting itself
+   * again, in the remedy instead of the sentence.
+   */
+  test('the two hand-off endings offer no remedy of their own', () => {
+    for (const streamed of [true, false]) {
+      const f = explainEmptyReply(ending({ streamed, completed: false }))
+      assert.equal(f.remedy, null, f.sentence)
+      assert.match(f.sentence, /The reason is in the message below\./)
+      // They are still placed — the app knows what happened, it is simply not
+      // the one reporting why.
+      assert.equal(f.recognised, true)
+    }
+  })
+
+  test('all five endings are different sentences, which is the entire point', () => {
     const said = [
-      explainEmptyReply(ending()),
-      explainEmptyReply(ending({ streamed: false })),
-      explainEmptyReply(ending({ streamed: false, stoppedByUser: true, silentMs: 90_000 }))
-    ].map((f) => f.sentence)
-    assert.equal(new Set(said).size, 3, said.join('\n'))
+      ending(), // ran to its end, empty — the model
+      ending({ streamed: false }), // an empty 200 — the server
+      ending({ streamed: false, completed: false }), // ended before the body began
+      ending({ completed: false }), // the reply began, then was cut off
+      ending({ accepted: false, completed: false }) // nothing came back at all
+    ].map((e) => explainEmptyReply(e).sentence)
+    assert.equal(new Set(said).size, 5, said.join('\n'))
+  })
+
+  test('the Stop readings still come first, whatever completed says', () => {
+    // A user who stops a turn is told they stopped it. `completed` is false on
+    // every one of these — a stopped stream never reaches its end — and none of
+    // them may be re-read as one of the new endings.
+    for (const streamed of [true, false]) {
+      const f = explainEmptyReply(
+        ending({ streamed, completed: false, stoppedByUser: true, silentMs: 90_000 })
+      )
+      assert.match(f.sentence, /^You stopped this turn/)
+      assert.doesNotMatch(f.sentence, /message below/)
+    }
   })
 
   test('a Stop before the server answered blames neither the model nor the server', () => {
@@ -455,6 +539,37 @@ describe('an empty turn names who fell silent', () => {
     )
     assert.match(f.sentence, /before LM Studio had answered/)
     assert.match(f.sentence, /You stopped this turn 4s in/)
+  })
+
+  /**
+   * v1.17.5. `TurnEnding` is persisted with the conversation, so every turn
+   * stored before this round is on disk with the other four facts and without
+   * this one. Reading that absence as `false` would tell an old conversation
+   * its reply was cut off and point at a failure message nobody ever wrote —
+   * the defect this round is fixing, committed by the fix for it.
+   */
+  test('a stored turn from before `completed` says it cannot choose, not that it was cut off', () => {
+    for (const streamed of [true, false]) {
+      const f = explainEmptyReply(ending({ streamed, completed: undefined }))
+      assert.equal(f.recognised, false, 'the app could not place it, and says so')
+      assert.match(f.sentence, /cannot say whether this one ran out or was cut off/)
+      // None of the five readings may be borrowed on evidence that is missing.
+      assert.doesNotMatch(f.sentence, /ran to its end/)
+      assert.doesNotMatch(f.sentence, /message below/)
+      assert.doesNotMatch(f.sentence, /closed the connection/)
+      assert.ok(f.headline.length <= 72, f.headline)
+    }
+  })
+
+  test('a stored turn from before `completed` keeps the readings that do not need it', () => {
+    // The absence only reaches the branches that turn on it. A Stop and a
+    // never-answered turn were fully recorded in v1.17.3 and still read the same.
+    const stopped = explainEmptyReply(
+      ending({ completed: undefined, stoppedByUser: true, silentMs: 90_000, streamed: false })
+    )
+    assert.match(stopped.sentence, /^You stopped this turn/)
+    const never = explainEmptyReply(ending({ completed: undefined, accepted: false, streamed: false }))
+    assert.match(never.sentence, /^This turn ended without LM Studio answering/)
   })
 
   test('a turn with no observation admits that, rather than guessing a party', () => {
@@ -477,16 +592,44 @@ describe('an empty turn names who fell silent', () => {
     for (const stoppedByUser of [true, false])
       for (const accepted of [true, false])
         for (const streamed of [true, false])
+          for (const completed of [true, false])
+            for (const produced of [true, false]) {
+              const f = explainEmptyReply({
+                accepted,
+                streamed,
+                completed,
+                produced,
+                stoppedByUser,
+                silentMs: 90_000
+              })
+              assert.ok(f.headline.length <= 72, `${f.headline.length}: ${f.headline}`)
+              assert.ok(f.sentence.trim().length > 0)
+            }
+  })
+
+  /**
+   * The rule the whole module rests on, asserted over the entire input space
+   * rather than on the cases someone remembered to write: a sentence claiming
+   * the reply finished may only appear where the transport recorded that it
+   * did. Round 10's sentence was reachable from `completed: false` for two
+   * versions because nothing checked this.
+   */
+  test('nothing claims the reply finished unless `completed` says it did', () => {
+    for (const accepted of [true, false])
+      for (const streamed of [true, false])
+        for (const stoppedByUser of [true, false])
           for (const produced of [true, false]) {
             const f = explainEmptyReply({
               accepted,
               streamed,
+              completed: false,
               produced,
               stoppedByUser,
               silentMs: 90_000
             })
-            assert.ok(f.headline.length <= 72, `${f.headline.length}: ${f.headline}`)
-            assert.ok(f.sentence.trim().length > 0)
+            assert.doesNotMatch(f.sentence, /ran to its end/, JSON.stringify(f))
+            assert.doesNotMatch(f.sentence, /simply empty/, JSON.stringify(f))
+            assert.doesNotMatch(f.sentence, /closed the connection/, JSON.stringify(f))
           }
   })
 })
