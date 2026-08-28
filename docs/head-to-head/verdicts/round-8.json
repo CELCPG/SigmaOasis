@@ -70,6 +70,7 @@
     {
       "id": "self-consistency",
       "asked": false,
+      "evidence": "unasked",
       "note": "Not asked this round. One verdict survives in the write-up: the older arm printed a line saying nothing in the library covered the question while the same screen marked two passages as cited; the newer arm printed the line that reconciles them. One disagreeing pair against none. The task column scored that task a tie, and the round recorded the tie as the price of a neutral question.",
       "verdicts": {
         "V1": {
@@ -133,6 +134,7 @@
     {
       "id": "record-consistency",
       "asked": false,
+      "evidence": "unasked",
       "note": "Not asked this round, and nothing in the write-up settles it either way.",
       "verdicts": {
         "V1": {

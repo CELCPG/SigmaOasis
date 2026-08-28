@@ -2,6 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { spawnSync } from 'child_process'
 
 /**
  * The head-to-head task set must describe TASKS, not BUILDS.
@@ -400,6 +401,58 @@ describe('the generated critic view', () => {
     for (const field of generatorList('DROP')) {
       assert.ok(!serialized.includes(`"${field}"`), `"${field}" reached the critic view`)
     }
+  })
+})
+
+/**
+ * A second thing a critic reads.
+ *
+ * Round 12 added a counts block a critic fills in beside the prose, because the
+ * numbers every critic was already producing were never reaching the verdict
+ * file. It is generated from the cross-cutting questions, which is what keeps it
+ * from drifting from what the critic is actually asked — and it is also a new
+ * document put in front of a blind judge, so it is guarded the same way the
+ * task view is rather than trusted because of where it came from.
+ *
+ * `mechanicalChecks` is the case this exists to catch: the one field a critic
+ * may never read is a machine-readable defect inventory, and a block generated
+ * out of the task set is exactly the shape a future edit could route it through.
+ */
+describe('the counts block a critic fills in', () => {
+  const BLOCK = join(ROOT, 'docs', 'head-to-head', 'critic-counts.mjs')
+
+  const blockText = (): string => {
+    const res = spawnSync(process.execPath, [BLOCK, 'block'], {
+      encoding: 'utf-8',
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    })
+    assert.equal(res.status, 0, res.stderr)
+    return res.stdout
+  }
+
+  test('it carries no build fingerprint', () => {
+    const offences = leaks(blockText())
+    assert.deepEqual(offences, [], `the counts block leaks:\n  ${offences.join('\n  ')}`)
+  })
+
+  test('it names every question a critic is asked, so a new one cannot go uncounted', () => {
+    const text = blockText()
+    for (const q of set.crossCutting.questions) {
+      assert.ok(text.includes(q.id), `${q.id} has no counts block`)
+      assert.ok(text.includes(q.question), `${q.id} is named without the question it asks`)
+    }
+  })
+
+  test('it does not carry anything from a task entry, and least of all the check list', () => {
+    const text = blockText()
+    for (const t of set.tasks) {
+      for (const check of t.mechanicalChecks) assert.ok(!text.includes(check), `${t.id}: a check reached the block`)
+      assert.ok(!text.includes(t.probes), `${t.id}: probes reached the block`)
+    }
+  })
+
+  test('it tells the critic to write run labels rather than arms', () => {
+    assert.match(blockText(), /never A and B/)
   })
 })
 

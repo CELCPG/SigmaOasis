@@ -73,6 +73,8 @@
     {
       "id": "self-consistency",
       "asked": true,
+      "evidence": "unrecorded",
+      "note": "Every critic reported a statement count and a disagreeing-pair count for both runs, in the prose of a report this round did not keep. The verdicts below are the round's record; the numbers behind them are not, so the fourteen ties may not be read as fourteen agreements.",
       "verdicts": {
         "V1": {
           "verdict": "A"
@@ -133,6 +135,8 @@
     {
       "id": "record-consistency",
       "asked": true,
+      "evidence": "unrecorded",
+      "note": "Contested on four tasks of eighteen, and every critic gave the same reason for the rest: the audit that would settle a tool status was absent from both runs. That number is in the round write-up and nowhere in this file, which is the whole reason the column below cannot be told from a column both builds passed.",
       "verdicts": {
         "V1": {
           "verdict": "A"
