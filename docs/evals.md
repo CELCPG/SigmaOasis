@@ -3823,3 +3823,170 @@ caught neither on itself.
 
 Both were found by mutation: setting a token to a known-bad value and checking the suite says so.
 A check that cannot be made to fail on demand is not yet known to be a check.
+
+### Pending fold-in — the question every critic answered and no round counted
+
+Round 9 put two questions to every critic on all eighteen tasks. It scored one of them.
+
+`selfConsistency` was written in round 8's fold-in precisely because a neutral per-task question
+had missed a real repair — the app printing that nothing in the library covered the question while
+the same screen marked two passages as cited. The question went into the file, every round-9
+critic answered it with a statement count and a disagreeing-pair count for both runs, and then it
+was folded into the same one-line `WINNER: run-1 | run-2 | tie` as the task's own question. A
+build that reduces how often the application contradicts itself while tying the task's question
+scores **nothing** — which is the defect the question was added to fix, one layer up.
+
+So the repair is not a better question. It is a **second column**.
+
+#### The scheme
+
+Pass 2 now produces one verdict **per question**, not one per task, and the verdicts aggregate
+into columns that are reported side by side:
+
+```
+task                A 0 · B 3 · tie 14 · void 1
+self-consistency    A 0 · B 1 · tie 15 · void 1 · contested 4/17
+record-consistency  A 1 · B 2 · tie 14 · void 1 · contested 6/17 · quiet wins 1
+```
+
+**The headline number is the task column, unchanged.** The six dimensions are what the app's own
+audit chose; a cross-cutting question is not one of them. A round quoted as a single figure
+anywhere is quoted as *the task column*, with that word in front of it.
+
+**The columns are never added together**, for two reasons, and the second is the one that bites.
+Summing would let a build that moved nothing any task asks about report a task win. And the
+columns are **not independent** — one repair can win two of them, so a sum double-counts a fix and
+hides that it did.
+
+Which answers *is a tie on the task question plus a win on consistency a win?* — **no. It is a tie
+and a win, which is two facts.** The steelman for merging is real: the round exists to find out
+whether the newer build is better, and a build that contradicts itself less often is better.
+Nothing is lost by refusing the merge, because the split reports a third figure the merge could
+not:
+
+| figure | what it is |
+| --- | --- |
+| **seen only by a cross-cutting column** | tasks the task column tied or voided where a cross-cutting column named a winner — the class of result rounds 8 and 9 discarded. Reported in **both directions**: a column that can only add wins is a column that flatters. |
+| **scored in more than one column** | the overlap. A column whose wins all sit here has restated the task column rather than added to it, and should be retired the way a task that passes on every build should be. |
+| **contested** | tasks where at least one run gave the question something to bite on. |
+
+#### The denominator matters, twice
+
+**Which tasks count.** Eighteen is the wrong denominator for what the win/loss/tie line *means*. A
+tie on a task where neither run had anything to contradict is not evidence that two builds behave
+alike; it is evidence that nothing was in play. Those two are indistinguishable in a win/loss/tie
+line and distinguishable in `contested`, so `contested` is reported beside every cross-cutting
+column, and a column contested on none of its tasks is read as having measured nothing.
+
+**What each task contributes — and here the obvious argument is half wrong.** The case for this
+question being ungameable is that a screen with fewer statements has fewer chances to agree *and*
+fewer to disagree. That symmetry protects a **rate**. It does not protect a **count**, and the
+count is what a verdict is decided on: fewer statements means fewer pairs means fewer disagreeing
+pairs, so printing less does move the score. The fix is not to normalise. A rate is gameable from
+the other side — add clean statements and dilute it — and it turns a quotable defect into a
+fraction. So the raw count stays the score, the statement count sits beside it unnormalised, and a
+win by the run that **said less** is flagged `quiet` and is **still a win**: a build that removed
+one half of a contradiction has fewer statements and fewer contradictions and is right to have
+won. The flag is for a reader. Nothing decides on it.
+
+#### A third question, and three that were rejected
+
+Round 9's critics volunteered several observations nobody asked them for. The test for whether one
+belongs in this family is not whether it is countable — it is whether answering it needs a
+standard from **outside the run**. `selfConsistency` needs none: it compares two things the screen
+itself says. That is what makes it neutral, and it is the whole of what makes it neutral.
+
+One candidate passes: **the screen against the run's own record.** Same shape, second term moved —
+what the application says about this turn, against what the run's own artifacts show the turn did.
+No standard imported, fires unconditionally on all eighteen tasks, countable in both directions (a
+claim the record contradicts, and something the record shows that the screen never mentions), and
+it carries the same say-less guard. It ships as `record-consistency`.
+
+It costs two things, named here rather than discovered later. It **overlaps four task questions**
+by construction — V1, V3, TH1 and TH2 each ask this in one narrow domain — which is what the
+overlap figure exists to expose. And a win in it is a win for the app's account of itself,
+measured against artifacts **no reader ever sees**; it is not evidence the screen is more useful.
+
+The three volunteered ones do not pass, each for its own reason:
+
+| candidate | why not |
+| --- | --- |
+| internal strings reaching the reader | *internal* is a judgement about audience, not a relation between two observables. Making it countable means handing the critic a list of what counts as internal — which is a value assertion, and the list is drawn from one build's strings, which is a fingerprint. |
+| controls offered that cannot work | countable in principle, and not from these captures: the driver activates only the controls a task's `setup` names, so on most of the eighteen the artifacts cannot answer it. Where they can, it **is** V2's question and VC2's. That is two tasks twice, not a cross-cutting column. |
+| warnings placed below the thing they correct | reading order is countable; *below is worse* is the value assertion. A correction after one short claim and a correction after three screens of prose are the same fact under that rule and are not the same experience. |
+
+#### Rounds 8 and 9, rescored
+
+Recomputed by `score-round.mjs` from `verdicts/round-8.json` and `verdicts/round-9.json`.
+**Rescored, not re-judged** — no capture was re-run and no critic re-read anything.
+
+| | task column | self-consistency | record-consistency |
+| --- | --- | --- | --- |
+| **round 8** | A 0 · B 2 · tie 16 | **not asked** — one verdict recoverable: **B 1** | not asked, nothing recoverable |
+| **round 9** | A 0 · B 3 · tie 14 · void 1 | asked on 18, **unrecorded 18** | not asked — two verdicts recoverable, unattributed: **A 1 · B 1** |
+
+Round 8's one recoverable verdict is the repair the round itself recorded as lost: the older arm
+printed a line saying nothing in the library covered the question while the same screen marked two
+passages as cited; the newer arm printed the line that reconciles them. One disagreeing pair
+against none. Under the scheme it reads *seen only by a cross-cutting column: B 1*, on a task
+whose own verdict stays a tie — which is the shape the whole change exists to produce.
+
+Round 9's self-consistency column is the finding, and it is not a good one. **The question was
+put, answered on all eighteen tasks, and the answers were not kept.** Round 8's three critic
+prompts are in the repository; round 9's critic reports are nowhere in it. The column cannot be
+recomputed from a write-up that quotes only the contradictions both builds shared, so its eighteen
+entries are `unrecorded` — a verdict the scorer refuses to round into a tie, because a tie is a
+measurement and this is the absence of one. From round 10 the verdicts file is the record.
+
+Round 9's `record-consistency` line is the argument for the second column and against over-reading
+it at the same time. Round 9 recorded, under *what this round does not measure*, that the older
+build lost the tail of an answer where the newer did not, and booked it as an improvement that
+scored nothing. Round 10's opening records the same shape **on a different task, in the other
+arm**. Under this column that is one win and one loss — a draw, not an unscored improvement.
+Rounds 6 through 9 recorded no losses at all; this column would have produced one, and it would
+have produced it by taking a claim away rather than adding one.
+
+#### What the scheme cannot see
+
+Both questions are agreement relations. That is what makes them neutral, and it is exactly the
+shape of what they are blind to.
+
+- **A screen that is consistently wrong.** A build whose screen agrees with itself and with the
+  record about a falsehood scores perfectly in both columns. Neither imports a standard from
+  outside the run, by design, and this is the price of that.
+- **Presentational inconsistency — including the repair that motivated this work.** Round 9 draws
+  one fact in a single token where the older build draws it in two different ramps on one screen.
+  Two liveries for one fact are not two statements contradicting each other, and nothing in the
+  record says which ink. It scored nothing before and it scores nothing now. Of the two repairs
+  round 9 recorded as invisible, this scheme recovers one.
+- **Silence.** The volume figure makes a quiet screen visible; it does not penalise one. A reader
+  decides, which is a judgement the instrument declines to automate.
+- **A turn where nothing was in play.** Both columns inherit the model-dependent trigger round 8
+  documented: zero against zero is a tie whether both builds were tested and passed, or neither
+  was tested. `contested` shows which. It does not remove the problem.
+- **Everything before round 10.** Eight rounds have no per-task cross-cutting counts, so the
+  columns cannot be back-filled, and the two rows above are reconstructions from prose — marked as
+  such by the scorer on every run that contains one.
+
+#### What was not touched, asserted rather than trusted
+
+`prompt`, `setup` and `mechanicalChecks` are **byte-identical to the previous commit on all
+eighteen tasks** — diffed field by field against `HEAD`, not inspected. The self-consistency
+question's own wording is byte-identical to what round 9's critics were asked, and is now pinned
+in the suite, so ending that series is a deliberate act that fails a test first rather than a
+tidy-up that happens quietly.
+
+The one question asked of every task moved from a lone top-level key into `crossCutting`, beside
+the second one. `make-critic-tasks.mjs` drops the new block and keeps the old name in its drop
+list as a tombstone: reverting to a top-level key puts the question back somewhere the generator
+has no opinion about, which is the rename-as-leak this project has now committed twice.
+
+The neutrality guard walks `crossCutting` **structurally** rather than field by field. A
+hand-written list of what to guard would have covered the fields that existed the day it was
+written — an enumeration narrower than the class it guards, committed inside the guard against
+exactly that, which is this document's most-repeated failure. A positive control injects a
+fingerprint into the container prose, a question, a measurement step, a weighing rule, and a key
+that does not exist yet, and asserts each is caught.
+
+Counts: node **2146 → 2174**, of which 24 are the scorer's and 4 the task set's. Render 25, style
+72 and 114, tab-traverse 43, modal-focus 177, markdown 62, transport 24 — all unchanged. Exit 0.

@@ -1,0 +1,195 @@
+{
+  "round": 8,
+  "pair": {
+    "A": "the round-7 build",
+    "B": "the round-8 build"
+  },
+  "note": "Recomputed under the column scheme, not re-judged. The task column is round 8’s own recorded verdict, task by task. The self-consistency question did not exist when round 8 was judged — it was written in round 8’s fold-in, for round 9 — so its column is NOT ASKED, with the single verdict the round write-up preserves enough evidence to settle. That verdict is an estimate reconstructed from prose, not a critic report.",
+  "columns": [
+    {
+      "id": "task",
+      "asked": true,
+      "note": "round 8’s recorded blind verdict: 2 won, 0 lost, 16 tied.",
+      "verdicts": {
+        "V1": {
+          "verdict": "tie"
+        },
+        "V2": {
+          "verdict": "tie"
+        },
+        "V3": {
+          "verdict": "tie"
+        },
+        "PT1": {
+          "verdict": "tie"
+        },
+        "PT2": {
+          "verdict": "tie"
+        },
+        "PT3": {
+          "verdict": "tie"
+        },
+        "TH1": {
+          "verdict": "tie"
+        },
+        "TH2": {
+          "verdict": "tie"
+        },
+        "TH3": {
+          "verdict": "tie"
+        },
+        "TTU1": {
+          "verdict": "tie"
+        },
+        "TTU2": {
+          "verdict": "tie"
+        },
+        "TTU3": {
+          "verdict": "tie"
+        },
+        "FR1": {
+          "verdict": "B"
+        },
+        "FR2": {
+          "verdict": "tie"
+        },
+        "FR3": {
+          "verdict": "tie"
+        },
+        "VC1": {
+          "verdict": "B"
+        },
+        "VC2": {
+          "verdict": "tie"
+        },
+        "VC3": {
+          "verdict": "tie"
+        }
+      }
+    },
+    {
+      "id": "self-consistency",
+      "asked": false,
+      "note": "Not asked this round. One verdict survives in the write-up: the older arm printed a line saying nothing in the library covered the question while the same screen marked two passages as cited; the newer arm printed the line that reconciles them. One disagreeing pair against none. The task column scored that task a tie, and the round recorded the tie as the price of a neutral question.",
+      "verdicts": {
+        "V1": {
+          "verdict": "unasked"
+        },
+        "V2": {
+          "verdict": "unasked"
+        },
+        "V3": {
+          "verdict": "unasked"
+        },
+        "PT1": {
+          "verdict": "unasked"
+        },
+        "PT2": {
+          "verdict": "unasked"
+        },
+        "PT3": {
+          "verdict": "unasked"
+        },
+        "TH1": {
+          "verdict": "unasked"
+        },
+        "TH2": {
+          "verdict": "unasked"
+        },
+        "TH3": {
+          "verdict": "B",
+          "recorded": false,
+          "source": "reconstructed from the round-8 write-up, which quotes both halves of the pair"
+        },
+        "TTU1": {
+          "verdict": "unasked"
+        },
+        "TTU2": {
+          "verdict": "unasked"
+        },
+        "TTU3": {
+          "verdict": "unasked"
+        },
+        "FR1": {
+          "verdict": "unasked"
+        },
+        "FR2": {
+          "verdict": "unasked"
+        },
+        "FR3": {
+          "verdict": "unasked"
+        },
+        "VC1": {
+          "verdict": "unasked"
+        },
+        "VC2": {
+          "verdict": "unasked"
+        },
+        "VC3": {
+          "verdict": "unasked"
+        }
+      }
+    },
+    {
+      "id": "record-consistency",
+      "asked": false,
+      "note": "Not asked this round, and nothing in the write-up settles it either way.",
+      "verdicts": {
+        "V1": {
+          "verdict": "unasked"
+        },
+        "V2": {
+          "verdict": "unasked"
+        },
+        "V3": {
+          "verdict": "unasked"
+        },
+        "PT1": {
+          "verdict": "unasked"
+        },
+        "PT2": {
+          "verdict": "unasked"
+        },
+        "PT3": {
+          "verdict": "unasked"
+        },
+        "TH1": {
+          "verdict": "unasked"
+        },
+        "TH2": {
+          "verdict": "unasked"
+        },
+        "TH3": {
+          "verdict": "unasked"
+        },
+        "TTU1": {
+          "verdict": "unasked"
+        },
+        "TTU2": {
+          "verdict": "unasked"
+        },
+        "TTU3": {
+          "verdict": "unasked"
+        },
+        "FR1": {
+          "verdict": "unasked"
+        },
+        "FR2": {
+          "verdict": "unasked"
+        },
+        "FR3": {
+          "verdict": "unasked"
+        },
+        "VC1": {
+          "verdict": "unasked"
+        },
+        "VC2": {
+          "verdict": "unasked"
+        },
+        "VC3": {
+          "verdict": "unasked"
+        }
+      }
+    }
+  ]
+}
