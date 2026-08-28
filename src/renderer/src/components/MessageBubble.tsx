@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
-import { describeCoverage, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
+import { describeCoverage, describeMatchedMeasurements, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
 import { attribution } from '../../../shared/failure'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
@@ -142,11 +142,17 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   // thirteenth accusation. See `describeCoverage` for why this is a coverage
   // line and not a guess at which figure the question was about.
   const coverage = describeCoverage(report)
+  // v2.2: the other half of that disclosure — where the measurements it DID
+  // check were found, and how many lines of the passage state the same value.
+  // Same rank, same reason, and see `measurementSources` for why this is a
+  // location rather than a verdict on which row the answer took.
+  const matched = describeMatchedMeasurements(report)
   const origins = report.origins ?? []
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
   const toolClaims = report.toolClaims ?? []
   const toolDisclosure = report.toolDisclosure ?? []
+  const toolCounts = report.toolCounts ?? []
   const toolArgs = report.toolArgs ?? []
   const citations = report.citations ?? []
   const quotes = report.quotes ?? []
@@ -196,6 +202,26 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         </div>
       )}
       {/*
+        v2.2: the same account read for its arithmetic. Measured, round 9, task
+        TH1 — a table giving `reference_lookup` two rows against an audit
+        holding one call. Two rows read as two retrievals, so the second row's
+        passages read as evidence the first did not have. It sits with the two
+        lines above because it is the same claim — what this turn did — and
+        under them because a name that is wrong is worse than a number that is.
+      */}
+      {toolCounts.length > 0 && (
+        <div
+          className={
+            hasUnbacked || toolClaims.length > 0 || toolDisclosure.length > 0
+              ? 'mt-1'
+              : undefined
+          }
+        >
+          ⚠️ This reply's account of its own tool use claims more calls than the turn made:{' '}
+          {toolCounts.join('; ')}.
+        </div>
+      )}
+      {/*
         v1.17: the same account read one rung further down. The tool named is
         the tool that ran and the account is complete — and the argument it
         quotes is not the one the call carried. A reader told the query was
@@ -208,7 +234,10 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       {toolArgs.length > 0 && (
         <div
           className={
-            hasUnbacked || toolClaims.length > 0 || toolDisclosure.length > 0
+            hasUnbacked ||
+            toolClaims.length > 0 ||
+            toolDisclosure.length > 0 ||
+            toolCounts.length > 0
               ? 'mt-1 break-words'
               : 'break-words'
           }
@@ -305,6 +334,12 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
           became tokens it read as a finding, the one thing it is documented not
           to be. Caught by the rank assertion, not by eye. */}
       {coverage !== '' && <div className="mt-1 text-ink-tertiary">{coverage}</div>}
+      {/* v2.2: the same rank again, and the same kind of statement — where the
+          checked measurements were found, and on how many lines of the passage
+          the same value is stated. Round 9 asked for a check that a figure came
+          from the RIGHT row of a cited table; `measurementSources` sets out why
+          that cannot be measured here and why this is what can. */}
+      {matched !== '' && <div className="mt-1 text-ink-tertiary">{matched}</div>}
       {/* One rank quieter than the warnings above it, and quieter by ink rather
           than by opacity — this is the line that says what the answer was
           measured against, and it was the least legible thing in the app.

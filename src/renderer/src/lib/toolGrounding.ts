@@ -3,7 +3,8 @@ import {
   convertUnit,
   isRatioScale,
   measurementGroup,
-  measurementsIn
+  measurementsIn,
+  type Measurement
 } from '../../../shared/measurements'
 import { TOOL_DEFS } from '../../../shared/tools'
 import { LAUNDERED_OUTPUT_MARKER } from './workbenchChecks'
@@ -88,6 +89,13 @@ export interface GroundingReport {
   /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
   toolDisclosure?: string[]
   /**
+   * v2.2: a tool the reply's account credits with more calls than ran. The
+   * name is right, the account names it, the arguments may even be the ones
+   * that went — and the number of times it happened is inflated. See
+   * `overstatedToolCounts`.
+   */
+  toolCounts?: string[]
+  /**
    * v1.17: an argument the reply quotes as the one it passed, where the call
    * carried something else. The name was right and the query was invented —
    * see `misstatedToolArguments`.
@@ -130,6 +138,13 @@ export interface GroundingReport {
    * why that was tried on paper and rejected.
    */
   coverage?: QuantityCoverageReport
+  /**
+   * v2.2: the other half of the same disclosure — where the measurements it
+   * DID check were found, and on how many lines. Not a fault, like `coverage`
+   * and unlike everything above it. See `measurementSources` for the check
+   * this is instead of.
+   */
+  matched?: MeasurementSource[]
   /** Tools whose output was used as the corpus, for the disclosure text. */
   checkedAgainst: string[]
 }
@@ -181,6 +196,7 @@ export function groundingFindingCount(report: GroundingReport | null): number {
     (report.addresses?.length ?? 0) +
     (report.toolClaims?.length ?? 0) +
     (report.toolDisclosure?.length ?? 0) +
+    (report.toolCounts?.length ?? 0) +
     (report.toolArgs?.length ?? 0) +
     (report.code?.length ?? 0) +
     (report.citations?.length ?? 0) +
@@ -243,8 +259,8 @@ function elideLabel(text: string, max: number): string {
  * Every faulted thing, as the short string a reader can look for on screen.
  *
  * The count and the names must come from the same place. `groundingFindingCount`
- * spans thirteen categories; a line that says "3 unsupported items" and then
- * names two is worse than one that names none, so this walks the same thirteen
+ * spans fourteen categories; a line that says "3 unsupported items" and then
+ * names two is worse than one that names none, so this walks the same fourteen
  * and the invariant `labels.length === count` is pinned in the tests.
  *
  * A code finding is the one that cannot be quoted — it is a traceback plus an
@@ -257,6 +273,7 @@ export function groundingFindingLabels(report: GroundingReport | null): string[]
     ...(report.code ?? []).map(() => "the answer's Python"),
     ...(report.toolClaims ?? []),
     ...(report.toolDisclosure ?? []),
+    ...(report.toolCounts ?? []),
     ...(report.toolArgs ?? []),
     // Elided before it is wrapped, not after: a label ending in a lone `”` is
     // the sort of debris that makes a reader distrust the whole line.
@@ -453,6 +470,34 @@ export function describeCoverage(report: GroundingReport): string {
   )
 }
 
+/**
+ * The companion to `describeCoverage`, and the same rank of statement: about
+ * the check, not about the answer.
+ *
+ * `describeCoverage` reports what the pass never reached. This reports where
+ * what it *did* reach was found — and, when a value sits on more than one line
+ * of a passage, says so, because that is precisely the situation in which
+ * "the passage states this number" is at its weakest as evidence. See
+ * `measurementSources` for why this is the line and not a verdict on the row.
+ */
+export function describeMatchedMeasurements(report: GroundingReport): string {
+  const found = report.matched ?? []
+  if (found.length === 0) return ''
+  const parts = found.slice(0, MAX_REPORTED).map((s) => {
+    const shown = s.passages.slice(0, MAX_SOURCE_PASSAGES)
+    const rest = s.passages.length - shown.length
+    const where = rest > 0 ? `${shown.join(', ')} and ${rest} more` : shown.join(', ')
+    return `${s.raw} — ${where}, ${s.lines} line${s.lines === 1 ? '' : 's'}`
+  })
+  const ambiguous = found.some((s) => s.lines > 1)
+  return (
+    `Matched by value, not by row: ${parts.join('; ')}.` +
+    (ambiguous
+      ? ' Where a value is stated on more than one line, only the passage itself shows which one the answer took it from.'
+      : '')
+  )
+}
+
 export function describeGroundingFindings(report: GroundingReport): string {
   const lines: string[] = []
   if (report.code?.length) lines.push(...report.code)
@@ -466,6 +511,13 @@ export function describeGroundingFindings(report: GroundingReport): string {
     lines.push(
       `- Your answer lists the tools it used and never names ${report.toolDisclosure.join(', ')}, ` +
         'which is what actually ran. List the calls this turn made, not the documents they returned.'
+    )
+  }
+  if (report.toolCounts?.length) {
+    lines.push(
+      `- Your answer accounts for more calls than the turn made: ${report.toolCounts.join('; ')}. ` +
+        'Give one entry per call that actually ran, and fold what a single call returned into ' +
+        'that call rather than splitting it across rows.'
     )
   }
   if (report.toolArgs?.length) {
@@ -985,6 +1037,117 @@ function agreesAfterConversion(
   return Math.abs(stated - converted) <= Math.max(rounding, slack) + 1e-9
 }
 
+// ---- where a supported measurement was found (v2.2) ----------------------------
+
+/**
+ * **The check that was asked for, and why it is not here.**
+ *
+ * Round 9's critics, on tasks V1 and V3: "Both screens report only literal
+ * string presence, not aptness. One run's `3 to 5 days` and `1 week` are drawn
+ * from the **ham** rows of the cold-storage table, and the other's `3 to 4
+ * days` from `Fresh, uncured, cooked` — the chicken rows in the same passage
+ * read `| Chicken or turkey, whole | 1 to 2 days |`. Neither app flagged a
+ * quantity taken from the wrong row of a cited table."
+ *
+ * The observation is right and the check it asks for cannot be built honestly
+ * here. Three reasons, in order of how badly each one bites.
+ *
+ * **The app does not know which row the model read, and neither did the
+ * critic.** `3 to 4 days` occurs in *eleven* rows of
+ * `packs/food-safety/docs/cold-food-storage-chart.md` — salads, cooked ham,
+ * canned ham, egg substitutes, casseroles, two kinds of pie, soups and stews,
+ * leftovers, chicken nuggets, pizza. A value repeated down a column has no
+ * unique provenance. Naming one row as the source is a guess dressed as a
+ * measurement, in the one place a reader has no way to check it.
+ *
+ * **On the critic's own example the guess points the wrong way.** The question
+ * was how long cooked chicken keeps in the fridge. The row that answers it is
+ * `| Leftovers | Cooked meat or poultry | 3 to 4 days |` — so `3 to 4 days` is
+ * *correct*, and a rung built to this specification would have fired on a
+ * right answer while attributing it to a ham. A checker whose findings land on
+ * correct answers is worse than no checker; this file has paid for that lesson
+ * twice (round 4's quote checker, and `quantityCoverage`'s own first version).
+ *
+ * **And deciding it requires understanding the question.** To know that
+ * "cooked chicken in the fridge" is the leftovers row and not the fresh-
+ * poultry row is to have comprehended the sentence — the exact assertion
+ * `describeCoverage` refuses to make, for the exact reason set out there: the
+ * app cannot tell *how much water should I store* from *how much water weight
+ * will I lose*, and a line that implies it understood the question is
+ * unfalsifiable by the reader it is addressed to.
+ *
+ * **So: the smaller true thing.** Say where a supported measurement was
+ * actually matched — which numbered passage, and on how many of its lines —
+ * and say plainly that the match was by value and not by row. That asserts
+ * exactly what was measured: this value occurs *here*. A figure matched on one
+ * line is located; a figure matched on eleven is disclosed as ambiguous, which
+ * is the honest form of the critic's finding and is the fact a reader needs in
+ * order to go and look at the rows themselves.
+ *
+ * Its failure mode, stated, as `describeCoverage`'s is: this line can never
+ * tell a reader that a figure is wrong. It can only tell them where to look
+ * and how many places there are to look at. That is less than was asked for
+ * and it is all the evidence supports.
+ */
+export interface MeasurementSource {
+  /** The span as the reply wrote it, so the reader can find it on screen. */
+  raw: string
+  /** The passages whose own text states that value, as their markers. */
+  passages: string[]
+  /** Lines of retrieved passage text that state it — a table row is a line. */
+  lines: number
+}
+
+/** Beyond this many passages, the line stops naming them and counts the rest. */
+const MAX_SOURCE_PASSAGES = 3
+
+/**
+ * Is `found` the same claim as `stated`, at the precision the reply wrote?
+ *
+ * The same two rules `quantityCoverage` supports a measurement by, minus
+ * derivation. An integer multiple of a corpus value can *explain* a figure but
+ * it is not a place the figure appears, and this line's whole claim is that
+ * the reader will find the value there.
+ */
+function statesTheSameValue(stated: Measurement, found: Measurement): boolean {
+  const decimals = precisionOf(String(stated.value))
+  if (found.unit === stated.unit) return roundTo(found.value, decimals) === stated.value
+  const group = measurementGroup(stated.unit)
+  if (!group || measurementGroup(found.unit) !== group) return false
+  const inUnit = convertUnit(found.value, found.unit, stated.unit)
+  if (inUnit === null || !comparableMagnitude(stated.value, inUnit, stated.unit)) return false
+  return agreesAfterConversion(stated.value, inUnit, decimals, stated.unit)
+}
+
+/**
+ * Where each measurement the rung checked can be found in the passages.
+ *
+ * Only passages, deliberately: a marker is what a reader can open. A value
+ * supported solely by the user's own words or by the app's arithmetic has no
+ * passage to point at and is left out rather than pointed at vaguely.
+ */
+export function measurementSources(checked: string[], retrieved: Citation[]): MeasurementSource[] {
+  if (retrieved.length === 0) return []
+  const out: MeasurementSource[] = []
+  for (const raw of checked) {
+    const [stated] = measurementsIn(raw)
+    if (!stated) continue
+    const passages: string[] = []
+    let lines = 0
+    for (const c of retrieved) {
+      let here = 0
+      for (const line of (c.text ?? '').split('\n')) {
+        if (measurementsIn(line).some((found) => statesTheSameValue(stated, found))) here++
+      }
+      if (here === 0) continue
+      passages.push(`[${c.index}]`)
+      lines += here
+    }
+    if (passages.length > 0) out.push({ raw, passages, lines })
+  }
+  return out
+}
+
 /**
  * v1.6: percentages, checked only when a computation tool ran this turn. A
  * model that has just had the app compute "East: 37,907.39" for it will still
@@ -1452,6 +1615,155 @@ export function undisclosedToolRuns(answer: string, records: ToolCallRecord[]): 
   return omitted.length === ran.length ? omitted.sort() : []
 }
 
+// ---- how many times it ran (v2.2) ----------------------------------------------
+
+/**
+ * v2.2: the reply's account of **how many times** a tool ran.
+ *
+ * Measured, blind, round 9, task TH1 — the task whose prompt is, in as many
+ * words, "tell me exactly which tools you used to get that and what each one
+ * gave back". The reply answered with a table giving `reference_lookup` two
+ * rows, each with its own query and its own results. One call ran. The
+ * transcript holds one tool block and `trace/audit.jsonl` holds one entry, so
+ * the app knew the true number the whole time and said nothing: every rung it
+ * had stops at identity. `unrunToolClaims` asks whether a *named* tool ran at
+ * all — it did. `undisclosedToolRuns` asks whether the account names the calls
+ * that ran — it does. v1.17's rung asks whether the *arguments* are the ones
+ * that went, and reads the two stated queries against the one that went, so
+ * whichever row quotes the real query clears itself and the other is one
+ * unmatched string rather than an invented call. None of them counts.
+ *
+ * A count is the same species as an argument and it is read the same way. Two
+ * rows say two retrievals happened, so a reader takes the second row's
+ * passages to be evidence the first did not have, and takes the coverage of
+ * the question to be twice what it was.
+ *
+ * **Only overstatement speaks.** An account that lists fewer entries than the
+ * turn ran is an account with a gap in it — `undisclosedToolRuns`' territory,
+ * and that check deliberately stays quiet unless a section names *none* of the
+ * calls. Claiming work that did not happen is the direction that misleads, and
+ * it is the measured one.
+ */
+
+/** A line that offers one entry of a list: a table row, a bullet, a numbered item. */
+const ENUMERATED_LINE = /^[ \t]{0,3}(?:\||[-*+][ \t]|\d{1,2}[.)][ \t])/
+
+/**
+ * The first unbroken run of entry lines after the disclosure heading — the
+ * table or list the account is written as.
+ *
+ * Bounded to one run on purpose. `undisclosedToolRuns` takes the section as
+ * the whole rest of the answer, which is right for asking whether a name
+ * appears anywhere and wrong for counting: prose further down that mentions
+ * the tool twice more would become two more calls. A run of adjacent rows is
+ * what a reader counts, and stopping at the first blank or prose line is the
+ * lenient direction — a second table for a second tool goes uncounted, which
+ * costs a miss and cannot manufacture a finding.
+ */
+function firstEnumeration(section: string): string[] {
+  const block: string[] = []
+  for (const line of section.split('\n')) {
+    if (ENUMERATED_LINE.test(line)) {
+      block.push(line)
+      continue
+    }
+    if (block.length > 0) break
+  }
+  return block
+}
+
+/**
+ * Entries that name the tool. One line is one entry however many times it says
+ * the name — a row with the tool in its "Tool" cell and again in its notes is
+ * one row, and counting the occurrences instead would invent a call out of the
+ * reply's own prose.
+ */
+function enumeratedEntries(section: string, name: string): number {
+  const bare = bareToolPattern(name)
+  return firstEnumeration(section).filter((line) => bare.test(line)).length
+}
+
+/** Written-out counts, up to the point where a reply starts using digits. */
+const COUNT_WORDS: Record<string, number> = {
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6
+}
+
+/**
+ * The count said out loud rather than laid out in rows: "2 calls to
+ * reference_lookup", "two reference_lookup lookups".
+ *
+ * The noun is the gate, and it has to be a word for *a call* — that is what
+ * separates an account of the turn's work from "3 reference_lookup passages",
+ * which counts something else entirely. Needs no heading above it, because the
+ * tool's own name inside the phrase is what makes it a claim about that tool.
+ */
+const CALL_NOUNS = 'calls?|lookups?|queries|searches|invocations?|runs?'
+
+function statedCallCountPattern(name: string): RegExp {
+  const written = Object.keys(COUNT_WORDS).join('|')
+  const tool = `\`?(?:${name}|${name.split('_').join('[ -]')})\`?`
+  const qualifier = '(?:separate[ \\t]+|distinct[ \\t]+|different[ \\t]+)?'
+  return new RegExp(
+    `\\b(\\d{1,2}|${written})[ \\t]+${qualifier}` +
+      `(?:(?:${CALL_NOUNS})[ \\t]+to[ \\t]+${tool}|${tool}[ \\t]+(?:${CALL_NOUNS}))\\b`,
+    'gi'
+  )
+}
+
+/** One tool, the number of calls the reply accounts for, and the number that ran. */
+export interface OverstatedToolCount {
+  name: string
+  /** Entries the reply's account gives it, or the number it states outright. */
+  claimed: number
+  /** Calls the turn actually made, errored ones included — an errored call ran. */
+  ran: number
+}
+
+/**
+ * Tools the reply's own account credits with more calls than the turn made.
+ *
+ * Both readings of "how many" are taken, and the larger is reported: a table
+ * with three rows and a sentence saying two are two accounts of one turn, and
+ * the one a reader is more likely to carry away is the bigger. Neither reading
+ * can speak about a tool that did not run — that is `unrunToolClaims`' finding,
+ * not a miscount — and neither can speak when the account is short, which is
+ * the lenient direction argued for above.
+ */
+export function overstatedToolCounts(
+  answer: string,
+  records: ToolCallRecord[]
+): OverstatedToolCount[] {
+  const ranByName = new Map<string, number>()
+  for (const r of records) ranByName.set(r.name, (ranByName.get(r.name) ?? 0) + 1)
+  if (ranByName.size === 0) return []
+  const heading = DISCLOSURE_HEADING.exec(answer)
+  const section = heading ? answer.slice(heading.index + heading[0].length) : ''
+  const flagged: OverstatedToolCount[] = []
+  for (const [name, ran] of ranByName) {
+    let claimed = section === '' ? 0 : enumeratedEntries(section, name)
+    for (const m of answer.matchAll(statedCallCountPattern(name))) {
+      const written = m[1]!.toLowerCase()
+      const stated = COUNT_WORDS[written] ?? Number(written)
+      if (Number.isFinite(stated) && stated > claimed) claimed = stated
+    }
+    if (claimed > ran) flagged.push({ name, claimed, ran })
+  }
+  return flagged.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** One finding, as the badge and the correction prompt both print it. */
+export function describeToolCount(finding: OverstatedToolCount): string {
+  return `${finding.name}: ${finding.claimed} calls accounted for, ${finding.ran} ran`
+}
+
+export function overstatedToolCountLines(answer: string, records: ToolCallRecord[]): string[] {
+  return overstatedToolCounts(answer, records).map(describeToolCount)
+}
+
 // ---- quotations ----------------------------------------------------------------
 
 /**
@@ -1476,11 +1788,55 @@ export function undisclosedToolRuns(answer: string, records: ToolCallRecord[]): 
 const FENCED = /```[\s\S]*?(?:```|$)/g
 const INLINE_CODE = /`[^`\n]*`/g
 
-const QUOTED_SPANS = [
-  /"([^"\n]{25,400})"/g,
-  /“([^”\n]{25,400})”/g,
-  /^[ \t]{0,3}>[ \t]?(.{25,400})$/gm
-]
+const STRAIGHT_QUOTED = /"([^"\n]{25,400})"/g
+const CURLY_QUOTED = /“([^”\n]{25,400})”/g
+const BLOCKQUOTE_LINE = /^[ \t]{0,3}>[ \t]?(.{25,400})$/gm
+
+const QUOTED_SPANS = [STRAIGHT_QUOTED, CURLY_QUOTED, BLOCKQUOTE_LINE]
+
+/**
+ * v2.2: the credit line under a blockquote is the quoter's, not the source's.
+ *
+ * Measured, blind, round 9, task TH3. The reply blockquoted a pack line and
+ * signed it, which is the shape a model reaches for when it is asked to quote
+ * *and* attribute in one breath:
+ *
+ *     > "Cold air must circulate around refrigerated foods to keep them
+ *       properly chilled." [7] — FDA, Refrigerator thermometers — cold facts
+ *
+ * The quotation inside the marks is verbatim and the straight-quote pattern
+ * passed it. The blockquote pattern then bounded the SAME claim by the line
+ * instead — carrying the closing mark, the marker and the signature — matched
+ * nothing, and the badge said the quotation appears "in no tool output this
+ * turn". `misquotedSpans` marked the divergence honestly (`⟪" [7] — FDA,
+ * Refrigerator thermometers — cold facts⟫`), so the marker was right and the
+ * headline over it was wrong: a fabrication warning on a quotation that is
+ * word for word in the source.
+ *
+ * v1.15 trimmed a marker off either edge for the same reason and stopped
+ * there, which is round 5's recurring shape — an enumeration of the furniture
+ * seen so far, defeated by the next piece. The general rule was already
+ * written down twelve lines above, in the fold that will not delete a
+ * quotation mark: **the marks are where the verbatim claim starts and stops.**
+ * A blockquote carrying a quotation of citation length is that quotation, and
+ * every one of those is already collected by the two patterns above; a
+ * blockquote carrying no marks is still bounded by its line, which is what the
+ * pattern is for.
+ *
+ * What it gives up is a miss, not a false alarm: an invented gloss written
+ * *outside* the marks inside a blockquote is no longer read as quoted. It was
+ * never presented as quoted, every other rung still reads it, and round 4
+ * settled which of the two errors costs more.
+ */
+function carriesAQuotation(line: string): boolean {
+  for (const pattern of [STRAIGHT_QUOTED, CURLY_QUOTED]) {
+    // `.exec` on a global pattern would carry `lastIndex` to the next line.
+    for (const m of line.matchAll(pattern)) {
+      if (flattenQuote(m[1]).length >= MIN_QUOTED) return true
+    }
+  }
+  return false
+}
 
 /** Explicit elision — the quoter said a cut is here, so each side is checked apart. */
 const ELISION = /\s*(?:\.\.\.|…|\[\.\.\.\]|\[…\])\s*/
@@ -1614,14 +1970,60 @@ function trimQuoteEdges(span: string): string {
     .replace(/[\s'"),.;:-]+$/, '')
 }
 
+/**
+ * v2.2: the signature at the end of a blockquote, which is the quoter's too.
+ *
+ * `MARKER_TAIL` above trims `[7]`, and round 9 wrote `[7] — FDA, Refrigerator
+ * thermometers — cold facts`, so the marker was no longer last and none of it
+ * came off. That is v1.15's repair one piece of furniture behind the model —
+ * the recurring shape this file keeps recording — and it is the case
+ * `carriesAQuotation` cannot reach, because a blockquote with no quotation
+ * marks has no marks to be bounded by.
+ *
+ * It runs at the span, before the fold, and only on a blockquote. Both halves
+ * of that matter. Before the fold, because `looksLikeTitle` reads capitals and
+ * `flattenQuote` lower-cases — the first version of this ran inside
+ * `trimQuoteEdges`, which is called on folded text, and silently never fired.
+ * Only on a blockquote, because inside quotation marks the marks are the
+ * boundary and everything between them is offered as the source's.
+ *
+ * Three gates on the tail itself, each load-bearing. The dash opens the line or
+ * is **spaced**, or `use-by date Kept Cold` reads as a signature. The tail
+ * **ends the line**, because a signature does. And it passes `looksLikeTitle` —
+ * the same test the attribution rung uses to tell a document from a sentence —
+ * which is what keeps a recorded true positive alive: the stitched `Ground
+ * meats, such as beef and pork — 160°F` has one word after its dash and no
+ * capital, so nothing is trimmed and the invented join is still reported.
+ *
+ * What it can cost is a fabrication written *as* a title-shaped signature at
+ * the very end of a line. That is a miss; the alternative — trimming on the
+ * dash alone — deletes source text from the comparison and turns real
+ * misquotations into passes, which is the error that cannot be allowed.
+ */
+const CREDIT_TAIL = /(?:^|[ \t])[–—-][ \t]+([^\n]{2,60})$/
+
+function withoutCredit(line: string): string {
+  const m = CREDIT_TAIL.exec(line)
+  return m && looksLikeTitle(m[1]!) ? line.slice(0, m.index).trimEnd() : line
+}
+
 /** Every span the reply offers as a direct quotation, in the order it wrote them. */
 function quotedSpans(answer: string): string[] {
   const prose = stripMarkdown(answer.replace(FENCED, ' ').replace(INLINE_CODE, ' '))
   const out: string[] = []
   for (const pattern of QUOTED_SPANS) {
     for (const m of prose.matchAll(pattern)) {
-      const span = m[1].trim()
-      if (flattenQuote(span).length >= MIN_QUOTED) out.push(span)
+      let span = m[1].trim()
+      if (pattern === BLOCKQUOTE_LINE) {
+        // See `carriesAQuotation`: a blockquote that carries its own quotation
+        // marks has already been read at the marks, by the patterns above.
+        if (carriesAQuotation(span)) continue
+        // …and one that does not is bounded by its line, so its signature has
+        // to come off the end. See `withoutCredit`.
+        span = withoutCredit(span)
+      }
+      if (flattenQuote(span).length < MIN_QUOTED) continue
+      out.push(span)
     }
   }
   return out
@@ -1788,6 +2190,11 @@ export function misquotedSpans(answer: string, corpus: string): string[] {
     // are two patterns bounding one claim, and one claim earns one finding. The
     // quote patterns run tightest-first, so the reported span is the tighter.
     const key = trimQuoteEdges(flat)
+    // Nothing left once the quoter's own furniture comes off — a span that is
+    // all marker and punctuation offers no words as the source's, so there is
+    // no quotation to check. `inSource` reaches the same verdict by way of
+    // `includes('')`; saying it here means it is not an accident.
+    if (key === '') continue
     if (seen.has(key)) continue
     const missing = quoteParts(flat).find((part) => !inSource(part.text, source))
     if (!missing) continue
@@ -1950,6 +2357,17 @@ function argumentMatches(stated: string, passed: string[]): boolean {
   })
 }
 
+export interface StatedArgument {
+  /** The parameter, as the tool table spells it. */
+  param: string
+  /** The value the reply put in quotes. */
+  stated: string
+  /** The distinct values calls this turn actually passed for that parameter. */
+  passed: string[]
+  /** Whether the call actually carried it — see `argumentMatches`. */
+  matched: boolean
+}
+
 export interface MisstatedArgument {
   /** The parameter, as the tool table spells it. */
   param: string
@@ -1970,16 +2388,13 @@ export interface MisstatedArgument {
  * nothing sent there is nothing to contradict, and a reply describing a call
  * that never happened is `unrunToolClaims`' business, not this one.
  */
-export function misstatedArgumentsIn(
-  answer: string,
-  records: ToolCallRecord[]
-): MisstatedArgument[] {
+export function statedArgumentsIn(answer: string, records: ToolCallRecord[]): StatedArgument[] {
   const inScope = records.filter((r) => ARGUMENT_TOOLS.has(r.name))
   if (inScope.length === 0) return []
   const ranNames = [...new Set(inScope.map((r) => r.name))]
   const heading = DISCLOSURE_HEADING.exec(answer)
   const disclosureFrom = heading ? heading.index + heading[0].length : -1
-  const flagged: MisstatedArgument[] = []
+  const found: StatedArgument[] = []
   const seen = new Set<string>()
   for (const param of ARGUMENT_PARAMS) {
     const passed = [
@@ -2000,14 +2415,22 @@ export function misstatedArgumentsIn(
           bareToolPattern(name).test(answer.slice(Math.max(0, at - ARGUMENT_WINDOW), at))
         )
       if (!attributed) continue
-      if (argumentMatches(stated, passed)) continue
       const key = `${param}|${flattenQuote(stated)}`
       if (seen.has(key)) continue
       seen.add(key)
-      flagged.push({ param, stated, passed })
+      found.push({ param, stated, passed, matched: argumentMatches(stated, passed) })
     }
   }
-  return flagged
+  return found
+}
+
+export function misstatedArgumentsIn(
+  answer: string,
+  records: ToolCallRecord[]
+): MisstatedArgument[] {
+  return statedArgumentsIn(answer, records)
+    .filter((a) => !a.matched)
+    .map(({ param, stated, passed }) => ({ param, stated, passed }))
 }
 
 /** One finding, as the badge and the correction prompt both print it. */
@@ -2049,7 +2472,23 @@ export function misstatedToolArguments(answer: string, records: ToolCallRecord[]
 const ATTRIBUTIONS = [
   /\[(\d{1,3})\][ \t]*\(([^)\n]{2,60})\)/g,
   /^[ \t|>*_-]*\[(\d{1,3})\][ \t]+([^|\n\t]{2,60}?)[ \t]*(?:\||\t|$)/gm,
-  /\((?:(?:sources?|from|per|see|via|ref|citing|cited in)[ \t]*:?[ \t]*)?\[(\d{1,3})\][ \t]+([^)\n]{2,60})\)/gi
+  /\((?:(?:sources?|from|per|see|via|ref|citing|cited in)[ \t]*:?[ \t]*)?\[(\d{1,3})\][ \t]+([^)\n]{2,60})\)/gi,
+  // v2.2, and it is the other half of the credit line `carriesAQuotation`
+  // stopped mis-reading as a quotation. A signed blockquote —
+  // `> "…chilled." [7] — FDA, Refrigerator thermometers — cold facts` — puts
+  // the marker mid-line and the document after a dash, which is the one shape
+  // none of the three above can see: the first two want the title in
+  // parentheses, and pattern two wants the marker to OPEN the line. So the
+  // turn that stopped crying wolf about the signature would also have said
+  // nothing whatever had the signature been wrong, which is half a repair.
+  //
+  // The dash is the gate and it is doing real work. A marker followed by
+  // ordinary prose (`the passage at [3] gives the figure`) names no document
+  // and is not matched at all; `looksLikeTitle` then throws out the asides a
+  // dash does introduce, because they carry sentence punctuation or fewer than
+  // two capitals. Anchored to the line's end, because a credit line ends its
+  // line — that is what makes it a signature rather than a clause.
+  /\[(\d{1,3})\][ \t]*[–—-][ \t]*([^|\n\t]{2,60})[ \t]*$/gm
 ]
 
 /** Words carrying no identity — a title match on "of" would mean nothing. */
@@ -2343,12 +2782,19 @@ export function checkToolGrounding(
   // The other half of the same question: not a tool it names that never ran,
   // but the tool that ran and its own tools-used section leaves out.
   const toolDisclosure = undisclosedToolRuns(answer, records)
+  // …and the third reading of the same account: the call it names did run and
+  // is named, and the account gives it more entries than the turn has calls.
+  // Ungated for the same reason as the two above — the records hold the true
+  // number, so there is never a turn where this cannot be checked.
+  const toolCounts = overstatedToolCountLines(answer, records)
   // And the rung past both: the call it names did run, its account of the call
   // is complete, and the argument it quotes is not the one the call carried.
   // Ungated for the same reason as the two above — the records are the whole
   // corpus, so there is never a turn where this cannot be checked.
-  const misstatedArgs = misstatedArgumentsIn(answer, records)
-  const toolArgs = misstatedArgs.map(describeMisstatedArgument)
+  const statedArgs = statedArgumentsIn(answer, records)
+  const toolArgs = statedArgs
+    .filter((a) => !a.matched)
+    .map(({ param, stated, passed }) => describeMisstatedArgument({ param, stated, passed }))
   // Ungated by design — `danglingCitations` only speaks when passages were
   // actually retrieved, which is the only situation in which a bracketed
   // number is a claim about them.
@@ -2366,6 +2812,22 @@ export function checkToolGrounding(
   // tool output" is the wrong accusation against a query string: it was never
   // offered as something a tool returned. It is what the reply says it *sent*,
   // which is the sentence above, with the actual argument beside it.
+  //
+  // v2.2: **every** stated argument, not only the misstated ones. The filter
+  // read `misstatedArgs`, so the sentence above held exactly when the reply got
+  // its query wrong — and a reply that quoted the query *correctly* kept the
+  // wrong accusation, with no argument finding to replace it. Found while
+  // building the count rung, on its own true negative: an honest two-call
+  // account whose rows quote the two queries verbatim drew
+  // `⚠️ Quoted as exact but in no tool output this turn: "ground beef safe
+  // internal temperature"`, which is a fabrication warning on a reply that
+  // fabricated nothing. What makes the accusation wrong is the *shape* of the
+  // claim, and that does not change with whether the claim is true.
+  //
+  // The laundering hole the corpus rule exists to close stays closed: a
+  // `param: "value"` context beside a call is what makes a span a stated
+  // argument, and an invented line the model passed as its query and then
+  // blockquoted as a source is not written in that shape.
   //
   // v1.17.1: matched against the excerpt's *content*, not its head. The span a
   // misquote now reports is a window centred on the divergence, carrying the
@@ -2385,12 +2847,17 @@ export function checkToolGrounding(
   const quotes = misquotedSpans(answer, quotedCorpus).filter((span) => {
     const flat = bare(span)
     if (flat === '') return true
-    return !misstatedArgs.some((arg) => {
+    return !statedArgs.some((arg) => {
       const stated = bare(arg.stated)
       return stated.includes(flat) || flat.includes(stated)
     })
   })
   const attributions = misattributedCitations(answer, retrieved)
+  // Every measurement the rung compared and found stated somewhere, with the
+  // passage that states it. A flagged one drops out on its own — it was
+  // compared against values of the same kind and matched none of them, so
+  // there is no line to point at.
+  const matched = measurementSources(coverage.checked, retrieved)
 
   if (
     figures.length === 0 &&
@@ -2401,6 +2868,7 @@ export function checkToolGrounding(
     addresses.length === 0 &&
     toolClaims.length === 0 &&
     toolDisclosure.length === 0 &&
+    toolCounts.length === 0 &&
     toolArgs.length === 0 &&
     citations.length === 0 &&
     quotes.length === 0 &&
@@ -2442,6 +2910,7 @@ export function checkToolGrounding(
     ...(toolDisclosure.length > 0
       ? { toolDisclosure: toolDisclosure.slice(0, MAX_REPORTED) }
       : {}),
+    ...(toolCounts.length > 0 ? { toolCounts: toolCounts.slice(0, MAX_REPORTED) } : {}),
     ...(toolArgs.length > 0 ? { toolArgs: toolArgs.slice(0, MAX_REPORTED) } : {}),
     ...(citations.length > 0 ? { citations: citations.slice(0, MAX_REPORTED) } : {}),
     ...(quotes.length > 0 ? { quotes: quotes.slice(0, MAX_REPORTED) } : {}),
@@ -2464,6 +2933,12 @@ export function checkToolGrounding(
           }
         }
       : {}),
+    // v2.2, and the mirror of the line above: not what the rung skipped but
+    // where what it checked was found. Passages only — a marker is what the
+    // reader can open — and it rides an existing badge exactly as `coverage`
+    // does, for the same reason: a permanent provenance line under every reply
+    // that mentions a duration is round 4's cry-wolf in a quieter ink.
+    ...(matched.length > 0 ? { matched: matched.slice(0, MAX_REPORTED) } : {}),
     checkedAgainst
   }
 }

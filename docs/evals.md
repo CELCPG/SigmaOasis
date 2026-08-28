@@ -3823,3 +3823,201 @@ caught neither on itself.
 
 Both were found by mutation: setting a token to a known-bad value and checking the suite says so.
 A check that cannot be made to fail on demand is not yet known to be a check.
+
+### Pending fold-in — three checks that judged the wrong thing
+
+All three were found by blind critics reading round 9's captures, all three were in **both**
+builds, and all three share a shape: the check ran, produced a sentence, and the sentence was
+about something adjacent to what it had measured.
+
+#### A quotation checker that read the credit line as part of the quotation
+
+Task TH3. The reply blockquoted a pack line and signed it, which is what a model does when it is
+asked to quote *and* attribute in one breath:
+
+```
+> "Cold air must circulate around refrigerated foods to keep them properly chilled." [7] — FDA, Refrigerator thermometers — cold facts
+```
+
+The sentence inside the marks is word for word in
+`packs/food-safety/docs/refrigerator-thermometers.md`. The straight-quote pattern matched it and
+passed it. The blockquote pattern then bounded the *same claim* by the line instead — sweeping in
+the closing mark, the marker and the signature — matched nothing, and printed
+
+> ⚠️ Quoted as exact but in no tool output this turn: “…foods to keep them properly
+> chilled.⟪" [7] — FDA,⟫ Refrigerator thermometers — cold…”. ⟪⟫ marks where it stops matching the
+> source.
+
+The `⟪⟫` marker was **right**: that is exactly where matching stopped, and everything inside it is
+the quoter's own furniture. The headline over it was wrong. A critic put it precisely: the app
+"told a reader that a quotation which is in fact verbatim inside its quote marks appears in no
+tool output".
+
+The same design was blind in the other direction. Change `FDA, Refrigerator thermometers — cold
+facts` to `USDA, Cold Food Storage Chart` — a real document, retrieved as `[5]`, and not the one
+`[7]` points at — and round 10 said the same thing again, because the divergence is still just the
+tail:
+
+> ⚠️ Quoted as exact but in no tool output this turn: “…refrigerated foods to keep them properly
+> chilled.⟪" [7] — USDA,⟫ Cold Food Storage Chart”.
+
+Two different failures, one sentence, and it is the wrong sentence for both. Neither build
+separated "the words are invented" from "the credit line is glued on".
+
+**The rule, and it was already written in this file.** The fold that will not delete a quotation
+mark says why: `"when in doubt", throw it out` and `"when in doubt, throw it out"` are different
+claims about where the source's sentence ended. **The marks are where the verbatim claim starts
+and stops.** So a blockquote carrying a quotation of citation length is that quotation — already
+collected at the marks — and a blockquote carrying none is still bounded by its line, with its
+signature trimmed off the end the way v1.15 already trims a bare `[7]`.
+
+v1.15 trimming *the marker* and stopping there is round 5's recurring shape once more: an
+enumeration of the furniture seen so far, defeated by the next piece. Three gates keep the trim
+from eating source text — the dash opens the line or is spaced, the tail ends the line, and it
+passes the same `looksLikeTitle` the attribution rung uses. That last one is what keeps a recorded
+true positive alive: the stitched `Ground meats, such as beef and pork — 160°F` has one word after
+its dash and no capital, so nothing is trimmed and the invented join is still reported.
+
+The other half is a fourth attribution shape. `[7] — FDA, …` puts the marker mid-line with the
+document after a dash, and none of the three existing patterns could see it: two want the title in
+parentheses and the third wants the marker to open the line. So the turn that stopped crying wolf
+about a correct signature would still have said nothing at all about a wrong one.
+
+| | round 10 | now |
+| --- | --- | --- |
+| verbatim, right credit | ⚠️ Quoted as exact but in no tool output this turn: “…chilled.⟪" [7] — FDA,⟫ Refrigerator thermometers — cold…” | *no badge at all* |
+| verbatim, **wrong** credit | the same quotation warning, ⟪⟫ around `" [7] — USDA,` | ⚠️ [7] USDA, Cold Food Storage Chart — that passage came from a different document than the one named here. |
+| **words changed**, right credit | the true finding **plus** a second, duplicate one carrying the signature | ⚠️ Quoted as exact but in no tool output this turn: “Cold air must circulate around refrigerated foods to keep them p⟪erfectly⟫ chilled.” |
+| no marks at all, same credit | ⚠️ … “…properly chilled. ⟪[7] — FDA,⟫ Refrigerator thermometers — cold facts” | *no badge at all* |
+
+What it gives up is a miss, not a false alarm: an invented gloss written *outside* the marks
+inside a blockquote is no longer read as quoted. It was never presented as quoted, every other
+rung still reads it, and round 4 settled which of the two errors costs more.
+
+#### Nothing checked the reply's account of how MANY times a tool ran
+
+Task TH1 — the task whose prompt is, in as many words, *"tell me exactly which tools you used to
+get that and what each one gave back"*. The reply answered with a table giving `reference_lookup`
+two rows, each with its own query and its own results. One call ran. The transcript holds one tool
+block and `trace/audit.jsonl` holds one entry, so the screen knew the true number the whole time
+and offered the reader no signal at all.
+
+Every rung there was stops at identity. `unrunToolClaims` asks whether a *named* tool ran — it
+did. `undisclosedToolRuns` asks whether the account names the calls that ran — it does. v1.17's
+rung asks whether the *arguments* are the ones that went, and reads the two stated queries against
+the one that went, so whichever row quotes the real query clears itself and the other reads as one
+unmatched string rather than as a call that never happened. **None of them counts.**
+
+A count is the same species as an argument and it is read the same way. Two rows say two
+retrievals happened, so a reader takes the second row's passages as evidence the first did not
+have, and takes the coverage of the question to be twice what it was.
+
+> **before** ⚠️ This reply states an argument the call never received: query: “ground beef
+> doneness” — the call sent “ground beef safe internal temperature”.
+>
+> **after** ⚠️ This reply's account of its own tool use claims more calls than the turn made:
+> reference_lookup: 2 calls accounted for, 1 ran.
+> ⚠️ This reply states an argument the call never received: query: “ground beef doneness” — the
+> call sent “ground beef safe internal temperature”.
+
+Two readings of "how many" are taken and the larger reported: the entries the account lays out in
+rows, and the number it states outright (`2 calls to reference_lookup`, `two reference_lookup
+lookups`). Three bounds keep it quiet, and each is the lenient direction:
+
+- **Only overstatement speaks.** An account listing *fewer* entries than the turn ran is a gap in a
+  disclosure — `undisclosedToolRuns`' territory, and that check deliberately stays quiet unless a
+  section names *none* of the calls. Claiming work that did not happen is the direction that
+  misleads, and it is the measured one.
+- **One line is one entry**, however many times it says the name, so a row naming the tool in its
+  "Tool" cell and again in its notes cannot invent a call out of the reply's own prose.
+- **Only the first unbroken run of entry lines** after the disclosure heading is counted.
+  `undisclosedToolRuns` takes the section as the whole rest of the answer, which is right for
+  asking whether a name appears anywhere and wrong for counting — prose further down mentioning
+  the tool twice more would otherwise become two more calls.
+
+The noun is the gate on the spoken form: `3 reference_lookup passages` is a count of something
+else and produces nothing. A tool that never ran produces nothing either — that is
+`unrunToolClaims`' finding, not a miscount.
+
+#### A quantity from the wrong row of a cited table — and why this app must not say so
+
+The critics, on V1 and V3: *"Both screens report only literal string presence, not aptness. One
+run's `3 to 5 days` and `1 week` are drawn from the **ham** rows of the cold-storage table, and
+the other's `3 to 4 days` from `Fresh, uncured, cooked` — the chicken rows in the same passage
+read `| Chicken or turkey, whole | 1 to 2 days |`. Neither app flagged a quantity taken from the
+wrong row of a cited table."*
+
+The observation is right. The check it asks for cannot be built honestly here, and this is the
+second time in two rounds that the honest answer to a good critique is a narrower one — round 9's
+only refusal-shaped win was `describeCoverage`, for the same reason.
+
+**The app does not know which row the model read, and neither did the critic.** `3 to 4 days`
+occurs in **eleven** rows of `packs/food-safety/docs/cold-food-storage-chart.md` — salads, cooked
+ham, canned ham, egg substitutes, casseroles, two kinds of pie, soups and stews, leftovers,
+chicken nuggets, pizza. A value repeated down a column has no unique provenance. Naming one row as
+its source is a guess dressed as a measurement, in the one place a reader cannot check it.
+
+**On the critic's own example the guess points the wrong way.** The question was how long cooked
+chicken keeps in the fridge. The row that answers it is
+`| Leftovers | Cooked meat or poultry | 3 to 4 days |`. So `3 to 4 days` is *correct*, and a rung
+built to this specification would have fired on a right answer while attributing it to a ham. A
+checker whose findings land on correct answers is worse than no checker; this file has paid for
+that twice — round 4's stricter quote checker, and `quantityCoverage`'s own first version, whose
+only two findings on the quantitative suite were both against answers scored CORRECT.
+
+**And deciding it requires understanding the question.** To know that "cooked chicken in the
+fridge" is the leftovers row and not the fresh-poultry row is to have comprehended the sentence —
+the exact assertion `describeCoverage` refuses to make, for the exact reason set out there.
+
+So: the smaller true thing. Say where a supported measurement was actually matched — which
+numbered passage, and on how many of that passage's lines — and say plainly that the match was by
+value and not by row.
+
+> **before** ⚠️ 1 measurement (180 °F) in this reply is not backed by the tool output.
+>
+> **after** ⚠️ 1 measurement (180 °F) in this reply is not backed by the tool output.
+> Matched by value, not by row: 4 days — [5], 3 lines. Where a value is stated on more than one
+> line, only the passage itself shows which one the answer took it from.
+
+That asserts exactly what was measured: this value occurs *here*. A figure matched on one line is
+located. A figure matched on eleven is disclosed as ambiguous — which is the honest form of the
+critic's finding, and the fact a reader needs in order to go and look at the rows themselves.
+
+Two limits, stated rather than left to be discovered. Derivation does not count as a location: an
+integer multiple of a corpus value can *explain* a figure but it is not a place the figure
+appears, and this line's whole claim is that the reader will find the value there. And the line
+rides an existing badge, exactly as `describeCoverage` does and for the same reason — a permanent
+provenance line under every reply that mentions a duration is round 4's cry-wolf in a quieter ink.
+Its failure mode is that it can never tell a reader a figure is *wrong*. It can only tell them
+where to look, and how many places there are to look at.
+
+#### Found while building the second: a correct quotation of a query, faulted
+
+The count rung's own true negative turned one up. An honest two-row account — two calls, two rows,
+each quoting the query that really went — drew this from **both** builds:
+
+> ⚠️ Quoted as exact but in no tool output this turn: “ground beef ⟪safe⟫ internal temperature”.
+
+A quotation is checked against what the tools **returned**, never what they were sent (a model
+that passes its invention to a lookup as the query would otherwise find it quoted back into the
+corpus and certified). So a reply quoting its own narrow query correctly has quoted a string the
+corpus cannot contain. v1.17 saw this coming and wrote the rule down — *"quoted as exact but in no
+tool output" is the wrong accusation against a query string* — but implemented the yield against
+the **misstated** arguments only. Getting the query *right* therefore kept the wrong warning, and
+there was no argument finding to replace it.
+
+What makes the accusation wrong is the **shape** of the claim, not whether the claim is true. The
+yield now runs against every stated argument. The hole the corpus rule exists to close stays
+closed: a `param: "value"` context beside a call is what makes a span a stated argument, and an
+invented line the model passed as its query and then blockquoted as a source is not written in
+that shape — it is still a quotation claim, and still faulted.
+
+#### What this does not fix
+
+- **A query in a table *column* rather than beside its parameter name.** `| reference_lookup |
+  "ground beef safe internal temperature" | …` under a `Query` header states an argument, and the
+  argument rung cannot see it — the parameter name has to be adjacent to the value, and here it is
+  a header row away. So that shape still draws the quotation warning above. It is the same
+  vocabulary problem round 5 describes, one table cell further out, and closing it means reading
+  markdown tables rather than matching a name beside a string.
+- **Which row.** Stated above, deliberately, and it is not a gap this app can close.
