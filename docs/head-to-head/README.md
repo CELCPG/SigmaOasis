@@ -56,12 +56,28 @@ Each entry in `tasks.json` carries:
   what to do when neither run was put to the test.
 - **`offlineSafe`** — true for all 18. Nothing in this set reaches the internet.
 
-The file also carries one question asked of **every** task, in `selfConsistency`:
-does anything the application says on this screen contradict anything else it
-says on the same screen. It presupposes nothing, applies to every build, and
-catches the class of repair a per-task question misses — an app that prints a
-banner saying it found nothing while marking two passages as cited is wrong in a
-way no single dimension's question thinks to ask about.
+The file also carries, in `crossCutting`, the questions asked of **every** task
+alongside its own. Each one is scored in its own column (see *Scoring*):
+
+| id | what it asks |
+|---|---|
+| `self-consistency` | does anything the application says on this screen contradict anything else it says on the same screen |
+| `record-consistency` | does what the application says about this turn agree with what the run's own record shows the turn did |
+
+Both presuppose nothing, apply to every build, and need no knowledge of what
+changed, because both are an **agreement relation between two things the run
+itself produced**. No standard is imported from outside the run, which is what
+makes them neutral — and is also the limit of what they can see (*What a column
+cannot see*, below). They catch the class of repair a per-task question misses:
+an app that prints a banner saying it found nothing while marking two passages
+as cited is wrong in a way no single dimension's question thinks to ask about.
+
+A question earns a place here only if every build has the property, no task
+names it, a critic can count it from artifacts both runs already produce, and
+its answer is an agreement between two things the run produced. **A column whose
+wins only ever land where the task column already won has stopped adding
+evidence** and should be retired, the same way a task that passes on every build
+should be.
 
 ---
 
@@ -91,9 +107,12 @@ an implementation, and a task that states one has stopped describing an
 experiment and started describing a result.
 
 `test/h2hTaskNeutrality.test.ts` enforces this on `probes`, `question`,
-`measure`, `decide` and the file's own notes. It is a check on what may be
-*written*; `make-critic-tasks.mjs` is a filter on what a critic may *read*. Two
-fields are deliberately outside it:
+`measure`, `decide`, the file's own notes, and **every string under
+`crossCutting`, whatever it is called** — that block is walked structurally
+rather than field by field, so a question or a scoring rule added there is
+guarded on the day it is added rather than on the day someone remembers to
+extend a list. It is a check on what may be *written*; `make-critic-tasks.mjs`
+is a filter on what a critic may *read*. Two fields are deliberately outside it:
 
 - **`prompt` and `setup` are frozen.** They are the experiment, and eight rounds
   of recorded runs are comparable only because they have not moved. `setup` is
@@ -264,16 +283,17 @@ settled against.
 
 **Pass 2 — blind critic.** A reviewer is given two captured runs of one task,
 labelled only `Run A` and `Run B`, with no build identity, no commit, no order
-guarantee, and no access to Pass 1. They answer that task's `question` and the
-`selfConsistency` question, report every entry in `measure` for **both** runs,
-and weigh them by `decide`. Nothing else. All four are phrased so they can be
-answered from the two captures alone.
+guarantee, and no access to Pass 1. They answer that task's `question` and each
+question in `crossCutting`, report every entry in the matching `measure` for
+**both** runs, and weigh each by its own `decide`. Nothing else. All of them are
+phrased so they can be answered from the two captures alone.
 
 The critic reads those from a prompt document, not from `tasks.json`: the
 document is written by someone who did not build the changes, and the task file
 a critic may open is the generated `tasks-for-critics.json`. The person writing
-that document may read `probes`, `question`, `measure` and `decide` — that is
-what the neutrality rule is for — but never `mechanicalChecks`.
+that document may read `probes`, `question`, `measure`, `decide` and
+`crossCutting` — that is what the neutrality rule is for — but never
+`mechanicalChecks`.
 
 A build wins a dimension by taking at least two of its three tasks on Pass 1.
 Pass 2 breaks ties and, more usefully, catches the case where both builds pass
@@ -283,6 +303,77 @@ the script and one of them is still plainly worse to use.
 the task was insensitive to what changed; the run never exercised the thing the
 task measures; or both builds really do behave the same. Only the third is a
 statement about the builds.
+
+### Columns
+
+Pass 2 produces **one verdict per question**, not one per task. They are
+aggregated into columns and the columns are reported side by side:
+
+```
+task                A 0 · B 3 · tie 14 · void 1
+self-consistency    A 0 · B 1 · tie 15 · void 1 · contested 4/17
+record-consistency  A 1 · B 2 · tie 14 · void 1 · contested 6/17 · quiet wins 1
+```
+
+**The columns are never added together.** Two reasons, and the second is the one
+that bites. The headline stays the task column, because the six dimensions are
+what the app's own audit chose and a cross-cutting question is not one of them;
+summing would let a build that moved nothing a task asks about report a task
+win. And the columns are **not independent** — the same repair can win two of
+them, so a sum double-counts one fix and hides that it did.
+
+So the answer to *is a tie on the task question plus a win on consistency a
+win?* is **no: it is a tie and a win, which is two facts.** A round's summary
+sentence carries both numbers or it carries neither.
+
+Three figures come out of the columns rather than out of any one of them:
+
+- **seen only by a cross-cutting column** — tasks the task column tied or voided
+  where a cross-cutting column named a winner. This is the class of result
+  rounds 8 and 9 threw away, and it is reported in **both directions**: a column
+  that can only add wins is a column that flatters.
+- **scored in more than one column** — the overlap. A column whose wins all sit
+  here has restated the task column rather than added to it.
+- **contested** — tasks where at least one run gave the question something to
+  bite on. A column of ties over eighteen tasks contested on none of them says
+  the property was never in play, which is a different claim from two builds
+  behaving alike, and the win/loss/tie line cannot tell them apart. **The
+  denominator is `contested`, not 18.**
+
+**The cheapest way to pass any cross-cutting question is to print less**, so
+every one of them reports a volume figure — statements made, statements the
+record could settle — beside the count it is scored on. A win by the run that
+said less is flagged `quiet` and is **still a win**: a build that removed one
+half of a contradiction has fewer statements and fewer contradictions and is
+right to have won. The flag is for a human to read; nothing decides on it.
+
+`docs/head-to-head/score-round.mjs` does the aggregation from
+`verdicts/round-N.json`, and refuses to score a file that invents a column the
+task set does not ask, leaves a task out of a column, or reports a contested
+denominator it has no counts for. `unrecorded` is a verdict: a question that was
+put and whose answer was not kept is not a tie, and the file may not round it
+into one.
+
+### What a column cannot see
+
+Both cross-cutting questions are **agreement relations**, which is what makes
+them neutral and is exactly what they are blind to:
+
+- **A screen that is consistently wrong.** A build whose screen agrees with
+  itself and with the record about a falsehood scores perfectly in both columns.
+  Neither imports a standard from outside the run, by design.
+- **Presentational inconsistency.** One fact drawn two different ways on one
+  screen is not two statements contradicting each other. Round 9 fixed exactly
+  that and it scores nothing here either.
+- **Silence.** The volume figure makes a quiet screen visible; it does not
+  penalise one. That is a judgement left to a reader on purpose.
+- **A turn where nothing was in play.** Both columns inherit the
+  model-dependent trigger: zero against zero is a tie whether both builds were
+  tested and passed or neither was tested at all. `contested` shows which; it
+  does not remove the problem.
+- **The record is not the reader's.** A `record-consistency` win is a win for
+  the app's account of itself, measured against artifacts no user ever sees. It
+  is not evidence the screen is more useful.
 
 ---
 
@@ -335,6 +426,17 @@ The harness is four files:
   the run fails if it did not take them.
 - `scripts/h2h-run.sh` — one arm, many tasks. Reads the prompt from
   `tasks.json` and the executable setup from `task-setup.json`.
+
+Judging adds two more, in this directory:
+
+- `make-critic-tasks.mjs` / `make-blind-pairs.mjs` — the view a critic may read,
+  and the staged pairs it reads it against.
+- `score-round.mjs` — Pass 2's verdicts, aggregated into columns. It reads
+  `verdicts/round-N.json`, which is **the round's record**: one entry per task
+  per column, with the volume figures each column is guarded by. Round 9's
+  critics answered the self-consistency question on all eighteen tasks and
+  nobody wrote the answers down; that column cannot be recomputed and the file
+  says `unrecorded` rather than pretending it was a tie.
 
 `task-setup.json` is this file's `setup` prose written so a machine can run it:
 settings, packs, fixtures, `requires` and driver actions per task id. If the two

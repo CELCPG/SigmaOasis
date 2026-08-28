@@ -9,6 +9,8 @@
  *   `mechanicalChecks`   what the scoring script computes
  *   `question`           the question the critic is asked, in its own words
  *   `measure` `decide`   what to report, and how to weigh it
+ *   `crossCutting`       the questions asked of every task, and how a round
+ *                        aggregates the answers into columns
  *
  * The last three reach the critic anyway — through the prompt document, written
  * separately and by someone who did not build the changes. Handing them over
@@ -41,9 +43,21 @@ const here = dirname(fileURLToPath(import.meta.url))
 const src = JSON.parse(readFileSync(join(here, 'tasks.json'), 'utf8'))
 
 const KEEP = ['id', 'dimension', 'prompt', 'setup', 'offlineSafe']
-// `criticQuestion` no longer exists; it is named so that reintroducing the field
-// round 8 found leading is caught here rather than shipped to a critic.
-const DROP = ['probes', 'mechanicalChecks', 'criticQuestion', 'question', 'measure', 'decide', 'selfConsistency']
+// `criticQuestion` and `selfConsistency` no longer exist. They are named so that
+// reintroducing the field round 8 found leading, or reverting the one question
+// asked of every task back to a lone top-level key, is caught here rather than
+// shipped to a critic. `crossCutting` is where that question lives now, beside
+// the second one; both reach the critic through the prompt document, once.
+const DROP = [
+  'probes',
+  'mechanicalChecks',
+  'criticQuestion',
+  'question',
+  'measure',
+  'decide',
+  'selfConsistency',
+  'crossCutting'
+]
 
 const out = {
   note:

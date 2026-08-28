@@ -56,11 +56,24 @@ type Task = {
   offlineSafe: boolean
 }
 
+type CrossCuttingQuestion = {
+  id: string
+  about: string
+  question: string
+  measure: string[]
+  decide: string
+}
+
 type TaskSet = {
   dimensions: string[]
   tasksPerDimension: number
   notes: string
-  selfConsistency: { appliesTo: string; question: string; measure: string[]; decide: string }
+  crossCutting: {
+    appliesTo: string
+    scoredAs: string
+    earnsItsPlace: string
+    questions: CrossCuttingQuestion[]
+  }
   tasks: Task[]
 }
 
@@ -148,14 +161,29 @@ function leaks(text: string): string[] {
   return found
 }
 
+/**
+ * Every string under a subtree, wherever it sits.
+ *
+ * `crossCutting` grew a second question and three fields of scoring prose, and a
+ * hand-written list of what to guard would have covered the fields that existed
+ * when it was written. That is the shape of this project's recurring failure —
+ * an enumeration narrower than the class it guards — committed inside the guard
+ * against it. So the walk is structural: a field added under here is guarded on
+ * the day it is added, under whatever name it is given.
+ */
+function stringsUnder(node: unknown, where: string): { where: string; text: string }[] {
+  if (typeof node === 'string') return [{ where, text: node }]
+  if (Array.isArray(node)) return node.flatMap((v, i) => stringsUnder(v, `${where}[${i}]`))
+  if (node && typeof node === 'object') {
+    return Object.entries(node).flatMap(([k, v]) => stringsUnder(v, `${where}.${k}`))
+  }
+  return []
+}
+
 /** Every prose field a human reads to judge a run or to justify a task. */
 function guardedFields(): { where: string; text: string }[] {
   const out: { where: string; text: string }[] = [{ where: 'notes', text: set.notes }]
-  const sc = set.selfConsistency
-  out.push({ where: 'selfConsistency.appliesTo', text: sc.appliesTo })
-  out.push({ where: 'selfConsistency.question', text: sc.question })
-  out.push({ where: 'selfConsistency.decide', text: sc.decide })
-  sc.measure.forEach((m, i) => out.push({ where: `selfConsistency.measure[${i}]`, text: m }))
+  out.push(...stringsUnder(set.crossCutting, 'crossCutting'))
   for (const t of set.tasks) {
     out.push({ where: `${t.id}.probes`, text: t.probes })
     out.push({ where: `${t.id}.question`, text: t.question })
@@ -239,9 +267,71 @@ describe('the task set is shaped for judging in both directions', () => {
     }
   })
 
-  test('the self-consistency question is asked of every task', () => {
-    assert.match(set.selfConsistency.appliesTo, /every task/)
-    assert.match(set.selfConsistency.question, /contradict/)
+  test('the cross-cutting questions are asked of every task', () => {
+    const cc = set.crossCutting
+    assert.match(cc.appliesTo, /every task/)
+    assert.ok(cc.questions.length >= 1, 'crossCutting has no questions in it')
+    const ids = cc.questions.map((q) => q.id)
+    assert.equal(new Set(ids).size, ids.length, 'two cross-cutting questions share an id')
+    for (const q of cc.questions) {
+      assert.match(q.id, /^[a-z]+(?:-[a-z]+)*$/, `${q.id} is not a plain name`)
+      assert.ok(q.about && q.about.length > 10, `${q.id}: about is missing`)
+      assert.ok(q.question && q.question.length > 20, `${q.id}: question is missing`)
+      assert.ok(Array.isArray(q.measure) && q.measure.length >= 3, `${q.id}: measure needs real steps`)
+      assert.ok(q.decide && q.decide.length > 80, `${q.id}: decide is missing`)
+      assert.ok(
+        !/\bwhich (?:run|one|build)\b/i.test(q.question),
+        `${q.id}.question asks which run rather than what to measure`
+      )
+    }
+  })
+
+  /**
+   * Round 9 put this question to every critic on all eighteen tasks. Its wording
+   * is the only thing making that round's answers comparable with the next
+   * one's, so it is pinned here: moving it is a deliberate act that fails the
+   * suite first, rather than a tidy-up that silently ends a series.
+   */
+  test('the question round 9 asked has not moved', () => {
+    assert.equal(
+      set.crossCutting.questions[0].question,
+      'Does anything the application states on this screen contradict anything else it states on the same screen?'
+    )
+  })
+
+  /**
+   * The whole point of a second column is that it is read beside the first. A
+   * file that let a round add them together would give back the single number
+   * this change exists to split.
+   */
+  test('the task set says the columns are not added together', () => {
+    assert.match(set.crossCutting.scoredAs, /never added to it/)
+    assert.match(set.crossCutting.scoredAs, /contested/)
+    assert.match(set.crossCutting.earnsItsPlace, /no task names it/)
+  })
+
+  /**
+   * A positive control on COVERAGE rather than on vocabulary: a fingerprint
+   * placed at each kind of location under `crossCutting` — the container prose,
+   * a question, a measurement step, a weighing rule, and a key nobody has
+   * thought of yet — is found. The leak classes are tested elsewhere; this tests
+   * that the walk reaches everywhere a future field could hide.
+   */
+  test('a fingerprint cannot hide anywhere under the cross-cutting block', () => {
+    const fingerprint = 'the ink measures roughly 2.05:1 against the background'
+    const places: [string, (cc: TaskSet['crossCutting']) => void][] = [
+      ['container prose', (cc) => void (cc.scoredAs = fingerprint)],
+      ['a question', (cc) => void (cc.questions[0].question = fingerprint)],
+      ['a measurement step', (cc) => void cc.questions[0].measure.push(fingerprint)],
+      ['a weighing rule', (cc) => void (cc.questions[0].decide = fingerprint)],
+      ['a key that does not exist yet', (cc) => void ((cc as Record<string, unknown>).somethingNew = fingerprint)]
+    ]
+    for (const [where, inject] of places) {
+      const clone = JSON.parse(JSON.stringify(set.crossCutting)) as TaskSet['crossCutting']
+      inject(clone)
+      const found = stringsUnder(clone, 'crossCutting').flatMap((f) => leaks(f.text))
+      assert.ok(found.length > 0, `a fingerprint in ${where} escaped the guard`)
+    }
   })
 
   test('every dimension has its three tasks', () => {
@@ -279,6 +369,17 @@ describe('the generated critic view', () => {
 
   test('the field round 8 found leading is still named as dropped, so reintroducing it is caught', () => {
     assert.ok(generatorList('DROP').includes('criticQuestion'))
+  })
+
+  /**
+   * `selfConsistency` is a tombstone for the same reason: the one question asked
+   * of every task used to be a lone top-level key, and reverting to it would put
+   * the question back in a place the generator has no opinion about.
+   */
+  test('the block holding the cross-cutting questions is dropped, under its old name too', () => {
+    const drop = generatorList('DROP')
+    assert.ok(drop.includes('crossCutting'), 'crossCutting could reach a critic')
+    assert.ok(drop.includes('selfConsistency'), 'the name it used to have is no longer guarded')
   })
 
   test('tasks-for-critics.json is the current projection of tasks.json', () => {

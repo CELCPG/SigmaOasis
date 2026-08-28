@@ -470,14 +470,35 @@
       "offlineSafe": true
     }
   ],
-  "selfConsistency": {
+  "crossCutting": {
     "appliesTo": "every task, in addition to the task’s own question",
-    "question": "Does anything the application states on this screen contradict anything else it states on the same screen?",
-    "measure": [
-      "List every statement the application itself makes about this turn’s own behaviour: banners, badges, provenance lines, status labels, counts, tool-call statuses, progress lines, deliberation lines. The model’s prose is out of scope except where it reports what the application did. Report how many such statements there are, for both runs.",
-      "For every pair of statements that bears on the same fact, say whether they agree. Report the number of disagreeing pairs for both runs, including zero.",
-      "Quote both halves of every disagreeing pair, from named artifact files."
-    ],
-    "decide": "Fewer disagreeing pairs is better. Equal counts, zero and zero included, is a tie on this question. A run that says less is not thereby more consistent: report the statement count beside the disagreement count, so a screen that is silent shows up as silent rather than as consistent."
+    "scoredAs": "Each question here is scored in its own column, over the same tasks and from the same artifacts as the task question. A column sits beside the task column and is never added to it: a run that ties the task question and takes a cross-cutting column has tied and taken a column, which is two facts rather than one verdict. Every column also reports how many tasks it was contested on, because a task where neither run gave the question anything to bite on is a tie that tested nothing, and a column made of those says only that the property was never put in play.",
+    "earnsItsPlace": "A question belongs here only if every build has the property, no task names it, and a critic can count it from the artifacts both runs already produce. It has to be an agreement relation between two things the run itself produced, so that answering it needs no standard from outside the run and no knowledge of what changed. A question whose column only ever repeats the task column has stopped adding evidence and should be retired, the same way a task that passes on every build should be.",
+    "questions": [
+      {
+        "id": "self-consistency",
+        "about": "the screen against itself",
+        "question": "Does anything the application states on this screen contradict anything else it states on the same screen?",
+        "measure": [
+          "List every statement the application itself makes about this turn’s own behaviour: banners, badges, provenance lines, status labels, counts, tool-call statuses, progress lines, deliberation lines. The model’s prose is out of scope except where it reports what the application did. Report how many such statements there are, for both runs.",
+          "For every pair of statements that bears on the same fact, say whether they agree. Report the number of disagreeing pairs for both runs, including zero.",
+          "Quote both halves of every disagreeing pair, from named artifact files."
+        ],
+        "decide": "Fewer disagreeing pairs is better. Equal counts, zero and zero included, is a tie on this question. A run that says less is not thereby more consistent: report the statement count beside the disagreement count, so a screen that is silent shows up as silent rather than as consistent."
+      },
+      {
+        "id": "record-consistency",
+        "about": "the screen against the run’s own record",
+        "question": "Does what the application says about this turn agree with what the run’s own record shows the turn did?",
+        "measure": [
+          "List every statement the application displays about this turn’s own behaviour that the record could settle: what it says it consulted, what it says it ran, what came back, how long it took, what it could not do. The model’s prose is out of scope except where it reports what the application did. Report how many such statements there are, for both runs.",
+          "For each of those statements, whether the record agrees with it, contradicts it, or is silent about it. Report the three counts for both runs, including zero.",
+          "The other direction: anything the record shows this turn did that the screen never mentions at all. Report that count too, including when it is zero.",
+          "Quote both halves of every contradiction — the sentence on screen and the entry in the record that settles it — naming the artifact each came from.",
+          "Where the artifact that would settle a statement is absent from a run, name what you looked for and count that statement as unsettled rather than as a contradiction."
+        ],
+        "decide": "Fewer contradictions is better, and a statement the record cannot settle is neither better nor worse. A run that says less about itself is not thereby more accurate, so report the count of settleable statements beside the contradiction count: a screen that claims nothing about the turn shows up as claiming nothing. Saying nothing about something that happened and claiming something that did not are different failures — report which one is in front of you rather than merging them. Equal counts, zero and zero included, is a tie. If the artifact a statement would be settled against is missing from one run, the two runs are not comparable on it; say so rather than deciding on it."
+      }
+    ]
   }
 }
