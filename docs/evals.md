@@ -4692,6 +4692,10 @@ The discriminating pair is one layer apart on purpose. **Headers arriving** mean
 the request; **a body byte arriving** means a reply had begun. `accepted && !streamed` is the
 server's silence however the turn ended; `streamed` with no text is the model's.
 
+> Both halves of that paragraph were later measured wrong, and the first row above with them. `accepted`
+> is not headers arriving — it is the transport's `fetch` resolving — and `streamed` says a reply
+> *began*, never that one *finished*. See *two repairs that each shipped the defect they repaired*.
+
 The first row is the true negative, and it is the one that decides whether any of this was worth
 doing: a model that genuinely replies with nothing must still be told it replied with nothing. A
 turn with no observation at all — a message stored before this shipped — gets rule 3's treatment
@@ -5620,3 +5624,128 @@ progress is named with no progress fraction, and the name accounts for every ste
   `revisionIsAnImprovement` reads 9→7 as no improvement at all. Same species as §1, one rung along;
   it changes what the correction pass *does* rather than what a line says, so it wants its own
   round and its own recorded evidence.
+
+### Pending fold-in — two repairs that each shipped the defect they repaired
+
+Round 10 and round 11 each fixed a real thing and each left a new sentence broader than its
+evidence — this project's signature defect, committed inside the boundary built to end it
+(`src/shared/failure.ts`). Round 11's blind critics caught both: one counted, one unsettled.
+
+#### 1. The sentence that contradicted the error two lines below it
+
+Counted by both critics in **both arms** — 1 disagreeing pair in `self-consistency`, 1
+contradiction in `record-consistency` — so it tied rather than lost. On a context-overflow turn:
+
+> ⚠️ **The model produced no text. LM Studio answered and the reply ran to its end — it was simply
+> empty.** Ask again, or rephrase the question.
+>
+> ⚠️ The request was refused by LM Studio, which named the context length …
+> LM Studio reported: *"Trying to keep the first 12000 tokens when context the overflows…"*
+
+`fixtures/lm-shim.json` records `"action": "context-overflow"`. The reply did not run to its end:
+LM Studio wrote one `{"error": …}` frame and the transport threw on it.
+
+**The distinction round 10 drew was right; the case was a third thing.** It separated *the model
+produced nothing* from *the server never answered*. This is **the server answered with a refusal**,
+and the sentence claimed the reply had completed — because nothing recorded whether it had.
+`streamed` was carrying two meanings, *a reply began* and *a reply finished*, and only the first is
+what it observes. One byte is not an ending.
+
+The second meaning is now recorded where it happens — the reader reporting done, in `streamChat` —
+as `TurnEnding.completed`. One witnessed boolean turns three endings into five:
+
+| accepted | streamed | completed | what the reader is told |
+| --- | --- | --- | --- |
+| no | — | — | `This turn ended without LM Studio answering the request, and the app cannot say why.` |
+| yes | no | **yes** | `LM Studio accepted the request and closed the connection without sending a reply.` |
+| yes | no | **no** | `LM Studio answered the request, but the turn ended before any of the reply arrived. The reason is in the message below.` |
+| yes | yes | **no** | `LM Studio started sending a reply, and the turn ended before that reply did — none of what arrived was answer text. The reason is in the message below.` |
+| yes | yes | **yes** | `The model produced no text. LM Studio answered and the reply ran to its end — it was simply empty.` |
+
+**The two new rows carry no remedy, and that is the finding.** Both are reached only by a throw,
+and every throw that is not a user Stop appends the failure message the reader is about to read. A
+cheerful `Ask again.` above a refusal that has just explained why asking again cannot fit is round
+9's defect rebuilt one message further down.
+
+**The fifth ending nothing named.** Row three is not the error frame — it is `!res.ok`, which throws
+before the reader loop, leaving the same `accepted && !streamed` pair as an empty 200. So an
+HTTP 404 from LM Studio read as `closed the connection without sending a reply. Nothing was
+generated` — over a server that had replied, with a status and a body the app had already read.
+
+**True negatives.**
+
+- A genuinely empty completed reply must still say so, and does: `data: [DONE]` with no content
+  keeps `The model produced no text … the reply ran to its end — it was simply empty.` The two
+  differ by exactly one recorded fact, asserted from the transport rather than by hand.
+- The empty 200 keeps its own sentence — the body ended, cleanly, having carried nothing.
+- Every Stop reading comes first and is untouched: `completed` is false on all of them, and none may
+  be re-read as one of the new endings.
+- `completed` is the only one of the three that does not accumulate over a turn. A tool loop's first
+  round finishing says nothing about the round that threw.
+- **A turn stored before v1.17.5 has the other four facts on disk and not this one.** Reading that
+  absence as `false` would tell an old conversation its reply was cut off and point at a failure
+  message nobody ever wrote — the defect being fixed, committed by the fix. `undefined` means *not
+  recorded* and gets rule 3's treatment.
+
+Asserted over the whole input space rather than the cases someone remembered: **no sentence claims
+the reply finished unless `completed` says it did.** Round 10's sentence was reachable from
+`completed: false` for two versions because nothing checked that.
+
+#### 2. The sentence a critic could not settle, and why it could not be settled
+
+Round 11 added, at 60 seconds of silence:
+
+> Not even the reply headers have come back — the app cannot tell a busy server from one that has
+> stopped answering.
+
+A critic tried to settle it against the record and could not: the fixture logs `"status": 200` for
+the stalled request, which would put headers on the wire, *except* that a status chosen by a handler
+that never writes a body is routinely never flushed. Its verdict: *"run-2's most useful sentence is
+also its least verifiable, and it is stated flatly."*
+
+**Measured, three ways.**
+
+- The fixture's `status: 200` is bookkeeping, not evidence. `scripts/h2h-fixtures.ts` assigns
+  `entry.status = 200` before it calls `writeHead`, for every injected rule.
+- `writeHead` with no `write` puts **zero bytes** on the socket. Node holds the header block until
+  the first body write, so on that fixture the sentence happened to be true.
+- It is not true in general, because **`accepted` was never the headers.** It is set from the
+  transport's `fetch` resolving — and `fetch` does not resolve on every header block. A
+  `103 Early Hints` response and a `302` each put a complete reply header block on the wire and left
+  `fetch` pending: a 1xx is not a response, and a redirect is followed internally. LM Studio behind
+  any reverse proxy produces either.
+
+So the witness knows *nothing the app can read has come back*, not *no headers came back*.
+
+| | |
+| --- | --- |
+| before | `Not even the reply headers have come back — the app cannot tell a busy server from one that has stopped answering.` |
+| after | `Nothing has come back, and nothing was refused — the app cannot tell a busy server from one that has stopped answering.` |
+
+**The useful half is kept, and it was never the headers claim.** This line is the difference between
+*be patient* and *this may never come back*; deleting it would cost the reader the one thing worth
+saying at 60 seconds. What replaces the first clause is what `!accepted` establishes, plus the fact
+the reader most needs and the app can actually prove: **nothing was refused.** A closed port rejects
+`fetch`, and a rejection ends the turn — so while this line is on screen, the address is not the
+thing to go and check.
+
+**True negatives.**
+
+- The sibling reading (`accepted && !streamed`) is unchanged, and the two remain different
+  sentences naming different pairs — neither may borrow the other's.
+- A server that has not answered is still never reported as dead, at any elapsed time, and the
+  innocent reading is still offered first — the same rule as the slow-model branch.
+- The line claims nothing about headers, packets or sockets. The app cannot see the wire, only its
+  own `fetch`.
+
+#### What this does not fix
+
+- **`accepted` and `streamed` still accumulate over a turn.** On a multi-round turn whose second
+  round never got a response, the turn-scoped pair still reads `accepted && streamed` from round
+  one. `completed` is now last-round-scoped and pulls the reading toward the truth, but the pair
+  itself cannot distinguish *this round* from *some round*, and no sentence says which round it is
+  describing.
+- **The two hand-off endings assert a message below them.** That is established for every path
+  through `runTurn` — a non-Stop throw always appends one — but it is established by reading the
+  caller, not by anything the record carries. A future call site that swallows the throw would
+  leave the sentence pointing at nothing.

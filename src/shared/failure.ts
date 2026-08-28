@@ -610,10 +610,34 @@ function overContext(
  * at the bubble. They are four booleans and a clock:
  */
 export interface TurnEnding {
-  /** The POST was answered: response headers arrived. The server is there. */
+  /**
+   * LM Studio answered: the transport's `fetch` returned a response.
+   *
+   * v1.17.5: NOT "response headers arrived", which is what this said and what
+   * a sentence built on it went on to claim. Measured against a real server: a
+   * `103 Early Hints` block and a `302` block each put a complete reply header
+   * block on the wire without resolving `fetch`. What is recorded is that
+   * something the app can read came back.
+   */
   accepted: boolean
   /** At least one byte of the response body arrived. A reply had started. */
   streamed: boolean
+  /**
+   * The response body reached its end. The reply finished of its own accord.
+   *
+   * v1.17.5, and the fact that turns three endings into five. Without it,
+   * `streamed` was doing two jobs — *a reply began* and *a reply finished* —
+   * and the second was never recorded anywhere.
+   *
+   * Optional for one reason, and it is not that a writer may skip it: this
+   * struct is persisted with the conversation, so every turn stored before
+   * v1.17.5 is on disk without it. Reading that absence as `false` would tell
+   * an old conversation its reply was cut off and point the reader at a failure
+   * message that was never written — this module's own defect, committed by the
+   * repair for it. `undefined` therefore means *not recorded*, and gets rule
+   * 3's treatment. Both live writers set it; only the disk omits it.
+   */
+  completed?: boolean
   /** At least one token of answer or reasoning arrived. The model spoke. */
   produced: boolean
   /** The user pressed Stop. */
@@ -635,23 +659,60 @@ function seconds(ms: number): string {
  * | what happened | who is named now |
  * | --- | --- |
  * | the stream ran to its end and carried no text | the model |
- * | the server answered the POST and closed without writing | the server |
+ * | the server answered and closed without writing | the server |
  * | the user pressed Stop | the user, with what the server had done by then |
  *
  * The true negative matters as much as the positives: a model that genuinely
- * replies with nothing must still be told it replied with nothing. The
- * distinguishing fact is `streamed` — a body that arrived and carried no text
- * is the model's silence; a body that never arrived is the server's.
+ * replies with nothing must still be told it replied with nothing.
+ *
+ * ## v1.17.5: three was not enough, and the third one knew it
+ *
+ * Round 10 wrote the table above, and the row it was proudest of is the row
+ * both of round 11's blind critics counted against it. On a context-overflow
+ * turn the screen carried, one message above the other:
+ *
+ *     ⚠️ The model produced no text. LM Studio answered and the reply ran to
+ *        its end — it was simply empty.
+ *     ⚠️ The request was refused by LM Studio, which named the context length …
+ *
+ * *"1 disagreeing pair"* in self-consistency, *"1 contradiction"* in
+ * record-consistency, in both arms. The reply did not run to its end: LM Studio
+ * wrote one `{"error": …}` frame and the transport threw on it. The sentence
+ * was written to separate *the model produced nothing* from *the server never
+ * answered*, and that distinction is right — this was a third thing, **the
+ * server answered with a refusal**, and the sentence claimed the reply had
+ * completed.
+ *
+ * It claimed it because nothing recorded otherwise. `streamed` was carrying two
+ * meanings — *a reply began* and *a reply finished* — and only the first is
+ * what it observes. `completed` is the second one, recorded where it happens
+ * (the reader reporting done), and it splits both surviving rows in half:
+ *
+ * | accepted | streamed | completed | the ending |
+ * | --- | --- | --- | --- |
+ * | no | — | — | nothing came back at all; the app cannot say why |
+ * | yes | no | **yes** | an empty 200: answered, then closed without writing |
+ * | yes | no | **no** | the turn ended before the reply body began |
+ * | yes | yes | **no** | the reply began; the turn ended before it did |
+ * | yes | yes | **yes** | the true negative — it ran out, and was empty |
+ *
+ * The two new rows are the ones that must not explain themselves. Both are
+ * reached only by a throw, and every throw that is not a user Stop appends the
+ * failure message the reader is about to read (useLMStudio's turn catch). So
+ * they say what the transport witnessed and hand off — and they carry NO
+ * remedy, because the message below carries the real one. A generic "Ask
+ * again." over a refusal that has just explained why asking again cannot fit is
+ * round 9's defect rebuilt one message further down.
  *
  * No control is offered on any of these, and that is the finding rather than an
  * omission. Round 8's rule is that a control is rendered where the app has
  * PROVED the remedy is right; here the app has proved the opposite — the server
- * accepted the request, so the address in Settings → Connection is correct, and
- * sending the reader there would be sending them to fix a working setting. The
- * remedy that is real (reload the model) lives in another application.
+ * answered, so the address in Settings → Connection is correct, and sending the
+ * reader there would be sending them to fix a working setting. The remedy that
+ * is real (reload the model) lives in another application.
  */
 export function explainEmptyReply(ending: TurnEnding): Failure {
-  const { accepted, streamed, produced, stoppedByUser, silentMs } = ending
+  const { accepted, streamed, completed, produced, stoppedByUser, silentMs } = ending
   const waited = seconds(silentMs)
 
   if (stoppedByUser) {
@@ -712,6 +773,56 @@ export function explainEmptyReply(ending: TurnEnding): Failure {
     }
   }
 
+  // Rule 3, for a turn stored before this fact existed. Every reading below
+  // turns on `completed`, and an old conversation on disk does not have it —
+  // so it says which of the readings it cannot choose between, rather than
+  // silently taking the one that `undefined` happens to be falsy for.
+  if (completed === undefined) {
+    return {
+      headline: 'ended with no text, and how it ended was not recorded',
+      sentence:
+        `LM Studio answered and ${streamed ? 'a reply began' : 'no reply body arrived'}, but this ` +
+        'turn was stored before the app recorded whether a reply finishes — so it cannot say ' +
+        'whether this one ran out or was cut off.',
+      remedy: { text: 'Ask again.' },
+      detail: null,
+      recognised: false
+    }
+  }
+
+  // Reached only by a throw, and the throw is already on screen underneath.
+  // These two say what was witnessed and stop; the reason, and the remedy that
+  // goes with it, belong to the message that has it.
+  if (!completed) {
+    if (!streamed) {
+      // A non-2xx status, a response with no body to read, or a first-byte
+      // ceiling that expired after the answer arrived. The server replied with
+      // something — it was not a reply that could be read as an answer.
+      return {
+        headline: 'the turn ended before the reply began',
+        sentence:
+          'LM Studio answered the request, but the turn ended before any of the reply arrived. ' +
+          'The reason is in the message below.',
+        remedy: null,
+        detail: null,
+        recognised: true
+      }
+    }
+    // The recorded context-overflow turn: a body byte arrived, it was an
+    // error frame, and the transport threw. Whatever this was, the reply did
+    // NOT run to its end — which is precisely what the sentence below it used
+    // to say.
+    return {
+      headline: 'the reply was cut off before any text arrived',
+      sentence:
+        'LM Studio started sending a reply, and the turn ended before that reply did — none of ' +
+        'what arrived was answer text. The reason is in the message below.',
+      remedy: null,
+      detail: null,
+      recognised: true
+    }
+  }
+
   if (!streamed) {
     // The reviewer's empty 200, and the shape of every proxy that answers and
     // hangs up. The server is the subject, because the server is what did it.
@@ -728,8 +839,9 @@ export function explainEmptyReply(ending: TurnEnding): Failure {
     }
   }
 
-  // The true negative. The stream ran, the stream ended, and it carried no
-  // text: this one really is the model saying nothing, and must still say so.
+  // The true negative, and now it is one. The stream ran, the stream reached
+  // its end of its own accord, and it carried no text: this really is the model
+  // saying nothing, and must still say so.
   return {
     headline: 'the model produced no text',
     sentence:

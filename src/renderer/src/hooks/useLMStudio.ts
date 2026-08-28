@@ -114,6 +114,10 @@ function stoppedBeforeSending(
     ending: {
       accepted: false,
       streamed: false,
+      // No request went out, so no reply ran to its end. The Stop branch reads
+      // `accepted` before this, but recording it any other way would be a lie
+      // sitting in the store waiting for a reader.
+      completed: false,
       produced: false,
       stoppedByUser: true,
       silentMs: Date.now() - turnOpenedAt
@@ -609,6 +613,10 @@ async function runTurn(
       ending: {
         accepted: witness.accepted,
         streamed: witness.streamed,
+        // v1.17.5. Last-round-scoped, unlike the two above: the round that
+        // ended the turn is the one whose ending is being described, and a
+        // throw in round two is not made harmless by round one having finished.
+        completed: witness.completed,
         produced: assistantMsg.content.trim() !== '' || reasoning.trim() !== '',
         stoppedByUser: signal.aborted,
         silentMs: Date.now() - witness.lastActivityAt

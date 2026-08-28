@@ -329,9 +329,9 @@ test('a hidden ripple never grows a wait line, however long the silence', () => 
  * > between a slow model and a dead stream, which is exactly what the reader
  * > needs at 60 seconds to decide whether to keep waiting.
  *
- * The transport records `accepted` (headers arrived) and `streamed` (a body
- * byte arrived) already; through v1.17.3 both were read only in the
- * post-mortem, after the reader had spent the ninety seconds.
+ * The transport records `accepted` (its `fetch` returned a response) and
+ * `streamed` (a body byte arrived) already; through v1.17.3 both were read only
+ * in the post-mortem, after the reader had spent the ninety seconds.
  *
  * The true negative is the load-bearing half and it is asserted throughout: a
  * model that is genuinely just slow is `accepted && !streamed` for the whole
@@ -399,6 +399,74 @@ test('a slow model is never reported as a dead stream', () => {
       )
     }
   }
+})
+
+/**
+ * v1.17.5. The `!accepted` note used to read *"Not even the reply headers have
+ * come back"*, and a round-11 critic could not settle it: *"run-2's most useful
+ * sentence is also its least verifiable, and it is stated flatly."*
+ *
+ * It is unverifiable because `accepted` was never the headers. It is set from
+ * the transport's `fetch` resolving, and `fetch` does not resolve on every
+ * header block — a `103 Early Hints` response and a `302` each put a complete
+ * reply header block on the wire and left it pending (measured; see
+ * hooks/chatTransport.ts). LM Studio behind any reverse proxy produces either.
+ *
+ * The useful half is kept, because the note earns its place: it is the
+ * difference between *be patient* and *this may never come back*.
+ */
+test('the pre-answer note claims nothing about headers', () => {
+  const notice = describeWait(WAIT_STALLED_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, NOTHING_ANSWERED)
+  assert.equal(notice.level, 'stalled')
+  const said = `${notice.detail} ${notice.note}`
+  // The overreach itself. The app cannot see the wire, only its own fetch.
+  assert.doesNotMatch(said, /header/i)
+  assert.doesNotMatch(said, /\bpacket|\bsocket|\bTCP\b/i)
+})
+
+test('the pre-answer note keeps the reading the reader needs, and both halves of it', () => {
+  const note = describeWait(
+    WAIT_STALLED_MS,
+    AMBIENT,
+    FIRST_BYTE_TIMEOUT_MS,
+    NOTHING_ANSWERED
+  ).note!
+  // What `!accepted` establishes, and nothing further.
+  assert.match(note, /Nothing has come back/)
+  // The fact the reader most needs and the app can actually prove: a refused
+  // connection rejects `fetch`, and a rejection ends the turn — so while this
+  // line is on screen, the address is not the thing to go and check.
+  assert.match(note, /nothing was refused/)
+  // And the half the note exists for, unchanged.
+  assert.match(note, /cannot tell a busy server from one that has stopped answering/)
+})
+
+test('a server that has not answered is not reported as dead either', () => {
+  // The same true negative as the slow-model one below, on the other branch:
+  // a server still processing and a server that has died are indistinguishable
+  // before the answer arrives, so no elapsed time may claim the difference.
+  for (const ms of [WAIT_STALLED_MS, 120_000, 600_000]) {
+    const notice = describeWait(ms, AMBIENT, FIRST_BYTE_TIMEOUT_MS, NOTHING_ANSWERED)
+    const said = `${notice.detail} ${notice.note ?? ''}`
+    assert.doesNotMatch(said, /\bis dead\b|\bhas died\b|\bhas crashed\b|\bnot responding\b/)
+    assert.doesNotMatch(said, /is not running|never started|wrong address/i)
+    if (notice.note) {
+      assert.match(notice.note, /cannot tell/)
+      assert.ok(
+        notice.note.indexOf('busy server') < notice.note.indexOf('stopped answering'),
+        'the innocent reading is offered first, as on the other branch'
+      )
+    }
+  }
+})
+
+test('the two pre-body notes are different sentences, and neither is the other', () => {
+  const before = describeWait(WAIT_STALLED_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, NOTHING_ANSWERED).note
+  const after = describeWait(WAIT_STALLED_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, ACCEPTED_SILENT).note
+  assert.notEqual(before, after)
+  // Each names the pair of readings its own evidence allows, and only that pair.
+  assert.doesNotMatch(before!, /prompt still being processed/)
+  assert.doesNotMatch(after!, /busy server/)
 })
 
 test('a reply that began and went quiet gets no note — its deadline is the note', () => {

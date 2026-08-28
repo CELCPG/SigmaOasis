@@ -190,7 +190,13 @@ export function formatElapsed(ms: number): string {
  * `waitedOn` for what it is allowed to say then.
  */
 export interface StreamPhase {
-  /** The POST was answered: response headers arrived. */
+  /**
+   * LM Studio answered: the transport's `fetch` returned a response.
+   *
+   * v1.17.5: this said "response headers arrived" and a sentence below was
+   * built on those words. It is weaker than that — see StreamWitness in
+   * hooks/chatTransport.ts for the measurement.
+   */
   accepted: boolean
   /** At least one byte of the response body arrived. */
   streamed: boolean
@@ -251,12 +257,43 @@ function waitedOn(state: OasisState, seen: StreamPhase | null): string {
  * the one-minute stall budget, so the transport ends that turn at precisely
  * the moment this note would appear, and a sentence the reader cannot finish
  * reading is worse than none.
+ *
+ * ## v1.17.5: the `!accepted` half said more than the witness knows
+ *
+ * It read *"Not even the reply headers have come back"*. A round-11 critic
+ * tried to settle that against the fixture record and could not — the shim logs
+ * `"status": 200` for the stalled request, which would put headers on the wire,
+ * except that a status chosen by a handler that never writes a body is
+ * routinely never flushed. Its verdict: *"run-2's most useful sentence is also
+ * its least verifiable, and it is stated flatly."*
+ *
+ * Measured, three ways:
+ *
+ * - The fixture's `status: 200` is bookkeeping, not evidence: `h2h-fixtures.ts`
+ *   assigns `entry.status = 200` before it calls `writeHead`, for every
+ *   injected rule. And `writeHead` with no `write` puts **zero bytes** on the
+ *   socket — Node holds the header block until the first body write.
+ * - So on that fixture the sentence happened to be true. It is not true in
+ *   general, because `accepted` was never the headers. It is set from the
+ *   transport's `fetch` resolving.
+ * - And `fetch` does not resolve on every header block: a `103 Early Hints`
+ *   response and a `302` both put a complete reply header block on the wire and
+ *   left `fetch` pending — a 1xx is not a response, and a redirect is followed
+ *   internally. LM Studio behind any reverse proxy can produce either.
+ *
+ * The useful half — the difference between *be patient* and *this may never
+ * come back* — was never the headers claim; it is the pair of readings the
+ * evidence still allows, and that half is kept verbatim. What replaces the
+ * first clause is what `!accepted` does establish, plus the one fact the
+ * reader most needs and the app can prove: nothing was refused. A closed port
+ * rejects `fetch`, and a rejection ends the turn — so while this line is on
+ * screen, the address is not the thing to go and check.
  */
 function waitReading(state: OasisState, seen: StreamPhase | null): string | null {
   if (state.activeToolName || !seen || seen.streamed) return null
   return seen.accepted
     ? 'Nothing has been written back since — the app cannot tell a prompt still being processed from a dead stream.'
-    : 'Not even the reply headers have come back — the app cannot tell a busy server from one that has stopped answering.'
+    : 'Nothing has come back, and nothing was refused — the app cannot tell a busy server from one that has stopped answering.'
 }
 
 /**
