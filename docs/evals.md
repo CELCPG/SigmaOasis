@@ -5453,3 +5453,168 @@ lives, below the banner, and a pass still in flight still renders there too.
 - `Ran: the code check` appears on a reply containing no Python at all, because `runCodeCheck`
   reaches a conclusion either way and the notice reports that it ran. Defensible, and no line
   contradicts it — but there is no `🧪` disclosure on screen for the reader to tie it to.
+
+### Pending fold-in — the corpus writes one temperature four ways, and the checker read the spelling
+
+Round 11 named this and could not test it: *"the backing checker matches literally — it over-warns
+on `165 °F` against `165° F`"*. The whole measured difference between the two arms on task V1 was
+one space character the model happened to type, so the critic tied the task as model variance and
+the checker's behaviour went unexercised. **A defect that can only be seen when the model varies is
+a defect no round can score.**
+
+It is also not the model's variance. The pack this app ships writes the same poultry temperature
+**four ways**, and nobody chose that either:
+
+| spelling | `165` in `packs/food-safety/docs/` | what the matcher made of it |
+| --- | --- | --- |
+| `165°F` | 9 | `°f` |
+| `165° F` | 4 | `° f` — **a different key** |
+| `165 degrees F` | 5 | `degree` — **scale discarded, no dimension** |
+| `165oF` | 2 | nothing at all |
+
+The spread is the pack's, not one document's. Counted by shape across all eleven documents:
+`38 °F` and `26 °C` with no space, `19` with a space *after* the degree sign, `9` with one
+*before* it, `21` spelling `degrees` out, and `8` with a letter `o` for the degree sign. Every
+comparison in `toolGrounding` keys off that unit *string* — `armed.has(m.unit)`,
+`c.unit === m.unit`, `found.unit === stated.unit` — so how a passage happened to space its degree
+sign decided whether a figure was backed.
+
+#### The over-warn, reproduced against the shipped pack
+
+Corpus = `refrigerator-thermometers.md` + `safe-temperature-chart.md`, both verbatim. The fridge doc
+writes `40 °F` and `40° F`, which arms the temperature dimension so the rung runs. The chart states
+`165 degrees F` on **five rows**, and put nothing into the temperature corpus — so the only value
+165 could be compared against was 40. **Nothing in this corpus is written the way a model writes the
+answer.**
+
+| the reply writes | before | after |
+| --- | --- | --- |
+| `165°F` | ⚠️ `1 measurement (165°F) … is not backed by the tool output` | no finding |
+| `165 °F` | ⚠️ flagged | no finding |
+| `165° F` | ⚠️ flagged | no finding |
+| `165` + no-break space + `°F` | not a measurement at all | no finding |
+| `165 degrees F` | no finding | no finding |
+
+Three spellings faulted a correct answer that its own passages state five times; a fourth was not
+recognised as a measurement at all, so the reply's temperature was neither checked nor named and the
+screen said nothing. Which arm a reader drew decided which of those they got. Round 10's recorded
+loss was this sentence over a *stale* corpus; round 11 fixed the staleness and this remained
+underneath it.
+
+#### What normalises, and what deliberately does not
+
+The unit is normalised to **value and dimension** in `shared/measurements.ts`, so all of
+`°F`, `° F`, `degrees F`, `degrees Fahrenheit` — and the Celsius forms — fold to one key before
+anything is compared. Three functions each knew a different subset of those spellings
+(`normaliseUnit`, `unitSpec`'s `replace(/^°\s+/, '°')`, and `temperatureScale`); there is now one
+`canonicalTemperature`, and the other two call it. That is the file's own rule about the fourth copy,
+applied to a third copy that had appeared inside the file itself.
+
+Deliberately **not** normalised, each with the reason:
+
+- **Bare `degrees`.** A temperature whose scale is unstated cannot be converted, and `90 degrees
+  clockwise` is not a temperature at all. It stays dimensionless: armed by its own spelling,
+  supported by its own spelling, nothing crossed. `[cf]\b` cannot match the `c` of `clockwise`,
+  which is what keeps the scale-bearing branch off the geometry sense of the word.
+- **`165oF`** — the OCR artefact in `safe-food-handling.md`, where a letter `o` stands in for the
+  degree sign (all 8 occurrences are in that one document). Reading `o` as `°` would make the
+  `5 of` in "5 of the 10 rows" a temperature. A silent false positive over ordinary prose is a
+  worse trade than eight unarmed values in one document.
+- **°C against °F.** Still two names, converted only by the exact arithmetic `UNITS` already
+  carries. `165°C` and `165°F` are not the same measurement and neither are `1,650°F` and `165°F`.
+- **The reported span.** The unit is folded for *comparison*; the span shown to the reader is still
+  verbatim, because a warning naming a figure the reply does not contain is the defect this file has
+  paid for twice.
+
+The no-break space is the same rule read correctly. `[ \t]` was the whole of the number-to-unit gap,
+and the reason a line break must not be crossed — a number ending one line and a word beginning the
+next are two claims — has nothing to do with *which horizontal space* separates a number from its
+unit. U+00A0 is precisely what a typesetter, a markdown renderer and a model writing `165 °F` reach
+for to keep a unit with its number, and it made the measurement vanish entirely. The class now
+carries space, tab, U+00A0 no-break, U+202F narrow no-break and U+2009 thin; `\s` would have been
+shorter and would have swallowed `\n`, which is the bug the class exists to keep out. The
+line-break trap is pinned by its original test.
+
+#### Every loosening has a true positive, and one is a tightening
+
+Against the same two-document corpus, each of these must still be named — and each is:
+
+| the reply writes | why it must fire |
+| --- | --- |
+| `185°F` · `185 degrees F` | a temperature no passage states, in both spellings |
+| `165°C` · `165 degrees C` · `165 degrees Celsius` | right number, wrong scale |
+| `1,650°F` · `1,650 degrees F` | an order of magnitude out |
+| `16.5°F` | the same, downward |
+| `330 degrees F` | twice a stated value: an interval scale is not derivable |
+
+**Four of those did not fire at all before this change**, and each is the over-warn's own defect
+pointing the other way — the unit was not read, so nothing could disagree with it.
+
+| the reply writes | round 12 | now |
+| --- | --- | --- |
+| `165 degrees C` · `165 degrees Celsius` | **silent** — certified by the passage's `165 degrees F` | flagged |
+| `1,650 degrees F` | **silent** — certified as 10 × `165 degrees F` | flagged |
+| `330 degrees F` | **silent** — certified as 2 × `165 degrees F` | flagged |
+| `185 degrees F` | flagged as `185 degrees` — the scale stripped off the span | flagged in full |
+| `350 degrees` (bare) | **flagged** — armed by the chart's `degrees F` rows | not compared, and says so |
+
+Dropping the scale letter made `degrees f` and `degrees c` the same key, so a passage stating
+`165 degrees F` certified a reply stating `165 degrees C` — 130 °F out, on a cooking temperature.
+On the same corpus `165 °C` *was* flagged and `165 degrees C` was not. And because `degree` had no
+dimension it counted as a **ratio** scale, so temperature's interval-scale exemption never applied to
+it and any integer multiple of a retrieved temperature was certified. The last row is the same defect
+in the third direction: an oven setting drew a warning from a poultry table. The loosening and the
+tightenings are one change because they were one defect: **the unit was never read.**
+
+24 cases, in `test/toolGrounding.test.ts`. 16 of them fail against the round-12 matcher; the 8 that
+pass are the controls that must not move. The corpus is read off disk rather than transcribed,
+because the point of the failure is that a corpus writes one value several ways — a fixture someone
+typed out would have had one spelling in it.
+
+#### The wrong-row under-warn: still no, and the artifact says so more plainly than round 10 did
+
+The paired critique — the arm that stayed silent on `3 to 4 days (whole)`, whose only occurrences in
+its own retrieved passages are ham rows — was re-examined against the recorded run
+(`test/fixtures/citations/v1-r10-revision-lookups.json`) rather than re-argued. **The verdict is
+unchanged: the existing disclosure is the right amount to say, and nothing is added here.** Three
+facts, and the first two are new.
+
+**The label that makes them ham rows is not in the passage.** Passage [5] is titled
+`Food safety › Cold food storage chart` and its text *begins mid-row* — the first characters are
+`ths |`, the tail of a truncated `months |`. The `Ham` section heading was chunked away. A rung asked
+to flag a figure taken from the wrong row would have to reconstruct a heading that is not in the
+text it was handed, and neither the app nor the reader can see it. That is a stronger refusal than
+round 10's — round 10 argued from ambiguity (`3 to 4 days` on eleven rows), this argues from absence.
+
+**Both figures are correct quotations of a row.** The reply reads *"3 to 4 days (uncured, cooked) or
+up to 1 week if whole and store-wrapped"*, and the passage carries
+`| Fresh, uncured, cooked | 3 to 4 days |` and `| Cooked, store-wrapped, whole | 1 week |`. Value,
+unit and qualifier co-occur on one line in each case. Every check that could be built from the
+retrieved text — value presence, qualifier co-occurrence, quotation fidelity — **passes both**. The
+error is in the subject of the table section and nowhere else.
+
+**And the only rule that would fire, fires on correct answers.** The chicken row
+`| Fresh poultry | Chicken or turkey, whole | 1 to 2 days |` *is* retrieved, so a word-overlap
+contradiction rung would catch `1 week if whole` against it. It would also catch a reply that
+correctly said *"cooked whole chicken keeps 3 to 4 days"*, because `whole` is shared by the raw row
+and the cooked answer — and choosing that `whole` discriminates while `fresh`/`cooked` does not is
+the comprehension step `describeCoverage` refuses to make. Round 4's cry-wolf, arrived at from a
+third direction.
+
+So `Matched by value, not by row: … only the passage itself shows which one the answer took it from`
+remains exactly and only what is true here.
+
+#### Found while reading the artifact, not fixed
+
+- **The row that answers the question was never retrieved.** `| Leftovers | Cooked meat or poultry |
+  3 to 4 days |` appears in **none** of the run's three lookups. `3 to 4 days` occurs in the
+  retrieved text on exactly three rows: two ham rows and one salad row. So what failed on this task
+  is *retrieval*, not the backing checker, and a grounding warning here would have pointed the
+  reader at the wrong rung. This reframes the critique rather than answering it.
+- **A retrieved passage that starts mid-table-row is detectable and undisclosed.** `ths |` is a
+  visible fragment; nothing on screen tells the reader that passage [5] is a table with its headings
+  cut off. That is a disclosure the retrieval rung could make and the backing rung cannot, and it is
+  where the honest version of the critics' finding probably lives.
+- **`165oF` and its family** (`145oF`, `160oF`, `140oF`) arm nothing and support nothing. Eight
+  values in `safe-food-handling.md` are invisible to every measurement rung. The fix is not in the
+  matcher — see above — it is in whatever normalises a document on the way into a pack.

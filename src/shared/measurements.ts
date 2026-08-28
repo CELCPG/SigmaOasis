@@ -25,14 +25,48 @@
  */
 
 /**
+ * Horizontal space, and never a line break.
+ *
+ * `[ \t]` was the whole of this until v2.4, and it is the wrong half of the
+ * rule. The reason a line break must not be crossed is that a number ending one
+ * line and a word beginning the next are two claims, not one — nothing to do
+ * with which *horizontal* space separates a number from its unit. A
+ * no-break space is the one a typesetter, a markdown renderer and a model
+ * writing `165 °F` all reach for precisely because the unit must stay with its
+ * number, and `[ \t]` read it as a separator and returned no measurement at
+ * all. The corpus then armed nothing, and a figure stated on the page was
+ * reported as never compared.
+ *
+ * U+00A0 no-break, U+202F narrow no-break, U+2009 thin. `\s` would have been
+ * shorter and would have swallowed `\n`, which is the bug this class exists to
+ * keep out.
+ */
+const H = '[ \\t\\u00a0\\u202f\\u2009]'
+
+/**
  * The units themselves, as alternation source. Deliberately finite: time,
  * distance, mass, volume, temperature, speed and energy — the things that are
  * measured. Not currency (money has its own check, with its own rules about
  * derivation) and not bare counts, which are usually a list length rather than
  * a claim about the world.
+ *
+ * v2.4: the degree family reads its **scale**, wherever the scale is spelled
+ * out. `°\s?[cf]` recognised `165°F` and `165° F` and stopped there, so
+ * `165 degrees F` matched the bare `degrees?` branch and arrived as a
+ * temperature whose scale had been thrown away. Measured on the pack this app
+ * ships: `packs/food-safety/` writes one temperature four ways — `165°F` (9
+ * times), `165 degrees F` (5), `165° F` (4) and `165oF` (2) — and the second
+ * of those armed nothing and supported nothing. See `canonicalTemperature`
+ * for what that cost, in both directions.
+ *
+ * The bare `degrees?` branch stays, and stays last: a scale that is genuinely
+ * unstated is still not a temperature this file will convert. Alternation is
+ * leftmost-wins, so `degrees F` is claimed by the branch that can see the `F`
+ * and `90 degrees clockwise` falls through to the bare one exactly as before —
+ * `[cf]\b` cannot match the `c` of a longer word.
  */
 export const MEASUREMENT_UNITS =
-  '°\\s?[cf]\\b|degrees?\\b|' +
+  `(?:°|degrees?)${H}*(?:celsius\\b|centigrade\\b|fahrenheit\\b|[cf]\\b)|degrees?\\b|` +
   'minutes?\\b|mins?\\b|hours?\\b|hrs?\\b|days?\\b|weeks?\\b|months?\\b|years?\\b|' +
   'seconds?\\b|secs?\\b|' +
   'mg\\b|mcg\\b|µg\\b|ml\\b|grams?\\b|g\\b|kg\\b|litres?\\b|liters?\\b|l\\b|gallons?\\b|' +
@@ -74,13 +108,13 @@ export interface MeasurementOptions {
  */
 export function measurementPattern(options: MeasurementOptions = {}): RegExp {
   const units = options.percent ? `${MEASUREMENT_UNITS}|%` : MEASUREMENT_UNITS
-  // Horizontal space only, never a line break. A number ending one line and a
-  // word beginning the next are not a measurement: tool output reading
-  // "Total time: 3:47\nMiles run: 26.2" would otherwise yield "47 Miles" and
-  // put a distance into the corpus that nothing ever computed. Caught by test,
-  // and the same trap the address check documents.
+  // Horizontal space only, never a line break — see `H`. A number ending one
+  // line and a word beginning the next are not a measurement: tool output
+  // reading "Total time: 3:47\nMiles run: 26.2" would otherwise yield
+  // "47 Miles" and put a distance into the corpus that nothing ever computed.
+  // Caught by test, and the same trap the address check documents.
   return new RegExp(
-    `(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)[ \\t]*(${units})([ \\t]*(?:per|/)[ \\t]*[a-z]+\\b)?`,
+    `(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)${H}*(${units})(${H}*(?:per|/)${H}*[a-z]+\\b)?`,
     'gi'
   )
 }
@@ -104,15 +138,75 @@ export interface Measurement {
   index: number
 }
 
+/** Case, plurals and runs of any whitespace folded away. */
+function collapse(unit: string): string {
+  return unit.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/**
+ * The one unit in this vocabulary that a corpus writes four different ways.
+ *
+ * v2.4, and it is the fix for a false `unverified` on a poultry cooking
+ * temperature — the most damaging shape this app ships, and the second time it
+ * has been recorded. `°f` and `° f` were two keys, `degrees f` was a third and
+ * carried no scale at all, and every comparison in `toolGrounding` keys off the
+ * unit *string*: `armed.has(m.unit)`, `c.unit === m.unit`,
+ * `found.unit === stated.unit`. So how the passage happened to space its degree
+ * sign decided whether a figure was backed.
+ *
+ * Measured against the shipped pack, corpus = `refrigerator-thermometers.md` +
+ * `safe-temperature-chart.md`, a reply stating the poultry temperature and the
+ * fridge temperature:
+ *
+ * ```
+ * before   ⚠️ 1 measurement (165°F) in this reply is not backed by the tool output.
+ * after    (no finding)
+ * ```
+ *
+ * The chart states `165 degrees F` on five lines. `40 °F` and `40° F` from the
+ * fridge doc armed the temperature dimension, so the rung ran; `165 degrees F`
+ * parsed as a dimensionless `degree` and put nothing into the temperature
+ * corpus, so the only value it could compare 165 against was 40. Every
+ * spelling of the answer that used a degree sign flagged, and the one that
+ * spelled `degrees` out did not — the reader's choice of arm was a coin toss
+ * on a space.
+ *
+ * **And the same fold is a tightening, which is why it is safe.** Dropping the
+ * scale letter made `degrees f` and `degrees c` the *same* key, so a reply's
+ * `165 degrees C` was certified by a passage's `165 degrees F` — a temperature
+ * off by 130 °F, silently backed. `165 °C` was flagged and `165 degrees C` was
+ * not. Both are findings now. The loosening and the tightening are one line of
+ * code because they were one defect: the unit was never read.
+ *
+ * Bare `degrees` is deliberately still nothing — a temperature whose scale is
+ * unstated cannot be converted, and `90 degrees clockwise` is not a
+ * temperature at all. This function returns null for it, and the caller keeps
+ * the pre-v2.4 behaviour: armed by its own spelling, supported by its own
+ * spelling, nothing crossed.
+ *
+ * Not folded, deliberately: `165oF`, the OCR artefact in
+ * `packs/food-safety/docs/safe-food-handling.md` where a letter `o` stands in
+ * for the degree sign. Reading `o` as `°` would make the `5 of` in "5 of the 10
+ * rows" a temperature, and a silent false positive over prose is a worse trade
+ * than eight unarmed values in one document. Recorded in docs/evals.md.
+ */
+export function canonicalTemperature(unit: string): '°c' | '°f' | null {
+  const m = /^(?:°|degrees?) ?(celsius|centigrade|fahrenheit|c|f)$/.exec(collapse(unit))
+  return m ? (m[1].startsWith('c') ? '°c' : '°f') : null
+}
+
 /**
  * Canonical name for a unit as written, so `miles`, `Mile` and `mi` are one
  * kind of thing and `minutes per mile` is a different kind from `minutes`.
- * Deliberately shallow: it folds case, plurals and spacing, and does NOT
- * convert between units — a check that silently equates kilometres and miles
- * would hide exactly the disagreement it is looking for.
+ * Deliberately shallow: it folds case, plurals, spacing and the degree family's
+ * spellings, and does NOT convert between units — a check that silently equated
+ * kilometres and miles would hide exactly the disagreement it is looking for.
+ * °C and °F stay two different names here; that they are one dimension is the
+ * business of `UNITS`, below, where the conversion is exact and stated.
  */
 export function normaliseUnit(unit: string, suffix?: string): string {
-  const base = unit.trim().toLowerCase().replace(/\s+/g, ' ').replace(/s$/, '')
+  const written = collapse(unit)
+  const base = canonicalTemperature(written) ?? written.replace(/s$/, '')
   const rate = (suffix ?? '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/^\//, 'per ')
   return rate ? `${base} ${rate.replace(/s$/, '')}` : base
 }
@@ -133,8 +227,12 @@ export function normaliseUnit(unit: string, suffix?: string): string {
  * one renderer's spacing must not become a different kind of thing.
  */
 export function temperatureScale(unit: string): 'c' | 'f' | null {
-  const m = /^°\s?([cf])$/.exec(unit.trim().toLowerCase())
-  return m ? (m[1] as 'c' | 'f') : null
+  // v2.4: one parser for the degree family, not a second copy of its spellings.
+  // This function was that second copy — it knew `°F` and `° F` and not
+  // `degrees F`, which is the drift the header of this file warns about,
+  // happening inside the file itself.
+  const canonical = canonicalTemperature(unit)
+  return canonical ? (canonical[1] as 'c' | 'f') : null
 }
 
 /**
@@ -233,7 +331,10 @@ const INTERVAL_SCALES: ReadonlySet<Dimension> = new Set<Dimension>(['temperature
  *   and named **`47m`** — a duration reported as an unsupported distance, on
  *   an answer scored correct. `metre`, `meter`, `km`, `cm` and `mm` are
  *   unambiguous and stay.
- * - `degrees` — a temperature whose scale is unstated.
+ * - `degrees` — a temperature whose scale is unstated, and often not a
+ *   temperature at all ("rotate 90 degrees"). `degrees F` and `degrees
+ *   Celsius` are not this case and never were: they normalise to `°f` and `°c`
+ *   before they reach here. See `canonicalTemperature`.
  * - `calorie` / `kcal` — a food "calorie" is a kilocalorie, so the factor
  *   depends on which convention the source used.
  * - `mph`, `km/h`, `kwh`, `watt`, `volt`, `amp` — see the note in
@@ -297,9 +398,18 @@ function splitRate(unit: string): { base: string; rate: string } {
   return at === -1 ? { base: unit, rate: '' } : { base: unit.slice(0, at), rate: unit.slice(at) }
 }
 
-/** The spec for a unit's base, tolerating the `° C` spacing the matcher permits. */
+/**
+ * The spec for a unit's base.
+ *
+ * v2.4: the degree family goes through `canonicalTemperature`, the same
+ * function `normaliseUnit` uses. It used to carry `replace(/^°\s+/, '°')` —
+ * a third place that knew how a temperature may be spelled, and one that knew
+ * less than the other two. A caller reaching this with a raw `degrees F`, or
+ * with `° F` from an older record, now gets the same answer `normaliseUnit`
+ * would have given it.
+ */
 function unitSpec(base: string): UnitSpec | undefined {
-  return UNITS[base.trim().replace(/^°\s+/, '°')]
+  return UNITS[canonicalTemperature(base) ?? collapse(base)]
 }
 
 /**
