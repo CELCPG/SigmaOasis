@@ -518,12 +518,27 @@ export async function runDeliberation(
       kind: 'assistant_output',
       roleName: reviewer.roleName,
       modelId: reviewer.modelId,
-      text: `[think harder — ${self ? 'self-review' : 'review'}]\n${review || '(nothing came back)'}`
+      // v1.17.3: `(nothing came back)` read as an output that happened to be
+      // empty. It was a request that failed, and the log is the app's record of
+      // what it did — so it says which.
+      text:
+        `[think harder — ${self ? 'self-review' : 'review'}]\n` +
+        (review || 'FAILED: the review request returned an empty reply; the draft was not checked.')
     })
     // A review that never came back and a review that found nothing are
-    // different states; both keep the draft, only one of them checked it, and
-    // the disclosure (describeDeliberation) reads them apart off `review`.
-    if (classifyReview(review) !== 'problems') {
+    // different states; both keep the draft, only one of them checked it.
+    //
+    // v1.17.3: and the RECORD now says which. Through v1.17.2 both landed on
+    // `status: 'done'` and only the disclosure told them apart, by re-deriving
+    // the emptiness from `review` — so the app's own record of a reviewer that
+    // was served an immediately-closed empty stream said the pass succeeded,
+    // and nothing downstream of the record could count it as the failure it is.
+    const outcome = classifyReview(review)
+    if (outcome === 'none') {
+      patchRecord({ status: 'unreviewed', revised: false })
+      return
+    }
+    if (outcome !== 'problems') {
       patchRecord({ status: 'done', revised: false })
       return
     }

@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
 import { describeCoverage, describeMatchedMeasurements, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
-import { attribution } from '../../../shared/failure'
+import { attribution, composeFailure } from '../../../shared/failure'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
@@ -9,7 +9,8 @@ import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState, startWaitClock } from '../lib/oasisRipple'
 import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
-import { replyAffordances } from '../lib/replyRecovery'
+import { emptyReplyFailure, regenerateBlocked, replyAffordances } from '../lib/replyRecovery'
+import { turnContextUsage } from '../hooks/turnHelpers'
 import { VERIFY_BUDGET_MS, waitElapsed, type TurnPhase } from '../lib/turnPhase'
 import { formatTurnCost } from '../lib/turnCost'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
@@ -20,7 +21,7 @@ import { BlockEnter, Disclosure } from './Disclosure'
 import { RanCodeBlock } from './RanCodeBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
-import { classifyReview, describeDeliberation, thinkHarderNote } from '../lib/deliberation'
+import { describeDeliberation, draftWentUnchecked, thinkHarderNote } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { answerRecords } from '../hooks/planMode'
@@ -406,8 +407,9 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
   const [open, setOpen] = useState(false)
   const busy = record.status === 'reviewing' || record.status === 'revising'
   // v1.9.2: the reviewer returned nothing (or failed) — the tooltip must not
-  // describe a review that did not happen.
-  const unreviewed = record.status === 'error' || classifyReview(record.review) === 'none'
+  // describe a review that did not happen. v1.17.3: and the question is asked
+  // in lib/deliberation.ts, once, by the same predicate that gates the retry.
+  const unreviewed = draftWentUnchecked(record)
   return (
     <div className="mt-2 text-[11px] text-ink-secondary">
       <button
@@ -855,6 +857,20 @@ export const MessageBubble = memo(function MessageBubble({
   const phaseHere = turnPhase?.messageId === message.id ? turnPhase : null
   const affordances = replyAffordances(message, isLast, isStreaming, phaseHere)
   const busyTitle = streaming ? '\n\nAvailable once this turn’s checks finish.' : ''
+  /**
+   * v1.17.3: would asking again send a request the app has already measured as
+   * too large? Live, not a snapshot of the failed turn — the reader's remedy is
+   * to shrink something, and the button has to notice when they have.
+   *
+   * Only asked on the last message, which is the only one that renders it.
+   */
+  // Not while a turn is in flight: the button is already disabled and busy-
+  // titled, and this reduces over every message in the conversation on a
+  // component that re-renders per streamed frame.
+  const cannotRegenerate =
+    isLast && !streaming ? regenerateBlocked(turnContextUsage(conversation?.id ?? null)) : null
+  /** Who fell silent, when the turn produced nothing at all. */
+  const nothingCame = affordances.empty ? emptyReplyFailure(message) : null
 
   const toggleSpeak = (): void => {
     if (speaking) {
@@ -917,12 +933,23 @@ export const MessageBubble = memo(function MessageBubble({
               <button
                 type="button"
                 onClick={() => void regenerate()}
-                disabled={streaming}
+                disabled={streaming || cannotRegenerate !== null}
                 className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
-                title={`Re-answer the last message${busyTitle}`}
+                // Disabled with its reason attached, never silently: a control
+                // that greys out and says nothing is the same dead end as one
+                // that replays a failure (lib/replyRecovery.ts).
+                title={cannotRegenerate ?? `Re-answer the last message${busyTitle}`}
               >
                 ↻ Regenerate
               </button>
+            )}
+            {/* The reason is on the button's title for the detail, and on
+                screen for everything a title does not reach — a screenshot, an
+                export, a reader who never hovers. */}
+            {cannotRegenerate && (
+              <span className="text-ink-warn" title={cannotRegenerate}>
+                — this request is over the window
+              </span>
             )}
             {secondOpinionEnabled && affordances.onText && !message.secondOpinion && (
               <button
@@ -935,23 +962,37 @@ export const MessageBubble = memo(function MessageBubble({
                 🔍 2nd opinion
               </button>
             )}
-            {affordances.onText && !message.deliberation && (
-              <button
-                type="button"
-                onClick={() => void deliberate(message.id)}
-                disabled={streaming}
-                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
-                title={
-                  'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
-                  // v1.9.1: on a model that already reasons internally, say what
-                  // the reasoning suite measured rather than implying a benefit.
-                  (thinkHarderNote(message.modelId ?? '') ? `\n\n${thinkHarderNote(message.modelId ?? '')}` : '') +
-                  busyTitle
-                }
-              >
-                🧠 Think harder
-              </button>
-            )}
+            {/*
+              v1.17.3: the retry the prose already promised.
+
+              The gate was `!message.deliberation` — any record at all removed
+              the button — so a pass that FAILED took its own retry away with
+              it, while the disclosure beside it said "Run Think harder again,
+              or use 2nd opinion." That is round 8's finding in its purest
+              form: a remedy in words with no control behind it, and here the
+              control existed and was being hidden by the failure it was for.
+            */}
+            {affordances.onText &&
+              (!message.deliberation || draftWentUnchecked(message.deliberation)) && (
+                <button
+                  type="button"
+                  onClick={() => void deliberate(message.id)}
+                  disabled={streaming}
+                  className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
+                  title={
+                    (message.deliberation
+                      ? 'Retry: the last review came back empty, so this reply has not been checked. '
+                      : '') +
+                    'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
+                    // v1.9.1: on a model that already reasons internally, say what
+                    // the reasoning suite measured rather than implying a benefit.
+                    (thinkHarderNote(message.modelId ?? '') ? `\n\n${thinkHarderNote(message.modelId ?? '')}` : '') +
+                    busyTitle
+                  }
+                >
+                  {message.deliberation ? '🧠 Think harder again' : '🧠 Think harder'}
+                </button>
+              )}
             {conversation && <BranchMenu message={message} conversation={conversation} />}
             <span
               className="ml-auto px-1.5 text-[10px]"
@@ -999,13 +1040,19 @@ export const MessageBubble = memo(function MessageBubble({
           cause and its next step stripped out of it. Whatever the transport
           managed to diagnose is in the ⚠️ message after this one; the action
           row above carries Regenerate for the same reason this line exists.
+
+          v1.17.3: and it names the right party. This was one constant sentence
+          about "the model" standing over three different events — a model that
+          said nothing, a server that hung up without writing, and a turn the
+          user stopped after 90 s of silence. The transport records which
+          (ChatMessage.ending); shared/failure.ts turns that into the sentence.
         */}
-        {!isStreaming && affordances.empty && (
-          <div
-            className="text-[11px] text-ink-warn"
-            title="The turn ended without producing any text. If the server said why, the reason is in the next message."
-          >
-            ⚠️ Empty reply — nothing came back from the model. Use ↻ Regenerate to ask again.
+        {!isStreaming && affordances.empty && nothingCame && (
+          <div className="text-[11px] text-ink-warn" title={composeFailure(nothingCame)}>
+            ⚠️ {nothingCame.sentence}
+            {nothingCame.remedy && (
+              <span className="text-ink-tertiary"> {nothingCame.remedy.text}</span>
+            )}
           </div>
         )}
 

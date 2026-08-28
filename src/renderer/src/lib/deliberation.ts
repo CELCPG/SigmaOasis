@@ -180,6 +180,21 @@ export function thinkHarderNote(modelId: string): string | null {
   )
 }
 
+/**
+ * Did this pass leave the draft unchecked? The one question, asked in one place.
+ *
+ * v1.17.3. It used to be asked twice and differently: `describeDeliberation`
+ * re-derived it from `d.review`, `DeliberationLine`'s tooltip re-derived it
+ * again, and the RECORD said `'done'` — so the screen and the record disagreed
+ * about whether a reviewer served an empty 200 had failed. The record answers
+ * it now (`status: 'unreviewed'`), and `d.review` is still consulted so that
+ * records written before that status existed read correctly.
+ */
+export function draftWentUnchecked(d: DeliberationRecord): boolean {
+  if (d.status === 'reviewing' || d.status === 'revising') return false
+  return d.status === 'error' || d.status === 'unreviewed' || classifyReview(d.review) === 'none'
+}
+
 export function describeDeliberation(d: DeliberationRecord): string {
   const who = d.self ? 'reviewed its own draft' : `reviewed by ${d.reviewerRole}`
   if (d.status === 'reviewing') return `🧠 Thinking harder — ${d.self ? 'self-review' : `review by ${d.reviewerRole}`} in progress…`
@@ -188,8 +203,13 @@ export function describeDeliberation(d: DeliberationRecord): string {
     return `⚠️ Not deliberated — think harder failed: ${d.note ?? 'unknown error'}; the draft was not checked.`
   // v1.9.2: nothing came back. The emptiness is known here, and saying
   // "no substantive problems found" instead would vouch for an unread draft.
-  if (classifyReview(d.review) === 'none')
-    return `⚠️ Not deliberated — ${d.self ? 'the self-review returned nothing' : `${d.reviewerRole} returned nothing`}; the draft was not checked.`
+  // v1.17.3: it says who returned nothing AND that the request itself failed —
+  // an empty 200 is a failed request, not a terse reviewer.
+  if (d.status === 'unreviewed' || classifyReview(d.review) === 'none')
+    return (
+      `⚠️ Not deliberated — ${d.self ? 'the self-review request' : `the review request to ${d.reviewerRole}`} ` +
+      'came back empty; the draft was not checked. Run Think harder again to retry it.'
+    )
   if (!d.revised) return `🧠 Deliberated — ${who}: no substantive problems found; draft kept.`
   return `🧠 Deliberated — ${who}, revised.${d.note ? ` ${d.note}` : ''}`
 }

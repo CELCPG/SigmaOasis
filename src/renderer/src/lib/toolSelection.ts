@@ -1,4 +1,5 @@
-import type { ModelConfig, ToolSchema } from '../types'
+import type { ModelConfig, ToolSchema, ToolToggles } from '../types'
+import { TOOL_SCHEMAS } from '../../../shared/tools'
 
 /**
  * Per-role tool allowlists (strategy Layer 1a).
@@ -22,6 +23,25 @@ export function toolsForSlot(
   if (!Array.isArray(slot.tools)) return available
   const allowed = new Set(slot.tools)
   return available.filter((t) => allowed.has(t.function.name))
+}
+
+/**
+ * The schemas a slot may put on the wire, computed in the renderer.
+ *
+ * The same two filters main/ipc/tools.ts applies to `tools:list` — the global
+ * Settings → Tools toggles, then the slot's own allowlist — but synchronous,
+ * because the composer's context meter re-reads it on every keystroke and an
+ * IPC round trip per keystroke is not a meter. The wire list is still whatever
+ * `tools:list` returns; this is a prediction of it, and the only thing it is
+ * used for is counting tokens.
+ */
+export function schemasAvailableTo(
+  slot: Pick<ModelConfig, 'tools'> | undefined,
+  toggles: ToolToggles | undefined
+): ToolSchema[] {
+  if (!slot || !toggles) return []
+  const enabled = TOOL_SCHEMAS.filter((t) => toggles[t.function.name as keyof ToolToggles])
+  return toolsForSlot(slot, enabled)
 }
 
 /**

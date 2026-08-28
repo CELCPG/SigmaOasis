@@ -4495,3 +4495,143 @@ that shape — it is still a quotation claim, and still faulted.
   vocabulary problem round 5 describes, one table cell further out, and closing it means reading
   markdown tables rather than matching a name beside a string.
 - **Which row.** Stated above, deliberately, and it is not a gap this app can close.
+### Pending fold-in — the app blamed the wrong party, and offered a control that could not work
+
+Four findings from round 9, all present in both builds, and all one defect: **the app stating as
+its own finding something it had not established.** The failure boundary (`src/shared/failure.ts`)
+already refused to print a machine identifier where a sentence belongs. These are the same species
+one level up — true sentences about the wrong party.
+
+#### 1. Three events, one sentence, and it named the model in two of them
+
+> ⚠️ Empty reply — nothing came back from the model. Use ↻ Regenerate to ask again.
+
+That string was a constant, and it stood over a server that had accepted the POST, written nothing
+for 90 s, and been stopped by the user. A critic: *"the post-stop message then blames the model for
+what the fixture record shows was a transport stall"*, and *"it says neither 'the server stopped
+responding' nor 'you stopped it'"*.
+
+Every fact needed to name the right party passed through `streamChat` and was discarded at the
+return statement — and on the measured case it never reached the return at all, because a user
+abort leaves that function by the throw. The transport now fills in a caller-owned record
+(`StreamWitness`) that survives the abort, and `explainEmptyReply` reads it:
+
+| what the transport saw | what the reader is told |
+| --- | --- |
+| body arrived, no text in it | `The model produced no text. LM Studio answered and the reply ran to its end — it was simply empty.` |
+| headers arrived, no body byte ever | `LM Studio accepted the request and closed the connection without sending a reply. Nothing was generated — this is not a short answer, it is no answer.` |
+| the above, then Stop, after 90 s | `You stopped this turn. LM Studio had accepted the request and then sent nothing at all for 90s — the reply never started, so the model had produced nothing to stop.` |
+
+The discriminating pair is one layer apart on purpose. **Headers arriving** means the server took
+the request; **a body byte arriving** means a reply had begun. `accepted && !streamed` is the
+server's silence however the turn ended; `streamed` with no text is the model's.
+
+The first row is the true negative, and it is the one that decides whether any of this was worth
+doing: a model that genuinely replies with nothing must still be told it replied with nothing. A
+turn with no observation at all — a message stored before this shipped — gets rule 3's treatment
+and says the app has no record of how it ended, rather than picking a party.
+
+No control is offered on any of the three, and that is a finding rather than an omission. Round 8's
+rule is that a control is rendered where the app has *proved* the remedy is right; here the app has
+proved the opposite — the server accepted the request, so the address under Settings → Connection is
+correct, and a button sending the reader there would send them to fix a working setting. The remedy
+that is real (reload the model) lives in another application, so it is prose.
+
+#### 2. Which was lying — the overflow message or the meter?
+
+On a context refusal the app said:
+
+> This conversation — with its attachments and notes — is larger than the context the model is
+> loaded with. **Load the model with a larger context in LM Studio, or attach less.**
+
+with a composer meter six inches below reading `~1.7K / 8.2K`. Both cannot be right. **The message
+was the liar**, and not by a little: it converted "LM Studio said something containing the word
+*context*" into a confident claim about the reader's conversation. Measured on the shipped tool
+table and a six-turn conversation on an 8192 window:
+
+| term | tokens | on the old meter? |
+| --- | --- | --- |
+| the tool list (6 priciest of 25 enabled) | **2,725** | no |
+| room reserved for the reply | **2,048** | no |
+| the conversation | 1,728 | yes |
+| the role's instructions | 7 | yes |
+| **total** | **6,508** of 8,192 | old meter showed **1,735** |
+
+So the conversation is a fifth of the window and the message blamed it; the largest single term is
+the tool list the **app** adds, and the remedy told the reader to *attach less* — sending them to
+shrink a fifth of a fifth of the problem. Meanwhile the meter was not false about what it measured;
+its *claim* was false, because "of 8.2K tokens used" invites the reader to conclude 6.5K are free,
+and 4,773 of those were already spent by the app itself.
+
+The repair is one arithmetic with three readers — the meter, the refusal sentence, and the gate on
+Regenerate — so the app can no longer contradict itself in two places on one screen. The sentence
+now reports agreement or disagreement rather than repeating the claim:
+
+- app's count agrees → `…and the app's own count agrees: a turn in this conversation costs about 9K
+  tokens against a 8.2K window. The largest part of it is the tool list, at about 2.7K tokens.`
+- app's count disagrees (the measured case) → `…but the app's own count does not agree: … One of the
+  two is wrong. The app's count is estimated from text length rather than tokenized, and a model can
+  be loaded with less context than it reports.`
+- no measurement → `The app has no measurement of this request to check that against, so it cannot
+  say what is too large.`
+
+The remedy names whichever term is actually largest and carries the control for it
+(`Settings → Tools`) — the round-8 ClaimCheckBlock rule, applied to a different failure. The half of
+the remedy the app cannot perform (loading a model in LM Studio) stays prose, because it is real.
+
+**The meter's tool figure is an upper bound**, deliberately: the turn picks `TURN_TOOL_CAP` tools by
+embedding rank against text the reader has not written yet, so *which* six is unknowable, but the
+cost of the priciest six is exact. `contextBudget.ts` already errs this way on purpose for images —
+under-counting overflows the window, over-counting drops one more old message than it had to.
+
+#### 3. A retry that cannot succeed is worse than no retry
+
+*"the one control that is offered would replay the same oversized conversation into the same
+8192-token window."* ↻ Regenerate is now disabled — with its reason on screen, not only in a title —
+exactly where the app can prove it would fail, and live everywhere else. The symmetry with round 8
+is the point: **a control is rendered where the remedy is proved right, and disabled where the
+action is proved futile.** Both need the proof.
+
+The proof is harder than it first looks, and getting it wrong would have reproduced the round-9
+defect one control further along. `used > total` is **not** futility: the turn compacts, and
+`planHistory` summarizes the front of a conversation until the request fits. Blocking a retry that
+compaction would have handled is the same false accusation in a new place. The only unfittable
+request is one whose *newest* message alone is over the window — `planHistory` keeps the newest
+however large — and that one stays unfittable however many times it is retried. Two true negatives
+guard it: a 40-message conversation four times the window is **not** blocked, and neither is a
+conversation on a model that never reported a window size, because "we cannot measure it" is not
+evidence that it would fail.
+
+Because the gate is live rather than a snapshot of the failed turn, turning a tool off re-enables
+the button by itself.
+
+#### 4. A reviewer that returned an empty 200 was not a failure anywhere
+
+`run.json` recorded `"errorCount": 0, "errors": []` on a turn whose reviewer request was answered
+with an immediately-closed empty stream. The screen was honest — `⚠️ Not deliberated — Researcher
+returned nothing` — but it was **re-deriving** that from an empty `review` string, while the record
+beside it said `status: 'done'`. Nothing that reads the record could learn what the screen knew.
+
+- The record now distinguishes `'unreviewed'` (returned without reviewing) from `'done'`, and both
+  it and `'error'` mean the draft was not checked. `draftWentUnchecked` is the single predicate,
+  and it still consults `review` so records written before the status existed read correctly.
+- The audit log said `(nothing came back)`, which reads as an output that happened to be empty. It
+  now says `FAILED: the review request returned an empty reply; the draft was not checked.`
+- The disclosure said *"Run Think harder again, or use 2nd opinion"* — a remedy in prose whose
+  control the app was hiding. `🧠 Think harder` was gated on `!message.deliberation`, so a pass that
+  failed took its own retry away with it. It returns as **🧠 Think harder again** whenever the draft
+  went unchecked, and only then.
+
+True negatives beside each: a real review — all-clear or with problems — is not a failure, and a
+pass still running is not yet one.
+
+#### One escape hatch, and why it is narrow
+
+`ExplainedError` exists so a reading is made once and travels, because re-reading our own prose is
+how a translation layer starts lying. But the transport reads LM Studio's error frame before the
+turn's arithmetic exists anywhere in scope, so the one reading that most needs a number was always
+made without one. The error now carries its raw ingredients, and a caller may ask for the reading
+again under exactly one condition: **the same raw text, once, and only when it supplies a
+measurement the first reading lacked.** The caller's subject and source are deliberately *not*
+merged — the first reading knew who wrote the text, and letting an outer layer overwrite that is how
+a relayed message quietly becomes ours.

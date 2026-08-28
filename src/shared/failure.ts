@@ -53,6 +53,34 @@
  * - **A copy affordance** on that disclosure yields sentence + verbatim text,
  *   which is what a person pastes into a bug report.
  *
+ * ## v1.17.3: the same boundary, asked *who*
+ *
+ * Round 9's critics found the module printing true sentences about the wrong
+ * party. Two more strings, from two more winning builds:
+ *
+ * | on screen | what had actually happened |
+ * | --- | --- |
+ * | `⚠️ Empty reply — nothing came back from the model.` | the server took the POST and wrote nothing for 90 s, and the user pressed Stop |
+ * | `This conversation … is larger than the context the model is loaded with.` | LM Studio said "context"; the app's own meter, six inches below, read `~1.7K / 8.2K` |
+ *
+ * A critic on the first: *"the post-stop message then blames the model for what
+ * the fixture record shows was a transport stall"* — and *"it says neither 'the
+ * server stopped responding' nor 'you stopped it'"*. On the second: *"the one
+ * control that is offered would replay the same oversized conversation into the
+ * same 8192-token window."*
+ *
+ * Neither is a machine identifier, so rules 1–3 had nothing to say about them.
+ * They are the same species one level up: **the app stating as its own finding
+ * something it had not established.** So a fourth rule:
+ *
+ * 4. **Name a party only from evidence, and quote the arithmetic.** Who fell
+ *    silent is decided from what the transport recorded (`explainEmptyReply`
+ *    over `TurnEnding`), never from which sentence is shortest to write. A
+ *    server's claim about our request is checked against our own count
+ *    (`RequestEstimate`) and reported as agreeing or disagreeing — never
+ *    repeated as ours, and never with a remedy naming a term that is not the
+ *    large one.
+ *
  * Pure data and string work, in `shared/` because both processes classify and
  * the node:test suite loads it outside Electron.
  */
@@ -212,6 +240,33 @@ export interface Failure {
   recognised: boolean
 }
 
+/**
+ * The app's own arithmetic about what a turn in this conversation costs.
+ *
+ * v1.17.3. A server that refuses a request "for context" is making a claim the
+ * app can check, and until now did not: it repeated the claim as its own
+ * ("This conversation … is larger than the context the model is loaded with")
+ * while the meter under the composer, reading the same conversation, said
+ * `~1.7K / 8.2K`. One number came from a relayed sentence and the other from
+ * arithmetic, and the app printed both without noticing they disagreed.
+ *
+ * This is that arithmetic, handed in so the sentence can quote it. It is the
+ * SAME figure the composer's meter draws — one function, one number, three
+ * readers (the meter, this sentence, and the gate on Regenerate) — because two
+ * spellings of "how full is the window" is how the contradiction happened.
+ */
+export interface RequestEstimate {
+  /** Estimated tokens a turn here costs: history, prompt, tools, reply reserve. */
+  total: number
+  /** The context length the app was told the model is loaded with. */
+  window: number
+  /**
+   * The largest single term, named for a reader who has to shrink something.
+   * "attach less" is only advice when attachments are what is large.
+   */
+  largest: { label: string; tokens: number; control?: RemedyControl }
+}
+
 /** What the call site knows and this module cannot work out for itself. */
 export interface FailureContext {
   /** The noun phrase the sentence is about: "The search", "This step". */
@@ -223,6 +278,8 @@ export interface FailureContext {
   source?: string
   /** Where an unreachable provider is repointed, when such a place exists. */
   settings?: RemedyControl
+  /** The app's own measurement, for a refusal that names the context length. */
+  request?: RequestEstimate
 }
 
 /** A collapsed row is a glance. Past this it stops being one. */
@@ -278,10 +335,26 @@ function wasAborted(raw: unknown): boolean {
  */
 export class ExplainedError extends Error {
   readonly failure: Failure
-  constructor(failure: Failure) {
+  /**
+   * The text this reading was made from, and what was known when it was made.
+   *
+   * v1.17.3. The transport reads LM Studio's error frame the moment it arrives,
+   * which is before the turn's own arithmetic is anywhere in scope — so the one
+   * reading that most needs a number ("is this request actually too big?") was
+   * always made without one. Keeping the ingredients lets a call site that
+   * knows more ask for the reading again, ONCE, from the same raw text.
+   *
+   * Note what this is not: it is not a licence to re-read the sentence above.
+   * `composeFailure`'s output never comes back through here — only `raw` does —
+   * so the "translation of a translation" this class exists to prevent stays
+   * prevented.
+   */
+  readonly origin?: { raw: string; context: FailureContext }
+  constructor(failure: Failure, origin?: { raw: string; context: FailureContext }) {
     super(composeFailure(failure))
     this.name = 'ExplainedError'
     this.failure = failure
+    if (origin) this.origin = origin
   }
 }
 
@@ -294,12 +367,35 @@ function alreadyExplained(raw: unknown): Failure | null {
 }
 
 /**
+ * May this carried reading be made again? Only in one direction.
+ *
+ * The caller now has the app's own measurement and the first reading did not.
+ * Anything else — a different subject, a different source, no new facts — keeps
+ * the reading that travelled, because re-reading for cosmetic reasons is how a
+ * layer starts lying.
+ */
+function worthReReading(origin: ExplainedError['origin'], context: FailureContext): boolean {
+  return origin !== undefined && context.request !== undefined && origin.context.request === undefined
+}
+
+/**
  * Turn a runtime failure into something a reader can act on, keeping the
  * runtime's own words as attributed evidence beside it.
  */
 export function explainFailure(raw: unknown, context: FailureContext = {}): Failure {
   const carried = alreadyExplained(raw)
-  if (carried) return carried
+  if (carried) {
+    const origin = (raw as ExplainedError).origin
+    if (worthReReading(origin, context)) {
+      // The same raw text, once, with the fact the first reading lacked — and
+      // ONLY that fact. The caller's subject and source are deliberately not
+      // merged: the first reading knew who wrote the text and what the request
+      // was, and letting an outer layer overwrite either is how a relayed
+      // message quietly becomes ours.
+      return explainFailure(origin!.raw, { ...origin!.context, request: context.request })
+    }
+    return carried
+  }
   const subject = context.subject ?? DEFAULT_SUBJECT
   const text = messageOf(raw).trim()
 
@@ -391,21 +487,7 @@ function relayed(subject: string, context: FailureContext, text: string): Failur
   // not: that the server named the context length is a fact about their text;
   // the second sentence is the app's reading of it, and the reader can now
   // check that reading against the quote.
-  if (/context/i.test(text)) {
-    return {
-      headline: 'the conversation is larger than the model’s loaded context',
-      sentence:
-        `${subject} was refused by ${source}, which named the context length. ` +
-        'This conversation — with its attachments and notes — is larger than the context ' +
-        'the model is loaded with.',
-      remedy: {
-        text: 'Load the model with a larger context in LM Studio, or attach less.',
-        ...(context.settings ? { control: context.settings } : {})
-      },
-      detail,
-      recognised: true
-    }
-  }
+  if (/context/i.test(text)) return overContext(subject, source, detail, context.request)
 
   return {
     headline: `${source} refused it, for a reason the app cannot read`,
@@ -413,6 +495,249 @@ function relayed(subject: string, context: FailureContext, text: string): Failur
     remedy: null,
     detail,
     recognised: false
+  }
+}
+
+/** `8192` → `8.2K`. Mirrors renderer/lib/modelInfo.ts, which shared/ cannot import. */
+export function approxTokens(n: number): string {
+  if (n < 1000) return String(n)
+  const k = n / 1000
+  return `${k >= 10 || Number.isInteger(k) ? Math.round(k) : k.toFixed(1)}K`
+}
+
+/**
+ * A refusal that names the context length — and what the app's own arithmetic
+ * says about it.
+ *
+ * Round 9's critics caught this sentence twice over: once for offering a remedy
+ * with no control behind either half of it ("Load the model with a larger
+ * context in LM Studio, or attach less"), and once for contradicting the meter
+ * six inches below it. Both are the same defect — the app repeating a server's
+ * claim as its own finding.
+ *
+ * So the claim is split from the evidence:
+ *
+ * - **Theirs, always:** the server refused it and named the context length.
+ *   That is a fact about their text and the quote is right there.
+ * - **Ours, only with a number behind it:** whether the app's own budget for a
+ *   turn here agrees. With no measurement it says it cannot check, which is
+ *   worse reading and better information than a confident guess.
+ * - **The remedy names the term that is actually large.** "Attach less" is
+ *   advice only when attachments are the largest thing in the request; on the
+ *   measured case the largest thing was the tool schemas the APP adds, and
+ *   telling the reader to attach less would have sent them to shrink a fifth
+ *   of the problem.
+ *
+ * The control rides on `largest`, so it is offered exactly where the app has
+ * proved which term to shrink — round 8's ClaimCheckBlock rule, applied to a
+ * different failure.
+ */
+function overContext(
+  subject: string,
+  source: string,
+  detail: FailureDetail,
+  estimate: RequestEstimate | undefined
+): Failure {
+  if (!estimate) {
+    return {
+      headline: 'the server refused it, naming the context length',
+      sentence:
+        `${subject} was refused by ${source}, which named the context length. ` +
+        'The app has no measurement of this request to check that against, so it cannot say ' +
+        'what is too large.',
+      remedy: { text: 'Load the model with a larger context in LM Studio, or send less in one turn.' },
+      detail,
+      recognised: true
+    }
+  }
+
+  const { total, window, largest } = estimate
+  const budget = `about ${approxTokens(total)} tokens against a ${approxTokens(window)} window`
+  const biggest = `${largest.label}, at about ${approxTokens(largest.tokens)} tokens`
+  const control = largest.control ? { control: largest.control } : {}
+
+  // The app's own count says it does not fit either. Now — and only now — the
+  // app is stating a finding rather than echoing one.
+  if (total > window) {
+    return {
+      headline: 'too large for the window, by the app’s own count too',
+      sentence:
+        `${subject} was refused by ${source}, which named the context length, and the app's own ` +
+        `count agrees: a turn in this conversation costs ${budget}. The largest part of it is ` +
+        `${biggest}.`,
+      remedy: {
+        text: `Reduce ${largest.label}, or load the model with a larger context in LM Studio.`,
+        ...control
+      },
+      detail,
+      recognised: true
+    }
+  }
+
+  // They disagree. Saying which one is right would be a guess, and the app has
+  // been wrong in this exact spot before by guessing; saying that they disagree
+  // is checkable — the same figure is under the composer.
+  return {
+    headline: 'the server refused it for context; the app’s own count disagrees',
+    sentence:
+      `${subject} was refused by ${source}, which named the context length — but the app's own ` +
+      `count does not agree: a turn in this conversation costs ${budget}. One of the two is ` +
+      "wrong. The app's count is estimated from text length rather than tokenized, and a model " +
+      'can be loaded with less context than it reports.',
+    remedy: {
+      text: `Ask again; if it is refused again, reduce ${largest.label} — the largest part of the request, at about ${approxTokens(largest.tokens)} tokens — or load the model with a larger context in LM Studio.`,
+      ...control
+    },
+    detail,
+    recognised: true
+  }
+}
+
+// ---- A turn that ended with nothing on screen ------------------------------
+
+/**
+ * What the transport saw of a turn that produced no text.
+ *
+ * Round 9, on a server that accepted the POST and then wrote nothing for 90
+ * seconds until the user pressed Stop: *"the post-stop message then blames the
+ * model for what the fixture record shows was a transport stall"*, and *"it
+ * says neither 'the server stopped responding' nor 'you stopped it'"*. One
+ * sentence — `⚠️ Empty reply — nothing came back from the model.` — was
+ * standing in for three different events, and it named the wrong party in two
+ * of them.
+ *
+ * The app had every fact needed to tell them apart and threw all of them away
+ * at the bubble. They are four booleans and a clock:
+ */
+export interface TurnEnding {
+  /** The POST was answered: response headers arrived. The server is there. */
+  accepted: boolean
+  /** At least one byte of the response body arrived. A reply had started. */
+  streamed: boolean
+  /** At least one token of answer or reasoning arrived. The model spoke. */
+  produced: boolean
+  /** The user pressed Stop. */
+  stoppedByUser: boolean
+  /** How long the connection had been silent when the turn ended. */
+  silentMs: number
+}
+
+/** "90s", "2s" — the wait as the person watching it counted it. */
+function seconds(ms: number): string {
+  return `${Math.max(1, Math.round(ms / 1000))}s`
+}
+
+/**
+ * Who fell silent, and what the reader can do about it.
+ *
+ * Three events used to land on one sentence that named the model:
+ *
+ * | what happened | who is named now |
+ * | --- | --- |
+ * | the stream ran to its end and carried no text | the model |
+ * | the server answered the POST and closed without writing | the server |
+ * | the user pressed Stop | the user, with what the server had done by then |
+ *
+ * The true negative matters as much as the positives: a model that genuinely
+ * replies with nothing must still be told it replied with nothing. The
+ * distinguishing fact is `streamed` — a body that arrived and carried no text
+ * is the model's silence; a body that never arrived is the server's.
+ *
+ * No control is offered on any of these, and that is the finding rather than an
+ * omission. Round 8's rule is that a control is rendered where the app has
+ * PROVED the remedy is right; here the app has proved the opposite — the server
+ * accepted the request, so the address in Settings → Connection is correct, and
+ * sending the reader there would be sending them to fix a working setting. The
+ * remedy that is real (reload the model) lives in another application.
+ */
+export function explainEmptyReply(ending: TurnEnding): Failure {
+  const { accepted, streamed, produced, stoppedByUser, silentMs } = ending
+  const waited = seconds(silentMs)
+
+  if (stoppedByUser) {
+    if (produced) {
+      return {
+        headline: 'stopped by you',
+        sentence: 'You stopped this turn. What had arrived by then is above.',
+        remedy: null,
+        detail: null,
+        recognised: true
+      }
+    }
+    if (!accepted) {
+      return {
+        headline: 'stopped by you, before the server answered',
+        sentence: `You stopped this turn ${waited} in, before LM Studio had answered the request at all.`,
+        remedy: { text: 'Ask again — nothing was generated, so nothing was lost.' },
+        detail: null,
+        recognised: true
+      }
+    }
+    if (!streamed) {
+      // The measured case. Both halves are said, in the order they happened:
+      // the server's silence is why the user was waiting, and the user's Stop
+      // is why the turn ended.
+      return {
+        headline: `stopped by you, after ${waited} of silence`,
+        sentence:
+          `You stopped this turn. LM Studio had accepted the request and then sent nothing at ` +
+          `all for ${waited} — the reply never started, so the model had produced nothing to stop.`,
+        remedy: {
+          text: 'Ask again. The address is right — the server took the request — so check that the model is still loaded in LM Studio.'
+        },
+        detail: null,
+        recognised: true
+      }
+    }
+    return {
+      headline: `stopped by you, after ${waited} of silence`,
+      sentence: `You stopped this turn. LM Studio had started replying and then went quiet for ${waited}; none of what arrived was answer text.`,
+      remedy: { text: 'Ask again — the reply that had started carried no text.' },
+      detail: null,
+      recognised: true
+    }
+  }
+
+  if (!accepted) {
+    // No throw, no answer, no Stop: the app cannot place this, and rule 3 says
+    // what to do about that.
+    return {
+      headline: 'ended without an answer, for a reason the app cannot name',
+      sentence:
+        'This turn ended without LM Studio answering the request, and the app cannot say why. ' +
+        'Nothing was stopped and nothing failed loudly enough to be reported.',
+      remedy: { text: 'Ask again.' },
+      detail: null,
+      recognised: false
+    }
+  }
+
+  if (!streamed) {
+    // The reviewer's empty 200, and the shape of every proxy that answers and
+    // hangs up. The server is the subject, because the server is what did it.
+    return {
+      headline: 'the server answered and then closed without replying',
+      sentence:
+        'LM Studio accepted the request and closed the connection without sending a reply. ' +
+        'Nothing was generated — this is not a short answer, it is no answer.',
+      remedy: {
+        text: 'Ask again. The server is reachable, so check that the model is still loaded in LM Studio.'
+      },
+      detail: null,
+      recognised: true
+    }
+  }
+
+  // The true negative. The stream ran, the stream ended, and it carried no
+  // text: this one really is the model saying nothing, and must still say so.
+  return {
+    headline: 'the model produced no text',
+    sentence:
+      'The model produced no text. LM Studio answered and the reply ran to its end — it was ' +
+      'simply empty.',
+    remedy: { text: 'Ask again, or rephrase the question.' },
+    detail: null,
+    recognised: true
   }
 }
 

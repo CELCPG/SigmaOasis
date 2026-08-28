@@ -213,9 +213,25 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
     source: inputBar,
     re: /className="(text-ink-[a-z]+)"\s*\n\s*title="LM Studio reports this model as text-only/
   },
+  // v1.17.3: the title moved from a constant to the composed failure, because
+  // the line itself is no longer a constant — it names whichever party actually
+  // fell silent. The class string is scraped off the same node.
   emptyReply: {
     source: bubble,
-    re: /className="(text-\[11px\] text-ink-[a-z]+)"\s*\n\s*title="The turn ended without producing any text/
+    re: /className="(text-\[11px\] text-ink-[a-z]+)" title=\{composeFailure\(nothingCame\)\}/
+  },
+  // …and the remedy that trails it, which is the app telling a reader what to
+  // do next about a turn that produced nothing. Quieter than the warning by
+  // design, and therefore the half of the line most likely to be unreadable.
+  emptyReplyRemedy: {
+    source: bubble,
+    re: /<span className="(text-ink-[a-z]+)"> \{nothingCame\.remedy\.text\}/
+  },
+  // The reason a disabled Regenerate is disabled — visible, not title-only, so
+  // it must be legible.
+  regenerateBlocked: {
+    source: bubble,
+    re: /<span className="(text-ink-[a-z]+)" title=\{cannotRegenerate\}/
   },
   unverifiedNote: {
     source: bubble,
@@ -524,7 +540,8 @@ function fixture(dark: boolean): string {
               <div class="${c('groundingCoverage')}" data-ink="grounding coverage">Covered 1 of the 3 measurements in this reply. Not compared against anything: 4 days, 105 gallons.</div>
               <div class="${c('groundingFooter')}" data-ink="grounding provenance">Checked against: reference_lookup.</div>
             </div>
-            <div class="${c('emptyReply')}" data-ink="empty reply">⚠️ Empty reply — nothing came back from the model. Use ↻ Regenerate to ask again.</div>
+            <div class="${c('emptyReply')}" data-ink="empty reply">⚠️ You stopped this turn. LM Studio had accepted the request and then sent nothing at all for 90s — the reply never started, so the model had produced nothing to stop.<span class="${c('emptyReplyRemedy')}" data-ink="empty reply remedy"> Ask again. The address is right — the server took the request — so check that the model is still loaded in LM Studio.</span></div>
+            <div class="flex flex-wrap items-center gap-1 text-xs text-ink-secondary"><span class="${c('regenerateBlocked')}" data-ink="regenerate blocked">— this request is over the window</span></div>
             <div class="${c('unverifiedNote')}" data-ink="unverified answer">⚠️ Answered from model memory — no sources consulted. Treat names, dates, and numbers as unverified.</div>
             <div class="${c('truncatedNote')}" data-ink="truncated answer">✂️ Cut off at the length cap — this reply is unfinished.</div>
             <div class="mt-2 space-y-0.5 text-[11px]">
