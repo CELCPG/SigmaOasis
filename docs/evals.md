@@ -6900,3 +6900,142 @@ pack was searched mistrusts every passage under it.
   `priorTurns` is one line and is deliberately not taken here. It is a different rung with different
   true negatives — a reply may quote the query of a lookup from three turns back perfectly honestly
   — and those want recording before its corpus is widened.
+### Pending fold-in — the coverage line counted its own vocabulary and called it the reply
+
+Round 12's only result against the new build, held at low confidence and then overturned on the
+arithmetic. Task V3, both arms, under a reply about a dripping faucet:
+
+> ⚠️ 1 figure ($15) in this reply is not backed by the tool output.
+>
+> Covered 1 of the 4 measurements in this reply.
+> Not compared against anything: 1,450 gallons, 2.2 gallons per drop, 30 days.
+
+The critic counted six quantities and was overruled, correctly. `measurementsIn` over the exact
+reply bytes returns exactly four spans — `1,450 gallons`, `2.2 gallons per drop`, `30 days`,
+`60 minutes` — and `quantityCoverage`, which turns those into the N-of-M, is byte-identical across
+the arms. Of the critic's two extras, one is a currency figure, which the line directly above counts
+and reports separately. The **4 is right.** The other extra is the defect: the reply also states
+`~876 drops per day`, `drop` is not in `MEASUREMENT_UNITS`, so that quantity was never a candidate —
+and *in this reply* is a claim about the reply made from a scan narrower than the reply.
+
+The near-miss is the whole of it. `2.2 gallons per drop` **is** read, because `gallon` is a known
+unit. `876 drops per day` is not, because `drop` is not. The reply's own arithmetic multiplies the
+two together, and the app read one factor and not the other, in a sentence that said it had read the
+reply.
+
+| | line |
+| --- | --- |
+| before | `Covered 1 of the 4 measurements in this reply. Not compared against anything: 1,450 gallons, 2.2 gallons per drop, 30 days.` |
+| after | `Covered 1 of the 4 measurements this check can read in this reply. Not compared against anything: 1,450 gallons, 2.2 gallons per drop, 30 days. Outside what it can read at all, so not in that count: 876 drops per day.` |
+
+**Two repairs, and the first is the one that cannot be wrong.** The denominator now says whose
+reading it is. That sentence is true whatever the second scan misses, and it is what every other
+rung on the same screen already does — *not backed by the tool output*, *Checked against: …*. This
+one named no corpus at all.
+
+#### Why the scan was not widened instead
+
+The obvious fix is to recognise number-plus-noun generally, so the denominator really is the
+measurements in the reply. Measured before choosing, over the documents this app actually ships —
+every `packs/**/*.md`, with the spans the unit vocabulary already reads subtracted — a
+number-plus-noun scan returns **578 spans, 293 distinct**, headed by:
+
+```
+ 28  3 to         17  72, index     14  111 if       10  111 or        9  999 and
+ 19  1 to         17  529 plans     11  2 to         10  111 online    8  2 diabetes
+ 10  65 and        9  2025, the      5  2023 Next     4  31 March      4  09 June
+```
+
+Ranges, digit groups ending in a separator, an IRS form name, phone numbers, dates, a disease
+classification. Widen the sweep to this repo's own prose and `4 steps`, `1 measurement`,
+`3 lookups`, `18 tasks` join it — the app's own chrome, exactly as the brief predicted. **There is
+no noun list that separates `529 plans` from `876 drops`**; they are the same shape. Any exclusion
+set written for the ones seen so far is the enumeration this codebase has recorded being defeated
+twice — `carriesAQuotation` ("an enumeration
+of the furniture seen so far, defeated by the next piece") and `ARGUMENT_PARAMS` ("the known-good
+set is *what the turn actually sent* — never an enumeration of the shapes a fabrication takes").
+
+And the cost is not confined to the sentence. `MEASUREMENT_UNITS` is single-sourced on purpose: the
+same vocabulary arms `unsourcedQuantities` (the ⚠️ line), `researchGrounding`, the library scorer,
+and — inverted — `amountsIn`, which decides which bare numbers may support a **price**. Widening it
+would let a reply's `5 steps` be *faulted* against a passage's `3 steps`, and would move money
+verdicts as a side effect of a noun list. A denominator repair that changes what the warning banner
+accuses is not a repair.
+
+#### What was built instead, and where the inversion belongs
+
+`unreadableQuantitiesIn` is the inverse of the unit list, applied on the **disclosure** side where a
+mistake costs a sentence and never a verdict. Known-good is `MEASUREMENT_UNITS`; the complement is
+found by shape and subtracted **by offset**, so whatever the unit list learns tomorrow this shrinks
+to match without being edited, and the two can never both claim one span.
+
+The discriminator is not a noun list — it is the sentence's own syntax. **`X per Y` and `X/Y` are
+how English writes a dimension out loud**, and a phone number, a date, a form name and a list length
+cannot wear one. Same scan, restricted to rates, over the same packs: **27 spans, 15 distinct** —
+578 down to 27, and every one of the 27 is a real measurement this app cannot read.
+
+All fifteen, in full, because a claim of "no false positives" is worth nothing without the list:
+
+| span | pack |
+| --- | --- |
+| `0.4 pCi/L`, `1.3 pCi/L`, `2 pCi/L`, `4 pCi/L`, `8 pCi/L`, `10 pCi/L`, `20 pCi/L`, `50 Bq/m` | `home-safety/docs/radon.md` |
+| `5 parts per million`, `50 parts per million`, `55 milligrams per cubic` | `home-safety/docs/carbon-monoxide-indoors.md` |
+| `500 milligrams per liter`, `1 quart/liter` | `home-safety/docs/emergency-water-disinfection.md` |
+| `40,000 cases per year` | `food-safety/docs/refrigerator-thermometers.md` |
+| `3 colds per year` | `health/docs/common-cold.md` |
+
+Zero identifiers, zero dates, zero list lengths, zero chrome. Three shape rules carry it, each about
+the writing rather than about the word: the digit group **ends in a digit** (`72, index` is not a
+quantity called `index` — the fix `CURRENCY` already records for `$30,000,`); a **space** stands
+between number and word (`1st`, `3pm`, `2x`, `1080p` are one token, and a scan that splits tokens
+invents the dimension it reports); and `per` is a **word** with `/` written **tight** — greedy
+backtracking otherwise reads this repo's own address fixture `10023 Upper West Side` as *10023 "Up"
+per "West"*, and ` /` collects file paths.
+
+**It is a floor and never a census, and the sentence is written so that this is safe.** The clause
+*names* what it found and states no total for the reply; a second census would be the same
+overstatement one clause along. Nor is it gated the way the line is: `coverageWorthSaying` exists
+because "compared against nothing" reads as broken when the number is on screen in the passage
+below, and "this check cannot read this unit" is not contradicted by the passage stating the
+quantity — it was never a claim about the quantity's truth.
+
+**True negatives.** A turn whose every measurement the vocabulary reads stores no `unread` field at
+all and prints two clauses, not three (`Covered 1 of the 2 measurements this check can read in this
+reply. Not compared against anything: 9 days.`) — a build that hedged every coverage line fails
+there. `2.2 gallons per drop`, `60 seconds/min`, `700 gallons per month` are read by the unit
+vocabulary and so are absent here, never named twice. `$2 drips per second` is the money rung's and
+`2 drips per second` is not, which is what shows the currency guard doing work rather than the
+pattern failing anyway. `876` at the end of one line and `drops per day` at the start of the next
+are two claims, as everywhere else in that file. And the disclosure is not a finding: on the
+recorded reply `groundingFindingCount` is still 1, the labels are still `['$15']`, and the
+correction prompt sent back to the model contains neither `876` nor `drops per day`.
+
+#### Limits
+
+- **Without its rate the same quantity is invisible.** `about 876 drops a day` discloses nothing.
+  That is the direction this project has settled on twice: a miss costs a disclosure, a false name
+  on a warning banner costs the badge (round 4). It is also why the first repair — the denominator
+  saying whose reading it is — is not optional and does not depend on this scan.
+- **A quantity with no digits is not a quantity here.** "a third of a tankful" is outside both
+  scans, and no wording of the second clause would reach it. The first sentence is what stays honest
+  about that case.
+- **Residue outside prose.** Over source files rather than documents the rate scan still returns
+  `400 test/styleCheck`, `252 render/style`, `3 left/i`, `8080 searxng/searxng` — paths, a regex
+  flag, a container tag. None appear in a document or a reply, and the scan runs on the assistant
+  message alone, so this is recorded rather than repaired.
+- **The span stops at the first word after `per`.** `55 milligrams per cubic` is how the carbon
+  monoxide passage's `…per cubic metre` is named. The reader can find the string, which is the bar
+  this project sets for a named span, but it is a phrase cut short rather than a unit.
+- **An exponent glued to the unit hides the rate.** The radon pack writes both `50 Bq/m 3` and
+  `740 Bq/m3`; the first is disclosed and the second is not, because `\b` falls inside `m3`. The
+  `pCi/L` spelling in the same rows is the one that carries the reading, so the document is not
+  silent — but the miss is real and is recorded rather than patched, since widening the word after
+  the slash is how `test/styleCheck` got in.
+- **`15 dollars` is not routed to the money rung.** The currency guard is by glyph, because `pounds`
+  is already a mass and a currency *word* list would collide with the unit list it is subtracting
+  from. A reply spelling a price out would have it disclosed here as unreadable, which is true and
+  slightly beside the point.
+- **The line still rides an existing badge.** A reply the pass faults nowhere makes no coverage
+  claim, so it gets no correction — including on a reply whose only quantities are ones this scan
+  cannot read. Unchanged from v2.1, and the same reasoning: a permanent grey line under every
+  mention of "20 minutes" is round 4's cry-wolf in a quieter ink.

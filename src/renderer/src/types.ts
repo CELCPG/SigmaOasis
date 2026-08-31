@@ -844,6 +844,15 @@ export interface GroundingReport {
     unchecked: number
     /** The first few of those, as the reader can find them on screen. */
     uncheckedNamed: string[]
+    /**
+     * v2.5: quantity-shaped spans the unit vocabulary cannot read, and so in
+     * neither count above. A floor, never a census — the line names them and
+     * states no total for the reply. See `unreadableQuantitiesIn` in
+     * shared/measurements.ts for the round-12 reply that asked for it.
+     */
+    unread?: number
+    /** The first few of those, in the order the reply states them. */
+    unreadNamed?: string[]
   }
   /**
    * v2.2: the mirror of `coverage`, and the second field here that is not a

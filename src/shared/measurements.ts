@@ -266,6 +266,114 @@ export function measurementsIn(text: string, options: MeasurementOptions = {}): 
   return out
 }
 
+// ---- what the vocabulary cannot read (v2.5) ----------------------------------
+
+/**
+ * A quantity written as a **rate**, whose unit is not one this file knows.
+ *
+ * v2.5, and it is the inverse of everything above it. `MEASUREMENT_UNITS` is a
+ * list of what is known-good, deliberately finite and deliberately closed. Its
+ * complement — every quantity a reply states that this vocabulary is silent
+ * about — was not a set anything could name, so a caller counting measurements
+ * had no way to say "and there were others I cannot read". It reported its own
+ * scan and called it the reply.
+ *
+ * Measured, round 12, task V3 (`verdicts/round-12.json`): a reply about a
+ * dripping faucet states `1,450 gallons`, `2.2 gallons per drop`, `30 days`,
+ * `60 minutes` — and `~876 drops per day`. Four of those five are in the
+ * vocabulary. The near-miss is the whole lesson: `2.2 gallons per drop` is
+ * recognised because `gallon` is a known unit, `876 drops per day` is not
+ * because `drop` is not, and the reply's own arithmetic chains the two
+ * together. A line reading "the 4 measurements in this reply" was a claim
+ * about the reply made from a scan narrower than the reply.
+ *
+ * **Why a rate and not any noun.** The obvious widening is "a number followed
+ * by a word" — a quantity is a value and a dimension, and `drops` is a
+ * dimension. Measured over the documents this app actually ships (every
+ * `packs/**\/*.md`, minus what the unit vocabulary already reads), that scan
+ * returns **578 spans, 293 distinct**, and the top of the list is `3 to`,
+ * `1 to`, `72, index`, `529 plans`, `111 if`, `2025, the`, `2 diabetes`,
+ * `31 March`. Ranges, phone numbers, IRS form names, dates, disease
+ * classifications — and over this repo's own prose, `4 steps`,
+ * `1 measurement`, `3 lookups`: the app's own chrome. There is no noun list that
+ * separates `529 plans` from `876 drops`; they are the same shape, and every
+ * exclusion written for the ones seen so far is the enumeration this codebase
+ * has recorded being defeated twice (`carriesAQuotation`, `ARGUMENT_PARAMS` in
+ * toolGrounding.ts).
+ *
+ * The rate is the discriminator, and it is not a list — it is the sentence's
+ * own syntax. `X per Y` and `X/Y` are how English writes a dimension out loud;
+ * a phone number, a date, a form name and a list length cannot wear one. The
+ * same scan restricted to rates returns **27 spans, 15 distinct** over those
+ * same packs, and every one of them is a real measurement this file cannot
+ * read: `4 pCi/L` and `50 Bq/m` (radon), `5 parts per million` (carbon
+ * monoxide), `500 milligrams per liter` (disinfection),
+ * `40,000 cases per year`, `3 colds per year`, `1 quart/liter`. 578 down to
+ * 27, with zero identifiers, zero dates, zero list lengths, zero chrome.
+ *
+ * **So this is a floor, never a census.** `876 drops` written without its rate
+ * is missed here, and that is the direction this project has settled on twice:
+ * a miss costs a disclosure, a false name on a warning banner costs the badge
+ * itself (round 4). A caller must therefore never phrase what this returns as
+ * "the quantities in the reply" — that is the very sentence being repaired.
+ *
+ * Three shape rules, each one about the writing rather than about the word:
+ *
+ * - The digit group **ends in a digit**, so `72, index` is not a quantity
+ *   called `index`. Exactly the fix `CURRENCY` records for `$30,000,`.
+ * - A **space** stands between the number and the word, because without one
+ *   there is no second word: `1st`, `3pm`, `2x` and `1080p` are one token, and
+ *   a scan that splits tokens invents the dimension it then reports.
+ * - `per` is a **word** and `/` is **tight**. Greedy backtracking otherwise
+ *   reads `10023 Upper West` as *10023 "Up" per "West"* — measured, on this
+ *   repo's own address fixture — and ` /` picks up file paths.
+ */
+function rateQuantityPattern(): RegExp {
+  // Fresh each call, for the reason `measurementPattern` states: a module-level
+  // `/g` regex carries `lastIndex` into whatever reaches for it next.
+  return new RegExp(
+    `(?<![\\w.])(\\d(?:[\\d,]*\\d)?(?:\\.\\d+)?)${H}+[a-z]+(?:${H}+per${H}+[a-z]+|/[a-z]+)\\b`,
+    'gi'
+  )
+}
+
+/** A quantity-shaped span with no unit this file can read. */
+export interface UnreadQuantity {
+  /** Exactly as written, for reporting — the only thing a caller may do with it. */
+  raw: string
+  /** Offset of the number, so a caller can tell it from a span it did read. */
+  index: number
+}
+
+/**
+ * Every rate in `text` that `measurementsIn` did not already claim.
+ *
+ * The subtraction is by **offset**, which is what makes this the inverse of the
+ * vocabulary rather than a second opinion about it: `2.2 gallons per drop` is
+ * read by `measurementsIn`, so it is not here; `876 drops per day` is not, so
+ * it is. Whatever the unit list learns tomorrow, this shrinks to match without
+ * being edited, and the two can never both claim the same span.
+ *
+ * Currency is dropped for the reason the header of this file gives for keeping
+ * it out of `MEASUREMENT_UNITS`: money has its own check with its own rules,
+ * and `$15 per month` reported here would be one claim counted by two rungs.
+ * By glyph rather than by word, because `pounds` is already a mass.
+ */
+export function unreadableQuantitiesIn(text: string): UnreadQuantity[] {
+  // `H` and not `\s`, for the reason `H` exists: a `$` ending one line does not
+  // price a number beginning the next.
+  const priced = new RegExp(`[$£€¥]${H}?$`)
+  const read = new Set(measurementsIn(text).map((m) => m.index))
+  const out: UnreadQuantity[] = []
+  for (const m of text.matchAll(rateQuantityPattern())) {
+    const index = m.index ?? 0
+    if (read.has(index)) continue
+    if (priced.test(text.slice(Math.max(0, index - 2), index))) continue
+    out.push({ raw: m[0].trim().replace(/\s+/g, ' '), index })
+  }
+  return out
+}
+
 // ---- dimensions (v1.17.2) ----------------------------------------------------
 
 /**

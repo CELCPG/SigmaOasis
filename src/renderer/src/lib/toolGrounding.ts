@@ -4,6 +4,7 @@ import {
   isRatioScale,
   measurementGroup,
   measurementsIn,
+  unreadableQuantitiesIn,
   type Measurement
 } from '../../../shared/measurements'
 import { TOOL_DEFS } from '../../../shared/tools'
@@ -201,6 +202,18 @@ export interface QuantityCoverageReport {
   unchecked: number
   /** The first few of those, as the reader can find them on screen. */
   uncheckedNamed: string[]
+  /**
+   * v2.5: quantity-shaped spans the measurement vocabulary cannot read, and
+   * which are therefore in neither number above.
+   *
+   * A floor and never a census — see `unreadableQuantitiesIn`. That is why
+   * `describeCoverage` names these and never counts them as a total of what
+   * the reply contains: the sentence being repaired is exactly the one that
+   * mistook a scan for a reply.
+   */
+  unread?: number
+  /** The first few of those, in the order the reply states them. */
+  unreadNamed?: string[]
 }
 
 /**
@@ -474,8 +487,19 @@ export function unlistedLinks(report: GroundingReport): number {
   return (report.found?.links ?? report.links.length) - report.links.length
 }
 
-/** Beyond this many, the coverage line names the first few and counts the rest. */
-const MAX_UNCHECKED_NAMED = 4
+/**
+ * Beyond this many, each clause of the coverage line names the first few and
+ * counts the rest. Shared by both clauses because it is one line and one
+ * reader's patience, not two budgets.
+ */
+const MAX_COVERAGE_NAMED = 4
+
+/** `a, b, c and N more`, where N is what the cap left out. */
+function namedUpTo(named: string[], total: number): string {
+  const shown = named.slice(0, MAX_COVERAGE_NAMED)
+  const rest = total - shown.length
+  return rest > 0 ? `${shown.join(', ')} and ${rest} more` : shown.join(', ')
+}
 
 /**
  * The one line that says what this pass did *not* do.
@@ -529,17 +553,52 @@ const MAX_UNCHECKED_NAMED = 4
  * noise. The line is therefore gated on `coverageWorthSaying`: at least one
  * skipped measurement whose number the reader cannot find in what the tools
  * returned. See there for why the gate is on the line and not on the items.
+ *
+ * **v2.5: the denominator was a claim about the reply, taken from a scan.**
+ * Round 12, task V3, both arms, verbatim:
+ *
+ *     Covered 1 of the 4 measurements in this reply.
+ *     Not compared against anything: 1,450 gallons, 2.2 gallons per drop, 30 days.
+ *
+ * — under a reply that also states `~876 drops per day`. The 4 is correct
+ * arithmetic over `measurementsIn`, which returns exactly four spans on those
+ * bytes. `drop` is not in the unit vocabulary, so the fifth quantity was never
+ * a candidate and nothing on screen said so. *In this reply* is a claim about
+ * the reply; the number behind it was a claim about the scan. Every other rung
+ * in this file states its own corpus — "not backed by the tool output",
+ * "Checked against: …" — and this one silently did not.
+ *
+ * Two sentences, and both are needed. The first now says whose reading the
+ * denominator is, which is true whatever the scan missed. The second, new one
+ * names the quantities the vocabulary could not read at all, so the reader can
+ * see the provenance rather than take it on trust — and it is deliberately a
+ * naming and never a total, because `unreadableQuantitiesIn` is a floor by
+ * construction and a second census would be the same overstatement one clause
+ * along.
+ *
+ * That clause is **not** gated the way the line is. `coverageWorthSaying`
+ * exists because "compared against nothing" reads as broken when the number is
+ * on screen in the passage below it; "this check cannot read this unit" is not
+ * contradicted by the passage stating the quantity, because it was never a
+ * claim about the quantity's truth.
  */
 export function describeCoverage(report: GroundingReport): string {
   const gap = report.coverage
   if (!gap || gap.unchecked === 0) return ''
   const total = gap.checked + gap.unchecked
-  const shown = gap.uncheckedNamed.slice(0, MAX_UNCHECKED_NAMED)
-  const rest = gap.unchecked - shown.length
-  const named = rest > 0 ? `${shown.join(', ')} and ${rest} more` : shown.join(', ')
+  // Both halves, deliberately: a clause with a count and nothing to name is a
+  // number the reader cannot find on screen, which is the whole failure this
+  // line keeps being repaired for.
+  const unread = gap.unread ?? 0
+  const unreadNamed = gap.unreadNamed ?? []
   return (
-    `Covered ${gap.checked} of the ${total} measurement${total === 1 ? '' : 's'} in this reply. ` +
-    `Not compared against anything: ${named}.`
+    `Covered ${gap.checked} of the ${total} measurement${total === 1 ? '' : 's'} this check ` +
+    `can read in this reply. ` +
+    `Not compared against anything: ${namedUpTo(gap.uncheckedNamed, gap.unchecked)}.` +
+    (unread > 0 && unreadNamed.length > 0
+      ? ` Outside what it can read at all, so not in that count: ` +
+        `${namedUpTo(unreadNamed, unread)}.`
+      : '')
   )
 }
 
@@ -899,6 +958,17 @@ export interface QuantityCoverage {
   unchecked: string[]
   /** The subset of `checked` that nothing supports — the findings. */
   flagged: string[]
+  /**
+   * v2.5: distinct quantity-shaped spans that are in **none** of the three
+   * above, because the unit vocabulary cannot read them.
+   *
+   * `checked + unchecked` is every measurement the walk saw; this is what the
+   * walk could not see, and it is here so that a caller reporting the first
+   * two cannot describe them as the reply. It arms nothing, supports nothing
+   * and can never become a finding — it is only ever disclosure, which is the
+   * reason a scan this loose is safe at all. See `unreadableQuantitiesIn`.
+   */
+  unread: string[]
 }
 
 /** The findings only, which is what every caller before v2.1 wanted. */
@@ -1055,7 +1125,15 @@ export function quantityCoverage(
       continue
     record(flagged, seen, m.raw)
   }
-  return { checked, unchecked, flagged }
+  // v2.5. Deliberately outside the loop and deliberately over `answer` alone:
+  // this is not a fourth verdict on a measurement, it is the answer to "what
+  // did that loop never get to look at". Distinct by the span as written, like
+  // every bucket above it, for the same reason — a count the reader cannot
+  // reproduce from the screen is the defect round 4 recorded.
+  const unread: string[] = []
+  const seenUnread = new Set<string>()
+  for (const q of unreadableQuantitiesIn(answer)) record(unread, seenUnread, q.raw)
+  return { checked, unchecked, flagged, unread }
 }
 
 /**
@@ -3900,7 +3978,16 @@ export function checkToolGrounding(
           coverage: {
             checked: coverage.checked.length,
             unchecked: coverage.unchecked.length,
-            uncheckedNamed: coverage.unchecked.slice(0, MAX_REPORTED)
+            uncheckedNamed: coverage.unchecked.slice(0, MAX_REPORTED),
+            // v2.5: written only when there is something to disclose, so a
+            // report over a reply whose every quantity the vocabulary read
+            // cannot claim a gap it did not find — the rule `found` follows.
+            ...(coverage.unread.length > 0
+              ? {
+                  unread: coverage.unread.length,
+                  unreadNamed: coverage.unread.slice(0, MAX_REPORTED)
+                }
+              : {})
           }
         }
       : {}),
