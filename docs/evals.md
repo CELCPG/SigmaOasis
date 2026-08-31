@@ -6735,3 +6735,168 @@ TTU1, both arms, with the same measurements:
   printed figures have to be before a reader would call them different, and one second is a
   judgement about the stat line's one decimal place. Print two decimals there and this number is
   wrong.
+### Pending fold-in — the reply invented the retrieval whose true account was printed above it
+
+Round 12's critic found this in **both** builds, on the same task, and made it the round's highest
+contested count: three record-level contradictions per run. Task VC3 asks, in as many words, *"Which
+documents from my library did you actually use just now, how relevant were they, and how long did
+that take?"* — and both arms answered it with numbers nothing had returned.
+
+`.h2h-runs/judge-r12/VC3/run-2` (arm A, `A12/VC3-20260828-161158`). One `reference_lookup` ran and
+returned five passages, every one of them labelled `Food safety › …`:
+
+> 1 call was made to the reference_lookup tool with query "how long to cool a burn under running
+> water"
+> It pulled from the **First Aid Basics** pack (6 passages max)
+> It returned 3 relevant passages, all citing "First Aid Basics › Burn Treatment"
+
+`.h2h-runs/judge-r12/VC3/run-1` (arm B, `B12/VC3-20260828-152450`). Two lookups returned eleven
+passages carrying relevance `1 / 0.818 / 0.767 / 0.72 / 0.718` and
+`1 / 0.945 / 0.924 / 0.922 / 0.885 / 0.802`:
+
+> **Documents used:** The reference lookup returned **4 passages** from the **health pack** …
+>
+> | Passage | Similarity Score | … |
+> | #1 | 0.83 | … | #2 | 0.79 | … | #3 | 0.76 | … | #4 | 0.62 | … |
+
+There is no health pack and no First Aid Basics passage in either run. One message above each of
+these the app had printed its own provenance strip — `📖 From the library: [1] Food safety › Safe
+minimum internal temperatures · 6% in (1.00), … [5] Food safety › Cold food storage chart · 37% in
+(0.72)` — and said nothing. The critic's summary: *"Each build holds the exact provenance data on
+screen — the pack names, the passage counts, the relevance figures — and each let the reply
+misdescribe all three without a word."*
+
+#### Why the existing rungs are all silent here
+
+Every rung in the ladder reads the records of **the turn it is checking**, and VC3's retrieval ran
+one turn earlier. That is not an accident of this task; it is the shape of the question. Nobody asks
+what a lookup returned until after it has returned, so a provenance question is *always* asked a
+turn late, and a pass scoped to `allRecords` is structurally blind to the whole family.
+
+Even with the records in hand, none of the eleven rungs asks this question. `unrunToolClaims` and
+`contradictedToolAccounts` settle the **act**; `overstatedToolCounts` settles **how many calls**;
+`statedArgumentsIn` settles **what went out**. What came *back* — the pack, the passage count, the
+relevance figures — was never read, and it is the half of the record a reader actually cites.
+
+#### The corpus: the same artifact, one message up
+
+`misdescribedRetrieval` takes `RetrievalTurns` — `ChatMessage.toolCalls` for each earlier assistant
+turn, one array per turn — and this is the one place the pass looks outside its own turn. It is
+**not** the bench artifact v2.3 refused: `record.library` is read by the harness through
+`libraryList()` from outside the app, whereas this is the same in-memory renderer array `records`
+already is, held synchronously, in this conversation.
+
+Grouped per turn and never flattened. `turnLookups` claims each passage number once and a turn's
+numbering restarts at `[1]`, so a flat list would let turn two's `[1]`–`[5]` collide with turn one's
+and vanish — the check would then *understate* what was retrieved, which is the direction that
+invents findings.
+
+**And the ambiguity is designed out rather than guessed at.** Which earlier retrieval is the reply
+describing? The pass does not decide. A claim is faulted only when it matches **nothing any turn in
+the conversation retrieved**, so no reading of "just now" can rescue it. Every widening of the truth
+set — each lookup's own count, each turn's total, the conversation's total, every segment of every
+citation line, and the `pack` argument of calls that returned nothing — can only ever *silence* the
+check.
+
+#### Scope: three numbers with a witness, and four claims refused
+
+| settled | how |
+| --- | --- |
+| **Which pack** | Every `›`-segment of every citation line the lookups returned, plus any `pack` argument sent. A past-tense report of retrieval `from the <name> pack` whose name matches none of them. |
+| **How many passages** | A count adjacent to the noun (`4 passages`) in a sentence reporting what came back, matching no lookup's count and no turn's total. |
+| **What relevance came back** | A decimal in [0,1] under a `relevance` / `similarity` heading, matching no passage's score at full precision, 3dp, 2dp or 1dp, rounded **or** truncated. |
+
+Four neighbours were considered and **refused**, for v2.3's reason — a rung built on a fact the app
+cannot establish is worse than the gap it closes:
+
+| candidate | why not |
+| --- | --- |
+| *"The answer combined what was available from those results with established food safety knowledge"* | Where the answer's **content** came from. Out of scope since v2.3 and always will be: the records show the passages arriving, and nothing shows whether a sentence was written out of them. |
+| **How many lookups ran** | `overstatedToolCounts`' rung, and neither recorded reply miscounts — run-2 says "1 call" and one call ran. What this round changes there is a phrase, not a rule: `N calls **were made to** the tool` is the passive of a claim that rung already reads, and it is how the recorded corpus writes it. |
+| **Understated** counts | A partial count is a true sentence — "I ran one lookup for the storage half" over two lookups — so telling a total from a part means reading the sentence, not looking up the record. Only claims no reading can rescue are faulted. |
+| *"The top two passages were strong matches"* | A relevance **ranking** is the model's own reading of passages it holds. `describeCoverage`'s refusal applies unchanged: the app cannot decide which passage answers the question, so it cannot fault an opinion about which one did. |
+
+And one refusal inside a sentence the rung otherwise fires on. Run-2's *"It returned **3 relevant**
+passages"* draws nothing, because the count rung requires the number to be adjacent to the noun. The
+sentence has two readings — three came back, or three of what came back were relevant — and the
+second is a claim about relevance the app has already refused to adjudicate. The cost is a miss on
+half of one recorded line; the other half (`the First Aid Basics pack`) is faulted, so the reader is
+not left without a warning on it.
+
+#### The cry-wolf budget, spent on the recorded corpus
+
+Swept over **all 432 recorded replies** in `.h2h-runs` (204 of them in conversations carrying a
+`reference_lookup`), with records reconstructed per turn out of each run's
+`transcript-expanded.txt`. The first version flagged **8**. Six were real; two were the same reply
+captured twice, and it was a false positive:
+
+- **`A7/VC3-20260825-022756`** (= `judge-r7/VC3/run-2`) — five passages came back; the reply says
+  *"**Two passages were retrieved:**"* and then lists exactly two, `[1]` and `[5]`, each with what it
+  states. Read against the record that sentence is false; read against the colon under it, it is a
+  heading for a list. The app cannot tell "retrieved" from "used" there, so it does not try — it
+  asks instead whether the reply put that many passages on the page, which is a count it can take
+  (`citedIndices`). Suppression only, and one-directional: eleven claimed over two cited is still
+  faulted.
+
+After it, the sweep flags **6 of 432** — three distinct replies, each captured twice, every one read
+by hand and every one real:
+
+| run | flagged |
+| --- | --- |
+| `A12/VC3` = `judge-r12/VC3/run-2` | the `First Aid Basics` pack, over five Food safety passages |
+| `B12/VC3` = `judge-r12/VC3/run-1` | the `health` pack; `4 passages` against 5 and 6; relevance `0.83, 0.79, 0.62` |
+| `A10/VC3` = `judge-r10/VC3/run-2` | *"came from a single PDF in the \"first aid\" pack"*, over Food safety passages |
+
+`A10/VC3` was not in the brief and is the same defect one round earlier, which is the sweep earning
+its keep: the shape has been shipping since at least round 10.
+
+Detector exposure, measured over the same 432: **6** replies contain the pack phrase, **10** a
+passage count, **20** a relevance word. Of the 20, only one states a decimal in [0,1] at all. This
+rung is quiet because there is very little in the corpus for it to be loud about — which is also why
+the three replies it does flag are worth flagging.
+
+#### The true negatives, each beside its true positive
+
+| the finding | the silence beside it |
+| --- | --- |
+| `First Aid Basics` / `health` / `single PDF in the "first aid"`, over Food safety passages | The **honest** account of the same retrieval: right pack, right counts, right relevances in the app's own two decimals — no badge at all, from any rung |
+| — | Hedges: `the passages I was given seemed to be about…`, `I think they came from the first aid pack`, `it may have returned 4 passages`, `if the lookup returned 3 passages…` |
+| — | The round-11 list of installed packs (`A11/VC3`): *"the tool searches your installed reference **packs** (first aid, preparedness, personal finance, health, home repair, legal basics)"* — present tense, plural, and about what the tool **can** search rather than what this lookup returned |
+| `4 passages` against lookups of 5 and 6 | `(6 passages max)` — a ceiling is not a count, and six is `reference_lookup`'s own default `topK`; `up to 8 passages` likewise |
+| — | `Two passages were retrieved:` with two passages cited under it (`A7/VC3`) |
+| — | A **document** called a pack (`the Cold food storage chart pack`) — a name the reader can see, so a mislabel rather than a fabrication; and a generic one (`the reference pack`), which picks out no pack at all |
+| — | A pack the call was **sent** (`pack: 'first-aid'`) even when that call returned nothing |
+| relevance `0.83`, `0.79`, `0.62` | `0.76` for a passage scoring `0.767` — the strip prints two decimals and the tool output three, so choosing between `0.76` and `0.77` is a rendering convention, not a claim |
+| — | A conversation where **nothing** was retrieved: a sentence about what the library returned is then a sentence about a lookup that never ran, which is `unrunToolClaims`' finding |
+| Both recorded accounts end to end through `checkToolGrounding` | The honest account on the same turn draws **no badge at all**; and `priorTurns` reaches exactly one rung — `I didn't use reference_lookup` over a lookup that ran a turn ago stays silent |
+
+#### The on-screen string
+
+> ⚠️ This reply's account of what the library returned contradicts the passages: the reply says the
+> passages came from the "health" pack; every one retrieved is from Food safety; the reply says 4
+> passages came back; the 2 lookups returned 5 and 6; the reply gives relevance 0.83, 0.79, 0.62;
+> the passages carry 1, 0.818, 0.767, 0.72 and 6 more.
+
+It renders directly under `toolArgs` — what the call was **sent**, then what it brought **back**, the
+two halves of one sentence — and above the quotation rung, because a reader who believes the wrong
+pack was searched mistrusts every passage under it.
+
+#### Limits
+
+- **One finding per kind, not per number.** A reply inventing a pack, a count and four relevance
+  figures produces three lines, not six. The lines name every item (capped at four with `and N
+  more`), but `groundingFindingCount` sees three — deliberately, because the badge is read as
+  prose and six clauses about one fabricated table is a paragraph.
+- **The pack check needs the word "pack".** `A7/VC3` says *"specifically the **first aid / health
+  pack**"* with no `from` before it, and goes unflagged. Widening past `<verb> … from the <name>
+  pack` means guessing which noun phrase in a sentence is a pack name, which is the guess this file
+  refuses everywhere else.
+- **The relevance check needs a decimal point.** A score written as a bare `1` is invisible to it.
+  `1` is far too common in prose to read as a relevance figure, and the cost is a miss on the one
+  value the library prints without one.
+- **Found and not fixed.** Run-2's stated query — *"how long to cool a burn under running water"*
+  against a call that carried the user's own chicken question — is `statedArgumentsIn`' rung, and it
+  is silent for the same corpus reason: the call ran a turn earlier. Extending that rung to
+  `priorTurns` is one line and is deliberately not taken here. It is a different rung with different
+  true negatives — a reply may quote the query of a lookup from three turns back perfectly honestly
+  — and those want recording before its corpus is widened.

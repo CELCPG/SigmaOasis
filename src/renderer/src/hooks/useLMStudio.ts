@@ -650,6 +650,16 @@ async function runTurn(
       .map((m) => m.content)
       .join('\n')
 
+  // v2.5: the tool records of the conversation's EARLIER assistant turns, one
+  // array per turn. Read by exactly one rung — `misdescribedRetrieval`, whose
+  // question ("which documents did you use just now") is always asked a turn
+  // late, so a corpus of this turn alone is structurally blind to it. Grouped
+  // per turn, never flattened: passage numbering restarts at [1] each turn and
+  // a flat list would drop every collision. See lib/toolGrounding.ts.
+  const priorTurns = convo.messages
+    .filter((m) => m.role === 'assistant' && (m.toolCalls?.length ?? 0) > 0)
+    .map((m) => m.toolCalls ?? [])
+
   // v1.6: the Workbench's code check joins the report. It is re-run on a
   // revision, so the gate compares like with like: a revision whose code now
   // runs has strictly fewer findings; one that merely rewords does not.
@@ -728,7 +738,10 @@ async function runTurn(
    * since expired.
    */
   const groundingReport = async (content = assistantMsg.content): Promise<GroundingReport | null> => {
-    const base = checkToolGrounding(content, allRecords, allUserText(), { expectPricingTool: shoppingTurn })
+    const base = checkToolGrounding(content, allRecords, allUserText(), {
+      expectPricingTool: shoppingTurn,
+      priorTurns
+    })
     const code = await codeFindingFor(content)
     if (!code.finding) return base
     return { ...(base ?? { figures: [], links: [], checkedAgainst: ['run_python'] }), code: [code.finding] }

@@ -812,6 +812,12 @@ export interface GroundingReport {
   toolCounts?: string[]
   /** v1.17: an argument the reply quotes as passed that the call never carried. */
   toolArgs?: string[]
+  /**
+   * v2.5: what the reply says the library returned — which pack, how many
+   * passages, what relevance — where nothing this conversation retrieved
+   * matches. See `misdescribedRetrieval` in lib/toolGrounding.ts.
+   */
+  toolRetrieval?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox. */
   code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */
