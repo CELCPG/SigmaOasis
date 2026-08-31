@@ -793,6 +793,16 @@ several decided it meant `trace/audit.jsonl` alone. `record` is the list:
   artifact instead of rediscovered by each critic. A figure the app timed with
   its own clock is the type case: a record of it is the same number written
   down twice, agrees by construction, and is evidence of nothing.
+  - **v2.5, plan steps.** The app's session audit now carries a line per plan
+    step boundary — for its own reasons, not this bench's: a plan step produces
+    text the reader is shown, and a transcript of what was said that omitted it
+    was incomplete against its own contract. So on a run that kept an audit, a
+    plan header reading `3/3 steps done` over a record holding two finished
+    steps is a **contradiction**, and `kept.session-audit` claims exactly that.
+    It does not claim the other direction. The application writes the screen and
+    the record both, so agreement between them is consistency and not
+    corroboration, and `beyondAnyRecord` keeps that half — the same line
+    `configuration` has always drawn between capability and exercise.
 
 None of this changes what the application does. Every value comes through an
 API the product already exposes and the harness already calls; no product file

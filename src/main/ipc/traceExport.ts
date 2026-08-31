@@ -37,9 +37,20 @@ import { createHash } from 'crypto'
  *   produced it, and the schemas themselves export alongside the traces.
  */
 
-// ---- Input shapes (self-contained; mirrored from audit.ts / types.ts) ---------
+import type { AuditPlanFields } from '../../shared/audit'
 
-export interface AuditEntryLike {
+// ---- Input shapes -------------------------------------------------------------
+
+/**
+ * One line of a decrypted export, as read from a file this build did not
+ * necessarily write.
+ *
+ * `kind` is deliberately `string` and not `AuditEntryKind`: the CLI shell reads
+ * whatever JSONL it is pointed at, and a log from a newer build carrying a kind
+ * this one has never heard of must be read, not rejected. Everything else is
+ * `shared/audit.ts`'s, so the plan fields are not written out a fourth time.
+ */
+export interface AuditEntryLike extends AuditPlanFields {
   at: string
   kind: string
   conversationId: string
@@ -99,6 +110,15 @@ export interface LabeledTurn {
  * Entries that cannot belong to a turn (tool calls or replies outside any open
  * turn — e.g. the log began mid-turn, or a second slot's reply in a
  * multi-target turn) are counted as skipped rather than guessed into place.
+ *
+ * v2.5: the log also carries a plan's step boundaries and results. They are
+ * passed over here, deliberately and in as many words rather than by falling
+ * off the end of the branches. A trace is a request the model answered, and a
+ * plan step's request is the constructed sub-turn prompt — which the audit has
+ * never held and should not, since it splices in prior step results and the
+ * conversation context. There is nothing to train on, so there is nothing to
+ * skip either: these are not candidates that failed to be placed, and counting
+ * them in `skipped` would make a plan turn look like a lossy export.
  */
 export function buildTurns(entries: AuditEntryLike[]): { turns: TraceTurn[]; skipped: number } {
   const turns: TraceTurn[] = []
@@ -116,6 +136,7 @@ export function buildTurns(entries: AuditEntryLike[]): { turns: TraceTurn[]; ski
 
   for (const e of entries) {
     if (e.kind === 'session_start' || !e.conversationId) continue
+    if (e.kind.startsWith('plan_')) continue
     if (e.kind === 'user_input') {
       close(e.conversationId)
       const turnIndex = counts.get(e.conversationId) ?? 0

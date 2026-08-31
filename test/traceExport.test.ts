@@ -78,6 +78,45 @@ describe('buildTurns', () => {
     assert.equal(turns[0].assistant, undefined)
   })
 
+  /**
+   * v2.5: the log gained a plan's step boundaries and results. A trace is a
+   * request the model answered, and a plan step's request is the constructed
+   * sub-turn prompt — which the audit does not hold and should not. So the plan
+   * lines pass straight through: the turn is the same turn it was before the
+   * log knew about plans, and the plan lines are not counted as entries that
+   * failed to be placed, which would make a plan turn read as a lossy export.
+   */
+  test('a plan’s own lines pass through without disturbing the turn or the skip count', () => {
+    const withPlan = [
+      CLEAN_TURN[0]!,
+      CLEAN_TURN[1]!,
+      entry({ kind: 'plan_start', conversationId: 'c1', text: 'Plan of 2 steps:', planStepCount: 2 }),
+      entry({
+        kind: 'plan_step_start',
+        conversationId: 'c1',
+        text: 'Step 1 of 2 started — Look it up',
+        planStepIndex: 1,
+        planStepCount: 2
+      }),
+      CLEAN_TURN[2]!,
+      entry({
+        kind: 'plan_step_end',
+        conversationId: 'c1',
+        text: 'Step 1 of 2 — Done\n18C and cloudy',
+        planStepIndex: 1,
+        planStepCount: 2,
+        planStepStatus: 'done'
+      }),
+      entry({ kind: 'plan_end', conversationId: 'c1', text: 'Plan finished.', planOutcome: 'completed' }),
+      CLEAN_TURN[3]!
+    ]
+    const { turns, skipped } = buildTurns(withPlan)
+    assert.equal(skipped, 0, 'a plan line was counted as an entry that could not be placed')
+    assert.equal(turns.length, 1)
+    // Byte-identical to the turn the same conversation produces with no plan.
+    assert.deepEqual(turns[0], buildTurns(CLEAN_TURN).turns[0])
+  })
+
   test('conversations interleave without mixing; turn indexes count user inputs', () => {
     const { turns } = buildTurns([
       entry({ kind: 'user_input', conversationId: 'c1', text: 'c1 first' }),

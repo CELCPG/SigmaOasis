@@ -369,19 +369,21 @@ export interface AuditStatus {
   sessions: AuditSessionInfo[]
 }
 
-export type AuditEntryKind = 'session_start' | 'user_input' | 'assistant_output' | 'tool_call'
-
-export interface AuditEntryInput {
-  conversationId: string
-  kind: AuditEntryKind
-  roleName?: string
-  modelId?: string
-  toolName?: string
-  ok?: boolean
-  text: string
-  /** Entries for ephemeral conversations are refused — no-trace includes the log. */
-  ephemeral?: boolean
-}
+/**
+ * The log's vocabulary is `shared/audit.ts`, not a mirror of it kept here.
+ *
+ * This file's own header calls itself "the renderer's mirror" of main's shapes,
+ * which is honest about settings — electron-store really is the source of
+ * truth there — and was not honest about this one: an `AuditEntryKind` written
+ * out twice is two enumerations of one class, and v2.5 had to add four kinds to
+ * it. Re-exported so every existing import site keeps working.
+ */
+export type {
+  AuditEntry,
+  AuditEntryInput,
+  AuditEntryKind,
+  RecordableAuditKind
+} from '../../shared/audit'
 
 // ---- v0.9: Plan mode ------------------------------------------------------------
 

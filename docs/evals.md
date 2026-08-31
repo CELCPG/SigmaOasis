@@ -6244,3 +6244,154 @@ One tool earns one line: a denial swallows the offer beside it.
   resolves the markers, so the pair is mechanically checkable. It is not the *act*, so it is out of
   this rung's scope, and it wants its own recorded true negative (a reply may cite a passage while
   honestly saying the passage did not supply a particular claim) before it is worth building.
+
+### Pending fold-in — the plan header was the block's word about itself
+
+A blind critic, on plan mode in **both** builds under test in round 12, naming it the single biggest
+remaining gap:
+
+> The plan header's progress fraction is the only thing visible without interacting, and it is the
+> one number no artifact in the run can check — the audit records tools, never steps. A reader who
+> trusts "3/3 steps done" is trusting the block about itself.
+
+The critic is describing the record exactly. `trace/audit.jsonl` is hash-chained, exports with
+`hashChainValid: true`, and for a three-step plan holds six lines: `session_start`, `user_input`,
+one `tool_call` per call, `assistant_output`. Nothing in it marks where one step ended and the next
+began. Both critics counted every plan step statement **unsettleable** rather than agreed, which is
+the honest reading and is why this one mattered: the app's most prominent plan claim was the one
+thing its own tamper-evident record could not speak to.
+
+#### Two different defects wearing one sentence
+
+The brief asked for step boundaries in the audit so the fraction would have "a witness". That word
+is where the work was, because this project has already written the counter-argument down, in
+`scripts/h2h-record.ts`, about this exact claim:
+
+> a plan step is a construct of the application; nothing outside it observes a step starting or
+> ending […] a step boundary it drew itself — writing any of those into a record makes the record
+> agree with the screen by construction. That is not evidence. It is the same number twice.
+
+Every word of that survives this round. Sigma Oasis is local-first and writes both the screen and
+the log; nothing in a local-first app can be an independent witness to it. So the two things the
+critic's sentence runs together were separated, and only one of them is closeable:
+
+| | what it is | closeable? |
+| --- | --- | --- |
+| **uncorroborated** | a fact about who is watching | no — and pretending otherwise is the failure the quote above names |
+| **unrecorded** | a fact about what was written down | yes, and it was wide open |
+
+The second turns out not to need the header as its justification at all. The audit's own contract,
+in its module docstring since v0.9, is *"an append-only transcript of what was actually said […] so
+the user can verify a session."* A plan's steps each run their own sub-turn and each produce text
+the reader is shown in the checklist — and **none of it reached the log**. A three-step plan that
+called no tools left a record in which nothing whatsoever happened between the question and the
+answer. That is a hole in the log against its own contract before it is anything to do with a
+header, and it is the ground this change stands on: the bench did not ask for the field and would
+not have been entitled to.
+
+#### What the log carries now
+
+Four kinds, and every one of them is something the block already puts on screen. Nothing else: a
+step's constructed prompt and the prior-step results spliced into it are *layers in between*, which
+this log has never carried.
+
+| kind | fields | what it holds |
+| --- | --- | --- |
+| `plan_start` | `planStepCount` | the checklist as it was offered for approval — titles, details, and `toolPreview`'s own sentence for each step's forecast |
+| `plan_step_start` | `planStepIndex`, `planStepCount` | one step beginning; the `tool_call` lines it makes follow, until its end |
+| `plan_step_end` | + `planStepStatus` | the terminal status the row shows, and the result the disclosure holds |
+| `plan_end` | `planOutcome` | `OUTCOME_LABEL`'s own words, attribution included (`cancelled by you — nothing ran`) |
+
+A step that never ran writes nothing. Its absence *is* the fact, and `planLedgersFromAudit` puts it
+back through `endPlan` — the block's own rule, not a second spelling of it. So a plan cancelled at
+the approval gate reconstructs as N never-ran steps from a record holding no step lines at all.
+
+The boundaries also give the `tool_call` lines somewhere to sit. A call between a step's start and
+its end was made by that step; a call after `plan_end` belongs to the synthesis, which is exactly
+what the block already does with them on screen (`stepRecords` versus `answerRecords`). Before this,
+a plan's twenty calls arrived in the log as one undifferentiated run.
+
+#### The header is now counted, not asserted
+
+`planHeaderCount` stopped counting a `ChatPlan` and started counting a **ledger** — total, one status
+per step, outcome. A ledger has two sources: `planLedger(plan)` and `planLedgersFromAudit(entries)`.
+One counting function, two readings. A reader with an exported log counts the `plan_step_end` lines
+marked `done` for the numerator and reads `planStepCount` for the denominator, and the chain says
+nobody edited those lines afterwards.
+
+**What the log deliberately does not contain is the sentence itself.** Writing `3/3 steps done` into
+`plan_end` would make the record "agree" with the screen on every run, at no cost and with no
+information — which is precisely the move `BEYOND_ANY_RECORD` refuses. The lines carry the facts;
+the arithmetic stays on screen, where a reader who wants to check it has to redo it. Two cases pin
+that: no line matches `\d+/\d+ steps done`, and none matches the census shape either.
+
+And one writer. Through v2.4 the executor patched the store and the log knew nothing about it; a
+second pass that logged whatever the store ended up holding would be the screen agreeing with a copy
+of itself. `beginStep` / `endStep` / `finish` each patch **and** record, so a status cannot reach one
+place without reaching the other — read off the source, like the single writer of `cancelled`.
+
+#### Backward compatibility, which is the part that could have gone badly
+
+The chain hashes `JSON.stringify(entry)`. A field added unconditionally — even as `null` — changes
+those bytes for every entry ever written, and **every existing log stops verifying on the first
+launch after the upgrade**: a tamper-evident record that silently reports tampering it did not
+suffer is a worse failure than the one this round fixes. The four plan fields are therefore spread
+in conditionally, exactly as `roleName`, `modelId`, `toolName` and `ok` already were, and the case
+that guards it builds a file by hand in the pre-v2.5 shape rather than one this build wrote — the
+second only proves the build agrees with itself, which is this round's whole subject. A `user_input`
+still serializes with the keys `at, kind, conversationId, text, prevHash`, in that order.
+
+Two enumerations were also collapsed. `AuditEntryKind` was declared in `main/ipc/audit.ts` and again
+in `renderer/src/types.ts` and kept in step by hand — the arrangement `evals.md` already calls a
+defect where it happens to `GroundingReport` — and `recordAuditEntry`'s runtime guard was a *third*
+hand-written copy of the same four names, where a kind added to the type and not to the guard
+typechecks clean and is dropped silently on the floor. All three now read `AUDIT_ENTRY_KINDS` in
+`shared/audit.ts`, and the case walks that tuple rather than a list someone remembered.
+
+#### True negatives
+
+- **Existing logs verify unchanged**, and a pre-v2.5 file correctly reconstructs as holding *no*
+  plan rather than an invented empty one.
+- **A non-plan entry's key set and order are asserted exactly** — a build that wrote
+  `planStepIndex: undefined` on every line would pass a `chainValid` check on its own new files and
+  fail this.
+- **A closed fraction is still a closed fraction**: `3/3 steps done` rebuilt from the record is
+  still `3/3 steps done`, and every v2.4 header case is untouched.
+- **The reconstruction can disagree.** Drop one `plan_step_end` — what a build that marked a step
+  done without running it would leave behind — and the two sentences part company. Without this the
+  suite would be pinning a tautology.
+- **The class, not the fixtures**: every outcome in `PLAN_OUTCOMES` crossed with every status in
+  `PLAN_STEP_STATUSES` rebuilds the same sentence the header draws. A counting function walking one
+  list and a writer walking another would surface here, on the combination nobody wrote a fixture
+  for.
+- **A run cut off mid-step** comes back as a step that started and never ended, with no outcome —
+  not rounded off to finished, and not dropped for want of an end line.
+- **The bench still refuses to call agreement corroboration.** `BEYOND_ANY_RECORD` keeps its plan
+  entry, narrowed: the header *can* now be contradicted by the record, and that is a finding;
+  agreement is consistency, because the application wrote both. The `session-audit` entry claims
+  exactly that much, in the same words the `configuration` block has always used for capability
+  versus exercise, and is asserted not to contain `confirms`, `corroborates` or `proves`.
+
+#### What this does not fix
+
+- **The audit is opt-in and off by default.** On a run that kept no log the header is exactly as
+  uncheckable as it was; what changed is that asking for a record now gets you one. Turning it on
+  for the bench's own tasks is still refused, for the reasons `h2h-record.ts` gives at length.
+- **`done` means the sub-turn did not throw.** A step whose model produced nothing is marked `done`
+  with the body `(empty result)` and counts in the numerator, on screen and in the record alike. The
+  record now makes that visible to anyone who reads it — the empty body is right there in the
+  `plan_step_end` line — but the header still counts it as work. Reproduced, not fixed: what a
+  fraction should do with an empty step is a question about the checklist's vocabulary, not about
+  the log.
+- **`planLedgersFromAudit` segments by order alone.** Turns are serialized, so plans cannot
+  interleave, and the entries carry `conversationId` if that ever stops being true. Nothing checks
+  it today.
+- **The block still renders from memory, not from the log.** Two stronger-sounding arrangements were
+  considered and refused. *Rendering the header out of the audit* would make the count unavailable
+  to the 99% of users who never enable an opt-in log, and would put an async IPC read inside a
+  synchronous render for a number the block already holds. *Displaying "checked against the record"*
+  would be the app checking its own record and reporting agreement — the same number twice with an
+  extra step, and a badge that reads as corroboration to anyone who does not read this file. What is
+  guaranteed instead is structural: `beginStep` / `endStep` / `finish` write both, so the two cannot
+  be computed from different states. The reading-back is for the test suite and for a person with
+  the exported file, which is the honest arrangement and also the one almost nobody will use.

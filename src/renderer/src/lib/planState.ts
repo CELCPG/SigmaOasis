@@ -12,6 +12,7 @@
  * Headless, pinned by test/planBlock.test.ts.
  */
 
+import type { AuditEntry, AuditEntryInput, PlanAuditKind } from '../../../shared/audit'
 import type { ChatPlan, PlanOutcome, PlanStep, PlanStepStatus, ToolCallRecord } from '../types'
 
 /**
@@ -217,15 +218,228 @@ export function planHeaderStatus(plan: ChatPlan): PlanHeaderStatus {
  * — which is the same deliberate repetition `STATUS_LABEL` already accepts.
  */
 export function planHeaderCount(plan: ChatPlan): string {
-  const total = plan.steps.length
-  const done = plan.steps.filter((s) => s.status === 'done').length
-  if (!plan.outcome || done === total) return `${done}/${total} steps done`
+  return countFromLedger(planLedger(plan))
+}
+
+/**
+ * The header's number, and where it is allowed to come from — v2.5.
+ *
+ * A blind critic, on plan mode in both arms: *"The plan header's progress
+ * fraction is the only thing visible without interacting, and it is the one
+ * number no artifact in the run can check — the audit records tools, never
+ * steps. A reader who trusts `3/3 steps done` is trusting the block about
+ * itself."* Both critics counted every plan step statement **unsettleable**
+ * rather than agreed, which is the honest reading of a claim with nothing
+ * behind it.
+ *
+ * So the header stopped counting a `ChatPlan` directly. It counts a *ledger* —
+ * the total, one status per step, and the outcome — and a ledger has two
+ * sources: the live plan, and the session audit's `plan_*` lines. One counting
+ * function, two readings, and `planLedgersFromAudit` below is the second.
+ *
+ * **What that buys, exactly.** A reader with an exported log can count the
+ * `plan_step_end` lines whose status is `done` and get the numerator, count the
+ * plan's `planStepCount` and get the denominator, and the chain says nobody
+ * edited those lines afterwards. The header stops being an assertion and
+ * becomes a citation.
+ *
+ * **What it does not buy, and this half matters more.** It is not
+ * corroboration. `scripts/h2h-record.ts` has this project's clearest statement
+ * of why, and it is about exactly this claim: *"a plan step is a construct of
+ * the application; nothing outside it observes a step starting or ending […] a
+ * step boundary it drew itself — writing any of those into a record makes the
+ * record agree with the screen by construction. That is not evidence. It is the
+ * same number twice."* Every word of that survives this change. The application
+ * is still the only witness to its own steps, and a build that lied about a
+ * step would write the lie to both places.
+ *
+ * The two are not the same defect, which is why one of them could be fixed
+ * here. **Uncorroborated** is a fact about who is watching, and no code in a
+ * local-first app can change it. **Unrecorded** is a fact about what was
+ * written down, and a plan turn was leaving no trace of itself in a log whose
+ * whole contract is a transcript of what was said. This closes the second.
+ * `BEYOND_ANY_RECORD` keeps the first, narrowed to what is still true of it.
+ */
+export interface PlanLedger {
+  total: number
+  /** One per step, in order. Index 0 is the step the block numbers 1. */
+  statuses: PlanStepStatus[]
+  /** Absent while the plan can still progress. */
+  outcome?: PlanOutcome
+}
+
+export function planLedger(plan: ChatPlan): PlanLedger {
+  return {
+    total: plan.steps.length,
+    statuses: plan.steps.map((s) => s.status),
+    ...(plan.outcome ? { outcome: plan.outcome } : {})
+  }
+}
+
+/** The one place a plan's step count is turned into words. See `planHeaderCount`. */
+export function countFromLedger(ledger: PlanLedger): string {
+  const total = ledger.total
+  const done = ledger.statuses.filter((s) => s === 'done').length
+  if (!ledger.outcome || done === total) return `${done}/${total} steps done`
   const steps = `${total} step${total === 1 ? '' : 's'}`
-  const tally = (Object.keys(STATUS_LABEL) as PlanStepStatus[])
-    .map((status) => ({ status, count: plan.steps.filter((s) => s.status === status).length }))
+  const tally = PLAN_STEP_STATUSES.map((status) => ({
+    status,
+    count: ledger.statuses.filter((s) => s === status).length
+  }))
     .filter((group) => group.count > 0)
     .map((group) => `${group.count} ${STATUS_LABEL[group.status].toLowerCase()}`)
   return `${steps}: ${tally.join(', ')}`
+}
+
+/**
+ * Every status and every outcome, read off the label tables rather than typed
+ * out again. Both tables are `Record<T, string>`, so a member added to either
+ * union has to be added to them to compile — which makes these lists total by
+ * construction, and makes the validation in `planLedgersFromAudit` total too.
+ */
+export const PLAN_STEP_STATUSES = Object.keys(STATUS_LABEL) as PlanStepStatus[]
+export const PLAN_OUTCOMES = Object.keys(OUTCOME_LABEL) as PlanOutcome[]
+
+function asStepStatus(value: unknown): PlanStepStatus | null {
+  return PLAN_STEP_STATUSES.find((s) => s === value) ?? null
+}
+
+function asOutcome(value: unknown): PlanOutcome | null {
+  return PLAN_OUTCOMES.find((o) => o === value) ?? null
+}
+
+/**
+ * Read a plan back out of a session audit — the check the header's number now
+ * has, and the only one it can have (see `planHeaderCount`).
+ *
+ * Entries are taken in file order, which is append order: a turn runs alone, so
+ * one plan's lines cannot interleave with another's. A `plan_start` opens a
+ * ledger, a `plan_end` closes it, and a ledger left open when the entries run
+ * out is returned open — a run killed mid-plan is a thing the record should be
+ * able to say, not a thing it should round off.
+ *
+ * A step with no `plan_step_end` keeps `pending`, and `plan_end` puts those
+ * through `endPlan` — the same function the block uses, not a second spelling
+ * of its rule. So a plan cancelled at the approval gate reconstructs as N steps
+ * that never ran from a record holding *no step lines at all*, which is right:
+ * nothing ran, so nothing was written, and the absence is the evidence.
+ */
+export function planLedgersFromAudit(entries: readonly AuditEntry[]): PlanLedger[] {
+  const ledgers: PlanLedger[] = []
+  let open: PlanLedger | null = null
+  const at = (index: unknown): number => (typeof index === 'number' ? index - 1 : -1)
+
+  for (const e of entries) {
+    if (e.kind === 'plan_start') {
+      // A second start with one still open means the first never ended: keep it,
+      // unfinished, rather than dropping it or pretending it completed.
+      if (open) ledgers.push(open)
+      const total = typeof e.planStepCount === 'number' ? e.planStepCount : 0
+      open = { total, statuses: Array.from({ length: total }, () => 'pending' as PlanStepStatus) }
+      continue
+    }
+    if (!open) continue
+    if (e.kind === 'plan_step_start') {
+      const i = at(e.planStepIndex)
+      if (i >= 0 && i < open.statuses.length) open.statuses[i] = 'running'
+    } else if (e.kind === 'plan_step_end') {
+      const i = at(e.planStepIndex)
+      const status = asStepStatus(e.planStepStatus)
+      if (i >= 0 && i < open.statuses.length && status) open.statuses[i] = status
+    } else if (e.kind === 'plan_end') {
+      const outcome = asOutcome(e.planOutcome)
+      ledgers.push(outcome ? closeLedger(open, outcome) : open)
+      open = null
+    }
+  }
+  if (open) ledgers.push(open)
+  return ledgers
+}
+
+/** `endPlan`'s rule, applied to a ledger — pending becomes never-ran. */
+function closeLedger(ledger: PlanLedger, outcome: PlanOutcome): PlanLedger {
+  const shaped = endPlan(
+    {
+      steps: ledger.statuses.map((status, i) => ({
+        id: String(i),
+        title: '',
+        detail: '',
+        status
+      })),
+      approved: true,
+      createdAt: 0
+    },
+    outcome
+  )
+  return planLedger(shaped)
+}
+
+/**
+ * The lines a plan writes to the log, built here beside the header they have to
+ * agree with — the reason every other sentence in this block moved out of its
+ * component, applied to the record.
+ *
+ * `plan_end` deliberately does **not** carry the header's sentence. A record
+ * that restates the summary is a record a reader can read instead of checking,
+ * and then the check is one number agreeing with a copy of itself. The lines
+ * carry the facts; the arithmetic stays on screen, where it can be redone.
+ */
+export type PlanAuditLine = Pick<
+  AuditEntryInput,
+  'text' | 'planStepIndex' | 'planStepCount' | 'planStepStatus' | 'planOutcome'
+> & { kind: PlanAuditKind }
+
+/**
+ * The checklist as it was put in front of the reader: what each step said it
+ * would do, and what it said it might reach for. `toolPreview` is the block's
+ * own sentence, called rather than re-worded, so the plan that was approved and
+ * the plan in the record cannot be two different documents.
+ */
+export function planStartLine(plan: ChatPlan): PlanAuditLine {
+  const steps = plan.steps
+    .map((s, i) => `${i + 1}. ${s.title}\n${s.detail}\n${toolPreview(s)}`)
+    .join('\n\n')
+  return {
+    kind: 'plan_start',
+    planStepCount: plan.steps.length,
+    text: `Plan of ${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}:\n\n${steps}`
+  }
+}
+
+export function planStepStartLine(plan: ChatPlan, index: number): PlanAuditLine {
+  return {
+    kind: 'plan_step_start',
+    planStepIndex: index,
+    planStepCount: plan.steps.length,
+    text: `Step ${index} of ${plan.steps.length} started — ${plan.steps[index - 1]?.title ?? ''}`
+  }
+}
+
+/** The status word is `STATUS_LABEL`'s, the same one the row's glyph announces. */
+export function planStepEndLine(
+  plan: ChatPlan,
+  index: number,
+  status: PlanStepStatus,
+  output?: string
+): PlanAuditLine {
+  const head = `Step ${index} of ${plan.steps.length} — ${STATUS_LABEL[status]}`
+  return {
+    kind: 'plan_step_end',
+    planStepIndex: index,
+    planStepCount: plan.steps.length,
+    planStepStatus: status,
+    text: output ? `${head}\n${output}` : head
+  }
+}
+
+/** The outcome word is `OUTCOME_LABEL`'s — the badge's, including who caused it. */
+export function planEndLine(plan: ChatPlan, outcome: PlanOutcome): PlanAuditLine {
+  return {
+    kind: 'plan_end',
+    planStepCount: plan.steps.length,
+    planOutcome: outcome,
+    text: `Plan ${OUTCOME_LABEL[outcome]}.`
+  }
 }
 
 /**

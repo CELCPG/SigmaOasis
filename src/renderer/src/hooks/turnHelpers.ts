@@ -20,6 +20,7 @@ import {
 } from '../lib/toolSelection'
 import { attachmentInlineNote } from '../lib/attachmentRecall'
 import type { ApiContentPart } from '../lib/agentLoop'
+import type { AuditEntryInput, RecordableAuditKind } from '../../../shared/audit'
 import type { RequestEstimate } from '../../../shared/failure'
 import type { ChatMessage, Conversation, ModelConfig, ToolSchema } from '../types'
 
@@ -84,14 +85,13 @@ export function turnRequestEstimate(
  */
 export function audit(
   convo: Conversation,
-  input: {
-    kind: 'user_input' | 'assistant_output' | 'tool_call'
-    roleName?: string
-    modelId?: string
-    toolName?: string
-    ok?: boolean
-    text: string
-  }
+  /**
+   * v2.5: `Omit<AuditEntryInput, …>` rather than a third hand-written copy of
+   * the kinds. This union listed three of them; a kind added to the log and not
+   * to this line is a kind the renderer cannot write, with nothing failing to
+   * say so.
+   */
+  input: Omit<AuditEntryInput, 'conversationId' | 'ephemeral'> & { kind: RecordableAuditKind }
 ): void {
   if (!useAppStore.getState().settings?.audit.enabled) return
   void window.api

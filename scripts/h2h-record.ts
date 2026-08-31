@@ -27,9 +27,18 @@
  *   an append-only transcript of what was said, with no system prompts, no
  *   recalled memory and no compaction notes, so that a user can verify a
  *   session. Session start, user input, assistant output, tool call. It has no
- *   step boundaries, no playbook identity, no timings. To make it settle those
- *   the product's audit log would have to grow fields that exist for the
- *   bench, which is the same fault pointing the other way.
+ *   playbook identity and no timings. To make it settle those the product's
+ *   audit log would have to grow fields that exist for the bench, which is the
+ *   same fault pointing the other way.
+ *
+ *   v2.5 note on one item that used to be in that sentence. The log now does
+ *   carry plan step boundaries, and the reason has nothing to do with this
+ *   file: a plan's steps each produce text the reader is shown, and a
+ *   transcript of what was said that omits it was incomplete against its own
+ *   contract. The bench did not ask for the field and would not have been
+ *   entitled to; it notices, in the session-audit entry below, and the notice
+ *   is careful about how little agreement between the screen and the
+ *   application's own record is worth.
  *
  * So the record is built here instead, out of things the harness already knows
  * from OUTSIDE the application, and it is written down as a list rather than
@@ -280,12 +289,16 @@ export const BEYOND_ANY_RECORD: { claim: string; why: string }[] = [
       'it ran was even switched on, and the configuration block above is what settles it.'
   },
   {
-    claim: 'the boundaries between plan steps, and which of them finished',
+    claim:
+      'that a plan step did the work its row claims, and that the header\'s count of finished ' +
+      'steps is TRUE rather than merely consistent',
     why:
       'a plan step is a construct of the application; nothing outside it observes a step starting ' +
-      'or ending. The tool calls a step makes are recorded where a session audit was kept, so a ' +
-      'step claiming work that no tool call supports is catchable there — but the count of steps ' +
-      'done is not, and is reported as unsettleable rather than as agreed.'
+      'or ending. As of v2.5 a kept session audit carries a line per step boundary, so the ' +
+      'header CAN now be contradicted by the record, and the session-audit entry above claims ' +
+      'exactly that much. Agreement is a different fact and is not claimed: the application ' +
+      'writes the screen and the record both, so a build that misreported a step would misreport ' +
+      'it identically in each. On a run that kept no audit there is no second reading at all.'
   }
 ]
 
@@ -350,7 +363,17 @@ export function buildRunRecord(input: RunRecordInput, toolNames: readonly string
       settles: [
         'every tool the screen says it called, against the calls the application recorded making',
         'whether a call the screen shows as successful was recorded as one',
-        'work the record shows that the screen never mentions'
+        'work the record shows that the screen never mentions',
+        // v2.5. The same shape as `configuration` above, and stated in the same
+        // words: a CONTRADICTION is a finding, an agreement is not evidence.
+        // The log now holds one line per plan step boundary, so a header
+        // reading "3/3 steps done" over a record holding two finished steps is
+        // catchable; a header that matches the record is merely consistent,
+        // because the application wrote both. beyondAnyRecord keeps that half.
+        'the plan header\'s step count, against the step lines the application recorded — a ' +
+          'header that disagrees with them is a contradiction, and one that agrees is consistent ' +
+          'rather than corroborated',
+        'a plan step the screen shows as finished that the record never shows starting'
       ]
     })
   } else {
@@ -363,7 +386,8 @@ export function buildRunRecord(input: RunRecordInput, toolNames: readonly string
           'staging and not a failure of the build',
       wouldHaveSettled: [
         'every tool the screen says it called, and whether each succeeded',
-        'work the record shows that the screen never mentions'
+        'work the record shows that the screen never mentions',
+        'a plan header\'s step count, against the step lines the application would have recorded'
       ]
     })
   }
