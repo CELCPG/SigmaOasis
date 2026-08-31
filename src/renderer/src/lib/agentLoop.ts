@@ -3,7 +3,7 @@ import { detectProseParenCall } from './nativeToolCall'
 import { passagesHandedOver, renumberPassages } from './citations'
 import { validateToolArgs } from './toolArgs'
 import { CLOSED_THINK_PREFILL } from '../../../shared/thinking'
-import { TOOL_TURN_BUDGETS } from '../../../shared/tools'
+import { declinedCall, TOOL_TURN_BUDGETS } from '../../../shared/tools'
 
 /**
  * The agentic tool-call loop, lifted out of the useLMStudio hook so the
@@ -391,7 +391,34 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
       let result: ToolResult
 
-      if (tc.function.name === 'consult_model' && deps.consult) {
+      if (signal.aborted) {
+        /**
+         * v2.4: the signal landed between two calls of the same round, and
+         * nothing new may start.
+         *
+         * The loop checked `signal.aborted` before each round and after it,
+         * never between the calls a single round asked for — so a round that
+         * requested three tools dispatched all three however long ago the
+         * abort was. For the verification tail that is the whole difference
+         * between a limit and a suggestion: `VERIFY_BUDGET_MS` bounds what the
+         * turn STARTS, and a call already in flight cannot be recalled
+         * (`executeTool` is an IPC round trip), but a call not yet sent is
+         * exactly the work a spent deadline is entitled to refuse. Measured on
+         * `.h2h-runs/judge-r12/TTU1`: the revision's `deep_research` ran 93 s
+         * past the minute; a sibling call behind it would have been dispatched
+         * on top of that.
+         *
+         * `declinedCall`, so the row wears `↩` and the footer says "declined":
+         * nothing was contacted, and nothing broke.
+         */
+        result = {
+          ok: false,
+          error: declinedCall(
+            'the turn stopped before this call was sent, so nothing was contacted.',
+            'Do not retry it — the turn is over.'
+          )
+        }
+      } else if (tc.function.name === 'consult_model' && deps.consult) {
         // Pseudo-tool: the caller runs a nested specialist turn instead of an
         // IPC tool. The cap counts attempts, including failed ones — a model
         // that cannot name a real specialist must not get unlimited retries.

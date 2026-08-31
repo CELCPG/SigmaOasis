@@ -6244,3 +6244,127 @@ One tool earns one line: a denial swallows the offer beside it.
   resolves the markers, so the pair is mechanically checkable. It is not the *act*, so it is out of
   this rung's scope, and it wants its own recorded true negative (a reply may cite a passage while
   honestly saying the passage did not supply a particular claim) before it is worth building.
+
+### Pending fold-in — a sixty-second limit that stopped no clock
+
+Round 12's critics found this in **both** builds, and in each run it was the single pair of
+app-written lines they scored as disagreeing. On TTU1, one message
+(`.h2h-runs/judge-r12/TTU1/run-1`, which is `B12/TTU1-20260828-150740`):
+
+> ⏱ Checking stopped at its 60s limit. Ran: the code check. Not run: the revision.
+>
+> 282 tok · 5.2 tok/s · 23.19s to first token · 9.2s gathering · 54.3s answer · **114.1s checking**
+> · 177.7s total
+
+The other arm (`judge-r12/TTU1/run-2` = `A12/TTU1-20260828-155303`) is the same banner over
+**81.3s checking**. The critic's line: *"both screens still print 'Checking stopped at its 60s
+limit' next to a checking figure of 114.1 s / 81.3 s."*
+
+A second critic, on a different task, scored the **identical pair of lines as agreeing** — because
+there the checking figure was 60.1 s (`judge-r12/V3/run-1`). So the two lines are consistent when
+the budget is kept and contradictory when it is overrun, and the question the round has to answer is
+not how the sentence is worded but why checking runs to nearly twice its stated limit.
+
+#### What actually happened, from the same capture
+
+Four lines above the banner, in the tool-call list of that very message:
+
+> ∅ 🔍 deep_research — No usable sources were found… **Searched 8×, read 3 page(s) across 1
+> domain(s) in 93s.**
+
+That call is the revision pass's. `reviseAgainstFindings` runs with the slot's real tools on purpose
+— the first option offered to a model holding a flagged specific is to *verify* it, not to delete it
+— and the model reached for `deep_research`. The arithmetic closes: the revision was admitted at
+~1 s with the whole minute in front of it, spent the best part of twenty seconds asking the model
+for a correction, and the campaign it asked for ran 93 s. The other arm is the same shape with a 44 s campaign
+(`Searched 3×, read 0 page(s) … in 44s`) and lands at 81.3 s.
+
+So of the three shapes this could have been, it is the first, and the enumeration is worth writing
+down because two of them were also true in small part:
+
+- **The limit is checked between passes, not during one.** Yes, and that is the whole of it.
+  `admits()` gates what may *start*, and `budget.signal` aborts the model streams a pass is waiting
+  on — `runClaimCheck`, `runAutoCritic`, `runRecompute` and `reviseAgainstFindings` all take it. What
+  no signal reaches is `window.api.executeTool`: an IPC round trip to the main process with no
+  cancellation path. A `deep_research` campaign or a `run_python` sandbox boot dispatched at 0:59
+  runs until it returns, and the reader waits.
+- **The two figures were measured over different spans.** True, and by a smaller amount than it
+  looks. The budget's clock started where control reached `createVerifyBudget`; the stat line's
+  "checking" span starts at the last token (it is `turnMs − gatherMs − totalMs`, and `totalMs` is
+  stamped there). Between the two sit the paced tail drain and the turn's end-of-stream bookkeeping
+  — which is why **every** well-behaved tail in `.h2h-runs` reads 60.1, 60.2 or 60.3 s against a
+  60 s limit and never 60.0.
+- **The budget is not enforced.** True in one narrow place, now closed: `runAgentLoop` consulted its
+  signal before a round and after it, never between the calls one round asked for. A round
+  requesting three tools dispatched all three however long ago the deadline had fired.
+
+#### The repair, and the trade it refuses
+
+A checking pass already in flight cannot always be abandoned safely, and killing a 93-second
+research campaign at the 60-second mark — after the reader has already paid for 60 of those seconds
+— to make a sentence true would be the wrong way round. The honest answer is that **the limit bounds
+what checking STARTS, not what it FINISHES**, so that is what the app now says.
+
+1. **One clock.** `createVerifyBudget` takes the origin from the caller, and `runTurn` hands it
+   `answerEndedAt` — the very stamp `totalMs` is measured to. The deadline now counts the same span
+   the footer calls "checking", so a figure above the limit is an overrun and nothing else.
+2. **One number.** `runVerificationTail` takes a single `tailEndedAt` stamp and hands it to both
+   `budget.notice()` and `turnMs`. A screen that states one quantity twice states it identically.
+3. **Two sentences, because there are two facts.** A tail that ends at its limit keeps the sentence
+   it had. A tail that overruns by a second or more says so, in the stat line's own word and figure.
+4. **Three states, not two.** `Not run` used to cover both a pass that never began and a pass the
+   deadline caught in flight — and on TTU1 that printed `Not run: the revision` directly beneath the
+   revision's own `deep_research` row, which is the shape round 12 repaired one pass over. A pass
+   that began and was stopped is now `Cut short`.
+5. **Nothing new is dispatched after the deadline.** The per-call loop checks its signal, and a call
+   it declines goes through `declinedCall` — so the row wears `↩` and the footer says "declined",
+   because nothing was contacted and nothing broke.
+
+TTU1, both arms, with the same measurements:
+
+> ⏱ Checking stopped starting new work at its 60s limit; a pass already running carried it to
+> **114.1s**. Ran: the code check. **Cut short: the revision.** The answer above is unchanged.
+
+> ⏱ Checking stopped starting new work at its 60s limit; a pass already running carried it to
+> **81.3s**. Ran: the code check. Cut short: the revision. The answer above is unchanged.
+
+#### The true negatives
+
+- **`judge-r12/V3/run-1`, the recorded agreeing pair.** Both remaining passes were refused at their
+  gates and nothing was in flight, so the tail ended at 60.1 s. The sentence is **word for word the
+  one it already had** — `⏱ Checking stopped at its 60s limit. Ran: the code check. Not run: the
+  revision, the recomputation. The answer above is unchanged.` — and acquires no overrun clause it
+  has nothing to report. Pinned as an exact string equality, not a pattern.
+- **`B10/TH2`, the other recorded agreeing pair**, at 60.1 s: `Ran: the claim check, the code check.
+  Not run: the revision.` Unchanged.
+- **The boundary.** Every honest tail in `.h2h-runs` lands at 60.0–60.3 s; the overruns are 62.2,
+  69.4, 81.3 and 114.1. The clause appears at one second and not before — 60.0, 60.1, 60.3 and
+  60.999 keep the plain sentence, 61.0 and up do not — because a second is the resolution the reader
+  is reading at, and `60.1s checking` beside a `60s limit` is the pair a critic scored as agreeing.
+- **A pass the deadline genuinely cut off** — `runRecompute` aborted before a program came back,
+  showing `🧮 Recompute skipped — cancelled` — is `Cut short`, not `Ran`. The notice may
+  under-claim; it may never over-claim.
+- **`B10/FR3`, round 11's case** — not a negative but the regression this must not undo — replays
+  correctly through both changes at once: `⏱ Checking
+  stopped starting new work at its 60s limit; a pass already running carried it to 62.2s. Ran: the
+  code check, the recomputation. Not run: the revision.` The recomputation is named as run, which is
+  round 12's fix; the 2.2 s is now accounted for, which is this round's.
+- **A user Stop still leaves no notice at all**, and a turn stopped before the tail begins never
+  opens a budget. The reader who pressed Stop knows why the checking ended.
+- **A call already in flight when the deadline lands is allowed to finish** and is recorded `done`;
+  only its unsent siblings are declined. Killing it is the trade this round refuses.
+
+#### Limits
+
+- **The overrun is disclosed, not prevented.** A single `deep_research` dispatched at 0:59 can still
+  take the tail past three minutes, and nothing here shortens it. The one enforcement that costs no
+  work already paid for — refusing the calls behind it — is in; the rest would mean handing the
+  remaining budget down through `executeTool` into the main process as a per-call deadline, which is
+  a real repair and a larger one than a sentence.
+- **A tail that overruns and loses nothing still says nothing.** If the deadline fires during the
+  last pass and that pass finishes, no pass is lost and there is no notice — so a `68s checking`
+  can appear with no line beside it. That is not a contradiction, but it is also not an account.
+- **`VERIFY_OVERRUN_FLOOR_MS` is a reading threshold, not a measurement.** It says how far apart two
+  printed figures have to be before a reader would call them different, and one second is a
+  judgement about the stat line's one decimal place. Print two decimals there and this number is
+  wrong.
