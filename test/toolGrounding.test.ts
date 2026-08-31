@@ -35,7 +35,8 @@ import {
   isRatioScale,
   measurementGroup,
   measurementsIn,
-  temperatureScale
+  temperatureScale,
+  unreadableQuantitiesIn
 } from '../src/shared/measurements'
 import type { GroundingReport, ToolCallRecord } from '../src/renderer/src/types'
 
@@ -2803,7 +2804,7 @@ describe('the pass reports its own coverage (v2.1)', () => {
     )
     assert.equal(
       describeCoverage(report!),
-      'Covered 0 of the 2 measurements in this reply. ' +
+      'Covered 0 of the 2 measurements this check can read in this reply. ' +
         'Not compared against anything: 105 gallons, 400 liters.'
     )
   })
@@ -2873,7 +2874,8 @@ describe('the pass reports its own coverage (v2.1)', () => {
     assert.deepEqual(report?.quantities, ['180°F'])
     assert.equal(
       describeCoverage(report!),
-      'Covered 1 of the 2 measurements in this reply. Not compared against anything: 9 days.'
+      'Covered 1 of the 2 measurements this check can read in this reply. ' +
+        'Not compared against anything: 9 days.'
     )
   })
 
@@ -2954,7 +2956,8 @@ describe('the coverage sentence (v2.1)', () => {
   test('the verb agrees with the total, and one measurement is singular', () => {
     assert.equal(
       describeCoverage(of(0, 1, ['4 days'])),
-      'Covered 0 of the 1 measurement in this reply. Not compared against anything: 4 days.'
+      'Covered 0 of the 1 measurement this check can read in this reply. ' +
+        'Not compared against anything: 4 days.'
     )
     assert.match(describeCoverage(of(1, 1, ['4 days'])), /the 2 measurements/)
   })
@@ -2967,7 +2970,7 @@ describe('the coverage sentence (v2.1)', () => {
     const named = ['1 mile', '2 miles', '3 miles', '4 miles', '5 miles', '6 miles']
     assert.equal(
       describeCoverage(of(0, 10, named)),
-      'Covered 0 of the 10 measurements in this reply. ' +
+      'Covered 0 of the 10 measurements this check can read in this reply. ' +
         'Not compared against anything: 1 mile, 2 miles, 3 miles, 4 miles and 6 more.'
     )
   })
@@ -2975,6 +2978,219 @@ describe('the coverage sentence (v2.1)', () => {
   test('no gap, no sentence', () => {
     assert.equal(describeCoverage(of(3, 0, [])), '')
     assert.equal(describeCoverage({ figures: [], links: [], checkedAgainst: ['run_python'] }), '')
+  })
+})
+
+/**
+ * v2.5, round 12, task V3 — the denominator was a claim about the reply, and
+ * the number behind it was a claim about the scan.
+ *
+ * `verdicts/round-12.json`, on a reply about a dripping faucet, both arms:
+ *
+ *     ⚠️ 1 figure ($15) in this reply is not backed by the tool output.
+ *     Covered 1 of the 4 measurements in this reply.
+ *     Not compared against anything: 1,450 gallons, 2.2 gallons per drop, 30 days.
+ *
+ * The reply also states `~876 drops per day`. The 4 was verified rather than
+ * assumed — `measurementsIn` over those bytes returns exactly four spans — so
+ * the arithmetic is right and the sentence is wrong: `drop` is not a unit this
+ * app knows, the fifth quantity was never a candidate, and nothing on screen
+ * said so.
+ *
+ * The near-miss is the fixture's whole point and is preserved below:
+ * `2.2 gallons per drop` IS read, because `gallon` is known; `876 drops per
+ * day` is not, because `drop` is not; and the reply's own arithmetic chains
+ * the two together.
+ *
+ * The passage and the prices are what make the recorded turn reproducible: a
+ * badge has to exist for the coverage line to ride, the duration has to be
+ * armed for the count to be 1 rather than 0, and `$15` has to be the currency
+ * rung's business rather than this one's.
+ */
+const V3_R12_REPLY =
+  'A tap dripping once a second wastes roughly **1,450 gallons** a month.\n\n' +
+  'Working it through: at about 2.2 gallons per drop of steady seepage, and ~876 drops per ' +
+  'day once the seal reseats, that is 1,450 gallons over 30 days. A drip that slow still runs ' +
+  'for all 60 minutes of every hour.\n\n' +
+  'Worth doing yourself: a washer kit is $9 to $15.'
+const V3_R12_LOOKUP = '[1] A tap washer costs about $9 and the swap takes 30 minutes.'
+
+describe('the coverage line no longer speaks for the whole reply (v2.5)', () => {
+  test('the recorded V3 turn: the count is unchanged and the claim over it is not', () => {
+    const records = [rec('reference_lookup', V3_R12_LOOKUP)]
+    const report = checkToolGrounding(V3_R12_REPLY, records, DRIP_PROMPT)!
+    // Unchanged, and deliberately: the scan is right about what it scanned.
+    assert.equal(report.coverage?.checked, 1)
+    assert.equal(report.coverage?.unchecked, 3)
+    assert.deepEqual(report.coverage?.uncheckedNamed, [
+      '1,450 gallons',
+      '2.2 gallons per drop',
+      '30 days'
+    ])
+    // Currency stays the currency rung's, exactly as recorded.
+    assert.equal(
+      describeUnbackedItems(report),
+      '1 figure ($15) in this reply is not backed by the tool output.'
+    )
+    assert.equal(
+      describeCoverage(report),
+      'Covered 1 of the 4 measurements this check can read in this reply. ' +
+        'Not compared against anything: 1,450 gallons, 2.2 gallons per drop, 30 days. ' +
+        'Outside what it can read at all, so not in that count: 876 drops per day.'
+    )
+  })
+
+  test('the near-miss: the known unit is read once, the unknown one is disclosed', () => {
+    assert.deepEqual(
+      measurementsIn(V3_R12_REPLY).map((m) => m.raw),
+      ['1,450 gallons', '2.2 gallons per drop', '1,450 gallons', '30 days', '60 minutes']
+    )
+    // `gallon` is in the vocabulary and `drop` is not, so the rate the reply
+    // multiplies is read and the rate it multiplies BY is not. Neither span
+    // appears in both lists — the subtraction is by offset, not by value.
+    assert.deepEqual(
+      unreadableQuantitiesIn(V3_R12_REPLY).map((q) => q.raw),
+      ['876 drops per day']
+    )
+  })
+
+  test('a quantity it cannot read is not a finding, and never reaches the model', () => {
+    const records = [rec('reference_lookup', V3_R12_LOOKUP)]
+    const report = checkToolGrounding(V3_R12_REPLY, records, DRIP_PROMPT)!
+    // The invariant `labels.length === count` spans the finding categories. A
+    // unit the app cannot read is not a fault in the answer, and a correction
+    // prompt naming it would invite the deletion of a correct figure.
+    assert.equal(groundingFindingCount(report), 1)
+    assert.deepEqual(groundingFindingLabels(report), ['$15'])
+    const prompt = describeGroundingFindings(report)
+    assert.ok(!prompt.includes('876'), prompt)
+    assert.ok(!prompt.includes('drops per day'), prompt)
+    const walk = quantityCoverage(V3_R12_REPLY, V3_R12_LOOKUP)
+    for (const bucket of [walk.checked, walk.unchecked, walk.flagged]) {
+      assert.ok(!bucket.includes('876 drops per day'), JSON.stringify(bucket))
+    }
+  })
+
+  test('no unreadable quantity, no third clause and no stored field', () => {
+    // The noise bound, and a build that hedged every coverage line fails here.
+    const report = checkToolGrounding(
+      'Cook it to 180°F, then keep the leftovers for 9 days.',
+      [rec('reference_lookup', '[1] Cook all poultry to an internal temperature of 165 °F.')],
+      'what temperature, and how long do leftovers keep?'
+    )!
+    assert.equal(report.coverage?.unread, undefined)
+    assert.equal(report.coverage?.unreadNamed, undefined)
+    assert.equal(
+      describeCoverage(report),
+      'Covered 1 of the 2 measurements this check can read in this reply. ' +
+        'Not compared against anything: 9 days.'
+    )
+  })
+
+  test('the naming is capped and says so, and the cap is per clause', () => {
+    const gap: GroundingReport = {
+      figures: [],
+      links: [],
+      coverage: {
+        checked: 0,
+        unchecked: 6,
+        uncheckedNamed: ['1 mile', '2 miles', '3 miles', '4 miles', '5 miles'],
+        unread: 7,
+        unreadNamed: ['1 pCi/L', '2 pCi/L', '3 pCi/L', '4 pCi/L', '5 pCi/L']
+      },
+      checkedAgainst: ['reference_lookup']
+    }
+    assert.equal(
+      describeCoverage(gap),
+      'Covered 0 of the 6 measurements this check can read in this reply. ' +
+        'Not compared against anything: 1 mile, 2 miles, 3 miles, 4 miles and 2 more. ' +
+        'Outside what it can read at all, so not in that count: ' +
+        '1 pCi/L, 2 pCi/L, 3 pCi/L, 4 pCi/L and 3 more.'
+    )
+  })
+})
+
+/**
+ * v2.5: the inverse of `MEASUREMENT_UNITS`.
+ *
+ * The list of units is what is known-good; everything a reply writes as a rate
+ * that the list is silent about is the case that needs handling. The
+ * discriminator is the sentence's own syntax — `X per Y`, `X/Y` — and never a
+ * list of nouns, because there is no noun list that separates `529 plans` from
+ * `876 drops`. The true negatives below are the shapes a general
+ * number-plus-noun scan actually returns over this repo's own corpora, in
+ * descending frequency; each one of them inflating a denominator would have
+ * been a new false statement in the sentence this exists to repair.
+ */
+describe('quantities the unit vocabulary cannot read (v2.5)', () => {
+  const raws = (text: string): string[] => unreadableQuantitiesIn(text).map((q) => q.raw)
+
+  test('real measurements this app ships and cannot read', () => {
+    // Transcribed from packs/home-safety/docs/radon.md,
+    // carbon-monoxide-indoors.md and emergency-water-disinfection.md, and
+    // packs/health/docs/common-cold.md. Every one is a genuine measurement
+    // outside `MEASUREMENT_UNITS`.
+    assert.deepEqual(raws('Act at 4 pCi/L; the outdoor average is 0.4 pCi/L.'), [
+      '4 pCi/L',
+      '0.4 pCi/L'
+    ])
+    assert.deepEqual(raws('above 50 parts per million'), ['50 parts per million'])
+    assert.deepEqual(raws('adds 500 milligrams per liter'), ['500 milligrams per liter'])
+    assert.deepEqual(raws('Adults average 3 colds per year.'), ['3 colds per year'])
+    assert.deepEqual(raws('roughly 40,000 cases per year'), ['40,000 cases per year'])
+  })
+
+  test('a span the unit vocabulary already read is not read again', () => {
+    // By offset, so whatever the unit list learns tomorrow this shrinks to
+    // match without being edited — and the two can never both claim a span.
+    assert.deepEqual(raws('2.2 gallons per drop'), [])
+    assert.deepEqual(raws('60 seconds/min and 24 hr/day'), [])
+    assert.deepEqual(raws('700 gallons per month'), [])
+  })
+
+  test('the shapes a bare noun scan gets wrong are not quantities here', () => {
+    // Measured: a number-plus-noun scan over every packs/**/*.md returns 578
+    // spans where the rate-anchored one returns 27, and these head the list.
+    for (const prose of [
+      'a 529 plans account', // an identifier
+      'boil for 3 to 5 minutes', // a range: "3 to"
+      'call 911 right away', // a phone number
+      'expires 31 March', // a date
+      'type 2 diabetes', // a classification
+      'Here are 4 steps to follow.', // a list length — the app's own chrome
+      'see row 72, index column', // a digit group that ends in a separator
+      '10023 Upper West Side', // greedy backtracking read this as "Up per West"
+      'the 1st attempt at 3pm ran 2x on a 1080p display' // one token, not two
+    ]) {
+      assert.deepEqual(raws(prose), [], prose)
+    }
+  })
+
+  test('currency belongs to the money rung, and a line break is still two claims', () => {
+    // The guard is doing real work here: without the glyph in front of it the
+    // same span IS a quantity this file cannot read. By glyph and not by word,
+    // because `pounds` is already a mass.
+    assert.deepEqual(raws('2 drips per second'), ['2 drips per second'])
+    assert.deepEqual(raws('$2 drips per second'), [])
+    assert.deepEqual(raws('a plan at $15 per month'), [])
+    assert.deepEqual(raws('$9\u2013$15/month'), [])
+    // The rule the whole file is built on: a number ending one line and a word
+    // beginning the next are two claims, not one.
+    assert.deepEqual(raws('Total drops: 876\ndrops per day'), [])
+  })
+
+  test('a rate written with a slash is written tight, and `per` is a word', () => {
+    assert.deepEqual(raws('12 tok/s'), ['12 tok/s'])
+    assert.deepEqual(raws('0 R /Contents'), [])
+    assert.deepEqual(raws('2,100 cal/person'), ['2,100 cal/person'])
+  })
+
+  test('it is a floor and never a census, which is why the line names and does not total', () => {
+    // Stated as a limit rather than repaired: without its rate, the same
+    // quantity is invisible here. A miss costs a disclosure; a false name on a
+    // warning banner costs the badge itself.
+    assert.deepEqual(raws('about 876 drops a day'), [])
+    assert.deepEqual(raws('about 876 drops per day'), ['876 drops per day'])
   })
 })
 
