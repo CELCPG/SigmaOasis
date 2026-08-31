@@ -181,6 +181,61 @@ describe('ledger provider', () => {
     })
     assert.equal(await ledgerProvider.gather(inp, makeIO().io), null)
   })
+
+  /**
+   * Round 12, TTU2, both arms: the disclosure counted one session variable
+   * fewer than the run_python block printed a few lines above it. This is
+   * where that gap is made — the in-flight reply is excluded, because the
+   * block it produces has to reach the model before the model answers — so
+   * this is where the disclosure has to say which moment it counts.
+   */
+  test('the in-flight reply is excluded, and the line patched to the bubble says so', async () => {
+    const inFlight = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'The sum is 824,693.',
+      toolCalls: [
+        {
+          id: 't2',
+          name: 'run_python',
+          args: {},
+          status: 'done',
+          result: 'total: 824693\nSession variables (persist in this conversation): is_prime, primes, total.'
+        }
+      ]
+    }
+    const inp = makeInput({
+      assistantMsgId: 'a1',
+      convo: {
+        id: 'c1',
+        messages: [
+          { id: 'u1', role: 'user', content: 'the sum of the first 500 primes, in Python' },
+          {
+            id: 'a0',
+            role: 'assistant',
+            content: 'Done.',
+            toolCalls: [
+              {
+                id: 't1',
+                name: 'run_python',
+                args: {},
+                status: 'done',
+                result: 'primes found: 1229\nSession variables (persist in this conversation): is_prime, primes.'
+              }
+            ]
+          },
+          { id: 'u2', role: 'user', content: 'now sum the first 500 of them' },
+          inFlight
+        ]
+      } as unknown as TurnInput['convo']
+    })
+    const { io, calls } = makeIO()
+    const result = await ledgerProvider.gather(inp, io)
+    // Two, not the three the reply's own run names — and the line says which
+    // moment the two belong to, so the reader can reconcile them.
+    assert.equal(calls.patches[0].ledger, '📒 Ledger as this turn began: 1 computed fact, 2 session variables from 2 turns')
+    assert.match(result!.blocks![0], /session variables still defined: is_prime, primes\./)
+  })
 })
 
 describe('shoppingPrice provider', () => {

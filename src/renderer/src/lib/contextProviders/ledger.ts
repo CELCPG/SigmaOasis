@@ -13,7 +13,11 @@ export const ledgerProvider: ContextProvider = {
   enabled: (_input, io) => io.settings()?.grounding.ledger !== false,
   async gather(input, io) {
     // The assistant message being written is already appended; the ledger is
-    // built from everything before it.
+    // built from everything before it. That boundary is forced — the block
+    // has to exist before the model reads it — and it is what the disclosure
+    // line says out loud: this reply's own tool calls have not happened yet,
+    // so a Python variable one of them defines is counted from the next turn
+    // on, even though its name is printed a few lines above that line.
     const ledger = buildLedger(input.convo.messages.filter((m) => m.id !== input.assistantMsgId))
     if (!shouldInjectLedger(ledger)) return null
     io.patch({ ledger: describeLedger(ledger) })
