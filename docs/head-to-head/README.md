@@ -150,6 +150,13 @@ pinned expected passage set.
 `resources/pyodide` is local. `TTU2` needs it present and needs the runtime
 **cold** — a fresh userData directory per run.
 
+Give an *arm* the runtime with `bash scripts/h2h-link-pyodide.sh <arm-app-root>`
+— never with a bare `ln -s`. The bare form run twice follows the existing link
+and plants a self-referential `pyodide -> resources/pyodide` inside the repo's
+own runtime, and the resulting ELOOP killed the v2.1.0 packaging step. The
+script is idempotent and refuses the degenerate cases; `fetch-pyodide.sh`
+additionally removes such a loop if it ever finds one.
+
 ---
 
 ## Capture

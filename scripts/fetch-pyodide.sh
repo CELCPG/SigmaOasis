@@ -21,6 +21,29 @@ DEST=resources/pyodide
 # Windows runners expose python as `python`, not `python3`, under git-bash.
 PY="$(command -v python3 || command -v python)"
 
+# Refuse to work around a symlink loop; remove it. A head-to-head arm gets its
+# runtime by symlinking this directory (scripts/h2h-link-pyodide.sh), and the
+# naive form of that command run twice — `ln -s $repo/resources/pyodide <dest>`
+# with <dest> already a link — follows the link and plants a self-referential
+# `pyodide -> resources/pyodide` INSIDE this directory. Everything that walks
+# the tree then recurses forever; electron-builder died signing v2.1.0 on
+# exactly this (ELOOP, pyodide/pyodide/pyodide/…). The loop is debris by
+# definition — nothing legitimate under this directory links back to it.
+for entry in "$DEST"/*; do
+  if [ -L "$entry" ]; then
+    here=$(cd "$DEST" && pwd -P)
+    target=$(cd "$entry" 2>/dev/null && pwd -P || true)
+    if [ "$target" = "$here" ]; then
+      echo "removing symlink loop: $entry -> $(readlink "$entry")"
+      rm "$entry"
+    else
+      # Any other symlink here is unexpected (this script only writes real
+      # files) but not a loop; surface it rather than silently deleting.
+      echo "warning: unexpected symlink $entry -> $(readlink "$entry")" >&2
+    fi
+  fi
+done
+
 need_core=1
 if [ -f "$DEST/pyodide.asm.wasm" ] && grep -q "\"version\": \"$VERSION\"" "$DEST/package.json" 2>/dev/null; then
   need_core=0
