@@ -647,7 +647,7 @@ function TurnPhaseLine({ phase }: { phase: TurnPhase }): JSX.Element {
       aria-live="polite"
       title={
         phase.stage === 'verifying'
-          ? `The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed. They stop after ${VERIFY_BUDGET_MS / 1000}s and say what was left unchecked.`
+          ? `The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed. After ${VERIFY_BUDGET_MS / 1000}s no further check is started and the line says what was left unchecked — a check already running is left to finish, so the wait can be longer than that.`
           : 'The app is gathering context for this turn — the model has not been asked yet. The count is how long that has taken so far, and it is the “gathering” figure in the stat line once the turn ends.'
       }
     >

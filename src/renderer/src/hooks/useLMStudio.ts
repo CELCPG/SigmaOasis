@@ -430,6 +430,14 @@ async function runTurn(
    * with the turn's true length once it is over (lib/turnCost.ts).
    */
   let lastStats: ResponseStats | null = null
+  /**
+   * v2.4: the instant the answer stopped and the checking started — the origin
+   * of the stat line's "checking" span, since that span is `turnMs − gatherMs −
+   * totalMs` and `totalMs` is stamped here. The verification deadline counts
+   * from the same instant, so "its 60s limit" and "Ns checking" are two
+   * statements about one clock instead of two clocks a drain apart.
+   */
+  let answerEndedAt = 0
 
   const recordStats = (
     usage: ApiUsage | null,
@@ -445,9 +453,10 @@ async function runTurn(
       if (promptTokens === undefined) promptTokens = usage.prompt_tokens
       completionTokens += usage.completion_tokens ?? 0
     }
+    answerEndedAt = Date.now()
     const stats: ResponseStats = {
       ttftMs: firstTtftMs ?? 0,
-      totalMs: Date.now() - turnStartedAt,
+      totalMs: answerEndedAt - turnStartedAt,
       gatherMs,
       ...(project ? { projectTokens } : {}),
       ...(sawUsage
@@ -657,8 +666,18 @@ async function runTurn(
    *
    * `signal` rides along, so Stop still stops the checking; only an expiry
    * leaves a notice.
+   *
+   * v2.4: counted from the last token rather than from here. The paced tail
+   * drain and the bookkeeping above sit between the two, and the stat line
+   * bills that gap to "checking" — so a budget started here was always the
+   * shorter of the two spans, and every honest recorded tail printed 60.1–60.3 s
+   * beside a "60s limit". One origin, one number.
    */
-  const budget = createVerifyBudget(VERIFY_BUDGET_MS, signal)
+  const budget = createVerifyBudget(
+    VERIFY_BUDGET_MS,
+    signal,
+    answerEndedAt > 0 ? answerEndedAt : Date.now()
+  )
   /** Stopped by the user, or stopped by the deadline — both leave the answer standing. */
   const stopped = (): boolean => signal.aborted || budget.signal.aborted
 
@@ -934,9 +953,14 @@ async function runTurn(
     } finally {
       budget.stop()
     }
+    // One stamp, read twice. The expiry notice quotes how long checking took
+    // and the stat line prints the same span as "Ns checking"; taken from two
+    // `Date.now()` calls they can round to different tenths, and a screen that
+    // states one quantity twice must state it identically both times.
+    const tailEndedAt = Date.now()
     // The deadline fired and it cost the reader something: name it, rather than
     // letting a check the app skipped look like a check that passed.
-    const notice = budget.notice()
+    const notice = budget.notice(tailEndedAt)
     if (notice) {
       checks.push(notice)
       patch({ checks: [...checks] })
@@ -945,7 +969,7 @@ async function runTurn(
     // stays the stream — tok/s is a rate of that — and this is what the reader
     // actually waited, from the turn's open rather than from the first request
     // (lib/turnCost.ts).
-    if (lastStats) patch({ stats: { ...lastStats, turnMs: Date.now() - turnOpenedAt } })
+    if (lastStats) patch({ stats: { ...lastStats, turnMs: tailEndedAt - turnOpenedAt } })
     verifying(null)
   }
 
