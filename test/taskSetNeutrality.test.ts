@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 
 /**
@@ -164,4 +164,44 @@ describe('critic view is the projection it claims to be', () => {
       assert.ok(!serialized.includes(`"${field}"`), `"${field}" reached the critic view`)
     }
   })
+})
+
+describe('the newest critic prompt documents carry the current task set', () => {
+  // r9 onward the batch documents are generated from tasks.json by
+  // make-critic-prompts.mjs. A committed document that no longer matches the
+  // task set is the drift the generator exists to end — someone edited
+  // tasks.json and forgot to regenerate. Only the newest round is held to
+  // this: earlier rounds' documents are the historical record of what their
+  // critics were actually asked. Round 8's were written by hand and are
+  // exempt by the same rule.
+  const rounds = readdirSync(H2H)
+    .map((f) => f.match(/^r(\d+)-critic-1\.txt$/))
+    .filter((m): m is RegExpMatchArray => m !== null)
+    .map((m) => Number(m[1]))
+  const newest = Math.max(...rounds)
+  const generatedEra = newest >= 9
+
+  test('a generated-era round exists to check', () => {
+    assert.ok(rounds.length > 0, 'no critic documents found at all')
+  })
+
+  if (generatedEra) {
+    // Wrapping is the generator's business; whitespace-collapsed containment
+    // is what survives it.
+    const flat = (s: string): string => s.replace(/\s+/g, ' ')
+    const docs = [1, 2, 3].map((n) =>
+      flat(readFileSync(join(H2H, `r${newest}-critic-${n}.txt`), 'utf-8'))
+    )
+    const corpus = docs.join('\n')
+
+    for (const t of src.tasks) {
+      test(`r${newest} documents ask ${t.id} exactly what tasks.json says`, () => {
+        assert.ok(corpus.includes(flat(t.question)), `${t.id}.question is stale or missing`)
+        assert.ok(corpus.includes(flat(t.decide)), `${t.id}.decide is stale or missing`)
+        for (const [i, m] of t.measure.entries()) {
+          assert.ok(corpus.includes(flat(m)), `${t.id}.measure[${i}] is stale or missing`)
+        }
+      })
+    }
+  }
 })

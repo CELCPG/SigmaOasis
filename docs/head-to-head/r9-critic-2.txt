@@ -1,0 +1,328 @@
+BLIND A/B JUDGING — BATCH 2 of 3
+Tasks: PT1, PT2, PT3, FR1, FR2, FR3
+
+================================================================
+WHAT YOU ARE DOING
+================================================================
+
+You are judging two captured runs of a desktop AI chat application, blind. Two
+builds of the same application were given identical prompts, identical fixtures,
+the same machine, and the same local model. You are not told which build
+produced which run. There is no order guarantee: `run-1` may be either build,
+and it may be a different build from one task to the next. Treat every task
+independently.
+
+================================================================
+THE RULE THAT MATTERS MOST
+================================================================
+
+Both runs used the SAME local model with the SAME prompt. Any difference in how
+knowledgeable, complete, accurate, or well-written the ANSWER is, is model
+sampling variance. It is not a property of the application and it is never a
+reason to pick a winner.
+
+You are judging the APPLICATION: what it displays, what it records, what
+controls it offers, how long it takes, how it lays out, and what it says about
+its own behaviour.
+
+Before writing any WINNER, ask yourself: "would this difference still be here if
+the model had emitted identical tokens in both runs?" If the answer is no — if
+the difference is only in the model's wording, its choice of facts, or how much
+it happened to say — the answer is `tie`.
+
+Never reward the run whose answer is more knowledgeable, more detailed, better
+written, or more correct about the world. A run whose answer is factually wrong
+can win. A run whose answer is excellent can lose.
+
+================================================================
+TIES ARE REAL
+================================================================
+
+`tie` is a real answer and is often the correct one. Score `tie` when:
+
+- both runs behave the same way on the task's question, even if both behave badly;
+  - neither run was actually put to the test — the situation the task sets up
+  did not arise, the model did not emit the thing the task measures, or the
+  driver action the task depends on did not land. A task where neither build was
+  tested is a TIE, not a coin flip;
+- the only differences you can find are in the model's wording;
+- the artifacts you need are missing or empty in one or both runs.
+
+Do NOT break a tie on something incidental: response length, a nicer sentence,
+one run being marginally faster on a quantity this task does not ask about.
+
+================================================================
+WHERE THE RUNS ARE
+================================================================
+
+Base directory: /Users/colinlong/Documents/OpenMind/.h2h-runs/judge-r9/
+Each task:      <base>/<TASK>/run-1   and   <base>/<TASK>/run-2
+For example:    <base>/PT1/run-1
+
+Read the task's own entry in
+/Users/colinlong/Documents/OpenMind/docs/head-to-head/tasks-for-critics.json FIRST.
+
+Use its `prompt` (the exact text typed into the app) and its `setup` (the
+fixtures, settings and driver actions staged for the task) as your facts about
+what was run. That file is the only task description you may read. Do NOT open
+/Users/colinlong/Documents/OpenMind/docs/head-to-head/tasks.json — it carries
+fields written for the people building against the task set, and the questions
+you answer are the ones written in THIS document.
+
+================================================================
+BLINDNESS — DO NOT BREAK IT
+================================================================
+
+  - NEVER open any file whose name begins with `_`. Those files are excluded
+  from the blind staging and identify the arms. If you open one by accident,
+  stop and say so in your output.
+  - If you come across anything in an artifact that looks like a build identity
+  — a version string, a commit hash, a branch name, a changelog, a path fragment
+  naming a build — ignore it and keep it out of your reasoning. Note in EVIDENCE
+  that you saw it and set it aside.
+  - Do not go looking for the application's source code, its git history, its
+  documentation beyond tasks-for-critics.json, or any other run directory. Judge
+  these two run directories only.
+
+================================================================
+WHAT IS IN A RUN DIRECTORY
+================================================================
+
+- transcript.json    every message and every tool-call record (name, args,
+                     result, status), plus the turn's trace export.
+- reply.md           the final assistant message as RAW MARKDOWN — exactly what
+                     the model emitted, before rendering.
+- reply.txt          the rendered innerText — WHAT THE READER ACTUALLY SAW on
+                     screen. A collapsed block contributes only its header here.
+                     Diffing reply.md against reply.txt is how you separate
+                     "the model wrote it that way" from "the app drew it that
+                     way": a character present in reply.md and absent from
+                     reply.txt was lost by the renderer.
+- messages-raw.json  { index, role, content, reasoning } per message.
+- dom/               outerHTML of the assistant message and of any plan block,
+                     captured at the moments the task names.
+- snapshots/         DOM captured at named moments, plus keyboard-traversal
+                     records where a task collected them.
+- timings.json       t0 (the Enter keydown) and every marked timestamp.
+- styles.json        computed styles for the nodes the visual tasks measure, in
+                     both themes.
+- fixtures/ or fixture.log   every request each loopback fixture served.
+- trace/audit.jsonl  the exported session audit log, for tasks that enable it.
+- shots/             screenshots, taken only after any timed window closed.
+- run.json           driverActions, turns, setup.seededSettingsVerified,
+                     preconditions, validity, auditExport.
+
+Not every run has every file. An empty reply.md with `run.json →
+rawMarkdown.error` set is a known artifact gap, not a defect of the build.
+
+Check `run.json → validity` and `run.json → preconditions` before concluding
+anything. If a run is invalid or a precondition did not hold, say so and score
+the task `tie` unless the other run's evidence stands entirely on its own.
+
+================================================================
+EVIDENCE RULES
+================================================================
+
+  - Every claim must be grounded in a quoted string from a named artifact file,
+  written as: file.ext: "the exact text". No claim from memory, from how such
+  applications usually work, or from any file other than the run's own
+  artifacts.
+  - Where a task asks for a count, give the number for BOTH runs — even when the
+  two numbers are equal, even when both are zero. "Both 0" is a result.
+  - If an artifact you need does not exist, name the file you looked for and the
+  run it was missing from. Absence of evidence is not evidence.
+- Quote exactly and verbatim, enough characters to be checkable.
+
+================================================================
+OUTPUT SHAPE — exactly this, one block per task, nothing else
+================================================================
+
+## <TASK>
+WINNER: run-1 | run-2 | tie
+CONFIDENCE: high | medium | low
+WHAT I SAW: <concrete difference, quoting real text with file names>
+WHY: <why that decides the task's question>
+BIGGEST REMAINING GAP: <the single biggest thing the WINNING run still gets wrong>
+EVIDENCE: <files opened, with the values that mattered>
+
+If the WINNER is `tie`, BIGGEST REMAINING GAP is the biggest thing BOTH runs get
+wrong. Produce the 6 blocks in the order below and nothing else.
+
+================================================================
+THE TASKS
+================================================================
+
+----------------------------------------------------------------
+## PT1
+----------------------------------------------------------------
+
+THE QUESTION: For a plan the user approved and did not watch, what can a reader
+afterwards learn about what it actually did?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. EXECUTED — from the transcript and the exported audit: every tool invoked
+   inside a plan step, with its arguments and result. Give the set and the count
+   for both runs. Report the audit’s entry count and whether its hash chain
+   verified, or say it is absent, because that bounds what you can conclude.
+2. SHOWN — from the rendered message and its markup, after expanding every
+   step: every tool call the reader can see, by name. Give the set and the
+   count, and note which need interaction to reach.
+3. EXECUTED not in SHOWN, and SHOWN not in EXECUTED. Report both counts for
+   both runs, including zero.
+4. For each executed call, how many interactions separate the message from
+   its arguments and its result. Report the distribution, and the count of calls
+   not reachable at all.
+5. The progress count in the plan header against the number of steps the
+   record says ran.
+
+HOW TO DECIDE: Report the pair — executed, shown — for both runs. A run whose
+plan executed nothing has nothing to show and was not put to the test; say so
+rather than scoring it. Showing a call that did not happen counts against in the
+same way as hiding one that did. Depth counts too: a call reachable in two
+interactions is not the same as one reachable in none, so report the interaction
+counts rather than a yes or no.
+
+----------------------------------------------------------------
+## PT2
+----------------------------------------------------------------
+
+THE QUESTION: After the cancel, what would a reader who scrolls back conclude
+about this plan, and what can they still do to it?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. The message text after the cancel, quoted verbatim for both runs.
+2. Every control still present and enabled inside the plan block, by
+   accessible name, with the count. Note which of them would start work if
+   activated.
+3. Every label the block still displays about its own state. Quote them.
+4. Per step row, the status shown before the cancel and after it. Report how
+   many rows changed their presentation, for both runs.
+5. Whether a row that will never run is distinguishable on screen from a row
+   that is queued and waiting. Report the rendered difference, or that there is
+   none.
+6. The progress count in the header before and after.
+
+HOW TO DECIDE: The run whose plan block, read cold, states the state it is
+actually in. Report the counts for both runs — live controls, rows that changed
+— even when the two are identical, which is a tie. Removing everything is not
+automatically better than relabelling: a reader also needs to learn that a plan
+existed and was abandoned, so report whether the outcome is still legible at
+all.
+
+----------------------------------------------------------------
+## PT3
+----------------------------------------------------------------
+
+THE QUESTION: Reading the plan block afterwards, how many of the four facts —
+finished, cut off, never started, and whose decision ended it — can a reader
+tell apart?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. From the record: which steps completed, which was in flight when the
+   interruption landed, and which never started. Give the three counts for both
+   runs.
+2. From the block: the presentation of every row — its glyph or icon, its
+   label, its status text, its colour. List them.
+3. How many distinct row presentations exist, and which of the three sets
+   each corresponds to. Report every place where two different sets share one
+   presentation.
+4. Whether any row is presented as an error or a failure, quoted, together
+   with what the record says that row actually was.
+5. What the block says about what ended the run, quoted, or nothing.
+6. The progress count in the header against the number of rows the record
+   says completed.
+
+HOW TO DECIDE: The run whose block partitions its rows the way the record does.
+Report, for both runs, how many of the three sets are distinguishable on screen
+and whether the interruption is attributed to anything. Presenting a reader’s
+own interruption as a failure, and presenting a step that never ran as one about
+to run, are both losses of a distinction and count the same way. If the
+interruption did not land mid-plan in a run, the situation never arose there —
+say so instead of scoring it.
+
+----------------------------------------------------------------
+## FR1
+----------------------------------------------------------------
+
+THE QUESTION: When the turn produces no answer, what is the reader left with?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. The assistant message’s rendered text, quoted, with its length for both
+   runs. If it is empty, say so.
+2. Whether the message names a cause, quoted — and whether the cause it names
+   matches what the record shows the server reported.
+3. Every control present and enabled on that message, by accessible name,
+   with the count.
+4. Whether the application returned to a usable state — composer and send
+   enabled — and how long that took.
+5. Whether the user’s own message is still in the conversation, and whether
+   anything was removed from it.
+6. What the raw record shows the server sent, quoted, so the on-screen
+   account can be checked against it.
+
+HOW TO DECIDE: Report, for both runs: the message length, whether a cause is
+named, the count of enabled controls, and the time to a usable composer. A
+message that names a cause the record does not support is not better than
+silence, so check the named cause against the record. If both runs produced a
+normal answer the failure did not occur; say so rather than deciding on
+something incidental.
+
+----------------------------------------------------------------
+## FR2
+----------------------------------------------------------------
+
+THE QUESTION: When the server goes silent, what ends the wait, when, and what is
+the reader left with?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. Whether anything appeared during the observation window without the reader
+   acting — content, or a statement about the silence. Report when, or that
+   nothing appeared, for both runs.
+2. Whether a stop control was present and enabled throughout. Report the
+   moments checked.
+3. After the stop: how long until the composer and send are enabled again,
+   and what the message then says. Quote it, or report that it is empty.
+4. Whether the application ended the wait on its own, with no stop, inside
+   the observation window. Report when, or none.
+5. Whether the user’s message survived and the conversation is usable
+   afterwards.
+
+HOW TO DECIDE: Report, for both runs: time to any explanation, whether a stop
+existed and worked, time to a usable application after it, and whether the wait
+ever ended by itself. Two runs that both wait indefinitely are a tie — report
+the length of the window you watched, so a reader knows what was ruled out and
+what was not.
+
+----------------------------------------------------------------
+## FR3
+----------------------------------------------------------------
+
+THE QUESTION: What does the reader learn about a review, set against what that
+review actually returned?
+
+MEASURE AND REPORT FOR BOTH RUNS:
+
+1. From the record: whether a review was requested, what came back, and its
+   length. If no review was requested in a run, the situation never arose there
+   — say so.
+2. The deliberation line, quoted verbatim, and anything expandable behind it,
+   quoted.
+3. Whether the line states an outcome for the review, and if so which. Quote
+   the words it uses.
+4. Whether the line distinguishes a review that returned nothing from a
+   review that returned no problems. Report which of the two the record shows
+   and which one the line reads as, for both runs.
+5. Whether the stored review is shown as empty, or shown as an empty pane
+   under a heading that implies content.
+
+HOW TO DECIDE: The run whose line matches its own record. Reporting a review
+that never arrived as one that found nothing, and reporting one that found
+nothing as a failure, are both mismatches and count the same way. If the empty
+review did not occur in a run, that run was not put to the test. Silence is a
+result too: a run that prints no line at all should be reported as printing
+none, not credited with restraint.
