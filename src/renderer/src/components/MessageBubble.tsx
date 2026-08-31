@@ -158,6 +158,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const toolDisclosure = report.toolDisclosure ?? []
   const toolCounts = report.toolCounts ?? []
   const toolArgs = report.toolArgs ?? []
+  const toolRetrieval = report.toolRetrieval ?? []
   const citations = report.citations ?? []
   const quotes = report.quotes ?? []
   const attributions = report.attributions ?? []
@@ -269,6 +270,32 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         >
           ⚠️ This reply states {toolArgs.length === 1 ? 'an argument' : 'arguments'} the{' '}
           {toolArgs.length === 1 ? 'call' : 'calls'} never received: {toolArgs.join('; ')}.
+        </div>
+      )}
+      {/*
+        v2.5: the same account one rung further in. `toolArgs` above says what
+        the call was sent; this says what it brought back — the pack, the count,
+        the relevance figures. It sits directly under that line because the two
+        are halves of one sentence, and above the quotation rung because a
+        reader who believes the wrong pack was searched mistrusts every passage
+        under it. The provenance strip listing the real citations is on screen
+        one message up, which is what makes this checkable by eye.
+      */}
+      {toolRetrieval.length > 0 && (
+        <div
+          className={
+            hasUnbacked ||
+            toolClaims.length > 0 ||
+            toolDenials.length > 0 ||
+            toolDisclosure.length > 0 ||
+            toolCounts.length > 0 ||
+            toolArgs.length > 0
+              ? 'mt-1'
+              : undefined
+          }
+        >
+          ⚠️ This reply's account of what the library returned contradicts the passages:{' '}
+          {toolRetrieval.join('; ')}.
         </div>
       )}
       {/*
