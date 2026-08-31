@@ -10,6 +10,7 @@ import {
   explainEmptyReply,
   explainFailure,
   ExplainedError,
+  readingLine,
   readsAsProse,
   searchUnreachable,
   type Failure,
@@ -212,6 +213,185 @@ describe('the four strings a reader could not act on', () => {
       'the collapsed control is back to the colon form'
     )
     assert.match(bubble, /<pre[^>]*>[\s\S]{0,200}\{c\.detail\.text\}/)
+  })
+
+  /**
+   * v2.5, and the third round on the same disclosure. Round 11's critics read
+   * its LABEL introducing nothing; round 12 named the control and a blind
+   * critic saw the difference. Round 13's critic opened it, in BOTH arms, and
+   * read the whole of what opening it bought:
+   *
+   *     What the runtime reported
+   *       BodyStreamBuffer was aborted
+   *
+   * Nothing here leaked. The abort was caught by TYPE (rule 2), the app's own
+   * sentence was written, and the raw text is behind a disclosure under a label
+   * naming whose words they are — which is this module's argument, intact. What
+   * was missing is that the verification banner is the ONE surface that renders
+   * a `detail` with no `sentence` anywhere near it: `describeRecompute` is
+   * handed `headline` and `detail` and never sees the rest. So the reader who
+   * opened it got LESS than the line above — a fetch's name for its own
+   * response buffer, and nothing that says what it means.
+   */
+  describe('the quote says what it means, and says whose meaning that is', () => {
+    test('opening the disclosure now buys the reader a reading of the words', () => {
+      const f = explainFailure(new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {
+        subject: 'The recomputation'
+      })
+      const line = readingLine(f.detail!)
+      assert.ok(line, 'the quote still stands alone with nothing to read it by')
+      // The gloss the round is for: an abort is an ending, not a crash.
+      assert.match(line!, /cut off before it finished/)
+      assert.match(line!, /stopped, or the connection dropped/)
+      // Two voices, and the line says which is which in its own first clause.
+      assert.match(line!, /^The runtime’s wording for: /)
+      // It reads the words; it does not repeat them.
+      assert.doesNotMatch(line!, /BodyStreamBuffer/)
+      // …and the quote itself is untouched. It is evidence.
+      assert.equal(f.detail!.text, 'BodyStreamBuffer was aborted')
+    })
+
+    test('the gloss is of the CLASS, so both engines’ wordings get the same one', () => {
+      // Rule 2 one layer further out. `BodyStreamBuffer was aborted` and
+      // `signal is aborted without reason` are one DOMException, so they get one
+      // reading between them — of *aborted*, the word they share, and not of the
+      // object only one of them names. A gloss keyed on a message would be the
+      // enumeration mistake wearing prose.
+      const a = explainFailure(new DOMException('signal is aborted without reason', 'AbortError'))
+      const b = explainFailure({ name: 'AbortError', message: 'BodyStreamBuffer was aborted' })
+      const c = explainFailure({ name: 'AbortError', message: 'a wording no engine ships yet' })
+      assert.equal(a.detail!.reading, b.detail!.reading)
+      assert.equal(b.detail!.reading, c.detail!.reading)
+    })
+
+    /**
+     * The true negative the design turns on. Rule 3 says a failure the app
+     * could not place gets an honest sentence and no guess — and a gloss on
+     * words the app could not read is exactly the guess. So the disclosure for
+     * an unplaced failure is the bare quote it always was.
+     */
+    test('a failure the app never placed is NOT glossed', () => {
+      for (const raw of [
+        'Fatal: 0x8007007e',
+        'ENOSPC: no space left on device, write',
+        'TypeError: Cannot read properties of undefined (reading "steps")',
+        'write EPIPE'
+      ]) {
+        const f = explainFailure(raw, { subject: 'The search' })
+        assert.equal(f.recognised, false, raw)
+        assert.equal(f.detail!.reading, undefined, `the app glossed what it could not read: ${raw}`)
+        assert.equal(readingLine(f.detail!), null, raw)
+      }
+      // Nor is a relayed message the app has not learned to read.
+      const relayed = explainFailure('gpu_layers mismatch: 33 != 0', {
+        subject: 'The request',
+        source: 'LM Studio'
+      })
+      assert.equal(relayed.recognised, false)
+      assert.equal(relayed.detail!.reading, undefined)
+    })
+
+    /**
+     * And the invariant behind that true negative, over the whole corpus: a
+     * quote is glossed exactly when the app placed the failure. Stated as an
+     * equivalence rather than a list of cases, because a list is what gets a
+     * case added to it without the rule being reconsidered.
+     */
+    test('a quote carries a reading exactly when the app placed the failure', () => {
+      const CASES: [unknown, { subject?: string; source?: string }][] = [
+        [new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {}],
+        ['net::ERR_UNSAFE_PORT', { subject: 'The search' }],
+        ['net::ERR_TOO_MANY_REDIRECTS', { subject: 'The page' }],
+        ['net::ERR_QUIC_HANDSHAKE_ABANDONED_V7', { subject: 'The search' }],
+        ['connect ECONNREFUSED 127.0.0.1:9', {}],
+        ['Fatal: 0x8007007e', {}],
+        ['ENOSPC: no space left on device, write', {}],
+        ['write EPIPE', {}],
+        ['Trying to keep the first 12000 tokens when context the overflows.', { source: 'LM Studio' }],
+        ['gpu_layers mismatch: 33 != 0', { source: 'LM Studio' }],
+        ...APP_PROSE.map((p) => [p, {}] as [unknown, Record<string, never>])
+      ]
+      for (const [raw, ctx] of CASES) {
+        const f = explainFailure(raw, ctx)
+        if (!f.detail) continue // the app wrote the sentence; there is nothing to gloss
+        assert.equal(
+          f.detail.reading !== undefined,
+          f.recognised,
+          `gloss and placement disagree for ${JSON.stringify(raw)}`
+        )
+      }
+    })
+
+    test('the reading is never mistakable for the quote, in any surface', () => {
+      // The label promises the runtime's own words, and something else is now
+      // under there with them. What keeps the promise is that the second line
+      // TALKS ABOUT the first — it names the speaker in the possessive and then
+      // reads them — so no reader can take it for the quote.
+      const f = explainFailure(new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {
+        subject: 'The recomputation'
+      })
+      const body = composeFailure(f)
+      // The verbatim line is still verbatim, still quoted, and still first.
+      assert.match(body, /“BodyStreamBuffer was aborted”\nThe runtime’s wording for: /)
+      assert.ok(
+        body.indexOf('“BodyStreamBuffer was aborted”') < body.indexOf('The runtime’s wording'),
+        'the reading came before the words it reads'
+      )
+      // A bug report carries both, so the second reader is not stuck either.
+      assert.match(copyableFailure(f), /BodyStreamBuffer was aborted\nThe runtime’s wording for: /)
+      // And whoever spoke keeps their name in this reading too, as in the other
+      // two — one spelling of the speaker, off `detail.source`, never rewritten.
+      assert.match(
+        readingLine({ source: 'LM Studio', text: 'x', reading: 'y.' })!,
+        /^LM Studio’s wording for: y\.$/
+      )
+    })
+
+    test('the unglossed disclosure is byte-for-byte what it was', () => {
+      // The other half of the true negative: adding the line must not disturb
+      // the surface for every failure that does not get one. These two
+      // assertions are the ones round 12 pinned, unchanged.
+      const f = explainFailure('Fatal: 0x8007007e')
+      assert.match(composeFailure(f), /The runtime reported:\n“Fatal: 0x8007007e”$/)
+      assert.match(copyableFailure(f), /The runtime reported:\nFatal: 0x8007007e$/)
+    })
+
+    test('the banner renders the reading, outside the verbatim block', () => {
+      // Where it is actually read. The `<pre>` is the quote and keeps only the
+      // quote; the reading is a sibling in the app's ordinary ink, so the two
+      // voices are told apart by the surface as well as by the words.
+      const bubble = readFileSync(
+        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
+        'utf-8'
+      )
+      assert.match(bubble, /\{readingLine\(c\.detail\)\}/)
+      for (const block of bubble.match(/<pre[^>]*>[\s\S]*?<\/pre>/g) ?? [])
+        assert.ok(
+          !block.includes('readingLine'),
+          'the app’s own gloss was rendered inside a verbatim block'
+        )
+      // The tool disclosure carries it too — it is one gloss, not a per-surface
+      // judgement about who deserves one.
+      const toolBlock = readFileSync(
+        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'ToolCallBlock.tsx'),
+        'utf-8'
+      )
+      assert.match(toolBlock, /\{readingLine\(failure\.detail\)\}/)
+    })
+
+    test('a check stored before v2.5 keeps its quote and claims no meaning', () => {
+      // `WorkbenchCheck` is persisted with the conversation, so a detail on disk
+      // has no `reading`. It renders as it always did rather than being told a
+      // meaning nobody recorded — the same rule `TurnEnding.completed` is under.
+      const stored = describeRecompute({
+        ran: false,
+        ok: false,
+        note: 'stopped before it finished',
+        detail: { source: 'the runtime', text: 'BodyStreamBuffer was aborted' }
+      })
+      assert.equal(stored.detail?.reading, undefined)
+      assert.equal(readingLine(stored.detail!), null)
+    })
   })
 
   test('an interrupted plan step says it was stopped, in a sentence', () => {

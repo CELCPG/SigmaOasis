@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
 import { describeCoverage, describeMatchedMeasurements, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS, unlistedLinks } from '../lib/toolGrounding'
-import { attributionLabel, composeFailure } from '../../../shared/failure'
+import { attributionLabel, composeFailure, readingLine } from '../../../shared/failure'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
@@ -1191,6 +1191,21 @@ export const MessageBubble = memo(function MessageBubble({
                     <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/5 p-1.5 font-mono text-ink-secondary dark:bg-white/5">
                       {c.detail.text}
                     </pre>
+                    {/* v2.5: and what those words mean. This is the surface
+                        round 13's critic opened, and the ONE that renders a
+                        `detail` with no sentence anywhere near it — the banner
+                        keeps `headline` and `detail` and drops `sentence`, so
+                        opening the disclosure used to buy the reader a fetch's
+                        name for its own response buffer and nothing else.
+
+                        Outside the `<pre>` and in the app's ordinary ink, so
+                        the quote stays visibly the quote: the monospace block
+                        is what the runtime said, this line is what the app made
+                        of it, and `readingLine` names whose wording is being
+                        read so the summary's promise still holds over both. */}
+                    {readingLine(c.detail) && (
+                      <p className="mt-1 text-ink-tertiary">{readingLine(c.detail)}</p>
+                    )}
                   </details>
                 )}
               </div>
