@@ -35,17 +35,26 @@ Each entry in `tasks.json` carries:
 - **`dimension`** — one of the six above.
 - **`prompt`** — the literal text typed into the composer. Nothing is
   paraphrased at run time; the driver types this string exactly.
-- **`probes`** — the specific weakness the task is built to expose, named down
-  to the file and the code path. This is the task's justification and it is
-  what a reviewer should argue with if they think a task is unfair.
+- **`probes`** — why the task earns its place: what the prompt makes happen
+  and why that is where the dimension shows. This is the task's justification
+  and it is what a reviewer should argue with if they think a task is unfair.
+  Written to be true of any build — it names no source path, class name, glyph
+  or measured constant (the task-set neutrality test in the suite enforces
+  this; through round 8 these fields were a defect inventory that could
+  de-blind a pair, recorded in `docs/evals.md`).
 - **`setup`** — fixtures, settings and driver actions the task needs (see
   *Fixtures* below). Anything the driver must do beyond typing lives here.
 - **`mechanicalChecks`** — assertions a **script** decides from the captured
   run: a regex over visible text, a timing threshold, the presence or absence
   of a DOM affordance, a count, a computed contrast ratio. No check anywhere in
   this file asks a model to grade anything.
-- **`criticQuestion`** — the single question a blind critic answers by
-  comparing two captured runs without being told which build produced which.
+- **`question`** / **`measure`** / **`decide`** — what a blind critic is asked
+  about a pair of captured runs, what it must report from each (counted both
+  ways, including zeroes), and how it must weigh what it found. Held to the
+  same neutrality rule as `probes`. The critic never reads these from this
+  file — the critic prompt document carries them, and the critic sees only
+  `tasks-for-critics.json` (regenerate with `make-critic-tasks.mjs`; the
+  neutrality test pins that file to be exactly the projection it claims).
 - **`offlineSafe`** — true for all 18. Nothing in this set reaches the internet.
 
 ---

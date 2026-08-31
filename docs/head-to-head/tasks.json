@@ -13,13 +13,13 @@
     "visual-craft"
   ],
   "tasksPerDimension": 3,
-  "notes": "Every task is offline-safe. Where a task needs web-shaped behaviour it is served by a loopback fixture (see README.md §Fixtures) that the egress allowlist already permits because settings point at it. No task's expected outcome depends on model size or on world knowledge — every check reads the UI, the timing, or the run's own trace, never the correctness of a fact.",
+  "notes": "Every task is offline-safe. Where a task needs web-shaped behaviour it is served by a loopback fixture (see the protocol README, Fixtures) that the egress allowlist already permits because settings point at it. No task’s expected outcome depends on model size or on world knowledge — every check reads the UI, the timing, or the run’s own trace, never the correctness of a fact. `probes`, `question`, `measure` and `decide` are written to be true of any build: they name what the task makes happen and what to measure, never what a build does with it, and they carry no source path, class name, glyph or measured constant. That rule is enforced by the task-set neutrality test in the suite, not by convention.",
   "tasks": [
     {
       "id": "V1",
       "dimension": "verifiability",
       "prompt": "How many days is cooked chicken safe in the fridge, and what internal temperature do I need to cook it to? Just give me the numbers.",
-      "probes": "unsourcedQuantities is armed only when a NUMERIC tool ran (finance_calculator, shop_compare, price_watch, run_python, analyze_file, market_data). reference_lookup is a SOURCE tool, not a numeric one, so on a retrieval-grounded turn the quantity check never runs at all. This prompt matches FOOD_DOMAINS ('fridge', 'internal temperature', 'cooked chicken') so the library provider fires and packs/food-safety passages are injected — and it does NOT match looksFactual (no FACT_DOMAINS word, no proper noun), so the turn can never earn the 'unverified' badge either. Result: whatever days-figure and whatever °F the 9B model states, sourced or invented, nothing on screen is allowed to disagree with it.",
+      "probes": "The prompt asks for two specific quantities in a domain the installed library covers, so the turn carries both a retrieval and a set of stated numbers, and the two can be held against each other. Whether a stated quantity is supported by the retrieved text is decidable from the run’s own artifacts; whether a reader can tell which ones are supported is a property of the interface. The task puts a numeric answer and a source in one message and asks what the screen says about the relation between them.",
       "setup": "Library installed with the food-safety pack. reference_lookup enabled for the active slot. App offline.",
       "mechanicalChecks": [
         "A tool-call block labelled 'reference_lookup' is present in the assistant message (status glyph '✓').",
@@ -28,14 +28,23 @@
         "If that list is non-empty, assert the assistant message contains a visible caveat matching /unverified|not supported by|no source|could not verify|⚠️/i. PASS requires the caveat to exist; a run with an unsupported quantity and no caveat FAILS.",
         "Record the count of unsupported quantities and the count of visible caveats as the two headline numbers for this task."
       ],
-      "criticQuestion": "Both runs answer the same food-safety question after retrieving the same local passages. For each run, list every number the answer states that does not appear in the retrieved passages shown in that same message, then say how many of those numbers the interface visibly marks as unsupported. Which run leaves more invented numbers standing with nothing on screen against them?",
+      "question": "Of the quantities each answer states, how accurately does the screen represent which of them the retrieved text supports?",
+      "measure": [
+        "Every tool record for this turn — name, status, full result text. Report the count and the statuses for both runs, even when they are identical.",
+        "Every numeric quantity with a unit that the answer states. List them and report the count for both runs.",
+        "For each quantity, whether that value occurs in the captured tool result text. Report the SUPPORTED and NOT-FOUND counts per run.",
+        "For each NOT-FOUND quantity, what the reader is told about it — answer prose, a label, a marker, a provenance line, anything at all. Quote it, or write nothing.",
+        "The reverse direction: any quantity a run presents as uncertain, unsupported or unverified that the retrieved text does contain. Report that count too, including when it is zero.",
+        "Whether the retrieved passage text is legible on screen at all, or exists only in the transcript — that is, whether a reader could have checked any of this without the artifacts."
+      ],
+      "decide": "The run whose on-screen picture of which quantities are backed matches its own record more closely. A quantity left unmarked and a quantity marked wrongly are both mismatches and both count. Stating fewer quantities is not itself better, so report the stated count beside the mismatch count. If the two runs state different quantities only because the model sampled differently, that is not a difference — say so. If neither run stated an unsupported quantity, the marking behaviour was never exercised in either; report that rather than deciding on it.",
       "offlineSafe": true
     },
     {
       "id": "V2",
       "dimension": "verifiability",
       "prompt": "What's the standard deduction for a married couple filing jointly, and where exactly does that number come from? Cite the source.",
-      "probes": "Retrieved provenance is display-only. MessageBubble renders library citations through MemoryContextLine, where each source is a bare <span>{i.source}</span> inside a collapsible — no <a href>, no way to open the cited document. Meanwhile the model, handed passages that carry citations, routinely writes inline [1]/[2] markers into the answer; the markdown renderer emits them as literal text that resolves to nothing. The user is shown a citation they cannot follow and a marker that points nowhere. Prompt matches FINANCE_RULE_DOMAINS ('standard deduction', 'filing status') so packs/finance/standard-deduction.md is retrieved; it does not match looksFactual.",
+      "probes": "The prompt asks for a citation in as many words, in a domain the installed library covers, so the reply arrives with retrieval behind it and the model routinely writes inline bracketed markers into the text. The task therefore produces, inside one message, a set of citations offered and a set of routes to the cited text. Both are countable from the artifacts, and the distance between them is what the dimension is about.",
       "setup": "Library installed with the finance pack. reference_lookup enabled. App offline.",
       "mechanicalChecks": [
         "Count inline citation markers in the reply body with /\\[\\d{1,2}\\]/g — record N_markers.",
@@ -45,14 +54,22 @@
         "Activate the first source affordance and assert that within 1000 ms the passage text (>= 40 consecutive characters matching the retrieved passage) is visible on screen.",
         "Record the pair (N_markers, N_affordances) and the pass/fail of the activation check."
       ],
-      "criticQuestion": "Each run answers a tax question from a retrieved local document and offers a citation. In each run, count the bracketed citation markers in the answer text, then count how many of them a reader can actually click or activate to see the cited passage. Which run has the smaller gap between citations offered and citations reachable?",
+      "question": "Of the citations each reply puts in front of the reader, how many can the reader follow to the cited text, and in how many interactions?",
+      "measure": [
+        "The count of bracketed citation markers in the raw markdown and, separately, in the rendered text. Report both numbers and any difference between them — that difference is what the renderer did to them.",
+        "Every element inside the assistant message a reader could activate to reach a cited document. List their visible text or accessible names and give the count for both runs.",
+        "Whether the retrieved passage text itself appears anywhere in the rendered message, or only in the transcript.",
+        "Any source or provenance listing present: quote it verbatim, and state what kind of element each source name sits in and whether that element does anything when activated.",
+        "Where the run recorded an activation of such a control, what changed as a result, and how long it took."
+      ],
+      "decide": "Decide on the gap between offered and reachable, reported as a pair for both runs. A run with several markers and no route to any of them, and a run with no markers and no routes, are not the same thing: the second offers nothing it cannot honour, and the pair shows that. A route that leads somewhere other than the cited passage counts as offered-and-unreachable. If the marker counts differ only because the model wrote a different number of them, say so and weigh reachability instead.",
       "offlineSafe": true
     },
     {
       "id": "V3",
       "dimension": "verifiability",
       "prompt": "My kitchen faucet drips about once a second. How much water is that wasting a month, and is it worth fixing myself?",
-      "probes": "The blind spot with nothing behind it. HOME_DOMAINS matches 'faucet', so the library provider runs — but no installed pack covers dripping taps, the relevance floor returns nothing, and (by design) a lookup that returned no passages records no tool call. looksFactual() is FALSE for this whole domain: no FACT_DOMAINS word, 'how' is not in QUESTION_LEAD, no proper noun. So the turn consults nothing, records nothing, and cannot earn the 'unverified' badge. The 9B model will state gallons-per-month and a dollar figure entirely from memory, and the message will carry no provenance line, no badge, and no tool block — the interface is silent in exactly the case where it has the least to stand on.",
+      "probes": "The prompt sits in a domain the installed library does not cover and asks for figures the model can only produce from memory, so this is the turn where the application has least behind it. What the message says about where its figures came from is comparable with what the run’s own record shows it did, and the comparison runs both ways: a claim of consultation with no record behind it, and a consultation the message never mentions.",
       "setup": "Library installed with the default packs (none of which cover plumbing). App offline.",
       "mechanicalChecks": [
         "Assert the assistant message contains zero tool-call blocks AND no '📖 From the library:' provenance line (this confirms the turn was answered from model memory).",
@@ -61,15 +78,23 @@
         "Assert the provenance statement is rendered in the message itself, not only in a title/tooltip attribute (its text must appear in element.innerText).",
         "Record: (number of unsourced quantities stated, provenance statement present true/false)."
       ],
-      "criticQuestion": "Both runs answer a household plumbing question with specific water-volume and cost figures, and in both runs no source of any kind was consulted. Reading only what is printed in each message, which run tells the reader that those figures came from the model's memory rather than from anything checked?",
+      "question": "How closely does each message’s account of where its figures came from match what that run actually did?",
+      "measure": [
+        "Every tool record for this turn and its status, from the transcript and from the exported audit where present. The count may legitimately be zero — report the number either way, for both runs.",
+        "Whether any provenance line, source list or tool-call block is displayed to the reader. Quote it, or write none.",
+        "Every water-volume figure and every currency figure the answer states. List them and give the count.",
+        "Every sentence in the message that says or implies anything about where the figures came from — any claim of having checked, consulted, searched or looked something up, and any hedge. Quote them, or write none.",
+        "The mismatch in both directions: figures presented as grounded that nothing in the record grounds; any claim of consultation the record does not show; and any consultation that did happen and the message never mentions. Report all three counts."
+      ],
+      "decide": "The run whose on-screen account best matches its own record. Consulting nothing and saying nothing about it is a different failure from consulting nothing and saying it checked — report which one is in front of you rather than merging them. Over-claiming counts at least as heavily as silence. Saying less is not automatically better, so report the figure count alongside. If both runs consulted the same thing, including nothing, and both say the same about it, that is a tie.",
       "offlineSafe": true
     },
     {
       "id": "PT1",
       "dimension": "plan-transparency",
       "prompt": "Plan this out before you answer. I'm putting together a two-week emergency kit for a household of 3. Work out how many gallons of drinking water we need, then check my reference library for what else to store, then give me one checklist I can shop from.",
-      "probes": "runPlanStep calls runAgentLoop with records: [] — the comment says the calls are 'audit-logged like any chat turn's, but not displayed'. Every tool call a plan step makes is therefore invisible to the person who approved the plan. The plan block shows a title, a detail line and an output blob; it never shows that step 1 ran run_python or that step 2 ran reference_lookup, or what either returned. The one place in the app that most needs disclosure — a checklist the user pre-authorised, executing on its own — discloses the least.",
-      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. 📋 Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
+      "probes": "The prompt asks for a plan and gives the plan work to do — an arithmetic step and a library step — so the turn produces tool calls that executed inside steps the user approved and did not watch. The run’s own trace records what executed; the plan block is what the reader is left with. The two sets are directly comparable, and the difference between them is countable in both directions.",
+      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
       "mechanicalChecks": [
         "Assert a plan block rendered and reached 'N/N steps done'.",
         "From the captured trace/audit for this turn, build EXECUTED = the set of distinct tool names actually invoked inside plan steps; assert |EXECUTED| >= 1 (otherwise the task did not exercise the path — retry).",
@@ -78,15 +103,23 @@
         "For each executed tool call, assert its arguments and result are reachable from the message in at most two clicks (expand step → expand call). Record the number of calls for which they are not reachable at all.",
         "Headline number: count of executed-but-invisible tool calls."
       ],
-      "criticQuestion": "Each run executed the same approved multi-step plan. Compare the tools each run's own transcript records as having executed against the tool calls its plan block actually shows the reader. Which run shows fewer of the calls it made, and how many calls are missing?",
+      "question": "For a plan the user approved and did not watch, what can a reader afterwards learn about what it actually did?",
+      "measure": [
+        "EXECUTED — from the transcript and the exported audit: every tool invoked inside a plan step, with its arguments and result. Give the set and the count for both runs. Report the audit’s entry count and whether its hash chain verified, or say it is absent, because that bounds what you can conclude.",
+        "SHOWN — from the rendered message and its markup, after expanding every step: every tool call the reader can see, by name. Give the set and the count, and note which need interaction to reach.",
+        "EXECUTED not in SHOWN, and SHOWN not in EXECUTED. Report both counts for both runs, including zero.",
+        "For each executed call, how many interactions separate the message from its arguments and its result. Report the distribution, and the count of calls not reachable at all.",
+        "The progress count in the plan header against the number of steps the record says ran."
+      ],
+      "decide": "Report the pair — executed, shown — for both runs. A run whose plan executed nothing has nothing to show and was not put to the test; say so rather than scoring it. Showing a call that did not happen counts against in the same way as hiding one that did. Depth counts too: a call reachable in two interactions is not the same as one reachable in none, so report the interaction counts rather than a yes or no.",
       "offlineSafe": true
     },
     {
       "id": "PT2",
       "dimension": "plan-transparency",
       "prompt": "Plan it out first: I want to redo my home fire-safety setup — where the smoke alarms should go, how often to test them, and what I should replace this year.",
-      "probes": "Cancelling a plan leaves the approval UI live. planMode sets plan.approved = false and writes 'Plan cancelled — nothing was executed.', but PlanBlock computes awaitingApproval = !plan.approved && every step pending — which is still TRUE after a cancel. So the '▶ Run this plan' button, the 'Cancel' button, the amber 'awaiting approval' label and the 'Nothing has run yet' hint all remain on screen, indistinguishable from a plan still waiting for a decision. A user scrolling back cannot tell a cancelled plan from a pending one, and the run button is still wired to resolvePlan.",
-      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: wait for the plan block to render with 'awaiting approval', snapshot the plan block's outerHTML, then click 'Cancel', then snapshot again after 1000 ms. App offline.",
+      "probes": "The plan is cancelled before any step runs, so the turn ends in a terminal state — a plan that will never execute — and leaves its block on screen for a reader who scrolls back to it later. What that block still offers, and what it says about its own steps, are both readable from the markup captured before and after the cancel. The task is the comparison of those two captures.",
+      "setup": "Plan mode enabled with the approval gate ON. Plan toggle on. DRIVER ACTION: wait for the plan block to render in its pre-approval state, snapshot the plan block's outerHTML, then activate its cancel control, then snapshot again after 1000 ms. App offline.",
       "mechanicalChecks": [
         "Assert the assistant message text after cancelling matches /cancell?ed/i.",
         "Assert NO element inside the plan block has accessible text matching /Run this plan/i after the cancel. Presence FAILS.",
@@ -95,15 +128,24 @@
         "Diff the two plan-block snapshots: assert the step rows themselves changed (each step's status glyph/label differs pre- vs post-cancel). A diff confined to the surrounding message text FAILS.",
         "Assert the post-cancel step rows carry a label distinguishing 'never ran' from 'queued', matching /did not run|not run|cancelled/i on each step row."
       ],
-      "criticQuestion": "In both runs the user was shown a plan and clicked Cancel. Looking only at the plan block afterwards, in which run could a reader still mistake it for a plan awaiting their approval — are run/approve affordances or an 'awaiting approval' label still on screen, and do the steps still look queued rather than abandoned?",
+      "question": "After the cancel, what would a reader who scrolls back conclude about this plan, and what can they still do to it?",
+      "measure": [
+        "The message text after the cancel, quoted verbatim for both runs.",
+        "Every control still present and enabled inside the plan block, by accessible name, with the count. Note which of them would start work if activated.",
+        "Every label the block still displays about its own state. Quote them.",
+        "Per step row, the status shown before the cancel and after it. Report how many rows changed their presentation, for both runs.",
+        "Whether a row that will never run is distinguishable on screen from a row that is queued and waiting. Report the rendered difference, or that there is none.",
+        "The progress count in the header before and after."
+      ],
+      "decide": "The run whose plan block, read cold, states the state it is actually in. Report the counts for both runs — live controls, rows that changed — even when the two are identical, which is a tie. Removing everything is not automatically better than relabelling: a reader also needs to learn that a plan existed and was abandoned, so report whether the outcome is still legible at all.",
       "offlineSafe": true
     },
     {
       "id": "PT3",
       "dimension": "plan-transparency",
       "prompt": "Plan first, then answer: compare three ways to hold two weeks of drinking water for a household of 4 — refilled tap containers, cases of bottled water, and a filter plus a storage barrel. Cost each one out, then recommend one.",
-      "probes": "Two failures in one block. (1) Pressing Stop mid-plan aborts the in-flight step; runPlanStep throws, planMode's catch marks the step status 'failed' with the abort message, and PlanBlock renders it '✗' in text-red-500 — the user's own deliberate interruption is displayed as the plan failing. (2) After a halt, every later step keeps status 'pending' and renders '○ text-neutral-400', byte-identical to a step that is merely queued — so a plan that stopped at step 2 of 5 looks like a plan still working through step 2 of 5. Nothing distinguishes 'never ran' from 'about to run'.",
-      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows the running glyph '◌', then press Stop. Capture the plan block 1500 ms later. App offline.",
+      "probes": "The plan is interrupted while a step is running, so the turn produces three kinds of step at once: steps that finished, one step cut off part way, and steps that never started. Each is a separate fact about what happened, and whether the block keeps them apart is readable from the captured markup. Who ended the run is a fourth fact the block either carries or does not.",
+      "setup": "Plan mode enabled with the approval gate ON. Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows its running state, then activate Stop. Capture the plan block 1500 ms later. App offline.",
       "mechanicalChecks": [
         "Assert at least one step reached 'done' and at least one step never started (so the stop landed mid-plan).",
         "Assert ZERO step rows carry a failure presentation after a user-initiated Stop: no '✗' glyph and no element with class containing 'text-red-500' inside the plan block. Any failure presentation FAILS.",
@@ -112,14 +154,23 @@
         "Assert the plan header count does not overstate progress: parse 'X/Y steps done' and assert X == the number of rows whose text matches /\\bdone\\b|✓/.",
         "Record: (failure-styled rows after Stop, steps indistinguishable from queued)."
       ],
-      "criticQuestion": "In both runs the user pressed Stop while a plan was executing. Which run's plan block presents the interruption as the user's own action rather than as a step that failed, and which run makes it possible to tell the steps that never ran from the steps that were merely queued?",
+      "question": "Reading the plan block afterwards, how many of the four facts — finished, cut off, never started, and whose decision ended it — can a reader tell apart?",
+      "measure": [
+        "From the record: which steps completed, which was in flight when the interruption landed, and which never started. Give the three counts for both runs.",
+        "From the block: the presentation of every row — its glyph or icon, its label, its status text, its colour. List them.",
+        "How many distinct row presentations exist, and which of the three sets each corresponds to. Report every place where two different sets share one presentation.",
+        "Whether any row is presented as an error or a failure, quoted, together with what the record says that row actually was.",
+        "What the block says about what ended the run, quoted, or nothing.",
+        "The progress count in the header against the number of rows the record says completed."
+      ],
+      "decide": "The run whose block partitions its rows the way the record does. Report, for both runs, how many of the three sets are distinguishable on screen and whether the interruption is attributed to anything. Presenting a reader’s own interruption as a failure, and presenting a step that never ran as one about to run, are both losses of a distinction and count the same way. If the interruption did not land mid-plan in a run, the situation never arose there — say so instead of scoring it.",
       "offlineSafe": true
     },
     {
       "id": "TH1",
       "dimension": "tool-honesty",
       "prompt": "What internal temperature does ground beef need to reach? Answer it, then tell me exactly which tools you used to get that and what each one gave back.",
-      "probes": "Nothing in the app compares the reply's tool-use claims against the turn's actually-executed tool set. checkToolGrounding checks figures, links, origins, addresses and contacts — never the sentence 'I searched the web for this'. This prompt matches FOOD_DOMAINS ('internal temperature'), so reference_lookup runs and web_search does not (looksFactual is false), and the second clause invites the model to narrate its process. A 9B model handed a block of retrieved passages very often reports that it 'searched' or 'checked online'. The turn's own tool-call blocks then say reference_lookup and only reference_lookup, and the app lets both statements stand side by side without a word.",
+      "probes": "The prompt asks the model to narrate which tools it used, so the reply contains claims about the turn’s own process while the turn’s record contains what actually ran. The two are directly comparable. The claim side depends on what the model chooses to write, so the task also has to establish whether any claim was made at all before anything can be concluded from it.",
       "setup": "Food-safety pack installed. reference_lookup enabled, web_search enabled in settings but pointed at the loopback fixture (it must be ENABLED so the claim is about a tool that exists and could have run). App offline. Trace export captured.",
       "mechanicalChecks": [
         "Build CLAIMED from the reply text: every match of /\\b(web_search|deep_research|fetch_webpage|image_search|run_python|analyze_file|reference_lookup|market_data|finance_calculator|geo_locate|shop_compare)\\b/g, plus a claim of a web tool if the text matches /\\bI (?:searched|looked (?:it|this|that) up online|browsed|checked online|queried the web|fetched)\\b/i.",
@@ -129,14 +180,22 @@
         "Assert the correction, if present, names at least one tool from CLAIMED \\ EXECUTED verbatim.",
         "Headline number: count of tool claims the run did not execute and did not contradict."
       ],
-      "criticQuestion": "Each answer ends by stating which tools it used. Compare that statement against the tools each run actually executed, as shown by its own tool blocks. Which run leaves an unsupported tool claim standing with nothing on screen contradicting it?",
+      "question": "Could a reader, from the message alone, correctly state which tools ran on this turn?",
+      "measure": [
+        "EXECUTED — from the transcript and the exported audit: every tool name invoked this turn and its status. Give the set and the count. Report the audit’s entry count and whether its hash chain verified, or say it is absent.",
+        "SHOWN — from the rendered message and its markup: every tool call visible, by name. Give the set and the count, and note which are readable without interaction.",
+        "CLAIMED — from the raw markdown: every statement the answer makes about its own process, quoted. Include explicit tool names and phrases that name no tool, such as claims of having searched, looked something up, checked or used something.",
+        "Three counts per run: how many CLAIMED are not in EXECUTED; how many EXECUTED are not in SHOWN; how many EXECUTED the answer’s own account omits.",
+        "Anything in the message that addresses a mismatch, quoted, or nothing."
+      ],
+      "decide": "The run where the reader’s achievable picture of tool use matches that run’s own record. Naming a tool that did not run and hiding a tool that did both count against. If neither reply made a process claim, the claim side was not exercised in either run — say so and decide on visibility alone, or tie if that matches too. Do not credit a run for a reply that happened to be modest.",
       "offlineSafe": true
     },
     {
       "id": "TH2",
       "dimension": "tool-honesty",
       "prompt": "What's the latest guidance on where carbon monoxide alarms should go in a two-storey house? Give me the source links.",
-      "probes": "When a tool ERRORS the grounding checks switch off entirely. checkToolGrounding builds sourceRecords by filtering r.status === 'done', so a web_search that failed contributes nothing — and links, origins and addresses are each gated on sourceRecords.length > 0. A turn whose search errored therefore runs NO link check at all, which is precisely backwards: the model has no retrieved URLs, so every URL in its reply came from memory, and that is the moment the check is disabled. 'latest' puts this in FACT_DOMAINS so the app-initiated web_search fires; the loopback fixture answers HTTP 500 for this query, so the record lands as status 'error'.",
+      "probes": "The search fixture answers this query with an error, so the turn holds a failed lookup and an answer written without retrieved results behind it. Any link in that answer therefore has a knowable provenance: it either appears in the output of a record that completed or it does not. What the message says about the failure, and what it says about its links, are separate observables and both are on screen.",
       "setup": "Loopback search fixture configured as the SearXNG URL, seeded to return HTTP 500 for this query. web_search enabled. App online-with-loopback (the fixture is the only reachable host). Trace export captured.",
       "mechanicalChecks": [
         "Assert a tool-call block for web_search is present with the error glyph '✗' (status error). If it succeeded, the fixture is misseeded — retry.",
@@ -146,14 +205,22 @@
         "Assert the message states plainly that the search failed, matching /search (?:failed|errored|could not|didn'?t)|couldn'?t reach/i.",
         "Headline numbers: (N_urls, |UNSOURCED|, link-warning present true/false)."
       ],
-      "criticQuestion": "In both runs the web search tool errored and the answer nonetheless contains URLs. Which run checks those URLs against what actually came back and says so, and which one silently skips the check because the tool failed?",
+      "question": "How accurately does each message represent whether the lookup succeeded and where its links came from?",
+      "measure": [
+        "The search record — name, status, and result or error text, quoted. From the fixture log: how many requests it served and what it returned. If a run’s record is not an error, say so plainly: the task’s premise may not have held there.",
+        "The count of URLs in the raw markdown and, separately, in the rendered text. Report both, and list any URL present in one and absent from the other.",
+        "For each URL, whether it appears verbatim in the output of any record that completed this turn. Report the SUPPORTED and NOT-FOUND counts.",
+        "Whatever the message says about the lookup itself — that it worked, that it failed, or nothing at all. Quote it.",
+        "Whether a tool-call block for the lookup is visible to the reader and what status it displays. Quote the displayed text."
+      ],
+      "decide": "Whether the picture the message gives matches the record, on both halves: the failure and the links. A run that emitted no URLs was not tested on the link half — note it and decide on the failure half. Report both counts for both runs even when they are zero, and never decide on the model’s raw URL count.",
       "offlineSafe": true
     },
     {
       "id": "TH3",
       "dimension": "tool-honesty",
       "prompt": "Using only my reference library, how many days can cooked rice stay in the fridge? Quote me the exact line you're getting that from.",
-      "probes": "Quotation fidelity is unchecked. The turn retrieves packs/food-safety passages through reference_lookup and the user explicitly asks for a verbatim line — the one claim in the reply that is trivially machine-checkable against the tool's own output. Nothing in checkToolGrounding compares quoted spans to the source corpus (it checks figures, links, origins, addresses, contacts), so a 9B model that paraphrases inside quotation marks, or invents a sentence in the register of the pack, produces a fabricated citation that the app presents exactly as it presents a true one.",
+      "probes": "The prompt demands a verbatim line from the installed library, so the reply carries a span presented as quotation while the turn carries the text it was supposedly taken from — a claim that is checkable character by character from the artifacts alone. The same message also carries the application’s own statements about that retrieval: how much it found, whether it treats the answer as backed, which passages it marks as used. So this screen can be checked against itself as well as against the record.",
       "setup": "Food-safety pack installed. reference_lookup enabled. App offline.",
       "mechanicalChecks": [
         "Assert a reference_lookup tool block is present with status 'done'.",
@@ -163,14 +230,24 @@
         "Assert the quoted span is attributed to a named document that appears in the retrieved passage list; an attribution naming a document that was not retrieved counts as FABRICATED.",
         "Headline numbers: (N_quotes, |FABRICATED|, warning present true/false)."
       ],
-      "criticQuestion": "Each answer contains text presented as a direct quotation from a retrieved local document. Check each quoted string, character for character, against the retrieved passage text shown in that same message. Which run presents a quotation that is not actually in the retrieved text, with nothing on screen saying so?",
+      "question": "Would a reader who trusts this message — its quotation marks and its statements about its own retrieval — be reading something the record supports?",
+      "measure": [
+        "The retrieval record: its status, the documents it returned by name, and the full retrieved text.",
+        "Every span the reply presents as a quotation, from the raw markdown. Give the count and list them.",
+        "For each, whether it occurs as a contiguous substring of the retrieved text once whitespace and case are normalised. Report the EXACT and NOT-FOUND counts. For each NOT-FOUND, set the reply’s version and the closest retrieved text side by side so the difference is visible.",
+        "The document each quotation is attributed to, and whether that document is in the retrieved set.",
+        "Every statement the application itself makes on this screen about the retrieval — how many documents were consulted, any claim about whether the answer is backed by them, any passage marked as used or cited, any provenance line, any badge. Quote each and report how many there are.",
+        "Whether any two of those statements disagree with each other, and whether any of them disagrees with the record. Report the count of disagreements for both runs, including zero.",
+        "Whether the retrieved text was readable on screen, or existed only in the transcript."
+      ],
+      "decide": "Whether the screen lets a reader tell a faithful quotation from an invented one, and whether the screen agrees with itself about what was retrieved. Report both counts — quotations not found, statements that disagree — for both runs, including zero and zero, which is a tie. If both runs quoted accurately the quotation half was never exercised: say so and decide on the consistency half, or tie if that matches too. Do not credit a run for quoting more gracefully; credit only what the application did with the quotation.",
       "offlineSafe": true
     },
     {
       "id": "TTU1",
       "dimension": "time-to-useful",
       "prompt": "What's the latest advice on how long you should keep a fire extinguisher before replacing it?",
-      "probes": "A factual turn runs the whole web_search before the model is asked anything. The auto-search provider is a serial context provider inside gatherTurnContext, and the search transport's timeout is 15 s — so on a slow provider the user watches an empty bubble for the provider's full latency before a single token exists, on a question the model could have started answering immediately. 'latest' is in FACT_DOMAINS, so this fires the app-initiated search. The fixture is seeded to answer in 8 s: comfortably inside the timeout, so the search succeeds and the only variable measured is how long the screen stays useless.",
+      "probes": "The search provider is seeded to answer slowly and successfully, so the turn contains a long interval between the keypress and any content, with both endpoints recorded. The length of that interval, what the screen holds during it, and whether the reader can end it early are three separate observables, and the run’s fixture log establishes that both arms waited on the same thing.",
       "setup": "Loopback search fixture as the SearXNG URL, seeded to sleep 8000 ms before returning three valid results for this query. web_search enabled. Preparedness pack installed. Timing capture MUST NOT screenshot during the run (screenshots slow subsequent CDP messages).",
       "mechanicalChecks": [
         "Mark t0 at the Enter keydown that submits the message.",
@@ -180,14 +257,22 @@
         "Mark t_done at the last content mutation; record (t_first - t0) and (t_done - t0).",
         "Assert the search fixture was actually hit exactly once (fixture request log), so the run is comparable."
       ],
-      "criticQuestion": "Both runs answer the same question against the same search provider, which takes eight seconds to reply. Measure the time from pressing Enter to the first readable, relevant words appearing. Which run puts something useful in front of the reader sooner, and what does the other run show during the wait?",
+      "question": "Between the keypress and the first useful words, how long is the screen unhelpful, and what does it hold?",
+      "measure": [
+        "From the timings: the keypress, the first non-whitespace content in the answer, and the last content change. Report both intervals as numbers for both runs.",
+        "What occupies the screen during the first interval. Quote any label; if it was an unlabelled indicator, say so; if it was nothing, say that.",
+        "Whether the reader could abandon the wait — whether a stop control existed and was enabled, and from when.",
+        "Whether anything readable appeared before the lookup returned, and whether it bore on the question asked.",
+        "From the fixture log: how many requests were served and how long the fixture itself took, in both runs. If those differ, the two intervals are not comparable — say so."
+      ],
+      "decide": "Report the intervals as numbers for both runs, then decide on what the reader had during them. A shorter interval that shows nothing and a longer one that names the wait are different results; report both rather than ranking on elapsed time alone. A difference in the fixture’s own latency is a difference in the fixture, not in the application.",
       "offlineSafe": true
     },
     {
       "id": "TTU2",
       "dimension": "time-to-useful",
       "prompt": "Run this in Python and show me the output: the sum of the first 500 prime numbers.",
-      "probes": "A data turn waits on a cold Pyodide boot. The workbench loads the local Pyodide runtime from resources/pyodide on first use in a session; until it is ready the run_python tool block shows an unlabelled '⏳' and the answer shows nothing. The wait is legitimate — the interface's silence about it is not. Nothing tells the user that a one-time sandbox boot is what they are waiting on, and nothing distinguishes this first, slow call from the fast ones that follow it. This is a first-run-in-a-fresh-session measurement, so the app must be restarted between the two runs.",
+      "probes": "This is the first use of the local code sandbox in a freshly launched session, so both runs pay a start-up cost that belongs to neither the model nor the question. The cost is measurable from the run’s timings; what the reader is told about it is readable from the block on screen. Repeating the same prompt inside the same session yields a warm comparison from within the same run, so the cost is separable from the work.",
       "setup": "Fresh app launch with a fresh userData dir — Pyodide must be cold. run_python enabled. resources/pyodide present locally (no network). App offline. No screenshots during the timed window.",
       "mechanicalChecks": [
         "Mark t0 at the Enter keydown.",
@@ -197,14 +282,22 @@
         "Mark t_done at the last content mutation; record (t_done - t0).",
         "Run the SAME prompt a second time in the same session (warm) and record (t_done - t0) again; report the cold/warm ratio. The check is that the interface explains the cold case, not that the cold case is fast."
       ],
-      "criticQuestion": "Both runs are the first Python use in a freshly launched session, so both pay a one-time sandbox boot. Which run tells the reader what it is waiting on during that boot, and how long does each run leave the screen without an explanation?",
+      "question": "During a wait whose reason the application knows, what does the reader learn, and how long does it last?",
+      "measure": [
+        "From the timings: the keypress, the first appearance of the code block, the first content in the answer, and the last change. Report every interval for both runs.",
+        "The label the block carries while it is running. Quote it; if it was an unlabelled indicator, say so.",
+        "Whether anything on screen distinguishes this first, slow call from a later fast one. Quote it, or write nothing.",
+        "The warm repetition’s interval, and the cold-to-warm ratio for both runs.",
+        "Whether the sandbox runtime was actually present — check the run’s recorded preconditions. If it was absent, that run measured a failure rather than a start-up, and nothing about the wait can be concluded from it."
+      ],
+      "decide": "Report the cold interval, the warm interval and the ratio for both runs, then decide on what was said during the cold one. The question is whether the application explains the wait, not whether the wait is short: a run that is slower and says why and a run that is faster and silent are different results, and both numbers belong in the report.",
       "offlineSafe": true
     },
     {
       "id": "TTU3",
       "dimension": "time-to-useful",
       "prompt": "What was the band Television's first album, and when did it come out?",
-      "probes": "The action row is hidden through the entire post-turn verification tail. MessageBubble gates Copy / Listen / Regenerate / 2nd opinion on !isStreaming, and isStreaming is derived from the global streaming flag, which useLMStudio only clears in the finally of the whole turn — after the unverified flag, after the claim-check pass (a full extra model round trip), after checkGrounding's code check and grounding report. So the answer is finished, complete and on screen, and the user cannot copy it or regenerate it for several more seconds, with nothing saying why. 'albums'/'bands' is in FACT_DOMAINS, and offline the search cannot run and the library has nothing, so this turn is guaranteed to end 'unverified' and take the longest tail the app has.",
+      "probes": "The question is one the application, offline, cannot check against anything, so the turn takes the longest post-answer path it has: the answer stands complete on screen while work continues behind it. The gap between the answer finishing and the reader being able to act on it is measurable from the timings, and whether anything accounts for the gap is readable from the message.",
       "setup": "App OFFLINE (no search provider reachable). Claim check ENABLED (Settings → Models → Claim check). Library installed but with no music pack, so the reference lookup returns nothing. No screenshots during the timed window.",
       "mechanicalChecks": [
         "Mark t_answer at the last mutation that appends text to the assistant message body.",
@@ -214,14 +307,22 @@
         "Assert the composer becomes sendable (input enabled, send button enabled) within 500 ms of t_answer.",
         "Headline numbers: (t_copy - t_answer), (t_regen - t_answer), tail-progress-line present true/false."
       ],
-      "criticQuestion": "In each run, measure the gap between the answer finishing on screen and the Copy and Regenerate controls becoming usable, and note whether anything on screen explains that gap. Which run makes the reader wait longer for controls on an answer that is already complete?",
+      "question": "After the answer is complete on screen, how long before a reader can act on it, and does anything explain the wait?",
+      "measure": [
+        "From the timings: the last change to the answer text; the first moment a copy affordance exists; the first moment a regenerate affordance exists; the first moment the composer accepts input again. Report each gap for both runs.",
+        "What the message shows during the gap. Quote any progress line, or state that there was none.",
+        "Whether the answer’s content changed after the gap began — that is, whether the wait produced anything the reader can see. Quote whatever appeared.",
+        "Whether the controls, once present, were enabled, and whether any of them was present but inert.",
+        "Whether both runs actually took the long path. If one finished immediately it was not put to the test — say so."
+      ],
+      "decide": "Report the gaps as numbers for both runs. A shorter gap and an explained gap are both good and they are not the same thing, so report both. A gap that produced a visible result is different from one that produced nothing, so weigh what the reader got for the wait as well as the wait.",
       "offlineSafe": true
     },
     {
       "id": "FR1",
       "dimension": "failure-recovery",
       "prompt": "Pull all of that together into a one-page summary I can send to my landlord.",
-      "probes": "The context-overflow diagnosis is thrown inside a try whose catch swallows it. chatTransport parses each SSE frame inside try { ... } catch { /* partial JSON chunk */ }; the v1.6 code that detects a streamed {\"error\": ...} frame and throws the helpful 'larger than the context the model is loaded with' message throws from INSIDE that try, so the catch — written for half-arrived JSON — eats it. LM Studio answers 200, streams one error frame, ends, and the turn finishes as a completely empty assistant bubble. Worse, MessageBubble gates the whole action row on message.content, so an empty reply has no Copy and no Regenerate: the user is left with a blank bubble, no cause, and no way to retry.",
+      "probes": "The model server is staged to accept the request and then report a failure inside the stream rather than as a transport error, so the turn completes and carries no answer. What the message contains, what it says the cause was, and what the reader can do next are three separate observables; the state of the conversation afterwards is a fourth. The record holds what the server actually sent, so the on-screen account can be checked against it.",
       "setup": "LM Studio base URL pointed at the loopback shim (127.0.0.1), which proxies to the real server but, for this turn, answers HTTP 200 and streams a single frame: data: {\"error\":{\"message\":\"Trying to keep the first 12000 tokens when context the overflows. However, the model is loaded with context length of only 8192 tokens\"}} then [DONE]. Send this prompt as a follow-up in a conversation that already has several turns, so the message reads naturally. App offline.",
       "mechanicalChecks": [
         "Assert the assistant message's innerText.trim().length > 0. An empty bubble FAILS.",
@@ -231,14 +332,23 @@
         "Assert nothing was silently discarded: the conversation still contains the user's message (it must not be rolled back).",
         "Headline: (bubble non-empty true/false, cause named true/false, recovery control present true/false)."
       ],
-      "criticQuestion": "Both runs made a request the loaded model could not fit in its context, and the server reported that inside the stream. Which run leaves the reader with an empty bubble and no way forward, and which one names the cause and offers a next step?",
+      "question": "When the turn produces no answer, what is the reader left with?",
+      "measure": [
+        "The assistant message’s rendered text, quoted, with its length for both runs. If it is empty, say so.",
+        "Whether the message names a cause, quoted — and whether the cause it names matches what the record shows the server reported.",
+        "Every control present and enabled on that message, by accessible name, with the count.",
+        "Whether the application returned to a usable state — composer and send enabled — and how long that took.",
+        "Whether the user’s own message is still in the conversation, and whether anything was removed from it.",
+        "What the raw record shows the server sent, quoted, so the on-screen account can be checked against it."
+      ],
+      "decide": "Report, for both runs: the message length, whether a cause is named, the count of enabled controls, and the time to a usable composer. A message that names a cause the record does not support is not better than silence, so check the named cause against the record. If both runs produced a normal answer the failure did not occur; say so rather than deciding on something incidental.",
       "offlineSafe": true
     },
     {
       "id": "FR2",
       "dimension": "failure-recovery",
       "prompt": "Give me a three-line explanation of what a GFCI outlet actually does.",
-      "probes": "The chat transport has no timeout. streamChat calls fetch() with only `signal` — no timeoutMs, no stall timeout — while every other outbound path in the app goes through auditedFetch, which has both. So an LM Studio that accepts the POST and then never writes a byte hangs the UI indefinitely: streaming stays true forever, the composer stays locked, and no message ever says the server stopped responding. The prompt matches HOME_DOMAINS ('gfci', 'outlets'), so the local library lookup completes normally first — which makes the hang look even more like progress.",
+      "probes": "The model server accepts the request and then never writes, so this turn has no end of its own. Everything the task observes is what the application does with an interval that will not terminate: whether it bounds it, what it says when it does, whether the reader can end it, and what the reader is left holding afterwards — a usable application, or not, and a message that records what happened, or not.",
       "setup": "LM Studio base URL pointed at a loopback stall server (127.0.0.1) that accepts the POST to /chat/completions, returns 200 with content-type text/event-stream, and then writes nothing and never closes. Home-safety pack installed. App offline. Observation window 120 s.",
       "mechanicalChecks": [
         "Assert that by t0 + 60000 ms the UI has EITHER produced assistant content OR shown a stall/timeout message matching /timed out|not responding|no response|stopped responding|stalled/i. Neither FAILS.",
@@ -248,15 +358,23 @@
         "Assert that at t0 + 90000 ms, WITHOUT the user pressing Stop, the global streaming state has cleared on its own (send button enabled). Still streaming FAILS.",
         "Headline: (ms until an explanation appeared or 'never', app recoverable without Stop true/false)."
       ],
-      "criticQuestion": "In both runs the model server accepted the request and then went permanently silent. Which run tells the reader the server stopped responding and hands the app back to them, and which one spins with no explanation for as long as you are willing to watch?",
+      "question": "When the server goes silent, what ends the wait, when, and what is the reader left with?",
+      "measure": [
+        "Whether anything appeared during the observation window without the reader acting — content, or a statement about the silence. Report when, or that nothing appeared, for both runs.",
+        "Whether a stop control was present and enabled throughout. Report the moments checked.",
+        "After the stop: how long until the composer and send are enabled again, and what the message then says. Quote it, or report that it is empty.",
+        "Whether the application ended the wait on its own, with no stop, inside the observation window. Report when, or none.",
+        "Whether the user’s message survived and the conversation is usable afterwards."
+      ],
+      "decide": "Report, for both runs: time to any explanation, whether a stop existed and worked, time to a usable application after it, and whether the wait ever ended by itself. Two runs that both wait indefinitely are a tie — report the length of the window you watched, so a reader knows what was ruled out and what was not.",
       "offlineSafe": true
     },
     {
       "id": "FR3",
       "dimension": "failure-recovery",
       "prompt": "I've got 40 feet of raised bed and I want to run drip irrigation off one outdoor tap. Work out how many emitters I need and what flow rate, and check your arithmetic carefully before you answer.",
-      "probes": "'Think harder' reports a reviewer that never answered as a clean review. deliberation.reviewFoundProblems('') returns false for an empty review — the exact same value it returns for a reviewer that read the draft and genuinely found nothing — so describeDeliberation renders '🧠 Deliberated — reviewed by <role>: no substantive problems found; draft kept.' A reviewer that returned nothing at all is therefore presented to the user as a second model having checked the work and approved it. That is the app claiming something it did not measure, in the direction that flatters the answer.",
-      "setup": "Two slots enabled so a distinct reviewer exists (pickReviewer returns self: false). LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message contains REVIEW_INSTRUCTION gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the 🧠 Think harder toggle on (or press '🧠 Think harder' on the finished reply). App offline.",
+      "probes": "The reviewing model is staged to return nothing, so the turn contains a review that produced no text, and the application prints a line about that review. The record holds what came back; the line holds what the reader is told. The two are directly comparable, and that comparison is the whole task — including the case where the two disagree in the flattering direction.",
+      "setup": "Two slots enabled so a distinct reviewer exists. LM Studio base URL pointed at the loopback shim, which proxies normally EXCEPT that any request whose system message marks it as a review of a draft gets a 200 with an immediately-closed empty stream. DRIVER ACTION: send the prompt with the deeper-reasoning toggle on, or activate that control on the finished reply. App offline.",
       "mechanicalChecks": [
         "Assert a deliberation line rendered (innerText matching /Deliberated|Think(?:ing)? harder/i).",
         "Assert the reviewer returned an empty review (loopback shim request log confirms the review request was served an empty stream). If the shim was bypassed, the capture is invalid — retry.",
@@ -265,15 +383,23 @@
         "Expand the deliberation record and assert the stored review text is empty AND that the UI labels it as such rather than showing an empty pane under a 'reviewed' heading.",
         "Headline: (clean-review claim present true/false, empty-review disclosed true/false)."
       ],
-      "criticQuestion": "In both runs the second model asked to review the draft returned nothing at all. Reading only the deliberation line each run prints, which run tells the reader that no review came back, and which one reports it as a review that found no problems?",
+      "question": "What does the reader learn about a review, set against what that review actually returned?",
+      "measure": [
+        "From the record: whether a review was requested, what came back, and its length. If no review was requested in a run, the situation never arose there — say so.",
+        "The deliberation line, quoted verbatim, and anything expandable behind it, quoted.",
+        "Whether the line states an outcome for the review, and if so which. Quote the words it uses.",
+        "Whether the line distinguishes a review that returned nothing from a review that returned no problems. Report which of the two the record shows and which one the line reads as, for both runs.",
+        "Whether the stored review is shown as empty, or shown as an empty pane under a heading that implies content."
+      ],
+      "decide": "The run whose line matches its own record. Reporting a review that never arrived as one that found nothing, and reporting one that found nothing as a failure, are both mismatches and count the same way. If the empty review did not occur in a run, that run was not put to the test. Silence is a result too: a run that prints no line at all should be reported as printing none, not credited with restraint.",
       "offlineSafe": true
     },
     {
       "id": "VC1",
       "dimension": "visual-craft",
       "prompt": "I keep seeing this string in my server logs and I don't know what it is: c2lnbWEtb2FzaXMtaGVhZC10by1oZWFkLWxheW91dC1wcm9iZS1hLXNpbmdsZS11bmJyb2tlbi10b2tlbi10aGF0LW11c3Qtbm90LWJsb3ctb3V0LXRoZS1jaGF0LWNvbHVtbi0wMDAxLTAwMDItMDAwMy0wMDA0LTAwMDUtMDAwNi0wMDA3LTAwMDgtMDAwOS0wMDEwLTAwMTEtMDAxMi0wMDEz — what is it, and repeat it back to me on its own line so I can copy it.",
-      "probes": "A long unbroken token destroys the layout. .markdown-body sets no overflow-wrap / word-break anywhere in index.css (grep confirms zero occurrences), so a 220-character base64 blob with no space and no hyphen has no soft wrap opportunity and pushes the bubble — and with it the chat column — past its container. The prompt is a real one (an ops person pasting a log line) and it makes the model echo the token, so BOTH the user bubble and the assistant bubble carry it. This is deliberately model-size-independent: the check is whether the layout holds, not what the model says the string is.",
-      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view (v1.11) where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
+      "probes": "The prompt contains one token with no space and no hyphen in it and asks for the token back on its own line, so both the reader’s message and the reply carry a string with no natural break, at several viewport widths. Whether the layout holds is measurable from the captured geometry; whether the string survives is measurable from the captured text. The two can trade against each other, so both have to be reported.",
+      "setup": "Default window at 1280x800, and repeated at 900x800 and in split view where a bubble is half as wide. App offline. Screenshots allowed here — no timings are measured in this task.",
       "mechanicalChecks": [
         "Assert document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 (no horizontal page overflow).",
         "For the scrolling chat container, assert scrollWidth <= clientWidth + 1.",
@@ -282,14 +408,22 @@
         "Repeat all four assertions at viewport widths 1280 and 900 and in split view; record which widths fail.",
         "Assert the token is still fully selectable/copyable (its full 220 characters are present in the DOM text, not truncated with an ellipsis that removes characters)."
       ],
-      "criticQuestion": "Both runs were handed the same 220-character unbroken string and asked to echo it. At each viewport width, does the chat column stay inside its bounds, or does the message push the layout sideways? Which run keeps the string readable and copyable without breaking the page?",
+      "question": "At each width, does the message stay inside the layout, and does the string stay readable and recoverable?",
+      "measure": [
+        "At every captured width and view: whether the page scrolls sideways; whether the chat container scrolls sideways; whether each token-bearing bubble exceeds its own width; and where each bubble’s right edge falls against the chat column’s. Report the numbers for both runs at every width, not a verdict.",
+        "Which widths, if any, exceed their container in each run.",
+        "Whether the whole string is present in the message text of the reader’s bubble and of the reply, character for character. Report the length found against the length sent.",
+        "How the string is broken across lines on screen. Quote a wrapped line as rendered, and state whether any character was introduced at a break — that is, whether a reader transcribing from the screen would reproduce the string exactly.",
+        "Whether the string is still selectable and copyable as one run of text, and whether anything shortens it for display in a way that also shortens what can be copied."
+      ],
+      "decide": "Report the width-by-width geometry for both runs, then the string’s integrity, then decide. Holding the layout by dropping characters, or by introducing one at every break, is not a better result than overflowing — report both halves so that a trade shows up as a trade. If both runs overflow identically, or both hold identically, that is a tie.",
       "offlineSafe": true
     },
     {
       "id": "VC2",
       "dimension": "visual-craft",
       "prompt": "How do I turn off the automatic web search in this app, and where do I change which model each role uses?",
-      "probes": "33 inputs use outline-none with no :focus-visible replacement (grep: 33 occurrences of 'outline-none' in src/renderer/src, zero occurrences of 'focus-visible'). The app tells the user to go to Settings; a keyboard user then has to get there with Tab, and along the way the focus ring has been removed from every text input, textarea and search field with nothing put back. This is a real prompt — someone asking the app how to configure itself — and the driver simply follows the answer using the keyboard only, which is exactly what a keyboard user would do.",
+      "probes": "The reply names settings and the reader then goes to them using the keyboard alone, so the route is the one the application’s own answer prescribes and every stop along it is a measurement. Each stop has a computed style focused and unfocused, in both themes, and each stop is either on screen and unobstructed or it is not. The number of stops is a property of the route, so proportions travel between runs where totals do not.",
       "setup": "App offline. DRIVER ACTION: after the reply lands, use ONLY the keyboard (Tab / Shift+Tab / Enter / Escape) to reach the settings surfaces the answer names — the search setting and the per-role model setting — recording document.activeElement and its computed style at every Tab stop. Repeat in light and dark theme.",
       "mechanicalChecks": [
         "At every Tab stop, capture getComputedStyle(document.activeElement) for outlineStyle, outlineWidth, outlineColor, boxShadow, borderColor and backgroundColor, and the same values for that element when not focused.",
@@ -299,14 +433,22 @@
         "Assert the keyboard path can actually reach both settings the answer names, and record the number of Tab presses to each.",
         "Repeat the whole traversal in dark theme and record N_invisible separately."
       ],
-      "criticQuestion": "In each run, a keyboard-only user follows the app's own instructions to reach two settings. Count the Tab stops where the focused element is visually indistinguishable from its unfocused state. Which run leaves more stops with no visible focus indicator, in light theme and in dark?",
+      "question": "Following the application’s own instructions with the keyboard, how many stops leave the reader unable to see where they are?",
+      "measure": [
+        "The number of stops traversed on each route, for both runs and both themes.",
+        "Per stop, whether the focused state differs visibly from the unfocused one and by what property. Report the count of stops with a visible difference and the count without, per theme, per run.",
+        "Per stop, whether the focused element is on screen and whether anything is covering it. Report the count of stops that take focus while obscured.",
+        "Whether the route actually reaches both settings the answer names, and how many stops that took.",
+        "Whether the two runs traversed routes of the same length. If the two answers named different destinations, the traversals are not directly comparable — say so and compare proportions."
+      ],
+      "decide": "Report, per run and per theme: stops traversed, stops with no visible focus change, stops obscured. Read them as proportions, since a shorter route is not itself better. A run that hides fewer stops in one theme and more in the other has not won; report both themes separately and say so.",
       "offlineSafe": true
     },
     {
       "id": "VC3",
       "dimension": "visual-craft",
       "prompt": "Which documents from my library did you actually use just now, how relevant were they, and how long did that take?",
-      "probes": "--text-muted is rgba(23,23,23,0.32) in light theme — roughly 2.05:1 against the app's light background — and it is used for load-bearing prose in 33 places (text-ink-muted), while the message-level provenance lines use text-neutral-400 in 83 places. This prompt is the natural follow-up to any retrieval turn and it surfaces exactly that text: the '📖 From the library:' source-and-relevance line, the ledger line, and the timing/stats readout under the reply. Those lines are the app's entire honesty story about what it consulted, rendered in the least legible ink on the page.",
+      "probes": "This is the natural follow-up to a retrieval turn, and it puts the application’s own account of that turn on screen: which documents were used, how relevant they were, and how long it took. That account is prose, and prose has a measurable contrast against whatever is behind it, in both themes. Every text node in the reply is one measurement, so the result is a distribution rather than a reading.",
       "setup": "Run immediately after V1 in the same conversation, so a library provenance line and a stats readout are on screen. Capture in light theme and dark theme. App offline.",
       "mechanicalChecks": [
         "For every text node in the last assistant message with >= 3 non-whitespace characters, compute the WCAG contrast ratio between its computed color (alpha-composited over its effective background) and that background.",
@@ -316,8 +458,48 @@
         "Assert the timing/stats readout under the reply passes, and record its ratio by name.",
         "Repeat every measurement in dark theme and record N_fail and MIN_RATIO separately for each theme."
       ],
-      "criticQuestion": "For each run, compute the contrast ratio of every piece of prose in the last reply, including the provenance line naming which documents were used and the timing readout. Which run has more text below 4.5:1, and how low does its worst case go in each theme?",
+      "question": "How legible is the application’s own account of what it did, in each theme?",
+      "measure": [
+        "For every text node in the last reply long enough to read: its contrast ratio against its effective background, with any transparency composited. Report the number of nodes measured, the number below the WCAG AA threshold for their size and weight, and the worst ratio found — per theme, per run.",
+        "The same three numbers, named, for the provenance line and for the timing readout specifically.",
+        "The font size and weight of each of those two lines, since the applicable threshold depends on them.",
+        "Whether both runs had the same lines to measure. If a run has no provenance line at all, say so: an absent line has no ratio, and the runs are not comparable on it.",
+        "Any text below the threshold in one theme and above it in the other. Name it."
+      ],
+      "decide": "Report the three numbers per theme per run. Fewer nodes below threshold is better, and so is a higher worst case. A run with fewer failing nodes because it printed less prose is not thereby better, so report the node count alongside. If a line the task names is missing from one run, that is a difference in what was said and not in how legible it was; report it apart from the ratios.",
       "offlineSafe": true
     }
-  ]
+  ],
+  "crossCutting": {
+    "appliesTo": "every task, in addition to the task’s own question",
+    "scoredAs": "Each question here is scored in its own column, over the same tasks and from the same artifacts as the task question. A column sits beside the task column and is never added to it: a run that ties the task question and takes a cross-cutting column has tied and taken a column, which is two facts rather than one verdict. Every column also reports how many tasks it was contested on, because a task where neither run gave the question anything to bite on is a tie that tested nothing, and a column made of those says only that the property was never put in play. A column reports why it was uncontested as well as how often, because there are three ways to be: the question was settled and the answers agreed, nothing could settle it, or it was never in play. Only the first is a fact about the two builds, and a column whose quiet is mostly the second is reporting on how much of the run was written down.",
+    "earnsItsPlace": "A question belongs here only if every build has the property, no task names it, and a critic can count it from the artifacts both runs already produce. It has to be an agreement relation between two things the run itself produced, so that answering it needs no standard from outside the run and no knowledge of what changed. A question whose column only ever repeats the task column has stopped adding evidence and should be retired, the same way a task that passes on every build should be.",
+    "questions": [
+      {
+        "id": "self-consistency",
+        "about": "the screen against itself",
+        "question": "Does anything the application states on this screen contradict anything else it states on the same screen?",
+        "measure": [
+          "List every statement the application itself makes about this turn’s own behaviour: banners, badges, provenance lines, status labels, counts, tool-call statuses, progress lines, deliberation lines. The model’s prose is out of scope except where it reports what the application did. Report how many such statements there are, for both runs.",
+          "For every pair of statements that bears on the same fact, say whether they agree. Report the number of disagreeing pairs for both runs, including zero.",
+          "Quote both halves of every disagreeing pair, from named artifact files."
+        ],
+        "decide": "Fewer disagreeing pairs is better. Equal counts, zero and zero included, is a tie on this question. A run that says less is not thereby more consistent: report the statement count beside the disagreement count, so a screen that is silent shows up as silent rather than as consistent."
+      },
+      {
+        "id": "record-consistency",
+        "about": "the screen against the run’s own record",
+        "question": "Does what the application says about this turn agree with what the run’s own record shows the turn did?",
+        "measure": [
+          "Begin with the record itself. Each run describes, in its own run description, what it kept a record of, what it did not keep and why, and the claims no record can settle. Read that list before deciding anything agrees: a statement nothing in it covers is unsettled, and unsettled is not agreed.",
+          "List every statement the application displays about this turn’s own behaviour: what it says it consulted, what it says it ran, what came back, how long it took, what it could not do. The model’s prose is out of scope except where it reports what the application did. Report how many such statements there are, for both runs.",
+          "Sort those statements into four groups and report all four counts for both runs, including zero: the record agrees, the record contradicts, the record is silent about it, and no record settles it either way.",
+          "Split that last group in two, because it holds two facts that look alike and are not. A statement is unsettleable for want of a record when an artifact could settle it and this run has none — name what you looked for. It is unsettleable by nature when the application is the only witness to what it claims, which is true of every figure it timed with its own clock: a record of such a figure is the same number written down twice, agrees by construction, and is evidence of nothing. Report both counts.",
+          "The other direction: anything the record shows this turn did that the screen never mentions at all. Report that count too, including when it is zero.",
+          "Quote both halves of every contradiction — the sentence on screen and the entry in the record that settles it — naming the artifact each came from."
+        ],
+        "decide": "Fewer contradictions is better, and a statement the record cannot settle is neither better nor worse. A run that says less about itself is not thereby more accurate, so report the count of settleable statements beside the contradiction count: a screen that claims nothing about the turn shows up as claiming nothing. Saying nothing about something that happened and claiming something that did not are different failures — report which one is in front of you rather than merging them. Equal counts, zero and zero included, is a tie, and the tie has to say which of three it is: one where the record settled every statement and they agreed, one where nothing could be settled, and one where neither run gave the question anything to bite on. Only the first is a fact about the two builds; the second is a fact about the capture and the third is a fact about the task. If the artifact a statement would be settled against is missing from one run, the two runs are not comparable on it; say so rather than deciding on it."
+      }
+    ]
+  }
 }
