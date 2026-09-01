@@ -9,6 +9,7 @@ that make a naive version of the same measurement produce confident nonsense.
 ```bash
 npm run bench:render -- v1.4.7        # measure the current working tree
 npm run bench:render -- --report      # tabulate everything recorded so far
+BENCH_ELECTRON=/path/to/Electron npm run bench:render -- v2.2.0-tree-e31   # same tree, another runtime (v2.3)
 ```
 
 Each run builds the checked-out tree, launches it against a throwaway profile

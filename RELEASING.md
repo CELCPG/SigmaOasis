@@ -126,7 +126,10 @@ The `Release` workflow runs five jobs:
   on *two different* draft releases — see the comment on the job.
 - **Homebrew cask bump** — updates version + SHA-256s in `CELCPG/homebrew-tap`
   and pushes, so `brew install --cask sigma-oasis` tracks every tag. Needs the
-  `HOMEBREW_TAP_TOKEN` secret.
+  `HOMEBREW_TAP_TOKEN` secret. It rewrites *only* the version and checksum
+  lines: the cask's `depends_on macos:` is hand-maintained, and it must track
+  the Electron major — v2.3 (Electron 44) needs `:ventura`, where the cask has
+  said `:big_sur` since 1.0. Bump it in the tap by hand when Electron moves.
 
 When it finishes, publish the draft release. The publish job has already
 verified the asset list, so the page should show exactly:

@@ -204,6 +204,20 @@ jobs:
           # preflight step above is what surfaces that.
           DEBUG: electron-notarize*
 
+      # v2.3 moved to Electron 44, which needs macOS 13. electron-builder 24
+      # stamps LSMinimumSystemVersion into the app but writes nothing about it
+      # into latest-mac.yml, so a Mac on 12 would download the update, install
+      # it, and get an app that cannot launch. electron-updater (6.x) refuses an
+      # update whose `minimumSystemVersion` is above the running OS — comparing
+      # against os.release(), which on a Mac is the DARWIN kernel version, not
+      # the marketing one: macOS 13 is Darwin 22. Hence 22.0.0, not 13.0.
+      - name: Stamp the macOS floor into the update manifest
+        run: |
+          set -euo pipefail
+          test -f dist/latest-mac.yml
+          grep -q '^minimumSystemVersion:' dist/latest-mac.yml || echo 'minimumSystemVersion: 22.0.0' >> dist/latest-mac.yml
+          grep -n '^minimumSystemVersion:' dist/latest-mac.yml
+
       - name: Hand the signed DMGs to the publish job
         uses: actions/upload-artifact@v7
         with:

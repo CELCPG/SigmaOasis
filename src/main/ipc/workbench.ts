@@ -458,7 +458,7 @@ async function ensureSandbox(): Promise<string> {
   })
   win = w
   if (process.env.SIGMA_WORKBENCH_DEBUG) {
-    w.webContents.on('console-message', (_e, _level, message) => console.log('[workbench page]', message.slice(0, 500)))
+    w.webContents.on('console-message', (e) => console.log('[workbench page]', String(e.message ?? '').slice(0, 500)))
     w.webContents.on('did-fail-load', (_e, code, desc, url) => console.log('[workbench page] fail-load', code, desc, url))
   }
   // Watch every other window: when the last of them closes, tear the sandbox

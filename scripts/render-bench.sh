@@ -40,7 +40,13 @@ RESULTS="$WORK/results.jsonl"
 ELECTRON_MAC="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 ELECTRON_LINUX="node_modules/electron/dist/electron"
 
-if [ -x "$ELECTRON_MAC" ]; then
+# BENCH_ELECTRON points the run at another Electron binary, so one checked-out
+# tree can be measured under two runtimes — the comparison an Electron upgrade
+# needs (v2.3: 31 → 44), which two labels from two trees cannot give, since the
+# report rightly voids a pair that rendered different text.
+if [ -n "${BENCH_ELECTRON:-}" ] && [ -x "$BENCH_ELECTRON" ]; then
+  ELECTRON="$BENCH_ELECTRON"
+elif [ -x "$ELECTRON_MAC" ]; then
   ELECTRON="$ELECTRON_MAC"
 elif [ -x "$ELECTRON_LINUX" ]; then
   ELECTRON="$ELECTRON_LINUX"
@@ -77,34 +83,52 @@ export BENCH_CDP_PORT="${BENCH_CDP_PORT:-9223}"
 export BENCH_TOK_PER_SEC="${BENCH_TOK_PER_SEC:-60}"
 export BENCH_BLOCKS="${BENCH_BLOCKS:-8}"
 
-PROFILE="$WORK/profile-$LABEL"
+# The profile lives under $TMPDIR, not in the repository. On macOS 26 the
+# re-signed Electron binary (a new identity to the folder-privacy system every
+# time scripts/sign-dev-electron.sh runs) is refused renames and unlinks under
+# ~/Documents — measured 3/3 EPERM in .render-bench/, 0/1 in /tmp — and the
+# app's first settings write is an atomic rename. Logs and results stay in
+# $WORK because plain node writes them.
+PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/sigma-bench-$LABEL.XXXXXX")"
 STUB_PID=""
 APP_PID=""
 cleanup() {
   [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true
   [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null || true
+  [ -n "${PROFILE:-}" ] && rm -rf "$PROFILE"
 }
 trap cleanup EXIT
 
 mkdir -p "$WORK"
-rm -rf "$PROFILE"
 "${NODE[@]}" "$HERE/seed.js" "$PROFILE" "${BENCH_PAIRS:-12}"
 
 # Build, so the measurement is of the tree that is checked out right now and
 # not of whatever out/ happened to contain.
+#
+# On plain node when there is one, like test.sh and test-render.sh. Electron's
+# node built this fine through v2.2; on the Electron 44 upgrade (v2.3, macOS
+# 26) vite's emptyDir under Electron-as-node came back EPERM unlinking files a
+# previous build wrote, twice in a row, while the same build from `node`
+# succeeded every time. The measurement itself still runs on Electron proper.
+# The same runtime drives the measurement, whose one file write — appending to
+# $RESULTS — was refused under Electron's node once for the reason above.
+if command -v node >/dev/null 2>&1; then HOST_NODE=(node); else HOST_NODE=("${NODE_WS[@]}"); fi
 echo "building…"
-"${NODE[@]}" node_modules/electron-vite/bin/electron-vite.js build > "$WORK/build-$LABEL.log" 2>&1
+"${HOST_NODE[@]}" node_modules/electron-vite/bin/electron-vite.js build > "$WORK/build-$LABEL.log" 2>&1 || {
+  echo "error: build failed; see $WORK/build-$LABEL.log" >&2
+  exit 1
+}
 
 "${NODE[@]}" "$HERE/stub.js" > "$WORK/stub-$LABEL.log" 2>&1 &
 STUB_PID=$!
 sleep 2
 head -1 "$WORK/stub-$LABEL.log"
 
-BENCH_PROFILE="$PWD/$PROFILE" "$ELECTRON" --remote-debugging-port="$BENCH_CDP_PORT" \
+BENCH_PROFILE="$PROFILE" "$ELECTRON" --remote-debugging-port="$BENCH_CDP_PORT" \
   "$HERE/wrapper.js" > "$WORK/app-$LABEL.log" 2>&1 &
 APP_PID=$!
 
-"${NODE_WS[@]}" "$HERE/measure.js" "$LABEL" "$RESULTS"
+"${HOST_NODE[@]}" "$HERE/measure.js" "$LABEL" "$RESULTS"
 
 echo
 echo "appended to $RESULTS — 'bash scripts/render-bench.sh --report' to compare"

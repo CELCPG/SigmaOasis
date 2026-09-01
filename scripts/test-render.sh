@@ -48,6 +48,13 @@ OUT=.test-build
 ELECTRON_MAC="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 ELECTRON_LINUX="node_modules/electron/dist/electron"
 
+# Electron 42+ fetches its binary on first run rather than at install; a tree
+# that skipped that step would make every check below skip too. Fetch it here
+# rather than report a green run that checked nothing.
+if [ ! -x "$ELECTRON_MAC" ] && [ ! -x "$ELECTRON_LINUX" ]; then
+  node scripts/ensure-electron.js || true
+fi
+
 if [ -x "$ELECTRON_MAC" ]; then
   ELECTRON="$ELECTRON_MAC"
 elif [ -x "$ELECTRON_LINUX" ]; then
@@ -103,8 +110,26 @@ echo "building out/ so the checks that boot it measure this tree…"
 
 # Chromium's sandbox needs a real session on some CI images; --no-sandbox keeps
 # this runnable there without weakening anything in the shipped app.
+#
+# Each check gets a throwaway profile. Without --user-data-dir every check
+# process shares ~/Library/Application Support/Electron with every other
+# Electron dev process on the machine, cache index included. The first run
+# after the Electron 31 → 44 upgrade (v2.3) opened that Electron-31 cache under
+# Chromium 152, logged "Unable to map Index file", and the network service
+# crashed under renderCheck's one page load — ERR_FAILED on a loopback fixture
+# that passes every time in isolation. A profile nothing else has touched is
+# the check's own precondition, not the machine's history.
+PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/sigma-checks.XXXXXX")"
+trap 'rm -rf "$PROFILE"' EXIT
+# markdownCheck bundles the sanitizer under test into $OUT/markdown-bundle from
+# inside Electron, and vite empties that directory first. `npm test` recreates
+# $OUT from scratch so there is never anything to empty; this script run on its
+# own leaves the previous bundle behind, and on macOS 26 a file an Electron
+# process wrote can come back EPERM to a later Electron process's unlink (seen
+# once in v2.3's upgrade runs). Clear it from the shell, which is never refused.
+rm -rf "$OUT/markdown-bundle"
 status=0
 for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck planAccessibilityCheck markdownCheck workbenchCheck httpClientCheck; do
-  "$ELECTRON" --no-sandbox "$OUT/test/$check.js" || status=1
+  "$ELECTRON" --no-sandbox --user-data-dir="$PROFILE/$check" "$OUT/test/$check.js" || status=1
 done
 exit "$status"

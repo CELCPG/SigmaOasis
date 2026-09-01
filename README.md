@@ -67,6 +67,7 @@ brew install --cask sigma-oasis
 ```
 
 Signed and notarized for both Apple Silicon and Intel; the app updates itself from then on.
+Requires **macOS 13 or later** since v2.3 (Electron 44 dropped Monterey along with Chromium).
 
 **Direct download:** grab the installer for your platform from
 [Releases](https://github.com/CELCPG/SigmaOasis/releases) — macOS `.dmg` (arm64 + x64), Windows `.exe`
@@ -92,6 +93,11 @@ npm run dev
 ```
 
 This starts the Vite dev server (with hot reload for the React renderer) and launches the Electron app.
+
+> `npm install` also fetches the Electron binary itself (`scripts/ensure-electron.js`): since Electron 42
+> the `electron` package no longer downloads it at install time, and every script here that runs the
+> app for real — the check suites, the evals, the head-to-head driver — reaches that binary by path
+> and would otherwise skip. On macOS the local copy is then ad-hoc re-signed (see `RELEASING.md`).
 
 ---
 
