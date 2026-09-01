@@ -126,6 +126,24 @@ interface AppState {
   streamingTail: { messageId: string; text: string } | null
   setStreamingTail: (tail: { messageId: string; text: string } | null) => void
 
+  /**
+   * v1.17.4: what the transport has seen of the request currently in flight.
+   *
+   * The same shape as `streamingTail` and for the same reason — a small object
+   * the thinking indicator alone subscribes to, so the two or three transitions
+   * a request goes through do not rebuild the conversations array. It is
+   * written at the request, at the response headers, and at the first body
+   * byte, and cleared when the turn ends.
+   *
+   * Live rather than post-mortem: `ChatMessage.ending` records the same facts
+   * for the bubble that has to say who fell silent AFTER the fact, and by then
+   * the reader has already spent the ninety seconds this is for.
+   */
+  streamWitness: { messageId: string; accepted: boolean; streamed: boolean } | null
+  setStreamWitness: (
+    seen: { messageId: string; accepted: boolean; streamed: boolean } | null
+  ) => void
+
   appendMessage: (
     conversationId: string,
     message: ChatMessage,
@@ -253,6 +271,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   streamingTail: null,
   setStreamingTail: (streamingTail) => set({ streamingTail }),
+
+  streamWitness: null,
+  setStreamWitness: (streamWitness) => set({ streamWitness }),
 
   appendMessage: (conversationId, message, options) =>
     set((s) => ({

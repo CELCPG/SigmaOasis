@@ -1,16 +1,25 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
+  attribution,
+  attributionLabel,
   composeFailure,
   copyableFailure,
+  explainEmptyReply,
   explainFailure,
   ExplainedError,
+  readingLine,
   readsAsProse,
   searchUnreachable,
-  type Failure
+  type Failure,
+  type TurnEnding
 } from '../src/shared/failure'
 import { readToolFailure, toolFailure } from '../src/shared/tools/outcomes'
 import { describeRecompute } from '../src/renderer/src/lib/workbenchChecks'
+import { emptyReplyFailure, regenerateBlocked } from '../src/renderer/src/lib/replyRecovery'
+import type { ContextUsage } from '../src/renderer/src/lib/contextBudget'
 
 /**
  * Four rounds of blind critics found the same species on screen: a runtime
@@ -147,6 +156,244 @@ describe('the four strings a reader could not act on', () => {
     assert.equal(check.detail?.text, 'BodyStreamBuffer was aborted')
   })
 
+  /**
+   * v2.4, and the other half of the line above. Round 6 recorded `The runtime
+   * reported:` standing alone under that summary and filed it as probably an
+   * artefact of capturing a closed `<details>`; round 11's critics saw it on
+   * screen, in the collapsed view, in both arms
+   * (`.h2h-runs/B11/V3-20260828-104955`):
+   *
+   *     🧮 Recompute skipped — stopped before it finished
+   *     The runtime reported:
+   *
+   * A label introducing nothing, because the thing it introduces is folded
+   * away. `attribution` is right where it is used — both its other callers put
+   * the text on the very next line — so the fix is a second reading of the same
+   * fact for the one caller that is a control rather than a line.
+   */
+  test('the closed disclosure is NAMED, not left introducing nothing', () => {
+    const f = explainFailure(new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {
+      subject: 'The recomputation'
+    })
+    assert.ok(f.detail, 'the runtime words were dropped instead of kept')
+    const label = attributionLabel(f.detail!)
+    assert.equal(label, 'What the runtime reported')
+    // The defect itself: a closed control must not end in a colon, which is a
+    // promise about a next line that a collapsed disclosure does not have.
+    assert.doesNotMatch(label, /:\s*$/)
+    // …and it must not smuggle the internals into the collapsed view either.
+    assert.doesNotMatch(label, /BodyStreamBuffer/)
+    // Relayed text keeps whoever said it, so the control names them too.
+    assert.equal(attributionLabel({ source: 'LM Studio', text: 'x' }), 'What LM Studio reported')
+  })
+
+  test('the colon form is untouched where the text really does follow', () => {
+    // The true negative. `composeFailure` and `copyableFailure` are read top to
+    // bottom and never fold, so the label that opens a line stays a label that
+    // opens a line — and both readings still come off `detail.source`, so there
+    // is one spelling of who spoke and not two.
+    const f = explainFailure('Fatal: 0x8007007e')
+    assert.ok(f.detail)
+    assert.equal(attribution(f.detail!), 'The runtime reported:')
+    assert.match(composeFailure(f), /The runtime reported:\n“Fatal: 0x8007007e”/)
+    assert.match(copyableFailure(f), /The runtime reported:\nFatal: 0x8007007e/)
+  })
+
+  test('the banner opens the runtime words behind that control, and only there', () => {
+    // Where the two readings are actually rendered. The summary carries the
+    // control's name; the raw text is inside the disclosure, which is round 8's
+    // whole argument about where a runtime string belongs.
+    const bubble = readFileSync(
+      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
+      'utf-8'
+    )
+    assert.match(bubble, /<summary[^>]*>\s*\{attributionLabel\(c\.detail\)\}/)
+    assert.ok(
+      !/<summary[^>]*>\s*\{attribution\(/.test(bubble),
+      'the collapsed control is back to the colon form'
+    )
+    assert.match(bubble, /<pre[^>]*>[\s\S]{0,200}\{c\.detail\.text\}/)
+  })
+
+  /**
+   * v2.5, and the third round on the same disclosure. Round 11's critics read
+   * its LABEL introducing nothing; round 12 named the control and a blind
+   * critic saw the difference. Round 13's critic opened it, in BOTH arms, and
+   * read the whole of what opening it bought:
+   *
+   *     What the runtime reported
+   *       BodyStreamBuffer was aborted
+   *
+   * Nothing here leaked. The abort was caught by TYPE (rule 2), the app's own
+   * sentence was written, and the raw text is behind a disclosure under a label
+   * naming whose words they are — which is this module's argument, intact. What
+   * was missing is that the verification banner is the ONE surface that renders
+   * a `detail` with no `sentence` anywhere near it: `describeRecompute` is
+   * handed `headline` and `detail` and never sees the rest. So the reader who
+   * opened it got LESS than the line above — a fetch's name for its own
+   * response buffer, and nothing that says what it means.
+   */
+  describe('the quote says what it means, and says whose meaning that is', () => {
+    test('opening the disclosure now buys the reader a reading of the words', () => {
+      const f = explainFailure(new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {
+        subject: 'The recomputation'
+      })
+      const line = readingLine(f.detail!)
+      assert.ok(line, 'the quote still stands alone with nothing to read it by')
+      // The gloss the round is for: an abort is an ending, not a crash.
+      assert.match(line!, /cut off before it finished/)
+      assert.match(line!, /stopped, or the connection dropped/)
+      // Two voices, and the line says which is which in its own first clause.
+      assert.match(line!, /^The runtime’s wording for: /)
+      // It reads the words; it does not repeat them.
+      assert.doesNotMatch(line!, /BodyStreamBuffer/)
+      // …and the quote itself is untouched. It is evidence.
+      assert.equal(f.detail!.text, 'BodyStreamBuffer was aborted')
+    })
+
+    test('the gloss is of the CLASS, so both engines’ wordings get the same one', () => {
+      // Rule 2 one layer further out. `BodyStreamBuffer was aborted` and
+      // `signal is aborted without reason` are one DOMException, so they get one
+      // reading between them — of *aborted*, the word they share, and not of the
+      // object only one of them names. A gloss keyed on a message would be the
+      // enumeration mistake wearing prose.
+      const a = explainFailure(new DOMException('signal is aborted without reason', 'AbortError'))
+      const b = explainFailure({ name: 'AbortError', message: 'BodyStreamBuffer was aborted' })
+      const c = explainFailure({ name: 'AbortError', message: 'a wording no engine ships yet' })
+      assert.equal(a.detail!.reading, b.detail!.reading)
+      assert.equal(b.detail!.reading, c.detail!.reading)
+    })
+
+    /**
+     * The true negative the design turns on. Rule 3 says a failure the app
+     * could not place gets an honest sentence and no guess — and a gloss on
+     * words the app could not read is exactly the guess. So the disclosure for
+     * an unplaced failure is the bare quote it always was.
+     */
+    test('a failure the app never placed is NOT glossed', () => {
+      for (const raw of [
+        'Fatal: 0x8007007e',
+        'ENOSPC: no space left on device, write',
+        'TypeError: Cannot read properties of undefined (reading "steps")',
+        'write EPIPE'
+      ]) {
+        const f = explainFailure(raw, { subject: 'The search' })
+        assert.equal(f.recognised, false, raw)
+        assert.equal(f.detail!.reading, undefined, `the app glossed what it could not read: ${raw}`)
+        assert.equal(readingLine(f.detail!), null, raw)
+      }
+      // Nor is a relayed message the app has not learned to read.
+      const relayed = explainFailure('gpu_layers mismatch: 33 != 0', {
+        subject: 'The request',
+        source: 'LM Studio'
+      })
+      assert.equal(relayed.recognised, false)
+      assert.equal(relayed.detail!.reading, undefined)
+    })
+
+    /**
+     * And the invariant behind that true negative, over the whole corpus: a
+     * quote is glossed exactly when the app placed the failure. Stated as an
+     * equivalence rather than a list of cases, because a list is what gets a
+     * case added to it without the rule being reconsidered.
+     */
+    test('a quote carries a reading exactly when the app placed the failure', () => {
+      const CASES: [unknown, { subject?: string; source?: string }][] = [
+        [new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {}],
+        ['net::ERR_UNSAFE_PORT', { subject: 'The search' }],
+        ['net::ERR_TOO_MANY_REDIRECTS', { subject: 'The page' }],
+        ['net::ERR_QUIC_HANDSHAKE_ABANDONED_V7', { subject: 'The search' }],
+        ['connect ECONNREFUSED 127.0.0.1:9', {}],
+        ['Fatal: 0x8007007e', {}],
+        ['ENOSPC: no space left on device, write', {}],
+        ['write EPIPE', {}],
+        ['Trying to keep the first 12000 tokens when context the overflows.', { source: 'LM Studio' }],
+        ['gpu_layers mismatch: 33 != 0', { source: 'LM Studio' }],
+        ...APP_PROSE.map((p) => [p, {}] as [unknown, Record<string, never>])
+      ]
+      for (const [raw, ctx] of CASES) {
+        const f = explainFailure(raw, ctx)
+        if (!f.detail) continue // the app wrote the sentence; there is nothing to gloss
+        assert.equal(
+          f.detail.reading !== undefined,
+          f.recognised,
+          `gloss and placement disagree for ${JSON.stringify(raw)}`
+        )
+      }
+    })
+
+    test('the reading is never mistakable for the quote, in any surface', () => {
+      // The label promises the runtime's own words, and something else is now
+      // under there with them. What keeps the promise is that the second line
+      // TALKS ABOUT the first — it names the speaker in the possessive and then
+      // reads them — so no reader can take it for the quote.
+      const f = explainFailure(new DOMException('BodyStreamBuffer was aborted', 'AbortError'), {
+        subject: 'The recomputation'
+      })
+      const body = composeFailure(f)
+      // The verbatim line is still verbatim, still quoted, and still first.
+      assert.match(body, /“BodyStreamBuffer was aborted”\nThe runtime’s wording for: /)
+      assert.ok(
+        body.indexOf('“BodyStreamBuffer was aborted”') < body.indexOf('The runtime’s wording'),
+        'the reading came before the words it reads'
+      )
+      // A bug report carries both, so the second reader is not stuck either.
+      assert.match(copyableFailure(f), /BodyStreamBuffer was aborted\nThe runtime’s wording for: /)
+      // And whoever spoke keeps their name in this reading too, as in the other
+      // two — one spelling of the speaker, off `detail.source`, never rewritten.
+      assert.match(
+        readingLine({ source: 'LM Studio', text: 'x', reading: 'y.' })!,
+        /^LM Studio’s wording for: y\.$/
+      )
+    })
+
+    test('the unglossed disclosure is byte-for-byte what it was', () => {
+      // The other half of the true negative: adding the line must not disturb
+      // the surface for every failure that does not get one. These two
+      // assertions are the ones round 12 pinned, unchanged.
+      const f = explainFailure('Fatal: 0x8007007e')
+      assert.match(composeFailure(f), /The runtime reported:\n“Fatal: 0x8007007e”$/)
+      assert.match(copyableFailure(f), /The runtime reported:\nFatal: 0x8007007e$/)
+    })
+
+    test('the banner renders the reading, outside the verbatim block', () => {
+      // Where it is actually read. The `<pre>` is the quote and keeps only the
+      // quote; the reading is a sibling in the app's ordinary ink, so the two
+      // voices are told apart by the surface as well as by the words.
+      const bubble = readFileSync(
+        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
+        'utf-8'
+      )
+      assert.match(bubble, /\{readingLine\(c\.detail\)\}/)
+      for (const block of bubble.match(/<pre[^>]*>[\s\S]*?<\/pre>/g) ?? [])
+        assert.ok(
+          !block.includes('readingLine'),
+          'the app’s own gloss was rendered inside a verbatim block'
+        )
+      // The tool disclosure carries it too — it is one gloss, not a per-surface
+      // judgement about who deserves one.
+      const toolBlock = readFileSync(
+        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'ToolCallBlock.tsx'),
+        'utf-8'
+      )
+      assert.match(toolBlock, /\{readingLine\(failure\.detail\)\}/)
+    })
+
+    test('a check stored before v2.5 keeps its quote and claims no meaning', () => {
+      // `WorkbenchCheck` is persisted with the conversation, so a detail on disk
+      // has no `reading`. It renders as it always did rather than being told a
+      // meaning nobody recorded — the same rule `TurnEnding.completed` is under.
+      const stored = describeRecompute({
+        ran: false,
+        ok: false,
+        note: 'stopped before it finished',
+        detail: { source: 'the runtime', text: 'BodyStreamBuffer was aborted' }
+      })
+      assert.equal(stored.detail?.reading, undefined)
+      assert.equal(readingLine(stored.detail!), null)
+    })
+  })
+
   test('an interrupted plan step says it was stopped, in a sentence', () => {
     // The other engine's wording for the same exception — see below.
     const err = new DOMException('signal is aborted without reason', 'AbortError')
@@ -178,8 +425,11 @@ describe('the four strings a reader could not act on', () => {
     )
     assert.match(body, /LM Studio reported:/)
     assert.match(body, /“Trying to keep the first 12000 tokens when context the overflows\.”/)
-    assert.match(f.sentence, /larger than the context the model is loaded with/)
     assert.match(f.remedy?.text ?? '', /larger context in LM Studio/)
+    // v1.17.3: with no measurement in hand the app says it cannot check the
+    // claim, rather than restating it. See the suite below for why.
+    assert.match(f.sentence, /named the context length/)
+    assert.match(f.sentence, /no measurement of this request/)
   })
 
   test('their text is never dropped, even when the app cannot read it', () => {
@@ -326,6 +576,437 @@ describe('a reading only happens once', () => {
     const second: Failure = explainFailure(thrown, { subject: 'The turn' })
     assert.deepEqual(second, first)
     assert.match(second.sentence, /refused by LM Studio/)
+  })
+})
+
+/**
+ * The one direction a reading may be made again — v1.17.3.
+ *
+ * The transport reads LM Studio's error frame the moment it arrives, which is
+ * before the turn's own arithmetic exists anywhere in scope. So the reading
+ * that most needs a number was always made without one. The escape hatch is
+ * narrow on purpose: the SAME raw text, once, and only when the caller supplies
+ * a measurement the first reading did not have.
+ */
+describe('a reading is made again only for a fact it did not have', () => {
+  const THEIRS =
+    'Trying to keep the first 12000 tokens when context the overflows. However, the model is ' +
+    'loaded with context length of only 8192 tokens'
+  const frame = { subject: 'The request', source: 'LM Studio' }
+  const thrown = (): ExplainedError =>
+    new ExplainedError(explainFailure(THEIRS, frame), { raw: THEIRS, context: frame })
+
+  test('a measurement the first reading lacked re-reads it, from the raw text', () => {
+    const f = explainFailure(thrown(), {
+      subject: 'The turn',
+      request: {
+        total: 9000,
+        window: 8192,
+        largest: { label: 'the tool list', tokens: 2725, control: { label: 'Settings → Tools', tab: 'tools' } }
+      }
+    })
+    // The reading is remade, not the sentence re-parsed: their words are still
+    // quoted as theirs, and the first reading's subject and source survive —
+    // the outer caller adds a number, it does not get to re-attribute.
+    assert.match(f.sentence, /^The request was refused by LM Studio/)
+    assert.equal(f.detail?.text, THEIRS)
+    assert.equal(f.detail?.source, 'LM Studio')
+    assert.match(f.sentence, /own count agrees/)
+    assert.equal(f.remedy?.control?.tab, 'tools')
+  })
+
+  test('anything else keeps the reading that travelled', () => {
+    const carried = explainFailure(THEIRS, frame)
+    assert.deepEqual(explainFailure(thrown(), { subject: 'The turn' }), carried)
+    assert.deepEqual(explainFailure(thrown(), { source: 'somewhere else' }), carried)
+  })
+
+  test('our own composed prose never comes back through the translator', () => {
+    // The guard the class exists for: `composeFailure` output quotes a server,
+    // and re-reading it would classify our sentence on the shape of the quote.
+    const err = thrown()
+    assert.ok(err.message.includes(THEIRS), 'the composed message does quote them')
+    assert.equal(err.origin?.raw, THEIRS, 'and only the raw text is what is kept')
+  })
+})
+
+// ---- Who fell silent ----------------------------------------------------------
+
+/**
+ * v1.17.3. Round 9, on a server that accepted the POST and then wrote nothing
+ * for 90 s until the user pressed Stop:
+ *
+ *   *"the post-stop message then blames the model for what the fixture record
+ *   shows was a transport stall"* — and *"it says neither 'the server stopped
+ *   responding' nor 'you stopped it'"*.
+ *
+ * Three events shared one sentence, `⚠️ Empty reply — nothing came back from
+ * the model.`, and it named the wrong party in two of them. Every true positive
+ * below has its true negative beside it: the point of telling these apart is
+ * lost the moment a genuinely empty model reply stops saying it was empty.
+ */
+describe('an empty turn names who fell silent', () => {
+  const ending = (over: Partial<TurnEnding> = {}): TurnEnding => ({
+    accepted: true,
+    streamed: true,
+    // v1.17.5. The default is the stream that finished by itself — the true
+    // negative — so every case below that ends any other way has to say so.
+    completed: true,
+    produced: false,
+    stoppedByUser: false,
+    silentMs: 0,
+    ...over
+  })
+
+  test('the measured case: the server’s silence AND the user’s Stop, both said', () => {
+    const f = explainEmptyReply(
+      ending({ streamed: false, stoppedByUser: true, silentMs: 90_000 })
+    )
+    assert.match(f.sentence, /You stopped this turn/, 'the user is told they stopped it')
+    assert.match(f.sentence, /sent nothing at all for 90s/, 'and that the server had gone quiet')
+    assert.match(f.sentence, /accepted the request/, 'the POST was taken — the address is right')
+    // The defect itself: the model is not blamed for a reply that never began.
+    assert.doesNotMatch(f.sentence, /nothing came back from the model/)
+    assert.doesNotMatch(f.headline, /the model produced/)
+  })
+
+  test('the true negative: a model that really said nothing still says so', () => {
+    const f = explainEmptyReply(ending())
+    assert.match(f.sentence, /^The model produced no text\./)
+    assert.match(f.headline, /the model produced no text/)
+    // And it must NOT borrow either of the other two explanations.
+    assert.doesNotMatch(f.sentence, /you stopped/i)
+    assert.doesNotMatch(f.sentence, /closed the connection/i)
+  })
+
+  test('an empty 200 is the server’s doing, not the model’s', () => {
+    const f = explainEmptyReply(ending({ streamed: false }))
+    assert.match(f.sentence, /^LM Studio accepted the request and closed the connection/)
+    assert.match(f.sentence, /it is no answer/)
+    assert.doesNotMatch(f.sentence, /The model produced/)
+  })
+
+  /**
+   * v1.17.5, and the round-11 verdict this whole family exists to answer.
+   *
+   * On a context-overflow turn the screen carried two messages, one above the
+   * other: `The model produced no text. LM Studio answered and the reply ran to
+   * its end — it was simply empty.` and, two lines down, `The request was
+   * refused by LM Studio, which named the context length …`. Both blind critics
+   * counted it — 1 disagreeing pair, 1 contradiction — in both arms.
+   *
+   * The reply did not run to its end. LM Studio wrote one `{"error": …}` frame
+   * and the transport threw on it: `streamed` was true, `completed` was never
+   * recorded at all, and round 10's sentence read the first as if it were the
+   * second.
+   */
+  test('a refusal in the stream is not a reply that ran to its end', () => {
+    const f = explainEmptyReply(ending({ completed: false }))
+    // The exact clauses that contradicted the refusal underneath them.
+    assert.doesNotMatch(f.sentence, /ran to its end/)
+    assert.doesNotMatch(f.sentence, /simply empty/)
+    assert.doesNotMatch(f.sentence, /^The model produced no text/)
+    // What it says instead is what the transport actually witnessed.
+    assert.match(f.sentence, /started sending a reply/)
+    assert.match(f.sentence, /ended before that reply did/)
+  })
+
+  test('the true negative beside it: `completed` is the only difference', () => {
+    // Same turn, same two facts, one extra one — and the sentence that round 10
+    // was right to write is still there for the case it was written for.
+    const cut = explainEmptyReply(ending({ completed: false }))
+    const ran = explainEmptyReply(ending({ completed: true }))
+    assert.match(ran.sentence, /^The model produced no text\./)
+    assert.match(ran.sentence, /ran to its end/)
+    assert.notEqual(cut.sentence, ran.sentence)
+  })
+
+  test('a turn that ended before the reply body began says only that', () => {
+    // A non-2xx status, or a response with no body: the server answered with
+    // something, and it was not a reply that could be read as an answer. The
+    // empty 200 beside it closed cleanly and keeps its own sentence.
+    const cut = explainEmptyReply(ending({ streamed: false, completed: false }))
+    assert.match(cut.sentence, /ended before any of the reply arrived/)
+    assert.doesNotMatch(cut.sentence, /closed the connection without sending a reply/)
+
+    const empty200 = explainEmptyReply(ending({ streamed: false, completed: true }))
+    assert.match(empty200.sentence, /^LM Studio accepted the request and closed the connection/)
+    assert.notEqual(cut.sentence, empty200.sentence)
+  })
+
+  /**
+   * Round 9's defect, one message further down. Both hand-off endings sit
+   * directly above a ⚠️ message that carries the real reason AND the real
+   * remedy — on the recorded turn, one that explains why asking again cannot
+   * fit. A cheerful "Ask again." above it would be the app contradicting itself
+   * again, in the remedy instead of the sentence.
+   */
+  test('the two hand-off endings offer no remedy of their own', () => {
+    for (const streamed of [true, false]) {
+      const f = explainEmptyReply(ending({ streamed, completed: false }))
+      assert.equal(f.remedy, null, f.sentence)
+      assert.match(f.sentence, /The reason is in the message below\./)
+      // They are still placed — the app knows what happened, it is simply not
+      // the one reporting why.
+      assert.equal(f.recognised, true)
+    }
+  })
+
+  test('all five endings are different sentences, which is the entire point', () => {
+    const said = [
+      ending(), // ran to its end, empty — the model
+      ending({ streamed: false }), // an empty 200 — the server
+      ending({ streamed: false, completed: false }), // ended before the body began
+      ending({ completed: false }), // the reply began, then was cut off
+      ending({ accepted: false, completed: false }) // nothing came back at all
+    ].map((e) => explainEmptyReply(e).sentence)
+    assert.equal(new Set(said).size, 5, said.join('\n'))
+  })
+
+  test('the Stop readings still come first, whatever completed says', () => {
+    // A user who stops a turn is told they stopped it. `completed` is false on
+    // every one of these — a stopped stream never reaches its end — and none of
+    // them may be re-read as one of the new endings.
+    for (const streamed of [true, false]) {
+      const f = explainEmptyReply(
+        ending({ streamed, completed: false, stoppedByUser: true, silentMs: 90_000 })
+      )
+      assert.match(f.sentence, /^You stopped this turn/)
+      assert.doesNotMatch(f.sentence, /message below/)
+    }
+  })
+
+  test('a Stop before the server answered blames neither the model nor the server', () => {
+    const f = explainEmptyReply(
+      ending({ accepted: false, streamed: false, stoppedByUser: true, silentMs: 4000 })
+    )
+    assert.match(f.sentence, /before LM Studio had answered/)
+    assert.match(f.sentence, /You stopped this turn 4s in/)
+  })
+
+  /**
+   * v1.17.5. `TurnEnding` is persisted with the conversation, so every turn
+   * stored before this round is on disk with the other four facts and without
+   * this one. Reading that absence as `false` would tell an old conversation
+   * its reply was cut off and point at a failure message nobody ever wrote —
+   * the defect this round is fixing, committed by the fix for it.
+   */
+  test('a stored turn from before `completed` says it cannot choose, not that it was cut off', () => {
+    for (const streamed of [true, false]) {
+      const f = explainEmptyReply(ending({ streamed, completed: undefined }))
+      assert.equal(f.recognised, false, 'the app could not place it, and says so')
+      assert.match(f.sentence, /cannot say whether this one ran out or was cut off/)
+      // None of the five readings may be borrowed on evidence that is missing.
+      assert.doesNotMatch(f.sentence, /ran to its end/)
+      assert.doesNotMatch(f.sentence, /message below/)
+      assert.doesNotMatch(f.sentence, /closed the connection/)
+      assert.ok(f.headline.length <= 72, f.headline)
+    }
+  })
+
+  test('a stored turn from before `completed` keeps the readings that do not need it', () => {
+    // The absence only reaches the branches that turn on it. A Stop and a
+    // never-answered turn were fully recorded in v1.17.3 and still read the same.
+    const stopped = explainEmptyReply(
+      ending({ completed: undefined, stoppedByUser: true, silentMs: 90_000, streamed: false })
+    )
+    assert.match(stopped.sentence, /^You stopped this turn/)
+    const never = explainEmptyReply(ending({ completed: undefined, accepted: false, streamed: false }))
+    assert.match(never.sentence, /^This turn ended without LM Studio answering/)
+  })
+
+  test('a turn with no observation admits that, rather than guessing a party', () => {
+    // Rule 3, in this new family: a message stored before the transport
+    // recorded endings has nothing to read, and no sentence may be invented.
+    const f = emptyReplyFailure({})
+    assert.equal(f.recognised, false)
+    assert.match(f.sentence, /no record of how it ended/)
+    assert.doesNotMatch(f.sentence, /the model produced/i)
+  })
+
+  test('a stored observation is preferred to the admission', () => {
+    assert.equal(
+      emptyReplyFailure({ ending: ending() }).sentence,
+      explainEmptyReply(ending()).sentence
+    )
+  })
+
+  test('every one of them is a glance in the row, like the rest', () => {
+    for (const stoppedByUser of [true, false])
+      for (const accepted of [true, false])
+        for (const streamed of [true, false])
+          for (const completed of [true, false])
+            for (const produced of [true, false]) {
+              const f = explainEmptyReply({
+                accepted,
+                streamed,
+                completed,
+                produced,
+                stoppedByUser,
+                silentMs: 90_000
+              })
+              assert.ok(f.headline.length <= 72, `${f.headline.length}: ${f.headline}`)
+              assert.ok(f.sentence.trim().length > 0)
+            }
+  })
+
+  /**
+   * The rule the whole module rests on, asserted over the entire input space
+   * rather than on the cases someone remembered to write: a sentence claiming
+   * the reply finished may only appear where the transport recorded that it
+   * did. Round 10's sentence was reachable from `completed: false` for two
+   * versions because nothing checked this.
+   */
+  test('nothing claims the reply finished unless `completed` says it did', () => {
+    for (const accepted of [true, false])
+      for (const streamed of [true, false])
+        for (const stoppedByUser of [true, false])
+          for (const produced of [true, false]) {
+            const f = explainEmptyReply({
+              accepted,
+              streamed,
+              completed: false,
+              produced,
+              stoppedByUser,
+              silentMs: 90_000
+            })
+            assert.doesNotMatch(f.sentence, /ran to its end/, JSON.stringify(f))
+            assert.doesNotMatch(f.sentence, /simply empty/, JSON.stringify(f))
+            assert.doesNotMatch(f.sentence, /closed the connection/, JSON.stringify(f))
+          }
+  })
+})
+
+// ---- A refusal the app can check ----------------------------------------------
+
+/**
+ * v1.17.3. Round 9 found two defects in one sentence and they were the same
+ * defect: the app repeating LM Studio's claim as its own finding.
+ *
+ *   *"Load the model with a larger context in LM Studio, or attach less"* — a
+ *   remedy with no control behind either half — and, on the same screen, a
+ *   composer meter reading `~1.7K / 8.2K` under a message asserting that the
+ *   conversation was larger than the window.
+ */
+describe('a refusal that names the context length', () => {
+  const THEIRS = 'context length of only 8192 tokens'
+  const over = {
+    total: 9000,
+    window: 8192,
+    largest: { label: 'the tool list', tokens: 2725, control: { label: 'Settings → Tools', tab: 'tools' as const } }
+  }
+  const under = { ...over, total: 4000 }
+
+  test('with no measurement it says it cannot check, rather than restating theirs', () => {
+    const f = explainFailure(THEIRS, { subject: 'The request', source: 'LM Studio' })
+    assert.match(f.sentence, /named the context length/)
+    assert.match(f.sentence, /no measurement of this request/)
+    // The claim the app used to make on a server's word alone.
+    assert.doesNotMatch(f.sentence, /This conversation .* is larger than/)
+  })
+
+  test('when the app’s own count agrees, it says so — and names the big term', () => {
+    const f = explainFailure(THEIRS, { subject: 'The request', source: 'LM Studio', request: over })
+    assert.match(f.sentence, /own count agrees/)
+    assert.match(f.sentence, /about 9K tokens against a 8.2K window/)
+    assert.match(f.sentence, /the tool list, at about 2.7K tokens/)
+    assert.match(f.remedy?.text ?? '', /Reduce the tool list/)
+    assert.equal(f.remedy?.control?.tab, 'tools', 'the remedy has a control behind it')
+  })
+
+  test('when it does not agree, it says THAT — and does not pick a winner', () => {
+    const f = explainFailure(THEIRS, { subject: 'The request', source: 'LM Studio', request: under })
+    assert.match(f.sentence, /does not agree/)
+    assert.match(f.sentence, /One of the two is wrong/)
+    // Both of its own failure directions are named, so neither side is asserted.
+    assert.match(f.sentence, /estimated from text length/)
+    assert.match(f.sentence, /loaded with less context than it reports/)
+  })
+
+  test('“attach less” is not the advice when attachments are not what is large', () => {
+    // The measured configuration: the largest term was the tool schemas the APP
+    // adds. Telling the reader to attach less would have sent them to shrink a
+    // fifth of the problem.
+    for (const request of [over, under]) {
+      const f = explainFailure(THEIRS, { subject: 'The request', source: 'LM Studio', request })
+      assert.doesNotMatch(f.remedy?.text ?? '', /attach less/)
+      assert.match(f.remedy?.text ?? '', /the tool list/)
+    }
+  })
+
+  test('a term with no control gets prose and no button, rather than a wrong button', () => {
+    const f = explainFailure(THEIRS, {
+      subject: 'The request',
+      source: 'LM Studio',
+      request: { ...over, largest: { label: 'the conversation', tokens: 6000 } }
+    })
+    assert.equal(f.remedy?.control, undefined)
+    assert.match(f.remedy?.text ?? '', /Reduce the conversation/)
+  })
+
+  test('their words are still evidence, in every one of these', () => {
+    for (const request of [undefined, over, under]) {
+      const f = explainFailure(THEIRS, { subject: 'The request', source: 'LM Studio', request })
+      assert.equal(f.detail?.text, THEIRS)
+      assert.equal(f.detail?.source, 'LM Studio')
+      assert.match(composeFailure(f), /LM Studio reported:/)
+    }
+  })
+
+  test('a measurement does not turn some OTHER refusal into a context one', () => {
+    // The true negative for `request`: supplying it must not make the boundary
+    // reach for the context sentence when the server said something else.
+    const f = explainFailure('gpu_layers mismatch: 33 != 0', {
+      subject: 'The request',
+      source: 'LM Studio',
+      request: over
+    })
+    assert.equal(f.recognised, false)
+    assert.doesNotMatch(f.sentence, /context/i)
+  })
+})
+
+// ---- A retry that cannot succeed ----------------------------------------------
+
+describe('Regenerate is disabled only where futility is proved', () => {
+  const usage = (over: Partial<ContextUsage> = {}): ContextUsage => ({
+    used: 9000,
+    total: 8192,
+    ratio: 9000 / 8192,
+    terms: [{ label: 'the tool list', tokens: 2725, tab: 'tools' }],
+    largest: { label: 'the tool list', tokens: 2725, tab: 'tools' },
+    planned: 9000,
+    overflows: true,
+    ...over
+  })
+
+  test('a request the app has measured past the window blocks it, with the reason', () => {
+    const why = regenerateBlocked(usage())
+    assert.ok(why)
+    assert.match(why, /would send the same request/)
+    assert.match(why, /about 9K tokens against a 8.2K window/)
+    assert.match(why, /even after the older messages are summarized away/)
+    assert.match(why, /the tool list/)
+  })
+
+  test('a request that fits does not — the button is not disabled on suspicion', () => {
+    assert.equal(regenerateBlocked(usage({ planned: 4000, overflows: false })), null)
+  })
+
+  /**
+   * The true negative that matters most: a conversation OVER the window whose
+   * turn would compact and send. Blocking here would be the round-9 defect
+   * itself, moved one control along — accusing the reader's conversation of
+   * something the app has not established.
+   */
+  test('a big conversation the turn would compact does not block it', () => {
+    assert.equal(regenerateBlocked(usage({ used: 40_000, planned: 7800, overflows: false })), null)
+  })
+
+  test('and an unmeasurable one does not either: no window size is not evidence', () => {
+    // LM Studio never reported a context length, so there is no denominator.
+    // "We cannot measure it" must not read as "it would fail".
+    assert.equal(regenerateBlocked(null), null)
   })
 })
 

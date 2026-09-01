@@ -1,0 +1,1510 @@
+{
+  "round": 12,
+  "pair": {
+    "A": "the round-11 build",
+    "B": "the round-12 build"
+  },
+  "note": "Both sweeps returned 18/18 VALID with no re-runs — the first round where neither arm needed a second attempt, after five rounds that each needed two or three. All 18 pairs report an identical harness commit; the independent leak sweep is empty.",
+  "corrections": [
+    {
+      "task": "TH1",
+      "columns": [
+        "task"
+      ],
+      "from": "B",
+      "to": "tie",
+      "rule": "a difference that would vanish under identical tokens is not a difference",
+      "why": "The critic gave TH1 to the run whose screen reconciled a reply claiming three reference_lookup calls against the one that ran — \"3 calls accounted for, 1 ran\" — and marked it medium, saying plainly it could not tell whether the other build carried the check because nothing triggered it. It does. `overstatedToolCounts` was introduced in round 11 (59735af) and its body is byte-identical in both arms; the losing run simply named no tool at all, which is silence rather than an over-claim, so its copy of the same code had nothing to fire on. Round 12 did add a rung here — `toolDenials`, the mirror direction — and neither arm was handed a denial on this task."
+    },
+    {
+      "task": "V3",
+      "columns": [
+        "record-consistency"
+      ],
+      "from": "A",
+      "to": "tie",
+      "rule": "a contradiction is a statement the record refutes, not one a reader counts differently",
+      "why": "The only result this round that went against the new build, held by its own critic at low confidence: the coverage line reads \"Covered 1 of the 4 measurements in this reply\" where the critic counted six quantities. Tested rather than assumed — both arms’ `measurementsIn` run over the exact bytes of `V3/run-1/reply.md` return the same four spans (1,450 gallons / 2.2 gallons per drop / 30 days / 60 minutes), and `quantityCoverage`, which turns those into the N-of-M, is byte-identical across the arms. The critic’s extra two were a currency figure, which the app counts and reports separately as \"1 figure ($15)\", and \"~876 drops per day\", whose unit neither arm recognises. The app’s 4 matches the app’s own scan. Not a contradiction — but see the caveat, because the second of those two is a real finding wearing the wrong label."
+    }
+  ],
+  "caveats": [
+    "Fourteen of eighteen tasks tied on the task column, and the four wins land exactly on the four behaviours round 12 changed — two failure banners that describe what the server actually did (FR1, FR2) and two plan headers that stop reporting in-flight progress once a plan is over (PT2, PT3). The critics never saw the changelog. That correspondence is the strongest evidence this round produced, and it is evidence about the protocol as much as about the build.",
+    "TTU1 is recorded as reported — a tie — and it is the one verdict where a source check afterwards disagreed with the critic. Arm B’s screen flagged \"web_search ran once and this reply offers to run it\", which is `toolDenials`, a round-12-only rung; arm A flagged an unbacked measurement, which both arms carry. The critic read the two as symmetric (\"both builds caught what their model gave them to catch\") and they are not. It stays a tie because arm A was never handed an offer-to-search, so the capture cannot show what it would have done — and because promoting a tie on changelog knowledge the critic did not have is the exact bias this protocol exists to remove. Demoting a win on a demonstrated factual error is not the same operation, which is why the two corrections above stand and this one does not.",
+    "The wins are concentrated in two dimensions. Verifiability, tool honesty, time-to-useful-output and visual craft returned eighteen ties among them across all three columns, and on several the critics said the behaviour under test never occurred in either run — TTU3’s post-answer wait never happened, VC1’s reply-side layout was never exercised because one model declined to echo the token, TH3’s quotation check found both replies accurate. A tie there is not a finding about the builds.",
+    "Three shared defects surfaced that neither build catches, all the same shape as every round before: a check whose vocabulary is narrower than the class it names. The plan header’s \"N/N steps done\" is the only line visible without interacting and the one number no artifact in the run can settle, because the audit records tools and never steps (PT1). The ledger line miscounts the session variables printed directly beneath it, in both arms and by exactly one, twice (TTU2). And \"~876 drops per day\" sits in a reply whose coverage line says \"1 of the 4 measurements in this reply\" — the fifth quantity is outside the scan’s vocabulary, so the sentence’s \"in this reply\" is broader than what it counted (V3)."
+  ],
+  "columns": [
+    {
+      "id": "task",
+      "asked": true,
+      "verdicts": {
+        "V1": {
+          "verdict": "tie"
+        },
+        "V2": {
+          "verdict": "tie"
+        },
+        "V3": {
+          "verdict": "tie"
+        },
+        "TH1": {
+          "verdict": "tie"
+        },
+        "TH2": {
+          "verdict": "tie"
+        },
+        "TH3": {
+          "verdict": "tie"
+        },
+        "PT1": {
+          "verdict": "tie"
+        },
+        "PT2": {
+          "verdict": "B"
+        },
+        "PT3": {
+          "verdict": "B"
+        },
+        "FR1": {
+          "verdict": "B"
+        },
+        "FR2": {
+          "verdict": "B"
+        },
+        "FR3": {
+          "verdict": "tie"
+        },
+        "TTU1": {
+          "verdict": "tie"
+        },
+        "TTU2": {
+          "verdict": "tie"
+        },
+        "TTU3": {
+          "verdict": "tie"
+        },
+        "VC1": {
+          "verdict": "tie"
+        },
+        "VC2": {
+          "verdict": "tie"
+        },
+        "VC3": {
+          "verdict": "tie"
+        }
+      }
+    },
+    {
+      "id": "self-consistency",
+      "asked": true,
+      "evidence": "counted",
+      "verdicts": {
+        "V1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          },
+          "A": {
+            "volume": 8,
+            "settleable": 6,
+            "count": 0
+          }
+        },
+        "V2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          },
+          "A": {
+            "volume": 12,
+            "settleable": 9,
+            "count": 0
+          }
+        },
+        "V3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          }
+        },
+        "TH1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0
+          },
+          "A": {
+            "volume": 6,
+            "settleable": 4,
+            "count": 0
+          }
+        },
+        "TH2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0
+          },
+          "B": {
+            "volume": 8,
+            "settleable": 6,
+            "count": 0
+          }
+        },
+        "TH3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          }
+        },
+        "PT1": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0
+          },
+          "B": {
+            "volume": 23,
+            "settleable": 23,
+            "count": 0
+          }
+        },
+        "PT2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0
+          },
+          "A": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0
+          }
+        },
+        "PT3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0
+          },
+          "B": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0
+          }
+        },
+        "FR1": {
+          "verdict": "B",
+          "A": {
+            "volume": 7,
+            "settleable": 7,
+            "count": 1
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 7,
+            "count": 0
+          }
+        },
+        "FR2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 5,
+            "settleable": 5,
+            "count": 0
+          },
+          "B": {
+            "volume": 5,
+            "settleable": 5,
+            "count": 0
+          }
+        },
+        "FR3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 6,
+            "settleable": 6,
+            "count": 0
+          },
+          "B": {
+            "volume": 12,
+            "settleable": 12,
+            "count": 0
+          }
+        },
+        "TTU1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 16,
+            "settleable": 13,
+            "count": 1,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 3
+            }
+          },
+          "A": {
+            "volume": 17,
+            "settleable": 14,
+            "count": 1,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 3
+            }
+          }
+        },
+        "TTU2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 31,
+            "settleable": 23,
+            "count": 1,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          },
+          "A": {
+            "volume": 28,
+            "settleable": 20,
+            "count": 2,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          }
+        },
+        "TTU3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 14,
+            "settleable": 12,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          },
+          "B": {
+            "volume": 14,
+            "settleable": 12,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          }
+        },
+        "VC1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 18,
+            "settleable": 16,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          },
+          "A": {
+            "volume": 18,
+            "settleable": 16,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          }
+        },
+        "VC2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 9,
+            "settleable": 7,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          }
+        },
+        "VC3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 26,
+            "settleable": 20,
+            "count": 2,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          },
+          "A": {
+            "volume": 23,
+            "settleable": 18,
+            "count": 4,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 5
+            }
+          }
+        }
+      },
+      "note": "First round whose cross-cutting columns carry their own arithmetic. Every critic reported statements / settleable / found per task per run, and the three ties round 11 could not tell apart are now separable: VC3 is a tie because BOTH screens let the model misdescribe the retrieval (2 disagreeing pairs against 4), where PT2 is a tie because both were checked and both agreed."
+    },
+    {
+      "id": "record-consistency",
+      "asked": true,
+      "evidence": "counted",
+      "verdicts": {
+        "V1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          },
+          "A": {
+            "volume": 8,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 5,
+              "byNature": 1
+            }
+          }
+        },
+        "V2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          },
+          "A": {
+            "volume": 12,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 8,
+              "byNature": 2
+            }
+          }
+        },
+        "V3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 10,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 3
+            }
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          }
+        },
+        "TH1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 10,
+            "settleable": 7,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 2
+            }
+          },
+          "A": {
+            "volume": 6,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          }
+        },
+        "TH2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 1
+            }
+          },
+          "B": {
+            "volume": 8,
+            "settleable": 6,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 1
+            }
+          }
+        },
+        "TH3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          }
+        },
+        "PT1": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 11,
+            "count": 0,
+            "unsettleable": {
+              "absent": 5,
+              "byNature": 1
+            }
+          },
+          "B": {
+            "volume": 23,
+            "settleable": 16,
+            "count": 0,
+            "unsettleable": {
+              "absent": 6,
+              "byNature": 1
+            }
+          }
+        },
+        "PT2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          },
+          "A": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          }
+        },
+        "PT3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          },
+          "B": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          }
+        },
+        "FR1": {
+          "verdict": "B",
+          "A": {
+            "volume": 7,
+            "settleable": 3,
+            "count": 1,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 2
+            }
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 2
+            }
+          }
+        },
+        "FR2": {
+          "verdict": "B",
+          "A": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 1,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 0
+            }
+          },
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 0
+            }
+          }
+        },
+        "FR3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 6,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 0
+            }
+          },
+          "B": {
+            "volume": 12,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 5,
+              "byNature": 2
+            }
+          }
+        },
+        "TTU1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 16,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          },
+          "A": {
+            "volume": 17,
+            "settleable": 9,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          }
+        },
+        "TTU2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 31,
+            "settleable": 9,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 22
+            }
+          },
+          "A": {
+            "volume": 28,
+            "settleable": 6,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 22
+            }
+          }
+        },
+        "TTU3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 14,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          },
+          "B": {
+            "volume": 14,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          }
+        },
+        "VC1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 18,
+            "settleable": 4,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 14
+            }
+          },
+          "A": {
+            "volume": 18,
+            "settleable": 4,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 14
+            }
+          }
+        },
+        "VC2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 9,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 1,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          }
+        },
+        "VC3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 26,
+            "settleable": 10,
+            "count": 3,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 16
+            }
+          },
+          "A": {
+            "volume": 23,
+            "settleable": 8,
+            "count": 3,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 15
+            }
+          }
+        }
+      },
+      "note": "Same block, with the unsettleable split. The figure that stands out is not a verdict: across 18 tasks the two builds made 456 statements about themselves, the record could settle 234 of them, and of the 222 it could not, 167 are unsettleable BY NATURE — the application timing itself, naming its own playbook, reporting its own segments. Only 55 are missing for want of a record. That ratio is the ceiling of the whole exercise: three quarters of what cannot be checked here could not be checked by any record, because the app is its own only witness to it."
+    }
+  ],
+  "columnsAsReported": [
+    {
+      "id": "task",
+      "asked": true,
+      "verdicts": {
+        "V1": {
+          "verdict": "tie"
+        },
+        "V2": {
+          "verdict": "tie"
+        },
+        "V3": {
+          "verdict": "tie"
+        },
+        "TH1": {
+          "verdict": "B"
+        },
+        "TH2": {
+          "verdict": "tie"
+        },
+        "TH3": {
+          "verdict": "tie"
+        },
+        "PT1": {
+          "verdict": "tie"
+        },
+        "PT2": {
+          "verdict": "B"
+        },
+        "PT3": {
+          "verdict": "B"
+        },
+        "FR1": {
+          "verdict": "B"
+        },
+        "FR2": {
+          "verdict": "B"
+        },
+        "FR3": {
+          "verdict": "tie"
+        },
+        "TTU1": {
+          "verdict": "tie"
+        },
+        "TTU2": {
+          "verdict": "tie"
+        },
+        "TTU3": {
+          "verdict": "tie"
+        },
+        "VC1": {
+          "verdict": "tie"
+        },
+        "VC2": {
+          "verdict": "tie"
+        },
+        "VC3": {
+          "verdict": "tie"
+        }
+      }
+    },
+    {
+      "id": "self-consistency",
+      "asked": true,
+      "evidence": "counted",
+      "verdicts": {
+        "V1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          },
+          "A": {
+            "volume": 8,
+            "settleable": 6,
+            "count": 0
+          }
+        },
+        "V2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          },
+          "A": {
+            "volume": 12,
+            "settleable": 9,
+            "count": 0
+          }
+        },
+        "V3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          }
+        },
+        "TH1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0
+          },
+          "A": {
+            "volume": 6,
+            "settleable": 4,
+            "count": 0
+          }
+        },
+        "TH2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0
+          },
+          "B": {
+            "volume": 8,
+            "settleable": 6,
+            "count": 0
+          }
+        },
+        "TH3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0
+          }
+        },
+        "PT1": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0
+          },
+          "B": {
+            "volume": 23,
+            "settleable": 23,
+            "count": 0
+          }
+        },
+        "PT2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0
+          },
+          "A": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0
+          }
+        },
+        "PT3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0
+          },
+          "B": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0
+          }
+        },
+        "FR1": {
+          "verdict": "B",
+          "A": {
+            "volume": 7,
+            "settleable": 7,
+            "count": 1
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 7,
+            "count": 0
+          }
+        },
+        "FR2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 5,
+            "settleable": 5,
+            "count": 0
+          },
+          "B": {
+            "volume": 5,
+            "settleable": 5,
+            "count": 0
+          }
+        },
+        "FR3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 6,
+            "settleable": 6,
+            "count": 0
+          },
+          "B": {
+            "volume": 12,
+            "settleable": 12,
+            "count": 0
+          }
+        },
+        "TTU1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 16,
+            "settleable": 13,
+            "count": 1,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 3
+            }
+          },
+          "A": {
+            "volume": 17,
+            "settleable": 14,
+            "count": 1,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 3
+            }
+          }
+        },
+        "TTU2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 31,
+            "settleable": 23,
+            "count": 1,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          },
+          "A": {
+            "volume": 28,
+            "settleable": 20,
+            "count": 2,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          }
+        },
+        "TTU3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 14,
+            "settleable": 12,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          },
+          "B": {
+            "volume": 14,
+            "settleable": 12,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          }
+        },
+        "VC1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 18,
+            "settleable": 16,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          },
+          "A": {
+            "volume": 18,
+            "settleable": 16,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          }
+        },
+        "VC2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 9,
+            "settleable": 7,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 2
+            }
+          }
+        },
+        "VC3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 26,
+            "settleable": 20,
+            "count": 2,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          },
+          "A": {
+            "volume": 23,
+            "settleable": 18,
+            "count": 4,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 5
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "record-consistency",
+      "asked": true,
+      "evidence": "counted",
+      "verdicts": {
+        "V1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          },
+          "A": {
+            "volume": 8,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 5,
+              "byNature": 1
+            }
+          }
+        },
+        "V2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          },
+          "A": {
+            "volume": 12,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 8,
+              "byNature": 2
+            }
+          }
+        },
+        "V3": {
+          "verdict": "A",
+          "B": {
+            "volume": 10,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 3
+            }
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          }
+        },
+        "TH1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 10,
+            "settleable": 7,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 2
+            }
+          },
+          "A": {
+            "volume": 6,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          }
+        },
+        "TH2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 10,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 1
+            }
+          },
+          "B": {
+            "volume": 8,
+            "settleable": 6,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 1
+            }
+          }
+        },
+        "TH3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          },
+          "A": {
+            "volume": 5,
+            "settleable": 2,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 1
+            }
+          }
+        },
+        "PT1": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 11,
+            "count": 0,
+            "unsettleable": {
+              "absent": 5,
+              "byNature": 1
+            }
+          },
+          "B": {
+            "volume": 23,
+            "settleable": 16,
+            "count": 0,
+            "unsettleable": {
+              "absent": 6,
+              "byNature": 1
+            }
+          }
+        },
+        "PT2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          },
+          "A": {
+            "volume": 15,
+            "settleable": 15,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          }
+        },
+        "PT3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          },
+          "B": {
+            "volume": 17,
+            "settleable": 17,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 0
+            }
+          }
+        },
+        "FR1": {
+          "verdict": "B",
+          "A": {
+            "volume": 7,
+            "settleable": 3,
+            "count": 1,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 2
+            }
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 2
+            }
+          }
+        },
+        "FR2": {
+          "verdict": "B",
+          "A": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 1,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 0
+            }
+          },
+          "B": {
+            "volume": 5,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 2,
+              "byNature": 0
+            }
+          }
+        },
+        "FR3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 6,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 1,
+              "byNature": 0
+            }
+          },
+          "B": {
+            "volume": 12,
+            "settleable": 5,
+            "count": 0,
+            "unsettleable": {
+              "absent": 5,
+              "byNature": 2
+            }
+          }
+        },
+        "TTU1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 16,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          },
+          "A": {
+            "volume": 17,
+            "settleable": 9,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 8
+            }
+          }
+        },
+        "TTU2": {
+          "verdict": "tie",
+          "B": {
+            "volume": 31,
+            "settleable": 9,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 22
+            }
+          },
+          "A": {
+            "volume": 28,
+            "settleable": 6,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 22
+            }
+          }
+        },
+        "TTU3": {
+          "verdict": "tie",
+          "A": {
+            "volume": 14,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          },
+          "B": {
+            "volume": 14,
+            "settleable": 8,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          }
+        },
+        "VC1": {
+          "verdict": "tie",
+          "B": {
+            "volume": 18,
+            "settleable": 4,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 14
+            }
+          },
+          "A": {
+            "volume": 18,
+            "settleable": 4,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 14
+            }
+          }
+        },
+        "VC2": {
+          "verdict": "tie",
+          "A": {
+            "volume": 9,
+            "settleable": 3,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          },
+          "B": {
+            "volume": 7,
+            "settleable": 1,
+            "count": 0,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 6
+            }
+          }
+        },
+        "VC3": {
+          "verdict": "tie",
+          "B": {
+            "volume": 26,
+            "settleable": 10,
+            "count": 3,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 16
+            }
+          },
+          "A": {
+            "volume": 23,
+            "settleable": 8,
+            "count": 3,
+            "unsettleable": {
+              "absent": 0,
+              "byNature": 15
+            }
+          }
+        }
+      }
+    }
+  ]
+}

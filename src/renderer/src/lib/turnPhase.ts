@@ -81,8 +81,33 @@ export const VERIFY_WAITS: Record<VerifyStep, TurnWait> = {
  * ≈54 s; the third was ≈111 s), so the default amount of checking is unchanged
  * on the turns that were already survivable. What changes is that the turns
  * that were not now end, naming what they did and did not get to.
+ *
+ * **What it bounds, exactly.** Round 13: what the deadline governs is when new
+ * work may *start*, and it aborts the model streams a pass is waiting on. It
+ * cannot recall a call already handed to the main process — `window.api
+ * .executeTool` is an IPC round trip with no cancellation path — so a pass that
+ * got a `deep_research` or a `run_python` away before the minute was up runs
+ * until that call returns. Measured (`.h2h-runs/judge-r12/TTU1`): the revision
+ * pass started at ~1 s, its `deep_research` campaign took 93 s, and the footer
+ * read `114.1s checking` under a line that said checking had stopped at 60 s.
+ *
+ * Killing that call at the 60 s mark would make the sentence true by throwing
+ * away the work the reader had already paid 93 s for. So the sentence changed
+ * instead — see `notice` — and it now says what the limit actually does.
  */
 export const VERIFY_BUDGET_MS = 60_000
+
+/**
+ * How far past the limit a tail may land before the notice stops calling itself
+ * a stop at the limit and starts naming the overrun.
+ *
+ * One second, because that is the resolution the reader is reading at: the stat
+ * line prints `60.1s checking` beside a `60s limit` and the two agree, which is
+ * how a blind critic scored the recorded 60.1 s pairs. The cases this must
+ * catch are the ones where they visibly do not — 62.2 s, 69.4 s, 81.3 s,
+ * 114.1 s, all recorded.
+ */
+export const VERIFY_OVERRUN_FLOOR_MS = 1_000
 
 /** The post-answer passes that cost real time, in the order the turn runs them. */
 export type VerifyPass = 'claims' | 'code' | 'recompute' | 'revising'
@@ -110,6 +135,12 @@ export interface VerifyBudget {
   /** Milliseconds left, floored at zero. */
   remainingMs: () => number
   /**
+   * How long the tail has actually taken, from the same origin the stat line's
+   * "checking" span is measured from. Over `budgetMs` once work that was
+   * already in flight at the deadline carried on past it.
+   */
+  elapsedMs: (now?: number) => number
+  /**
    * May `pass` start? Records the answer either way, so the notice can name
    * every pass the deadline cost. Consult it last in a condition — it counts
    * what it is asked about.
@@ -119,8 +150,13 @@ export interface VerifyBudget {
   ran: (pass: VerifyPass) => void
   /** Disarm the timer. Idempotent. */
   stop: () => void
-  /** null while the tail fit inside the budget; otherwise what the reader is told. */
-  notice: () => VerifyDeadlineNotice | null
+  /**
+   * null while the tail fit inside the budget; otherwise what the reader is
+   * told. `endedAt` is when the tail actually finished — pass the same stamp
+   * the turn's `turnMs` is computed from, so the figure this quotes and the
+   * figure the stat line prints are one measurement rather than two readings.
+   */
+  notice: (endedAt?: number) => VerifyDeadlineNotice | null
 }
 
 /**
@@ -130,28 +166,44 @@ export interface VerifyBudget {
  * `outer` is the turn's own signal, so Stop still stops everything — but a Stop
  * leaves no notice, because the reader who pressed it already knows why the
  * checking ended.
+ *
+ * `startedAt` is the origin the deadline counts from, and round 13 made the
+ * caller supply it. It used to be "now", meaning the moment control reached
+ * this call — a few hundred milliseconds after the last token, because the
+ * paced tail drain and the turn's own bookkeeping sit in between. The stat
+ * line's "checking" span starts at the last token (lib/turnCost.ts subtracts
+ * the stream from the turn), so the two clocks disagreed by exactly that gap,
+ * which is why every well-behaved recorded tail reads 60.1–60.3 s against a
+ * 60 s limit rather than 60.0. Handed the same origin, a figure over the limit
+ * is an overrun and nothing else.
  */
 export function createVerifyBudget(
   budgetMs: number = VERIFY_BUDGET_MS,
-  outer?: AbortSignal
+  outer?: AbortSignal,
+  startedAt: number = Date.now()
 ): VerifyBudget {
-  const startedAt = Date.now()
   const control = new AbortController()
   const done = new Set<VerifyPass>()
   const started = new Set<VerifyPass>()
   const refused = new Set<VerifyPass>()
   let expired = false
   const onOuterAbort = (): void => control.abort()
-  const timer = setTimeout(() => {
-    expired = true
-    control.abort()
-  }, budgetMs)
+  // From `startedAt`, not from here: the origin may be in the past.
+  const timer = setTimeout(
+    () => {
+      expired = true
+      control.abort()
+    },
+    Math.max(0, startedAt + budgetMs - Date.now())
+  )
   if (outer?.aborted) control.abort()
   else outer?.addEventListener('abort', onOuterAbort)
+  const elapsedMs = (now: number = Date.now()): number => Math.max(0, now - startedAt)
   return {
     signal: control.signal,
     expired: () => expired,
-    remainingMs: () => Math.max(0, budgetMs - (Date.now() - startedAt)),
+    remainingMs: () => Math.max(0, budgetMs - elapsedMs()),
+    elapsedMs,
     admits(pass) {
       if (expired || control.signal.aborted) {
         refused.add(pass)
@@ -168,22 +220,49 @@ export function createVerifyBudget(
       clearTimeout(timer)
       outer?.removeEventListener('abort', onOuterAbort)
     },
-    notice() {
+    /**
+     * What the deadline cost, in three states rather than two.
+     *
+     * A pass that never began and a pass the deadline caught mid-flight were
+     * both reported as `Not run`, and on the recorded TTU1 turn that put
+     * `Not run: the revision` under the revision's own `deep_research` row —
+     * the same shape round 12 repaired for the recomputation, one pass over.
+     * The revision had run; what it had not done was finish. So:
+     *
+     *   Ran        — began and reported back inside the tail.
+     *   Cut short  — began, and the deadline ended it before it reported back.
+     *   Not run    — the deadline was already spent when it was asked for.
+     *
+     * The head sentence is the other half. `Checking stopped at its 60s limit`
+     * is true of a tail that ends at the limit and false of one that ends at
+     * 114.1 s, and the difference between those two turns is not a difference
+     * in what the app decided — it is whether a call already dispatched came
+     * back quickly. So the decision and the wall clock are stated separately,
+     * and the second is stated in the stat line's own word and figure.
+     */
+    notice(endedAt = Date.now()) {
       if (!expired) return null
-      // Started but never returned = cut short by the deadline, same as refused.
-      const lost = new Set([...refused, ...started])
-      if (lost.size === 0) return null
+      const cut = new Set(started)
       // A pass that both ran and was refused (draft checked, revision not)
       // counts as lost: the notice may under-claim, never over-claim.
-      const ranNames = [...done].filter((p) => !lost.has(p)).map((p) => PASS_NAME[p])
-      const lostNames = [...lost].map((p) => PASS_NAME[p])
+      const blocked = [...refused].filter((p) => !cut.has(p))
+      if (cut.size === 0 && blocked.length === 0) return null
+      const ranNames = [...done].filter((p) => !cut.has(p) && !refused.has(p)).map((p) => PASS_NAME[p])
+      const elapsed = elapsedMs(endedAt)
+      const limit = Math.round(budgetMs / 1000)
+      const overran = elapsed - budgetMs >= VERIFY_OVERRUN_FLOOR_MS
       return {
         kind: 'deadline',
         ok: false,
         summary:
-          `⏱ Checking stopped at its ${Math.round(budgetMs / 1000)}s limit. ` +
+          (overran
+            ? `⏱ Checking stopped starting new work at its ${limit}s limit; a pass already ` +
+              `running carried it to ${(elapsed / 1000).toFixed(1)}s. `
+            : `⏱ Checking stopped at its ${limit}s limit. `) +
           `Ran: ${ranNames.length > 0 ? ranNames.join(', ') : 'nothing'}. ` +
-          `Not run: ${lostNames.join(', ')}. The answer above is unchanged.`
+          (cut.size > 0 ? `Cut short: ${[...cut].map((p) => PASS_NAME[p]).join(', ')}. ` : '') +
+          (blocked.length > 0 ? `Not run: ${blocked.map((p) => PASS_NAME[p]).join(', ')}. ` : '') +
+          'The answer above is unchanged.'
       }
     }
   }

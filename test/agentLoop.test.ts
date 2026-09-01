@@ -273,6 +273,62 @@ describe('runAgentLoop', () => {
     assert.equal(executed, 0)
   })
 
+  /**
+   * Round 13. The signal was consulted before a round and after it, never
+   * between the calls one round asked for — so a round requesting three tools
+   * dispatched all three, however long ago the abort had landed.
+   *
+   * For the verification tail that is the difference between a limit and a
+   * suggestion. `VERIFY_BUDGET_MS` bounds what the turn STARTS; a call already
+   * handed to the main process cannot be recalled (measured on
+   * `.h2h-runs/judge-r12/TTU1`: a `deep_research` campaign that ran 93 s past
+   * the minute), but a call still queued behind it is exactly the work a spent
+   * deadline is entitled to refuse.
+   */
+  test('a deadline landing mid-round refuses the calls it has not sent yet', async () => {
+    const controller = new AbortController()
+    const { streamRound } = scripted([
+      {
+        content: '',
+        toolCalls: [
+          call('c1', 'web_search', { query: 'a' }),
+          call('c2', 'web_search', { query: 'b' }),
+          call('c3', 'web_search', { query: 'c' })
+        ]
+      }
+    ])
+    const records: ToolCallRecord[] = []
+    const sent: string[] = []
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records,
+      signal: controller.signal,
+      deps: {
+        streamRound,
+        executeTool: async (_name, args) => {
+          sent.push(String(args.query))
+          // The deadline fires while the first call is in flight. It cannot be
+          // recalled, and it is allowed to finish.
+          controller.abort()
+          return { ok: true, output: 'ok' }
+        }
+      }
+    })
+    assert.equal(outcome.stopReason, 'aborted')
+    assert.deepEqual(sent, ['a'], 'only the call already in flight may complete')
+    assert.equal(records.length, 3, 'every call the model asked for is still on the record')
+    assert.equal(records[0].status, 'done')
+    for (const skipped of records.slice(1)) {
+      assert.equal(skipped.status, 'error')
+      assert.match(
+        skipped.result ?? '',
+        /^Declined —/,
+        'nothing was contacted, so the row must not read as a provider failure'
+      )
+    }
+  })
+
   test('onToolExecuted fires for every executed call with its outcome', async () => {
     const { streamRound } = scripted([
       {

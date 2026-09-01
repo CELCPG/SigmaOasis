@@ -1,0 +1,207 @@
+{
+  "round": 9,
+  "pair": {
+    "A": "the round-8 build",
+    "B": "the round-9 build"
+  },
+  "note": "Recomputed under the column scheme, not re-judged. The task column is round 9’s own recorded verdict. The self-consistency column is the finding: the question WAS put, on all eighteen tasks, and every critic answered it with a statement count and a disagreeing-pair count for both runs — and none of that was written down. Round 8’s critic prompts are in this directory; round 9’s critic reports are nowhere in the repository. A column cannot be recomputed from a summary that quotes only the contradictions both builds shared. From round 10 this file is the record.",
+  "columns": [
+    {
+      "id": "task",
+      "asked": true,
+      "note": "round 9’s recorded blind verdict: 3 won, 0 lost, 14 tied, 1 void.",
+      "verdicts": {
+        "V1": {
+          "verdict": "tie"
+        },
+        "V2": {
+          "verdict": "void"
+        },
+        "V3": {
+          "verdict": "B"
+        },
+        "PT1": {
+          "verdict": "tie"
+        },
+        "PT2": {
+          "verdict": "tie"
+        },
+        "PT3": {
+          "verdict": "tie"
+        },
+        "TH1": {
+          "verdict": "tie"
+        },
+        "TH2": {
+          "verdict": "tie"
+        },
+        "TH3": {
+          "verdict": "tie"
+        },
+        "TTU1": {
+          "verdict": "tie"
+        },
+        "TTU2": {
+          "verdict": "tie"
+        },
+        "TTU3": {
+          "verdict": "tie"
+        },
+        "FR1": {
+          "verdict": "tie"
+        },
+        "FR2": {
+          "verdict": "tie"
+        },
+        "FR3": {
+          "verdict": "tie"
+        },
+        "VC1": {
+          "verdict": "tie"
+        },
+        "VC2": {
+          "verdict": "B"
+        },
+        "VC3": {
+          "verdict": "B"
+        }
+      }
+    },
+    {
+      "id": "self-consistency",
+      "asked": true,
+      "evidence": "unrecorded",
+      "note": "Asked and answered on all eighteen tasks; the answers were not kept. Every contradiction the write-up names is named as shared by both builds — the overflow notice sitting beside the app’s own budget meter, the turn reporting itself over while the tail is still painting — so the recorded evidence supports no win either way, and does not support a tie count either, because a tie is a measurement and this is an absence of one.",
+      "verdicts": {
+        "V1": {
+          "verdict": "unrecorded"
+        },
+        "V2": {
+          "verdict": "unrecorded"
+        },
+        "V3": {
+          "verdict": "unrecorded"
+        },
+        "PT1": {
+          "verdict": "unrecorded"
+        },
+        "PT2": {
+          "verdict": "unrecorded"
+        },
+        "PT3": {
+          "verdict": "unrecorded"
+        },
+        "TH1": {
+          "verdict": "unrecorded"
+        },
+        "TH2": {
+          "verdict": "unrecorded"
+        },
+        "TH3": {
+          "verdict": "unrecorded"
+        },
+        "TTU1": {
+          "verdict": "unrecorded"
+        },
+        "TTU2": {
+          "verdict": "unrecorded"
+        },
+        "TTU3": {
+          "verdict": "unrecorded"
+        },
+        "FR1": {
+          "verdict": "unrecorded"
+        },
+        "FR2": {
+          "verdict": "unrecorded"
+        },
+        "FR3": {
+          "verdict": "unrecorded"
+        },
+        "VC1": {
+          "verdict": "unrecorded"
+        },
+        "VC2": {
+          "verdict": "unrecorded"
+        },
+        "VC3": {
+          "verdict": "unrecorded"
+        }
+      }
+    },
+    {
+      "id": "record-consistency",
+      "asked": false,
+      "evidence": "unasked",
+      "note": "Not asked. Two verdicts are recoverable from the write-up and neither is attributed to a task there, so neither is attributed to one here: on one task the older arm lost the tail of an answer the record shows the model finished, and on a different task the newer arm lost one. Round 9 booked the first of those as an improvement that scored nothing. Under this column it is one win and one loss.",
+      "verdicts": {
+        "V1": {
+          "verdict": "unasked"
+        },
+        "V2": {
+          "verdict": "unasked"
+        },
+        "V3": {
+          "verdict": "unasked"
+        },
+        "PT1": {
+          "verdict": "unasked"
+        },
+        "PT2": {
+          "verdict": "unasked"
+        },
+        "PT3": {
+          "verdict": "unasked"
+        },
+        "TH1": {
+          "verdict": "unasked"
+        },
+        "TH2": {
+          "verdict": "unasked"
+        },
+        "TH3": {
+          "verdict": "unasked"
+        },
+        "TTU1": {
+          "verdict": "unasked"
+        },
+        "TTU2": {
+          "verdict": "unasked"
+        },
+        "TTU3": {
+          "verdict": "unasked"
+        },
+        "FR1": {
+          "verdict": "unasked"
+        },
+        "FR2": {
+          "verdict": "unasked"
+        },
+        "FR3": {
+          "verdict": "unasked"
+        },
+        "VC1": {
+          "verdict": "unasked"
+        },
+        "VC2": {
+          "verdict": "unasked"
+        },
+        "VC3": {
+          "verdict": "unasked"
+        }
+      },
+      "unattributed": [
+        {
+          "verdict": "B",
+          "recorded": false,
+          "source": "the round-9 write-up: on one task the older arm lost an answer’s tail where the newer did not"
+        },
+        {
+          "verdict": "A",
+          "recorded": false,
+          "source": "the round-9 write-up and the round-10 opening: the same shape on a different task, in the other arm"
+        }
+      ]
+    }
+  ]
+}

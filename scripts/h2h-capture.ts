@@ -62,7 +62,16 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { startLmShim, startSearchFixture } from './h2h-fixtures'
 import type { FixtureHandle, LmShimConfig, SearchFixtureConfig } from './h2h-fixtures'
+import {
+  compareInstruments,
+  describeInstrument,
+  gitProvenance,
+  staleInstrumentMessage
+} from './h2h-instrument'
 import { checkPreconditions, requiredCapabilities } from './h2h-preconditions'
+import { buildRunRecord } from './h2h-record'
+import type { LibraryPackReading } from './h2h-record'
+import { DEFAULT_TOOL_TOGGLES } from '../src/shared/tools'
 import {
   fingerprintChanged,
   mergeUnfocused,
@@ -220,6 +229,27 @@ interface TurnRecord {
   firstVisibleKind: string | null
   endReason: string | null
   timedOut: boolean
+  /**
+   * v2.2. How long after turn-end the reply's rendered text was still changing,
+   * and by how much. Non-zero means the build reported the turn finished while
+   * it was still painting — which is a defect in the build, and, until this
+   * round, a false-positive generator in the reply.md/reply.txt comparison.
+   * `null` when the turn timed out (nothing had ended, so nothing settled).
+   */
+  textSettledMs: number | null
+  textGrewAfterTurnEndChars: number | null
+  streamEdgeAtTurnEnd: boolean | null
+  streamEdgeClearedMs: number | null
+}
+
+/** What SETTLE_TEXT reports back. */
+interface SettleResult {
+  settledMs: number
+  charsAtTurnEnd: number
+  charsWhenSettled: number
+  streamEdgeAtTurnEnd: boolean
+  streamEdgeClearedMs: number | null
+  quiet: boolean
 }
 
 /** What the injected sampler reports back. All times are page `Date.now()`. */
@@ -656,6 +686,96 @@ const READ_STATE = String.raw`(() => {
     sawStreaming: H.sawStreaming, live: H.live, rootFound: H.rootFound, sampleMs: H.sampleMs
   })
 })()`
+
+/**
+ * Waits for the reply's rendered text to stop changing, then for a paint.
+ *
+ * Turn-end is `composer-idle` — the frame the composer stops rendering Stop —
+ * and through v2.1 that was the *stream* ending, not the last paint. The tail
+ * pacer could still be publishing for hundreds of milliseconds afterwards, so
+ * `reply.txt` (innerText, post-render) was read short while `reply.md` (the raw
+ * markdown out of the store) was already complete.
+ *
+ * That is a fault in the instrument, not only in the product. Round 7 added
+ * reply.md precisely so a blind critic could catch the renderer deleting
+ * characters, and it found two real defects that way; a paint lag counterfeits
+ * exactly that signature, so the comparison acquired a false-positive mode —
+ * "the renderer dropped 65 characters" about a renderer that dropped none.
+ *
+ * Both halves of the repair are here on purpose:
+ *
+ *  - **Settle before reading.** Poll the assistant's rendered prose length until
+ *    it has been unchanged for QUIET_MS and no `.stream-edge` span remains, then
+ *    let two frames pass so the final mutation is actually on screen. This is
+ *    what makes the artifact honest, and it works against any build — including
+ *    an arm that has not fixed the product, which is the case that matters,
+ *    because a critic compares two builds and only one of them is ours.
+ *  - **Record what the wait cost.** Settling alone would have quietly absorbed
+ *    the very defect the instrument exists to expose. `textSettledMs`,
+ *    `textGrewAfterTurnEndChars` and `streamEdgeAtTurnEnd` keep it a stated
+ *    fact, so a critic can tell a paint lag from a loss instead of having to
+ *    guess — and can fault a build for reporting itself finished early.
+ *
+ * Polled on a timer rather than on rAF: frames stop in an occluded window and
+ * the whole wait would hang there. The two-frame paint settle is raced against
+ * a timeout for the same reason. Bounded by BUDGET_MS either way.
+ */
+const SETTLE_TEXT = String.raw`(() => new Promise((resolve) => {
+  var H = window.__h2h
+  var QUIET_MS = 100
+  var BUDGET_MS = 2500
+  var t0 = Date.now()
+
+  function proseLen() {
+    var r = H && H.getRoot ? H.getRoot() : null
+    if (!r) return -1
+    var kids = r.children, a = null
+    for (var i = kids.length - 1; i >= 0; i--) {
+      if (H.classify(kids[i]) === 'assistant') { a = kids[i]; break }
+    }
+    if (!a) return -1
+    var n = 0, pn = a.querySelectorAll('.markdown-body')
+    for (var j = 0; j < pn.length; j++) n += (pn[j].textContent || '').length
+    return n
+  }
+
+  var start = proseLen()
+  var last = start
+  var lastChange = t0
+  var edgeAtEntry = !!document.querySelector('.stream-edge')
+  var edgeGoneAt = edgeAtEntry ? null : t0
+
+  function afterPaint(cb) {
+    var fired = false
+    var fire = function () { if (!fired) { fired = true; cb() } }
+    requestAnimationFrame(function () { requestAnimationFrame(fire) })
+    setTimeout(fire, 250)
+  }
+
+  function poll() {
+    var now = Date.now()
+    var n = proseLen()
+    if (n !== last) { last = n; lastChange = now }
+    if (edgeGoneAt === null && !document.querySelector('.stream-edge')) edgeGoneAt = now
+    var quiet = now - lastChange >= QUIET_MS && edgeGoneAt !== null
+    var spent = now - t0
+    if (quiet || spent >= BUDGET_MS) {
+      afterPaint(function () {
+        resolve(JSON.stringify({
+          settledMs: Date.now() - t0,
+          charsAtTurnEnd: start,
+          charsWhenSettled: proseLen(),
+          streamEdgeAtTurnEnd: edgeAtEntry,
+          streamEdgeClearedMs: edgeGoneAt === null ? null : edgeGoneAt - t0,
+          quiet: quiet
+        }))
+      })
+      return
+    }
+    setTimeout(poll, 16)
+  }
+  poll()
+}))()`
 
 /**
  * Reads the transcript as the user sees it.
@@ -1489,6 +1609,33 @@ async function main(): Promise<void> {
     electronNames.map((p) => join(repoRoot, p)).find((p) => existsSync(p))
   if (!electron) throw new Error("no bundled Electron runtime found — run 'npm install'")
 
+  /**
+   * Is this harness fit to measure this build?
+   *
+   * `--app` names a different checkout from the one this script was compiled
+   * out of, and until round 11 nothing related the two. Round 10's sweep was
+   * launched from a repo root sitting on `main` while both arms were builds of
+   * the round's own branch; the paint-settling instrumentation the round had
+   * just built was therefore never exercised, and all 36 run.json files came
+   * out without it. Both arms used the same harness, so the comparison itself
+   * was sound — which is exactly why nothing noticed.
+   *
+   * The build's own checkout carries the harness it expects. If it knows a
+   * measurement this harness cannot emit, this harness is behind the thing it
+   * is measuring, and the sweep stops here — before the app is launched, before
+   * a run directory exists, on the first task rather than after thirty-six.
+   * The reverse (this harness ahead of the build's) is arm A every single
+   * round and passes without comment. See scripts/h2h-instrument.ts.
+   */
+  const invokedInstrument = describeInstrument(repoRoot)
+  const appInstrument = describeInstrument(appRoot)
+  const instrumentVerdict = compareInstruments(invokedInstrument, appInstrument)
+  if (!instrumentVerdict.ok) {
+    process.stderr.write(`\n${staleInstrumentMessage(instrumentVerdict, invokedInstrument, appInstrument)}\n\n`)
+    process.exit(5)
+  }
+  const harnessGit = gitProvenance(repoRoot)
+
   const startedAt = new Date()
   const runDir = join(args.outRoot, `${args.taskId}-${stamp(startedAt)}`)
   mkdirSync(runDir, { recursive: true })
@@ -1830,15 +1977,28 @@ async function main(): Promise<void> {
     }
 
     /**
-     * Polls the in-page clock until the composer leaves its streaming state.
+     * The last turn's paint settle (SETTLE_TEXT), read by recordTurn. Held in a
+     * slot rather than threaded through, because recordTurn is also called on
+     * the path where no waitTurnEnd ran at all.
+     */
+    let settle: SettleResult | null = null
+
+    /**
+     * Polls the in-page clock until the composer leaves its streaming state,
+     * then waits for the reply's text to stop changing and paint (SETTLE_TEXT).
      * Poll cadence affects only when the driver *learns* a thing happened,
-     * never the recorded time of it.
+     * never the recorded time of it — but the settle is not a poll cadence: it
+     * is the difference between reading the transcript and reading a transcript
+     * that is still being written.
      */
     const waitTurnEnd = async (budgetMs: number): Promise<boolean> => {
       const deadline = Date.now() + budgetMs
       for (;;) {
         const s = await readState()
-        if (s.tEnd !== null) return false
+        if (s.tEnd !== null) {
+          settle = JSON.parse(await cdp!.evalString(SETTLE_TEXT)) as SettleResult
+          return false
+        }
         if (Date.now() > deadline) return true
         const t0 = s.t0 ?? Date.now()
         const elapsed = Date.now() - t0
@@ -1866,8 +2026,32 @@ async function main(): Promise<void> {
         sendToStreamingStartMs: r(s?.tStreamStart),
         firstVisibleKind: s?.firstVisibleKind ?? null,
         endReason: to ? 'timeout' : (s?.endReason ?? null),
-        timedOut: to
+        timedOut: to,
+        textSettledMs: settle ? settle.settledMs : null,
+        textGrewAfterTurnEndChars: settle ? settle.charsWhenSettled - settle.charsAtTurnEnd : null,
+        streamEdgeAtTurnEnd: settle ? settle.streamEdgeAtTurnEnd : null,
+        streamEdgeClearedMs: settle ? settle.streamEdgeClearedMs : null
       })
+      // Said out loud, not left for a reader to spot in a timing table: a build
+      // that releases its composer mid-paint is the exact shape that makes a
+      // reply.md/reply.txt diff lie, and a critic reading these artifacts has
+      // to be told which of the two they are looking at.
+      if (settle && !settle.quiet) {
+        notes.push(
+          `the reply's text was still changing ${settle.settledMs} ms after turn end and had not settled ` +
+            'within the settle budget; the text artifacts may still be short of the finished answer'
+        )
+      } else if (settle && (settle.charsWhenSettled > settle.charsAtTurnEnd || settle.streamEdgeAtTurnEnd)) {
+        notes.push(
+          `the build reported this turn finished while it was still painting: ` +
+            `${settle.charsWhenSettled - settle.charsAtTurnEnd} more character(s) landed over the ` +
+            `${settle.settledMs} ms after turn end` +
+            (settle.streamEdgeAtTurnEnd ? ', with the live-tail edge span still on screen' : '') +
+            '. The text artifacts below were read after that settled, so a shortfall against reply.md ' +
+            'is a real loss and not this lag'
+        )
+      }
+      settle = null
     }
 
     /* -------------------------------------------------------- the driving */
@@ -2006,6 +2190,47 @@ async function main(): Promise<void> {
       if (!res.ok) notes.push(`audit export failed: ${res.error ?? 'unknown'}`)
     }
 
+    /**
+     * The reference corpus this turn was given, for the record block below.
+     *
+     * Read here, AFTER the turn, and deliberately: `library:list` loads every
+     * installed pack into memory, so calling it before the prompt would warm a
+     * cache the turn itself would otherwise have paid to fill. That would make
+     * the harness a participant in the timings it publishes. Afterwards it
+     * cannot, and a turn does not install or remove a pack, so the reading is
+     * of the same library the turn had.
+     *
+     * It runs on every task, not only those that install a pack. A run whose
+     * library is empty is exactly the run on which "nothing in the library
+     * covers this" and "from the library, passage one" are settleable, and
+     * before this the artifacts could not tell an empty library from an
+     * unrecorded one.
+     */
+    let libraryReading: LibraryPackReading[] | null = null
+    let libraryError: string | null = null
+    try {
+      const raw = await cdp.evalString(
+        `window.api.libraryList().then(l => JSON.stringify({ ok: true, packs: l })).catch(e => JSON.stringify({ ok: false, error: String(e && e.message || e) }))`
+      )
+      const res = JSON.parse(raw) as { ok?: boolean; packs?: LibraryPackReading[]; error?: string }
+      if (res.ok && Array.isArray(res.packs)) {
+        // Narrowed on purpose: the summary also carries an install timestamp, a
+        // source folder and an embedding model name, none of which any claim on
+        // screen is about and all of which can differ between two machines.
+        libraryReading = res.packs.map((p) => ({
+          id: p.id,
+          name: p.name,
+          version: p.version,
+          docs: p.docs,
+          chunks: p.chunks,
+          embeddedChunks: p.embeddedChunks
+        }))
+      } else libraryError = res.error ?? 'library list refused'
+    } catch (e) {
+      libraryError = e instanceof Error ? e.message : String(e)
+    }
+    if (libraryError) notes.push(`library not read: ${libraryError}`)
+
     // The markdown the renderer was handed, beside the pixels it produced. See
     // RAW_MARKDOWN: this is the only artifact in the directory that is not
     // post-render, and it is what makes a rendering defect diagnosable at all.
@@ -2114,12 +2339,59 @@ async function main(): Promise<void> {
 
     const validity = validityReasons.length ? 'INVALID' : 'VALID'
 
+    const finishedAt = new Date()
+
     const run = {
-      schema: 'h2h-capture/1',
+      /**
+       * Bumped for `instrument` below. The version is deliberately NOT the
+       * place to look up what this file contains: round 10 added three
+       * measurements without touching it, which is precisely how a reader
+       * ended up unable to tell a missing field from a zero one.
+       */
+      schema: 'h2h-capture/2',
+      /**
+       * What measured this run, so a reader does not have to infer it.
+       *
+       * The problem this solves is small and had teeth: an absent field and a
+       * field that measured zero look identical in JSON. `measures` says what
+       * the harness was CAPABLE of emitting, read structurally out of its own
+       * source rather than hand-listed, so it cannot drift from what the file
+       * actually contains. A name here with no value below is a measurement
+       * that came back null; a name that is not here could never have appeared
+       * at all, and a question about it is unanswerable from this artifact
+       * rather than answered in the negative.
+       *
+       * Every field here describes the HARNESS and nothing else, so it is
+       * identical in both arms of a round by construction — one harness drives
+       * both — and `make-blind-pairs.mjs` asserts that rather than assuming it,
+       * which is what makes the block safe to stage into a blind pair.
+       *
+       * The fit check deliberately does NOT appear here. Its result is a fact
+       * about the build that was driven: this harness is "ahead of" the older
+       * arm's copy of itself and level with the newer one, so publishing it
+       * would label the two arms as neatly as a version number would. It lives
+       * in `_arm.json` with the rest of the identifying metadata.
+       */
+      instrument: {
+        sourceSha: invokedInstrument.sourceSha,
+        sources: invokedInstrument.sources,
+        commit: harnessGit.commit,
+        dirty: harnessGit.dirty,
+        measures: invokedInstrument.measures,
+        note:
+          'The harness that produced this file. "measures" is every figure this harness knows how ' +
+          'to emit, read out of its own source; a figure named there and missing below was measured ' +
+          'and came back null, and a figure not named there could not have been recorded at all — a ' +
+          'question about it is unanswerable from this run rather than answered no. "commit" is where ' +
+          'to find the harness again and is exact only when "dirty" is false; "sourceSha" is what was ' +
+          'actually read. This harness was also checked against the build it drove, and refused to ' +
+          'run had it been the older of the two; that check names the build, so its result is kept ' +
+          'out of this file.'
+      },
       taskId: args.taskId,
       prompt: args.prompt,
       startedAtIso: startedAt.toISOString(),
-      finishedAtIso: new Date().toISOString(),
+      finishedAtIso: finishedAt.toISOString(),
       send: { method: turns[taskTurnIndex]?.sendMethod ?? sendMethod },
       timings: {
         sendToFirstVisibleMs: turns[taskTurnIndex]?.sendToFirstVisibleMs ?? null,
@@ -2153,7 +2425,20 @@ async function main(): Promise<void> {
             'the composer leaving its streaming state — the moment Stop turns back into Send. This is ' +
             'the whole turn as the user experiences it, so it includes any post-stream work done before ' +
             'the composer is released, and may therefore exceed a raw token-stream duration reported ' +
-            'elsewhere on screen.'
+            'elsewhere on screen.',
+          textSettledMs:
+            'how long AFTER turnEnd the driver had to wait for the reply\'s rendered text to stop ' +
+            'changing and paint. Every text artifact in this directory was read after that wait, so ' +
+            'they are the finished answer rather than a half-painted one.',
+          textGrewAfterTurnEndChars:
+            'how many characters of the answer landed during that wait. Above zero, the build released ' +
+            'its composer — turned Stop back into Send, and accepted a new message — while it was still ' +
+            'painting the last one, which is a defect in the build and is reported as a note. It is ' +
+            'ALSO the figure that tells you a short reply.txt is a paint lag rather than a renderer ' +
+            'loss: a shortfall against reply.md is a real loss only if this is zero.',
+          streamEdgeAtTurnEnd:
+            'whether the live-tail edge span (.stream-edge, the newest word of a streaming reply) was ' +
+            'still in the document at turnEnd. True is the same defect seen from the DOM side.'
         }
       },
       reply: { file: 'reply.txt', chars: replyText.length, words: replyText.split(/\s+/).filter(Boolean).length },
@@ -2169,7 +2454,13 @@ async function main(): Promise<void> {
           'the renderer drew, reply.md records what it was asked to draw. Diff them to tell a model ' +
           'defect from a rendering defect — if a figure is present in reply.md and absent from ' +
           'reply.txt, the app lost it. Absent when the run used an ephemeral conversation, which is ' +
-          'never persisted; "error" then says so.'
+          'never persisted; "error" then says so. ' +
+          'One caveat, and it has a number attached: a build that reports its turn finished while it ' +
+          'is still painting makes this diff show a loss that never happened. reply.txt is therefore ' +
+          'read only after the rendered text has settled (see timing.definitions.textSettledMs), and ' +
+          'timing.textGrewAfterTurnEndChars says whether that build needed the wait. A trailing ' +
+          'shortfall against reply.md is a renderer loss; if you are ever unsure, that figure is the ' +
+          'one to check.'
       },
       transcript: {
         visibleFile: 'transcript.txt',
@@ -2216,6 +2507,34 @@ async function main(): Promise<void> {
        */
       preconditions: preconditionReports,
       auditExport,
+      /**
+       * What this run kept a record OF, listed rather than left to be
+       * discovered. See scripts/h2h-record.ts for why the answer is not "turn
+       * the session audit on everywhere": the audit is an opt-in product
+       * feature with a product's contents, and both halves of that sentence
+       * are reasons.
+       */
+      record: buildRunRecord(
+        {
+          settings: liveSettings,
+          library: libraryReading,
+          libraryError,
+          auditExport: auditExport
+            ? {
+                file: (auditExport.file as string | null) ?? null,
+                entries: (auditExport.entries as number | null) ?? null,
+                error: (auditExport.error as string | null) ?? null
+              }
+            : null,
+          fixtures: fixtureReports.map((f) => ({
+            kind: String(f.kind),
+            file: String(f.file),
+            requestCount: Number(f.requestCount)
+          })),
+          wallClockMs: finishedAt.getTime() - startedAt.getTime()
+        },
+        Object.keys(DEFAULT_TOOL_TOGGLES)
+      ),
       /**
        * VALID or INVALID. INVALID means the run did not exercise the path the
        * task is about — a configured fixture was never contacted, or a
@@ -2268,6 +2587,40 @@ async function main(): Promise<void> {
           electronBinary: electron,
           mainEntry,
           cdpPort: args.port,
+          /**
+           * The half of the instrument record that names the build.
+           *
+           * `appHarness` is this build's own copy of the capture harness, and
+           * comparing it with the running one is what makes a stale sweep
+           * impossible. The result is arm-identifying — the older build is
+           * "behind" the harness and the newer one is level with it — so it
+           * belongs here rather than in run.json, which is staged blind.
+           *
+           * `harnessRoot` is likewise identifying only by accident of being an
+           * absolute path, but it is the answer to "which checkout produced
+           * this?", which is the question round 10 could not answer.
+           */
+          instrument: {
+            harnessRoot: repoRoot,
+            harnessSourceSha: invokedInstrument.sourceSha,
+            appHarness: {
+              path: join(appRoot, 'scripts', 'h2h-capture.ts'),
+              present: appInstrument.sourceAvailable,
+              sourceSha: appInstrument.sourceSha,
+              measures: appInstrument.measures
+            },
+            fit: {
+              checked: instrumentVerdict.skipped === null,
+              skipped: instrumentVerdict.skipped,
+              harnessAheadOfApp: instrumentVerdict.ahead,
+              harnessBehindApp: instrumentVerdict.behind
+            },
+            note:
+              'The running harness measured against the build it drove. "harnessBehindApp" is always ' +
+              'empty in a run that exists: a non-empty one exits 5 before the app is launched. ' +
+              '"harnessAheadOfApp" is expected to be non-empty for the older build of a round and ' +
+              'means only that the baseline predates the current instrument.'
+          },
           userDataDir: args.keepUserData ? userData : `${userData} (deleted after the run)`,
           seededConfig,
           platform: `${process.platform} ${process.arch}`,
@@ -2356,6 +2709,14 @@ FILES
                            reply.txt was lost by the application, not by the
                            model. Empty if the run used an ephemeral chat,
                            which is never persisted (run.json says so).
+                           One way this diff can lie, and the figure that
+                           settles it: a build that reports its turn finished
+                           while it is still painting leaves reply.txt short of
+                           an answer it never lost. reply.txt is therefore read
+                           only after the rendered text has stopped changing,
+                           and run.json's turns[].textGrewAfterTurnEndChars
+                           says whether this build needed that wait. A trailing
+                           shortfall with that figure at 0 is a real loss.
   messages-raw.json        every message's raw content (and raw reasoning),
                            in order — the un-rendered counterpart to
                            transcript.json
@@ -2370,7 +2731,16 @@ FILES
                            any red/error text
   run.json                 timings, counts, and the definitions behind them,
                            plus every action the driver took and whether the
-                           run is VALID (see below)
+                           run is VALID (see below). Its "record" block is the
+                           list of what this run kept a record OF — the
+                           switches that were live, the reference corpus the
+                           turn was given, the driver's own out-of-page clock,
+                           and, named rather than implied, both what was not
+                           recorded here and what no record could settle.
+                           Read it before deciding that a statement on screen
+                           and the artifacts agree: a statement nothing in that
+                           list covers is UNSETTLED, and unsettled is not
+                           agreed.
   screenshots/             mid-turn frames and the frame at turn end, plus one
                            with every section expanded
   snapshots/               DOM captured at named moments the driver chose (for
@@ -2397,7 +2767,12 @@ FILES
                            audit log: the application's own append-only record
                            of the turn. Where the transcript shows what the
                            reader saw, this shows what the application says
-                           happened — the two are meant to be compared.
+                           happened — the two are meant to be compared. The
+                           log is an opt-in product feature and off by default,
+                           so most tasks do not have one; run.json's record
+                           block says so in words rather than leaving you to
+                           infer it from an empty directory. Its absence is a
+                           property of the staging, never of the build.
 
 VALIDITY
   run.json carries validity: VALID or INVALID. INVALID means the run did not
@@ -2414,6 +2789,23 @@ TIMINGS
   numbers exclude the driver's own overhead. run.json states the sampling
   resolution and defines precisely what "first visible" and "turn end" mean.
   Read those definitions before comparing the numbers with anything else.
+
+WHAT MEASURED THIS, AND WHAT IT COULD MEASURE
+  run.json carries "instrument": the harness that produced this directory, and
+  "instrument.measures" — every figure that harness knows how to emit, read out
+  of its own source rather than listed by hand.
+
+  Use it before concluding anything from a figure you cannot find. A name that
+  appears in "measures" and has no value below was measured and came back null.
+  A name that does NOT appear could never have been written here at all: the
+  harness that ran predates it. A question about such a figure is unanswerable
+  from this run, and saying so is the correct answer — do not read the silence
+  as a zero, and do not read it as the build failing to do the thing.
+
+  This distinction is not hypothetical. One round's whole instrument
+  improvement was absent from all thirty-six runs of its own sweep because the
+  harness was launched from the wrong checkout, and the artifacts gave a reader
+  no way to tell that from a build that simply never triggered the measurement.
 
 FILES BEGINNING WITH "_"
   Harness bookkeeping and identifying metadata. If you are reading this

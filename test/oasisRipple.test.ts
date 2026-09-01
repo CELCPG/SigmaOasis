@@ -7,6 +7,7 @@ import {
   THINKING_VISUAL,
   WAIT_COUNT_MS,
   WAIT_ESCALATE_MS,
+  WAIT_STALLED_MS,
   capRipples,
   describeOasisState,
   describeWait,
@@ -227,12 +228,22 @@ test('ambient thinking visual is always the brand teal THINKING', () => {
 
 const AMBIENT = describeOasisState(true, '', [])
 
-function frameAt(silentMs: number, state = AMBIENT, deadlineMs = FIRST_BYTE_TIMEOUT_MS): string {
+/** What the transport witnessed, in the three shapes a wait can be in. */
+const NOTHING_ANSWERED = { accepted: false, streamed: false }
+const ACCEPTED_SILENT = { accepted: true, streamed: false }
+const REPLY_BEGUN = { accepted: true, streamed: true }
+
+function frameAt(
+  silentMs: number,
+  state = AMBIENT,
+  deadlineMs = FIRST_BYTE_TIMEOUT_MS,
+  seen: { accepted: boolean; streamed: boolean } | null = null
+): string {
   return renderToStaticMarkup(
     createElement(OasisRippleView, {
       state,
       reducedMotion: true,
-      wait: describeWait(silentMs, state, deadlineMs)
+      wait: describeWait(silentMs, state, deadlineMs, seen)
     })
   )
 }
@@ -304,6 +315,196 @@ test('the wait names the running tool, and the deadline it is actually under', (
 test('a hidden ripple never grows a wait line, however long the silence', () => {
   const hidden = describeOasisState(false, '', [])
   assert.equal(describeWait(600_000, hidden, FIRST_BYTE_TIMEOUT_MS).level, 'quiet')
+})
+
+/* ---- v1.17.4: what KIND of silence this is ------------------------------- */
+
+/**
+ * FR2 again, one level in. Round 8 made the wait visible; a round-11 critic
+ * found that ninety seconds of it says the same thing at 30 s and at 90 s and
+ * never once says the thing the app knows:
+ *
+ * > The one thing it knows and never says during the wait is that the server
+ * > accepted the request and has sent zero bytes since — the distinction
+ * > between a slow model and a dead stream, which is exactly what the reader
+ * > needs at 60 seconds to decide whether to keep waiting.
+ *
+ * The transport records `accepted` (its `fetch` returned a response) and
+ * `streamed` (a body byte arrived) already; through v1.17.3 both were read only
+ * in the post-mortem, after the reader had spent the ninety seconds.
+ *
+ * The true negative is the load-bearing half and it is asserted throughout: a
+ * model that is genuinely just slow is `accepted && !streamed` for the whole
+ * of a long prompt, byte for byte identical to a dead server, so **no line may
+ * report a dead stream**. The escalation says what was witnessed; the note past
+ * a minute names both readings and refuses to choose.
+ */
+
+test('the wait says which silence it is, from what the transport saw', () => {
+  const at = (seen: { accepted: boolean; streamed: boolean }): string =>
+    describeWait(WAIT_ESCALATE_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, seen).detail!
+
+  assert.equal(at(NOTHING_ANSWERED), 'LM Studio has not answered the request yet')
+  assert.equal(at(ACCEPTED_SILENT), 'LM Studio took the request and has sent nothing back')
+  assert.equal(at(REPLY_BEGUN), 'LM Studio started replying, then went quiet')
+
+  // Three facts, three sentences: the defect was one sentence over all three.
+  assert.equal(new Set([at(NOTHING_ANSWERED), at(ACCEPTED_SILENT), at(REPLY_BEGUN)]).size, 3)
+})
+
+test('with no transport record the app claims no more than it did before', () => {
+  // A plan step's sub-turn, a consultation and the claim-check pass all call
+  // the transport without a witness. "The app knows nothing finer" is the one
+  // honest thing to say there, and it must not borrow the sentences above.
+  const notice = describeWait(WAIT_STALLED_MS * 2, AMBIENT, FIRST_BYTE_TIMEOUT_MS, null)
+  assert.equal(notice.detail, 'still waiting on the model')
+  assert.equal(notice.note, null, 'no record is no grounds for a second sentence')
+  assert.equal(notice.level, 'escalated', 'and no grounds for raising the level either')
+})
+
+test('a running tool is what the wait is on — the witness describes a socket, not a tool', () => {
+  const tools = describeOasisState(true, '', [tc('a', 'deep_research')])
+  const notice = describeWait(WAIT_STALLED_MS * 2, tools, STREAM_STALL_MS, ACCEPTED_SILENT)
+  assert.equal(notice.detail, 'still waiting on deep_research')
+  assert.equal(notice.note, null, 'a tool that has run a minute is not evidence about a stream')
+})
+
+test('the second sentence arrives at a minute, and never before it', () => {
+  for (const ms of [WAIT_ESCALATE_MS, WAIT_STALLED_MS - 1]) {
+    const early = describeWait(ms, AMBIENT, FIRST_BYTE_TIMEOUT_MS, ACCEPTED_SILENT)
+    assert.equal(early.note, null, `no reading offered at ${ms}ms`)
+    assert.equal(early.level, 'escalated')
+  }
+  const late = describeWait(WAIT_STALLED_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, ACCEPTED_SILENT)
+  assert.equal(late.level, 'stalled')
+  assert.match(late.note!, /cannot tell a prompt still being processed from a dead stream/)
+})
+
+test('a slow model is never reported as a dead stream', () => {
+  // THE true negative. Ten minutes of accepted-and-silent is exactly what a
+  // 30k-token prompt on slow hardware looks like, and the app cannot see the
+  // difference — so at no elapsed time may it say there is one.
+  for (const ms of [WAIT_ESCALATE_MS, WAIT_STALLED_MS, 120_000, 600_000]) {
+    const notice = describeWait(ms, AMBIENT, FIRST_BYTE_TIMEOUT_MS, ACCEPTED_SILENT)
+    const said = `${notice.detail} ${notice.note ?? ''}`
+    assert.doesNotMatch(said, /\bis dead\b|\bhas died\b|\bhas crashed\b|\bnot responding\b/)
+    assert.doesNotMatch(said, /the model has stopped|the stream has stopped/)
+    if (notice.note) {
+      // Both readings, and the innocent one first: the note exists to hand the
+      // reader a decision, not a verdict.
+      assert.match(notice.note, /cannot tell/)
+      assert.ok(
+        notice.note.indexOf('prompt still being processed') < notice.note.indexOf('dead stream'),
+        'the innocent reading is offered first'
+      )
+    }
+  }
+})
+
+/**
+ * v1.17.5. The `!accepted` note used to read *"Not even the reply headers have
+ * come back"*, and a round-11 critic could not settle it: *"run-2's most useful
+ * sentence is also its least verifiable, and it is stated flatly."*
+ *
+ * It is unverifiable because `accepted` was never the headers. It is set from
+ * the transport's `fetch` resolving, and `fetch` does not resolve on every
+ * header block — a `103 Early Hints` response and a `302` each put a complete
+ * reply header block on the wire and left it pending (measured; see
+ * hooks/chatTransport.ts). LM Studio behind any reverse proxy produces either.
+ *
+ * The useful half is kept, because the note earns its place: it is the
+ * difference between *be patient* and *this may never come back*.
+ */
+test('the pre-answer note claims nothing about headers', () => {
+  const notice = describeWait(WAIT_STALLED_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, NOTHING_ANSWERED)
+  assert.equal(notice.level, 'stalled')
+  const said = `${notice.detail} ${notice.note}`
+  // The overreach itself. The app cannot see the wire, only its own fetch.
+  assert.doesNotMatch(said, /header/i)
+  assert.doesNotMatch(said, /\bpacket|\bsocket|\bTCP\b/i)
+})
+
+test('the pre-answer note keeps the reading the reader needs, and both halves of it', () => {
+  const note = describeWait(
+    WAIT_STALLED_MS,
+    AMBIENT,
+    FIRST_BYTE_TIMEOUT_MS,
+    NOTHING_ANSWERED
+  ).note!
+  // What `!accepted` establishes, and nothing further.
+  assert.match(note, /Nothing has come back/)
+  // The fact the reader most needs and the app can actually prove: a refused
+  // connection rejects `fetch`, and a rejection ends the turn — so while this
+  // line is on screen, the address is not the thing to go and check.
+  assert.match(note, /nothing was refused/)
+  // And the half the note exists for, unchanged.
+  assert.match(note, /cannot tell a busy server from one that has stopped answering/)
+})
+
+test('a server that has not answered is not reported as dead either', () => {
+  // The same true negative as the slow-model one below, on the other branch:
+  // a server still processing and a server that has died are indistinguishable
+  // before the answer arrives, so no elapsed time may claim the difference.
+  for (const ms of [WAIT_STALLED_MS, 120_000, 600_000]) {
+    const notice = describeWait(ms, AMBIENT, FIRST_BYTE_TIMEOUT_MS, NOTHING_ANSWERED)
+    const said = `${notice.detail} ${notice.note ?? ''}`
+    assert.doesNotMatch(said, /\bis dead\b|\bhas died\b|\bhas crashed\b|\bnot responding\b/)
+    assert.doesNotMatch(said, /is not running|never started|wrong address/i)
+    if (notice.note) {
+      assert.match(notice.note, /cannot tell/)
+      assert.ok(
+        notice.note.indexOf('busy server') < notice.note.indexOf('stopped answering'),
+        'the innocent reading is offered first, as on the other branch'
+      )
+    }
+  }
+})
+
+test('the two pre-body notes are different sentences, and neither is the other', () => {
+  const before = describeWait(WAIT_STALLED_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, NOTHING_ANSWERED).note
+  const after = describeWait(WAIT_STALLED_MS, AMBIENT, FIRST_BYTE_TIMEOUT_MS, ACCEPTED_SILENT).note
+  assert.notEqual(before, after)
+  // Each names the pair of readings its own evidence allows, and only that pair.
+  assert.doesNotMatch(before!, /prompt still being processed/)
+  assert.doesNotMatch(after!, /busy server/)
+})
+
+test('a reply that began and went quiet gets no note — its deadline is the note', () => {
+  // The transport ends this turn at STREAM_STALL_MS, which is the same instant
+  // the note would appear. A sentence the reader cannot finish reading is
+  // worse than none.
+  const notice = describeWait(WAIT_STALLED_MS, AMBIENT, STREAM_STALL_MS, REPLY_BEGUN)
+  assert.equal(notice.note, null)
+  assert.equal(notice.deadline, null, 'and the deadline it already passed is not still promised')
+})
+
+test('the whole 90-second wait, rendered, with the transport reporting as it goes', () => {
+  mock.timers.enable({ apis: ['setInterval', 'Date'] })
+  try {
+    const frames: string[] = []
+    // The measured shape: headers land at once, then nothing at all. Time is
+    // still the only input — no Stop, no keystroke, no chunk.
+    const stop = startWaitClock((ms) => frames.push(frameAt(ms, AMBIENT, FIRST_BYTE_TIMEOUT_MS, ACCEPTED_SILENT)))
+    for (let second = 0; second < 90; second++) mock.timers.tick(1_000)
+    stop()
+
+    const at30 = frames[29]!
+    assert.match(at30, /LM Studio took the request and has sent nothing back/)
+    assert.match(at30, /gives up at 5:00/)
+    assert.doesNotMatch(at30, /oasis-wait-note/, 'no reading yet at 30s')
+
+    const at60 = frames[59]!
+    assert.match(at60, /data-wait-level="stalled"/)
+    assert.match(at60, /oasis-wait-note/)
+    assert.match(at60, /cannot tell a prompt still being processed from a dead stream/)
+
+    // The round-11 defect, gone: the 90s screen is not the 30s screen, and the
+    // difference is a fact rather than a bigger number.
+    assert.notEqual(frames[89], at30)
+    assert.doesNotMatch(at60, /still waiting on the model/)
+  } finally {
+    mock.timers.reset()
+  }
 })
 
 test('elapsed is truncated seconds under a minute, m:ss over it', () => {

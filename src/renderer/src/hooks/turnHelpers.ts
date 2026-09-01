@@ -1,8 +1,17 @@
 import { useAppStore } from '../stores/appStore'
-import { historyBudget, planHistory, planHistoryFallback } from '../lib/contextBudget'
+import {
+  conversationContextUsage,
+  historyBudget,
+  planHistory,
+  planHistoryFallback,
+  requestEstimate,
+  type ContextUsage
+} from '../lib/contextBudget'
 import { foldLocalDigest } from '../lib/contextCompressor'
 import { budgetContextLength } from '../lib/modelInfo'
+import { projectInstructionsBlock } from '../lib/projectContext'
 import {
+  schemasAvailableTo,
   selectTurnTools,
   stabilizeTurnTools,
   rankingIsDecisive,
@@ -11,6 +20,8 @@ import {
 } from '../lib/toolSelection'
 import { attachmentInlineNote } from '../lib/attachmentRecall'
 import type { ApiContentPart } from '../lib/agentLoop'
+import type { AuditEntryInput, RecordableAuditKind } from '../../../shared/audit'
+import type { RequestEstimate } from '../../../shared/failure'
 import type { ChatMessage, Conversation, ModelConfig, ToolSchema } from '../types'
 
 /**
@@ -22,20 +33,65 @@ import type { ChatMessage, Conversation, ModelConfig, ToolSchema } from '../type
  */
 
 /**
+ * What a turn in this conversation costs, read off live settings.
+ *
+ * v1.17.3. The one caller of `conversationContextUsage` used to be the meter
+ * under the composer; now the refusal sentence and the gate on Regenerate ask
+ * the same question, and all three have to get the same answer or the app is
+ * back to contradicting itself on one screen. So they ask through here.
+ *
+ * Null when LM Studio never reported a window size — the same silence the
+ * meter keeps, for the same reason: there is no denominator to be honest about.
+ */
+export function turnContextUsage(
+  conversationId: string | null,
+  /** The slot that ran (or is about to). Defaults to the one the composer meters. */
+  slotOverride?: ModelConfig
+): ContextUsage | null {
+  const store = useAppStore.getState()
+  const convo = store.conversations.find((c) => c.id === conversationId)
+  const settings = store.settings
+  if (!convo || !settings) return null
+  // The composer's own resolution, verbatim (InputBar.tsx): the conversation's
+  // slot if it still exists and is enabled, else the first enabled one. Two
+  // spellings of "which model is this for" would put the meter and the sentence
+  // on different models, which is the defect one level down.
+  const slot =
+    slotOverride ??
+    settings.models.find((m) => m.id === convo.activeModelSlotId && m.enabled) ??
+    settings.models.find((m) => m.enabled)
+  return conversationContextUsage(
+    convo,
+    slot,
+    store.availableModels.find((m) => m.id === slot?.modelId),
+    projectInstructionsBlock(settings.projects.find((p) => p.id === convo.projectId)),
+    schemasAvailableTo(slot, settings.tools)
+  )
+}
+
+/** The same arithmetic, in the shape shared/failure.ts quotes it in. */
+export function turnRequestEstimate(
+  conversationId: string | null,
+  slotOverride?: ModelConfig
+): RequestEstimate | undefined {
+  const usage = turnContextUsage(conversationId, slotOverride)
+  return usage ? requestEstimate(usage) : undefined
+}
+
+/**
  * Fire-and-forget audit log entry (v0.9). Checked here AND in the main
  * process: skipped when the log is disabled, and ephemeral conversations
  * never produce entries. Audit failures must never break a chat turn.
  */
 export function audit(
   convo: Conversation,
-  input: {
-    kind: 'user_input' | 'assistant_output' | 'tool_call'
-    roleName?: string
-    modelId?: string
-    toolName?: string
-    ok?: boolean
-    text: string
-  }
+  /**
+   * v2.5: `Omit<AuditEntryInput, …>` rather than a third hand-written copy of
+   * the kinds. This union listed three of them; a kind added to the log and not
+   * to this line is a kind the renderer cannot write, with nothing failing to
+   * say so.
+   */
+  input: Omit<AuditEntryInput, 'conversationId' | 'ephemeral'> & { kind: RecordableAuditKind }
 ): void {
   if (!useAppStore.getState().settings?.audit.enabled) return
   void window.api

@@ -183,7 +183,7 @@
     <div class="meta">
       <span>baseline <b>v1.12.1</b></span>
       <span>local model <b>qwen3.8-9b</b></span>
-      <span>updated <b>2026-08-25</b></span>
+      <span>updated <b>2026-08-28</b></span>
     </div>
   </header>
 
@@ -191,17 +191,12 @@
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">node test suite</span>
-          <span class="inv__val">2106 pass / 0 fail</span>
+          <span class="inv__val">2371 pass / 0 fail</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">render + style checks</span>
-          <span class="inv__val">25 render · 44 style · 60 chrome-contrast · 56 md · 46 workbench · 24 transport</span>
-        </div>
-        <div class="inv inv--green">
-          <span class="inv__dot" aria-hidden="true"></span>
-          <span class="inv__name">whole-project typecheck</span>
-          <span class="inv__val">part of the gate since round 7</span>
+          <span class="inv__val">25 render · 119 style · 169 plan-accessibility · 177 modal-focus · 62 md · 46 workbench · 43 tab-traverse · 24 transport</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -210,8 +205,18 @@
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">whole-project typecheck</span>
+          <span class="inv__val">exit 0</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
           <span class="inv__name">sweep hygiene</span>
-          <span class="inv__val">both arms 18 / 18 VALID · 0 failed</span>
+          <span class="inv__val">both arms 18 / 18 VALID</span>
+        </div>
+        <div class="inv inv--green">
+          <span class="inv__dot" aria-hidden="true"></span>
+          <span class="inv__name">harness provenance</span>
+          <span class="inv__val">both arms measured by the same harness, asserted at staging</span>
         </div>
         <div class="inv inv--green">
           <span class="inv__dot" aria-hidden="true"></span>
@@ -572,18 +577,158 @@
           </div>
         </div>
       </li>
-      <li class="round round--pending">
+      <li class="round round--done">
         <div class="round__mark"><span class="round__n num">9</span></div>
         <div class="round__body">
           <header class="round__head">
             <h3>Defects both builds share, found once the judging stopped flattering us</h3>
-            <span class="tag tag--pending">pending</span>
+            <span class="tag tag--done">done</span>
           </header>
-
+          <div class="pair">
+            <span class="pair__side">the round-8 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-9 build</span>
+          </div>
           <dl class="facts">
-            <div><dt>what ran</dt><dd>A same-generation comparison mostly returns ties, so what it surfaces is what BOTH builds get wrong. Focus is not trapped in the Settings modal — 24 to 30 of 70 Tab stops are focusable behind the open overlay, in both builds and both themes. The one text below the contrast threshold anywhere in the capture is the red error ink at 3.63:1, and it is round 8’s own new sentence: the wording was fixed and shipped in failing ink. The wrap fix breaks a token at hyphens, so a reader copying by eye cannot tell a wrap point from a character. And on V3 both builds check incidental repair costs while the headline water figure — the number the user asked for, differing threefold between runs — passes unflagged.</dd></div>
+            <div><dt>what ran</dt><dd>Five builders on defects a same-generation comparison exposed as shared by BOTH builds — the category rounds 1–7 could not see, because a seven-round-old baseline loses everything and the margin hides what neither side fixed.</dd></div>
+            <div><dt>findings</dt><dd>The wins were measured, not argued. VC2: obscured Tab stops 24–30 of 70 down to 0 of 70, identical in both themes and on both routes, with the focus indicator itself tying at 70/70 visible in every file — so the margin is occlusion alone. VC3: the SAME warning sentence at 3.11:1 in one build and 6.09:1 in the other, and the same failed-call line at 3.59:1 against 6.19:1, both below AA in light theme only — the defect a single raw palette step cannot avoid across two themes. V3: a coverage line naming what the pass never reached, which the critic credited to the application rather than the sampler because the older build’s extractor demonstrably handled the same ranges and printed nothing. That third win came from a builder that REFUSED the feature it was asked for, argued that ranking findings by importance would assert the app understood the question in the one place a reader cannot check it, and shipped a narrower true thing instead.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round-9 build 3 · round-8 build 0 · 14 ties · 1 void, over 18 tasks. The second same-generation comparison, and the first judged with critic prompts generated MECHANICALLY from the task set — no agent and no person wrote them, so the contamination round 8’s prompt-writer disclosed about itself is structurally gone. The three wins map one-to-one onto three of the five builders; the two that scored ties were the code fold, which no task exercised, and the task set itself, which is the instrument rather than the subject.</dd></div>
+            <div><dt>biggest gap</dt><dd>The void is V2, and voiding it was mine rather than the critic’s: the deciding event was one arm’s request overflowing the model’s 8192-token context on a turn where round 9 changed no context code, same prompt, same settings, same retrieval, single turn. The critic reached the same conclusion and said it lacked the evidence — &quot;if that failure is environmental, this is a tie&quot;. A server condition is not the change under test. Precedent is round 3, which voided a task for the same reason. Separately, two round-9 improvements were visible in the artifacts and scored nothing, because neither was the task’s question: the older build draws one fact in two different amber ramps on one screen where round 9 uses a single token, and the older build lost the tail of an answer where round 9 did not. Builder E’s rewrite improved the questions and the tension it was sent to resolve is still there — a question neutral enough not to leak can still be blind to a real repair.</dd></div>
+            <div><dt>fix</dt><dd>Focus contained on all five covering surfaces by walking outward from the surface node, so a pane added anywhere is covered the day it is added · warning ink became tokens after the diagnosis changed from lightness to chroma — Tailwind ramps desaturate as they darken, so walking down the ramp buys contrast by spending the thing that means &quot;warning&quot; · a code fold that lands on a hyphen no longer also stops short of the edge, the pair that reads as hyphenation · the checker now says what it did NOT check, after the ranking it was asked for was judged unreliable and refused · all 18 probes rewritten on the principle that what leaks is not specificity but asserting a value</dd></div>
           </dl>
-
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2106 → 2146</span></div>
+            <div class="ev"><span class="ev__k">chrome-contrast checks</span><span class="ev__v num">60 → 114</span></div>
+            <div class="ev"><span class="ev__k">style checks</span><span class="ev__v num">44 → 72</span></div>
+            <div class="ev"><span class="ev__k">modal-focus checks</span><span class="ev__v num">new, 177</span></div>
+            <div class="ev"><span class="ev__k">obscured tab stops</span><span class="ev__v num">24–30 of 70 → 0 of 70</span></div>
+            <div class="ev"><span class="ev__k">warning ink, light theme</span><span class="ev__v num">3.11:1 → 6.09:1</span></div>
+            <div class="ev"><span class="ev__k">blind tasks judged</span><span class="ev__v num">18</span></div>
+            <div class="ev"><span class="ev__k">won / lost / tied / void</span><span class="ev__v num">3 / 0 / 14 / 1</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--done">
+        <div class="round__mark"><span class="round__n num">10</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>The turn says it is over while the answer is still arriving</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the round-9 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-10 build</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Five builders on defects a same-generation comparison showed BOTH builds shared, plus the first scoring change since the bench began.</dd></div>
+            <div><dt>findings</dt><dd>The turn had been reporting itself over while the answer was still arriving — composer-idle was keyed on the last byte off the socket, not the last paint — and the still-arriving tail was painted at an opacity measured below AA on 71 of 73 frames at the real cadence, because the span is recreated on every paced flush. Not transient, as both a critic and I had assumed. A failed plan step announced itself to a screen reader with an accessible name byte-identical to a finished one, and so did running against pending; the plan-accessibility check that found it reported 9 failures on its own first draft against 128 on its second, because its locator was one of the things being located. And the app had been blaming the reader for a context budget it had mostly spent itself: of 6,508 tokens against an 8,192 window, 2,725 were the tool list the app adds and 2,048 the reply reservation, neither of them on the meter, which showed 1,735.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round 10, scored in three columns that are reported side by side and never added: task — round-10 build 6 · round-9 build 1 · 11 ties. self-consistency — 2 · 2 · 14. record-consistency — 3 · 1 · 14. The columns earned their place immediately: &quot;seen only by a cross-cutting column&quot; is B 1 · A 1 — one fact for this build and one against it that a single verdict per task would have missed entirely.</dd></div>
+            <div><dt>biggest gap</dt><dd>Two losses, and the first is the worse. V1: this build printed &quot;⚠️ 1 measurement (165 °F) in this reply is not backed by the tool output&quot; on a turn whose own retrieved passages state it seventeen times, including &quot;| Chicken, turkey, and other poultry | … | 165°F (74°C) |&quot;. A false unverified on a poultry cooking temperature is the most damaging cry-wolf this app can produce. The distinguishing fact is that this arm ran THREE lookups and the other ran one, so the measurement corpus does not span every lookup in a turn — demonstrated in this build, untested in the other, which was never handed a multi-lookup turn. FR3: the expiry line reads &quot;Ran: the code check. Not run: the recomputation.&quot; directly above the recomputation and its output; the round-9 build gets the same line right. Both were caught only because the task question tied and a cross-cutting column could still take a claim away.</dd></div>
+            <div><dt>fix</dt><dd>The composer waits for the last paint and the streaming tail floor moved to 0.66, first value clearing AA over the reply surface · every plan step state carries an accessible name and a dead row stops being a control · three checks stopped judging the wrong thing, including a quote checker that treated the credit line as part of the quotation · three silences became three sentences, and the token meter, the overflow message and the retry gate now share one arithmetic · cross-cutting questions get their own columns</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2146 → 2268</span></div>
+            <div class="ev"><span class="ev__k">chrome-contrast checks</span><span class="ev__v num">114 → 119</span></div>
+            <div class="ev"><span class="ev__k">plan-accessibility checks</span><span class="ev__v num">new, 169</span></div>
+            <div class="ev"><span class="ev__k">task column</span><span class="ev__v num">6 / 1 / 11</span></div>
+            <div class="ev"><span class="ev__k">self-consistency column</span><span class="ev__v num">2 / 2 / 14</span></div>
+            <div class="ev"><span class="ev__k">record-consistency column</span><span class="ev__v num">3 / 1 / 14</span></div>
+            <div class="ev"><span class="ev__k">seen only by a cross-cutting column</span><span class="ev__v num">B 1 · A 1</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--done">
+        <div class="round__mark"><span class="round__n num">11</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>A false unverified on a cooking temperature</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the round-10 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-11 build</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Five builders on round 10’s own recorded loss and the defects its new columns surfaced, plus a guard against the harness mistake I made last round.</dd></div>
+            <div><dt>findings</dt><dd>My framing of the round’s main task was wrong and a builder proved it. I briefed that the measurement corpus did not span every lookup in a turn; it spans all of them and always did — handed all three lookups the checker returns no finding at all. The defect was WHEN the report was read: lookups two and three were the correction pass’s own, and the app published a verdict older than the evidence. That also meant every rung shared it, so fixing it where I pointed would have repaired one symptom of four. Two other builders refused what they were asked: one declined to enable audit exports everywhere, showing the audit reaches one of twenty statement classes and would make the bench measure an app configured unlike the shipped one, and built a record from already-public APIs instead — settleable statements 9 → 55, runs where nothing was settleable 31/36 → 6, with no file under src/ touched. The other proved the obvious harness guard would have PASSED the sweep it exists to stop, because round 10’s checkouts predate any manifest, and read the measurement vocabulary structurally out of each harness’s source instead — finding a fourth instrumentation field my own hand-written lists had been omitting.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round 11: task — round-11 build 2 · round-10 build 0 · 16 ties. self-consistency and record-consistency both 0 · 0 · 18. The narrowest result the bench has produced, and the honest one: sixteen tasks tied, and on several of them the critics said outright that the behaviour under test was never exercised.</dd></div>
+            <div><dt>biggest gap</dt><dd>V1 is recorded twice and the difference matters. As reported it took both cross-cutting columns for this build; but the same critic tied V1’s task column because the entire delta was one space character the model typed — one arm wrote &quot;165 °F&quot;, the other &quot;165°F&quot;, and the backing checker matches literally. Applied uniformly, the protocol’s own rule makes V1 a tie in all three columns, which is how the round is scored here. Both cross-cutting columns therefore came back 0-0-18, and that is either two clean builds or two columns with nothing to bite on. The critics also found four defects both builds share: a backing checker that over-warns on a space and under-warns on a wrong table row; an unbacked-figures line silently capped at five while its sibling line discloses truncation; &quot;The runtime reported:&quot; left as a label introducing nothing in the collapsed view; and a reply denying tool calls the app is displaying directly above it, which no checking pass looks at.</dd></div>
+            <div><dt>fix</dt><dd>The grounding report is graded after the pass that changes the record, so no verdict outlives its evidence · the budget keys on what a pass returned rather than on the clock · a cancelled plan says whose decision it was, and a stalled stream names the party that has not answered · the record block makes 55 of the screen’s statements settleable and names five classes no artifact can settle · a stale harness is refused before the app launches, and both arms’ harness provenance is asserted identical at staging</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2268 → 2371</span></div>
+            <div class="ev"><span class="ev__k">settleable statements per run set</span><span class="ev__v num">9 → 55</span></div>
+            <div class="ev"><span class="ev__k">runs where nothing was settleable</span><span class="ev__v num">31 / 36 → 6</span></div>
+            <div class="ev"><span class="ev__k">task column</span><span class="ev__v num">2 / 0 / 16</span></div>
+            <div class="ev"><span class="ev__k">self-consistency column</span><span class="ev__v num">0 / 0 / 18</span></div>
+            <div class="ev"><span class="ev__k">record-consistency column</span><span class="ev__v num">0 / 0 / 18</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--done">
+        <div class="round__mark"><span class="round__n num">12</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>The checker never reads what the reply says about the app</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the round-11 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-12 build</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>A reply saying &quot;I did not call any search or reference lookup tools&quot; sits directly above three green-ticked reference_lookup blocks, in both builds, and no checking pass looks at it — the grounding ladder checks a reply’s claims about the world and never its claims about the application. Behind it: a backing checker that flags a correctly-sourced temperature over one space character; an unbacked-figures count silently capped at five; round 10’s own &quot;the reply ran to its end — it was simply empty&quot; printed directly above the refusal it quotes; and round 11’s own &quot;not even the reply headers have come back&quot;, which a critic could not settle and which may assert more about the wire than the app can see.</dd></div>
+            <div><dt>findings</dt><dd>The first round where both sweeps returned 18/18 VALID with no re-runs, after five that each needed two or three. Two builders again refused the brief. One was asked to flag a reply that names the wrong table row and argued the case back from absence: passage [5] begins mid-row with &quot;ths |&quot;, so the app cannot tell which row a value came from and a wrong-row warning would be a guess wearing a certainty. It shipped the narrower true thing — a value-and-dimension match that no longer breaks over the space in &quot;165 °F&quot;. The other, asked to make the reply-about-the-app check symmetric, shipped only the denial direction and wrote down why the mirror is not the mirror: a fabricated call inflates authority and the reader can check it against the tool blocks on screen, where a denied call tells the reader those blocks are meaningless and nothing on screen settles that. It also named three neighbouring claims it will not touch, because no artifact here can settle them.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round 12: task — round-12 build 4 · round-11 build 0 · 14 ties. self-consistency 1 · 0 · 17. record-consistency 2 · 0 · 16. The four task wins land exactly on the four behaviours the round changed — two failure banners that now describe what the server actually did, and two plan headers that stop reporting in-flight progress once a plan is over — found by critics who never saw the changelog. Two verdicts were overruled after reporting, in opposite directions, and both by experiment rather than argument.</dd></div>
+            <div><dt>biggest gap</dt><dd>The round’s only result against the new build did not survive checking, and neither did one of its wins. TH1 was awarded for a screen reconciling &quot;3 calls accounted for, 1 ran&quot; — but `overstatedToolCounts` is byte-identical in both arms, and the other run simply never over-claimed, so the win was a shared check firing on one side’s tokens. V3 was scored against the new build for a coverage line reading &quot;1 of the 4 measurements&quot; where the critic counted six — but running both arms’ `measurementsIn` over the exact reply bytes returns the same four spans in each, and `quantityCoverage` is byte-identical too, so the app’s 4 matches the app’s own scan. Both became ties. What the second one left behind is real: &quot;~876 drops per day&quot; is a quantity the scan has no unit for, so a line that says &quot;in this reply&quot; counted less than the reply contains. Two more shared defects: the plan header’s &quot;N/N steps done&quot; is the only line visible without interacting and the one number no artifact can settle, because the audit records tools and never steps; and the ledger line miscounts the session variables printed directly beneath it, in both arms, by exactly one, twice. Fourteen ties also mean fourteen tasks that mostly did not exercise what they test — the post-answer wait never happened, the layout probe’s reply side was never echoed, both quotation checks found both replies accurate.</dd></div>
+            <div><dt>fix</dt><dd>A measurement is its value and dimension, not the way a passage spelled it · the reply’s account of the application is checked in the denial direction, against the tool blocks printed above it · a failure banner says what the server did rather than what it did not send · a plan that is over stops reporting how far through it is · a cross-cutting column declares what stands behind its verdicts, so silence stops reading as agreement · the ignore rule matches the symlink as well as the directory</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2371 → 2491</span></div>
+            <div class="ev"><span class="ev__k">sweeps valid without a re-run</span><span class="ev__v num">0 / 2 arms → 2 / 2 arms</span></div>
+            <div class="ev"><span class="ev__k">statements the record could settle</span><span class="ev__v num">234 of 456</span></div>
+            <div class="ev"><span class="ev__k">unsettleable for want of a record</span><span class="ev__v num">55 of 222</span></div>
+            <div class="ev"><span class="ev__k">unsettleable by nature</span><span class="ev__v num">167 of 222</span></div>
+            <div class="ev"><span class="ev__k">task column</span><span class="ev__v num">4 / 0 / 14</span></div>
+            <div class="ev"><span class="ev__k">self-consistency column</span><span class="ev__v num">1 / 0 / 17</span></div>
+            <div class="ev"><span class="ev__k">record-consistency column</span><span class="ev__v num">2 / 0 / 16</span></div>
+            <div class="ev"><span class="ev__k">verdicts overruled after reporting</span><span class="ev__v num">2 of 54</span></div>
+          </div>
+        </div>
+      </li>
+      <li class="round round--done">
+        <div class="round__mark"><span class="round__n num">13</span></div>
+        <div class="round__body">
+          <header class="round__head">
+            <h3>Six defects both builds shared, and three briefs the builders proved wrong</h3>
+            <span class="tag tag--done">done</span>
+          </header>
+          <div class="pair">
+            <span class="pair__side">the round-12 build</span>
+            <span class="pair__vs">vs</span>
+            <span class="pair__side">the round-13 build</span>
+          </div>
+          <dl class="facts">
+            <div><dt>what ran</dt><dd>Round 12 tied 14 of 18 tasks, and a same-generation tie is where the SHARED defects live — so this round is built entirely out of them. A reply that invents the retrieval whose true account the app printed directly above it (3 record contradictions per run, both arms, the round’s highest contested count). A ledger line that miscounts the session variables listed a few lines beneath it. “Checking stopped at its 60s limit” beside “114.1s checking”. A coverage line claiming “in this reply” over a scan with no unit for “876 drops per day”. Fetch internals reaching the reader past the boundary built to stop them. And the plan header’s “3/3 steps done” — the most prominent claim in plan mode and the one thing the hash-chained audit beside it cannot corroborate, because it records tools and never steps.</dd></div>
+            <div><dt>findings</dt><dd>Three of the six briefs I wrote were wrong and the builders proved it from artifacts rather than deferring. I said the runtime string was probably bypassing the failure boundary; it was not — the abort is caught by type and the raw quote is deliberate, and the real fault was that one surface renders a `detail` with no sentence near it, so OPENING the disclosure told a reader less than the line above it. I said the ledger was probably a fencepost; it was not — the absent name sorted second of four, which no off-by-one produces, and the count was correct for a list one turn old, so the label was lying about WHEN, not about how many. I asked whether the 60s budget was enforced; the answer was four lines above the banner in the same message — a deep_research campaign dispatched inside the revision pass ran 93s, because `budget.signal` aborts model streams and nothing reaches `executeTool`. Two builders also refused part of their brief with measurements: widening the measurement scan returns 578 spans over the shipped packs, headed by `529 plans` and `31 March`, and no noun list separates those from `876 drops` — and because `MEASUREMENT_UNITS` is single-sourced and inverted feeds the rung that decides which numbers may support a price, widening it would have moved money verdicts as a side effect. The other split the plan-header complaint in two: UNCORROBORATED is about who is watching and nothing local-first can change it; UNRECORDED was wide open, and a three-step plan that called no tools had been leaving a log in which nothing happened between question and answer.</dd></div>
+            <div><dt>blind verdict</dt><dd>Round 13: task — round-13 build 5 · round-12 build 0 · 13 ties. self-consistency 2 · 0 · 16. record-consistency 2 · 0 · 16. All five task wins trace to a specific change this round, found by critics who never saw the changelog. Three verdicts were overruled after reporting, in both directions, and both corrections fell to the same test: whether the winning behaviour is code the two arms share.</dd></div>
+            <div><dt>biggest gap</dt><dd>The round’s only result against the new build did not survive that test, and neither did one of its wins. TTU3 was scored against this build because one arm spent 47.3s checking on FEWER tokens than the arm that spent 0s, and printed &quot;✎ Revised: 1 unsupported item was sent back … the re-check faults none of them&quot; on the same screen as &quot;nothing could be checked against anything&quot; — a real and damning contradiction, but every string in it exists in both arms, and round 13’s budget change moves the origin EARLIER, leaving a pass less time rather than more. TH1 was awarded to this build for a tool-disclosure warning whose producing function is byte-identical across the arms and which fired in 1 of 36 runs. Both became ties. What the round leaves standing is larger than what it fixed: the two context figures on every screen never agree, and the rail figure is byte-identical between arms even when one retrieved eleven passages to the other’s five, so it does not move with the conversation at all; the app prints five passages with relevance scores and then lets the reply say it called no lookup; a checking pass can bill 47 seconds and report clearing a claim on a screen that says nothing was checkable; wrong arithmetic ships unflagged on a prompt that asked for it to be checked; and the HTTP 500 handler still advises the reader how to fix a 403.</dd></div>
+            <div><dt>fix</dt><dd>A plan’s step boundaries are written into the hash-chained audit, so the header’s fraction has a witness — and the header is counted from a ledger rather than asserted, with the log deliberately NOT carrying the sentence · a disclosure says what the app read the runtime’s words to mean, glossing the class rather than the string · the coverage line names whose reading its denominator is, and discloses the quantities its vocabulary cannot read at all · the ledger line says it describes the moment the turn began · the checking limit says it bounds what starts, not what finishes, and names the overrun · a reply that misdescribes the retrieval printed above it is checked against the pack, passage count and relevance figures the app already holds</dd></div>
+          </dl>
+          <div class="evals">
+            <div class="ev"><span class="ev__k">node cases</span><span class="ev__v num">2491 → 2574</span></div>
+            <div class="ev"><span class="ev__k">sweeps valid without a re-run</span><span class="ev__v num">1 of 2 arms (arm B needed two, both CDP timeouts)</span></div>
+            <div class="ev"><span class="ev__k">statements the record could settle</span><span class="ev__v num">332 of 754</span></div>
+            <div class="ev"><span class="ev__k">unsettleable for want of a record</span><span class="ev__v num">152 of 422</span></div>
+            <div class="ev"><span class="ev__k">unsettleable by nature</span><span class="ev__v num">270 of 422</span></div>
+            <div class="ev"><span class="ev__k">task column</span><span class="ev__v num">5 / 0 / 13</span></div>
+            <div class="ev"><span class="ev__k">self-consistency column</span><span class="ev__v num">2 / 0 / 16</span></div>
+            <div class="ev"><span class="ev__k">record-consistency column</span><span class="ev__v num">2 / 0 / 16</span></div>
+            <div class="ev"><span class="ev__k">verdicts overruled after reporting</span><span class="ev__v num">3 of 54</span></div>
+          </div>
         </div>
       </li>
     </ol>
@@ -626,6 +771,19 @@
             <tr><td class="num">8</td><td>blind head-to-head</td><td>tasks won vs the PREVIOUS round</td><td class="r num">2 / 18</td><td class="r num ">first same-generation comparison</td></tr>
             <tr><td class="num">8</td><td>blind head-to-head</td><td>tasks tied</td><td class="r num">16 / 18</td><td class="r num ">—</td></tr>
             <tr><td class="num">8</td><td>blind head-to-head</td><td>tasks lost</td><td class="r num">0 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">9</td><td>node</td><td>cases passing</td><td class="r num">2146</td><td class="r num up">+40</td></tr>
+            <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks won vs the PREVIOUS round</td><td class="r num">3 / 18</td><td class="r num ">second same-generation comparison</td></tr>
+            <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks tied</td><td class="r num">14 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">9</td><td>blind head-to-head</td><td>tasks void</td><td class="r num">1 / 18</td><td class="r num ">deciding event not attributable to the build</td></tr>
+            <tr><td class="num">9</td><td>accessibility</td><td>obscured tab stops behind an overlay</td><td class="r num">0 / 70</td><td class="r num ">was 24–30 / 70</td></tr>
+            <tr><td class="num">10</td><td>node</td><td>cases passing</td><td class="r num">2268</td><td class="r num up">+122</td></tr>
+            <tr><td class="num">10</td><td>blind head-to-head</td><td>task column, won vs the previous round</td><td class="r num">6 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">10</td><td>blind head-to-head</td><td>task column, lost</td><td class="r num">1 / 18</td><td class="r num ">first loss since round 5</td></tr>
+            <tr><td class="num">10</td><td>blind head-to-head</td><td>facts seen only by a cross-cutting column</td><td class="r num">B 1 · A 1</td><td class="r num ">new columns</td></tr>
+            <tr><td class="num">11</td><td>node</td><td>cases passing</td><td class="r num">2371</td><td class="r num up">+103</td></tr>
+            <tr><td class="num">11</td><td>blind head-to-head</td><td>task column, won vs the previous round</td><td class="r num">2 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">11</td><td>blind head-to-head</td><td>task column, lost</td><td class="r num">0 / 18</td><td class="r num ">—</td></tr>
+            <tr><td class="num">11</td><td>instrument</td><td>statements the record can settle</td><td class="r num">55</td><td class="r num ">was 9</td></tr>
           </tbody>
         </table>
       </div>

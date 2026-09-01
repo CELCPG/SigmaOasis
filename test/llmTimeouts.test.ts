@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 import { load, resetState, state } from './harness'
 import {
   armWatchdog,
+  newWitness,
   streamChat,
   FIRST_BYTE_TIMEOUT_MS,
   STREAM_STALL_MS
 } from '../src/renderer/src/hooks/chatTransport'
 import { replyAffordances } from '../src/renderer/src/lib/replyRecovery'
+import { explainEmptyReply, ExplainedError } from '../src/shared/failure'
 import type { ApiMessage } from '../src/renderer/src/lib/agentLoop'
 
 const llm = load<typeof import('../src/main/ipc/llm')>('llm')
@@ -401,7 +403,11 @@ describe('streamChat · a failure the server puts in the stream', () => {
             'data: {"error":{"message":"The number of tokens to keep from the initial prompt is greater than the context length","type":"invalid_request_error"}}\n\n'
           ])) as typeof fetch),
       // Swallowed through v1.12.1: this resolved with an empty answer instead.
-      /larger than the context the model is loaded with/
+      // v1.17.3: the transport has no arithmetic of its own, so what it names
+      // is what it knows — the server refused it and said "context". The turn
+      // that catches this re-reads it with the app's own measurement; that is
+      // asserted in failureBoundary.test.ts.
+      /refused by LM Studio, which named the context length/
     )
   })
 
@@ -410,8 +416,26 @@ describe('streamChat · a failure the server puts in the stream', () => {
       () =>
         round((async () =>
           sseResponse(['data: {"error":{"message":"context length exceeded"}}\n\n'])) as typeof fetch),
-      /Load the model with a larger context in LM Studio, or attach less/
+      /Load the model with a larger context in LM Studio/
     )
+  })
+
+  /**
+   * v1.17.3: the ingredients ride out with the error.
+   *
+   * The transport cannot check a context claim — it has no view of the
+   * conversation, the tool list or the window. The turn can, and the only way
+   * it gets to is if the raw frame text survives the throw beside the reading
+   * that was made without it.
+   */
+  test('the raw frame travels with the reading, so a caller with a number can re-read it', async () => {
+    const err = await round((async () =>
+      sseResponse(['data: {"error":{"message":"context length exceeded"}}\n\n'])) as typeof fetch).then(
+      () => null,
+      (e: unknown) => e as ExplainedError
+    )
+    assert.equal(err?.origin?.raw, 'context length exceeded')
+    assert.equal(err?.origin?.context.source, 'LM Studio')
   })
 
   test('a failure that is not about context is reported verbatim', async () => {
@@ -451,7 +475,7 @@ describe('streamChat · a failure the server puts in the stream', () => {
               seen += c
             }
           ),
-        /larger than the context/
+        /named the context length/
       )
     } finally {
       globalThis.fetch = original
@@ -494,6 +518,18 @@ describe('streamChat · a server that goes quiet', () => {
     assert.ok(FIRST_BYTE_TIMEOUT_MS <= 300_000)
   })
 
+  /**
+   * v1.17.4. This test used to assert `/sent nothing for 300s/`, and the
+   * sentence behind that pattern was `LM Studio accepted the request and then
+   * sent nothing for 300s.` — on a `fetch` that never resolves, i.e. on a
+   * request LM Studio had never accepted. The test's own name said so. The
+   * suite was pinning the exact defect the failure boundary exists to prevent:
+   * a true-sounding sentence naming a party the app had not established.
+   *
+   * The witness knows which, and the message is now chosen when the timer
+   * fires rather than when it is armed. Both silences are asserted, and each
+   * asserts that it is NOT the other one's sentence.
+   */
   test('a POST that is never answered fails with a cause, not a hang', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] })
     const pending = round(((_url: string, init: { signal: AbortSignal }) =>
@@ -501,7 +537,53 @@ describe('streamChat · a server that goes quiet', () => {
         init.signal.addEventListener('abort', () => reject(abortError()))
       })) as unknown as typeof fetch)
     t.mock.timers.tick(FIRST_BYTE_TIMEOUT_MS)
-    await assert.rejects(() => pending, /sent nothing for 300s/)
+    await assert.rejects(() => pending, /never answered the request — no reply headers came back for 300s/)
+    // The party it must not name: nothing was accepted, so nothing accepted it.
+    await assert.rejects(() => pending, (err: Error) => {
+      assert.doesNotMatch(err.message, /accepted the request/)
+      return true
+    })
+  })
+
+  /**
+   * The other half of the same ceiling, and the one no capture has ever
+   * reached: headers arrive, the body never starts, and five minutes later the
+   * transport is supposed to give up on its own. `gives up at 5:00` has been on
+   * screen since round 8 with nothing testing that the promise is kept once the
+   * request has actually been accepted — the abort has to travel from the
+   * watchdog through an already-delivered response into a pending `read()`.
+   */
+  test('a stream accepted and never begun gives up at the ceiling, and says which silence it was', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const witness = newWitness()
+    const original = globalThis.fetch
+    // The measured shape: take the POST, answer the headers, write nothing.
+    globalThis.fetch = ((_url: string, init: { signal: AbortSignal }) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              init.signal.addEventListener('abort', () => controller.error(abortError()))
+            }
+          }),
+          { status: 200 }
+        )
+      )) as unknown as typeof fetch
+    try {
+      const pending = streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+        () => {}, undefined, undefined, false, witness)
+      for (let i = 0; i < 50 && !witness.accepted; i++) await new Promise((r) => setImmediate(r))
+      assert.equal(witness.accepted, true, 'the headers have to land before the clock runs out')
+      assert.equal(witness.streamed, false)
+      t.mock.timers.tick(FIRST_BYTE_TIMEOUT_MS)
+      await assert.rejects(() => pending, /accepted the request and then sent nothing for 300s/)
+      await assert.rejects(() => pending, (err: Error) => {
+        assert.doesNotMatch(err.message, /never answered the request/)
+        return true
+      })
+    } finally {
+      globalThis.fetch = original
+    }
   })
 
   test('a stream that dies mid-answer says so, and keeps what arrived', async (t) => {
@@ -540,6 +622,298 @@ describe('streamChat · a server that goes quiet', () => {
       globalThis.fetch = original
     }
     assert.match(seen, /Half an answer/)
+  })
+})
+
+/**
+ * v1.17.3: the transport records who fell silent.
+ *
+ * `explainEmptyReply` can only be as right as what it is told, and what it is
+ * told is two booleans set here. The pair is one layer apart on purpose:
+ * headers arriving means the server took the request; a body byte arriving
+ * means a reply had begun. `accepted && !streamed` is the server's silence;
+ * `streamed` with no text is the model's.
+ *
+ * The witness is a mutable object rather than a return value for one reason,
+ * and the last test is that reason: on the measured case — a stall the user
+ * presses Stop on — this function leaves by the throw and never returns.
+ */
+describe('streamChat · what the transport witnessed', () => {
+  test('a clean empty stream: the server answered, a body arrived, no text did', async () => {
+    const witness = newWitness()
+    const original = globalThis.fetch
+    globalThis.fetch = (async () => sseResponse(['data: [DONE]\n\n'])) as typeof fetch
+    try {
+      await streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+        () => {}, undefined, undefined, false, witness)
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.equal(witness.accepted, true)
+    assert.equal(witness.streamed, true)
+    assert.equal(witness.completed, true, 'and the reader reached the end of it')
+    // Which is exactly the shape that must still be called the model's silence.
+    assert.match(
+      explainEmptyReply({ ...witness, produced: false, stoppedByUser: false, silentMs: 0 }).sentence,
+      /The model produced no text/
+    )
+  })
+
+  test('an immediately-closed empty 200: answered, but nothing was ever written', async () => {
+    const witness = newWitness()
+    const original = globalThis.fetch
+    globalThis.fetch = (async () => sseResponse([])) as typeof fetch
+    try {
+      await streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+        () => {}, undefined, undefined, false, witness)
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.equal(witness.accepted, true)
+    assert.equal(witness.streamed, false, 'no body byte arrived — this is the server, not the model')
+    assert.equal(witness.completed, true, 'but the body did end, cleanly — it was simply empty')
+    assert.match(
+      explainEmptyReply({ ...witness, produced: false, stoppedByUser: false, silentMs: 0 }).sentence,
+      /closed the connection without sending a reply/
+    )
+  })
+
+  /**
+   * v1.17.5, and the round-11 verdict against round 10's own repair.
+   *
+   * On the recorded context-overflow turn the screen carried, one message above
+   * the other: `The model produced no text. LM Studio answered and the reply ran
+   * to its end — it was simply empty.` and `The request was refused by LM
+   * Studio, which named the context length …`. 1 disagreeing pair in
+   * self-consistency, 1 contradiction in record-consistency, in both arms.
+   *
+   * The reply did not run to its end. `streamed` was carrying two meanings — *a
+   * reply began* and *a reply finished* — and only the first is what it
+   * observes. This is the transport half of the fix: the second meaning is
+   * recorded where it actually happens.
+   */
+  test('a refusal in the stream: a body arrived, and the reply never finished', async () => {
+    const witness = newWitness()
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      sseResponse([
+        'data: {"error":{"message":"context length exceeded"}}\n\n'
+      ])) as typeof fetch
+    try {
+      await assert.rejects(() =>
+        streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+          () => {}, undefined, undefined, false, witness)
+      )
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.equal(witness.accepted, true, 'LM Studio answered')
+    assert.equal(witness.streamed, true, 'and a body byte arrived — but only one, and it was a refusal')
+    assert.equal(witness.completed, false, 'the stream never reached its end: the transport threw')
+
+    const said = explainEmptyReply({
+      ...witness,
+      produced: false,
+      stoppedByUser: false,
+      silentMs: 0
+    })
+    // The contradiction, in the exact words both critics counted.
+    assert.doesNotMatch(said.sentence, /ran to its end/)
+    assert.doesNotMatch(said.sentence, /simply empty/)
+    assert.match(said.sentence, /ended before that reply did/)
+    // And no competing remedy over the refusal's own, which names what to shrink.
+    assert.equal(said.remedy, null)
+  })
+
+  test('a completed stream and a cut-off one differ by exactly one recorded fact', async () => {
+    // The true negative, taken from the transport rather than asserted by hand:
+    // the same shape of stream, ended properly, is still the model's silence.
+    const ran = newWitness()
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      sseResponse(['data: {"choices":[{"delta":{}}]}\n\n', 'data: [DONE]\n\n'])) as typeof fetch
+    try {
+      await streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+        () => {}, undefined, undefined, false, ran)
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.equal(ran.streamed, true)
+    assert.equal(ran.completed, true, 'the reader reported done — this reply really did run out')
+    assert.match(
+      explainEmptyReply({ ...ran, produced: false, stoppedByUser: false, silentMs: 0 }).sentence,
+      /The model produced no text\. LM Studio answered and the reply ran to its end/
+    )
+  })
+
+  test('an HTTP error is not a connection that closed without replying', async () => {
+    // The fifth ending. `!res.ok` throws before the reader loop, so `streamed`
+    // is false — the same pair as an empty 200, which is why that sentence used
+    // to stand over this. The server did reply here; it replied with a refusal.
+    const witness = newWitness()
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response('{"error":"model not found"}', { status: 404 })) as unknown as typeof fetch
+    try {
+      await assert.rejects(() =>
+        streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+          () => {}, undefined, undefined, false, witness)
+      , /HTTP 404/)
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.equal(witness.accepted, true)
+    assert.equal(witness.streamed, false)
+    assert.equal(witness.completed, false, 'there was never a body to reach the end of')
+
+    const said = explainEmptyReply({
+      ...witness,
+      produced: false,
+      stoppedByUser: false,
+      silentMs: 0
+    })
+    assert.doesNotMatch(said.sentence, /closed the connection without sending a reply/)
+    assert.doesNotMatch(said.sentence, /this is not a short answer/)
+    assert.match(said.sentence, /ended before any of the reply arrived/)
+  })
+
+  test('a later round that throws is not excused by an earlier one that finished', async () => {
+    // `completed` is the only one of the three that does not accumulate over a
+    // turn. The round that ended the turn is the one being described, and a
+    // tool loop's first round finishing says nothing about the round that threw.
+    const witness = newWitness()
+    const original = globalThis.fetch
+    let round = 0
+    globalThis.fetch = (async () =>
+      round++ === 0
+        ? sseResponse(['data: {"choices":[{"delta":{"content":"hi"}}]}\n\n', 'data: [DONE]\n\n'])
+        : sseResponse(['data: {"error":{"message":"context length exceeded"}}\n\n'])) as typeof fetch
+    try {
+      await streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+        () => {}, undefined, undefined, false, witness)
+      assert.equal(witness.completed, true, 'round one finished')
+      await assert.rejects(() =>
+        streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+          () => {}, undefined, undefined, false, witness)
+      )
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.equal(witness.completed, false, 'and round two did not')
+    assert.equal(witness.accepted, true, 'while the other two stay turn-scoped')
+    assert.equal(witness.streamed, true)
+  })
+
+  test('the measured stall: the record survives the abort that ends the turn', async () => {
+    const witness = newWitness()
+    const outer = new AbortController()
+    const original = globalThis.fetch
+    // The shim's behaviour: take the POST, answer the headers, write nothing.
+    globalThis.fetch = ((_url: string, init: { signal: AbortSignal }) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              init.signal.addEventListener('abort', () => controller.error(abortError()))
+            }
+          }),
+          { status: 200 }
+        )
+      )) as unknown as typeof fetch
+    try {
+      const pending = streamChat('http://localhost:1234/v1', 'q', HELLO, [], outer.signal,
+        () => {}, undefined, undefined, false, witness)
+      for (let i = 0; i < 50 && !witness.accepted; i++) await new Promise((r) => setImmediate(r))
+      outer.abort() // the user presses Stop
+      await assert.rejects(() => pending)
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.equal(witness.accepted, true, 'the POST was taken — the address is right')
+    assert.equal(witness.streamed, false, 'and nothing was ever written back')
+    assert.equal(witness.completed, false, 'the reply was never finished, it was interrupted')
+    const said = explainEmptyReply({
+      ...witness,
+      produced: false,
+      stoppedByUser: true,
+      silentMs: 90_000
+    }).sentence
+    assert.match(said, /You stopped this turn/)
+    assert.match(said, /sent nothing at all for 90s/)
+    // The round-9 defect, gone: the model is not blamed for a reply that the
+    // transport can prove never started.
+    assert.doesNotMatch(said, /nothing came back from the model/)
+  })
+})
+
+/**
+ * v1.17.4: the same two facts, asked about the request in flight.
+ *
+ * The pair above is turn-scoped and is read once, at the end. The thinking
+ * indicator asks a different question — what is happening to the request I am
+ * waiting on *now* — and a tool loop makes the two disagree: round two arms the
+ * five-minute first-byte ceiling afresh, so round one having streamed says
+ * nothing about the silence the reader is sitting in.
+ *
+ * MessageBubble used to guess it from the message instead, and the guess was
+ * wrong in exactly that case: after any tool call it declared the stream
+ * started for the rest of the turn, and the wait line promised `gives up at
+ * 1:00` against a deadline four minutes further out.
+ */
+describe('streamChat · the request in flight, round by round', () => {
+  test('a second round starts from nothing seen, and says so as it happens', async () => {
+    const witness = newWitness()
+    const seen: { accepted: boolean; streamed: boolean }[] = []
+    witness.onChange = (): void => {
+      seen.push({ ...witness.round })
+    }
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      sseResponse(['data: {"choices":[{"delta":{"content":"hi"}}]}\n\n', 'data: [DONE]\n\n'])) as typeof fetch
+    try {
+      for (let round = 0; round < 2; round++) {
+        await streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+          () => {}, undefined, undefined, false, witness)
+      }
+    } finally {
+      globalThis.fetch = original
+    }
+
+    // Three transitions per round, in order, and the second round's first one
+    // is the reset: the deadline the reader is shown depends on it.
+    assert.deepEqual(seen, [
+      { accepted: false, streamed: false },
+      { accepted: true, streamed: false },
+      { accepted: true, streamed: true },
+      { accepted: false, streamed: false },
+      { accepted: true, streamed: false },
+      { accepted: true, streamed: true }
+    ])
+
+    // The turn-scoped pair is untouched by any of this — it still answers the
+    // question explainEmptyReply asks, about the turn as a whole.
+    assert.equal(witness.accepted, true)
+    assert.equal(witness.streamed, true)
+  })
+
+  test('the screen learns the request went out before anything comes back', async () => {
+    // The first publish happens at the request, not at the response: a wait
+    // whose record only appears once headers land would spend its opening
+    // seconds unable to say even that a request is open.
+    const witness = newWitness()
+    let firstSeen: { accepted: boolean; streamed: boolean } | null = null
+    witness.onChange = (): void => {
+      firstSeen ??= { ...witness.round }
+    }
+    const original = globalThis.fetch
+    globalThis.fetch = (async () => sseResponse(['data: [DONE]\n\n'])) as typeof fetch
+    try {
+      await streamChat('http://localhost:1234/v1', 'q', HELLO, [], new AbortController().signal,
+        () => {}, undefined, undefined, false, witness)
+    } finally {
+      globalThis.fetch = original
+    }
+    assert.deepEqual(firstSeen, { accepted: false, streamed: false })
   })
 })
 

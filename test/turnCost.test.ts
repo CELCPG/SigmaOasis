@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { formatTurnCost, gatherMs, tailMs } from '../src/renderer/src/lib/turnCost'
 import { VERIFY_BUDGET_MS, createVerifyBudget } from '../src/renderer/src/lib/turnPhase'
+import { describeRecompute } from '../src/renderer/src/lib/workbenchChecks'
 import type { ResponseStats } from '../src/renderer/src/types'
 
 /**
@@ -155,7 +156,19 @@ describe('the post-answer tail has a deadline that fires with a name', () => {
     budget.stop()
   })
 
-  test('a pass still running when the deadline fires counts as not run', (t) => {
+  /**
+   * Round 13 splits the two states this line used to spell the same way.
+   *
+   * `Not run` over a pass that never began is true. `Not run` over a pass the
+   * deadline caught in flight is the defect round 12 repaired one pass over:
+   * on `.h2h-runs/judge-r12/TTU1` it printed `Not run: the revision` directly
+   * under `∅ 🔍 deep_research` — a row the revision itself had put there. The
+   * revision ran; what it did not do was finish. So a pass that began and was
+   * cut off is now named as cut short, and `Not run` keeps the one meaning it
+   * can always stand behind: the deadline was already spent when this pass was
+   * asked for.
+   */
+  test('a pass still running when the deadline fires is cut short, not never-started', (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
     const budget = createVerifyBudget()
     assert.equal(budget.admits('revising'), true)
@@ -164,7 +177,115 @@ describe('the post-answer tail has a deadline that fires with a name', () => {
     const notice = budget.notice()
     assert.ok(notice)
     assert.match(notice.summary, /Ran: nothing/)
-    assert.match(notice.summary, /Not run: the revision/)
+    assert.match(notice.summary, /Cut short: the revision/)
+    assert.doesNotMatch(
+      notice.summary,
+      /Not run/,
+      'a pass that began and was stopped is not a pass that never began'
+    )
+    budget.stop()
+  })
+
+  test('the two states are told apart on one turn', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const budget = createVerifyBudget()
+    budget.ran('code')
+    assert.equal(budget.admits('revising'), true, 'the revision started inside the minute')
+    t.mock.timers.tick(VERIFY_BUDGET_MS + 500)
+    assert.equal(budget.admits('recompute'), false, 'the recomputation never began')
+    const notice = budget.notice()
+    assert.ok(notice)
+    assert.match(
+      notice.summary,
+      /Ran: the code check\. Cut short: the revision\. Not run: the recomputation\./,
+      notice.summary
+    )
+    budget.stop()
+  })
+
+  /**
+   * FR3 (`.h2h-runs/B10/FR3-20260827-224622`) replayed against the two pieces
+   * the turn joins: the budget, and the pass's own account of itself. The
+   * recomputation's `run_python` takes no abort signal, so a program admitted at
+   * 57 s prints its output after the 60 s deadline — measured, `62.2s checking`
+   * — and the line the reader gets is `describeRecompute({ ran: true, ok: true })`
+   * with the program and its stdout above it.
+   */
+  test('a pass that finished after the deadline is not named as one that never ran', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const budget = createVerifyBudget()
+    assert.equal(budget.admits('code'), true)
+    budget.ran('code')
+    t.mock.timers.tick(57_000)
+    assert.equal(budget.admits('recompute'), true, 'there was still time when it started')
+    // The model wrote the program, the sandbox booted, the run printed — and
+    // the deadline passed somewhere in the middle of that.
+    t.mock.timers.tick(5_200)
+    assert.equal(budget.expired(), true)
+    const shown = describeRecompute({ ran: true, ok: true })
+    assert.match(shown.summary, /Recomputed the stated figures/)
+    if (shown.ran) budget.ran('recompute')
+    // The revision is the pass this turn really lost, and the gate has to ask
+    // the budget to find that out — see the `!signal.aborted` reordering.
+    assert.equal(budget.admits('revising'), false)
+
+    const notice = budget.notice()
+    assert.ok(notice, 'the deadline still fired, and the pass it cost is still named')
+    assert.doesNotMatch(
+      notice.summary,
+      /Not run:[^.]*the recomputation/,
+      'measured: "Not run: the recomputation" directly under "🧮 Recomputed the stated figures in Python"'
+    )
+    // Which is the line the previous build got right on its own FR3 run
+    // (`.h2h-runs/A10/FR3-20260827-233154`) — by luck of timing, not by rule.
+    assert.match(notice.summary, /Ran: the code check, the recomputation\. Not run: the revision\./)
+    budget.stop()
+  })
+
+  /**
+   * And the reason the notice appears at all on that turn: the gates that
+   * precede `admits` used to test `stopped()`, which is true the moment the
+   * deadline fires. A pass the budget was about to refuse was skipped before
+   * the budget could count it — so the expiry either named the wrong pass or,
+   * once the recomputation stopped being misreported, named none and said
+   * nothing.
+   */
+  test('a pass the deadline refuses is recorded, not skipped silently', () => {
+    const source = readFileSync(USE_LM_STUDIO, 'utf-8')
+    assert.ok(
+      source.includes("!autoCorrect || signal.aborted || !budget.admits('revising')"),
+      'the revision gate must reach `admits` when it is the deadline that stopped it'
+    )
+    assert.ok(
+      !/!stopped\(\) &&\n\s*looksArithmetic/.test(source),
+      'the recompute gate must not skip `admits` on an expired budget'
+    )
+  })
+
+  /**
+   * The true negative, and the reason the old guard existed at all: a pass the
+   * deadline genuinely cut off must still be named. `runRecompute` swallows the
+   * abort and returns, so its returning is not evidence — what it returns is.
+   * It is named as cut short rather than as never run, which is the state it
+   * was actually in: admitted, started, and stopped before it produced a line.
+   */
+  test('a pass the deadline actually cut off is still named', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const budget = createVerifyBudget()
+    assert.equal(budget.admits('recompute'), true)
+    t.mock.timers.tick(VERIFY_BUDGET_MS + 1)
+    // The stream was aborted before a program came back, so nothing was run.
+    const shown = describeRecompute({ ran: false, ok: false, note: 'cancelled' })
+    assert.match(shown.summary, /Recompute skipped/)
+    if (shown.ran) budget.ran('recompute')
+
+    const notice = budget.notice()
+    assert.ok(notice)
+    assert.match(notice.summary, /Cut short: the recomputation/)
+    assert.match(notice.summary, /Ran: nothing/)
+    // One millisecond past the minute is not an overrun the reader can see —
+    // it prints as `60.0s checking`, so the plain sentence is still the true one.
+    assert.match(notice.summary, /^⏱ Checking stopped at its 60s limit\./)
     budget.stop()
   })
 
@@ -203,13 +324,247 @@ describe('the post-answer tail has a deadline that fires with a name', () => {
   })
 })
 
+/**
+ * Round 13. TTU1, both arms, the single disagreeing pair each blind critic
+ * found — one message carrying two app-written lines that cannot both be true:
+ *
+ *   ⏱ Checking stopped at its 60s limit. Ran: the code check. Not run: the revision.
+ *   … 9.2s gathering · 54.3s answer · 114.1s checking · 177.7s total
+ *
+ * The recorded cause is in the same capture, four lines up: `∅ 🔍 deep_research
+ * — … Searched 8×, read 3 page(s) across 1 domain(s) in 93s.` The revision pass
+ * was admitted at ~1 s with the whole minute in front of it, asked the model for
+ * a correction, and the model called `deep_research`. `window.api.executeTool`
+ * is an IPC round trip with no cancellation path, so when the deadline fired
+ * mid-campaign it aborted the model streams and refused everything that had not
+ * started — and the campaign ran to its own end, 54 s later.
+ *
+ * The other arm is the same shape with a shorter campaign: `A12/TTU1`, 44 s of
+ * `deep_research`, `81.3s checking`. So neither number was wrong. The sentence
+ * was: nothing stopped at 60 s except the starting of new work.
+ */
+describe('a limit on what starts, said as a limit on what starts', () => {
+  /** The two recorded overruns, and the two figures each must reconcile. */
+  const RECORDED = [
+    { run: 'judge-r12/TTU1/run-1 (B12)', tail: 114_100, printed: '114.1s' },
+    { run: 'judge-r12/TTU1/run-2 (A12)', tail: 81_300, printed: '81.3s' }
+  ] as const
+
+  for (const { run, tail, printed } of RECORDED) {
+    test(`${run}: the line says what stopped at the limit and what did not`, (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+      const budget = createVerifyBudget()
+      budget.ran('code')
+      assert.equal(budget.admits('revising'), true, 'the revision began inside the minute')
+      // The revision's own deep_research, dispatched before the deadline and
+      // uninterruptible after it.
+      t.mock.timers.tick(tail)
+      assert.equal(budget.expired(), true)
+      const notice = budget.notice()
+      assert.ok(notice)
+      // The decision, stated as a decision.
+      assert.match(
+        notice.summary,
+        /Checking stopped starting new work at its 60s limit/,
+        notice.summary
+      )
+      // The wall clock, stated as the wall clock — and in the stat line's own
+      // figure, so the reader comparing the two lines is comparing one number.
+      assert.ok(
+        notice.summary.includes(`carried it to ${printed}.`),
+        `the notice must quote the same span the footer prints as "${printed} checking"; got: ${notice.summary}`
+      )
+      assert.match(notice.summary, /Ran: the code check\./, notice.summary)
+      assert.match(notice.summary, /Cut short: the revision\./, notice.summary)
+      assert.doesNotMatch(
+        notice.summary,
+        /Not run: the revision/,
+        'the revision put a deep_research row on the screen; it ran and did not finish'
+      )
+      budget.stop()
+    })
+  }
+
+  /**
+   * The true negative, and it is a recorded one: a second critic on a different
+   * task scored the very same pair of lines as AGREEING, because there the
+   * checking figure really was 60.1 s.
+   *
+   *   ⏱ Checking stopped at its 60s limit. Ran: the code check. Not run: the
+   *     revision, the recomputation.
+   *   … 60.1s checking · 163.3s total          (.h2h-runs/judge-r12/V3/run-1)
+   *
+   * Nothing was in flight when the minute ran out there — both remaining passes
+   * were refused at their gates — so the sentence that was wrong on TTU1 is the
+   * right one here, word for word, and must not acquire an overrun clause it
+   * has nothing to report.
+   */
+  test('V3: a tail that respects the limit keeps the plain sentence', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const budget = createVerifyBudget()
+    budget.ran('code')
+    t.mock.timers.tick(60_100)
+    assert.equal(budget.admits('revising'), false)
+    assert.equal(budget.admits('recompute'), false)
+    const notice = budget.notice()
+    assert.ok(notice)
+    assert.equal(
+      notice.summary,
+      '⏱ Checking stopped at its 60s limit. Ran: the code check. ' +
+        'Not run: the revision, the recomputation. The answer above is unchanged.',
+      notice.summary
+    )
+    budget.stop()
+  })
+
+  /** The other recorded agreeing pair, also at 60.1 s (`.h2h-runs/B10/TH2`). */
+  test('TH2: the second respected limit is word for word the sentence it had', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const budget = createVerifyBudget()
+    budget.ran('claims')
+    budget.ran('code')
+    t.mock.timers.tick(60_100)
+    assert.equal(budget.admits('revising'), false)
+    const notice = budget.notice()
+    assert.ok(notice)
+    assert.equal(
+      notice.summary,
+      '⏱ Checking stopped at its 60s limit. Ran: the claim check, the code check. ' +
+        'Not run: the revision. The answer above is unchanged.',
+      notice.summary
+    )
+    budget.stop()
+  })
+
+  /**
+   * The boundary between the two sentences, from the recorded spread. Every
+   * honest tail in `.h2h-runs` lands at 60.0–60.3 s and reads as agreement; the
+   * overruns are 62.2, 69.4, 81.3 and 114.1. A second is the gap.
+   */
+  test('the overrun clause appears exactly where the figures stop agreeing', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    for (const [ms, overrun] of [
+      [60_000, false],
+      [60_100, false],
+      [60_300, false],
+      [60_999, false],
+      [61_000, true],
+      [62_200, true],
+      [69_400, true]
+    ] as const) {
+      const budget = createVerifyBudget()
+      assert.equal(budget.admits('revising'), true)
+      t.mock.timers.tick(ms)
+      const notice = budget.notice()
+      assert.ok(notice)
+      assert.equal(
+        notice.summary.startsWith('⏱ Checking stopped starting new work'),
+        overrun,
+        `${(ms / 1000).toFixed(1)}s: ${notice.summary}`
+      )
+      budget.stop()
+    }
+  })
+
+  /**
+   * The deadline counts the same span the stat line calls "checking".
+   *
+   * It used to count from the moment `runTurn` reached `createVerifyBudget`,
+   * which is after the paced tail drain and the turn's end-of-stream
+   * bookkeeping — a few hundred milliseconds the footer bills to checking and
+   * the budget did not. That gap is the whole reason a tail that behaved
+   * perfectly printed `60.1s checking` beside a `60s limit`.
+   */
+  test('the budget counts from the last token, not from where the code reaches it', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const lastToken = Date.now()
+    // The paced drain (TAIL_DRAIN_MS) plus the ending patch, before the tail.
+    t.mock.timers.tick(450)
+    const budget = createVerifyBudget(VERIFY_BUDGET_MS, undefined, lastToken)
+    assert.equal(budget.remainingMs(), VERIFY_BUDGET_MS - 450, 'the drain is part of the wait')
+    assert.equal(budget.admits('revising'), true)
+    // 59.55 s of checking after that: the minute is up, measured from the token.
+    t.mock.timers.tick(VERIFY_BUDGET_MS - 450)
+    assert.equal(budget.expired(), true, 'the deadline fires 60s after the answer ended')
+    assert.equal(budget.elapsedMs(), VERIFY_BUDGET_MS)
+    const notice = budget.notice()
+    assert.ok(notice)
+    assert.match(
+      notice.summary,
+      /^⏱ Checking stopped at its 60s limit\./,
+      'measured from the same origin, an honest tail is not an overrun'
+    )
+    budget.stop()
+  })
+
+  /**
+   * And the two figures are one measurement. `runVerificationTail` takes a
+   * single stamp and hands it to both `notice()` and `turnMs`, so the notice
+   * cannot quote 114.0 while the footer prints 114.1.
+   */
+  test('the notice and the stat line quote the same number, not two readings', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const turnOpenedAt = Date.now()
+    const gather = 9_200
+    const answer = 54_300
+    const answerEndedAt = turnOpenedAt + gather + answer
+    t.mock.timers.tick(gather + answer)
+    const budget = createVerifyBudget(VERIFY_BUDGET_MS, undefined, answerEndedAt)
+    assert.equal(budget.admits('revising'), true)
+    t.mock.timers.tick(114_100)
+
+    const tailEndedAt = Date.now()
+    const notice = budget.notice(tailEndedAt)
+    const line = formatTurnCost(
+      stats({ gatherMs: gather, totalMs: answer, turnMs: tailEndedAt - turnOpenedAt })
+    )
+    assert.ok(notice)
+    assert.ok(line.includes('114.1s checking'), line)
+    assert.ok(notice.summary.includes('114.1s'), notice.summary)
+    assert.ok(line.includes('177.6s total'), line)
+    budget.stop()
+  })
+
+  /**
+   * The other half of "the limit bounds what we start": it has to be true of
+   * tool calls too, or the sentence over-claims again. The loop checked its
+   * signal between rounds and never between the calls one round asked for, so
+   * a round requesting three tools dispatched all three however long ago the
+   * deadline had fired.
+   */
+  test('no further tool call is dispatched once the deadline has landed', () => {
+    const loop = readFileSync(
+      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'lib', 'agentLoop.ts'),
+      'utf-8'
+    )
+    const start = loop.indexOf('for (const tc of round.toolCalls)')
+    assert.ok(start > 0, 'the per-call loop not found')
+    const body = loop.slice(start, loop.indexOf('deps.executeTool', start))
+    assert.ok(
+      /if \(signal\.aborted\)/.test(body),
+      'a spent deadline must refuse the calls of a round it has not yet sent'
+    )
+    assert.ok(body.includes('declinedCall('), 'nothing was contacted, so nothing broke')
+  })
+})
+
 describe('the turn runs its tail under the budget', () => {
   const source = readFileSync(USE_LM_STUDIO, 'utf-8')
 
   test('one budget covers the whole tail, and it is disarmed', () => {
     assert.ok(
-      source.includes('createVerifyBudget(VERIFY_BUDGET_MS, signal)'),
+      /createVerifyBudget\(\s*VERIFY_BUDGET_MS,\s*signal,/.test(source),
       'the tail must open a budget bound to the turn signal'
+    )
+    // …counted from the last token, which is where the stat line starts its
+    // "checking" span. Two origins were two clocks (round 13).
+    assert.ok(
+      /createVerifyBudget\([^)]*answerEndedAt/s.test(source),
+      'the budget must count the same span the footer calls "checking"'
+    )
+    assert.ok(
+      source.includes('answerEndedAt = Date.now()') && source.includes('totalMs: answerEndedAt - turnStartedAt'),
+      'that origin must be the very stamp `totalMs` is measured to'
     )
     assert.equal(
       (source.match(/createVerifyBudget\(/g) ?? []).length,
@@ -226,6 +581,39 @@ describe('the turn runs its tail under the budget', () => {
     }
   })
 
+  /**
+   * Round 11, FR3 (`.h2h-runs/B10/FR3-20260827-224622`), two lines apart:
+   *
+   *   🧮 Recomputed the stated figures in Python; the reply's numbers were
+   *      compared against that output.
+   *   ⏱ Checking stopped at its 60s limit. Ran: the code check. Not run: the
+   *      recomputation.
+   *
+   * The program, its stdout and the comparison were all on screen, above a line
+   * saying the pass had not run. The capture's own footer reads `62.2s
+   * checking` against a 60 s budget: the recomputation's `run_python` — which
+   * is not wired to the budget signal, so it always finishes — started inside
+   * the deadline and printed 2.2 s after it. `if (!budget.signal.aborted)
+   * budget.ran('recompute')` then withheld the completion, because it asks the
+   * clock what the pass did.
+   *
+   * A10/FR3 got the same line right (`Ran: the code check, the recomputation`)
+   * for one reason: its recompute finished a moment inside the budget. The
+   * difference between the two arms was timing, not code.
+   */
+  test('no pass reports its completion by asking the clock', () => {
+    assert.ok(
+      !/if \(!budget\.signal\.aborted\) budget\.ran\(/.test(source),
+      'the deadline notice must be composed from what each pass did, not from when it returned'
+    )
+  })
+
+  test('each pass hands the budget its own account of what it got done', () => {
+    assert.ok(source.includes("if (recompute.ran) budget.ran('recompute')"), 'the recomputation reports itself')
+    assert.ok(source.includes("if (revised.trim()) budget.ran('revising')"), 'the revision is its own evidence')
+    assert.ok(source.includes("if (checked) budget.ran('claims')"), 'the claim check reports itself')
+  })
+
   test('a pass already in flight is handed the budget signal, not just the turn signal', () => {
     // runClaimCheck / runAutoCritic / runRecompute / reviseAgainstFindings all
     // take an AbortSignal; gating alone would leave the pass that is already
@@ -237,18 +625,24 @@ describe('the turn runs its tail under the budget', () => {
   })
 
   test('the expiry reaches the reader as a check, and the turn still finishes', () => {
-    assert.ok(source.includes('budget.notice()'), 'the expiry must be read')
+    assert.ok(source.includes('budget.notice(tailEndedAt)'), 'the expiry must be read')
     assert.ok(source.includes('checks.push(notice)'), 'and disclosed on the message')
     // Whatever the tail did, the turn is measured end to end and the stat line
     // gets the real number. Round 6 moves the origin back: "end to end" now
     // means from the turn opening, not from the first request — see below.
     assert.ok(
-      source.includes('turnMs: Date.now() - turnOpenedAt'),
+      source.includes('turnMs: tailEndedAt - turnOpenedAt'),
       'the turn must be measured to the moment the composer is released, from the moment it opened'
     )
     assert.ok(
-      !source.includes('turnMs: Date.now() - turnStartedAt'),
+      !/turnMs: Date\.now\(\) - turnStartedAt/.test(source),
       'turnStartedAt is stamped after the providers have run, so it cannot be the turn’s origin'
+    )
+    // Round 13: one stamp feeds both, so the notice's figure and the stat
+    // line's "Ns checking" cannot round to different tenths of the same span.
+    assert.ok(
+      source.includes('const tailEndedAt = Date.now()'),
+      'the tail must be stamped once and read twice, not read twice from the clock'
     )
   })
 })

@@ -1,8 +1,8 @@
 import { useState, type CSSProperties } from 'react'
 import type { ToolCallRecord } from '../types'
-import { declinedToCall, foundNothing } from '../lib/grounding'
+import { OUTCOME_NOTE, callOutcome } from '../lib/grounding'
 import { readToolFailure } from '../../../shared/tools/outcomes'
-import { composeFailure, copyableFailure } from '../../../shared/failure'
+import { composeFailure, copyableFailure, readingLine } from '../../../shared/failure'
 import { toolVisualForName } from '../lib/oasisRipple'
 import { Disclosure } from './Disclosure'
 
@@ -22,7 +22,13 @@ const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
  * is the whole of what a reader sees, so the distinction has to live there.
  */
 const EMPTY_ICON = '∅'
-export const EMPTY_RESULT_NOTE = 'found nothing'
+/**
+ * v2.3: the words are `lib/grounding.ts`'s, not this file's. The four states
+ * were decided here and read back nowhere else, so the "Checked against"
+ * footer classified the same records for itself off `record.status` and got a
+ * different answer — see `callOutcome`.
+ */
+export const EMPTY_RESULT_NOTE = OUTCOME_NOTE.empty
 
 /**
  * And a call the app declined to make is not a failure either.
@@ -40,7 +46,7 @@ export const EMPTY_RESULT_NOTE = 'found nothing'
  * `∅` earns "— found nothing".
  */
 const DECLINED_ICON = '↩'
-export const DECLINED_NOTE = 'declined'
+export const DECLINED_NOTE = OUTCOME_NOTE.declined
 
 /** Collapsible block for a tool call — or a model-to-model consultation. */
 export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Element {
@@ -49,8 +55,9 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
 
   const isConsult = record.name === 'consult_model'
   const visual = toolVisualForName(record.name)
-  const empty = record.status === 'done' && foundNothing(record)
-  const declined = declinedToCall(record)
+  const outcome = callOutcome(record)
+  const empty = outcome === 'empty'
+  const declined = outcome === 'declined'
   // A failure the reader cannot name is a failure they have to open a
   // disclosure to understand. Both broken states carry their reason; a decline
   // has no provider error to quote, so the reason is the app's own sentence.
@@ -82,11 +89,11 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
             declined
               ? 'text-ink-secondary'
               : record.status === 'error'
-                ? 'text-red-500'
+                ? 'text-ink-danger'
                 : empty
-                  ? 'text-amber-600 dark:text-amber-400'
+                  ? 'text-ink-warn'
                   : record.status === 'done'
-                    ? 'text-green-500'
+                    ? 'text-ink-ok'
                     : ''
           }
           title={
@@ -116,11 +123,11 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
         >
           {label}
         </span>
-        {empty && <span className="text-amber-600 dark:text-amber-400">— {EMPTY_RESULT_NOTE}</span>}
+        {empty && <span className="text-ink-warn">— {EMPTY_RESULT_NOTE}</span>}
         {/* The row states the state in words too: a glyph is not a reading. */}
         {reason && failure && (
           <span
-            className={declined ? 'min-w-0 truncate text-ink-secondary' : 'min-w-0 truncate text-red-500'}
+            className={declined ? 'min-w-0 truncate text-ink-secondary' : 'min-w-0 truncate text-ink-danger'}
             // The hover text is the same reading the disclosure gives, evidence
             // and all — not the raw result, which also carries the model's
             // coaching and has no business in a tooltip.
@@ -178,6 +185,14 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
                   <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono text-ink-secondary">
                     {failure.detail.text}
                   </pre>
+                  {/* v2.5: the same gloss the banner's disclosure carries. This
+                      surface already leads with `failure.sentence`, so the line
+                      is not load-bearing here — it is here because which
+                      surfaces "need" it is a per-case judgement, and the banner
+                      is the case that judgement already got wrong. */}
+                  {readingLine(failure.detail) && (
+                    <p className="mt-1 text-ink-tertiary">{readingLine(failure.detail)}</p>
+                  )}
                 </>
               )}
               {/* The identifier is one keystroke away for whoever needs it —

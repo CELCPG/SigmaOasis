@@ -38,6 +38,12 @@ export const researchToolDefs = [
     toggleDefault: true,
     // One campaign per turn.
     turnBudget: 1,
-    isSource: true
+    isSource: true,
+    // v2.3: a campaign that searched and read and came back with no usable
+    // source worked; it just supplied nothing. It used to return that as an
+    // error, so the row wore `✗` and the "Checked against" footer said
+    // `deep_research (errored)` over a row reading "No usable sources were
+    // found" — one call, two accounts (FR3, `.h2h-runs/B10/FR3-20260827-224622`).
+    emptyResultLead: 'No usable sources were found'
   }
 ] as const satisfies readonly ToolMeta[]

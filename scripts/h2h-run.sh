@@ -12,6 +12,13 @@
 #
 # Arms differ only in --app. Everything else — prompts, settings, fixtures,
 # actions, the driver — is the same code driving both, which is the whole point.
+#
+# That "same driver" is not free, and round 10 paid for it: the sweep was
+# launched from a checkout that did not have the round's own instrumentation in
+# it, and produced 36 runs missing the three fields the round had just built.
+# The capture now refuses to start when the harness is behind the build named by
+# --app (exit 5, handled below), and make-blind-pairs.mjs refuses to stage a
+# pair whose two runs were measured by different harnesses.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -207,6 +214,20 @@ for ID in "${IDS[@]}"; do
     lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || break
     sleep 1
   done
+  # Exit 5 is the capture refusing to run at all: the harness this sweep is
+  # driving with is behind the build it was pointed at, so every run it would
+  # produce is missing measurements the build expects. That is a fact about the
+  # sweep, not about this task — the next seventeen tasks would fail the same
+  # way and bury the message under their own output. Stop here.
+  if [ "$STATUS" = "5" ]; then
+    echo >&2
+    echo "=== $ARM: SWEEP ABORTED at $LABEL ==============================" >&2
+    echo "The capture refused this run: the harness is stale relative to --app." >&2
+    echo "Nothing further was captured. See the refusal above." >&2
+    echo "captured before the abort: ${OK[*]:-none}" >&2
+    exit 5
+  fi
+
   if [ "$STATUS" = "0" ]; then OK+=("$LABEL")
   elif [ "$STATUS" = "3" ]; then INVALID+=("$LABEL")
   elif [ "$STATUS" = "124" ]; then FAILED+=("$LABEL(deadline)")

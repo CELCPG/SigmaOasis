@@ -53,7 +53,7 @@ export function RanCodeHeader({
       className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-black/10 dark:hover:bg-white/5"
       title={running && booting ? `${SANDBOX_BOOT_WAIT.label} — ${SANDBOX_BOOT_WAIT.detail}` : explainRun(parsed)}
     >
-      <span className={status === 'error' ? 'text-red-500' : status === 'done' ? 'text-green-500' : ''}>
+      <span className={status === 'error' ? 'text-ink-danger' : status === 'done' ? 'text-ink-ok' : ''}>
         {running ? '⏳' : status === 'done' ? '✓' : '✗'}
       </span>
       <span className="font-medium">⚡ Ran Python</span>

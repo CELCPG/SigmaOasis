@@ -14,17 +14,17 @@ const VERDICT_STYLE: Record<ClaimVerdict, { icon: string; label: string; classes
   confirmed: {
     icon: '✓',
     label: 'Confirmed',
-    classes: 'text-emerald-600 dark:text-emerald-400'
+    classes: 'text-ink-ok'
   },
   contradicted: {
     icon: '✗',
     label: 'Contradicted',
-    classes: 'text-red-600 dark:text-red-400'
+    classes: 'text-ink-danger'
   },
   unverifiable: {
     icon: '?',
     label: 'Unverifiable',
-    classes: 'text-amber-600 dark:text-amber-400'
+    classes: 'text-ink-warn'
   },
   // Not a verdict — an admission that no verdict was reached, and why.
   unchecked: {
@@ -67,7 +67,7 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-amber-400/10"
       >
         <span className={isStreaming ? 'animate-pulse' : ''}>🧪</span>
-        <span className="min-w-0 font-medium text-amber-700 dark:text-amber-300">{summary}</span>
+        <span className="min-w-0 font-medium text-ink-warn">{summary}</span>
         {check.modelId && (
           <span className="min-w-0 truncate font-mono text-[10px] text-ink-tertiary">
             {check.roleName} · {check.modelId}
@@ -105,7 +105,7 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
             <button
               type="button"
               onClick={() => openSettingsAt(UNREACHABLE_REMEDY.tab)}
-              className="mt-2 rounded-lg border border-amber-400/40 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-400/10 dark:text-amber-300"
+              className="mt-2 rounded-lg border border-amber-400/40 px-2 py-0.5 text-[10px] font-medium text-ink-warn hover:bg-amber-400/10 dark:text-ink-warn"
             >
               Open {UNREACHABLE_REMEDY.label}
             </button>

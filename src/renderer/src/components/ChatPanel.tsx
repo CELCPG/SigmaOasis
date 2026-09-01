@@ -68,7 +68,7 @@ export function ChatPanel(): JSX.Element {
             </span>
             {conversation?.ephemeral && (
               <span
-                className="rounded-full border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-500 dark:text-violet-300"
+                className="rounded-full border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-600 dark:text-violet-300"
                 title="This chat lives only in memory. Nothing is written to disk; it is gone when you close it or quit."
               >
                 ◌ ephemeral
@@ -216,7 +216,7 @@ function ProjectSection({ conversation }: { conversation: Conversation }): JSX.E
             </span>
             {missing.length > 0 && (
               <span
-                className="block text-amber-600 dark:text-amber-400"
+                className="block text-ink-warn"
                 title={missing.map((f) => f.sourcePath).join('\n')}
               >
                 ⚠ {missing.length} pinned file{missing.length === 1 ? '' : 's'} not found on disk

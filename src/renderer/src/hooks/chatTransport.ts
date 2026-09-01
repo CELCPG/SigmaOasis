@@ -36,6 +36,25 @@ export const TAIL_FLUSH_MS = 33
 const CATCH_UP_SNAP_CHARS = 1200
 
 /**
+ * How long the tail may still be painting after the stream has ended.
+ *
+ * While tokens are arriving the glide above is time-free: it eats a fraction of
+ * the backlog per frame, and the stream keeps refilling it. Once the stream
+ * ends there is nothing left to smooth against, and that same fraction turns
+ * into an open-ended typewriter — a 65-character backlog took ~560 ms to
+ * finish, which is how a reply reached a screenshot reading
+ * `…household's unique needs (pet` against a model that wrote `(pets, seniors,
+ * infants).`
+ *
+ * So the drain gets a deadline instead of a rate: each frame moves the share of
+ * what is left that the elapsed time is of the time remaining, which lands the
+ * last character on the deadline whether five characters are outstanding or
+ * twelve hundred. 0.4s is the length of the .stream-edge fade, so the final
+ * word gets exactly one of them.
+ */
+export const TAIL_DRAIN_MS = 400
+
+/**
  * Frames stop entirely in an occluded window. When the last frame is this
  * stale, the pacer assumes occlusion and flushes whole chunks from the network
  * callback instead — the pre-v2.1 behavior, which is the one that keeps
@@ -58,7 +77,24 @@ export const FIRST_BYTE_TIMEOUT_MS = 300_000
  */
 export const STREAM_STALL_MS = 60_000
 
-const NO_ANSWER = `LM Studio accepted the request and then sent nothing for ${FIRST_BYTE_TIMEOUT_MS / 1000}s. The server is not answering — check that the model is still loaded in LM Studio, then try again.`
+/**
+ * v1.17.4: one silence was two events, and the suite pinned the wrong one.
+ *
+ * Through v1.17.3 a single constant covered the whole first-byte ceiling —
+ * `LM Studio accepted the request and then sent nothing for 300s.` — and
+ * test/llmTimeouts.test.ts asserted it against a `fetch` that never resolves:
+ * a request whose response headers never arrived, i.e. one LM Studio had NOT
+ * accepted. The test's own name says so ("a POST that is never answered")
+ * while the sentence it pinned says the opposite.
+ *
+ * That is round 9's defect living inside the module built to end it — the app
+ * stating as its own finding something it had not established — and the fact
+ * that settles it was already being recorded three lines away. `accepted` is
+ * read when the timer FIRES rather than when it is armed, because `accepted`
+ * is precisely the thing that may change in between.
+ */
+const NEVER_ANSWERED = `LM Studio never answered the request — no reply headers came back for ${FIRST_BYTE_TIMEOUT_MS / 1000}s. Check that LM Studio is running with its server started, then try again.`
+const ACCEPTED_THEN_SILENT = `LM Studio accepted the request and then sent nothing for ${FIRST_BYTE_TIMEOUT_MS / 1000}s. The server took the request, so the address is right — check that the model is still loaded in LM Studio, then try again.`
 const STALLED = `The reply stalled — nothing received for ${STREAM_STALL_MS / 1000}s. LM Studio stopped sending mid-answer; whatever arrived before that is above.`
 
 /**
@@ -76,8 +112,15 @@ const STALLED = `The reply stalled — nothing received for ${STREAM_STALL_MS / 
  */
 export function armWatchdog(outer: AbortSignal): {
   signal: AbortSignal
-  /** Restart the clock. Called before the request, then on every chunk. */
-  touch: (ms: number, message: string) => void
+  /**
+   * Restart the clock. Called before the request, then on every chunk.
+   *
+   * `message` may be a thunk, and the first-byte ceiling passes one: which of
+   * the two silences this is depends on whether response headers arrived,
+   * which is unknown when the timer is armed and settled by the time it fires.
+   * A string that had to be chosen up front could only ever name one of them.
+   */
+  touch: (ms: number, message: string | (() => string)) => void
   /** The watchdog's error, if the watchdog is what stopped the stream. */
   expired: () => Error | null
   stop: () => void
@@ -93,7 +136,7 @@ export function armWatchdog(outer: AbortSignal): {
     touch(ms, message): void {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        expired = new Error(message)
+        expired = new Error(typeof message === 'function' ? message() : message)
         inner.abort()
       }, ms)
     },
@@ -103,6 +146,112 @@ export function armWatchdog(outer: AbortSignal): {
       timer = null
       outer.removeEventListener('abort', onOuterAbort)
     }
+  }
+}
+
+/**
+ * What the transport saw, for a caller that has to say who fell silent.
+ *
+ * v1.17.3. On a server that accepted the POST and then wrote nothing for 90
+ * seconds until the user pressed Stop, the bubble read `⚠️ Empty reply —
+ * nothing came back from the model.` Every fact needed to name the right party
+ * passed through this function and was discarded at the return statement — and
+ * on the measured case the function did not even reach its return, because a
+ * user abort leaves by the throw.
+ *
+ * So the record is a mutable object the CALLER owns and this function fills in.
+ * A return value cannot carry it out of an abort; this can, and the caller
+ * still has it in the `finally` that ends the turn.
+ *
+ * `accepted`, `streamed` and `completed` are the discriminating facts, and they
+ * are one layer apart each: a response arriving says the server is there and
+ * took the request, a body byte arriving says a reply had begun, and the body
+ * reaching its end says the reply finished of its own accord.
+ *
+ * ## v1.17.5: `completed`, because "ran to its end" was never recorded
+ *
+ * Round 10 read `streamed && !produced` as *the reply ran to its end and was
+ * simply empty*. `streamed` says no such thing — it says one byte arrived. On
+ * the recorded context-overflow turn a byte did arrive, it was an
+ * `{"error": …}` frame, the transport threw on it, and the screen carried both
+ * sentences at once: `the reply ran to its end — it was simply empty`, two
+ * lines above the refusal it had thrown. Both blind critics counted it, in both
+ * arms.
+ *
+ * The fact that settles it is the one the loop already had and discarded:
+ * whether the reader ever reported end-of-stream. It is recorded here, at the
+ * same layer as the other two, so the reading stays in shared/failure.ts.
+ */
+export interface StreamWitness {
+  /**
+   * `fetch` returned a Response — LM Studio answered.
+   *
+   * v1.17.5: this is deliberately weaker than *response headers arrived*, which
+   * is what it claimed to be for two versions. What is recorded is that OUR
+   * `fetch` call resolved. Measured, against a real server on both counts: a
+   * `103 Early Hints` block and a `302` block each put a complete reply header
+   * block on the wire without resolving `fetch`, because a 1xx is not a
+   * response and a redirect is followed internally. So `!accepted` cannot be
+   * read as "no headers came back" — only as "nothing the app can read has".
+   */
+  accepted: boolean
+  /** At least one byte of the response body arrived. */
+  streamed: boolean
+  /**
+   * The response body reached its end — the reader reported done.
+   *
+   * The difference between a reply that finished and a reply that was cut off
+   * by a throw, which is what the two sentences above conflated. False also
+   * before the body starts, so it separates an empty 200 that closed cleanly
+   * from a non-2xx that never had a body to read.
+   */
+  completed: boolean
+  /**
+   * The same two facts about the request that is open RIGHT NOW — v1.17.4.
+   *
+   * The pair above is turn-scoped and answers a question asked once, at the
+   * end: who fell silent on the turn as a whole. The reader staring at a
+   * motionless disc is asking a different question — *what is happening to the
+   * request I am waiting on* — and a tool loop makes the two disagree. Round
+   * two of a loop arms the first-byte ceiling afresh, so `streamed` being true
+   * of round one says nothing about the silence the reader is in now.
+   *
+   * MessageBubble used to guess this from the message instead (`reasoning !==
+   * '' || toolCalls.length > 0`), and that guess is wrong in exactly the case
+   * it matters: after any tool call it declared the stream started for the
+   * rest of the turn, so the wait line promised `gives up at 1:00` while the
+   * transport was in fact five minutes into a fresh first-byte ceiling.
+   */
+  round: StreamPhase
+  /** When the last byte arrived — or, before any did, when the request went out. */
+  lastActivityAt: number
+  /**
+   * Called when `round` changes — at the request, at the headers, at the first
+   * body byte. How the screen learns what the transport has seen while it is
+   * still seeing it, rather than only in the post-mortem.
+   */
+  onChange?: () => void
+}
+
+/**
+ * What is known about the request in flight — as much of the witness as a
+ * reader waiting on it needs. `completed` is not here on purpose: a round that
+ * has ended is not a round anyone is still waiting on.
+ */
+export interface StreamPhase {
+  /** `fetch` returned a Response — LM Studio answered. See StreamWitness. */
+  accepted: boolean
+  /** At least one byte of the response body arrived. */
+  streamed: boolean
+}
+
+export function newWitness(): StreamWitness {
+  return {
+    accepted: false,
+    streamed: false,
+    completed: false,
+    round: { accepted: false, streamed: false },
+    lastActivityAt: Date.now()
   }
 }
 
@@ -157,17 +306,51 @@ interface SseFrame {
  * flush, throttled by TAIL_FLUSH_MS; each snap also re-arms a frame request,
  * so pacing resumes by itself once the window is visible again.
  * Reduced-motion users get the un-paced flush always.
+ *
+ * v2.2: `finish()` is awaitable, and awaiting it is what makes "the turn is
+ * over" true. v2.1 shipped it as a fire-and-forget — it set `ended` and
+ * returned, leaving up to CATCH_UP_SNAP_CHARS still to paint while the caller
+ * went on to clear `streaming`, release the composer and turn Stop back into
+ * Send. The turn reported itself finished while the answer was still arriving,
+ * on both recorded arms: a `stream-edge` span was still on screen 263 ms after
+ * the harness stamped turn-end, with the message 65 characters short.
+ *
+ * `finish(immediate)` is the answer to "what should Stop mean while the tail is
+ * still painting": with `immediate` the remaining text lands in one publish and
+ * the promise resolves now, because a user who pressed Stop asked for the turn
+ * to be over, not to watch the rest of it type itself out. Without it the glide
+ * finishes on the TAIL_DRAIN_MS deadline and the promise resolves on the last
+ * publish. Either way it resolves exactly once, including when a newer
+ * message's stream has usurped the slice and when the window is occluded and
+ * the backstop is the only thing still running.
  */
 export function makeTailStream(
   assistantMsg: ChatMessage,
   patch: (p: Partial<ChatMessage>) => void
-): { schedule: () => void; commit: () => void; finish: () => void } {
+): {
+  schedule: () => void
+  commit: () => void
+  /** Resolves when the last character has been published — see above. */
+  finish: (immediate?: boolean) => Promise<void>
+} {
   let shown = 0
   let lastPublish = 0
   let lastFrame = Date.now()
   let raf = 0
   let ended = false
+  /** Wall-clock instant the drain must be complete by; set in finish(). */
+  let drainBy = 0
   let backstop: ReturnType<typeof setTimeout> | null = null
+  let settle: (() => void) | null = null
+  const settled = new Promise<void>((resolve) => {
+    settle = resolve
+  })
+  /** Idempotent: every path out of the drain calls it, and only the first counts. */
+  const done = (): void => {
+    const resolve = settle
+    settle = null
+    resolve?.()
+  }
   const reduceMotion =
     typeof window !== 'undefined' &&
     (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
@@ -197,20 +380,46 @@ export function makeTailStream(
       raf = 0
     }
     if (!usurped()) useAppStore.getState().setStreamingTail(null)
+    done()
+  }
+
+  /**
+   * Characters to advance this frame. While the stream is live that is a
+   * fraction of the backlog — the smoothing the pacer exists for. Once it has
+   * ended it is whatever lands the last character on `drainBy`, so the turn's
+   * text is complete within TAIL_DRAIN_MS of the stream stopping no matter how
+   * big the backlog was.
+   */
+  const advance = (remaining: number, now: number): number => {
+    if (ended) {
+      // Publishes are TAIL_FLUSH_MS apart, so this many are left before the
+      // deadline; spread the backlog evenly over them. Derived from the clock
+      // rather than from the gap since the last publish, which goes stale
+      // whenever the pacer was caught up when the last chunk arrived — and a
+      // stale gap would hand the whole tail to one frame, which is the pop.
+      const left = drainBy - now
+      if (left <= TAIL_FLUSH_MS) return remaining
+      return Math.max(2, Math.ceil((remaining * TAIL_FLUSH_MS) / left))
+    }
+    return remaining > CATCH_UP_SNAP_CHARS
+      ? remaining - CATCH_UP_SNAP_CHARS
+      : Math.max(2, Math.ceil(remaining / 8))
   }
 
   const step = (): void => {
     raf = 0
     const now = Date.now()
     lastFrame = now
-    if (usurped()) return
+    // A newer message owns the slice; this drain will never publish again, so
+    // the turn waiting on it must not wait forever.
+    if (usurped()) {
+      done()
+      return
+    }
     const total = assistantMsg.content.length
     if (shown < total && now - lastPublish >= TAIL_FLUSH_MS) {
       const remaining = total - shown
-      shown +=
-        remaining > CATCH_UP_SNAP_CHARS
-          ? remaining - CATCH_UP_SNAP_CHARS
-          : Math.max(2, Math.ceil(remaining / 8))
+      shown += advance(remaining, now)
       if (shown > total) shown = total
       // Never end the slice on a high surrogate — half an emoji renders as �.
       if (shown < total) {
@@ -230,7 +439,7 @@ export function makeTailStream(
     raf = requestAnimationFrame(step)
   }
 
-  /** Flush everything at once — the occluded / reduced-motion / backstop path. */
+  /** Flush everything at once — the occluded / reduced-motion / Stop / backstop path. */
   const snap = (): void => {
     shown = assistantMsg.content.length
     lastPublish = Date.now()
@@ -259,18 +468,21 @@ export function makeTailStream(
         snap()
       }
     },
-    finish(): void {
+    finish(immediate = false): Promise<void> {
       patch({ content: assistantMsg.content })
       ended = true
-      if (paced()) {
+      drainBy = Date.now() + TAIL_DRAIN_MS
+      if (paced() && !immediate) {
         if (!raf) raf = requestAnimationFrame(step)
         // If the window is occluded mid-drain, frames stop and the partial
         // tail would sit on screen indefinitely; a timer still fires, even
-        // throttled, and clears it.
+        // throttled, and clears it. It is also the only thing that resolves
+        // `settled` on that path, so the caller cannot be stranded either.
         backstop = setTimeout(snap, 1500)
       } else {
         snap()
       }
+      return settled
     }
   }
 }
@@ -320,7 +532,9 @@ export async function streamChat(
    * here, and serving any of them a cached verdict would mean re-verifying
    * nothing while still reporting that the check ran.
    */
-  cacheable = false
+  cacheable = false,
+  /** Filled in as the stream progresses; survives an abort, unlike the return. */
+  witness: StreamWitness = newWitness()
 ): Promise<{
   toolCalls: ApiToolCall[]
   usage: ApiUsage | null
@@ -348,7 +562,20 @@ export async function streamChat(
   // Armed before the request, reset by every chunk: one watchdog covers a POST
   // that is never answered and a stream that dies mid-answer.
   const watchdog = armWatchdog(signal)
-  watchdog.touch(FIRST_BYTE_TIMEOUT_MS, NO_ANSWER)
+  watchdog.touch(FIRST_BYTE_TIMEOUT_MS, () =>
+    witness.round.accepted ? ACCEPTED_THEN_SILENT : NEVER_ANSWERED
+  )
+  witness.lastActivityAt = Date.now()
+  // A fresh request: whatever a previous round of this turn saw is not what
+  // this one has seen. Published immediately, so the screen's account of the
+  // silence starts when the silence does.
+  witness.round = { accepted: false, streamed: false }
+  // Unlike `accepted` and `streamed`, this one does not accumulate over a turn.
+  // Those two answer "did this turn ever get that far"; this answers "did the
+  // round that ended the turn end by itself", and round one having finished
+  // cleanly says nothing about the round that threw.
+  witness.completed = false
+  witness.onChange?.()
   try {
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
@@ -369,6 +596,13 @@ export async function streamChat(
       // watchdog knows which it was, and only it has something to say.
       throw watchdog.expired() ?? err
     })
+
+    // Headers are here: the server exists, is listening, and took the request.
+    // Everything after this point that goes wrong is the server's or the
+    // model's, and the difference between those two is `streamed` below.
+    witness.accepted = true
+    witness.round = { ...witness.round, accepted: true }
+    witness.onChange?.()
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
@@ -428,8 +662,21 @@ export async function streamChat(
       const { done, value } = await reader.read().catch((err) => {
         throw watchdog.expired() ?? err
       })
-      if (done) break
+      if (done) {
+        // The one place a reply is known to have finished rather than been cut
+        // off. Every other way out of this loop is a throw.
+        witness.completed = true
+        break
+      }
       watchdog.touch(STREAM_STALL_MS, STALLED)
+      witness.streamed = true
+      // Published once, on the transition: this runs per chunk, and a store
+      // commit per chunk is the cost the streaming tail exists to avoid.
+      if (!witness.round.streamed) {
+        witness.round = { ...witness.round, streamed: true }
+        witness.onChange?.()
+      }
+      witness.lastActivityAt = Date.now()
       buffer += decoder.decode(value, { stream: true })
 
       // SSE events are separated by blank lines.
@@ -461,9 +708,16 @@ export async function streamChat(
           // and all, relayed as if the app had written it, with our diagnosis
           // trailing behind as an afterthought. Their text is evidence and is
           // never dropped; it is simply quoted rather than ventriloquised.
-          throw new ExplainedError(
-            explainFailure(message, { subject: 'The request', source: 'LM Studio' })
-          )
+          //
+          // v1.17.3: the ingredients travel too. The turn that catches this
+          // knows what the request costs by the app's own arithmetic; the
+          // transport, one layer down, does not — and the refusal that most
+          // needs that number is exactly this one.
+          const frame = { subject: 'The request', source: 'LM Studio' }
+          throw new ExplainedError(explainFailure(message, frame), {
+            raw: message,
+            context: frame
+          })
         }
         // The usage block rides a final chunk whose `choices` is empty.
         if (json.usage) usage = json.usage

@@ -36,7 +36,7 @@
       "id": "PT1",
       "dimension": "plan-transparency",
       "prompt": "Plan this out before you answer. I'm putting together a two-week emergency kit for a household of 3. Work out how many gallons of drinking water we need, then check my reference library for what else to store, then give me one checklist I can shop from.",
-      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
+      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. 📋 Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
       "offlineSafe": true
     },
     {
@@ -50,7 +50,7 @@
       "id": "PT3",
       "dimension": "plan-transparency",
       "prompt": "Plan first, then answer: compare three ways to hold two weeks of drinking water for a household of 4 — refilled tap containers, cases of bottled water, and a filter plus a storage barrel. Cost each one out, then recommend one.",
-      "setup": "Plan mode enabled with the approval gate ON. Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows its running state, then activate Stop. Capture the plan block 1500 ms later. App offline.",
+      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows the running glyph '◌', then press Stop. Capture the plan block 1500 ms later. App offline.",
       "offlineSafe": true
     },
     {

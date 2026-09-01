@@ -37,7 +37,7 @@ export function SecondOpinionBlock({ opinion, isStreaming }: Props): JSX.Element
         <span className="font-medium text-violet-600 dark:text-violet-300">{label}</span>
         {opinion.automatic && (
           <span
-            className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+            className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-ink-warn"
             title="Triggered automatically because this factual-looking answer consulted no web sources"
           >
             auto — unverified answer

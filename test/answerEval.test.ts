@@ -20,6 +20,7 @@ import {
   summarizeQuant,
   unsupportedMeasurements
 } from '../src/renderer/src/lib/answerEval'
+import { measurementsIn as sharedMeasurementsIn } from '../src/shared/measurements'
 
 /**
  * v1.6 answer-quality eval scoring. Every judgement is mechanical, so every
@@ -565,5 +566,64 @@ describe('orchestrate suite (v1.12.1)', () => {
     ])
     assert.deepEqual(s.independent.hit, { hit: 1, of: 1 })
     assert.deepEqual(s.orchestrated.hit, { hit: 1, of: 1 })
+  })
+})
+
+/**
+ * v2.1: the third copy of the measurement vocabulary, folded onto the shared
+ * one.
+ *
+ * `src/shared/measurements.ts` says in its own header that it exists because
+ * "two copies would drift, and the drift would be silent". There were three —
+ * this scorer carried a hand-rolled alternation — and the drift had already
+ * happened. These cases are the differences, each one a defect the eval had and
+ * the shipped rungs did not.
+ */
+describe('the eval scorer reads the shared vocabulary (v2.1)', () => {
+  test('a rate is not the quantity it is a rate of', () => {
+    // Round 9 scored this as the duration "8.66 minutes", so a pace could be
+    // supported by a running time and vice versa.
+    assert.deepEqual(
+      measurementsIn('splits of 8.66 minutes per mile').map((m) => m.raw),
+      ['8.66 minutes per mile']
+    )
+  })
+
+  test('a number ending one line and a word beginning the next is not a measurement', () => {
+    // The trap shared/measurements.ts documents and the hand-rolled copy still
+    // had: `\s*` crosses a newline, so this scored a distance of 47 miles that
+    // nothing ever measured.
+    assert.deepEqual(measurementsIn('Total time: 3:47\nMiles run: 26.2').map((m) => m.raw), [])
+  })
+
+  test('units the hand-rolled copy never knew are scored now', () => {
+    assert.deepEqual(
+      measurementsIn('take 400 mcg, run the 800 watts heater, burn 250 kcal').map((m) => m.raw),
+      ['400 mcg', '800 watts', '250 kcal']
+    )
+  })
+
+  test('a concentration is not a dose', () => {
+    // From the shipped home-safety pack. Round 9 read "40 mg/m(3)" as the mass
+    // "40 mg", so a CO exposure limit could support an invented drug dose.
+    assert.deepEqual(
+      measurementsIn('a recommended exposure limit of 35 ppm (40 mg/m(3))').map((m) => m.raw),
+      ['40 mg/m']
+    )
+  })
+
+  test('percent is still a measurement here, and only here', () => {
+    // The one deliberate divergence, and it survives as a flag rather than a
+    // second regex. A reference answer stating "your landlord may raise it by
+    // 5%" is exactly what this suite scores; the shipped rungs leave `%` out
+    // because `unsourcedPercentages` checks it with a better rule.
+    assert.deepEqual(measurementsIn('a 5% cap applies').map((m) => m.raw), ['5%'])
+    assert.deepEqual(sharedMeasurementsIn('a 5% cap applies'), [])
+  })
+
+  test('the scoring these feed is unchanged on the cases that already passed', () => {
+    const corpus = 'Hold the burn under cool running water for 15 to 30 minutes. Cook poultry to 165°F.'
+    assert.deepEqual(unsupportedMeasurements('Cool it for 45 minutes.', corpus), ['45 minutes'])
+    assert.deepEqual(unsupportedMeasurements('Cook to 165°F.', corpus), [])
   })
 })

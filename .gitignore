@@ -1,4 +1,8 @@
 node_modules/
+# …and as a symlink. A trailing slash matches a DIRECTORY only, so the links
+# builders create to run the suite were never ignored: `git add -A` committed
+# them as 120000 blobs holding an absolute path, in round 10 and again in 11.
+node_modules
 out/
 dist/
 .build/
@@ -16,6 +20,7 @@ homebrew-tap/
 
 # Workbench runtime (fetched by scripts/fetch-pyodide.sh; shipped as an extra resource)
 resources/pyodide/
+resources/pyodide
 
 # Answer-eval library cache (embedded packs; rebuild with scripts/eval-answers.sh)
 .eval-library/

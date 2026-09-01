@@ -206,7 +206,7 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
               </p>
               {sameModelNote && (
                 <p
-                  className="mt-1.5 px-1 text-[10px] leading-relaxed text-amber-600 dark:text-amber-500"
+                  className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-warn"
                   title="Measured on this app's own eval suites — 48 cases across three regimes, docs/evals.md in the repository. With different models per role this note disappears, because that configuration has not been measured."
                 >
                   ⚖️ {sameModelNote}

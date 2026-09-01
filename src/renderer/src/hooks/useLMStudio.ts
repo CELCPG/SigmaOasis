@@ -16,9 +16,7 @@ import {
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
-import { checkToolGrounding, revisionIsAnImprovement,
-  conflictingToolFigures
-} from '../lib/toolGrounding'
+import { checkToolGrounding, conflictingToolFigures } from '../lib/toolGrounding'
 import { composeFailure, explainFailure } from '../../../shared/failure'
 import { looksLikeShopping } from '../lib/shopping'
 import { isOffline } from '../lib/libraryRecall'
@@ -61,12 +59,13 @@ import type {
   ToolResult,
   ToolSchema
 } from '../types'
-import { makeTailStream, streamChat } from './chatTransport'
+import { makeTailStream, newWitness, streamChat } from './chatTransport'
 import {
   audit,
   planAndCompact,
   subsetForTurn,
   toApiContent,
+  turnRequestEstimate,
   uid,
   visionCapable
 } from './turnHelpers'
@@ -77,14 +76,10 @@ import {
   runCodeCheck,
   runConsultation,
   runDeliberation,
-  runRecompute
+  runRecompute,
+  settleRevision
 } from './verification'
-import {
-  describeCodeCheck,
-  looksArithmetic,
-  revisionDropsAllFigures,
-  revisionEchoesScaffolding
-} from '../lib/workbenchChecks'
+import { describeCodeCheck, looksArithmetic } from '../lib/workbenchChecks'
 import { planApprovals, runPlanTurn } from './planMode'
 
 /**
@@ -99,6 +94,35 @@ import { planApprovals, runPlanTurn } from './planMode'
 
 interface DelegationContext {
   specialists: ModelConfig[]
+}
+
+/**
+ * Stop was pressed before the request left the app.
+ *
+ * v1.17.3. The turn can bail at two points before `streamChat` is reached — a
+ * context provider was cancelled mid-flight, or compaction returned after the
+ * abort — and both leave an empty bubble. Without a record of that, the bubble
+ * falls back to admitting it does not know how the turn ended, which is honest
+ * but needlessly so: the app does know, and `accepted: false` is exactly how it
+ * says the server was never asked.
+ */
+function stoppedBeforeSending(
+  patch: (p: Partial<ChatMessage>) => void,
+  turnOpenedAt: number
+): void {
+  patch({
+    ending: {
+      accepted: false,
+      streamed: false,
+      // No request went out, so no reply ran to its end. The Stop branch reads
+      // `accepted` before this, but recording it any other way would be a lie
+      // sitting in the store waiting for a reader.
+      completed: false,
+      produced: false,
+      stoppedByUser: true,
+      silentMs: Date.now() - turnOpenedAt
+    }
+  })
 }
 
 /**
@@ -270,7 +294,10 @@ async function runTurn(
         .getState()
         .setTurnPhase(wait ? gatheringPhase(assistantMsg.id, wait, turnOpenedAt) : null)
   )
-  if (gathered.aborted) return
+  // v1.17.3: Stop landed here — before the request went out at all. That is a
+  // different sentence from "the model said nothing", and the bubble can only
+  // say so if the turn records it (shared/failure.ts `explainEmptyReply`).
+  if (gathered.aborted) return stoppedBeforeSending(patch, turnOpenedAt)
   if (offline) patch({ offline: true })
   projectTokens.recall = gathered.projectTokens.recall
   projectTokens.files = gathered.projectTokens.files
@@ -295,7 +322,7 @@ async function runTurn(
     estimateTokens(systemPrompt) + estimateTokens(turnContextBlock ?? ''),
     estimateTokens(JSON.stringify(turnTools))
   )
-  if (signal.aborted) return
+  if (signal.aborted) return stoppedBeforeSending(patch, turnOpenedAt)
   if (summaryText) {
     // The summary stays in the system prompt rather than joining the per-turn
     // context: it changes only when compaction fires, and compaction has
@@ -403,6 +430,14 @@ async function runTurn(
    * with the turn's true length once it is over (lib/turnCost.ts).
    */
   let lastStats: ResponseStats | null = null
+  /**
+   * v2.4: the instant the answer stopped and the checking started — the origin
+   * of the stat line's "checking" span, since that span is `turnMs − gatherMs −
+   * totalMs` and `totalMs` is stamped here. The verification deadline counts
+   * from the same instant, so "its 60s limit" and "Ns checking" are two
+   * statements about one clock instead of two clocks a drain apart.
+   */
+  let answerEndedAt = 0
 
   const recordStats = (
     usage: ApiUsage | null,
@@ -418,9 +453,10 @@ async function runTurn(
       if (promptTokens === undefined) promptTokens = usage.prompt_tokens
       completionTokens += usage.completion_tokens ?? 0
     }
+    answerEndedAt = Date.now()
     const stats: ResponseStats = {
       ttftMs: firstTtftMs ?? 0,
-      totalMs: Date.now() - turnStartedAt,
+      totalMs: answerEndedAt - turnStartedAt,
       gatherMs,
       ...(project ? { projectTokens } : {}),
       ...(sawUsage
@@ -437,6 +473,26 @@ async function runTurn(
     lastStats = stats
     patch({ stats })
   }
+
+  /**
+   * v1.17.3: what the transport saw, so the turn can name who fell silent.
+   *
+   * One per turn rather than one per round: the question a reader is asking of
+   * an empty bubble is about the whole turn, and the last round is the one that
+   * ended it. It is read in the `finally` below, because the measured case —
+   * a stall the user pressed Stop on — leaves this function by the throw.
+   */
+  const witness = newWitness()
+  // v1.17.4: and the same record, published while the reader is still waiting
+  // on it. The post-mortem above answers "who fell silent" once the turn is
+  // over; the thinking indicator has to answer "what is happening right now"
+  // at sixty seconds, off the same two facts, from the same one recorder.
+  witness.onChange = (): void =>
+    useAppStore.getState().setStreamWitness({
+      messageId: assistantMsg.id,
+      accepted: witness.round.accepted,
+      streamed: witness.round.streamed
+    })
 
   // The tool-call loop itself lives in lib/agentLoop.ts — a pure state machine
   // with injectable transport, reachable from node:test. The deps below carry
@@ -477,7 +533,8 @@ async function runTurn(
             // The only cacheable call site: the user-facing answer. Every other
             // streamChat caller is a verification or delegation pass that has to
             // stay live.
-            cacheable
+            cacheable,
+            witness
           )
           recordStats(usage, ttftMs, Date.now() - roundStartedAt)
           // A reply cut off at max_tokens stops mid-thought. Saying so is the
@@ -541,7 +598,39 @@ async function runTurn(
   } finally {
     // Release the tail however the loop ended — abort included. This also
     // lands whatever content had streamed, so a stopped reply keeps its text.
-    tail.finish()
+    //
+    // v2.2: awaited, and that await is the fix for a turn that called itself
+    // finished while the answer was still being painted. Everything below —
+    // the checks, the phase labels, the action row, and the `setStreaming
+    // (false)` in the caller that releases the composer and turns Stop back
+    // into Send — now happens after the last character is on screen rather
+    // than after the last byte is off the socket. Bounded: TAIL_DRAIN_MS on a
+    // visible window, the 1500 ms backstop on an occluded one.
+    //
+    // Stop skips the wait entirely. The user asked for the turn to be over,
+    // not to watch the rest of it type itself out, so the remainder lands in
+    // one publish — which still keeps every character that had streamed.
+    await tail.finish(signal.aborted)
+    // Nothing is in flight any more, so nothing may still be described as
+    // being waited on. Released here rather than at the return, because the
+    // measured case leaves this function by the throw.
+    useAppStore.getState().setStreamWitness(null)
+    // v1.17.3: and record how it ended, on the same three paths. `signal` is
+    // the OUTER controller — the watchdog aborts its own inner one — so
+    // `signal.aborted` here means the user pressed Stop and nothing else does.
+    patch({
+      ending: {
+        accepted: witness.accepted,
+        streamed: witness.streamed,
+        // v1.17.5. Last-round-scoped, unlike the two above: the round that
+        // ended the turn is the one whose ending is being described, and a
+        // throw in round two is not made harmless by round one having finished.
+        completed: witness.completed,
+        produced: assistantMsg.content.trim() !== '' || reasoning.trim() !== '',
+        stoppedByUser: signal.aborted,
+        silentMs: Date.now() - witness.lastActivityAt
+      }
+    })
   }
 
   if (outcome.stopReason === 'aborted') return
@@ -561,6 +650,16 @@ async function runTurn(
       .map((m) => m.content)
       .join('\n')
 
+  // v2.5: the tool records of the conversation's EARLIER assistant turns, one
+  // array per turn. Read by exactly one rung — `misdescribedRetrieval`, whose
+  // question ("which documents did you use just now") is always asked a turn
+  // late, so a corpus of this turn alone is structurally blind to it. Grouped
+  // per turn, never flattened: passage numbering restarts at [1] each turn and
+  // a flat list would drop every collision. See lib/toolGrounding.ts.
+  const priorTurns = convo.messages
+    .filter((m) => m.role === 'assistant' && (m.toolCalls?.length ?? 0) > 0)
+    .map((m) => m.toolCalls ?? [])
+
   // v1.6: the Workbench's code check joins the report. It is re-run on a
   // revision, so the gate compares like with like: a revision whose code now
   // runs has strictly fewer findings; one that merely rewords does not.
@@ -577,8 +676,18 @@ async function runTurn(
    *
    * `signal` rides along, so Stop still stops the checking; only an expiry
    * leaves a notice.
+   *
+   * v2.4: counted from the last token rather than from here. The paced tail
+   * drain and the bookkeeping above sit between the two, and the stat line
+   * bills that gap to "checking" — so a budget started here was always the
+   * shorter of the two spans, and every honest recorded tail printed 60.1–60.3 s
+   * beside a "60s limit". One origin, one number.
    */
-  const budget = createVerifyBudget(VERIFY_BUDGET_MS, signal)
+  const budget = createVerifyBudget(
+    VERIFY_BUDGET_MS,
+    signal,
+    answerEndedAt > 0 ? answerEndedAt : Date.now()
+  )
   /** Stopped by the user, or stopped by the deadline — both leave the answer standing. */
   const stopped = (): boolean => signal.aborted || budget.signal.aborted
 
@@ -608,12 +717,31 @@ async function runTurn(
     if (hit) return hit
     if (!budget.admits('code')) return { finding: null, ran: false, ok: false }
     const out = await runCodeCheck(convo, slot, content, allRecords, toolContext, () => patch({ toolCalls: [...allRecords] }))
+    // Unconditional, and it is the one pass where that is the honest answer:
+    // `runCodeCheck` takes no signal, so it always reaches a conclusion — even
+    // when the conclusion is that the reply contains no code to check.
     budget.ran('code')
     codeCheckMemo.set(content, out)
     return out
   }
+  /**
+   * The report as it stands against the records the turn holds **now**.
+   *
+   * Every rung's corpus is `allRecords` read at the moment of the call, so a
+   * report is only ever true of the turn as it was when it was built. Re-read
+   * it, do not carry it — `settleRevision` carries what carrying it cost.
+   *
+   * Re-running is cheap and cannot lose a finding. `checkToolGrounding` is a
+   * pure pass over text, and the code check is memoised on `content`, so
+   * restating a report the turn has already built re-uses that finding rather
+   * than re-running the sandbox — and does so whether or not the deadline has
+   * since expired.
+   */
   const groundingReport = async (content = assistantMsg.content): Promise<GroundingReport | null> => {
-    const base = checkToolGrounding(content, allRecords, allUserText(), { expectPricingTool: shoppingTurn })
+    const base = checkToolGrounding(content, allRecords, allUserText(), {
+      expectPricingTool: shoppingTurn,
+      priorTurns
+    })
     const code = await codeFindingFor(content)
     if (!code.finding) return base
     return { ...(base ?? { figures: [], links: [], checkedAgainst: ['run_python'] }), code: [code.finding] }
@@ -662,29 +790,43 @@ async function runTurn(
     )
     // `admits` counts what it is asked about, so it goes last: the budget must
     // not record a pass this turn was never going to run.
+    //
+    // v2.3: and the deadline is not one of the reasons to skip asking. This
+    // condition tested `!stopped()`, which is `signal.aborted ||
+    // budget.signal.aborted` — so once the budget expired the gate returned
+    // before `admits` was ever consulted, and the pass the deadline cost went
+    // unrecorded and therefore unnamed. Only the user's own Stop belongs here:
+    // it leaves no notice at all, by design.
     if (
       workbenchChecksOn &&
       lastUserContent &&
-      !stopped() &&
+      !signal.aborted &&
       looksArithmetic(allUserText(), assistantMsg.content) &&
       (!numericRan || (report?.figures.length ?? 0) > 0) &&
       budget.admits('recompute')
     ) {
-      checks.push(
-        await runRecompute(convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, budget.signal, () =>
+      const recompute = await runRecompute(
+        convo, slot, baseUrl, lastUserContent, assistantMsg.content, allRecords, toolContext, budget.signal, () =>
           patch({ toolCalls: [...allRecords] })
-        )
       )
-      // Only a pass that got to finish counts as run: `reviseAgainstFindings`
-      // and `runRecompute` both swallow an abort and return, so their returning
-      // is not on its own evidence that the reader got the check.
-      if (!budget.signal.aborted) budget.ran('recompute')
+      checks.push(recompute)
+      // Only a pass that got to finish counts as run — and the pass is what says
+      // so. This used to ask `!budget.signal.aborted`, which is a fact about the
+      // clock: a recomputation whose `run_python` (never wired to that signal)
+      // printed its output two seconds past the deadline was recorded as not
+      // run, and the expiry line said so directly under this check's own
+      // "🧮 Recomputed the stated figures in Python" — with the program, its
+      // stdout and the comparison all on screen above it. See `WorkbenchCheck.ran`.
+      if (recompute.ran) budget.ran('recompute')
       patch({ checks: [...checks] })
       report = await groundingReport()
     }
     if (!report) return
     const autoCorrect = useAppStore.getState().settings?.grounding.autoCorrect !== false
-    if (!autoCorrect || stopped() || !budget.admits('revising')) {
+    // Same reordering, same reason: a revision this turn would have run, and
+    // did not because the minute was up, is exactly what the expiry line exists
+    // to name. `admits` records the refusal; `stopped()` used to swallow it.
+    if (!autoCorrect || signal.aborted || !budget.admits('revising')) {
       patch({ grounding: report })
       return
     }
@@ -702,14 +844,17 @@ async function runTurn(
       allRecords,
       () => patch({ toolCalls: [...allRecords] })
     )
-    if (!budget.signal.aborted) budget.ran('revising')
-    // A revision that came back empty, that the user cancelled, or that the
-    // deadline cut off, leaves the original standing: a flagged answer beats no
-    // answer, and a half-written one beats neither.
-    if (!revised.trim() || stopped()) {
-      patch({ grounding: report })
-      return
-    }
+    // Two builders reached this line from opposite sides of one defect: the
+    // budget was asking the CLOCK what a pass had done, and the report was
+    // published before the pass that changed the record. Both fixes are kept.
+    //
+    // The revision that came back is the evidence it ran — `reviseAgainstFindings`
+    // returns '' when the loop produced nothing, deadline included.
+    if (revised.trim()) budget.ran('revising')
+    // No early return here, deliberately: an abandoned or empty revision still
+    // has to reach `settleRevision` below, because the pass may have appended
+    // records and the report above predates them. Returning early would publish
+    // the stale report, which is the defect this round set out to fix.
 
     // Provisionally adopt the revision so the checker sees it, then keep it
     // only if it actually reduced what can be faulted. Measured against the
@@ -717,25 +862,26 @@ async function runTurn(
     // different invented addresses, and added a claim that the rest had been
     // "verified against search results" when nothing had run.
     const original = assistantMsg.content
-    assistantMsg.content = revised
-    const after = await groundingReport(revised)
-    // A revision that "fixes" flagged figures by deleting every figure from a
-    // quantitative answer is not an improvement, it is a non-answer (measured:
-    // a correct price replaced by "I could not verify…"). Keep the original,
-    // flagged, and let the badge speak.
-    if (
-      revisionDropsAllFigures(original, revised) ||
-      revisionEchoesScaffolding(revised) ||
-      !revisionIsAnImprovement(report, after)
-    ) {
+    if (revised.trim() && !stopped()) assistantMsg.content = revised
+    // v2.3: every report the verdict reads is graded HERE, after the pass — the
+    // revision's own tool calls have joined `allRecords` by now, so `report`
+    // above is a claim about the turn as it was before them. `settleRevision`
+    // carries the measured case and the argument.
+    const verdict = await settleRevision({
+      draft: original,
+      revised,
+      abandoned: stopped(),
+      grade: groundingReport
+    })
+    if (verdict.keep === 'draft') {
       assistantMsg.content = original
-      patch({ content: original, grounding: report })
+      patch({ content: original, grounding: verdict.grounding ?? undefined })
       return
     }
     // The revision's code ran clean where the draft's did not: say so — but the
     // comparison rides along (memoised, no second run), so "the revised code
     // runs" cannot become the tick over a figure its output contradicts.
-    if (report.code?.length && !after?.code?.length) {
+    if (verdict.corrected.before.code?.length && !verdict.corrected.after?.code?.length) {
       const i = checks.findIndex((c) => c.kind === 'code')
       const line = describeCodeCheck({ ran: true, ok: false, revisedRuns: true, compared: (await codeFindingFor(revised)).compared })
       if (i >= 0) checks[i] = line
@@ -746,8 +892,8 @@ async function runTurn(
     // survived is the half the disclosure line most needs to say.
     patch({
       content: revised,
-      corrected: { before: report, after, at: Date.now() },
-      grounding: after ?? undefined,
+      corrected: { ...verdict.corrected, at: Date.now() },
+      grounding: verdict.grounding ?? undefined,
       checks: [...checks]
     })
   }
@@ -788,30 +934,31 @@ async function runTurn(
         // otherwise the v1.1 auto-critic names the checks for the user.
         const claimCheckOn = useAppStore.getState().settings?.claimCheck.enabled === true
         if (budget.admits('claims')) {
-          if (claimCheckOn) {
-            await runClaimCheck(
-              convo,
-              assistantMsg.id,
-              lastUserContent ?? '',
-              assistantMsg.content,
-              { modelId: slot.modelId, roleName: slot.roleName },
-              baseUrl,
-              budget.signal,
-              allRecords,
-              patch
-            )
-          } else {
-            await runAutoCritic(
-              convo,
-              assistantMsg.id,
-              lastUserContent ?? '',
-              assistantMsg.content,
-              { modelId: slot.modelId, roleName: slot.roleName },
-              baseUrl,
-              budget.signal
-            )
-          }
-          if (!budget.signal.aborted) budget.ran('claims')
+          // Both return whether a check reached the reader — a verdict, a
+          // budget note, a failure line: any account of itself. The clock is not
+          // consulted, here or anywhere else in this tail.
+          const checked = claimCheckOn
+            ? await runClaimCheck(
+                convo,
+                assistantMsg.id,
+                lastUserContent ?? '',
+                assistantMsg.content,
+                { modelId: slot.modelId, roleName: slot.roleName },
+                baseUrl,
+                budget.signal,
+                allRecords,
+                patch
+              )
+            : await runAutoCritic(
+                convo,
+                assistantMsg.id,
+                lastUserContent ?? '',
+                assistantMsg.content,
+                { modelId: slot.modelId, roleName: slot.roleName },
+                baseUrl,
+                budget.signal
+              )
+          if (checked) budget.ran('claims')
         }
       }
       verifying('grounding')
@@ -819,9 +966,14 @@ async function runTurn(
     } finally {
       budget.stop()
     }
+    // One stamp, read twice. The expiry notice quotes how long checking took
+    // and the stat line prints the same span as "Ns checking"; taken from two
+    // `Date.now()` calls they can round to different tenths, and a screen that
+    // states one quantity twice must state it identically both times.
+    const tailEndedAt = Date.now()
     // The deadline fired and it cost the reader something: name it, rather than
     // letting a check the app skipped look like a check that passed.
-    const notice = budget.notice()
+    const notice = budget.notice(tailEndedAt)
     if (notice) {
       checks.push(notice)
       patch({ checks: [...checks] })
@@ -830,7 +982,7 @@ async function runTurn(
     // stays the stream — tok/s is a rate of that — and this is what the reader
     // actually waited, from the turn's open rather than from the first request
     // (lib/turnCost.ts).
-    if (lastStats) patch({ stats: { ...lastStats, turnMs: Date.now() - turnOpenedAt } })
+    if (lastStats) patch({ stats: { ...lastStats, turnMs: tailEndedAt - turnOpenedAt } })
     verifying(null)
   }
 
@@ -1004,7 +1156,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn', request: turnRequestEstimate(convoId) }))}`,
             createdAt: Date.now()
           })
         }
@@ -1018,12 +1170,21 @@ export function useLMStudio(): {
     []
   )
 
-  /** PlanBlock's Approve/Cancel buttons resolve the executor's pending gate. */
+  /**
+   * PlanBlock's Approve/Cancel buttons resolve the executor's pending gate.
+   *
+   * v1.17.4: this is the app's ONLY writer of the `cancelled` outcome, and its
+   * only caller is the Cancel control inside the plan block. Every other way a
+   * plan can end is `stopped` (the abort listener on the turn's signal, i.e.
+   * the composer's Stop), `failed` or `completed`. The reader's Cancel is
+   * therefore not merely the usual cause of `cancelled` — it is the only one,
+   * which is what lets the badge say `cancelled by you` without hedging.
+   */
   const resolvePlan = useCallback((messageId: string, approved: boolean): void => {
     const resolve = planApprovals.get(messageId)
     if (resolve) {
       planApprovals.delete(messageId)
-      resolve(approved)
+      resolve(approved ? 'approved' : 'cancelled')
     }
   }, [])
 
@@ -1067,7 +1228,7 @@ export function useLMStudio(): {
           store.appendMessage(convoId, {
             id: uid(),
             role: 'assistant',
-            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn' }))}`,
+            content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The turn', request: turnRequestEstimate(convoId) }))}`,
             createdAt: Date.now()
           })
         }

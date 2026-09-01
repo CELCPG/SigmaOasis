@@ -57,6 +57,10 @@ export interface ModelConfig {
 import type { ToolToggles } from '../../shared/tools'
 export type { ToolToggles } from '../../shared/tools'
 
+/** v1.17.3: how a turn ended, so an empty bubble can name who fell silent. */
+import type { TurnEnding } from '../../shared/failure'
+export type { TurnEnding } from '../../shared/failure'
+
 export interface ShoppingSettings {
   /** Refuse shopping fetches when no proxy is active. On by default. */
   requireProxy: boolean
@@ -189,7 +193,23 @@ export interface DeliberationRecord {
   reviewerModelId: string
   /** The answerer reviewed its own draft (no second slot) — weaker, and said so. */
   self: boolean
-  status: 'reviewing' | 'revising' | 'done' | 'error'
+  /**
+   * v1.17.3: 'unreviewed' is new, and it is the point of this field.
+   *
+   * A reviewer that answered HTTP 200 with an immediately-closed empty stream
+   * used to be recorded as `'done'`. The screen said the truth — `⚠️ Not
+   * deliberated — Researcher returned nothing` — while the record beside it
+   * said the pass had completed, and the capture's own error count read zero on
+   * a turn where a request had failed. The screen was re-deriving the failure
+   * from `review` being empty; the record never learned it.
+   *
+   * 'error' is a pass that threw. 'unreviewed' is a pass that returned without
+   * reviewing. Both mean no reviewer read the draft, and both are failures.
+   *
+   * v2.3: "not checked" was this comment's phrase too, and three other passes
+   * on the same bubble check things. See `describeDeliberation`.
+   */
+  status: 'reviewing' | 'revising' | 'done' | 'unreviewed' | 'error'
   /** The reply as it stood before the pass. */
   draft: string
   review: string
@@ -349,19 +369,21 @@ export interface AuditStatus {
   sessions: AuditSessionInfo[]
 }
 
-export type AuditEntryKind = 'session_start' | 'user_input' | 'assistant_output' | 'tool_call'
-
-export interface AuditEntryInput {
-  conversationId: string
-  kind: AuditEntryKind
-  roleName?: string
-  modelId?: string
-  toolName?: string
-  ok?: boolean
-  text: string
-  /** Entries for ephemeral conversations are refused — no-trace includes the log. */
-  ephemeral?: boolean
-}
+/**
+ * The log's vocabulary is `shared/audit.ts`, not a mirror of it kept here.
+ *
+ * This file's own header calls itself "the renderer's mirror" of main's shapes,
+ * which is honest about settings — electron-store really is the source of
+ * truth there — and was not honest about this one: an `AuditEntryKind` written
+ * out twice is two enumerations of one class, and v2.5 had to add four kinds to
+ * it. Re-exported so every existing import site keeps working.
+ */
+export type {
+  AuditEntry,
+  AuditEntryInput,
+  AuditEntryKind,
+  RecordableAuditKind
+} from '../../shared/audit'
 
 // ---- v0.9: Plan mode ------------------------------------------------------------
 
@@ -777,10 +799,25 @@ export interface GroundingReport {
   contacts?: string[]
   /** v1.12.1: tools the reply says it used that never ran this turn. */
   toolClaims?: string[]
+  /**
+   * v2.3: the same account in the mirror — a tool that DID run which the reply
+   * says did not, or whose finished work it offers to begin. See
+   * `contradictedToolAccounts` in lib/toolGrounding.ts for why this direction
+   * is the worse of the two.
+   */
+  toolDenials?: string[]
   /** v1.14: tools that DID run and the reply's own "Tools used" section omits. */
   toolDisclosure?: string[]
+  /** v2.2: a tool the reply's account credits with more calls than the turn made. */
+  toolCounts?: string[]
   /** v1.17: an argument the reply quotes as passed that the call never carried. */
   toolArgs?: string[]
+  /**
+   * v2.5: what the reply says the library returned — which pack, how many
+   * passages, what relevance — where nothing this conversation retrieved
+   * matches. See `misdescribedRetrieval` in lib/toolGrounding.ts.
+   */
+  toolRetrieval?: string[]
   /** v1.6: the reply's Python failed when run in the sandbox. */
   code?: string[]
   /** Street addresses backed by no tool output (v1.4.5). */
@@ -791,6 +828,59 @@ export interface GroundingReport {
   quotes?: string[]
   /** v1.14: `[n] (Document)` attributions naming a document that is not passage n's. */
   attributions?: string[]
+  /**
+   * v2.1: how much of what the reply measured this pass actually reached.
+   *
+   * The one field here that is not a fault found. Every other entry says "this
+   * is unsupported"; this one says "these were compared against nothing", so
+   * the badge cannot imply a completeness it does not have. See the note on
+   * `GroundingReport.coverage` in lib/toolGrounding.ts for the V3 run that
+   * produced it, and for why it is a coverage statement and not a ranking.
+   */
+  coverage?: {
+    /** Distinct measurements put beside something the turn produced. */
+    checked: number
+    /** Distinct measurements compared against nothing at all. */
+    unchecked: number
+    /** The first few of those, as the reader can find them on screen. */
+    uncheckedNamed: string[]
+    /**
+     * v2.5: quantity-shaped spans the unit vocabulary cannot read, and so in
+     * neither count above. A floor, never a census — the line names them and
+     * states no total for the reply. See `unreadableQuantitiesIn` in
+     * shared/measurements.ts for the round-12 reply that asked for it.
+     */
+    unread?: number
+    /** The first few of those, in the order the reply states them. */
+    unreadNamed?: string[]
+  }
+  /**
+   * v2.2: the mirror of `coverage`, and the second field here that is not a
+   * fault. Where each measurement the pass DID check was found — which
+   * numbered passage, and on how many of its lines the same value is stated.
+   * See `measurementSources` in lib/toolGrounding.ts for the round-9 finding
+   * that asked for a wrong-row check, and why this is what can honestly be
+   * said instead.
+   */
+  matched?: {
+    /** The span as the reply wrote it. */
+    raw: string
+    /** The passages that state that value, as their markers. */
+    passages: string[]
+    /** Lines of passage text stating it — a table row is a line. */
+    lines: number
+  }[]
+  /**
+   * v2.4: how many findings the banner's counted categories really had, where
+   * the arrays above name fewer.
+   *
+   * Every array here is capped, and the banner's count came off the array — so
+   * `⚠️ 6 figures (…)` was a ceiling wearing a census's clothes. Present only
+   * when the cap actually dropped something, so a report that names everything
+   * cannot claim a truncation it did not make. See `GroundingReport.found` in
+   * lib/toolGrounding.ts.
+   */
+  found?: { figures?: number; links?: number; quantities?: number }
   /** Tools whose output formed the corpus, named in the disclosure. */
   checkedAgainst: string[]
 }
@@ -860,6 +950,14 @@ export interface ChatMessage {
   reasoningMs?: number
   /** Measured generation performance. Token counts only when the server reported them. */
   stats?: ResponseStats
+  /**
+   * v1.17.3: what the transport saw of how this turn ended — who fell silent.
+   *
+   * Set on every assistant turn, read only when the bubble has nothing to show.
+   * The observation is stored rather than the sentence: the sentence is a
+   * reading, and shared/failure.ts is where readings are made.
+   */
+  ending?: TurnEnding
   /**
    * A different role's review of this reply (v0.9 Second Opinion). Display-only —
    * never replayed to a model as part of the conversation.

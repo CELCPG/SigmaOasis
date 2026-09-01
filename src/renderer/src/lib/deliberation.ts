@@ -180,16 +180,59 @@ export function thinkHarderNote(modelId: string): string | null {
   )
 }
 
+/**
+ * Did this pass leave the draft unread? The one question, asked in one place.
+ *
+ * v1.17.3. It used to be asked twice and differently: `describeDeliberation`
+ * re-derived it from `d.review`, `DeliberationLine`'s tooltip re-derived it
+ * again, and the RECORD said `'done'` — so the screen and the record disagreed
+ * about whether a reviewer served an empty 200 had failed. The record answers
+ * it now (`status: 'unreviewed'`), and `d.review` is still consulted so that
+ * records written before that status existed read correctly.
+ *
+ * v2.3: `unreviewed`, not `unchecked`. See `describeDeliberation` — the word
+ * "checked" belongs to three other passes on this same screen, and this one
+ * was borrowing it.
+ */
+export function draftWentUnreviewed(d: DeliberationRecord): boolean {
+  if (d.status === 'reviewing' || d.status === 'revising') return false
+  return d.status === 'error' || d.status === 'unreviewed' || classifyReview(d.review) === 'none'
+}
+
+/**
+ * v2.3: this line says "reviewed", never "checked".
+ *
+ * Measured (FR3, `.h2h-runs/B10/FR3-20260827-224622`): `⚠️ Not deliberated —
+ * the review request to Researcher came back empty; the draft was not checked.`
+ * sat at the foot of a bubble that had already said `🧮 Recomputed the stated
+ * figures in Python` and `Checked against: run_python`. Three passes check
+ * something on that screen — a recomputation, a code run, a grounding
+ * comparison — and none of them is this one. This pass is a second reading of
+ * the prose by a model; the other three are the app comparing figures against
+ * output. One word for both left the reader to guess which had not happened,
+ * with the guess pre-loaded by the two reassurances above it.
+ *
+ * The rank is unchanged, deliberately: this is a warning and it keeps a
+ * warning's ink, while provenance keeps its own (round 10). Position is what
+ * moved — MessageBubble renders an unreviewed draft's line ABOVE the checks
+ * rather than below them, because a warning that arrives after the reassurance
+ * it contradicts has already been misread.
+ */
 export function describeDeliberation(d: DeliberationRecord): string {
   const who = d.self ? 'reviewed its own draft' : `reviewed by ${d.reviewerRole}`
   if (d.status === 'reviewing') return `🧠 Thinking harder — ${d.self ? 'self-review' : `review by ${d.reviewerRole}`} in progress…`
   if (d.status === 'revising') return `🧠 Thinking harder — revising after ${d.self ? 'self-review' : `review by ${d.reviewerRole}`}…`
   if (d.status === 'error')
-    return `⚠️ Not deliberated — think harder failed: ${d.note ?? 'unknown error'}; the draft was not checked.`
+    return `⚠️ Not deliberated — think harder failed: ${d.note ?? 'unknown error'}; no reviewer read this draft.`
   // v1.9.2: nothing came back. The emptiness is known here, and saying
   // "no substantive problems found" instead would vouch for an unread draft.
-  if (classifyReview(d.review) === 'none')
-    return `⚠️ Not deliberated — ${d.self ? 'the self-review returned nothing' : `${d.reviewerRole} returned nothing`}; the draft was not checked.`
+  // v1.17.3: it says who returned nothing AND that the request itself failed —
+  // an empty 200 is a failed request, not a terse reviewer.
+  if (d.status === 'unreviewed' || classifyReview(d.review) === 'none')
+    return (
+      `⚠️ Not deliberated — ${d.self ? 'the self-review request' : `the review request to ${d.reviewerRole}`} ` +
+      'came back empty; no reviewer read this draft. Run Think harder again to retry it.'
+    )
   if (!d.revised) return `🧠 Deliberated — ${who}: no substantive problems found; draft kept.`
   return `🧠 Deliberated — ${who}, revised.${d.note ? ` ${d.note}` : ''}`
 }

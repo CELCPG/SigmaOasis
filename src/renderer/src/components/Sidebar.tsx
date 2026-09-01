@@ -170,7 +170,7 @@ export function Sidebar(): JSX.Element {
           )}
           {c.ephemeral && (
             <span
-              className="ml-1.5 text-xs text-violet-500 dark:text-violet-400"
+              className="ml-1.5 text-xs text-violet-600 dark:text-violet-400"
               title="Ephemeral — never written to disk"
             >
               ◌
@@ -224,7 +224,7 @@ export function Sidebar(): JSX.Element {
           <button
             type="button"
             onClick={() => void removeConversation(c.id)}
-            className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-red-500 group-hover:block"
+            className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-ink-danger group-hover:block"
             title="Delete conversation"
           >
             ✕
@@ -344,7 +344,7 @@ export function Sidebar(): JSX.Element {
             type="button"
             onClick={() => createConversation({ ephemeral: true })}
             disabled={streaming}
-            className="rounded-2xl border border-violet-400/30 bg-violet-400/10 px-2 py-1 text-xs text-violet-500 dark:text-violet-400 hover:bg-violet-400/20 disabled:opacity-50"
+            className="rounded-2xl border border-violet-400/30 bg-violet-400/10 px-2 py-1 text-xs text-violet-600 dark:text-violet-400 hover:bg-violet-400/20 disabled:opacity-50"
             title="New ephemeral chat — nothing is written to disk; gone when you close it or quit"
           >
             ◌
@@ -474,7 +474,7 @@ export function Sidebar(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => confirmDeleteProject(project, items.length)}
-                          className="rounded px-1 text-xs text-ink-tertiary hover:text-red-500"
+                          className="rounded px-1 text-xs text-ink-tertiary hover:text-ink-danger"
                           title="Delete project (keeps its chats)"
                         >
                           ✕
@@ -522,7 +522,7 @@ export function Sidebar(): JSX.Element {
             <button
               type="button"
               onClick={installUpdate}
-              className="w-full rounded-2xl bg-green-500/15 px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-500/25"
+              className="w-full rounded-2xl bg-green-500/15 px-3 py-1.5 text-xs font-medium text-ink-ok hover:bg-green-500/25"
               title={`Sigma Oasis ${updateStatus.version} is ready to install`}
             >
               ⬇ Restart to update to {updateStatus.version}

@@ -9,6 +9,9 @@ import {
   awaitingApproval,
   endPlan,
   OUTCOME_LABEL,
+  planHeaderCount,
+  planHeaderStatus,
+  STATUS_LABEL,
   STATUS_NOTE
 } from '../src/renderer/src/lib/planState'
 import type {
@@ -113,7 +116,7 @@ describe('a plan the user stopped part-way', () => {
 
   test('the interrupted step is not presented as a failure', () => {
     assert.ok(!r[1]!.includes('✗'), 'the stopped step renders the failure glyph')
-    assert.ok(!r[1]!.includes('text-red-500'), 'the stopped step renders in failure red')
+    assert.ok(!r[1]!.includes('text-ink-danger'), 'the stopped step renders in failure red')
     assert.match(r[1]!, /stopped here/)
   })
 
@@ -139,7 +142,7 @@ describe('a plan that failed on its own still reads as a failure', () => {
 
   test('the failed step keeps the failure glyph and colour', () => {
     assert.match(r[1]!, /✗/)
-    assert.match(r[1]!, /text-red-500/)
+    assert.match(r[1]!, /text-ink-danger/)
   })
 
   test('a failure and a user stop are not the same marker', () => {
@@ -270,6 +273,27 @@ const INK_TOKENS = (() => {
   return out
 })()
 
+/**
+ * The status inks — the same idea as the tiers above and read the same way, but
+ * opaque rather than rgba, so they resolve without a surface.
+ *
+ * They exist because a raw palette step cannot be theme-aware: the plan block's
+ * outcomes and step statuses were `text-red-500` / `text-amber-600` / their
+ * `dark:` twins, and the light half of every one of those pairs was under AA
+ * (3.10–3.67:1). Hue still has to separate the four outcomes, which is what the
+ * assertions below check; these only say what each hue *is*.
+ */
+const STATUS_INK = (() => {
+  const css = readFileSync(join(REPO, 'src/renderer/src/assets/index.css'), 'utf8')
+  const out: Record<string, string[]> = {}
+  for (const name of ['danger', 'warn', 'ok']) {
+    const found = css.match(new RegExp(`--text-${name}:\\s*(#[0-9a-fA-F]{6})`, 'g')) ?? []
+    assert.equal(found.length, 2, `index.css no longer defines --text-${name} once per theme`)
+    out[name] = found.map((m) => m.slice(m.indexOf('#')))
+  }
+  return out
+})()
+
 /** The canvas the block sits on, read from the app's own Tailwind config. */
 const CANVAS = (() => {
   const cfg = readFileSync(join(REPO, 'tailwind.config.js'), 'utf8')
@@ -329,6 +353,10 @@ function ink(cls: string, dark: boolean, bg: RGB): RGB {
   if (name === 'accent-ink') return hex(ACCENT_INK[dark ? 1 : 0]!)
   if (name.startsWith('ink-')) {
     const tier = name.slice(4)
+    // The status inks are opaque, so they need no surface; the neutral tiers
+    // carry their own alpha and are composited over the block's background.
+    const status = STATUS_INK[tier]
+    if (status) return hex(status[dark ? 1 : 0]!)
     const token = INK_TOKENS[tier]
     assert.ok(token, `unmeasured ink token "${name}" — index.css defines no --text-${tier}`)
     const [r, g, b, a] = token![dark ? 1 : 0]!
@@ -1095,5 +1123,309 @@ describe('a step that never reached its forecast is not faulted for it', () => {
     )
     assert.match(html, UNRUN)
     assert.match(html, /Forecast read_note/)
+  })
+})
+
+// ---- v1.18: what the block says to a reader who cannot see it ---------------
+
+/**
+ * The authority on every claim in this section is `test/planAccessibilityCheck
+ * .ts`, which reads the computed accessibility tree out of a real Chromium
+ * window over CDP. A name is *computed*, and markup is not what a reader is
+ * handed: the defect this round closed was invisible in the markup and plain in
+ * the tree — a `<button>` wrapping four lines of prose is named with all four,
+ * and `<ol>` is a list with no `role=` anywhere on it.
+ *
+ * What is pinned here instead is the smaller set of facts the markup alone
+ * decides, so they fail in the fast suite rather than only under Electron: that
+ * a row with nothing to open is not dressed as a control, that a state word
+ * exists at all and differs for every status, and that the header carries
+ * exactly one live region rather than none or one per line.
+ */
+
+const EVERY_STATUS: PlanStepStatus[] = [
+  'pending',
+  'running',
+  'done',
+  'failed',
+  'stopped',
+  'skipped'
+]
+
+/** The tag of the row's disclosure control, if the row rendered one. */
+function stepButton(row: string): string | null {
+  const at = row.indexOf('<button')
+  return at === -1 ? null : row.slice(at, row.indexOf('</button>', at))
+}
+
+describe('every step status says what it is, not only what colour it is', () => {
+  test('all six statuses are named, and no two alike', () => {
+    const labels = EVERY_STATUS.map((s) => STATUS_LABEL[s])
+    for (const [i, label] of labels.entries()) {
+      assert.ok(label && label.trim().length > 0, `${EVERY_STATUS[i]} has no label`)
+    }
+    assert.equal(new Set(labels).size, 6, `two statuses share a label: ${labels.join(' | ')}`)
+    assert.equal(Object.keys(STATUS_LABEL).length, 6, 'a status exists with no label')
+  })
+
+  for (const status of EVERY_STATUS) {
+    test(`a ${status} step carries its state on the glyph`, () => {
+      const html = render(plan([step(1, status)]))
+      assert.match(
+        html,
+        new RegExp(`role="img" aria-label="${STATUS_LABEL[status]}"`),
+        `the ${status} glyph is a bare symbol`
+      )
+    })
+  }
+
+  // The negative: the label is per status, not one word stamped on every row.
+  test('two different statuses in one plan do not share a label', () => {
+    const html = render(plan([step(1, 'done', 'ok'), step(2, 'failed', 'boom'), step(3, 'pending')]))
+    const labels = [...html.matchAll(/aria-label="([^"]+)"/g)].map((m) => m[1])
+    assert.equal(new Set(labels).size, labels.length, `repeated label in ${labels.join(' | ')}`)
+  })
+})
+
+describe('a row is a control only when there is something to open', () => {
+  test('a step with output renders a button that says whether it is open', () => {
+    const row = rows(render(plan([step(1, 'done', 'the result')])))[0]!
+    const button = stepButton(row)
+    assert.ok(button, 'an expandable step renders no control')
+    assert.match(button!, /aria-expanded="false"/)
+  })
+
+  test('a step with nothing to open renders no control at all', () => {
+    const row = rows(render(plan([step(1, 'pending')])))[0]!
+    assert.equal(stepButton(row), null, 'a step with nothing to open is dressed as a button')
+  })
+
+  test('a cancelled plan offers a reader no controls whatsoever', () => {
+    const html = render(CANCELLED)
+    assert.ok(!html.includes('<button'), 'a dead plan still renders buttons')
+    assert.ok(!html.includes('disabled'), 'a dead plan still renders a disabled control')
+  })
+
+  test("the row's prose is outside the control, not swallowed into its name", () => {
+    const row = rows(render(plan([step(1, 'done', 'the result')])))[0]!
+    const button = stepButton(row)!
+    assert.ok(!button.includes('detail 1'), 'the detail line is inside the button')
+    assert.ok(!button.includes('Tools —'), 'the tool forecast is inside the button')
+    // …and the row still carries both, so the two assertions above are not
+    // passing because the lines were dropped.
+    assert.match(row, /detail 1/)
+    assert.match(row, /Tools —/)
+  })
+})
+
+describe('the block has one live region, and it carries the state', () => {
+  const STATES: [string, ChatPlan, string][] = [
+    ['never approved', plan([step(1, 'pending')], { approved: false }), 'awaiting approval'],
+    ['running', plan([step(1, 'running')]), 'running'],
+    ['finished', endPlan(plan([step(1, 'done', 'ok')]), 'completed'), OUTCOME_LABEL.completed],
+    ['cancelled', CANCELLED, OUTCOME_LABEL.cancelled],
+    ['stopped', STOPPED, OUTCOME_LABEL.stopped],
+    ['failed', FAILED, OUTCOME_LABEL.failed]
+  ]
+
+  for (const [name, p, expected] of STATES) {
+    test(`${name}: exactly one live region, saying "${expected}"`, () => {
+      const html = render(p)
+      const live = [...html.matchAll(/aria-live="[^"]*"/g)]
+      // One, never none — a region that only comes into existence when the
+      // plan ends announces nothing, which is what three conditional spans
+      // did — and never more than one, because a block that is live all over
+      // talks over the reader for the whole run.
+      assert.equal(live.length, 1, `${live.length} live regions`)
+      assert.match(html, /role="status" aria-live="polite" aria-atomic="true"/)
+      assert.equal(planHeaderStatus(p).text, expected)
+    })
+  }
+
+  test('the six states put six different words in that one region', () => {
+    const words = STATES.map(([, p]) => planHeaderStatus(p).text)
+    assert.equal(new Set(words).size, 6, `states collapsed to ${words.join(' | ')}`)
+  })
+
+  test('the step count stays outside it, so a run does not narrate itself', () => {
+    const html = render(STOPPED)
+    const at = html.indexOf('aria-live=')
+    const region = html.slice(html.lastIndexOf('<span', at), html.indexOf('</span>', at))
+    // v2.4: the negative is on the word "step", not on the phrase "steps done".
+    // A stopped plan's header no longer says "steps done" at all, so the older
+    // assertion had become true of a region that swallowed the whole count.
+    assert.ok(!/step/i.test(region), `the count is inside the live region: ${region}`)
+    assert.match(header(html), /\d+ steps\b/)
+  })
+})
+
+describe('the block names itself out of the header a reader can see', () => {
+  test('the group is labelled by its own header, not by a hidden string', () => {
+    const html = render(STOPPED)
+    const labelledBy = html.match(/aria-labelledby="([^"]+)"/)
+    assert.ok(labelledBy, 'the block exposes no name at all')
+    assert.match(html, /role="group"/)
+    assert.ok(
+      html.includes(`id="${labelledBy![1]}"`),
+      `aria-labelledby="${labelledBy![1]}" points at no element in the block`
+    )
+    // The named element is the header, so the outcome cannot be announced
+    // without the count it qualifies, or the count without the outcome.
+    const headerText = header(html)
+    assert.ok(headerText.includes(`id="${labelledBy![1]}"`), 'the name points below the header')
+    assert.match(headerText, /\d+ steps\b/)
+    assert.match(headerText, new RegExp(OUTCOME_LABEL.stopped))
+  })
+
+  test('the decorative glyphs are not part of that name', () => {
+    const html = render(STOPPED)
+    assert.match(html, /aria-hidden="true">📋</, 'the clipboard is announced as "clipboard"')
+  })
+})
+
+/* ---- v1.17.4: a cancelled plan was attributed to nobody ------------------- */
+
+/**
+ * A blind critic, on the cancelled badge:
+ *
+ * > `"cancelled — nothing ran"` attributes the decision to nobody, where the
+ * > same build family manages `"stopped by you"` elsewhere.
+ *
+ * The first question is not what to write but whether the app may write it. It
+ * may, and not merely usually: `cancelled` has exactly one writer in the whole
+ * renderer, and that writer's only caller is the Cancel control inside this
+ * block. Every ending the app reaches on its own is a different word —
+ * `stopped` from the abort listener on the approval gate and the
+ * `signal.aborted` checks around each step, `failed` from a step that threw,
+ * `completed` from a plan that ran out. There is no fourth way in, so there is
+ * no second case to write words for.
+ *
+ * That is a property of the source, not of the render, so the last test here
+ * reads the source. A future path that ends a plan without the reader touching
+ * it would make the badge a lie, and nothing in a rendered checklist could
+ * catch that.
+ */
+describe('a plan that ended says whose decision it was', () => {
+  test('the cancelled badge names the reader, and still says nothing ran', () => {
+    assert.equal(OUTCOME_LABEL.cancelled, 'cancelled by you — nothing ran')
+    // Both halves matter: who decided, and what the rows below it are. The
+    // v1.12.3 finding — a reader taking "Result: ~$1,080" off a step that never
+    // ran — is why the second half cannot be dropped for room.
+    assert.match(planHeaderStatus(CANCELLED).text, /by you/)
+    assert.match(planHeaderStatus(CANCELLED).text, /nothing ran/)
+  })
+
+  test('exactly the two outcomes the reader causes name the reader', () => {
+    const byReader = (['completed', 'cancelled', 'stopped', 'failed'] as const).filter((o) =>
+      /\byou\b/.test(OUTCOME_LABEL[o])
+    )
+    // The true negative: a plan that finished and a plan that failed are the
+    // app's own doing, and must not be laid at the reader's door.
+    assert.deepEqual(byReader, ['cancelled', 'stopped'])
+  })
+
+  test('the app has exactly one way to write "cancelled", and it is the reader’s button', () => {
+    const src = (p: string): string => readFileSync(join(REPO, 'src', 'renderer', 'src', p), 'utf-8')
+
+    // The executor never picks the word: it forwards the decision the gate was
+    // resolved with, so it cannot name a party by inference from something
+    // nearby. (Through v1.17.3 it read `signal.aborted` immediately after the
+    // resolve and chose from that — a fact about the turn's abort controller
+    // standing in for a fact about which control was pressed.)
+    const planMode = src('hooks/planMode.ts')
+    assert.ok(!/finish\(\s*'cancelled'/.test(planMode), 'planMode picks the word itself')
+    assert.ok(!/resolve\(\s*'cancelled'/.test(planMode), 'planMode resolves the gate as cancelled')
+    assert.match(planMode, /signal\.addEventListener\('abort', \(\) => resolve\('stopped'\)/)
+
+    // And the single writer is the Approve/Cancel resolver.
+    const hook = src('hooks/useLMStudio.ts')
+    const writes = hook.split('\n').filter((l) => /'cancelled'/.test(l))
+    assert.equal(writes.length, 1, `${writes.length} writers of 'cancelled' in useLMStudio.ts`)
+    assert.match(writes[0]!, /resolve\(approved \? 'approved' : 'cancelled'\)/)
+
+    // Whose only caller is the block's own Cancel button.
+    const view = readFileSync(
+      join(REPO, 'src', 'renderer', 'src', 'components', 'PlanBlockView.tsx'),
+      'utf-8'
+    )
+    assert.equal(
+      (view.match(/onResolve\(false\)/g) ?? []).length,
+      1,
+      'more than one control refuses the plan'
+    )
+  })
+})
+
+/* ---- v2.4: a progress fraction on a plan that will never progress --------- */
+
+/**
+ * Round 11's blind critics, on both arms: `Plan — 0/4 steps done` sat above
+ * four rows every one of which read `never ran`, beside a badge reading
+ * `cancelled by you — nothing ran`.
+ *
+ * Nothing in the fraction is false. It is a *promise*: a numerator that climbs
+ * toward a denominator that gets reached, which is what a reader of a checklist
+ * takes from `0/4`. Round 11 taught the badge to attribute the decision and the
+ * count went on describing a run in progress — round 10's lesson (a sentence
+ * broader than its measurement) with the breadth in the presentation.
+ *
+ * The rule is not "no fractions on dead plans": a fraction may stand as long as
+ * it is closed. `4/4 steps done` leaves nothing out and says the same thing as
+ * the census in fewer words, so it stays. The two true negatives below are that
+ * case and the live case, and they are what stop this being bought cheaply by a
+ * build that simply stopped counting.
+ */
+describe('a plan that is over stops reporting progress (v2.4)', () => {
+  test('the recorded line: nothing ran, and the count no longer implies it might', () => {
+    const FOUR = endPlan(
+      plan([step(1, 'pending'), step(2, 'pending'), step(3, 'pending'), step(4, 'pending')], {
+        approved: false
+      }),
+      'cancelled'
+    )
+    assert.equal(planHeaderCount(FOUR), '4 steps: 4 never ran')
+    // Both halves on one screen, in the markup the reader is handed.
+    const h = header(render(FOUR))
+    assert.ok(!/0\/4 steps done/.test(h), `the dead plan still shows a progress fraction: "${h}"`)
+    assert.match(h, new RegExp(OUTCOME_LABEL.cancelled))
+  })
+
+  test('a plan stopped part-way says what became of every one of its steps', () => {
+    // STOPPED is 1 done, 1 stopped, 2 that never ran — and `1/4 steps done`
+    // was the fraction inviting the reader to wait for steps 3 and 4.
+    assert.equal(planHeaderCount(STOPPED), '4 steps: 1 done, 1 stopped by you, 2 never ran')
+    assert.equal(planHeaderCount(FAILED), '3 steps: 1 done, 1 failed, 1 never ran')
+  })
+
+  test('the census accounts for every step, whatever the statuses are', () => {
+    // The class, not the three instances: for any terminal plan the numbers in
+    // the header sum to the number of rows below it. A tally that walked a
+    // hand-written list of statuses and missed one would leave rows
+    // unaccounted for, and this is the assertion that would catch it.
+    for (const p of [CANCELLED, STOPPED, FAILED]) {
+      const text = planHeaderCount(p)
+      const tallied = Object.values(STATUS_LABEL).reduce((sum, label) => {
+        const m = text.match(new RegExp(`\\b(\\d+) ${label.toLowerCase()}\\b`))
+        return sum + (m ? Number(m[1]) : 0)
+      }, 0)
+      assert.equal(tallied, p.steps.length, `"${text}" accounts for ${tallied} of ${p.steps.length}`)
+    }
+  })
+
+  test('a closed fraction is left alone — the true negative', () => {
+    // Every step done: the fraction leaves nothing out, so it already IS the
+    // census and is the shorter of the two.
+    const DONE = endPlan(plan([step(1, 'done', 'ok'), step(2, 'done', 'ok')]), 'completed')
+    assert.equal(planHeaderCount(DONE), '2/2 steps done')
+  })
+
+  test('a plan still in flight still counts its progress — the true negative', () => {
+    // QUEUED is approved and running: 0 of 3 done, and here `0/3` is exactly
+    // right, because the numerator really is expected to climb.
+    assert.equal(planHeaderCount(QUEUED), '0/3 steps done')
+    assert.equal(
+      planHeaderCount(plan([step(1, 'pending'), step(2, 'pending')], { approved: false })),
+      '0/2 steps done'
+    )
   })
 })

@@ -2,14 +2,20 @@ import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { runAgentLoop, TOOL_TURN_BUDGETS, type ApiMessage } from '../lib/agentLoop'
-import { endPlan } from '../lib/planState'
+import {
+  endPlan,
+  planEndLine,
+  planStartLine,
+  planStepEndLine,
+  planStepStartLine
+} from '../lib/planState'
 import type {
   ChatMessage,
   ChatPlan,
   Conversation,
   ModelConfig,
   PlanOutcome,
-  PlanStep,
+  PlanStepStatus,
   ToolCallRecord,
   ToolSchema
 } from '../types'
@@ -64,11 +70,31 @@ export function planContext(messages: ChatMessage[]): string {
 }
 
 /**
- * Pending plan approvals, keyed by assistant message id. The Approve/Cancel
- * buttons in PlanBlock resolve these; an aborted stream resolves false so the
- * executor never hangs waiting on a dialog the user already walked away from.
+ * How the approval gate ended — v1.17.4.
+ *
+ * Three outcomes, not two, and the third is the point. Through v1.17.3 this
+ * resolved a boolean and the executor then re-derived which kind of refusal it
+ * had been by reading `signal.aborted` immediately afterwards: a fact about the
+ * turn's abort controller standing in for a fact about which control the reader
+ * pressed. That is this project's named recurring defect — reading a quantity
+ * *adjacent to* the one you mean — and the quantity itself was right there, in
+ * the resolver that was being called.
+ *
+ * So the decision is recorded where it is made. `'stopped'` is written by the
+ * abort listener and by nothing else; `'cancelled'` is written by
+ * `resolvePlan(id, false)` and by nothing else, and that function's only caller
+ * in the app is the Cancel button inside the plan block. That is what entitles
+ * `OUTCOME_LABEL.cancelled` to name the reader.
  */
-export const planApprovals = new Map<string, (approved: boolean) => void>()
+export type PlanDecision = 'approved' | 'cancelled' | 'stopped'
+
+/**
+ * Pending plan approvals, keyed by assistant message id. The Approve/Cancel
+ * buttons in PlanBlock resolve these; an aborted stream resolves 'stopped' so
+ * the executor never hangs waiting on a dialog the user already walked away
+ * from.
+ */
+export const planApprovals = new Map<string, (decision: PlanDecision) => void>()
 
 /**
  * Where a plan step's tool calls go.
@@ -239,6 +265,17 @@ export async function runPlanTurn(
     return
   }
 
+  const initialPlan: ChatPlan = {
+    steps: gen.steps.map((s) => ({
+      id: uid(),
+      title: s.title,
+      detail: s.detail,
+      tools: s.tools ?? [],
+      status: 'pending' as const
+    })),
+    approved: !settings.plan.confirmPlan,
+    createdAt: Date.now()
+  }
   const assistantMsg: ChatMessage = {
     id: uid(),
     role: 'assistant',
@@ -247,20 +284,14 @@ export async function runPlanTurn(
     roleName: slot.roleName,
     color: slot.color,
     toolCalls: [],
-    plan: {
-      steps: gen.steps.map((s) => ({
-        id: uid(),
-        title: s.title,
-        detail: s.detail,
-        tools: s.tools ?? [],
-        status: 'pending' as const
-      })),
-      approved: !settings.plan.confirmPlan,
-      createdAt: Date.now()
-    },
+    plan: initialPlan,
     createdAt: Date.now()
   }
   store.appendMessage(conversationId, assistantMsg)
+  // v2.5: the checklist reaches the record at the moment it reaches the screen.
+  // A plan the reader was shown and cancelled used to leave the log holding a
+  // user input and an assistant output with nothing between them.
+  audit(convo, planStartLine(initialPlan))
   const patch = (p: Partial<ChatMessage>): void =>
     useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
   const currentPlan = (): ChatPlan | undefined =>
@@ -268,37 +299,80 @@ export async function runPlanTurn(
       .getState()
       .conversations.find((c) => c.id === conversationId)
       ?.messages.find((m) => m.id === assistantMsg.id)?.plan
-  const patchStep = (stepId: string, p: Partial<PlanStep>): void => {
+
+  /**
+   * A step's status, written once — to the row the reader sees and to the line
+   * the record keeps — because there is one function that can write it.
+   *
+   * Through v2.4 the store was patched here and the log knew nothing about it,
+   * so `3/3 steps done` was the block's word alone. The repair is not a second
+   * pass that logs what the store ended up holding: a record assembled from the
+   * screen's final state is the screen agreeing with a copy of itself. It is
+   * that the transition has one writer, so a status cannot reach one place
+   * without reaching the other, and a build that stopped recording steps would
+   * also stop drawing them.
+   *
+   * `skipped` is deliberately not written from here. A step the plan abandoned
+   * never ran, so it leaves no line — its absence from the record is the fact,
+   * and `planLedgersFromAudit` reconstructs it through `endPlan`, the same rule
+   * the block uses.
+   */
+  const beginStep = (index: number): void => {
     const plan = currentPlan()
-    if (!plan) return
+    const step = plan?.steps[index]
+    if (!plan || !step) return
     patch({
-      plan: { ...plan, steps: plan.steps.map((s) => (s.id === stepId ? { ...s, ...p } : s)) }
+      plan: {
+        ...plan,
+        steps: plan.steps.map((s) => (s.id === step.id ? { ...s, status: 'running' } : s))
+      }
     })
+    audit(convo, planStepStartLine(plan, index + 1))
+  }
+  const endStep = (index: number, status: PlanStepStatus, output?: string): void => {
+    const plan = currentPlan()
+    const step = plan?.steps[index]
+    if (!plan || !step) return
+    patch({
+      plan: {
+        ...plan,
+        steps: plan.steps.map((s) =>
+          s.id === step.id ? { ...s, status, ...(output === undefined ? {} : { output }) } : s
+        )
+      }
+    })
+    audit(convo, planStepEndLine(plan, index + 1, status, output))
   }
   /** Record how the plan ended, so the block stops reading as live work. */
   const finish = (outcome: PlanOutcome): void => {
     const plan = currentPlan()
-    if (plan) patch({ plan: endPlan(plan, outcome) })
+    if (!plan) return
+    patch({ plan: endPlan(plan, outcome) })
+    audit(convo, planEndLine(plan, outcome))
   }
 
   // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
   if (settings.plan.confirmPlan) {
-    const approved = await new Promise<boolean>((resolve) => {
+    const decision = await new Promise<PlanDecision>((resolve) => {
       planApprovals.set(assistantMsg.id, resolve)
-      signal.addEventListener('abort', () => resolve(false), { once: true })
+      signal.addEventListener('abort', () => resolve('stopped'), { once: true })
     })
     planApprovals.delete(assistantMsg.id)
     const plan = currentPlan()
-    if (!approved) {
+    if (decision !== 'approved') {
       // The refusal has to reach the block, not just the prose: with only
       // `approved:false` it still read "awaiting approval" with a live Run
       // button under a message saying nothing was executed.
-      const stopped = signal.aborted
-      finish(stopped ? 'stopped' : 'cancelled')
+      //
+      // v1.17.4: and it names who refused. Both of these are the reader's own
+      // doing — there is no third path out of this gate — so both say so, in
+      // the same voice the outcome badge above them uses.
+      finish(decision)
       patch({
-        content: stopped
-          ? 'Stopped before the plan ran — nothing was executed.'
-          : 'Plan cancelled — nothing was executed.'
+        content:
+          decision === 'stopped'
+            ? 'You stopped this before the plan ran — nothing was executed.'
+            : 'You cancelled this plan — nothing was executed.'
       })
       return
     }
@@ -320,7 +394,7 @@ export async function runPlanTurn(
       return
     }
     const step = plan.steps[i]!
-    patchStep(step.id, { status: 'running' })
+    beginStep(i)
 
     const stepInput =
       `Step ${i + 1} of ${plan.steps.length}: ${step.title}\n${step.detail}` +
@@ -336,14 +410,14 @@ export async function runPlanTurn(
         records: allRecords,
         onChange: publishRecords
       })
-      patchStep(step.id, { status: 'done', output })
+      endStep(i, 'done', output)
       completed.push({ title: step.title, output })
     } catch (err) {
       // Stop lands here as an abort. It is the user ending the plan, not the
       // step blowing up — drawing it in failure red blames them for their own
       // decision, so it gets its own status and no error output.
       if (signal.aborted) {
-        patchStep(step.id, { status: 'stopped' })
+        endStep(i, 'stopped')
         finish('stopped')
         return
       }
@@ -352,7 +426,7 @@ export async function runPlanTurn(
       // account of itself should be. The body now says what happened and quotes
       // the runtime underneath it, attributed.
       const failure = explainFailure(err, { subject: `Step ${i + 1}` })
-      patchStep(step.id, { status: 'failed', output: composeFailure(failure) })
+      endStep(i, 'failed', composeFailure(failure))
       // A failed step poisons everything built on it: halt, and let the
       // synthesis say plainly what that leaves unanswered. The synthesis reads
       // this, so it gets the sentence — the identifier would only invite the
@@ -457,7 +531,10 @@ export async function runPlanTurn(
     }
     })
   } finally {
-    tail.finish()
+    // Awaited, like the chat turn's: the synthesis step is the one whose text
+    // the user reads, so the plan is not over until its last character is
+    // painted. Stop takes the immediate path — see makeTailStream.
+    await tail.finish(signal.aborted)
   }
   if (!signal.aborted) {
     audit(convo, {

@@ -60,6 +60,39 @@
   --text-tertiary: rgba(23, 23, 23, 0.64);
   --text-muted: rgba(23, 23, 23, 0.32);
 
+  /*
+   * Status ink — the same argument as the neutral ramp above, one step further.
+   *
+   * A raw Tailwind step cannot be theme-aware: `text-amber-600` composites to
+   * 3.10:1 on the light panel and 6.11:1 on the dark one, so one class means
+   * "legible" in one theme and "failing" in the other. It reached 25 sites,
+   * including every ⚠️ line the app uses to say it could not verify something,
+   * and `text-red-500` (3.67:1 on the panel) carried the transport failure
+   * sentence. The one place the app admits something went wrong was the one
+   * place a reader could least easily read.
+   *
+   * Why these hues and not a darker step of the same ramp: passing AA in the
+   * light theme caps relative luminance, and Tailwind's ramps DESATURATE as
+   * they darken — that is what makes a deep amber read as mud. amber-800 clears
+   * AA at chroma 0.518; amber-700 keeps chroma 0.671 but only reaches 4.03:1 on
+   * the tinted wells it actually sits on. Rotating toward orange and taking the
+   * most saturated sRGB colour available at the required lightness beats both:
+   * #a34300 is chroma 0.639 at 5.01:1 worst-case — more colour than amber-800
+   * and a full rank more legible than amber-700. The hue signal that "brown"
+   * would have cost is carried by the fill and border (`bg-amber-500/10`,
+   * `border-amber-500/30`) and by the ⚠️ glyph, none of which have a contrast
+   * floor. Ink pays for legibility; the surface pays for identity.
+   *
+   * Worst case measured over every surface these land on in their own theme —
+   * bare canvas, glass panel, popover, and the amber/red wells at /5 /10 /15:
+   *   danger  #c10014  5.14:1   warn #a34300  5.01:1   ok #006b4a  5.26:1
+   * Pinned in test/chromeContrastCheck.ts, which composites them in a real
+   * window rather than reading them out of here.
+   */
+  --text-danger: #c10014;
+  --text-warn: #a34300;
+  --text-ok: #006b4a;
+
   /* Easing */
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-settle: cubic-bezier(0.33, 1, 0.68, 1);
@@ -92,6 +125,18 @@
   --text-secondary: rgba(255, 255, 255, 0.72);
   --text-tertiary: rgba(255, 255, 255, 0.55);
   --text-muted: rgba(255, 255, 255, 0.38);
+
+  /*
+   * Status ink, dark. The constraint inverts — luminance has to go up, not
+   * down — so here the hue costs nothing and these are near-maximum chroma.
+   * Same hue family as their light counterparts so a warning is the same
+   * colour in two lights rather than two different colours.
+   * Worst case over the same eight surfaces:
+   *   danger #ff8875  6.62:1   warn #ff9d33  7.42:1   ok #34d399  8.01:1
+   */
+  --text-danger: #ff8875;
+  --text-warn: #ff9d33;
+  --text-ok: #34d399;
 }
 
 body {
@@ -198,10 +243,34 @@ body {
  * this span remounts (and the animation restarts) for as long as its word is
  * the leading edge; the word settles to full ink once the stream moves past
  * it. Opacity only — a transform here would shift the line under the reader.
+ *
+ * v2.2: the floor is 0.66, not 0.2, and the difference is the whole point.
+ *
+ * The remount above is not a detail of the effect, it IS the effect: the flush
+ * cadence is TAIL_FLUSH_MS (33 ms) and the fade needs 149 ms to climb out of
+ * the sub-AA band, so the leading word restarted from the floor roughly four
+ * times before it could ever have become legible. Measured in this engine over
+ * 1.2 s of the real cadence: opacity oscillated 0.20–0.31 and 71 of 73 sampled
+ * frames sat below AA — 1.49:1 on the light panel, 1.73:1 on the dark one. It
+ * did not pass through illegibility, it rested there, and the word a critic
+ * could not read on a recorded run was “safe”, in an answer about food safety.
+ *
+ * 0.63 is where the light panel first clears 4.5:1 (4.53:1); 0.66 is the same
+ * measurement with margin — 4.97:1 light, 7.87:1 dark. Light is the binding
+ * theme in both directions, because dimming dark ink toward a white panel
+ * loses contrast faster than dimming light ink toward a black one.
+ *
+ * The fade survives, and so does the reason for it: a leading edge that pops
+ * in reads worse than one that flows. What cannot survive is a leading edge
+ * nobody can read, and 0.66 → 1 still visibly softens the newest word. It also
+ * shrinks the step the word takes when the stream moves past it and the span
+ * disappears — 0.73 → 1 rather than 0.31 → 1. The floor is measured, not
+ * chosen: test/chromeContrastCheck.ts scrapes it out of the keyframe below and
+ * composites it over the real reply surface in both themes.
  */
 @keyframes stream-edge-in {
   from {
-    opacity: 0.2;
+    opacity: 0.66;
   }
   to {
     opacity: 1;
@@ -663,6 +732,13 @@ body {
 
 .oasis-status {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+.oasis-status-line {
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -703,8 +779,20 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.oasis-wait[data-wait-level='escalated'] {
+.oasis-wait[data-wait-level='escalated'],
+.oasis-wait[data-wait-level='stalled'] {
   color: var(--accent-amber-ink);
+}
+/* The reading under the clock. Wraps — it is a sentence, not a counter — and
+   stays in the body ink rather than the amber: the amber marks the fact that
+   the wait is long, and repeating it on the explanation would put a statement
+   the app is deliberately not making at the volume of an alarm. */
+.oasis-wait-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  max-width: 52ch;
+  text-wrap: pretty;
 }
 
 /* Reduced motion: no droplets, no rings — the orb keeps its calm pulse. */
@@ -1002,6 +1090,41 @@ summary:focus-visible,
   overflow-x: hidden;
   overflow-wrap: break-word;
   white-space: pre-wrap;
+}
+/*
+ * v1.17.4 — where the fold lands, for the one block whose whole purpose is a
+ * string the reader means to copy.
+ *
+ * A hyphen is a break opportunity in the line-breaking algorithm, so the rule
+ * above folds `signme-oasis-head-to-head-…` at its hyphens and every folded row
+ * ends in a real `-` — 4 of 4 folds at a 420px column, 10 of 10 in split view.
+ * A reader has been trained since print that an end-of-line hyphen was inserted
+ * by the renderer and comes out when the lines are rejoined, so transcribing
+ * the token by eye silently deletes characters from it.
+ *
+ * `break-all` folds where the line fills instead. What that buys is not mainly
+ * the character the row ends on — a hyphen can still sit at the fill point, and
+ * 2 of 4 folds at 420px still do. It is that EVERY folded row now runs to the
+ * content edge while a row that ends stops short of it, so a fold announces
+ * itself and the hyphen on it is plainly content. Counting folds that both end
+ * in a hyphen and stop short — the pair that reads as hyphenation — 10 of 10
+ * and 2 of 4 before, 0 of 8 and 0 of 4 after.
+ *
+ * `overflow-wrap` is reset to `normal` in the same rule and that reset
+ * is load-bearing, not tidiness: measured, `break-word` and `break-all` set
+ * together give back the hyphen folds — Chromium keeps preferring the
+ * line-breaker's own opportunities and only breaks inside a token as a last
+ * resort. The two properties do not compose; one of them has to be off.
+ *
+ * Scoped to the blocks lib/markdown.ts marks, never to `.code-wrapped` at
+ * large, because filling every line to the edge is exactly round 8's shredding:
+ * three lines of ordinary JavaScript lose 0 words under `break-word` and 3
+ * under `break-all`. `foldsAnywhere` names the blocks that have no such word to
+ * lose. test/styleCheck.ts measures both halves.
+ */
+.code-block.code-wrapped.code-fold-anywhere pre {
+  overflow-wrap: normal;
+  word-break: break-all;
 }
 .code-block code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

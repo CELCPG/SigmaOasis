@@ -4,6 +4,7 @@ import { createHash } from 'crypto'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { getSettings } from './store'
+import { isAuditEntryKind, type AuditEntry, type AuditEntryInput } from '../../shared/audit'
 
 /**
  * Session audit log (v0.9): an opt-in, append-only transcript of what was
@@ -26,33 +27,31 @@ import { getSettings } from './store'
  *   layers: the renderer does not send them, and this module refuses any
  *   entry flagged ephemeral. No-trace means no-trace, including here.
  * - **Opt-in.** Default off (store.ts); nothing below runs unless enabled.
+ *
+ * v2.5 — **the transcript covers plan turns too.** The four kinds above were
+ * the whole of it, and a plan turn slipped between them: its steps each run
+ * their own sub-turn and each produce text the reader sees in the checklist,
+ * and none of that text was ever written down. A three-step plan that called no
+ * tools left `session_start`, `user_input`, `assistant_output` — a record in
+ * which nothing at all happened between the question and the answer, under a
+ * header reading `3/3 steps done`. That is a hole in this log's own contract
+ * before it is anything else, and the four `plan_*` kinds close it: the
+ * checklist as it was offered, each step beginning, each step's status and
+ * result, and how the plan ended. Nothing else — a step's constructed prompt
+ * and the prior results spliced into it are layers in between, and this log has
+ * never carried those.
+ *
+ * What that does and does not buy is stated where the header is reconstructed
+ * from it (`renderer/src/lib/planState.ts`), and it is less than it looks: the
+ * application remains the only witness to its own steps.
  */
 
-export type AuditEntryKind = 'session_start' | 'user_input' | 'assistant_output' | 'tool_call'
-
-export interface AuditEntryInput {
-  conversationId: string
-  kind: AuditEntryKind
-  roleName?: string
-  modelId?: string
-  toolName?: string
-  ok?: boolean
-  text: string
-  /** Renderer-side flag; entries for ephemeral conversations are refused. */
-  ephemeral?: boolean
-}
-
-interface AuditEntry {
-  at: string
-  kind: AuditEntryKind
-  conversationId: string
-  roleName?: string
-  modelId?: string
-  toolName?: string
-  ok?: boolean
-  text: string
-  prevHash: string
-}
+/**
+ * The kinds and the line shape live in `shared/audit.ts` — one declaration for
+ * something main writes, the preload types, and the renderer reads back. They
+ * are re-exported here because this module is where the log's callers look.
+ */
+export type { AuditEntry, AuditEntryInput, AuditEntryKind } from '../../shared/audit'
 
 /** Entries are capped so one giant tool output cannot bloat the log. */
 const MAX_ENTRY_CHARS = 20_000
@@ -110,8 +109,12 @@ export async function recordAuditEntry(input: AuditEntryInput): Promise<void> {
   if (!getSettings().audit.enabled) return
   if (!safeStorage.isEncryptionAvailable()) return
   if (input.ephemeral) return
+  // Read off AUDIT_ENTRY_KINDS rather than repeated here. This line used to be
+  // a second, hand-written copy of the list; a kind added to the type and not
+  // to the copy typechecks clean and is dropped silently at runtime, which is
+  // the enumeration-narrower-than-its-class defect with a log entry at stake.
   const kind = input.kind
-  if (!['session_start', 'user_input', 'assistant_output', 'tool_call'].includes(kind)) return
+  if (!isAuditEntryKind(kind)) return
 
   return withAuditLock(async () => {
     if (!sessionStarted) {
@@ -136,6 +139,20 @@ export async function recordAuditEntry(input: AuditEntryInput): Promise<void> {
       ...(input.modelId ? { modelId: String(input.modelId) } : {}),
       ...(input.toolName ? { toolName: String(input.toolName) } : {}),
       ...(typeof input.ok === 'boolean' ? { ok: input.ok } : {}),
+      // v2.5, plan lines. OMITTED — not written as null — on every entry that
+      // is not about a plan, and that is a compatibility requirement rather
+      // than tidiness: the chain hashes `JSON.stringify(entry)`, so a
+      // `user_input` this build writes has to serialize to the same bytes the
+      // last build's did or no existing log verifies. Same reason the four
+      // fields above are spread in conditionally.
+      ...(Number.isFinite(input.planStepIndex)
+        ? { planStepIndex: Number(input.planStepIndex) }
+        : {}),
+      ...(Number.isFinite(input.planStepCount)
+        ? { planStepCount: Number(input.planStepCount) }
+        : {}),
+      ...(input.planStepStatus ? { planStepStatus: String(input.planStepStatus) } : {}),
+      ...(input.planOutcome ? { planOutcome: String(input.planOutcome) } : {}),
       text:
         raw.length > MAX_ENTRY_CHARS
           ? `${raw.slice(0, MAX_ENTRY_CHARS)}\n… [truncated — ${raw.length} chars total]`

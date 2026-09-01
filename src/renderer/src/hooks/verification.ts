@@ -11,6 +11,8 @@ import {
   isSelfContained,
   longestPythonFence,
   recomputeIsCircular,
+  revisionDropsAllFigures,
+  revisionEchoesScaffolding,
   LAUNDERED_OUTPUT_MARKER
 } from '../lib/workbenchChecks'
 import { parseRanCode } from '../lib/ranCode'
@@ -24,7 +26,7 @@ import {
   pickReviewer
 } from '../lib/deliberation'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
-import { describeGroundingFindings } from '../lib/toolGrounding'
+import { describeGroundingFindings, revisionIsAnImprovement } from '../lib/toolGrounding'
 import {
   buildExtractionMessages,
   buildJudgeMessages,
@@ -158,12 +160,12 @@ export async function runAutoCritic(
   answerer: { modelId?: string; roleName?: string },
   baseUrl: string,
   signal: AbortSignal
-): Promise<void> {
+): Promise<boolean> {
   const settings = useAppStore.getState().settings
-  if (!settings?.secondOpinion.enabled || !answer.trim()) return
+  if (!settings?.secondOpinion.enabled || !answer.trim()) return false
   const critic = pickCritic(settings.models, answerer, settings.secondOpinion.criticSlotId)
-  if (!critic) return
-  if (signal.aborted) return
+  if (!critic) return false
+  if (signal.aborted) return false
 
   await window.api.pinModel(critic.modelId).catch(() => false)
   const record: SecondOpinionRecord = {
@@ -195,14 +197,17 @@ export async function runAutoCritic(
     )
     if (!signal.aborted && !text.trim()) patchRecord(NO_REVIEW_TEXT)
   } catch (err) {
-    if (!signal.aborted) {
-      // The reader gets a reading; the runtime's own words ride underneath it,
-      // attributed, instead of standing in for a sentence.
-      patchRecord(
-        `⚠️ ${composeFailure(explainFailure(err, { subject: 'The second opinion' }))}`
-      )
-    }
+    if (signal.aborted) return false
+    // The reader gets a reading; the runtime's own words ride underneath it,
+    // attributed, instead of standing in for a sentence.
+    patchRecord(
+      `⚠️ ${composeFailure(explainFailure(err, { subject: 'The second opinion' }))}`
+    )
+    return true
   }
+  // Cut off mid-stream, the reader has a half-written critique and no verdict.
+  // The deadline notice must be able to call that what it is.
+  return !signal.aborted
 }
 
 /**
@@ -228,11 +233,11 @@ export async function runClaimCheck(
   signal: AbortSignal,
   allRecords: ToolCallRecord[],
   patch: (p: Partial<ChatMessage>) => void
-): Promise<void> {
+): Promise<boolean> {
   const settings = useAppStore.getState().settings
-  if (!settings?.secondOpinion.enabled || !settings.claimCheck.enabled || !answer.trim()) return
+  if (!settings?.secondOpinion.enabled || !settings.claimCheck.enabled || !answer.trim()) return false
   const critic = pickCritic(settings.models, answerer, settings.secondOpinion.criticSlotId)
-  if (!critic || signal.aborted) return
+  if (!critic || signal.aborted) return false
 
   const record: ClaimCheckRecord = {
     roleName: critic.roleName,
@@ -255,7 +260,9 @@ export async function runClaimCheck(
   if (blocked) {
     record.budgetNote = blocked
     patchRecord()
-    return
+    // The block is on screen saying what stopped it. That is the check
+    // reporting on itself, which is all "it ran" has ever meant here.
+    return true
   }
 
   /** A tool call by the checker: recorded, displayed, and audited like any other. */
@@ -311,7 +318,7 @@ export async function runClaimCheck(
     const extracted = await complete(
       buildExtractionMessages(critic, question, answer, answerer.roleName ?? 'The model')
     )
-    if (signal.aborted) return
+    if (signal.aborted) return false
     const { claims, truncated } = parseClaims(extracted, settings.claimCheck.maxClaims)
     if (truncated) {
       record.budgetNote = `Only the first ${settings.claimCheck.maxClaims} extracted claims were checked (per-reply cap).`
@@ -320,7 +327,7 @@ export async function runClaimCheck(
       record.budgetNote =
         record.budgetNote ?? 'The critic found no checkable factual claims in this answer.'
       patchRecord()
-      return
+      return true
     }
 
     // 2. Settlement — budget enforced in code: one search, at most one fetch,
@@ -338,15 +345,107 @@ export async function runClaimCheck(
       },
       aborted: () => signal.aborted
     })
-    if (outcome.aborted) return
+    if (outcome.aborted) return false
     if (outcome.budgetNote) record.budgetNote = outcome.budgetNote
     patchRecord()
   } catch (err) {
-    if (!signal.aborted) {
-      record.budgetNote = `Claim check failed. ${explainFailure(err, { subject: 'The check' }).sentence}`
-      patchRecord()
-    }
+    if (signal.aborted) return false
+    record.budgetNote = `Claim check failed. ${explainFailure(err, { subject: 'The check' }).sentence}`
+    patchRecord()
   }
+  return true
+}
+
+/**
+ * What the turn keeps and what it says about it, once the revision has had its go.
+ *
+ * A union rather than an optional field: the before/after pair exists exactly
+ * when the revision is kept, and saying so in the type is what stops a caller
+ * printing a correction line for an answer that was never corrected.
+ */
+export type RevisionVerdict =
+  | {
+      keep: 'draft'
+      /** The badge published beside it; null means the turn has nothing left to fault. */
+      grounding: GroundingReport | null
+    }
+  | {
+      keep: 'revision'
+      grounding: GroundingReport | null
+      /** The pair the correction line reads — both graded against one corpus. */
+      corrected: { before: GroundingReport; after: GroundingReport | null }
+    }
+
+/**
+ * Settle the correction pass: which text stands, and which badge stands with it.
+ *
+ * The whole of this function is one rule — **nothing here may read a report
+ * built before the revision ran.** `reviseAgainstFindings` runs with the turn's
+ * real tools and its calls join the turn's own record list by design (see the
+ * note on `records` there), so the corpus every grounding rung reads can grow
+ * while the revision is in flight. A report from before that is a claim about a
+ * turn that no longer exists, and publishing it prints a finding the passages
+ * on screen refute.
+ *
+ * Measured, blind, round 10, task V1 — the recorded loss this function exists
+ * for. The reader asked for a chicken temperature. The app's pre-flight lookup
+ * returned five passages with no temperature in them, the draft answered
+ * "165 °F", and the check flagged it — correctly, against that corpus. The
+ * revision then looked up "safe internal cooking temperature for poultry
+ * chicken" and "how long cooked chicken lasts in the refrigerator storage
+ * time" — its two findings turned into queries — and retrieved twelve more
+ * passages stating 165°F seventeen times, the poultry row of the USDA chart
+ * among them. The 60s deadline cut the revision off before it rewrote
+ * anything, and the caller published the pre-revision report: a food-safety
+ * figure called unsupported, directly beneath a strip reading "17 passages
+ * from 3 lookups" that contains it seventeen times.
+ *
+ * So `grade` is called here, after the pass, never before it — and it is called
+ * for the draft as well as the revision, because a comparison between a report
+ * graded on five passages and one graded on seventeen measures the corpus
+ * growing, not the answer improving, and would keep a rewrite that changed
+ * nothing while captioning it as a correction.
+ *
+ * This does NOT widen what counts as support: `grade` reads the same rungs
+ * against the same kind of corpus it always did — the turn's own tool output.
+ * A measurement in none of the turn's lookups is still flagged, on a
+ * three-lookup turn exactly as on a one-lookup turn.
+ */
+export async function settleRevision(input: {
+  /** What the model first wrote. */
+  draft: string
+  /** What the revision returned; '' when it returned nothing usable. */
+  revised: string
+  /** The turn ended before the revision could be judged — Stop, or the deadline. */
+  abandoned: boolean
+  /** Grade `content` against the records the turn holds NOW. */
+  grade: (content: string) => Promise<GroundingReport | null>
+}): Promise<RevisionVerdict> {
+  // A revision that came back empty, that the user cancelled, or that the
+  // deadline cut off, leaves the draft standing: a flagged answer beats no
+  // answer, and a half-written one beats neither. The badge is still restated —
+  // this is the V1 path, where the revision's own lookups had already answered
+  // the finding by the time the deadline stopped it writing the answer down.
+  if (input.abandoned || !input.revised.trim()) {
+    return { keep: 'draft', grounding: await input.grade(input.draft) }
+  }
+  const after = await input.grade(input.revised)
+  const before = await input.grade(input.draft)
+  // Nothing left to fault once the whole turn is in view. The draft stands,
+  // unbadged — the revision is not rejected here, it is unnecessary.
+  if (!before) return { keep: 'draft', grounding: null }
+  // A revision that "fixes" flagged figures by deleting every figure from a
+  // quantitative answer is not an improvement, it is a non-answer (measured: a
+  // correct price replaced by "I could not verify…"). Keep the draft, flagged,
+  // and let the badge speak.
+  if (
+    revisionDropsAllFigures(input.draft, input.revised) ||
+    revisionEchoesScaffolding(input.revised) ||
+    !revisionIsAnImprovement(before, after)
+  ) {
+    return { keep: 'draft', grounding: before }
+  }
+  return { keep: 'revision', grounding: after, corrected: { before, after } }
 }
 
 /**
@@ -518,12 +617,27 @@ export async function runDeliberation(
       kind: 'assistant_output',
       roleName: reviewer.roleName,
       modelId: reviewer.modelId,
-      text: `[think harder — ${self ? 'self-review' : 'review'}]\n${review || '(nothing came back)'}`
+      // v1.17.3: `(nothing came back)` read as an output that happened to be
+      // empty. It was a request that failed, and the log is the app's record of
+      // what it did — so it says which.
+      text:
+        `[think harder — ${self ? 'self-review' : 'review'}]\n` +
+        (review || 'FAILED: the review request returned an empty reply; no reviewer read the draft.')
     })
     // A review that never came back and a review that found nothing are
-    // different states; both keep the draft, only one of them checked it, and
-    // the disclosure (describeDeliberation) reads them apart off `review`.
-    if (classifyReview(review) !== 'problems') {
+    // different states; both keep the draft, only one of them read it.
+    //
+    // v1.17.3: and the RECORD now says which. Through v1.17.2 both landed on
+    // `status: 'done'` and only the disclosure told them apart, by re-deriving
+    // the emptiness from `review` — so the app's own record of a reviewer that
+    // was served an immediately-closed empty stream said the pass succeeded,
+    // and nothing downstream of the record could count it as the failure it is.
+    const outcome = classifyReview(review)
+    if (outcome === 'none') {
+      patchRecord({ status: 'unreviewed', revised: false })
+      return
+    }
+    if (outcome !== 'problems') {
       patchRecord({ status: 'done', revised: false })
       return
     }

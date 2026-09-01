@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useProjects } from '../hooks/useProjects'
 import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
+import type { ModalSurface } from '../hooks/useModalSurface'
 import type { ChatMode, Project } from '../types'
 import { PROJECT_ACCENT, PROJECT_COLORS } from '../lib/projects'
 import { useProjectFileStatus } from '../hooks/useProjectFileStatus'
@@ -40,7 +42,13 @@ export function ProjectModal(): JSX.Element | null {
     (s) => s.conversations.filter((c) => c.projectId === s.projectEditorId).length
   )
   const { updateProject, deleteProject } = useProjects()
-  const { mounted, leaving } = useModalPresence(Boolean(projectId && project))
+  // The drafts Escape has to commit live in the editor below, so it fills this
+  // in; the fallback covers the frame before it has.
+  const dismiss = useRef<() => void>(() => setProjectEditorId(null))
+  const { mounted, leaving, surfaceRef, dialogProps } = useModalPresence(
+    Boolean(projectId && project),
+    { onDismiss: () => dismiss.current() }
+  )
 
   // Unlike the other modals, this one's content is derived from the very state
   // that closing it clears — `projectEditorId` goes null and the project (and
@@ -55,6 +63,9 @@ export function ProjectModal(): JSX.Element | null {
     <ProjectEditor
       key={shown.project.id}
       leaving={leaving}
+      surfaceRef={surfaceRef}
+      dialogProps={dialogProps}
+      dismissRef={dismiss}
       project={shown.project}
       chatCount={shown.chatCount}
       enabledModels={models.filter((m) => m.enabled).map((m) => ({ id: m.id, roleName: m.roleName }))}
@@ -79,6 +90,9 @@ function ProjectEditor({
   chatCount,
   enabledModels,
   leaving,
+  surfaceRef,
+  dialogProps,
+  dismissRef,
   onPatch,
   onDelete,
   onClose
@@ -88,6 +102,10 @@ function ProjectEditor({
   enabledModels: { id: string; roleName: string }[]
   /** True while the editor is animating out; see useModalPresence. */
   leaving: boolean
+  surfaceRef: ModalSurface['surfaceRef']
+  dialogProps: ModalSurface['dialogProps']
+  /** Filled in with commit-then-close, so Escape does not lose a draft. */
+  dismissRef: MutableRefObject<() => void>
   onPatch: (patch: Partial<Omit<Project, 'id' | 'createdAt'>>) => void
   onDelete: () => void
   onClose: () => void
@@ -134,17 +152,16 @@ function ProjectEditor({
   }
 
   // Escape closes; commit drafts first so nothing typed is lost.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        commitInstructions()
-        commitName()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+  //
+  // Routed through the modal-surface stack rather than a `window` listener of
+  // this editor's own: a per-modal listener fires whichever surface is on top,
+  // so Escape with the command palette open over this editor used to close the
+  // editor underneath it.
+  dismissRef.current = (): void => {
+    commitInstructions()
+    commitName()
+    onClose()
+  }
 
   const addFiles = async (): Promise<void> => {
     const picked = await window.api.projectPickFiles().catch(() => [])
@@ -165,6 +182,7 @@ function ProjectEditor({
 
   return (
     <div
+      ref={surfaceRef}
       className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
       onClick={() => {
         commitInstructions()
@@ -173,7 +191,7 @@ function ProjectEditor({
       }}
     >
       <div
-        role="dialog"
+        {...dialogProps}
         aria-label={`Project: ${project.name}`}
         className={`${modalClasses(leaving).panel} flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-panel-light dark:bg-panel-dark shadow-xl`}
         onClick={(e) => e.stopPropagation()}
@@ -286,7 +304,7 @@ function ProjectEditor({
                     <button
                       type="button"
                       onClick={() => onPatch({ files: project.files.filter((x) => x.id !== f.id) })}
-                      className="rounded px-1 text-ink-tertiary hover:text-red-500"
+                      className="rounded px-1 text-ink-tertiary hover:text-ink-danger"
                       title="Unpin"
                     >
                       ✕
@@ -389,7 +407,7 @@ function ProjectEditor({
           <button
             type="button"
             onClick={onDelete}
-            className="ml-auto rounded-lg px-2 py-1 text-red-500 hover:bg-red-500/10"
+            className="ml-auto rounded-lg px-2 py-1 text-ink-danger hover:bg-red-500/10"
           >
             Delete project
           </button>

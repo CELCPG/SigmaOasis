@@ -11,7 +11,37 @@
  * passages it was written from, and `toolGrounding` vetting a reply against
  * what the tools returned. Two copies would drift, and the drift would be
  * silent — one rung quietly stops recognising a unit the other still checks.
+ *
+ * v2.1: there were **three**. `answerEval.ts` — the library suite's scorer, the
+ * one place that has scored "stated a measurement the passages do not support"
+ * since v1.6 — carried its own hand-rolled alternation, and the drift this file
+ * warns about had already happened in silence. That copy did not know about
+ * `mcg`, `µg`, `mph`, `km/h`, `kwh`, `watt`, `volt`, `amp`, `calorie` or
+ * `kcal`; it matched across a line break, so a number ending one line and a
+ * word beginning the next became a measurement; and it had no rate suffix, so
+ * `8.66 minutes per mile` scored as a duration. It also carried one unit this
+ * file does not — see `percent` below, which is why the reconciliation is an
+ * option rather than a deletion.
  */
+
+/**
+ * Horizontal space, and never a line break.
+ *
+ * `[ \t]` was the whole of this until v2.4, and it is the wrong half of the
+ * rule. The reason a line break must not be crossed is that a number ending one
+ * line and a word beginning the next are two claims, not one — nothing to do
+ * with which *horizontal* space separates a number from its unit. A
+ * no-break space is the one a typesetter, a markdown renderer and a model
+ * writing `165 °F` all reach for precisely because the unit must stay with its
+ * number, and `[ \t]` read it as a separator and returned no measurement at
+ * all. The corpus then armed nothing, and a figure stated on the page was
+ * reported as never compared.
+ *
+ * U+00A0 no-break, U+202F narrow no-break, U+2009 thin. `\s` would have been
+ * shorter and would have swallowed `\n`, which is the bug this class exists to
+ * keep out.
+ */
+const H = '[ \\t\\u00a0\\u202f\\u2009]'
 
 /**
  * The units themselves, as alternation source. Deliberately finite: time,
@@ -19,15 +49,50 @@
  * measured. Not currency (money has its own check, with its own rules about
  * derivation) and not bare counts, which are usually a list length rather than
  * a claim about the world.
+ *
+ * v2.4: the degree family reads its **scale**, wherever the scale is spelled
+ * out. `°\s?[cf]` recognised `165°F` and `165° F` and stopped there, so
+ * `165 degrees F` matched the bare `degrees?` branch and arrived as a
+ * temperature whose scale had been thrown away. Measured on the pack this app
+ * ships: `packs/food-safety/` writes one temperature four ways — `165°F` (9
+ * times), `165 degrees F` (5), `165° F` (4) and `165oF` (2) — and the second
+ * of those armed nothing and supported nothing. See `canonicalTemperature`
+ * for what that cost, in both directions.
+ *
+ * The bare `degrees?` branch stays, and stays last: a scale that is genuinely
+ * unstated is still not a temperature this file will convert. Alternation is
+ * leftmost-wins, so `degrees F` is claimed by the branch that can see the `F`
+ * and `90 degrees clockwise` falls through to the bare one exactly as before —
+ * `[cf]\b` cannot match the `c` of a longer word.
  */
 export const MEASUREMENT_UNITS =
-  '°\\s?[cf]\\b|degrees?\\b|' +
+  `(?:°|degrees?)${H}*(?:celsius\\b|centigrade\\b|fahrenheit\\b|[cf]\\b)|degrees?\\b|` +
   'minutes?\\b|mins?\\b|hours?\\b|hrs?\\b|days?\\b|weeks?\\b|months?\\b|years?\\b|' +
   'seconds?\\b|secs?\\b|' +
   'mg\\b|mcg\\b|µg\\b|ml\\b|grams?\\b|g\\b|kg\\b|litres?\\b|liters?\\b|l\\b|gallons?\\b|' +
   'ounces?\\b|oz\\b|pounds?\\b|lbs?\\b|' +
   'cm\\b|mm\\b|metres?\\b|meters?\\b|m\\b|inches?\\b|feet\\b|ft\\b|miles?\\b|km\\b|' +
   'mph\\b|km\\/h\\b|kwh\\b|watts?\\b|volts?\\b|amps?\\b|calories\\b|kcal\\b'
+
+/**
+ * What a caller may ask for beyond the units above.
+ *
+ * Exactly one thing, and it is a divergence recorded rather than removed. The
+ * library eval scorer counts a percentage as a measurement; every rung that
+ * ships deliberately does not, because `unsourcedPercentages` already checks
+ * them with a better rule (a percentage is supported by the *ratio* of two
+ * corpus numbers, not only by its own presence) and a `%` in this alternation
+ * would produce two findings for one claim. Worse, it would change what
+ * `amountsIn` treats as money support, since that function drops every number a
+ * unit has already claimed.
+ *
+ * So the vocabulary is single-sourced and the one difference is a named flag
+ * instead of a second regex nobody diffs.
+ */
+export interface MeasurementOptions {
+  /** Count `25%` as a measurement. Eval scoring only — no shipped rung sets it. */
+  percent?: boolean
+}
 
 /**
  * A fresh matcher for "number followed by a unit".
@@ -41,14 +106,15 @@ export const MEASUREMENT_UNITS =
  * check that treats it as one will compare a pace against a running time and
  * report a disagreement between two things that were never the same quantity.
  */
-export function measurementPattern(): RegExp {
-  // Horizontal space only, never a line break. A number ending one line and a
-  // word beginning the next are not a measurement: tool output reading
-  // "Total time: 3:47\nMiles run: 26.2" would otherwise yield "47 Miles" and
-  // put a distance into the corpus that nothing ever computed. Caught by test,
-  // and the same trap the address check documents.
+export function measurementPattern(options: MeasurementOptions = {}): RegExp {
+  const units = options.percent ? `${MEASUREMENT_UNITS}|%` : MEASUREMENT_UNITS
+  // Horizontal space only, never a line break — see `H`. A number ending one
+  // line and a word beginning the next are not a measurement: tool output
+  // reading "Total time: 3:47\nMiles run: 26.2" would otherwise yield
+  // "47 Miles" and put a distance into the corpus that nothing ever computed.
+  // Caught by test, and the same trap the address check documents.
   return new RegExp(
-    `(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)[ \\t]*(${MEASUREMENT_UNITS})([ \\t]*(?:per|/)[ \\t]*[a-z]+\\b)?`,
+    `(?<![\\w.])(\\d[\\d,]*(?:\\.\\d+)?)${H}*(${units})(${H}*(?:per|/)${H}*[a-z]+\\b)?`,
     'gi'
   )
 }
@@ -72,15 +138,75 @@ export interface Measurement {
   index: number
 }
 
+/** Case, plurals and runs of any whitespace folded away. */
+function collapse(unit: string): string {
+  return unit.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/**
+ * The one unit in this vocabulary that a corpus writes four different ways.
+ *
+ * v2.4, and it is the fix for a false `unverified` on a poultry cooking
+ * temperature — the most damaging shape this app ships, and the second time it
+ * has been recorded. `°f` and `° f` were two keys, `degrees f` was a third and
+ * carried no scale at all, and every comparison in `toolGrounding` keys off the
+ * unit *string*: `armed.has(m.unit)`, `c.unit === m.unit`,
+ * `found.unit === stated.unit`. So how the passage happened to space its degree
+ * sign decided whether a figure was backed.
+ *
+ * Measured against the shipped pack, corpus = `refrigerator-thermometers.md` +
+ * `safe-temperature-chart.md`, a reply stating the poultry temperature and the
+ * fridge temperature:
+ *
+ * ```
+ * before   ⚠️ 1 measurement (165°F) in this reply is not backed by the tool output.
+ * after    (no finding)
+ * ```
+ *
+ * The chart states `165 degrees F` on five lines. `40 °F` and `40° F` from the
+ * fridge doc armed the temperature dimension, so the rung ran; `165 degrees F`
+ * parsed as a dimensionless `degree` and put nothing into the temperature
+ * corpus, so the only value it could compare 165 against was 40. Every
+ * spelling of the answer that used a degree sign flagged, and the one that
+ * spelled `degrees` out did not — the reader's choice of arm was a coin toss
+ * on a space.
+ *
+ * **And the same fold is a tightening, which is why it is safe.** Dropping the
+ * scale letter made `degrees f` and `degrees c` the *same* key, so a reply's
+ * `165 degrees C` was certified by a passage's `165 degrees F` — a temperature
+ * off by 130 °F, silently backed. `165 °C` was flagged and `165 degrees C` was
+ * not. Both are findings now. The loosening and the tightening are one line of
+ * code because they were one defect: the unit was never read.
+ *
+ * Bare `degrees` is deliberately still nothing — a temperature whose scale is
+ * unstated cannot be converted, and `90 degrees clockwise` is not a
+ * temperature at all. This function returns null for it, and the caller keeps
+ * the pre-v2.4 behaviour: armed by its own spelling, supported by its own
+ * spelling, nothing crossed.
+ *
+ * Not folded, deliberately: `165oF`, the OCR artefact in
+ * `packs/food-safety/docs/safe-food-handling.md` where a letter `o` stands in
+ * for the degree sign. Reading `o` as `°` would make the `5 of` in "5 of the 10
+ * rows" a temperature, and a silent false positive over prose is a worse trade
+ * than eight unarmed values in one document. Recorded in docs/evals.md.
+ */
+export function canonicalTemperature(unit: string): '°c' | '°f' | null {
+  const m = /^(?:°|degrees?) ?(celsius|centigrade|fahrenheit|c|f)$/.exec(collapse(unit))
+  return m ? (m[1].startsWith('c') ? '°c' : '°f') : null
+}
+
 /**
  * Canonical name for a unit as written, so `miles`, `Mile` and `mi` are one
  * kind of thing and `minutes per mile` is a different kind from `minutes`.
- * Deliberately shallow: it folds case, plurals and spacing, and does NOT
- * convert between units — a check that silently equates kilometres and miles
- * would hide exactly the disagreement it is looking for.
+ * Deliberately shallow: it folds case, plurals, spacing and the degree family's
+ * spellings, and does NOT convert between units — a check that silently equated
+ * kilometres and miles would hide exactly the disagreement it is looking for.
+ * °C and °F stay two different names here; that they are one dimension is the
+ * business of `UNITS`, below, where the conversion is exact and stated.
  */
 export function normaliseUnit(unit: string, suffix?: string): string {
-  const base = unit.trim().toLowerCase().replace(/\s+/g, ' ').replace(/s$/, '')
+  const written = collapse(unit)
+  const base = canonicalTemperature(written) ?? written.replace(/s$/, '')
   const rate = (suffix ?? '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/^\//, 'per ')
   return rate ? `${base} ${rate.replace(/s$/, '')}` : base
 }
@@ -101,8 +227,12 @@ export function normaliseUnit(unit: string, suffix?: string): string {
  * one renderer's spacing must not become a different kind of thing.
  */
 export function temperatureScale(unit: string): 'c' | 'f' | null {
-  const m = /^°\s?([cf])$/.exec(unit.trim().toLowerCase())
-  return m ? (m[1] as 'c' | 'f') : null
+  // v2.4: one parser for the degree family, not a second copy of its spellings.
+  // This function was that second copy — it knew `°F` and `° F` and not
+  // `degrees F`, which is the drift the header of this file warns about,
+  // happening inside the file itself.
+  const canonical = canonicalTemperature(unit)
+  return canonical ? (canonical[1] as 'c' | 'f') : null
 }
 
 /**
@@ -121,9 +251,9 @@ export function inScale(value: number, from: 'c' | 'f', to: 'c' | 'f'): number {
 }
 
 /** Every measurement in a body of text. */
-export function measurementsIn(text: string): Measurement[] {
+export function measurementsIn(text: string, options: MeasurementOptions = {}): Measurement[] {
   const out: Measurement[] = []
-  for (const m of text.matchAll(measurementPattern())) {
+  for (const m of text.matchAll(measurementPattern(options))) {
     const value = Number(m[1].replace(/,/g, ''))
     if (!Number.isFinite(value)) continue
     out.push({
@@ -132,6 +262,114 @@ export function measurementsIn(text: string): Measurement[] {
       raw: m[0].trim().replace(/\s+/g, ' '),
       index: m.index ?? 0
     })
+  }
+  return out
+}
+
+// ---- what the vocabulary cannot read (v2.5) ----------------------------------
+
+/**
+ * A quantity written as a **rate**, whose unit is not one this file knows.
+ *
+ * v2.5, and it is the inverse of everything above it. `MEASUREMENT_UNITS` is a
+ * list of what is known-good, deliberately finite and deliberately closed. Its
+ * complement — every quantity a reply states that this vocabulary is silent
+ * about — was not a set anything could name, so a caller counting measurements
+ * had no way to say "and there were others I cannot read". It reported its own
+ * scan and called it the reply.
+ *
+ * Measured, round 12, task V3 (`verdicts/round-12.json`): a reply about a
+ * dripping faucet states `1,450 gallons`, `2.2 gallons per drop`, `30 days`,
+ * `60 minutes` — and `~876 drops per day`. Four of those five are in the
+ * vocabulary. The near-miss is the whole lesson: `2.2 gallons per drop` is
+ * recognised because `gallon` is a known unit, `876 drops per day` is not
+ * because `drop` is not, and the reply's own arithmetic chains the two
+ * together. A line reading "the 4 measurements in this reply" was a claim
+ * about the reply made from a scan narrower than the reply.
+ *
+ * **Why a rate and not any noun.** The obvious widening is "a number followed
+ * by a word" — a quantity is a value and a dimension, and `drops` is a
+ * dimension. Measured over the documents this app actually ships (every
+ * `packs/**\/*.md`, minus what the unit vocabulary already reads), that scan
+ * returns **578 spans, 293 distinct**, and the top of the list is `3 to`,
+ * `1 to`, `72, index`, `529 plans`, `111 if`, `2025, the`, `2 diabetes`,
+ * `31 March`. Ranges, phone numbers, IRS form names, dates, disease
+ * classifications — and over this repo's own prose, `4 steps`,
+ * `1 measurement`, `3 lookups`: the app's own chrome. There is no noun list that
+ * separates `529 plans` from `876 drops`; they are the same shape, and every
+ * exclusion written for the ones seen so far is the enumeration this codebase
+ * has recorded being defeated twice (`carriesAQuotation`, `ARGUMENT_PARAMS` in
+ * toolGrounding.ts).
+ *
+ * The rate is the discriminator, and it is not a list — it is the sentence's
+ * own syntax. `X per Y` and `X/Y` are how English writes a dimension out loud;
+ * a phone number, a date, a form name and a list length cannot wear one. The
+ * same scan restricted to rates returns **27 spans, 15 distinct** over those
+ * same packs, and every one of them is a real measurement this file cannot
+ * read: `4 pCi/L` and `50 Bq/m` (radon), `5 parts per million` (carbon
+ * monoxide), `500 milligrams per liter` (disinfection),
+ * `40,000 cases per year`, `3 colds per year`, `1 quart/liter`. 578 down to
+ * 27, with zero identifiers, zero dates, zero list lengths, zero chrome.
+ *
+ * **So this is a floor, never a census.** `876 drops` written without its rate
+ * is missed here, and that is the direction this project has settled on twice:
+ * a miss costs a disclosure, a false name on a warning banner costs the badge
+ * itself (round 4). A caller must therefore never phrase what this returns as
+ * "the quantities in the reply" — that is the very sentence being repaired.
+ *
+ * Three shape rules, each one about the writing rather than about the word:
+ *
+ * - The digit group **ends in a digit**, so `72, index` is not a quantity
+ *   called `index`. Exactly the fix `CURRENCY` records for `$30,000,`.
+ * - A **space** stands between the number and the word, because without one
+ *   there is no second word: `1st`, `3pm`, `2x` and `1080p` are one token, and
+ *   a scan that splits tokens invents the dimension it then reports.
+ * - `per` is a **word** and `/` is **tight**. Greedy backtracking otherwise
+ *   reads `10023 Upper West` as *10023 "Up" per "West"* — measured, on this
+ *   repo's own address fixture — and ` /` picks up file paths.
+ */
+function rateQuantityPattern(): RegExp {
+  // Fresh each call, for the reason `measurementPattern` states: a module-level
+  // `/g` regex carries `lastIndex` into whatever reaches for it next.
+  return new RegExp(
+    `(?<![\\w.])(\\d(?:[\\d,]*\\d)?(?:\\.\\d+)?)${H}+[a-z]+(?:${H}+per${H}+[a-z]+|/[a-z]+)\\b`,
+    'gi'
+  )
+}
+
+/** A quantity-shaped span with no unit this file can read. */
+export interface UnreadQuantity {
+  /** Exactly as written, for reporting — the only thing a caller may do with it. */
+  raw: string
+  /** Offset of the number, so a caller can tell it from a span it did read. */
+  index: number
+}
+
+/**
+ * Every rate in `text` that `measurementsIn` did not already claim.
+ *
+ * The subtraction is by **offset**, which is what makes this the inverse of the
+ * vocabulary rather than a second opinion about it: `2.2 gallons per drop` is
+ * read by `measurementsIn`, so it is not here; `876 drops per day` is not, so
+ * it is. Whatever the unit list learns tomorrow, this shrinks to match without
+ * being edited, and the two can never both claim the same span.
+ *
+ * Currency is dropped for the reason the header of this file gives for keeping
+ * it out of `MEASUREMENT_UNITS`: money has its own check with its own rules,
+ * and `$15 per month` reported here would be one claim counted by two rungs.
+ * By glyph rather than by word, because `pounds` is already a mass.
+ */
+export function unreadableQuantitiesIn(text: string): UnreadQuantity[] {
+  // `H` and not `\s`, for the reason `H` exists: a `$` ending one line does not
+  // price a number beginning the next.
+  const priced = new RegExp(`[$£€¥]${H}?$`)
+  const read = new Set(measurementsIn(text).map((m) => m.index))
+  const out: UnreadQuantity[] = []
+  for (const m of text.matchAll(rateQuantityPattern())) {
+    const index = m.index ?? 0
+    if (read.has(index)) continue
+    if (priced.test(text.slice(Math.max(0, index - 2), index))) continue
+    out.push({ raw: m[0].trim().replace(/\s+/g, ' '), index })
   }
   return out
 }
@@ -201,7 +439,10 @@ const INTERVAL_SCALES: ReadonlySet<Dimension> = new Set<Dimension>(['temperature
  *   and named **`47m`** — a duration reported as an unsupported distance, on
  *   an answer scored correct. `metre`, `meter`, `km`, `cm` and `mm` are
  *   unambiguous and stay.
- * - `degrees` — a temperature whose scale is unstated.
+ * - `degrees` — a temperature whose scale is unstated, and often not a
+ *   temperature at all ("rotate 90 degrees"). `degrees F` and `degrees
+ *   Celsius` are not this case and never were: they normalise to `°f` and `°c`
+ *   before they reach here. See `canonicalTemperature`.
  * - `calorie` / `kcal` — a food "calorie" is a kilocalorie, so the factor
  *   depends on which convention the source used.
  * - `mph`, `km/h`, `kwh`, `watt`, `volt`, `amp` — see the note in
@@ -265,9 +506,18 @@ function splitRate(unit: string): { base: string; rate: string } {
   return at === -1 ? { base: unit, rate: '' } : { base: unit.slice(0, at), rate: unit.slice(at) }
 }
 
-/** The spec for a unit's base, tolerating the `° C` spacing the matcher permits. */
+/**
+ * The spec for a unit's base.
+ *
+ * v2.4: the degree family goes through `canonicalTemperature`, the same
+ * function `normaliseUnit` uses. It used to carry `replace(/^°\s+/, '°')` —
+ * a third place that knew how a temperature may be spelled, and one that knew
+ * less than the other two. A caller reaching this with a raw `degrees F`, or
+ * with `° F` from an older record, now gets the same answer `normaliseUnit`
+ * would have given it.
+ */
 function unitSpec(base: string): UnitSpec | undefined {
-  return UNITS[base.trim().replace(/^°\s+/, '°')]
+  return UNITS[canonicalTemperature(base) ?? collapse(base)]
 }
 
 /**

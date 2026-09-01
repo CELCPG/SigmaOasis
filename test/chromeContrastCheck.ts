@@ -21,6 +21,7 @@ import { app, BrowserWindow } from 'electron'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { ACCENT } from '../src/renderer/src/lib/colors'
+import { toolVisualForName } from '../src/renderer/src/lib/oasisRipple'
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const postcss = require('postcss')
@@ -46,6 +47,15 @@ const bubble = readFileSync(join(COMPONENTS, 'MessageBubble.tsx'), 'utf8')
 const reasoning = readFileSync(join(COMPONENTS, 'ReasoningBlock.tsx'), 'utf8')
 const sidebar = readFileSync(join(COMPONENTS, 'Sidebar.tsx'), 'utf8')
 const appRoot = readFileSync(join(RENDERER, 'App.tsx'), 'utf8')
+// v2.2: the components that carry the app's bad news. A reply can be perfect
+// and the sentence telling you it failed still be the one thing on screen
+// nobody can read — which is exactly what it was.
+const inputBar = readFileSync(join(COMPONENTS, 'InputBar.tsx'), 'utf8')
+const toolCall = readFileSync(join(COMPONENTS, 'ToolCallBlock.tsx'), 'utf8')
+const claimCheck = readFileSync(join(COMPONENTS, 'ClaimCheckBlock.tsx'), 'utf8')
+const secondOpinion = readFileSync(join(COMPONENTS, 'SecondOpinionBlock.tsx'), 'utf8')
+const ranCode = readFileSync(join(COMPONENTS, 'RanCodeBlock.tsx'), 'utf8')
+const settings = readFileSync(join(COMPONENTS, 'SettingsModal.tsx'), 'utf8')
 
 /** Every renderer source file, so the raw-neutral guard has nowhere to hide. */
 function rendererSources(dir: string): string[] {
@@ -112,7 +122,7 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   },
   provenanceNote: {
     source: section('function MemoryContextLine', 'function formatStats'),
-    re: /<span className="(text-amber-[^"]*)">\{note\}/
+    re: /<span className="(text-ink-[a-z]+)">\{note\}/
   },
   // …and the inline marker the app could not resolve. Read out of markdown.ts
   // for the same reason every other row is read out of its component: renaming
@@ -131,11 +141,11 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   // half a control — the half that was never the problem.
   revisedResolved: {
     source: section('function RevisedLine', 'v1.5.1 think-harder'),
-    re: /\?\s*'(mt-2 text-\[11px\] text-emerald[^']*)'/
+    re: /\?\s*'(mt-2 text-\[11px\] text-ink-[a-z]+)'/
   },
   revisedUnresolved: {
     source: section('function RevisedLine', 'v1.5.1 think-harder'),
-    re: /:\s*'(mt-2 text-\[11px\] text-amber[^']*)'/
+    re: /:\s*'(mt-2 text-\[11px\] text-ink-[a-z]+)'/
   },
   // The amber grounding banner — the one place the app says the answer above it
   // is not supported by anything it ran, and therefore the last place that may
@@ -145,7 +155,15 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   groundingLinks: { source: bubble, re: /<ul className="(mt-1 list-disc[^"]*)"/ },
   groundingFooter: {
     source: bubble,
-    re: /className="(mt-1 text-amber-[^"]*)">\s*Checked against:/
+    re: /className="(mt-1 text-ink-[a-z]+)">\s*Checked against:/
+  },
+  // v2.1: the other half of the provenance — not what the answer was measured
+  // against but what the pass never measured. Scraped from its own line rather
+  // than assumed to share the footer's ink, so dimming just this one fails the
+  // extraction instead of quietly measuring the wrong node.
+  groundingCoverage: {
+    source: bubble,
+    re: /\{coverage !== '' && <div className="(mt-1 text-ink-[^"]*)"/
   },
   userTimestamp: {
     source: section("if (message.role === 'user')", 'const accent ='),
@@ -170,7 +188,92 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   versionChip: {
     source: sidebar,
     re: /className="(text-\[10px\][^"]*)" title="Sigma Oasis build version"/
-  }
+  },
+
+  // ---- v2.2: the app's own bad news ----------------------------------------
+  //
+  // Every row below is a sentence the app uses to report a failure, a warning,
+  // or a claim it could not verify — and as a class they were the least legible
+  // text in the product. A blind critic measuring a round-8 capture found the
+  // single worst node anywhere was the transport failure sentence, "nothing
+  // answered at that address", at 3.63:1: `text-red-500`, which is 3.67:1 on
+  // this panel and cannot be anything else, because a raw palette step is one
+  // colour for two themes. `text-amber-600` was the same story 25 times over at
+  // 3.10:1, including every ⚠️ line that says the answer may be wrong.
+  //
+  // Half of these do not sit on the panel. They sit on a wash of their own hue —
+  // amber/5 under the grounding banner, amber/10 under a settings warning,
+  // amber/15 under the second-opinion pill, red/10 under a traceback — and a
+  // tint makes the surface *brighter*, so measuring on the bare panel would
+  // flatter every one of them. Each row below is laid out on the surface its
+  // component actually gives it.
+  composerShell: { source: inputBar, re: /className=\{`(glass-panel rounded-3xl[^`$]*)/ },
+  composerNotice: { source: inputBar, re: /<span className="(text-ink-[a-z]+)">\{notice\}/ },
+  composerBlind: {
+    source: inputBar,
+    re: /className="(text-ink-[a-z]+)"\s*\n\s*title="LM Studio reports this model as text-only/
+  },
+  // v1.17.3: the title moved from a constant to the composed failure, because
+  // the line itself is no longer a constant — it names whichever party actually
+  // fell silent. The class string is scraped off the same node.
+  emptyReply: {
+    source: bubble,
+    re: /className="(text-\[11px\] text-ink-[a-z]+)" title=\{composeFailure\(nothingCame\)\}/
+  },
+  // …and the remedy that trails it, which is the app telling a reader what to
+  // do next about a turn that produced nothing. Quieter than the warning by
+  // design, and therefore the half of the line most likely to be unreadable.
+  emptyReplyRemedy: {
+    source: bubble,
+    re: /<span className="(text-ink-[a-z]+)"> \{nothingCame\.remedy\.text\}/
+  },
+  // The reason a disabled Regenerate is disabled — visible, not title-only, so
+  // it must be legible.
+  regenerateBlocked: {
+    source: bubble,
+    re: /<span className="(text-ink-[a-z]+)" title=\{cannotRegenerate\}/
+  },
+  unverifiedNote: {
+    source: bubble,
+    re: /className="(mt-2 text-\[11px\] text-ink-[a-z]+)"\s*\n\s*title=\{\s*\n\s*message\.offline/
+  },
+  truncatedNote: {
+    source: bubble,
+    re: /className="(mt-2 text-\[11px\] text-ink-[a-z]+)"\s*\n\s*title="The reply reached this role/
+  },
+  workbenchCheck: {
+    source: bubble,
+    re: /className=\{c\.ok \? 'text-ink-tertiary' : '(text-ink-[a-z]+)'\}/
+  },
+  // The tool row: a call that failed, and a call that worked and returned
+  // nothing. The shell is an inline style rather than a class — a per-tool
+  // wash — so the alpha is scraped and the hue comes from the app's own table.
+  toolShell: { source: toolCall, re: /className="(my-2 overflow-hidden rounded-2xl border text-xs)"/ },
+  toolShellTint: { source: toolCall, re: /background: `\$\{visual\.color\}([0-9a-f]{2})`/ },
+  toolEmptyNote: { source: toolCall, re: /\{empty && <span className="(text-ink-[a-z]+)">/ },
+  toolFailure: {
+    source: toolCall,
+    re: /: 'min-w-0 truncate (text-ink-[a-z]+)'\s*\n?\s*\}/
+  },
+  claimShell: { source: claimCheck, re: /className="(my-2 overflow-hidden rounded-2xl border border-amber-400[^"]*)"/ },
+  claimSummary: { source: claimCheck, re: /className="(min-w-0 font-medium text-ink-[a-z]+)">\{summary\}/ },
+  claimContradicted: {
+    source: claimCheck,
+    re: /label: 'Contradicted',\s*\n\s*classes: '(text-ink-[a-z]+)'/
+  },
+  claimUnverifiable: {
+    source: claimCheck,
+    re: /label: 'Unverifiable',\s*\n\s*classes: '(text-ink-[a-z]+)'/
+  },
+  secondOpinionShell: { source: secondOpinion, re: /className="(my-2 overflow-hidden rounded-2xl border border-violet-400[^"]*)"/ },
+  secondOpinionPill: { source: secondOpinion, re: /className="(rounded-full bg-amber-500\/15[^"]*)"/ },
+  ranCodeError: { source: ranCode, re: /<pre className="(max-h-72 overflow-auto[^"]*)">\{parsed\.error\}/ },
+  settingsWarning: { source: settings, re: /<p className="(mt-2 rounded-lg bg-amber-500\/10 p-3[^"]*)"/ },
+  settingsTestFailed: {
+    source: settings,
+    re: /searchTest\.ok \? 'text-ink-[a-z]+' : '(text-ink-[a-z]+)'/
+  },
+  settingsTestOk: { source: settings, re: /searchTest\.ok \? '(text-ink-[a-z]+)'/ }
 }
 
 const classes: Record<string, string> = {}
@@ -205,6 +308,109 @@ function placeholderInk(classList: string): string {
 }
 
 /**
+ * The tool row's shell is tinted per tool through an inline style, not a class.
+ * The hue comes from the app's own table and the alpha is scraped above, so a
+ * change to either shows up here rather than in a stale copy.
+ */
+const TOOL_TINT = toolVisualForName('web_search').color
+
+/**
+ * Raw palette ink still used anywhere in the renderer, and the surface to
+ * measure it on.
+ *
+ * The neutral guard below bans `text-neutral-400` and its cousins outright,
+ * because a grey that clears AA on one canvas fails on the other. A *hue* is
+ * not so simple: the app has two legitimate fixed palettes — which role
+ * answered (lib/colors.ts) and which project a conversation belongs to
+ * (lib/projects.ts) — and an amber project is not a warning, so painting it in
+ * warning ink would be a lie this file could not see. Those may keep raw steps.
+ * What they may not do is be illegible, and at -600 they were: 4.25:1 (blue),
+ * 4.37 (purple), 3.77 (rose) and 2.78 (amber) — a project's own name.
+ *
+ * So the rule is measured, not named: any raw palette step used as ink must
+ * clear AA on a 15% chip of its own hue, which is the only surface this app
+ * ever puts one on. That is strictly harsher than the bare panel, and it is
+ * what kills `text-amber-600` (2.78:1) and `text-red-500` (3.17:1) for good —
+ * in a label, in a badge, and in the reader-facing prose they were carrying.
+ * Status prose does not get a raw step at any darkness: it goes through
+ * `text-ink-danger|warn|ok`, and the composited rows above measure it there.
+ *
+ * A bare utility is checked in light and a `dark:` one in dark, which is how
+ * the app pairs them; the pair itself is what the fixture rows verify.
+ *
+ * The whole variant chain is captured, not just a leading `dark:`. Matching
+ * `(dark:)?text-…` after a delimiter class that contained `:` let
+ * `dark:hover:text-violet-300` match from the colon of `hover:` with no `dark:`
+ * group — a phantom light-theme class, which is 1.50:1 and was reported as a
+ * failure of a site that does not exist. A chain is dark if `dark:` is anywhere
+ * in it.
+ */
+const PALETTE_INK =
+  /(?:^|[\s"'`{])((?:[a-z][a-z0-9-]*:)*)text-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(\d{3})\b/g
+
+interface RawInk {
+  id: string
+  cls: string
+  hue: string
+  dark: boolean
+  where: string
+}
+
+const rawInks: RawInk[] = (() => {
+  const seen = new Map<string, RawInk>()
+  for (const path of rendererSources(RENDERER)) {
+    const src = readFileSync(path, 'utf8')
+    PALETTE_INK.lastIndex = 0
+    for (let m = PALETTE_INK.exec(src); m; m = PALETTE_INK.exec(src)) {
+      const chain = m[1] ?? ''
+      const dark = /(?:^|:)dark:/.test(chain)
+      const cls = `text-${m[2]}-${m[3]}`
+      const id = `${chain}${cls}`
+      if (!seen.has(id)) {
+        seen.set(id, { id, cls, hue: m[2]!, dark, where: path.slice(RENDERER.length + 1) })
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.id.localeCompare(b.id))
+})()
+
+/** One chip per raw step, in the theme that step actually renders in. */
+function paletteProbes(dark: boolean): string {
+  const rows = rawInks.filter((r) => r.dark === dark)
+  if (rows.length === 0) return ''
+  return `<div class="glass-panel p-2">${rows
+    .map(
+      (r) =>
+        `<span class="rounded-full bg-${r.hue}-500/15 px-1.5 py-0.5 text-[10px] font-medium ${r.cls}" data-ink="palette: ${r.id}">Project name</span>`
+    )
+    .join('')}</div>`
+}
+
+/**
+ * The floor of the streaming tail's fade, read out of the keyframe that defines
+ * it rather than copied here.
+ *
+ * `.stream-edge` wraps the newest word of a live reply and animates its opacity
+ * from a floor toward full ink. The floor is not a value the reader glimpses on
+ * the way past: MessageBubble re-sets the streaming body's HTML on every paced
+ * flush, which remounts the span and restarts the animation, so the leading word
+ * sits at the floor for as long as it is the leading word. At 0.2 that was
+ * 1.49:1 on the light panel — measured over 1.2 s of the real 33 ms cadence in
+ * this engine, 71 of 73 frames were below AA — and the word left illegible on a
+ * recorded run was "safe", in an answer about food safety.
+ *
+ * So the floor is measured like any other ink. The value is scraped, not
+ * restated, for the same reason PICK scrapes class strings out of the
+ * components: a copy passes after the thing it copied has changed.
+ */
+const STREAM_EDGE_FLOOR = (() => {
+  const css = readFileSync(CSS_PATH, 'utf8')
+  const block = css.match(/@keyframes\s+stream-edge-in\s*\{([\s\S]*?)\n\}/)
+  const from = block?.[1]?.match(/from\s*\{[^}]*opacity:\s*([\d.]+)/)
+  return { found: !!from, value: from ? Number(from[1]) : NaN }
+})()
+
+/**
  * Every text node here carries information the reply depends on: what was
  * consulted, how long it took, which model answered, what each control does,
  * whether a disclosure is open. A purely decorative glyph may sit lighter —
@@ -229,11 +435,37 @@ const LOAD_BEARING = [
   'revision unresolved',
   'grounding warning',
   'grounding link',
+  'grounding coverage',
   'grounding provenance',
   'stats readout',
   'user timestamp',
   'sidebar search placeholder',
-  'version chip'
+  'version chip',
+  // v2.2. The app's warnings were its least legible text; these are the rows
+  // that say so out loud. A reader who is being told the answer may be wrong is
+  // the reader with the least slack, so none of these may be quieter than the
+  // prose they are qualifying.
+  'composer failure',
+  'composer warning',
+  'empty reply',
+  'unverified answer',
+  'truncated answer',
+  'workbench check failed',
+  'tool empty result',
+  'tool failure reason',
+  'claim check summary',
+  'claim contradicted',
+  'claim unverifiable',
+  'second opinion unverified',
+  'ran code error',
+  'settings warning',
+  'settings test failed',
+  'settings test ok',
+  // v2.2. The live tail's newest word, at the floor of its fade — where the
+  // remount cadence holds it for the whole time it is the newest word. This is
+  // the only row here that is *animating* text; it is load-bearing because it
+  // is the answer, and the answer arrives through it.
+  'streaming tail edge'
 ]
 
 /**
@@ -289,6 +521,13 @@ function fixture(dark: boolean): string {
               <p><a href="#" data-ink="prose link">The source table</a> lists every cut.</p>
               <blockquote data-ink="prose quote">Rest the meat for three minutes before carving.</blockquote>
               <p>Cook it to 74&nbsp;°C <span class="${c('unresolvedMarker')}" data-ink="unresolved citation">[9]</span>.</p>
+              <!-- The live tail's newest word, held at the floor of its fade.
+                   The floor is applied inline because this fixture disables
+                   every animation (see the head): with \`animation: none\` the
+                   span would render at full ink and the check would certify a
+                   state the streaming reply never passes through. The number
+                   is scraped from the keyframe itself, so it cannot drift. -->
+              <p>Leftovers keep for four days if they are <span class="stream-edge" style="opacity: ${STREAM_EDGE_FLOOR.value}" data-ink="streaming tail edge">safe</span></p>
             </div>
             <div class="${c('provenanceRow')}">
               <button type="button" class="${c('provenanceButton')}" data-ink="library provenance">📖 From the library: Food safety › Safe minimum internal temperatures (0.72)<span class="${c('provenanceMark')}" data-ink="provenance verdict">— not cited</span> <span class="${c('provenanceNote')}" data-ink="provenance note">⚠️ [9] names no passage listed here, so the rest are left unjudged.</span> ▸</button>
@@ -298,8 +537,39 @@ function fixture(dark: boolean): string {
             <div class="${c('groundingBanner')}">
               <div data-ink="grounding warning">⚠️ 2 measurements (165°F, 74°C) in this reply are not backed by the tool output.</div>
               <ul class="${c('groundingLinks')}"><li class="break-all" data-ink="grounding link">https://www.fsis.usda.gov/safe-minimum-internal-temperature-chart</li></ul>
+              <div class="${c('groundingCoverage')}" data-ink="grounding coverage">Covered 1 of the 3 measurements in this reply. Not compared against anything: 4 days, 105 gallons.</div>
               <div class="${c('groundingFooter')}" data-ink="grounding provenance">Checked against: reference_lookup.</div>
             </div>
+            <div class="${c('emptyReply')}" data-ink="empty reply">⚠️ You stopped this turn. LM Studio had accepted the request and then sent nothing at all for 90s — the reply never started, so the model had produced nothing to stop.<span class="${c('emptyReplyRemedy')}" data-ink="empty reply remedy"> Ask again. The address is right — the server took the request — so check that the model is still loaded in LM Studio.</span></div>
+            <div class="flex flex-wrap items-center gap-1 text-xs text-ink-secondary"><span class="${c('regenerateBlocked')}" data-ink="regenerate blocked">— this request is over the window</span></div>
+            <div class="${c('unverifiedNote')}" data-ink="unverified answer">⚠️ Answered from model memory — no sources consulted. Treat names, dates, and numbers as unverified.</div>
+            <div class="${c('truncatedNote')}" data-ink="truncated answer">✂️ Cut off at the length cap — this reply is unfinished.</div>
+            <div class="mt-2 space-y-0.5 text-[11px]">
+              <div class="${c('workbenchCheck')}" data-ink="workbench check failed">🧮 Recompute disagreed: the reply says 165°F, the check gives 74°C.</div>
+            </div>
+            <div class="${c('toolShell')}" style="border-color: ${TOOL_TINT}30; background: ${TOOL_TINT}${c('toolShellTint')}">
+              <div class="flex w-full items-center gap-2 px-3 py-1.5 text-left">
+                <span class="min-w-0 truncate font-medium">🔎 reference_lookup</span>
+                <span class="${c('toolEmptyNote')}" data-ink="tool empty result">— returned nothing</span>
+                <span class="${c('toolFailure')}" data-ink="tool failure reason">— nothing answered at that address</span>
+              </div>
+            </div>
+            <div class="${c('claimShell')}">
+              <div class="flex w-full items-center gap-2 px-3 py-1.5 text-left">
+                <span class="${c('claimSummary')}" data-ink="claim check summary">2 of 5 claims could not be confirmed</span>
+              </div>
+              <div class="px-3 pb-2 text-[11px]">
+                <div class="${c('claimContradicted')}" data-ink="claim contradicted">✗ Contradicted — the cited table gives 74 °C, not 165 °C.</div>
+                <div class="${c('claimUnverifiable')}" data-ink="claim unverifiable">? Unverifiable — no consulted source mentions this.</div>
+              </div>
+            </div>
+            <div class="${c('secondOpinionShell')}">
+              <div class="flex w-full items-center gap-2 px-3 py-1.5 text-left">
+                <span class="${c('secondOpinionPill')}" data-ink="second opinion unverified">auto — unverified answer</span>
+              </div>
+            </div>
+            <pre class="${c('ranCodeError')}" data-ink="ran code error">Traceback (most recent call last):
+  ZeroDivisionError: division by zero</pre>
             <div class="${c('stats')}" data-ink="stats readout">238 tok · 10.1 tok/s · 7.84s to first token · 23.6s total</div>
           </div>
         </div>
@@ -308,6 +578,28 @@ function fixture(dark: boolean): string {
         <span class="${c('userTimestamp')}" data-ink="user timestamp">11:14 AM</span>
       </div>
     </div>
+    <!-- The settings sheet. Its warning paragraphs sit on a 10% amber wash
+         inside a near-opaque popover, which is a different surface again from
+         the bubble's 5%. -->
+    <div class="glass-popover rounded-2xl p-4">
+      <p class="${c('settingsWarning')}" data-ink="settings warning">⚠️ Tools run on this machine with your permissions. Only enable what you need.</p>
+      <div class="${c('settingsTestFailed')}" data-ink="settings test failed">✗ nothing answered at that address</div>
+      <div class="${c('settingsTestOk')}" data-ink="settings test ok">✓ Reached the provider in 240 ms</div>
+    </div>
+    <!-- The composer. The failure sentence lands here, on the same glass the
+         message list uses, and it is the node the round-8 critic measured at
+         3.63:1 — the worst text anywhere in the capture. -->
+    <div class="p-4 pt-1">
+      <div class="mx-auto max-w-3xl">
+        <div class="${c('composerShell')}">
+          <div class="mt-1.5 flex justify-between px-1 text-xs">
+            <span class="${c('composerNotice')}" data-ink="composer failure">Sigma could not reach the provider — nothing answered at that address.</span>
+            <span class="${c('composerBlind')}" data-ink="composer warning">⚠ Scout cannot see images — pick a vision model</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    ${paletteProbes(dark)}
   </div>
 </body></html>`
 }
@@ -391,7 +683,27 @@ async function buildCss(): Promise<string> {
     // data: document never settles. The highlight.js theme only paints code
     // blocks, which nothing here measures.
     .replace(/^@import .*$/m, '')
-  const config = require(join(REPO, 'tailwind.config.js'))
+  // The app's own config, plus the classes the palette probes need.
+  //
+  // Tailwind only emits a utility some scanned source actually writes, and the
+  // probes write two kinds it may never see. The chip (`bg-violet-500/15`) may
+  // be a background no component uses — an unemitted background is a
+  // transparent chip, so the ink would be measured on the bare panel and
+  // flattered by a full rank. Worse, the *ink*: a step that appears only as
+  // `dark:text-amber-400` compiles to `.dark .dark\:text-amber-400` and there
+  // is no bare `.text-amber-400` rule at all, so a probe wearing that class
+  // inherits the ambient ink and reports 14:1 for a colour it never rendered.
+  // Both were true here — eight dark probes and one light one passed on
+  // inherited ink until this line existed. Same trap as the appShell PICK
+  // above: a class that no longer resolves measures something else entirely
+  // and says nothing about it.
+  //
+  // The safelist is the fixture's, never the app's: it forces classes to exist
+  // so they can be measured, and changes no colour the product ships.
+  const config = { ...require(join(REPO, 'tailwind.config.js')) }
+  config.safelist = [
+    ...new Set(rawInks.flatMap((r) => [`bg-${r.hue}-500/15`, r.cls]))
+  ]
   const out = await postcss([tailwindcss(config)]).process(source, { from: CSS_PATH })
   return out.css as string
 }
@@ -460,6 +772,34 @@ async function main(): Promise<void> {
   const dimmed = banner.match(/\bopacity-\d+/g) ?? []
   check('the grounding banner dims no ink with opacity', dimmed.length === 0, dimmed.join(', '))
 
+  // The streaming tail's fade, from both sides. The AA measurement is in the
+  // LOAD_BEARING loop below; these are the two ways to pass it without keeping
+  // the promise.
+  //
+  // Raising the floor to 1 would clear AA by deleting the animation, and the
+  // animation is solving a real problem — a tail that lands in one jump reads
+  // worse than one that flows. Deleting the keyframe would clear it by making
+  // the probe unmeasurable, which is the failure mode this file has hit twice
+  // before (an unemitted class, a stale scraped selector): a probe that no
+  // longer resolves does not fail, it measures something else and says nothing.
+  console.log('\nthe streaming tail still fades, and is legible while it does')
+  check(
+    'the tail fade keyframe was found, with a floor to measure',
+    STREAM_EDGE_FLOOR.found && Number.isFinite(STREAM_EDGE_FLOOR.value),
+    'no `from { opacity: … }` in @keyframes stream-edge-in'
+  )
+  check(
+    'the newest word still arrives softer than settled ink',
+    STREAM_EDGE_FLOOR.value < 1,
+    `floor is ${STREAM_EDGE_FLOOR.value} — the fade does nothing`
+  )
+  const edgeRule = readFileSync(CSS_PATH, 'utf8').match(/\.stream-edge\s*\{([^}]*)\}/)
+  check(
+    'the tail fade is still animated, not a static dimmer',
+    /animation:\s*stream-edge-in\s+[\d.]+m?s/.test(edgeRule?.[1] ?? ''),
+    edgeRule?.[1]?.trim() ?? 'no .stream-edge rule'
+  )
+
   const win = new BrowserWindow({
     show: false,
     width: 1280,
@@ -483,6 +823,22 @@ async function main(): Promise<void> {
         `${theme.name}: “${id}” clears AA`,
         !!row && row.ratio >= AA,
         row ? `${row.ratio.toFixed(2)}:1 (${row.fg} on ${row.bg})` : 'node missing from fixture'
+      )
+    }
+  }
+
+  // The raw palette, measured on the chip it renders on. This is the guard that
+  // makes `text-amber-600` and `text-red-500` unusable as ink anywhere in the
+  // renderer — the per-site fix without it is how 25 amber sites accumulated.
+  console.log('\nno raw palette step is illegible on its own chip')
+  check('the palette scan found the raw steps still in use', rawInks.length > 0, `${rawInks.length} step(s)`)
+  for (const theme of themes) {
+    for (const raw of rawInks.filter((r) => r.dark === (theme.name === 'dark'))) {
+      const row = theme.rows.find((r) => r.id === `palette: ${raw.id}`)
+      check(
+        `${theme.name}: “${raw.id}” clears AA on a ${raw.hue}/15 chip`,
+        !!row && row.ratio >= AA,
+        row ? `${row.ratio.toFixed(2)}:1 (${row.fg} on ${row.bg}) — ${raw.where}` : 'probe missing'
       )
     }
   }
@@ -529,6 +885,17 @@ async function main(): Promise<void> {
       `${theme.name}: the grounding banner keeps two ranks`,
       warning.fg !== provenance.fg && warning.ratio > provenance.ratio,
       `${warning.fg} (${warning.ratio}:1) vs ${provenance.fg} (${provenance.ratio}:1)`
+    )
+    // v2.1: the coverage line is a statement about the check, not a thirteenth
+    // accusation, so it belongs at the provenance rank and not the warning's. A
+    // reader who reads "not compared against anything" in the same ink as
+    // "not backed by the tool output" has been told the app faulted a figure it
+    // did not fault.
+    const coverage = by('grounding coverage')
+    check(
+      `${theme.name}: the coverage line reads as provenance, not as a finding`,
+      coverage.fg === provenance.fg && coverage.fg !== warning.fg,
+      `${coverage.fg} vs provenance ${provenance.fg} / warning ${warning.fg}`
     )
   }
 

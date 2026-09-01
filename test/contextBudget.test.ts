@@ -10,7 +10,7 @@ import {
   planHistory,
   planHistoryFallback
 } from '../src/renderer/src/lib/contextBudget'
-import type { ChatMessage, Conversation, ModelConfig } from '../src/renderer/src/types'
+import type { ChatMessage, Conversation, ModelConfig, ToolSchema } from '../src/renderer/src/types'
 
 /**
  * Budget arithmetic. Every failure mode here is silent: the conversation
@@ -254,8 +254,117 @@ describe('conversationContextUsage', () => {
       slot({ contextWindow: 8000, systemPrompt: 'c'.repeat(400) }),
       undefined
     )
-    // 100 (message) + 4 (wire overhead) + 100 (prompt) + 100 (summary)
-    assert.deepEqual(usage, { used: 304, total: 8000, ratio: 304 / 8000 })
+    // 100 (message) + 4 (wire overhead) + 100 (summary) = 204 conversation,
+    // 100 prompt, 0 tools (none passed), and 2000 reserved for the reply —
+    // min(2048, 25% of 8000), which historyBudget has always subtracted.
+    assert.equal(usage?.total, 8000)
+    assert.equal(usage?.used, 204 + 100 + 2000)
+    assert.equal(usage?.ratio, 2304 / 8000)
+    assert.deepEqual(
+      usage?.terms.map((t) => [t.label, t.tokens]),
+      [
+        ['room reserved for the reply', 2000],
+        ['the conversation', 204],
+        ['the role’s instructions', 100],
+        ['the tool list', 0]
+      ]
+    )
+  })
+
+  /**
+   * v1.17.3, and the whole reason this function changed.
+   *
+   * Round 9 read `~1.7K / 8.2K` under the composer on the same screen where the
+   * app said the conversation was larger than the model's context. The meter's
+   * number was right about what it measured and wrong about what it was taken
+   * for: it counted none of the tool schemas, which are the largest single item
+   * in most requests, and none of the reply reservation.
+   */
+  test('the tool schemas are in the sum, and the priciest cap is the bound', () => {
+    // Eleven schemas, of which only TURN_TOOL_CAP (6) can ride one turn — so
+    // the ceiling is the six priciest, not all eleven and not the first six.
+    const schema = (name: string, pad: number): ToolSchema => ({
+      type: 'function',
+      function: { name, description: 'x'.repeat(pad), parameters: { type: 'object', properties: {} } }
+    })
+    const cheap = Array.from({ length: 5 }, (_, i) => schema(`cheap${i}`, 40))
+    const dear = Array.from({ length: 6 }, (_, i) => schema(`dear${i}`, 400))
+    const usage = conversationContextUsage(
+      convo({ messages: [msg('a'.repeat(400))] }),
+      slot({ contextWindow: 8000 }),
+      undefined,
+      '',
+      // Cheap ones first: a ceiling that took the first six would be wrong.
+      [...cheap, ...dear]
+    )
+    const dearTokens = dear.reduce((n, t) => n + Math.ceil(JSON.stringify(t).length / 4), 0)
+    assert.equal(usage?.terms.find((t) => t.label === 'the tool list')?.tokens, dearTokens)
+    assert.ok(dearTokens > 600, 'the six dear schemas dominate')
+    // And the term carries where a reader goes to shrink it.
+    assert.equal(usage?.terms.find((t) => t.label === 'the tool list')?.tab, 'tools')
+  })
+
+  /**
+   * The true negative for the same change: a conversation that genuinely fits
+   * must not be reported as overflowing just because the sum grew.
+   */
+  test('a small conversation on a large window still reads as fitting', () => {
+    const usage = conversationContextUsage(
+      convo({ messages: [msg('hello')] }),
+      slot({ contextWindow: 128_000 }),
+      undefined
+    )
+    assert.equal(usage?.overflows, false)
+    assert.ok((usage?.ratio ?? 1) < 0.05)
+  })
+
+  /**
+   * `overflows` is the gate on ↻ Regenerate, so it asks the hard question: is
+   * there ANY request the app can build here? Not "is the conversation bigger
+   * than the window" — the turn compacts, and blocking a retry that compaction
+   * would have made fit is the same false accusation one control further along.
+   */
+  describe('overflows: proof that no request can fit (v1.17.3)', () => {
+    test('a long conversation of ordinary messages does not overflow — it compacts', () => {
+      // 40 messages of ~1K tokens each: far past an 8192 window in total, and
+      // every one of them droppable.
+      const usage = conversationContextUsage(
+        convo({ messages: Array.from({ length: 40 }, () => msg('a'.repeat(4000))) }),
+        slot({ contextWindow: 8192 }),
+        undefined
+      )
+      assert.ok((usage?.used ?? 0) > 8192, 'the conversation really is over the window')
+      assert.equal(usage?.overflows, false, 'but the turn would summarize the front and send')
+      assert.ok((usage?.planned ?? 0) <= 8192, `planned ${usage?.planned}`)
+    })
+
+    test('a single message too large for the window does overflow', () => {
+      // planHistory keeps the newest message however large, so this one cannot
+      // be sent at all — and no number of retries changes that.
+      const usage = conversationContextUsage(
+        convo({ messages: [msg('a'.repeat(4000)), msg('b'.repeat(60_000))] }),
+        slot({ contextWindow: 8192 }),
+        undefined
+      )
+      assert.equal(usage?.overflows, true)
+      assert.equal(usage?.largest.label, 'the conversation')
+      assert.ok((usage?.planned ?? 0) > 8192)
+    })
+
+    test('planned is never larger than used, and equal when nothing is dropped', () => {
+      const small = conversationContextUsage(
+        convo({ messages: [msg('hello')] }),
+        slot({ contextWindow: 128_000 }),
+        undefined
+      )
+      assert.equal(small?.planned, small?.used)
+      const big = conversationContextUsage(
+        convo({ messages: Array.from({ length: 40 }, () => msg('a'.repeat(4000))) }),
+        slot({ contextWindow: 8192 }),
+        undefined
+      )
+      assert.ok((big?.planned ?? 0) < (big?.used ?? 0))
+    })
   })
 
   test('an explicit slot override wins over the catalog', () => {

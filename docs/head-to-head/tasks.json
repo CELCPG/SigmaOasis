@@ -94,7 +94,7 @@
       "dimension": "plan-transparency",
       "prompt": "Plan this out before you answer. I'm putting together a two-week emergency kit for a household of 3. Work out how many gallons of drinking water we need, then check my reference library for what else to store, then give me one checklist I can shop from.",
       "probes": "The prompt asks for a plan and gives the plan work to do — an arithmetic step and a library step — so the turn produces tool calls that executed inside steps the user approved and did not watch. The run’s own trace records what executed; the plan block is what the reader is left with. The two sets are directly comparable, and the difference between them is countable in both directions.",
-      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
+      "setup": "Plan mode enabled (Settings → General → Plan mode) with the approval gate ON. 📋 Plan toggle switched on in the composer before sending. Preparedness pack installed. Approve the plan when it appears. App offline. Trace export captured for the turn (docs/trace-export.md).",
       "mechanicalChecks": [
         "Assert a plan block rendered and reached 'N/N steps done'.",
         "From the captured trace/audit for this turn, build EXECUTED = the set of distinct tool names actually invoked inside plan steps; assert |EXECUTED| >= 1 (otherwise the task did not exercise the path — retry).",
@@ -145,7 +145,7 @@
       "dimension": "plan-transparency",
       "prompt": "Plan first, then answer: compare three ways to hold two weeks of drinking water for a household of 4 — refilled tap containers, cases of bottled water, and a filter plus a storage barrel. Cost each one out, then recommend one.",
       "probes": "The plan is interrupted while a step is running, so the turn produces three kinds of step at once: steps that finished, one step cut off part way, and steps that never started. Each is a separate fact about what happened, and whether the block keeps them apart is readable from the captured markup. Who ended the run is a fourth fact the block either carries or does not.",
-      "setup": "Plan mode enabled with the approval gate ON. Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows its running state, then activate Stop. Capture the plan block 1500 ms later. App offline.",
+      "setup": "Plan mode enabled with the approval gate ON. 📋 Plan toggle on. DRIVER ACTION: approve the plan, wait until a step shows the running glyph '◌', then press Stop. Capture the plan block 1500 ms later. App offline.",
       "mechanicalChecks": [
         "Assert at least one step reached 'done' and at least one step never started (so the stop landed mid-plan).",
         "Assert ZERO step rows carry a failure presentation after a user-initiated Stop: no '✗' glyph and no element with class containing 'text-red-500' inside the plan block. Any failure presentation FAILS.",

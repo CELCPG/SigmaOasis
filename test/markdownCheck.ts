@@ -27,6 +27,12 @@ const indexCss = readFileSync(
   'utf-8'
 )
 
+interface CopyProbe {
+  classes: string
+  textContent: string
+  selection: string
+}
+
 let passed = 0
 const failures: string[] = []
 
@@ -170,10 +176,104 @@ async function main(): Promise<void> {
   html = await render('```\n' + TOKEN + '\n```')
   check(
     'a fenced line that is one 220-character token arrives already wrapped',
-    /class="code-block code-wrapped"/.test(html) && /aria-pressed="true"/.test(html),
+    // `code-wrapped\b`, not `code-wrapped"`: v1.17.4 adds a second class after
+    // it on this same block. The assertion is that the block arrives wrapped,
+    // which is what it always meant; anchoring it to the end of the attribute
+    // was incidental.
+    /class="code-block code-wrapped\b/.test(html) && /aria-pressed="true"/.test(html),
     html
   )
   check('and the token itself is untouched in the DOM', html.includes(TOKEN), html)
+
+  // v1.17.4 — the token wrapped, and then every folded row ended in a real `-`.
+  // A hyphen is a break opportunity the line-breaker takes before it will break
+  // inside a run, so `overflow-wrap` folds a hyphenated token at its hyphens,
+  // and print has trained every reader that an end-of-line hyphen was inserted
+  // and comes out when the lines are rejoined. On a task whose whole request is
+  // "repeat it back so I can copy it", that is the string losing characters
+  // between the screen and the reader's hand.
+  //
+  // Where the fold lands is a property of layout, and it is measured as one in
+  // test/styleCheck.ts. What belongs here is which blocks the renderer marks,
+  // and that marking one changes nothing whatsoever about the string it holds.
+  const HYPHENATED =
+    'signme-oasis-head-to-head-layout-probe-a-single-unbroken-token-that-must-not-' +
+    'block-out-the-chat-column-0001-0002-0003-0004-0005-0006-0007-0008-0009-0010-' +
+    '0011-0012-0013-0014-0015-0016-0017-0018-0019-0020-0021'
+  html = await render('```\n' + HYPHENATED + '\n```')
+  check(
+    'a hyphenated copy-me token is marked to fold mid-token rather than at its hyphens',
+    /class="code-block code-wrapped code-fold-anywhere"/.test(html) && /aria-pressed="true"/.test(html),
+    html
+  )
+
+  // The true negative that keeps arbitrary folding off code a reader wants to
+  // READ. Folding at the edge fills every row, which breaks an identifier that
+  // would have fitted the next row — round 8's shredding, inside a code block.
+  // A block holding a long line that has a shape keeps the word-preserving
+  // rule, even though it also holds an unbreakable token.
+  const LONG_ORDINARY_LINE =
+    'const resolvedConfiguration = mergeDefaults(userConfiguration, environmentOverrides)'
+  html = await render('```\n' + HYPHENATED + '\n' + LONG_ORDINARY_LINE + '\n```')
+  check(
+    'the same token beside a long ordinary line still wraps, but is not marked to fold anywhere',
+    LONG_ORDINARY_LINE.length > 80 &&
+      /class="code-block code-wrapped"/.test(html) &&
+      !/code-fold-anywhere/.test(html),
+    `line ${LONG_ORDINARY_LINE.length} chars; ${html.slice(0, 120)}`
+  )
+  html = await render('```js\n' + LONG_ORDINARY_LINE + '\n```')
+  check(
+    'and a block of ordinary code alone is neither wrapped nor marked',
+    !/code-wrapped/.test(html) && !/code-fold-anywhere/.test(html),
+    html
+  )
+
+  // The actual user goal, through the shipping renderer in a real document:
+  // both ways of copying must return the string the model emitted. The header
+  // button reads the <code> element's textContent; a drag across the block
+  // yields Selection.toString(). A fold exists only in the layout, and neither
+  // path may contain one.
+  const copied = async (markdown: string): Promise<CopyProbe> =>
+    (await win.webContents.executeJavaScript(`(() => {
+      let host = document.getElementById('mount')
+      if (!host) {
+        host = document.createElement('div')
+        host.id = 'mount'
+        document.body.appendChild(host)
+      }
+      host.innerHTML = MarkdownUnderTest.renderMarkdown(${JSON.stringify(markdown)}, [])
+      const block = host.querySelector('.code-block')
+      const code = block.querySelector('code')
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      const range = document.createRange()
+      range.selectNodeContents(code)
+      sel.addRange(range)
+      const selection = sel.toString()
+      sel.removeAllRanges()
+      return { classes: block.className, textContent: code.textContent, selection }
+    })()`)) as CopyProbe
+
+  const copy = await copied('```\n' + HYPHENATED + '\n```')
+  check(
+    'the Copy button reads the folded token back exactly, hyphens and all',
+    copy.textContent === HYPHENATED,
+    `${copy.textContent.length} chars vs ${HYPHENATED.length} (${copy.classes})`
+  )
+  check(
+    'and selecting the folded block yields the same string, with no fold in it',
+    copy.selection === HYPHENATED,
+    `${copy.selection.length} chars, ${copy.selection === copy.textContent ? 'equal to textContent' : 'DIFFERS from textContent'}`
+  )
+  // The same, for the block this rule deliberately does not reach: the fold
+  // policy must not be what decides whether copy is faithful.
+  const copyOrdinary = await copied('```js\n' + LONG_ORDINARY_LINE + '\n```')
+  check(
+    'an unmarked block copies back exactly too — fidelity does not depend on the fold rule',
+    copyOrdinary.textContent === LONG_ORDINARY_LINE && copyOrdinary.selection === LONG_ORDINARY_LINE,
+    `textContent ${copyOrdinary.textContent === LONG_ORDINARY_LINE ? 'ok' : 'DIFFERS'}; selection ${copyOrdinary.selection === LONG_ORDINARY_LINE ? 'ok' : 'DIFFERS'}`
+  )
 
   // The true negatives: a long line of real code has a shape to misrepresent,
   // and a short token would not have wrapped anyway — both still scroll.

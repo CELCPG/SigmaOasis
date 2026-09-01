@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, ToolCallRecord } from '../types'
-import { describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS } from '../lib/toolGrounding'
-import { attribution } from '../../../shared/failure'
+import { describeCoverage, describeMatchedMeasurements, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS, unlistedLinks } from '../lib/toolGrounding'
+import { attributionLabel, composeFailure, readingLine } from '../../../shared/failure'
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
@@ -9,7 +9,8 @@ import { renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState, startWaitClock } from '../lib/oasisRipple'
 import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
-import { replyAffordances } from '../lib/replyRecovery'
+import { emptyReplyFailure, regenerateBlocked, replyAffordances } from '../lib/replyRecovery'
+import { turnContextUsage } from '../hooks/turnHelpers'
 import { VERIFY_BUDGET_MS, waitElapsed, type TurnPhase } from '../lib/turnPhase'
 import { formatTurnCost } from '../lib/turnCost'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
@@ -20,7 +21,7 @@ import { BlockEnter, Disclosure } from './Disclosure'
 import { RanCodeBlock } from './RanCodeBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
-import { classifyReview, describeDeliberation, thinkHarderNote } from '../lib/deliberation'
+import { describeDeliberation, draftWentUnreviewed, thinkHarderNote } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
 import { answerRecords } from '../hooks/planMode'
@@ -136,12 +137,28 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   // rather than the number of items in them — see `describeUnbackedItems`.
   const unbacked = describeUnbackedItems(report)
   const hasUnbacked = unbacked !== ''
+  // v2.4: how many links that sentence counts and the list below does not name.
+  const unlisted = unlistedLinks(report)
+  // v2.1: what this pass did NOT reach. It sits at the provenance rank, with
+  // the "Checked against" footer, because it is the same kind of statement —
+  // about the check, not about the answer — and it must not be read as a
+  // thirteenth accusation. See `describeCoverage` for why this is a coverage
+  // line and not a guess at which figure the question was about.
+  const coverage = describeCoverage(report)
+  // v2.2: the other half of that disclosure — where the measurements it DID
+  // check were found, and how many lines of the passage state the same value.
+  // Same rank, same reason, and see `measurementSources` for why this is a
+  // location rather than a verdict on which row the answer took.
+  const matched = describeMatchedMeasurements(report)
   const origins = report.origins ?? []
   const contacts = report.contacts ?? []
   const addresses = report.addresses ?? []
   const toolClaims = report.toolClaims ?? []
+  const toolDenials = report.toolDenials ?? []
   const toolDisclosure = report.toolDisclosure ?? []
+  const toolCounts = report.toolCounts ?? []
   const toolArgs = report.toolArgs ?? []
+  const toolRetrieval = report.toolRetrieval ?? []
   const citations = report.citations ?? []
   const quotes = report.quotes ?? []
   const attributions = report.attributions ?? []
@@ -158,7 +175,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   // it. Pinned in test/chromeContrastCheck.ts.
   return (
     <div
-      className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-300"
+      className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-ink-warn"
       title={
         'These came from the model, not from the tools this turn actually ran ' +
         `(${report.checkedAgainst.join(', ')}). Numbers a calculator did not return, and links ` +
@@ -177,16 +194,56 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
         </div>
       )}
       {/*
+        v2.3: the same account in the mirror, and it sits second because it is
+        the worse of the two. A reader who doubts "I searched the web for this"
+        can look at the tool blocks. A reader told the search never happened has
+        been told those blocks mean nothing, and nothing on screen contradicts
+        that — so the line has to.
+      */}
+      {toolDenials.length > 0 && (
+        <div className={hasUnbacked || toolClaims.length > 0 ? 'mt-1' : undefined}>
+          ⚠️ This reply's account of this turn contradicts what ran:{' '}
+          {toolDenials.join('; ')}.
+        </div>
+      )}
+      {/*
         v1.14: the same disclosure read the other way round. A "Tools used"
         section that names documents instead of calls answers the reader's
         question with something that is not a tool, and no name in it is wrong
         — so only the omission gives it away.
       */}
       {toolDisclosure.length > 0 && (
-        <div className={hasUnbacked || toolClaims.length > 0 ? 'mt-1' : undefined}>
+        <div
+          className={
+            hasUnbacked || toolClaims.length > 0 || toolDenials.length > 0 ? 'mt-1' : undefined
+          }
+        >
           ⚠️ This reply lists the tools it used without naming{' '}
           {toolDisclosure.join(', ')}, which {toolDisclosure.length === 1 ? 'is' : 'are'} what
           actually ran this turn.
+        </div>
+      )}
+      {/*
+        v2.2: the same account read for its arithmetic. Measured, round 9, task
+        TH1 — a table giving `reference_lookup` two rows against an audit
+        holding one call. Two rows read as two retrievals, so the second row's
+        passages read as evidence the first did not have. It sits with the two
+        lines above because it is the same claim — what this turn did — and
+        under them because a name that is wrong is worse than a number that is.
+      */}
+      {toolCounts.length > 0 && (
+        <div
+          className={
+            hasUnbacked ||
+            toolClaims.length > 0 ||
+            toolDenials.length > 0 ||
+            toolDisclosure.length > 0
+              ? 'mt-1'
+              : undefined
+          }
+        >
+          ⚠️ This reply's account of its own tool use claims more calls than the turn made:{' '}
+          {toolCounts.join('; ')}.
         </div>
       )}
       {/*
@@ -202,13 +259,43 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
       {toolArgs.length > 0 && (
         <div
           className={
-            hasUnbacked || toolClaims.length > 0 || toolDisclosure.length > 0
+            hasUnbacked ||
+            toolClaims.length > 0 ||
+            toolDenials.length > 0 ||
+            toolDisclosure.length > 0 ||
+            toolCounts.length > 0
               ? 'mt-1 break-words'
               : 'break-words'
           }
         >
           ⚠️ This reply states {toolArgs.length === 1 ? 'an argument' : 'arguments'} the{' '}
           {toolArgs.length === 1 ? 'call' : 'calls'} never received: {toolArgs.join('; ')}.
+        </div>
+      )}
+      {/*
+        v2.5: the same account one rung further in. `toolArgs` above says what
+        the call was sent; this says what it brought back — the pack, the count,
+        the relevance figures. It sits directly under that line because the two
+        are halves of one sentence, and above the quotation rung because a
+        reader who believes the wrong pack was searched mistrusts every passage
+        under it. The provenance strip listing the real citations is on screen
+        one message up, which is what makes this checkable by eye.
+      */}
+      {toolRetrieval.length > 0 && (
+        <div
+          className={
+            hasUnbacked ||
+            toolClaims.length > 0 ||
+            toolDenials.length > 0 ||
+            toolDisclosure.length > 0 ||
+            toolCounts.length > 0 ||
+            toolArgs.length > 0
+              ? 'mt-1'
+              : undefined
+          }
+        >
+          ⚠️ This reply's account of what the library returned contradicts the passages:{' '}
+          {toolRetrieval.join('; ')}.
         </div>
       )}
       {/*
@@ -286,12 +373,40 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
               {link}
             </li>
           ))}
+          {/* v2.4: the sentence above counts every unbacked link and this list
+              names the first few, so the list is where the rest have to be
+              admitted — the same "and N more" the coverage line has always
+              used. Without it, raising the count to the true one would only
+              have moved the silent truncation from the sentence to the list. */}
+          {unlisted > 0 && <li>and {unlisted} more</li>}
         </ul>
       )}
+      {/* The other half of the provenance: not what it was measured against but
+          what it never measured. Measured, round 8, task V3 — four repair costs
+          named above a headline water figure the two arms disagreed about
+          threefold, with nothing on screen to say the volumes had not been
+          looked at. */}
+      {/* v2.2: the provenance rank is `text-ink-tertiary`, not an amber step.
+          This line was written to sit WITH the "Checked against" footer and said
+          so in its own comment, but carried warm ink — so once the ink ranks
+          became tokens it read as a finding, the one thing it is documented not
+          to be. Caught by the rank assertion, not by eye. */}
+      {coverage !== '' && <div className="mt-1 text-ink-tertiary">{coverage}</div>}
+      {/* v2.2: the same rank again, and the same kind of statement — where the
+          checked measurements were found, and on how many lines of the passage
+          the same value is stated. Round 9 asked for a check that a figure came
+          from the RIGHT row of a cited table; `measurementSources` sets out why
+          that cannot be measured here and why this is what can. */}
+      {matched !== '' && <div className="mt-1 text-ink-tertiary">{matched}</div>}
       {/* One rank quieter than the warnings above it, and quieter by ink rather
           than by opacity — this is the line that says what the answer was
-          measured against, and it was the least legible thing in the app. */}
-      <div className="mt-1 text-amber-800 dark:text-amber-400">
+          measured against, and it was the least legible thing in the app.
+          v2.2: the quiet rank is the neutral tertiary token, not a paler amber.
+          Two amber steps could only be told apart by lightness, which is the
+          axis AA has already spent; a neutral reads as the quieter rank in both
+          themes AND leaves the warm ink meaning exactly one thing — warning.
+          5.24:1 light / 6.15:1 dark over this banner's own amber wash. */}
+      <div className="mt-1 text-ink-tertiary">
         Checked against: {report.checkedAgainst.join(', ')}.
       </div>
     </div>
@@ -323,8 +438,8 @@ function RevisedLine({ message }: { message: ChatMessage }): JSX.Element | null 
     <div
       className={
         revision.resolved
-          ? 'mt-2 text-[11px] text-emerald-700 dark:text-emerald-400'
-          : 'mt-2 text-[11px] text-amber-700 dark:text-amber-300'
+          ? 'mt-2 text-[11px] text-ink-ok'
+          : 'mt-2 text-[11px] text-ink-warn'
       }
       title={
         revision.resolved
@@ -349,8 +464,9 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
   const [open, setOpen] = useState(false)
   const busy = record.status === 'reviewing' || record.status === 'revising'
   // v1.9.2: the reviewer returned nothing (or failed) — the tooltip must not
-  // describe a review that did not happen.
-  const unreviewed = record.status === 'error' || classifyReview(record.review) === 'none'
+  // describe a review that did not happen. v1.17.3: and the question is asked
+  // in lib/deliberation.ts, once, by the same predicate that gates the retry.
+  const unreviewed = draftWentUnreviewed(record)
   return (
     <div className="mt-2 text-[11px] text-ink-secondary">
       <button
@@ -359,7 +475,7 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
         className="rounded px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title={
           !busy && unreviewed
-            ? `${record.reviewerRole} returned no review at all, so nothing here checked this reply. Run Think harder again, or use 2nd opinion.`
+            ? `${record.reviewerRole} returned no review at all, so no reviewer read this reply. The figure checks above are a different pass and say nothing about it. Run Think harder again, or use 2nd opinion.`
             : record.self
               ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Models → self-review).'
               : `A different role (${record.reviewerRole}) listed the problems in the draft; the answerer revised once with that list.`
@@ -444,7 +560,7 @@ function ContextEntry({
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="ml-1 break-all text-sky-600 underline dark:text-sky-400"
+          className="ml-1 break-all text-sky-700 underline dark:text-sky-400"
           title={`Open the source of this passage: ${url}`}
         >
           {url}
@@ -506,7 +622,7 @@ function MemoryContextLine({
         {/* amber-700, not the amber-600 most of this app's warnings use: that
             one composites to 3.10:1 on the light panel and this line is the app
             saying it cannot vouch for the marks beside it. 4.89:1 / 11.66:1. */}
-        {note && <span className="text-amber-700 dark:text-amber-400">{note} </span>}
+        {note && <span className="text-ink-warn">{note} </span>}
         <span>{open ? '▾' : '▸'}</span>
       </button>
       <Disclosure open={open} className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
@@ -558,7 +674,7 @@ function TurnPhaseLine({ phase }: { phase: TurnPhase }): JSX.Element {
       aria-live="polite"
       title={
         phase.stage === 'verifying'
-          ? `The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed. They stop after ${VERIFY_BUDGET_MS / 1000}s and say what was left unchecked.`
+          ? `The reply is complete and you can copy, read or branch it now. These checks run on top of it; if one finds something, the reply is revised and the change is disclosed. After ${VERIFY_BUDGET_MS / 1000}s no further check is started and the line says what was left unchecked — a check already running is left to finish, so the wait can be longer than that.`
           : 'The app is gathering context for this turn — the model has not been asked yet. The count is how long that has taken so far, and it is the “gathering” figure in the stat line once the turn ends.'
       }
     >
@@ -673,6 +789,10 @@ export const MessageBubble = memo(function MessageBubble({
   // it lasts, and — once the checks start — the signal that this message's
   // text is final enough to copy, read aloud or branch.
   const turnPhase = useAppStore((s) => s.turnPhase)
+  // What the transport has seen of the request in flight — the two facts the
+  // wait line is entitled to speak from. Null for every message but the one
+  // streaming, and null while no request is open.
+  const streamWitness = useAppStore((s) => s.streamWitness)
   const secondOpinionEnabled = useAppStore((s) => s.settings?.secondOpinion.enabled) ?? false
   const hideToolCalls = useAppStore((s) => s.settings?.hideToolCalls) ?? false
   const reasoningDisplay = useAppStore((s) => s.settings?.reasoningDisplay) ?? 'collapsed'
@@ -785,10 +905,21 @@ export const MessageBubble = memo(function MessageBubble({
   const streamActivity = `${displayContent.length}:${(message.reasoning ?? '').length}:${toolCalls
     .map((t) => `${t.id}${t.status}`)
     .join(',')}`
-  // Which of the transport's two deadlines is actually counting down: a stream
-  // that has already produced something is under the stall timeout, one that
-  // has produced nothing at all is still under the first-byte ceiling.
-  const streamStarted = (message.reasoning ?? '') !== '' || toolCalls.length > 0
+  /**
+   * Which of the transport's two deadlines is actually counting down, and what
+   * the wait line is allowed to say about the silence.
+   *
+   * v1.17.4: read from the transport, not inferred from the message. This was
+   * `(message.reasoning ?? '') !== '' || toolCalls.length > 0` — a fact about
+   * the TURN standing in for a fact about the REQUEST — and after any tool call
+   * it stayed true for the rest of the turn. Every later round arms the
+   * five-minute first-byte ceiling afresh, so from the first tool call onward
+   * the line promised `gives up at 1:00` against a deadline four minutes
+   * further out. The transport now publishes what it has actually seen of the
+   * request in flight, and this reads it.
+   */
+  const seen = streamWitness?.messageId === message.id ? streamWitness : null
+  const streamStarted = seen?.streamed ?? false
   // The action row follows the ANSWER, not the turn. Verification keeps
   // `streaming` true for seconds after the last token, and none of it can
   // change whether a finished reply may be copied, spoken or branched — so
@@ -798,6 +929,20 @@ export const MessageBubble = memo(function MessageBubble({
   const phaseHere = turnPhase?.messageId === message.id ? turnPhase : null
   const affordances = replyAffordances(message, isLast, isStreaming, phaseHere)
   const busyTitle = streaming ? '\n\nAvailable once this turn’s checks finish.' : ''
+  /**
+   * v1.17.3: would asking again send a request the app has already measured as
+   * too large? Live, not a snapshot of the failed turn — the reader's remedy is
+   * to shrink something, and the button has to notice when they have.
+   *
+   * Only asked on the last message, which is the only one that renders it.
+   */
+  // Not while a turn is in flight: the button is already disabled and busy-
+  // titled, and this reduces over every message in the conversation on a
+  // component that re-renders per streamed frame.
+  const cannotRegenerate =
+    isLast && !streaming ? regenerateBlocked(turnContextUsage(conversation?.id ?? null)) : null
+  /** Who fell silent, when the turn produced nothing at all. */
+  const nothingCame = affordances.empty ? emptyReplyFailure(message) : null
 
   const toggleSpeak = (): void => {
     if (speaking) {
@@ -860,12 +1005,23 @@ export const MessageBubble = memo(function MessageBubble({
               <button
                 type="button"
                 onClick={() => void regenerate()}
-                disabled={streaming}
+                disabled={streaming || cannotRegenerate !== null}
                 className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
-                title={`Re-answer the last message${busyTitle}`}
+                // Disabled with its reason attached, never silently: a control
+                // that greys out and says nothing is the same dead end as one
+                // that replays a failure (lib/replyRecovery.ts).
+                title={cannotRegenerate ?? `Re-answer the last message${busyTitle}`}
               >
                 ↻ Regenerate
               </button>
+            )}
+            {/* The reason is on the button's title for the detail, and on
+                screen for everything a title does not reach — a screenshot, an
+                export, a reader who never hovers. */}
+            {cannotRegenerate && (
+              <span className="text-ink-warn" title={cannotRegenerate}>
+                — this request is over the window
+              </span>
             )}
             {secondOpinionEnabled && affordances.onText && !message.secondOpinion && (
               <button
@@ -878,23 +1034,37 @@ export const MessageBubble = memo(function MessageBubble({
                 🔍 2nd opinion
               </button>
             )}
-            {affordances.onText && !message.deliberation && (
-              <button
-                type="button"
-                onClick={() => void deliberate(message.id)}
-                disabled={streaming}
-                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
-                title={
-                  'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
-                  // v1.9.1: on a model that already reasons internally, say what
-                  // the reasoning suite measured rather than implying a benefit.
-                  (thinkHarderNote(message.modelId ?? '') ? `\n\n${thinkHarderNote(message.modelId ?? '')}` : '') +
-                  busyTitle
-                }
-              >
-                🧠 Think harder
-              </button>
-            )}
+            {/*
+              v1.17.3: the retry the prose already promised.
+
+              The gate was `!message.deliberation` — any record at all removed
+              the button — so a pass that FAILED took its own retry away with
+              it, while the disclosure beside it said "Run Think harder again,
+              or use 2nd opinion." That is round 8's finding in its purest
+              form: a remedy in words with no control behind it, and here the
+              control existed and was being hidden by the failure it was for.
+            */}
+            {affordances.onText &&
+              (!message.deliberation || draftWentUnreviewed(message.deliberation)) && (
+                <button
+                  type="button"
+                  onClick={() => void deliberate(message.id)}
+                  disabled={streaming}
+                  className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
+                  title={
+                    (message.deliberation
+                      ? 'Retry: the last review came back empty, so no reviewer has read this reply. '
+                      : '') +
+                    'Think harder: have another role review this reply for errors and gaps, then revise it once. The draft and the review stay visible.' +
+                    // v1.9.1: on a model that already reasons internally, say what
+                    // the reasoning suite measured rather than implying a benefit.
+                    (thinkHarderNote(message.modelId ?? '') ? `\n\n${thinkHarderNote(message.modelId ?? '')}` : '') +
+                    busyTitle
+                  }
+                >
+                  {message.deliberation ? '🧠 Think harder again' : '🧠 Think harder'}
+                </button>
+              )}
             {conversation && <BranchMenu message={message} conversation={conversation} />}
             <span
               className="ml-auto px-1.5 text-[10px]"
@@ -910,6 +1080,7 @@ export const MessageBubble = memo(function MessageBubble({
             state={oasisState}
             activity={streamActivity}
             deadlineMs={streamStarted ? STREAM_STALL_MS : FIRST_BYTE_TIMEOUT_MS}
+            seen={seen}
           />
         )}
 
@@ -942,13 +1113,19 @@ export const MessageBubble = memo(function MessageBubble({
           cause and its next step stripped out of it. Whatever the transport
           managed to diagnose is in the ⚠️ message after this one; the action
           row above carries Regenerate for the same reason this line exists.
+
+          v1.17.3: and it names the right party. This was one constant sentence
+          about "the model" standing over three different events — a model that
+          said nothing, a server that hung up without writing, and a turn the
+          user stopped after 90 s of silence. The transport records which
+          (ChatMessage.ending); shared/failure.ts turns that into the sentence.
         */}
-        {!isStreaming && affordances.empty && (
-          <div
-            className="text-[11px] text-amber-600 dark:text-amber-400"
-            title="The turn ended without producing any text. If the server said why, the reason is in the next message."
-          >
-            ⚠️ Empty reply — nothing came back from the model. Use ↻ Regenerate to ask again.
+        {!isStreaming && affordances.empty && nothingCame && (
+          <div className="text-[11px] text-ink-warn" title={composeFailure(nothingCame)}>
+            ⚠️ {nothingCame.sentence}
+            {nothingCame.remedy && (
+              <span className="text-ink-tertiary"> {nothingCame.remedy.text}</span>
+            )}
           </div>
         )}
 
@@ -990,27 +1167,72 @@ export const MessageBubble = memo(function MessageBubble({
           <MemoryContextLine items={message.memoryContext} />
         )}
 
+        {/*
+          v2.3: a pass that did NOT happen goes above every line describing one
+          that did.
+
+          Measured (FR3, `.h2h-runs/B10/FR3-20260827-224622`): `⚠️ Not
+          deliberated — … the draft was not checked` was the last line of the
+          bubble, under `🧮 Recomputed the stated figures in Python`, under
+          `Checked against: run_python`. Read downward — which is the only way
+          it is read — an unreviewed reply arrived as a checked one, and the
+          warning turned up after the reader had already been reassured.
+
+          Rank is not the fix here; round 10 settled that a warning has one ink
+          and provenance has another, and promoting these lines to match would
+          spend the contrast that distinction runs on. Order is the fix, and it
+          is conditional on purpose: a review that DID happen ran after the
+          checks and revised the text they read, so its line stays below them.
+          A review that did not happen changed nothing, so nothing is misplaced
+          by putting it first.
+        */}
+        {message.deliberation && draftWentUnreviewed(message.deliberation) && (
+          <DeliberationLine record={message.deliberation} />
+        )}
+
         {!isStreaming && message.checks && message.checks.length > 0 && (
           <div className="mt-2 space-y-0.5 text-[11px]">
             {message.checks.map((c, i) => (
               <div
                 key={i}
-                className={c.ok ? 'text-ink-tertiary' : 'text-amber-600 dark:text-amber-400'}
+                className={c.ok ? 'text-ink-tertiary' : 'text-ink-warn'}
                 title="Workbench verification: the app ran Python in the sandbox to check this reply — recomputing its figures, or running the code it contains. Settings → Models → Workbench checks."
               >
                 {c.summary}
                 {/* This line used to BE the runtime string — measured,
                     `🧮 Recompute skipped — BodyStreamBuffer was aborted`. The
                     summary is now a reading, and the words the runtime actually
-                    used live here, one click away, attributed to it. */}
+                    used live here, one click away, attributed to it.
+
+                    v2.4: `attributionLabel`, not `attribution`. The colon form
+                    is written to be read with the text on the next line, and
+                    this is the one caller where that line is folded away — so
+                    the default view read `The runtime reported:` and stopped,
+                    a label introducing nothing. A `<summary>` names what is
+                    inside it; it does not introduce it. */}
                 {c.detail && (
                   <details className="mt-0.5">
                     <summary className="cursor-pointer text-ink-tertiary">
-                      {attribution(c.detail)}
+                      {attributionLabel(c.detail)}
                     </summary>
                     <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/5 p-1.5 font-mono text-ink-secondary dark:bg-white/5">
                       {c.detail.text}
                     </pre>
+                    {/* v2.5: and what those words mean. This is the surface
+                        round 13's critic opened, and the ONE that renders a
+                        `detail` with no sentence anywhere near it — the banner
+                        keeps `headline` and `detail` and drops `sentence`, so
+                        opening the disclosure used to buy the reader a fetch's
+                        name for its own response buffer and nothing else.
+
+                        Outside the `<pre>` and in the app's ordinary ink, so
+                        the quote stays visibly the quote: the monospace block
+                        is what the runtime said, this line is what the app made
+                        of it, and `readingLine` names whose wording is being
+                        read so the summary's promise still holds over both. */}
+                    {readingLine(c.detail) && (
+                      <p className="mt-1 text-ink-tertiary">{readingLine(c.detail)}</p>
+                    )}
                   </details>
                 )}
               </div>
@@ -1030,7 +1252,7 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.ledger && (
           <div
             className="mt-2 text-[11px] text-ink-tertiary"
-            title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. Settings → Models → Conversation ledger."
+            title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. It is the record as this turn began, because it had to be written before the model answered: a call in this reply that defines a new Python variable is not in these counts, which is why the “Session variables” list above can be longer. It joins the ledger for the next turn. Settings → Models → Conversation ledger."
           >
             {message.ledger}
           </div>
@@ -1068,7 +1290,7 @@ export const MessageBubble = memo(function MessageBubble({
 
         {!isStreaming && message.unverified && (
           <div
-            className="mt-2 text-[11px] text-amber-600 dark:text-amber-400"
+            className="mt-2 text-[11px] text-ink-warn"
             title={
               message.offline
                 ? 'This looked like a factual question, the app was offline so no web source could be consulted, and the local reference library had nothing on it — the answer comes entirely from the model\'s memory.'
@@ -1088,7 +1310,7 @@ export const MessageBubble = memo(function MessageBubble({
         */}
         {!isStreaming && message.truncated && (
           <div
-            className="mt-2 text-[11px] text-amber-600 dark:text-amber-400"
+            className="mt-2 text-[11px] text-ink-warn"
             title="The reply reached this role's max tokens and was cut off. Raise it under Settings → Models → Sampling, or ask for the rest."
           >
             ✂️ Cut off at the length cap — this reply is unfinished. Raise max tokens in Settings
@@ -1104,7 +1326,12 @@ export const MessageBubble = memo(function MessageBubble({
           <SecondOpinionBlock opinion={message.secondOpinion} isStreaming={streaming && isLast} />
         )}
 
-        {message.deliberation && (
+        {/* The other half of the rule above: a pass that reviewed the draft,
+            or is reviewing it now, is provenance and belongs down here with
+            the rest of it. `draftWentUnreviewed` is false while the pass is
+            still running, so the live line does not jump on its way to a
+            verdict — only a settled failure moves. */}
+        {message.deliberation && !draftWentUnreviewed(message.deliberation) && (
           <DeliberationLine record={message.deliberation} />
         )}
 

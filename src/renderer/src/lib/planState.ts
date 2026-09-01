@@ -12,6 +12,7 @@
  * Headless, pinned by test/planBlock.test.ts.
  */
 
+import type { AuditEntry, AuditEntryInput, PlanAuditKind } from '../../../shared/audit'
 import type { ChatPlan, PlanOutcome, PlanStep, PlanStepStatus, ToolCallRecord } from '../types'
 
 /**
@@ -32,10 +33,31 @@ export function awaitingApproval(plan: ChatPlan): boolean {
   return !plan.outcome && !plan.approved && plan.steps.every((s) => s.status === 'pending')
 }
 
-/** What the header says instead of a step count once the plan is over. */
+/**
+ * What the header says instead of a step count once the plan is over.
+ *
+ * v1.17.4 — a blind critic, on the cancelled badge: *"`cancelled — nothing ran`
+ * attributes the decision to nobody, where the same build family manages
+ * `stopped by you` elsewhere."*
+ *
+ * The first question is whether the app can honestly say otherwise, and here it
+ * can, absolutely rather than usually. `cancelled` has exactly one writer —
+ * `resolvePlan(id, false)` in useLMStudio.ts — and that function's only caller
+ * is the Cancel button inside this block. A plan the app abandons on its own
+ * does not land here: an aborted turn writes `stopped` (from the abort
+ * listener on the approval gate, or from the `signal.aborted` checks around
+ * each step), a step that throws writes `failed`, and a plan that runs out
+ * writes `completed`. There is no fourth way in, so there is no case to hedge
+ * for and no second sentence to write.
+ *
+ * The half that was already right is kept. "nothing ran" is the other thing a
+ * reader of a dead checklist needs — that the steps below are a list of things
+ * that did not happen — and dropping it to make room for the attribution would
+ * have traded one missing fact for another.
+ */
 export const OUTCOME_LABEL: Record<PlanOutcome, string> = {
   completed: 'finished',
-  cancelled: 'cancelled — nothing ran',
+  cancelled: 'cancelled by you — nothing ran',
   stopped: 'stopped by you',
   failed: 'failed'
 }
@@ -55,10 +77,10 @@ export const OUTCOME_CLASS: Record<PlanOutcome, string> = {
   // Weight and contrast from the plan work (the outcome must be the most
   // legible thing in the block); the neutral goes through the ink token rather
   // than a raw Tailwind grey, which the widened contrast guard now refuses.
-  completed: 'font-semibold text-green-900 dark:text-green-300',
+  completed: 'font-semibold text-ink-ok',
   cancelled: 'font-semibold text-ink-primary',
-  stopped: 'font-semibold text-amber-900 dark:text-amber-300',
-  failed: 'font-semibold text-red-900 dark:text-red-300'
+  stopped: 'font-semibold text-ink-warn',
+  failed: 'font-semibold text-ink-danger'
 }
 
 /** The outcome sits in a bordered chip, so it reads as a stamp, not a caption. */
@@ -76,17 +98,348 @@ export const STATUS_ICON: Record<PlanStepStatus, string> = {
 export const STATUS_CLASS: Record<PlanStepStatus, string> = {
   pending: 'text-ink-tertiary',
   running: 'text-accent-ink animate-pulse',
-  done: 'text-green-600 dark:text-green-400',
-  failed: 'text-red-500',
+  done: 'text-ink-ok',
+  failed: 'text-ink-danger',
   // Stopping is not failing: amber, and never the failure red.
-  stopped: 'text-amber-600 dark:text-amber-500',
+  stopped: 'text-ink-warn',
   skipped: 'text-ink-tertiary'
+}
+
+/**
+ * The status column's text alternative — v1.18.
+ *
+ * Measured on the real Chromium accessibility tree (test/planAccessibilityCheck
+ * .ts, `Accessibility.getFullAXTree` on the shipped build), the six statuses
+ * reached a screen reader as *four* distinguishable rows, and two of the
+ * collisions were the dangerous ones:
+ *
+ *   running  → button "2. Step 2 detail 2 …" [disabled]   ┐ identical
+ *   pending  → button "3. Step 3 detail 3 …" [disabled]   ┘
+ *   done     → button "1. Step 1 detail 1 … ▸"            ┐ identical
+ *   failed   → button "2. Step 2 detail 2 … ▸"            ┘
+ *
+ * A step that failed and a step that succeeded produced byte-identical
+ * accessible names. The whole of the difference was `✓` versus `✗` — a bare
+ * `StaticText` sitting OUTSIDE the row, which a reader announces as a symbol
+ * name or as nothing at all. Colour carried the rest, which is no carrier.
+ *
+ * So the glyph gets the text alternative that a meaningful icon owes: not a
+ * hidden label bolted beside it, but `role="img"` + `aria-label` on the glyph
+ * itself, which is what that pair is for. It is announced first, before the
+ * step number and title, because the state is what a reader scanning a
+ * checklist is scanning for.
+ *
+ * Every status is labelled, with no exception for the two that already carry a
+ * visible note. A reader of a `skipped` row therefore hears "never ran" twice —
+ * once from the glyph, once from the note beside the title. That echo is the
+ * deliberate price of a rule with no hole in it: a status added later cannot
+ * fall through, because there is nothing to fall through. This project's
+ * recurring defect is the enumeration that stops covering its class, and three
+ * words of repetition is a cheaper failure than a silent row.
+ */
+export const STATUS_LABEL: Record<PlanStepStatus, string> = {
+  pending: 'Queued',
+  running: 'Running',
+  done: 'Done',
+  failed: 'Failed',
+  // Not "Stopped" alone: the row must not read as the plan having failed, and
+  // the outcome badge says "stopped by you" in the same voice.
+  stopped: 'Stopped by you',
+  skipped: 'Never ran'
 }
 
 /** Suffix on the step's own line, for the two statuses a glyph alone underplays. */
 export const STATUS_NOTE: Partial<Record<PlanStepStatus, string>> = {
   stopped: 'stopped here',
   skipped: 'never ran'
+}
+
+/**
+ * The header's single status element — v1.18.
+ *
+ * Through v1.17 this was three sibling spans, each rendered only in its own
+ * state. A live region announces a change to its *contents*; a region that is
+ * itself created and destroyed announces nothing reliably, so a plan that
+ * ended told a screen-reader user precisely as much as one that had not. One
+ * element that always exists and swaps what it says is the difference between
+ * a reader being told and not, and it is why this is a function rather than
+ * three conditionals in the view.
+ *
+ * Same order of precedence the three conditionals had: a plan with an outcome
+ * is over whatever else is true of it.
+ */
+export interface PlanHeaderStatus {
+  text: string
+  className: string
+}
+
+export function planHeaderStatus(plan: ChatPlan): PlanHeaderStatus {
+  if (plan.outcome) {
+    return {
+      text: OUTCOME_LABEL[plan.outcome],
+      className: `${OUTCOME_BADGE} ${OUTCOME_CLASS[plan.outcome]}`
+    }
+  }
+  if (awaitingApproval(plan)) return { text: 'awaiting approval', className: 'text-ink-warn' }
+  // Approved and no outcome yet is the only live state; say so, so the header
+  // alone tells the six states apart.
+  return { text: 'running', className: 'text-accent-ink' }
+}
+
+/**
+ * What the header says about the steps themselves — v2.4.
+ *
+ * A fraction is a promise about the steps it leaves out. `0/4 steps done` says
+ * four things are not done yet, and *yet* is the whole of the reader's model of
+ * a checklist: the numerator climbs, the denominator is reached. On a plan that
+ * can still run, that promise is good.
+ *
+ * Measured, blind, round 11 (`.h2h-runs/B11/PT2-20260828-110253`, and the same
+ * line in A11), `Plan — 0/4 steps done` also sat above four rows every one of
+ * which read `never ran`, beside a badge reading `cancelled by you — nothing
+ * ran`. Round 11 taught the badge to
+ * attribute the decision; the count went on describing a run in progress. Not
+ * one word of it is false — no step is done, there are four of them — and it
+ * still tells a reader that three quarters of the work is ahead. Round 10's
+ * lesson with the breadth in the presentation rather than in the claim.
+ *
+ * So the fraction survives exactly as long as it is closed. `4/4 steps done`
+ * beside `finished` leaves nothing out and stays, because it is the same
+ * statement as the census and a shorter one; the case to repair is a fraction
+ * with a remainder that will never arrive. That plan gets the census instead:
+ * how many steps there were and what became of every one of them.
+ *
+ * Not `4 steps` alone, which would leave their fate to the badge — the badge
+ * speaks about the plan, and the rows are what the reader is about to read. And
+ * not a shape written for `cancelled`, which is how the next outcome gets
+ * forgotten: the tally walks `STATUS_LABEL`, so a status added later is counted
+ * by construction rather than by being remembered here. The cost is one echo —
+ * a cancelled plan says `4 never ran` above four rows that each say `never ran`
+ * — which is the same deliberate repetition `STATUS_LABEL` already accepts.
+ */
+export function planHeaderCount(plan: ChatPlan): string {
+  return countFromLedger(planLedger(plan))
+}
+
+/**
+ * The header's number, and where it is allowed to come from — v2.5.
+ *
+ * A blind critic, on plan mode in both arms: *"The plan header's progress
+ * fraction is the only thing visible without interacting, and it is the one
+ * number no artifact in the run can check — the audit records tools, never
+ * steps. A reader who trusts `3/3 steps done` is trusting the block about
+ * itself."* Both critics counted every plan step statement **unsettleable**
+ * rather than agreed, which is the honest reading of a claim with nothing
+ * behind it.
+ *
+ * So the header stopped counting a `ChatPlan` directly. It counts a *ledger* —
+ * the total, one status per step, and the outcome — and a ledger has two
+ * sources: the live plan, and the session audit's `plan_*` lines. One counting
+ * function, two readings, and `planLedgersFromAudit` below is the second.
+ *
+ * **What that buys, exactly.** A reader with an exported log can count the
+ * `plan_step_end` lines whose status is `done` and get the numerator, count the
+ * plan's `planStepCount` and get the denominator, and the chain says nobody
+ * edited those lines afterwards. The header stops being an assertion and
+ * becomes a citation.
+ *
+ * **What it does not buy, and this half matters more.** It is not
+ * corroboration. `scripts/h2h-record.ts` has this project's clearest statement
+ * of why, and it is about exactly this claim: *"a plan step is a construct of
+ * the application; nothing outside it observes a step starting or ending […] a
+ * step boundary it drew itself — writing any of those into a record makes the
+ * record agree with the screen by construction. That is not evidence. It is the
+ * same number twice."* Every word of that survives this change. The application
+ * is still the only witness to its own steps, and a build that lied about a
+ * step would write the lie to both places.
+ *
+ * The two are not the same defect, which is why one of them could be fixed
+ * here. **Uncorroborated** is a fact about who is watching, and no code in a
+ * local-first app can change it. **Unrecorded** is a fact about what was
+ * written down, and a plan turn was leaving no trace of itself in a log whose
+ * whole contract is a transcript of what was said. This closes the second.
+ * `BEYOND_ANY_RECORD` keeps the first, narrowed to what is still true of it.
+ */
+export interface PlanLedger {
+  total: number
+  /** One per step, in order. Index 0 is the step the block numbers 1. */
+  statuses: PlanStepStatus[]
+  /** Absent while the plan can still progress. */
+  outcome?: PlanOutcome
+}
+
+export function planLedger(plan: ChatPlan): PlanLedger {
+  return {
+    total: plan.steps.length,
+    statuses: plan.steps.map((s) => s.status),
+    ...(plan.outcome ? { outcome: plan.outcome } : {})
+  }
+}
+
+/** The one place a plan's step count is turned into words. See `planHeaderCount`. */
+export function countFromLedger(ledger: PlanLedger): string {
+  const total = ledger.total
+  const done = ledger.statuses.filter((s) => s === 'done').length
+  if (!ledger.outcome || done === total) return `${done}/${total} steps done`
+  const steps = `${total} step${total === 1 ? '' : 's'}`
+  const tally = PLAN_STEP_STATUSES.map((status) => ({
+    status,
+    count: ledger.statuses.filter((s) => s === status).length
+  }))
+    .filter((group) => group.count > 0)
+    .map((group) => `${group.count} ${STATUS_LABEL[group.status].toLowerCase()}`)
+  return `${steps}: ${tally.join(', ')}`
+}
+
+/**
+ * Every status and every outcome, read off the label tables rather than typed
+ * out again. Both tables are `Record<T, string>`, so a member added to either
+ * union has to be added to them to compile — which makes these lists total by
+ * construction, and makes the validation in `planLedgersFromAudit` total too.
+ */
+export const PLAN_STEP_STATUSES = Object.keys(STATUS_LABEL) as PlanStepStatus[]
+export const PLAN_OUTCOMES = Object.keys(OUTCOME_LABEL) as PlanOutcome[]
+
+function asStepStatus(value: unknown): PlanStepStatus | null {
+  return PLAN_STEP_STATUSES.find((s) => s === value) ?? null
+}
+
+function asOutcome(value: unknown): PlanOutcome | null {
+  return PLAN_OUTCOMES.find((o) => o === value) ?? null
+}
+
+/**
+ * Read a plan back out of a session audit — the check the header's number now
+ * has, and the only one it can have (see `planHeaderCount`).
+ *
+ * Entries are taken in file order, which is append order: a turn runs alone, so
+ * one plan's lines cannot interleave with another's. A `plan_start` opens a
+ * ledger, a `plan_end` closes it, and a ledger left open when the entries run
+ * out is returned open — a run killed mid-plan is a thing the record should be
+ * able to say, not a thing it should round off.
+ *
+ * A step with no `plan_step_end` keeps `pending`, and `plan_end` puts those
+ * through `endPlan` — the same function the block uses, not a second spelling
+ * of its rule. So a plan cancelled at the approval gate reconstructs as N steps
+ * that never ran from a record holding *no step lines at all*, which is right:
+ * nothing ran, so nothing was written, and the absence is the evidence.
+ */
+export function planLedgersFromAudit(entries: readonly AuditEntry[]): PlanLedger[] {
+  const ledgers: PlanLedger[] = []
+  let open: PlanLedger | null = null
+  const at = (index: unknown): number => (typeof index === 'number' ? index - 1 : -1)
+
+  for (const e of entries) {
+    if (e.kind === 'plan_start') {
+      // A second start with one still open means the first never ended: keep it,
+      // unfinished, rather than dropping it or pretending it completed.
+      if (open) ledgers.push(open)
+      const total = typeof e.planStepCount === 'number' ? e.planStepCount : 0
+      open = { total, statuses: Array.from({ length: total }, () => 'pending' as PlanStepStatus) }
+      continue
+    }
+    if (!open) continue
+    if (e.kind === 'plan_step_start') {
+      const i = at(e.planStepIndex)
+      if (i >= 0 && i < open.statuses.length) open.statuses[i] = 'running'
+    } else if (e.kind === 'plan_step_end') {
+      const i = at(e.planStepIndex)
+      const status = asStepStatus(e.planStepStatus)
+      if (i >= 0 && i < open.statuses.length && status) open.statuses[i] = status
+    } else if (e.kind === 'plan_end') {
+      const outcome = asOutcome(e.planOutcome)
+      ledgers.push(outcome ? closeLedger(open, outcome) : open)
+      open = null
+    }
+  }
+  if (open) ledgers.push(open)
+  return ledgers
+}
+
+/** `endPlan`'s rule, applied to a ledger — pending becomes never-ran. */
+function closeLedger(ledger: PlanLedger, outcome: PlanOutcome): PlanLedger {
+  const shaped = endPlan(
+    {
+      steps: ledger.statuses.map((status, i) => ({
+        id: String(i),
+        title: '',
+        detail: '',
+        status
+      })),
+      approved: true,
+      createdAt: 0
+    },
+    outcome
+  )
+  return planLedger(shaped)
+}
+
+/**
+ * The lines a plan writes to the log, built here beside the header they have to
+ * agree with — the reason every other sentence in this block moved out of its
+ * component, applied to the record.
+ *
+ * `plan_end` deliberately does **not** carry the header's sentence. A record
+ * that restates the summary is a record a reader can read instead of checking,
+ * and then the check is one number agreeing with a copy of itself. The lines
+ * carry the facts; the arithmetic stays on screen, where it can be redone.
+ */
+export type PlanAuditLine = Pick<
+  AuditEntryInput,
+  'text' | 'planStepIndex' | 'planStepCount' | 'planStepStatus' | 'planOutcome'
+> & { kind: PlanAuditKind }
+
+/**
+ * The checklist as it was put in front of the reader: what each step said it
+ * would do, and what it said it might reach for. `toolPreview` is the block's
+ * own sentence, called rather than re-worded, so the plan that was approved and
+ * the plan in the record cannot be two different documents.
+ */
+export function planStartLine(plan: ChatPlan): PlanAuditLine {
+  const steps = plan.steps
+    .map((s, i) => `${i + 1}. ${s.title}\n${s.detail}\n${toolPreview(s)}`)
+    .join('\n\n')
+  return {
+    kind: 'plan_start',
+    planStepCount: plan.steps.length,
+    text: `Plan of ${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}:\n\n${steps}`
+  }
+}
+
+export function planStepStartLine(plan: ChatPlan, index: number): PlanAuditLine {
+  return {
+    kind: 'plan_step_start',
+    planStepIndex: index,
+    planStepCount: plan.steps.length,
+    text: `Step ${index} of ${plan.steps.length} started — ${plan.steps[index - 1]?.title ?? ''}`
+  }
+}
+
+/** The status word is `STATUS_LABEL`'s, the same one the row's glyph announces. */
+export function planStepEndLine(
+  plan: ChatPlan,
+  index: number,
+  status: PlanStepStatus,
+  output?: string
+): PlanAuditLine {
+  const head = `Step ${index} of ${plan.steps.length} — ${STATUS_LABEL[status]}`
+  return {
+    kind: 'plan_step_end',
+    planStepIndex: index,
+    planStepCount: plan.steps.length,
+    planStepStatus: status,
+    text: output ? `${head}\n${output}` : head
+  }
+}
+
+/** The outcome word is `OUTCOME_LABEL`'s — the badge's, including who caused it. */
+export function planEndLine(plan: ChatPlan, outcome: PlanOutcome): PlanAuditLine {
+  return {
+    kind: 'plan_end',
+    planStepCount: plan.steps.length,
+    planOutcome: outcome,
+    text: `Plan ${OUTCOME_LABEL[outcome]}.`
+  }
 }
 
 /**

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useModalSurface } from './useModalSurface'
+import type { ModalSurface } from './useModalSurface'
 
 /**
  * How long a modal stays mounted after it is closed, so its exit animation
@@ -25,8 +27,22 @@ export const MODAL_EXIT_MS = 175
  *
  * Reduced motion unmounts immediately: there is no animation to wait for, and
  * waiting would only add a delay to a preference that asked for less motion.
+ *
+ * v2.0.1: it also contains focus. Presence and containment are one hook on
+ * purpose. Every modal in the app already had to come here to animate, so a
+ * modal that forgets to contain focus is now a modal that also forgets to
+ * animate — which is visible the first time anyone opens it. Keeping them
+ * apart is what let four overlays ship with 55–67 of 70 Tab stops landing on
+ * controls behind them.
+ *
+ * `onDismiss` is what Escape does. It is required rather than optional for the
+ * same reason: containment without an exit is a worse defect than no
+ * containment, and an optional argument is one a caller can leave out.
  */
-export function useModalPresence(open: boolean): { mounted: boolean; leaving: boolean } {
+export function useModalPresence(
+  open: boolean,
+  options: { onDismiss: () => void; role?: 'dialog' | 'menu' }
+): { mounted: boolean; leaving: boolean } & ModalSurface {
   const [mounted, setMounted] = useState(open)
   const [leaving, setLeaving] = useState(false)
   // Read once per transition rather than held in state: the preference can
@@ -55,7 +71,11 @@ export function useModalPresence(open: boolean): { mounted: boolean; leaving: bo
     return () => clearTimeout(timer)
   }, [open, mounted])
 
-  return { mounted, leaving }
+  // Contained while it is really there — never during the exit, when the panel
+  // is fading and the page underneath is taking clicks again.
+  const surface = useModalSurface(mounted && !leaving, options)
+
+  return { mounted, leaving, ...surface }
 }
 
 /** Class names for a modal's backdrop and panel in the phase it is in. */

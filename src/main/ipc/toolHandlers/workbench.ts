@@ -63,8 +63,14 @@ const runPythonTool: ToolHandler = async (args, context) => {
   const staged = await stageAttachments(context)
   // v1.8: run_python is a session scoped to the conversation — variables
   // persist between calls, so a follow-up filters the dataframe already
-  // loaded instead of re-writing the preamble. Profiles and the verification
-  // runs stay sessionless by construction (they call runPython directly).
+  // loaded instead of re-writing the preamble. Profiles stay sessionless by
+  // construction: analyze_file calls runPython directly, with no session.
+  //
+  // The verification runs do NOT — they reach this handler through
+  // tools:execute with the turn's conversation id, so a recompute or a code
+  // check runs in the user's session and leaves its names in it. Recorded in
+  // docs/evals.md ("the ledger line counted a moment the list beside it did
+  // not"), where both arms' extra variable was left behind by a check.
   const outcome = await runPython({ code, files: staged.files, timeoutMs, session: context.conversationId ?? null })
   const formatted = formatRun(outcome, code)
   if (!formatted.ok && /ModuleNotFoundError|No module named/.test(formatted.error ?? '')) {
