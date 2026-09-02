@@ -55,7 +55,11 @@ const toolCall = readFileSync(join(COMPONENTS, 'ToolCallBlock.tsx'), 'utf8')
 const claimCheck = readFileSync(join(COMPONENTS, 'ClaimCheckBlock.tsx'), 'utf8')
 const secondOpinion = readFileSync(join(COMPONENTS, 'SecondOpinionBlock.tsx'), 'utf8')
 const ranCode = readFileSync(join(COMPONENTS, 'RanCodeBlock.tsx'), 'utf8')
-const settings = readFileSync(join(COMPONENTS, 'SettingsModal.tsx'), 'utf8')
+// v2.4: the Settings modal is a frame plus components/settings/<Tab>Tab.tsx; the ink
+// classes this check scrapes moved with their tabs, so the source is all of them.
+const settings = [join(COMPONENTS, 'SettingsModal.tsx'), ...rendererSources(join(COMPONENTS, 'settings'))]
+  .map((f) => readFileSync(f, 'utf8'))
+  .join('\n')
 
 /** Every renderer source file, so the raw-neutral guard has nowhere to hide. */
 function rendererSources(dir: string): string[] {
