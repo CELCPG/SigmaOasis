@@ -1,6 +1,6 @@
 # Strategy: Capability multipliers — post v2.2.0
 
-**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence (below).** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
+**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below).** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
 five earlier strategy documents, the v2.1/v2.2 release notes, `docs/evals.md`, the
 head-to-head record (`docs/head-to-head/rounds.json`, verdicts 8–13), and the source tree.
 Companions: `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped), `STRATEGY-speed-and-quality.md`
@@ -194,15 +194,18 @@ the sandbox a few milliseconds of parsing. Memoizing the read would save the mil
 and none of the seconds. The habit is real and harmless; it stays uninstrumented. Recorded
 here so the item is not rediscovered.
 
-### B2. Retire the library suite's noise floor
+### B2. Retire the library suite's noise floor — measured to zero, and the instrument fixed (v2.4)
 
-The three flaky failure shapes are all mechanical: a tool call emitted as prose (route it
-through `nativeToolCall.ts`, which already parses three such shapes), a reply that
-summarizes half a section and stops (a length-aware continuation, gated the way revisions
-are), and an echoed turn-notes header (the 🧾 guard exists; the eval should assert it
-fired). Fix the FAST-letters builder defect in the first-aid pack.
-
-*Gate:* `EVAL_PASSES=3` — the flaky set must shrink; the stable-pass set must not.
+Measured first, three passes on qwen3.8-9b: no flaky case; the three shapes were a different
+model class's. What the run found instead: the scorer flagged correct unit conversions (fixed,
+the app's rule), the arm did not offer the tool the app offers (fixed: the arm runs the app's
+loop and executes the call as the handler does, scrubs the echo, records how each completion
+ended), and the one stable failure is a retrieval mechanism — the boil line sits in the second
+chunk of a section the v1.7 cap sends one chunk of, and the dedicated Boiling section ranks
+below flood passages because the question never says *boil*. The FAST-letters defect was
+already fixed by the builder. After: 84/84 answered, 0 flaky, and a finding for round 15 —
+with the tool offered, the model called it in 0 of 84 runs, cited less and stated more from
+memory. Both tables in the v2.4 notes.
 
 ### B3. Think-harder by domain, not by default
 

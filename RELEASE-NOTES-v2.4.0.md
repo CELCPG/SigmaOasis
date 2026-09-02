@@ -89,8 +89,26 @@ different model class's; on this one the floor is zero. What the run found inste
   the app's extractor reads, or natively — was scored on the call's text. The arm now offers
   the tool and executes it exactly as the handler does, scrubs the turn-notes echo before
   scoring as the app does, and records per case how the completion ended and how many calls
-  the model made; the multi-pass report counts failing runs by shape. After-measurement:
-  *(pending — see the commit record)*.
+  the model made; the multi-pass report counts failing runs by shape.
+
+The two measurements side by side, three passes each, same model, temperature 0:
+
+| | before (passages, no tool; number-only scorer) | after (tool offered as in the app; conversion-aware scorer) |
+| --- | --- | --- |
+| answered | 81/84 — 27, 27, 27 | **84/84 — 28, 28, 28** |
+| flaky cases | 0 | 0 |
+| cited the source | 72/84 | 69/84 |
+| unsupported figures | 9/84, six of them the scorer's conversion false positives | 12/84, all figures the sent passages did not state |
+| the model called reference_lookup itself | not offered | **0 of 84 runs** |
+
+The numbers moved because the instrument moved, not the app; the right-hand column is the one
+that describes the app. What it says is worth more than the answered row: with the tool in the
+request, as it is in the app, a 9B model **never calls it** on a library turn — it answers
+every case, cites three fewer, and states more from memory, including the boil-water facts
+("one minute", "three minutes", "6,500 feet") that the pack holds and the ranker never sent.
+The suite scores those as unsupported because they are: right, and from nowhere the app
+retrieved. That is round 15's material — the retrieval mechanism above, and the
+tool-offered-but-never-called behaviour — recorded here as measured.
 
 ## Measured, and left alone
 
