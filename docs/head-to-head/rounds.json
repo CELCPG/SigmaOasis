@@ -2,7 +2,7 @@
   "app": "Sigma Oasis",
   "baseline": "v1.12.1",
   "localModel": "qwen3.8-9b",
-  "updated": "2026-08-28",
+  "updated": "2026-09-02",
   "invariants": [
     {
       "name": "node test suite",
@@ -426,6 +426,32 @@
         "record-consistency column": "2 / 0 / 16",
         "verdicts overruled after reporting": "3 of 54"
       }
+    },
+    {
+      "n": 14,
+      "label": "The runtime alone: one tree, Electron 31 against Electron 44",
+      "state": "done",
+      "dimension": null,
+      "pair": {
+        "A": "the v2.2.0 build on Electron 31",
+        "B": "the same v2.2.0 tree on Electron 44 (the v2.3 runtime)"
+      },
+      "what": "v2.3 changes the runtime and nothing else — Electron 31 (Chromium 126, Node 20) to Electron 44 (Chromium 152, Node 24) — and the strategy that scheduled it said the release gate is one bench round that ties or better on every task. So this round is the same v2.2.0 code under two runtimes: arms differ only in the Electron binary, every task is expected to tie by construction, and any result is a statement about the runtime or about noise. Both arms swept 18 of 18 VALID on the first pass with no re-runs; the harness needed two fixes before it could run at all on this machine (the per-run profile moved out of ~/Documents, whose folder-privacy gate refuses the re-signed dev binary renames, and the driver stopped assuming Node 20’s WebSocket flag).",
+      "findings": "Seventeen ties as reported, and one result against the new runtime that did not survive experiment. VC3’s dark-theme capture on Electron 44 showed three tool-call headers, the selected conversation and the Rollback/Export actions drawn in the light theme’s ink at 1.05:1, 700ms after the switch. Two more captures per arm found nothing — 1 of 3 on 44, 0 of 3 on 31 — and a direct probe froze the same 150ms colour transition on BOTH runtimes: every element with `transition-colors` held the old ink for over three seconds while plain text switched at once, because a transition only advances when the compositor ticks and a covered window gets none. That is the app’s weakness, present since `transition-colors` first went on a button, and it is now fixed: the theme flips with transitions suspended for two frames, pinned by a style check that measures the guarded switch in a real window. Two things about the instrument: with the launcher shim as the entry, the sidebar badge fell back to Electron’s own version, so every screenshot footer read v31.7.7 or v44.1.1 — the blinding held on names and failed on sight; the capture now writes the arm’s package.json beside the shim. And the critic-prompt generator committed in round 9 had been dropped by the round-13 merge along with its documents; rounds 10–13 were judged from briefings not in the repository. Restored, with the counts block folded in, and a transcriber for the task column so the last hand step in judging has an artifact. Machine facts from the same 36 runs, outside any verdict: the user bubble and reply container paint about twice as fast on Electron 44, and on the seven direct-answer tasks the first reply block appears a median 1.3s sooner with the model’s first token arriving at the same time.",
+      "verdict": "Round 14: task — Electron 44 0 · Electron 31 0 · 18 ties, after one verdict against the new runtime was overruled by experiment (VC3, recorded). self-consistency 0 · 0 · 18, contested 4/18. record-consistency 0 · 0 · 18, contested 3/18. The gate the strategy set — ties or better on every task — is met, and the round’s one finding was a defect both runtimes share, fixed before the release.",
+      "gap": "The two cross-cutting columns were contested on 4 and 3 of 18 tasks: a same-code pair puts almost nothing in play, which is what a runtime round should look like and is also why it cannot say much beyond ‘nothing broke’. The critics’ biggest-remaining-gap lines name what both builds still do wrong and none of it is new: V1’s ‘3 to 4 days’ lines are ham rows in a chicken question and neither screen says so; TTU2’s sandbox printed ‘Sum = 824693’ under a reply stating 149326778 and the checker called it clean; TTU3 told the reader ‘no source is reachable’ with an installed library never consulted; PT1 keeps every executed call two disclosures deep. Those are round 15’s material, not this round’s.",
+      "fix": "App: a theme switch suspends colour transitions for two frames (App.tsx, index.css) · style check: a transition-colors element is measured across a guarded switch in a real window, and what an unguarded switch reads is reported · harness: per-run profile under the OS temp dir; WebSocket flag probed; arm package.json written beside the shim so the version badge names the arm; make-critic-prompts.mjs restored with the counts block; critic-verdicts.mjs transcribes the task column through the withheld key",
+      "evals": {
+        "node cases": "2574 → 2574",
+        "electron check suites": "9 of 9 green on both runtimes (style checks 73 → 74)",
+        "sweeps valid without a re-run": "2 of 2 arms, 36 of 36 runs",
+        "task column": "0 / 0 / 18 (as reported 1 / 0 / 17)",
+        "self-consistency column": "0 / 0 / 18, contested 4",
+        "record-consistency column": "0 / 0 / 18, contested 3",
+        "verdicts overruled after reporting": "1 of 54",
+        "render bench, same tree": "CPU 39.4s → 30.6s, layout 10.4s → 6.9s (3 runs each)",
+        "VC3 re-captures showing the defect": "0 of 4 (1 of 6 across the round)"
+      }
     }
   ],
   "evalHistory": [
@@ -736,6 +762,34 @@
       "metric": "statements the record can settle",
       "value": "55",
       "delta": "was 9"
+    },
+    {
+      "round": 14,
+      "suite": "node",
+      "metric": "cases passing",
+      "value": "2574",
+      "delta": "0"
+    },
+    {
+      "round": 14,
+      "suite": "blind head-to-head",
+      "metric": "task column, won vs the previous runtime",
+      "value": "0 / 18",
+      "delta": null
+    },
+    {
+      "round": 14,
+      "suite": "blind head-to-head",
+      "metric": "task column, lost",
+      "value": "0 / 18 (1 as reported, overruled by experiment)",
+      "delta": null
+    },
+    {
+      "round": 14,
+      "suite": "render bench",
+      "metric": "main-thread cost, one streamed reply, same tree",
+      "value": "30.6s on Electron 44",
+      "delta": "was 39.4s on Electron 31"
     }
   ]
 }

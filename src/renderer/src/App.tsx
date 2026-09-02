@@ -98,10 +98,28 @@ export default function App(): JSX.Element {
   }, [baseUrl, refresh, load])
 
   // Theme + font size.
+  //
+  // The theme flips with every colour transition suspended (v2.3). Buttons and
+  // rows carry Tailwind's `transition-colors`, so a theme change starts a
+  // 150ms colour transition on each of them — and a transition only advances
+  // when the compositor ticks. Behind another window it does not, and the
+  // head-to-head's dark-theme capture found tool-call headers, the selected
+  // conversation and the Rollback/Export actions still drawn in the LIGHT
+  // theme's ink 700ms after the switch: dark on dark, 1.05:1. Measured on both
+  // Electron 31 and 44, so it is the app's to fix, not the runtime's. The
+  // class below turns transitions off for the two frames the switch takes;
+  // everything the user does afterwards animates as before.
   useEffect(() => {
     if (!settings) return
-    document.documentElement.classList.toggle('dark', settings.theme === 'dark')
-    document.documentElement.style.fontSize = `${settings.fontSize}px`
+    const root = document.documentElement
+    const dark = settings.theme === 'dark'
+    if (root.classList.contains('dark') !== dark) {
+      root.classList.add('theme-switching')
+      root.classList.toggle('dark', dark)
+      void root.offsetHeight // flush the switch with transitions still off
+      requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('theme-switching')))
+    }
+    root.style.fontSize = `${settings.fontSize}px`
   }, [settings])
 
   return (

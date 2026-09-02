@@ -58,7 +58,8 @@
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { get as httpGet } from 'http'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { startLmShim, startSearchFixture } from './h2h-fixtures'
 import type { FixtureHandle, LmShimConfig, SearchFixtureConfig } from './h2h-fixtures'
@@ -1644,8 +1645,16 @@ async function main(): Promise<void> {
 
   // Throwaway userData. Never the real profile: the harness must not read the
   // user's conversations and must not leave anything behind in them.
-  const userData = join(runDir, '_userdata')
-  mkdirSync(userData, { recursive: true })
+  //
+  // Under the OS temp dir, not inside the run directory (v2.3). The run
+  // directory lives in the repository, and on macOS 26 the repository lives
+  // under ~/Documents, which the folder-privacy system gates per app: the
+  // ad-hoc re-signed dev Electron is a new identity on every install and holds
+  // no grant, so the app's first settings write — an atomic rename into place —
+  // came back EPERM there, 3/3 in a probe, and 0/1 under /tmp. A profile the
+  // app cannot write is not a profile; the recorded path below says where it
+  // really was.
+  const userData = mkdtempSync(join(tmpdir(), `sigma-h2h-${args.taskId}-`))
 
   // Fixtures come up before the config is written: their ports are chosen by
   // the OS, and the settings that point the app at them have to carry the real
@@ -1680,6 +1689,28 @@ async function main(): Promise<void> {
   // keep the window on top so the compositor keeps painting it (an occluded
   // window returns a stale or empty frame to Page.captureScreenshot).
   const shim = join(runDir, '_launcher.js')
+  // The app resolves its version from package.json under app.getAppPath(),
+  // and with the shim as the entry that path is this run directory — which
+  // had no package.json, so the sidebar fell back to app.getVersion(), which
+  // for a bare Electron is ELECTRON'S version. Eight rounds never noticed
+  // because both arms ran the same Electron; round 14 (31 vs 44) put
+  // "v31.7.7" and "v44.1.1" in every screenshot's footer and de-blinded the
+  // pair on sight. make-blind-pairs.mjs guards the app version for exactly this
+  // reason and could not see this one. A package.json carrying the arm's own
+  // name and version makes the footer say what the arm is, not what runs it.
+  try {
+    const armPkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')) as {
+      name?: string
+      version?: string
+    }
+    writeFileSync(
+      join(runDir, 'package.json'),
+      `${JSON.stringify({ name: armPkg.name ?? 'sigma-oasis', version: armPkg.version ?? '0.0.0', private: true }, null, 2)}\n`
+    )
+  } catch {
+    // No package.json at the app root: the footer falls back as before and
+    // the caveat above applies. Not fatal — the run is still a run.
+  }
   writeFileSync(
     shim,
     [

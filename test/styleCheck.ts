@@ -270,6 +270,7 @@ function fixture(css: string, probes: string[]): string {
   <div class="glass-panel" id="panel">
     ${inks.map((t) => `<p class="text-ink-${t}" id="ink-${t}">ink ${t}</p>`).join('\n    ')}
     <p class="text-accent-ink" id="ink-accent">accent ink</p>
+    <button class="transition-colors text-ink-primary" id="theme-probe">theme probe</button>
     ${probes.map((c, i) => `<input data-probe="${i}" class="${c}">`).join('\n    ')}
   </div>
 </body></html>`
@@ -628,8 +629,43 @@ async function main(): Promise<void> {
     })
 
   const light = await read()
+  // (g) a theme switch does not leave ink in transit — measured on an element
+  // that carries `transition-colors`, the way the app's buttons and rows do,
+  // BEFORE any unguarded switch has started a transition on it: offscreen, a
+  // transition never advances, so an element caught in one reads its start
+  // value forever after. The page is light here and the probe has never moved.
+  // Flip it to dark under the guard the app applies (`theme-switching`, see
+  // App.tsx) and read the colour in the SAME script turn as the flip; let it
+  // settle with the guard off; then flip back the same way, so the probe is
+  // clean again when the unguarded switch below happens.
+  const themeFlip = (await win.webContents.executeJavaScript(`(() => {
+    const root = document.documentElement
+    const el = document.getElementById('theme-probe')
+    const before = getComputedStyle(el).color
+    root.classList.add('theme-switching')
+    root.classList.add('dark')
+    void root.offsetHeight
+    const during = getComputedStyle(el).color
+    return { before, during }
+  })()`)) as { before: string; during: string }
+  await new Promise((r) => setTimeout(r, 400))
+  const themeSettled = (await win.webContents.executeJavaScript(
+    `document.documentElement.classList.remove('theme-switching'); getComputedStyle(document.getElementById('theme-probe')).color`
+  )) as string
+  await win.webContents.executeJavaScript(`(() => {
+    const root = document.documentElement
+    root.classList.add('theme-switching')
+    root.classList.remove('dark')
+    void root.offsetHeight
+    root.classList.remove('theme-switching')
+  })()`)
+
   await win.webContents.executeJavaScript(`document.documentElement.classList.add('dark')`)
   const dark = await read()
+  // What an UNGUARDED switch reads on the same element, at the switch.
+  const bareFlip = (await win.webContents.executeJavaScript(
+    `getComputedStyle(document.getElementById('theme-probe')).color`
+  )) as string
 
   /* -- (a) a long unbreakable token stays in its container ------------------ */
 
@@ -984,6 +1020,23 @@ async function main(): Promise<void> {
   )
 
   dbg.detach()
+  /* -- (g) a theme switch does not leave ink in transit ---------------------- */
+
+  console.log('\na theme switch on an element with transition-colors')
+  check('the guard rule ships in the stylesheet', /\.theme-switching[\s\S]{0,80}transition:\s*none/.test(css))
+  check(
+    'under the guard, the new theme’s ink lands in the same frame as the switch',
+    themeFlip.during === themeSettled && themeFlip.during !== themeFlip.before,
+    `before ${themeFlip.before} · at the switch ${themeFlip.during} · settled ${themeSettled}`
+  )
+  // Reported, not asserted: whether a bare flip reads the old ink at the
+  // switch depends on whether a transition started, which is the compositor's
+  // business and not deterministic offscreen. It is what the guard is for.
+  console.log(
+    `  info an unguarded switch to dark read ${bareFlip} at the switch` +
+      (bareFlip === themeFlip.before ? ' (the previous theme’s ink — a transition in flight)' : '')
+  )
+
   server.close()
   win.destroy()
 

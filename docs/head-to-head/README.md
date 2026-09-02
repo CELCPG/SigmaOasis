@@ -575,6 +575,13 @@ Judging adds two more, in this directory:
 
 - `make-critic-tasks.mjs` / `make-blind-pairs.mjs` — the view a critic may read,
   and the staged pairs it reads it against.
+- `critic-verdicts.mjs` — the task column, read from the `WINNER:` lines of the
+  reports through `_key.json`, the way `critic-counts.mjs` reads the blocks. Until
+  round 14 this was the one step in judging done by hand.
+- `make-critic-prompts.mjs` — the document a critic is briefed by, generated
+  from `question` / `measure` / `decide` so the questions live in one place, with
+  the counts block below appended from the script that reads it back. Committed
+  in round 9, dropped by the round-13 merge, restored for round 14.
 - `critic-counts.mjs` — the counts block a critic fills in beside the prose, and
   the transcriber that turns filled blocks into a column. See *Where the counts
   come from* above. Its output is a document a blind judge reads, so it is

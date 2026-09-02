@@ -32,5 +32,14 @@ if command -v node >/dev/null 2>&1; then TSC=(node); else TSC=(env ELECTRON_RUN_
 # The driver is a plain Node program (it spawns the app itself), so it runs as
 # ELECTRON_RUN_AS_NODE. The app it spawns gets a full Electron runtime with that
 # variable stripped from its environment.
-ELECTRON_RUN_AS_NODE=1 NODE_OPTIONS=--experimental-websocket \
-  "$ELECTRON" "$OUT/scripts/h2h-capture.js" "$@"
+#
+# Node 20 (Electron ≤ 33) needs a flag for the WebSocket client the CDP driver
+# uses; Node 22+ (Electron 44's is 24) has it built in and rejects the flag.
+# Ask the runtime rather than assume — the same probe scripts/render-bench.sh
+# makes, adopted here for v2.3's Electron upgrade.
+if ELECTRON_RUN_AS_NODE=1 "$ELECTRON" -e 'if (typeof WebSocket === "undefined") process.exit(1)' >/dev/null 2>&1; then
+  ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$OUT/scripts/h2h-capture.js" "$@"
+else
+  ELECTRON_RUN_AS_NODE=1 NODE_OPTIONS=--experimental-websocket \
+    "$ELECTRON" "$OUT/scripts/h2h-capture.js" "$@"
+fi

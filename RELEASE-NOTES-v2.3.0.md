@@ -6,7 +6,8 @@ in mid-2024 and left the supported window in early 2025, so a privacy app had be
 browser engine eighteen months past its last security fix. That is the whole reason for this
 release, and the reason it carries nothing else: a Chromium two years newer under the v2.1
 animation work and the v2.2 checks is a risk best isolated, so every suite ran against this
-change alone.
+change alone — and then the head-to-head bench ran the same tree under both runtimes, which
+found the one thing this release changes besides the runtime.
 
 ## What had to change in the tree
 
@@ -37,6 +38,12 @@ Already in place, and worth saying: the one removal that bites most apps at 32 �
   and v2.2 measured the same under Chromium 152 as under 126.
 - **The packaged app** builds with the existing electron-builder and boots on a scratch
   profile.
+- **The bench, same tree, two runtimes (round 14).** Eighteen tasks, both arms 18/18 valid on
+  the first pass, judged blind by critics briefed from the task set. **0 won, 0 lost, 18
+  ties** on the task column after one verdict was overruled by experiment; both cross-cutting
+  columns 18 ties, contested on 4 and 3 tasks — a same-code pair puts almost nothing in play,
+  which is what a runtime round should look like. The overruled verdict is the paragraph
+  below. Record: `docs/head-to-head/verdicts/round-14.json`.
 - **The render bench, same tree, two runtimes.** `bench:render` gained a `BENCH_ELECTRON`
   override so one checked-out tree can be measured under two Electron binaries — the
   comparison an upgrade actually needs, since the report rightly voids a pair of labels that
@@ -52,6 +59,27 @@ Already in place, and worth saying: the one removal that bites most apps at 32 �
   are within each other's spread. The ~390ms render lag itself is a property of this tree
   under *both* runtimes — the v2.1.0-rc row in the same table reads −5ms — which is a finding
   about v2.2, recorded here and not chased in a release that changes only the runtime.
+
+### The one app change, found by the gate
+
+VC3's dark-theme capture on Electron 44 showed three tool-call headers, the selected
+conversation title and the Rollback and Export actions drawn in the **light** theme's ink —
+1.05:1, dark on dark — 700ms after the switch, and the critic scored it against the new
+runtime at low confidence. Two more captures per arm found nothing (1 of 3 on 44, 0 of 3 on
+31), and a direct probe that flips the theme exactly as the app does froze the same thing on
+**both** runtimes: every element carrying Tailwind's `transition-colors` held the old ink for
+over three seconds while plain text switched within 100ms. A theme change starts a 150ms
+colour transition on each such element, a transition only advances when the compositor ticks,
+and a covered window gets none — so which arm was caught was a fact about the desktop, not the
+runtime. The weakness is the app's, and it has been there since the first `transition-colors`
+went on a button: switch theme while the window is throttled and the text stays unreadable for
+as long as it stays throttled.
+
+Fixed here, as the one change besides the runtime: the theme flips with transitions suspended
+for the two frames the switch takes (`App.tsx`, `index.css`), and a new style check measures a
+`transition-colors` element across a guarded switch in a real window — the new ink lands in
+the same frame — and reports what an unguarded switch reads at the switch (the previous ink,
+a transition in flight). Verdict overruled to a tie and recorded as overruled.
 
 ### Recorded, not hidden
 
@@ -73,9 +101,10 @@ Already in place, and worth saying: the one removal that bites most apps at 32 �
   reason recorded in `RELEASING.md`), so every re-sign is a new identity with no grant. The
   bench now keeps its profile under `$TMPDIR` and does its own file writes on plain Node, so
   it no longer depends on a permission only a person can grant; the check suite's throwaway
-  profiles were already outside Documents. The head-to-head driver's `.h2h-runs/` profiles
-  sit inside the repository and will meet the same refusal on this machine — noted for the
-  next round, not fixed here.
+  profiles were already outside Documents. The head-to-head capture kept each run's
+  throwaway profile inside the run directory, which is inside the repository; it now keeps
+  it under the OS temp dir and records where, and the driver probes for the WebSocket flag
+  Node 22+ rejects rather than assuming Node 20.
 
 ## Platform floor
 
@@ -92,10 +121,19 @@ and needs its own bump to `:ventura`; `RELEASING.md` says so now.
 - Node 24 in the main process brings `zlib` zstd, which the ZIM-pack work in
   `STRATEGY-capability-multipliers.md` was waiting on.
 - `@types/node` follows the bundled Node major.
+- Two instrument findings from the round, both recorded in `rounds.json`: with the launcher
+  shim as the entry the sidebar's version badge fell back to Electron's own version, so every
+  screenshot footer named its runtime (the capture now writes the arm's package.json beside
+  the shim); and the critic-prompt generator committed in round 9 had been dropped by the
+  round-13 merge, so rounds 10–13 were judged from briefings not in the repository. Restored,
+  with the counts block folded in, plus a transcriber that reads the task column through the
+  withheld key instead of by hand.
 
 ## Upgrade notes
 
 Auto-update from v2.2.0 on macOS 13+, Windows and Linux. No new settings, no migrations, no
-change to any tool, check, record or privacy behaviour. Macs on macOS 12 stay on v2.2.0.
+change to any tool, check, record or privacy behaviour. One visible change beyond the runtime:
+a theme switch no longer cross-fades button and row colours over 150ms — it lands at once.
+Macs on macOS 12 stay on v2.2.0.
 
 **Full changelog:** https://github.com/CELCPG/SigmaOasis/compare/v2.2.0...v2.3.0

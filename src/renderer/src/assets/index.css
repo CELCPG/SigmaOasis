@@ -99,6 +99,18 @@
   --ease-ripple: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
+/*
+ * While the theme flips, nothing transitions (see the theme effect in
+ * App.tsx). A colour transition that starts on a theme change and cannot
+ * advance — an occluded window gets no compositor ticks — leaves text drawn in
+ * the previous theme's ink, unreadable, for as long as the window stays
+ * covered. Two frames of no transitions costs nothing a reader can see.
+ */
+.theme-switching,
+.theme-switching * {
+  transition: none !important;
+}
+
 .dark {
   --bg-base: #000000;
   --bg-orb-teal: rgba(0, 212, 170, 0.06);
