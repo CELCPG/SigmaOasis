@@ -3752,7 +3752,7 @@ question; only a column that can take a claim away found them.
 - **From this round, `docs/head-to-head/verdicts/round-10.json` is the record.** Round 9's
   cross-cutting answers were given on all 18 tasks and written down nowhere.
 
-## Round 11: the narrowest result, and the one I got wrong first (v2.3)
+## Round 11: the narrowest result, and the one I got wrong first (v2.2)
 
 | column | round-11 build | round-10 build | tied |
 | --- | --- | --- | --- |

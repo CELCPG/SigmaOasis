@@ -266,7 +266,7 @@ export function measurementsIn(text: string, options: MeasurementOptions = {}): 
   return out
 }
 
-// ---- what the vocabulary cannot read (v2.5) ----------------------------------
+// ---- what the vocabulary cannot read (v2.2) ----------------------------------
 
 /**
  * A quantity written as a **rate**, whose unit is not one this file knows.

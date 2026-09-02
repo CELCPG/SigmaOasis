@@ -1938,7 +1938,7 @@ export function overstatedToolCountLines(answer: string, records: ToolCallRecord
   return overstatedToolCounts(answer, records).map(describeToolCount)
 }
 
-// ---- work the reply says it has not done (v2.3) --------------------------------
+// ---- work the reply says it has not done (v2.2) --------------------------------
 
 /**
  * v2.3: the reply's account of the application, read in the DENIAL direction.
@@ -2359,7 +2359,7 @@ export function contradictedToolAccountLines(
   return contradictedToolAccounts(answer, records).map(describeToolAccount)
 }
 
-// ---- what the retrieval returned (v2.5) ----------------------------------------
+// ---- what the retrieval returned (v2.2) ----------------------------------------
 
 /**
  * v2.5: the retrieval's own arithmetic — which pack, how many passages, what
