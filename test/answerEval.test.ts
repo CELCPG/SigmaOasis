@@ -627,3 +627,17 @@ describe('the eval scorer reads the shared vocabulary (v2.1)', () => {
     assert.deepEqual(unsupportedMeasurements('Cook to 165°F.', corpus), [])
   })
 })
+
+describe('unsupportedMeasurements accepts a conversion of a supported figure (v2.4)', () => {
+  test('the metric figure beside a supported imperial one is not unsupported', () => {
+    const corpus = 'Never leave food out above 90°F for more than 1 hour. Reheat leftovers to 165° F.'
+    assert.deepEqual(unsupportedMeasurements('Above 90°F (32°C), one hour. Reheat to 165° F (74° C).', corpus), [])
+  })
+  test('a wrong conversion is still unsupported', () => {
+    const corpus = 'Never leave food out above 90°F for more than 1 hour.'
+    assert.deepEqual(unsupportedMeasurements('Above 90°F (40°C), one hour.', corpus), ['40°C'])
+  })
+  test('a figure in a dimension the corpus never states is still unsupported', () => {
+    assert.deepEqual(unsupportedMeasurements('Keep the generator 20 feet from windows.', 'Use a generator only outdoors.'), ['20 feet'])
+  })
+})

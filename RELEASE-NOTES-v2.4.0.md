@@ -63,6 +63,35 @@ user's.
 
 Both pinned by node tests; the caps are injectable so the tests need no 200 MB files.
 
+## The library suite's noise floor, measured, and what it turned out to be
+
+The strategy scheduled retiring three flaky failure shapes the August runs kept producing.
+Measured first, three passes on qwen3.8-9b at temperature 0 with the suite as it stood:
+**27, 27, 27 of 28 answered — no flaky case at all**, one stable failure. The shapes were a
+different model class's; on this one the floor is zero. What the run found instead:
+
+- **The scorer was flagging correct arithmetic.** Nine of 84 replies were marked as stating
+  an unsupported measurement, and every one of the nine was the same two conversions in
+  every pass — "90 °F (32 °C)" and "165 °F (74 °C)" — plus one genuine miss. The scorer
+  matched numbers only; the app's own checker has accepted a conversion of a supported
+  figure since v1.9.2. The scorer now applies the app's rule, pinned by tests, and the
+  genuine one stays flagged: "20 feet" for a generator, which the pack states in a section
+  the ranker never sent.
+- **The one stable failure is a retrieval mechanism, not a model.** "How do I make flood
+  water safe to drink" needs "a rolling boil for one minute". The pack says it twice. The
+  EPA document says it in the second chunk of a long unheaded opening section, and the
+  v1.7 rule that caps a section at one passage sends the first chunk; the preparedness
+  document's dedicated "Boiling" section ranks below flood-specific passages even at depth
+  ten, because the question never says *boil*. Recorded, with its cause, for the retrieval
+  work that would fix it; not patched around here.
+- **The instrument now runs the turn the way the app does.** The arm sent the lookup's
+  passages and no tools, so a model that answered by *calling* reference_lookup — as prose
+  the app's extractor reads, or natively — was scored on the call's text. The arm now offers
+  the tool and executes it exactly as the handler does, scrubs the turn-notes echo before
+  scoring as the app does, and records per case how the completion ended and how many calls
+  the model made; the multi-pass report counts failing runs by shape. After-measurement:
+  *(pending — see the commit record)*.
+
 ## Measured, and left alone
 
 - **Startup is already flat in conversation count.** The strategy scheduled an index file

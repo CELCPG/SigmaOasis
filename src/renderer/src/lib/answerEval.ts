@@ -20,9 +20,12 @@
  */
 
 import {
+  convertUnit,
+  measurementGroup,
   measurementsIn as vocabularyMeasurementsIn,
   type Measurement
 } from '../../../shared/measurements'
+import { agreesAfterConversion, comparableMagnitude, precisionOf } from './groundingChecks/figures'
 
 // ---- numbers in an answer -------------------------------------------------------
 
@@ -118,12 +121,29 @@ export function measurementsIn(text: string): Measurement[] {
  */
 export function unsupportedMeasurements(reply: string, corpus: string): string[] {
   const known = new Set(numbersIn(corpus).map((n) => String(n)))
+  const corpusMeasurements = measurementsIn(corpus)
   const flagged: string[] = []
   const seen = new Set<string>()
   for (const m of measurementsIn(reply)) {
     if (known.has(String(m.value))) continue
     // A rounded restatement of a known figure ("about 30 minutes" for 29.5).
     if ([...known].some((k) => Math.abs(Number(k) - m.value) < 0.5)) continue
+    // v2.4: a conversion of a known figure. The app's checker has accepted
+    // "165 °F (74 °C)" since v1.9.2; this scorer matched numbers only, so a
+    // model that added the metric figure to a supported one was flagged for
+    // arithmetic it did right — 9 of 84 "unsupported" in the v2.4 baseline
+    // were exactly that, two cases in every pass. Same rule as the app's:
+    // convert the corpus figure into the reply's unit and judge it at the
+    // precision the reply wrote it.
+    const group = measurementGroup(m.unit)
+    const decimals = precisionOf(String(m.value))
+    const converted = group
+      ? corpusMeasurements
+          .filter((c) => c.unit !== m.unit && measurementGroup(c.unit) === group)
+          .map((c) => convertUnit(c.value, c.unit, m.unit))
+          .filter((v): v is number => v !== null && comparableMagnitude(m.value, v, m.unit))
+      : []
+    if (converted.some((k) => agreesAfterConversion(m.value, k, decimals, m.unit))) continue
     if (seen.has(m.raw)) continue
     seen.add(m.raw)
     flagged.push(m.raw)
