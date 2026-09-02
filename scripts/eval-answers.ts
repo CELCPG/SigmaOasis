@@ -101,7 +101,7 @@ async function complete(
   model: string,
   messages: Msg[],
   tools?: unknown[]
-): Promise<{ content: string; toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[] }> {
+): Promise<{ content: string; toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]; finishReason?: string }> {
   try {
     return await completeOnce(model, messages, tools)
   } catch (err) {
@@ -120,7 +120,7 @@ async function completeOnce(
   model: string,
   messages: Msg[],
   tools?: unknown[]
-): Promise<{ content: string; toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[] }> {
+): Promise<{ content: string; toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]; finishReason?: string }> {
   const res = await fetch(`${BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -153,7 +153,11 @@ async function completeOnce(
   }
   const { parseCompletionMessage } = require('../src/renderer/src/lib/evalRunner') as typeof import('../src/renderer/src/lib/evalRunner')
   const choice = json.choices?.[0] as { finish_reason?: string; message?: Record<string, unknown> } | undefined
-  const parsed = parseCompletionMessage(json.choices?.[0]?.message ?? {})
+  // v2.4: the tool names ride along, so a call the model writes as prose
+  // (`<tool_call>…`, a bare JSON blob) is extracted exactly as the app's loop
+  // extracts it, instead of being scored as answer text.
+  const toolNames = (tools ?? []).map((t) => (t as { function?: { name?: string } }).function?.name ?? '').filter(Boolean)
+  const parsed = parseCompletionMessage(json.choices?.[0]?.message ?? {}, toolNames)
   // A reply that is only thinking is not a transport problem and must not be
   // reported as one: say the model never reached an answer, and with what.
   // v1.9.2: only terminal when nothing downstream can rescue it. With tools in
@@ -183,7 +187,7 @@ async function completeOnce(
       )
     }
   }
-  return { content: parsed.content, toolCalls: parsed.toolCalls }
+  return { content: parsed.content, toolCalls: parsed.toolCalls, finishReason: choice?.finish_reason }
 }
 
 // ---- suites ---------------------------------------------------------------------------
@@ -192,8 +196,11 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
   const lib = require('../src/main/ipc/library') as typeof import('../src/main/ipc/library')
   const { scoreLibrary } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
   const { buildLibraryContext } = require('../src/renderer/src/lib/libraryRecall') as typeof import('../src/renderer/src/lib/libraryRecall')
-  const { withGrounding, buildTurnContext } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { withGrounding, buildTurnContext, stripTurnNotesEcho } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
   const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
+  const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
+  const libraryTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'reference_lookup')
 
   // A persistent library so the (slow) embedding pass is paid once across
   // runs — index.json is keyed to the embedding model, so a model change
@@ -249,12 +256,55 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
       const playbook = selectPlaybook({ text: fx.prompt })
       if (playbook) blocks.push(buildPlaybookContext(playbook))
       const turnContext = buildTurnContext(blocks)
-      const reply = await complete(model, [
+      // v2.4: the turn runs through the app's own loop with reference_lookup
+      // offered, as it is in the app (the tool is on by default). Before this
+      // the arm sent the lookup's passages and no tools, so a model that
+      // answered by CALLING the tool — natively, or as prose the app's
+      // extractor reads — was scored on the call's text as if it were the
+      // answer: one of the three flaky shapes the multi-pass runs kept
+      // finding. The call executes exactly as the app's handler executes it.
+      const messages: Msg[] = [
         { role: 'system', content: withGrounding(PERSONA) },
         { role: 'user', content: `${fx.prompt}${turnContext ?? ''}` }
-      ])
-      out.reply = reply.content.slice(0, 2000)
-      out.score = scoreLibrary(reply.content, {
+      ]
+      const rounds: string[] = []
+      let toolCalls = 0
+      let finishReason: string | undefined
+      await runAgentLoop({
+        messages: messages as never,
+        tools: libraryTools,
+        records: [],
+        signal: new AbortController().signal,
+        deps: {
+          streamRound: async (msgs, tls) => {
+            const r = await complete(model, msgs as never, tls)
+            finishReason = r.finishReason ?? finishReason
+            if (r.content.trim()) rounds.push(r.content)
+            return { content: r.content, toolCalls: r.toolCalls }
+          },
+          executeTool: async (name, args) => {
+            toolCalls += 1
+            if (name !== 'reference_lookup') return { ok: false, error: `Unknown tool: ${name}` }
+            const query = String(args.query ?? '').trim()
+            if (!query) return { ok: false, error: 'A query is required.' }
+            const requested = Number(args.max_passages)
+            const topK = Number.isFinite(requested) ? Math.min(lib.MAX_LOOKUP_PASSAGES, Math.max(1, Math.round(requested))) : 6
+            const packId = typeof args.pack === 'string' && args.pack.trim() ? args.pack.trim() : null
+            const outcome = await lib.lookupLibrary({ query, packId, topK })
+            if (!outcome.ok) return { ok: false, error: outcome.error ?? 'Lookup failed.' }
+            return { ok: true, output: lib.formatLookup(outcome, query) }
+          }
+        }
+      })
+      // The app scrubs a reply that opens with its own turn-notes header and
+      // discloses that it did; the score is of what the reader sees.
+      const scrub = stripTurnNotesEcho(rounds.join('\n\n'))
+      const replyText = scrub.text
+      out.toolCalls = toolCalls
+      out.echoed = scrub.echoed
+      out.finishReason = finishReason
+      out.reply = replyText.slice(0, 2000)
+      out.score = scoreLibrary(replyText, {
         mustInclude: fx.mustInclude,
         mustNotAssert: fx.mustNotAssert,
         passages: lookup.passages.map((p) => p.text).join('\n'),
@@ -1758,13 +1808,24 @@ async function main(): Promise<void> {
       const stability = stabilityAcrossPasses(
         allPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.error ? null : (r.score?.answered ?? false) })))
       )
+      // v2.4: what the failing runs looked like. Three shapes kept coming up
+      // and none of them is retrieval; counted from the per-case record so
+      // the noise floor is read, not guessed at.
+      const failing = allPasses.flatMap((p) => p.runs.filter((r) => !r.error && r.score && !r.score.answered))
+      const shapes = {
+        calledTheTool: failing.filter((r) => (r.toolCalls ?? 0) > 0).length,
+        echoedTheHeader: failing.filter((r) => r.echoed).length,
+        cutOffByTheCap: failing.filter((r) => r.finishReason === 'length').length,
+        stoppedShort: failing.filter((r) => r.finishReason === 'stop' && (r.reply?.length ?? 0) < 200).length
+      }
       console.log(
         `  answered across ${passesWanted} passes: [${stability.perPass.join(', ')}] · median ${stability.median}\n` +
           `  stable-pass ${stability.stablePass} · stable-fail ${stability.stableFail} · flaky ${stability.flaky.length}` +
           (stability.flaky.length ? ` (${stability.flaky.join(', ')})` : '') +
-          '\n'
+          `\n  failing runs ${failing.length}: called reference_lookup itself ${shapes.calledTheTool} · echoed the turn-notes header ${shapes.echoedTheHeader}` +
+          ` · cut off by the eval's cap ${shapes.cutOffByTheCap} · stopped under 200 chars ${shapes.stoppedShort}\n`
       )
-      report.library = { passes: allPasses, stability }
+      report.library = { passes: allPasses, stability, shapes }
     } else {
       report.library = { summary: s, runs: allPasses[0].runs }
     }

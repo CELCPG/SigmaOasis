@@ -301,6 +301,17 @@ export interface LibraryCaseResult {
   /** Which passages the app retrieved, and how they were ranked. */
   retrieved?: string[]
   mode?: 'hybrid' | 'keyword'
+  /**
+   * v2.4: the shapes the multi-pass runs kept failing in, recorded per case so
+   * the noise floor can be read rather than guessed at. `toolCalls` — the
+   * model called reference_lookup itself (native or as prose; both execute,
+   * as in the app). `echoed` — the reply opened with the app's own turn-notes
+   * header and was scrubbed, as the app scrubs it. `finishReason` — 'length'
+   * is the eval's own 2,000-token cap; 'stop' is the model choosing to end.
+   */
+  toolCalls?: number
+  echoed?: boolean
+  finishReason?: string
 }
 
 export interface LibrarySummary {
