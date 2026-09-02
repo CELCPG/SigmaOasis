@@ -177,6 +177,14 @@ export interface EvalRunnerDeps {
     messages: ApiMessage[],
     tools: ToolSchema[]
   ) => Promise<{ content: string; toolCalls: ApiToolCall[] }>
+  /**
+   * v2.5: the tools to put on the wire for one fixture, out of `tools`. The
+   * app never sends its whole toolbox — it ranks by embedding against the
+   * user's text and caps the list per turn — and a shell that mirrors that
+   * passes the same selection here. Absent, the whole list goes, which is
+   * what every run before v2.5 measured.
+   */
+  toolsFor?: (fixture: EvalFixture, tools: ToolSchema[]) => Promise<ToolSchema[]>
   /** Called after each fixture settles — the shells render progress from it. */
   onFixture?: (model: string, index: number, total: number, run: EvalFixtureRun) => void
   /** Checked between fixtures; true stops after the current fixture. */
@@ -199,6 +207,7 @@ async function runFixture(
     spurious: null,
     looped: false
   }
+  const wireTools = deps.toolsFor ? await deps.toolsFor(fixture, deps.tools) : deps.tools
   const messages: ApiMessage[] = [
     { role: 'system', content: deps.systemPromptFor(model) },
     { role: 'user', content: fixture.prompt }
@@ -207,7 +216,7 @@ async function runFixture(
   try {
     const outcome = await runAgentLoop({
       messages,
-      tools: deps.tools,
+      tools: wireTools,
       records,
       signal: new AbortController().signal,
       deps: {

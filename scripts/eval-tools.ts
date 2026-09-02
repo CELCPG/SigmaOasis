@@ -42,8 +42,9 @@ import {
   type EvalFixture,
   type EvalFixtureRun
 } from '../src/renderer/src/lib/evalRunner'
-import { TOOL_SCHEMAS } from '../src/shared/tools'
+import { TOOL_SCHEMAS, TOOL_TURN_BUDGETS } from '../src/shared/tools'
 import { createMcpManager } from '../src/main/ipc/mcp/manager'
+import { selectTurnTools, withBudgetNotes, TURN_TOOL_CAP } from '../src/renderer/src/lib/toolSelection'
 import type { ToolSchema } from '../src/renderer/src/types'
 
 // Compiled by scripts/eval-tools.sh to .eval-build/scripts/eval-tools.js —
@@ -213,6 +214,70 @@ async function main(): Promise<void> {
     console.log(`       EVAL_MCP_STUB=${stubServers} — ${extra.length} MCP tool(s) on the wire after the ${TOOL_SCHEMAS.length} built-ins\n`)
   }
 
+  // v2.5: EVAL_SUBSET=1 puts on the wire what the app puts on the wire — the
+  // always-on tools plus the top embedding matches against the fixture's own
+  // prompt, capped at TURN_TOOL_CAP, with the budgets disclosed — instead of
+  // the whole toolbox. Without it the eval measures a list the app never
+  // sends, and with MCP servers connected that list did not even fit an 8K
+  // context. Ranking is the app's cosine over LM Studio's /v1/embeddings,
+  // done here with plain fetch because this shell runs under node.
+  let toolsFor: ((fixture: { prompt: string }, all: ToolSchema[]) => Promise<ToolSchema[]>) | undefined
+  let wireSizes: number[] = []
+  if (process.env.EVAL_SUBSET) {
+    const embedModel = await (async (): Promise<string | null> => {
+      try {
+        const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`)
+        const json = (await res.json()) as { data?: { id: string }[] }
+        return json.data?.find((m) => /embed/i.test(m.id))?.id ?? null
+      } catch {
+        return null
+      }
+    })()
+    if (!embedModel) {
+      console.error('EVAL_SUBSET=1 needs an embedding model in LM Studio (none listed).')
+      process.exitCode = 1
+      return
+    }
+    const embed = async (texts: string[]): Promise<number[][]> => {
+      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/embeddings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: embedModel, input: texts })
+      })
+      if (!res.ok) throw new Error(`embeddings HTTP ${res.status}`)
+      const json = (await res.json()) as { data: { index: number; embedding: number[] }[] }
+      return json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding)
+    }
+    const cosine = (a: number[], b: number[]): number => {
+      let dot = 0
+      let na = 0
+      let nb = 0
+      for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i]
+        na += a[i] * a[i]
+        nb += b[i] * b[i]
+      }
+      return na && nb ? dot / Math.sqrt(na * nb) : 0
+    }
+    const toolVectors = new Map<string, number[]>()
+    const queryVectors = new Map<string, number[]>()
+    toolsFor = async (fixture, all) => {
+      const missing = all.filter((t) => !toolVectors.has(t.function.name))
+      if (missing.length) {
+        const vs = await embed(missing.map((t) => `${t.function.name}: ${t.function.description}`))
+        missing.forEach((t, i) => toolVectors.set(t.function.name, vs[i]))
+      }
+      if (!queryVectors.has(fixture.prompt)) queryVectors.set(fixture.prompt, (await embed([fixture.prompt]))[0])
+      const q = queryVectors.get(fixture.prompt)!
+      const scores: Record<string, number> = {}
+      for (const t of all) scores[t.function.name] = cosine(q, toolVectors.get(t.function.name)!)
+      const selected = withBudgetNotes(selectTurnTools(all, scores), TOOL_TURN_BUDGETS)
+      wireSizes.push(selected.length)
+      return selected
+    }
+    console.log(`       EVAL_SUBSET=1 — the app's per-turn selection (cap ${TURN_TOOL_CAP}), ranked by ${embedModel}\n`)
+  }
+
   // v2.5: EVAL_PASSES=N repeats the whole run and reports per-fixture
   // stability, the way the answer suites do — a ±1 between single runs at
   // temperature 0 is within what identical prompts produce.
@@ -225,6 +290,7 @@ async function main(): Promise<void> {
         models,
         fixtures,
         tools,
+        toolsFor,
         systemPromptFor,
         complete: (model, messages, tools) => complete(baseUrl, model, messages, tools),
         onFixture: (_model, _i, _total, run) => {
@@ -234,6 +300,10 @@ async function main(): Promise<void> {
     )
   }
   if (mcp) await mcp.closeAll()
+  if (wireSizes.length) {
+    const avg = wireSizes.reduce((a, b) => a + b, 0) / wireSizes.length
+    console.log(`\n  tools on the wire per fixture: ${avg.toFixed(1)} on average (of ${tools.length} registered)`)
+  }
 
   // One result per model, aggregated over every pass.
   const results = models.map((model) => {
