@@ -71,3 +71,32 @@ describe('memory store round-trip', () => {
     assert.deepEqual(results, [])
   })
 })
+describe('memory store bound (v2.4)', () => {
+  test('a save that would cross the cap is refused and the store is untouched', async () => {
+    resetState()
+    const memory = load<typeof import('../src/main/ipc/memory')>('memory')
+    const stats = async (): Promise<{ totalChunks: number; maxChunks: number }> =>
+      (await memory.memoryStats()) as { totalChunks: number; maxChunks: number }
+    await memory.addToMemory('notes', 'The car is red.', 10)
+    const before = (await stats()).totalChunks
+    assert.ok(before >= 1)
+    await assert.rejects(
+      () => memory.addToMemory('manual', 'A second source that will not fit.', before),
+      (err: unknown) => err instanceof memory.MemoryFullError && /Memory is full/.test((err as Error).message)
+    )
+    assert.equal((await stats()).totalChunks, before)
+    assert.equal((await stats()).maxChunks, memory.MAX_MEMORY_CHUNKS)
+  })
+
+  test('replacing a source counts what it frees before what it adds', async () => {
+    resetState()
+    const memory = load<typeof import('../src/main/ipc/memory')>('memory')
+    const stats = async (): Promise<{ totalChunks: number }> => (await memory.memoryStats()) as { totalChunks: number }
+    await memory.addToMemory('notes', 'The car is red.', 10)
+    const before = (await stats()).totalChunks
+    // The same source again at a cap equal to the current count: the old chunks
+    // leave first, so the new ones fit.
+    await memory.addToMemory('notes', 'The car is blue.', before)
+    assert.equal((await stats()).totalChunks, before)
+  })
+})

@@ -175,6 +175,8 @@ export interface MemoryStats {
   /** Sources were indexed by more than one embedding model — some are unsearchable. */
   mixedModels: boolean
   totalChunks: number
+  /** v2.4: the store's bound. A save that would cross it is refused and says so. */
+  maxChunks: number
   sources: MemorySourceStat[]
 }
 
@@ -367,6 +369,10 @@ export interface AuditStatus {
   enabled: boolean
   currentSessionId: string
   sessions: AuditSessionInfo[]
+  /** v2.4: the directory's bound — launches and bytes, oldest pruned first at each launch. */
+  limits: { maxSessions: number; maxBytes: number }
+  /** What this launch's pruning removed; zeros until the first entry is written. */
+  prunedThisLaunch: { sessions: number; bytes: number }
 }
 
 /**

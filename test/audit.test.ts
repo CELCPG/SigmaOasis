@@ -118,3 +118,32 @@ describe('audit log recording', () => {
     assert.equal(await fileExists(auditFile()), false)
   })
 })
+describe('audit directory bound (v2.4)', () => {
+  test('pruning removes the oldest launches beyond the caps and never the live session', async () => {
+    resetState()
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const dir = join(testUserDataDir(), 'audit')
+    await fs.rm(dir, { recursive: true, force: true })
+    await fs.mkdir(dir, { recursive: true })
+    // Six old sessions, oldest first by mtime, 100 bytes each.
+    for (let i = 0; i < 6; i++) {
+      const f = join(dir, `session-old${i}.jsonl`)
+      await fs.writeFile(f, 'x'.repeat(100))
+      const t = new Date(Date.now() - (6 - i) * 60_000)
+      await fs.utimes(f, t, t)
+    }
+    const audit = load<typeof import('../src/main/ipc/audit')>('audit')
+    // Cap of 4 launches counts the live one: 6 on disk + 1 live = 7 → remove the 3 oldest.
+    const byCount = await audit.pruneAuditLogs({ maxSessions: 4, maxBytes: Number.MAX_SAFE_INTEGER })
+    assert.deepEqual(byCount, { sessions: 3, bytes: 300 })
+    const left = (await fs.readdir(dir)).sort()
+    assert.deepEqual(left, ['session-old3.jsonl', 'session-old4.jsonl', 'session-old5.jsonl'])
+    // Byte cap: 300 bytes on disk, cap 150 → the two oldest remaining go.
+    const byBytes = await audit.pruneAuditLogs({ maxSessions: 100, maxBytes: 150 })
+    assert.deepEqual(byBytes, { sessions: 2, bytes: 200 })
+    assert.deepEqual(await fs.readdir(dir), ['session-old5.jsonl'])
+    // Within both caps: nothing goes.
+    assert.deepEqual(await audit.pruneAuditLogs({ maxSessions: 100, maxBytes: 1000 }), { sessions: 0, bytes: 0 })
+  })
+})

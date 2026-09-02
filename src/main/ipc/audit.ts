@@ -61,6 +61,61 @@ const GENESIS_HASH = createHash('sha256').update('sigma-oasis-audit-genesis').di
 /** One log file per app launch. */
 const SESSION_ID = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 
+/**
+ * v2.4: the audit directory is bounded. One file per launch, appended for the
+ * life of the launch and never removed, was the app's last unbounded store on
+ * disk: a heavy user's Privacy panel read every session file whole to count
+ * its lines, and nothing ever got smaller. The bound is by launches and by
+ * bytes together, oldest first, applied once per launch before the first
+ * entry is written — so the session being written is never the one pruned,
+ * and a log the user is looking at in this launch cannot vanish under them.
+ * The current cap and what was pruned are stated in the Privacy panel, not
+ * silently applied: the log's whole point is that nothing happens to it
+ * unseen.
+ */
+export const MAX_AUDIT_SESSIONS = 40
+export const MAX_AUDIT_BYTES = 200 * 1024 * 1024
+let prunedThisLaunch: { sessions: number; bytes: number } | null = null
+
+/** Oldest sessions first, until both caps hold. Returns what went. */
+export async function pruneAuditLogs(
+  caps: { maxSessions: number; maxBytes: number } = { maxSessions: MAX_AUDIT_SESSIONS, maxBytes: MAX_AUDIT_BYTES }
+): Promise<{ sessions: number; bytes: number }> {
+  const dir = auditDir()
+  let files: string[]
+  try {
+    files = (await fs.readdir(dir)).filter((f) => f.endsWith('.jsonl') && f !== `${SESSION_ID}.jsonl`)
+  } catch {
+    return { sessions: 0, bytes: 0 }
+  }
+  const stats = []
+  for (const f of files) {
+    try {
+      const st = await fs.stat(join(dir, f))
+      stats.push({ f, size: st.size, mtime: st.mtimeMs })
+    } catch {
+      // gone already
+    }
+  }
+  stats.sort((a, b) => a.mtime - b.mtime) // oldest first
+  let total = stats.reduce((n, s) => n + s.size, 0)
+  let count = stats.length + 1 // the live session counts toward the cap
+  const removed = { sessions: 0, bytes: 0 }
+  for (const s of stats) {
+    if (count <= caps.maxSessions && total <= caps.maxBytes) break
+    try {
+      await fs.unlink(join(dir, s.f))
+      removed.sessions += 1
+      removed.bytes += s.size
+      total -= s.size
+      count -= 1
+    } catch {
+      // unreadable or already gone — it no longer counts either way
+    }
+  }
+  return removed
+}
+
 let lastHash: string | null = null
 let sessionStarted = false
 
@@ -97,6 +152,7 @@ async function appendEntry(entry: AuditEntry): Promise<void> {
   const file = sessionFile(SESSION_ID)
   if (!file) return
   await fs.mkdir(auditDir(), { recursive: true })
+  if (prunedThisLaunch === null) prunedThisLaunch = await pruneAuditLogs()
   await fs.appendFile(file, `${encryptLine(JSON.stringify(entry))}\n`, 'utf-8')
 }
 
@@ -246,7 +302,11 @@ export function registerAuditHandlers(): void {
     available: safeStorage.isEncryptionAvailable(),
     enabled: getSettings().audit.enabled,
     currentSessionId: SESSION_ID,
-    sessions: await listSessions()
+    sessions: await listSessions(),
+    // v2.4: the bound, and what it removed at this launch (nothing until the
+    // first entry of the launch is written — pruning happens then).
+    limits: { maxSessions: MAX_AUDIT_SESSIONS, maxBytes: MAX_AUDIT_BYTES },
+    prunedThisLaunch: prunedThisLaunch ?? { sessions: 0, bytes: 0 }
   }))
 
   ipcMain.handle('audit:record', async (_e, input: AuditEntryInput) => {

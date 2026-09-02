@@ -41,6 +41,28 @@ export interface MemorySearchResult {
 const MAX_DOCUMENT_CHARS = 500_000
 
 /**
+ * v2.4: the store is bounded. `memory.json` is one JSON file holding every
+ * chunk with its embedding, read whole (cached) and rewritten whole on every
+ * save; nothing ever removed a chunk except the user or the model asking to.
+ * The cap is refused, not trimmed: a memory is the user's, and an app that
+ * silently forgot the oldest one to make room would be doing the thing the
+ * memory feature exists to prevent. At 768-dimensional vectors this is on
+ * the order of 60 MB of JSON — large, and finite. The Memory panel shows
+ * the count against it.
+ */
+export const MAX_MEMORY_CHUNKS = 5_000
+
+export class MemoryFullError extends Error {
+  constructor(have: number, adding: number) {
+    super(
+      `Memory is full: ${have.toLocaleString()} chunks stored, ${adding.toLocaleString()} more would cross the ` +
+        `${MAX_MEMORY_CHUNKS.toLocaleString()}-chunk limit. Forget a source under Settings → Memory to make room.`
+    )
+    this.name = 'MemoryFullError'
+  }
+}
+
+/**
  * Relevance floor for memory recall. Cosine scores below this are the
  * embedding model saying "nothing stored is actually about this query" —
  * without the floor, top-K always returns *something*, and injecting random
@@ -125,7 +147,8 @@ function withMemoryLock<T>(fn: () => Promise<T>): Promise<T> {
 /** Add or replace a named source in memory (chunks + embeds + persists). */
 export async function addToMemory(
   source: string,
-  text: string
+  text: string,
+  maxChunks: number = MAX_MEMORY_CHUNKS
 ): Promise<{ chunks: number }> {
   const pieces = chunkText(text.slice(0, MAX_DOCUMENT_CHARS))
   if (pieces.length === 0) throw new Error('The document has no text to index.')
@@ -134,6 +157,9 @@ export async function addToMemory(
   return withMemoryLock(async () => {
     const memory = await readMemory()
     memory.chunks = memory.chunks.filter((c) => c.source !== source)
+    if (memory.chunks.length + pieces.length > maxChunks) {
+      throw new MemoryFullError(memory.chunks.length, pieces.length)
+    }
     const now = Date.now()
     for (let i = 0; i < pieces.length; i++) {
       memory.chunks.push({
@@ -208,7 +234,7 @@ export async function deleteFromMemory(source: string): Promise<{ removed: numbe
   })
 }
 
-async function memoryStats(): Promise<unknown> {
+export async function memoryStats(): Promise<unknown> {
   const memory = await readMemory()
   const model = await resolveEmbeddingModel()
   const bySource = new Map<string, { chunks: number; updatedAt: number }>()
@@ -231,6 +257,7 @@ async function memoryStats(): Promise<unknown> {
         : undefined,
     mixedModels: dimensions.size > 1,
     totalChunks: memory.chunks.length,
+    maxChunks: MAX_MEMORY_CHUNKS,
     sources: [...bySource.entries()]
       .map(([source, s]) => ({ source, chunks: s.chunks, updatedAt: s.updatedAt }))
       .sort((a, b) => b.updatedAt - a.updatedAt)
