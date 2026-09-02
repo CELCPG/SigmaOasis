@@ -116,9 +116,13 @@ describe('parseSseDeltas', () => {
     assert.equal(out.rest, 'data: {"choices":[{"delt')
   })
 
-  test('[DONE] and blank frames are skipped', () => {
-    const buffer = 'data: [DONE]\n\ndata: {"choices":[{"delta":{"content":"x"}}]}\n'
-    assert.equal(llm.parseSseDeltas(buffer).text, 'x')
+  test('blank frames are skipped and [DONE] ends the stream', () => {
+    // v2.4: the shared core's contract — nothing after the terminator is read.
+    // A frame before it is; a frame after it is a server bug, not a delta.
+    const before = 'data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n'
+    assert.equal(llm.parseSseDeltas(before).text, 'x')
+    const after = 'data: [DONE]\n\ndata: {"choices":[{"delta":{"content":"x"}}]}\n'
+    assert.equal(llm.parseSseDeltas(after).text, '')
   })
 
   test('a malformed frame does not fail the stream', () => {

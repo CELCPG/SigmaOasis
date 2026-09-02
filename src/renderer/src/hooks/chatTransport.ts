@@ -1,4 +1,5 @@
 import { useAppStore } from '../stores/appStore'
+import { createSseFrameReader, createToolCallAssembler, frameError, frameText, parseChatFrame } from '../../../shared/sse'
 import { createReasoningSplitter } from '../lib/reasoning'
 import { createNativeToolExtractor, type NativeToolCall } from '../lib/nativeToolCall'
 import { getFromCache, setInCache } from '../lib/responseCache'
@@ -263,24 +264,6 @@ export function newWitness(): StreamWitness {
  * `{"error": {...}}` frame and ends, which through v1.5 rendered as an empty
  * reply with no explanation.
  */
-interface SseFrame {
-  choices?: {
-    delta?: {
-      content?: string
-      /** LM Studio's out-of-band reasoning channel; needs no parsing. */
-      reasoning_content?: string
-      tool_calls?: {
-        index?: number
-        id?: string
-        function?: { name?: string; arguments?: string }
-      }[]
-    }
-    /** 'length' means the reply hit max_tokens and stops mid-thought. */
-    finish_reason?: string | null
-  }[]
-  usage?: ApiUsage
-  error?: { message?: string; type?: string; code?: number } | string
-}
 
 /**
  * Routes a streaming message's tokens through the store's streamingTail slice
@@ -612,8 +595,11 @@ export async function streamChat(
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
-    let buffer = ''
-    const pending = new Map<number, ApiToolCall>()
+    // v2.4: frames come from the shared core (src/shared/sse.ts), the same
+    // parser the main process reads with. The contract lives there.
+    const frames = createSseFrameReader()
+    const assembler = createToolCallAssembler(() => `call_${uid()}`)
+    let finishReason: string | null = null
     const splitter = createReasoningSplitter()
     // Gemma 4's native tool-call markup arrives inside the content stream on
     // servers without a gemma4 parser (LM Studio today). The extractor strips
@@ -677,29 +663,16 @@ export async function streamChat(
         witness.onChange?.()
       }
       witness.lastActivityAt = Date.now()
-      buffer += decoder.decode(value, { stream: true })
-
-      // SSE events are separated by blank lines.
-      const events = buffer.split('\n\n')
-      buffer = events.pop() ?? ''
-      for (const event of events) {
-        const line = event.split('\n').find((l) => l.startsWith('data:'))
-        if (!line) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        let json: SseFrame
-        try {
-          json = JSON.parse(payload) as SseFrame
-        } catch {
-          // Partial JSON chunk — the next SSE event completes it.
-          continue
-        }
-        // Everything below is outside that catch, deliberately: through v1.12.1
-        // the error-frame diagnosis was thrown from inside it and swallowed as
-        // a partial chunk, so the one failure v1.6 built it for — a request
+      const handleFrame = (payload: string): void => {
+        const json = parseChatFrame(payload)
+        // A payload that is not JSON is skipped. Everything below is outside
+        // that decision, deliberately: through v1.12.1 the error-frame
+        // diagnosis was thrown from inside a JSON catch and swallowed as a
+        // partial chunk, so the one failure v1.6 built it for — a request
         // over the loaded context — still ended as an empty bubble.
-        if (json.error) {
-          const message = typeof json.error === 'string' ? json.error : json.error.message ?? JSON.stringify(json.error)
+        if (!json) return
+        const error = frameError(json)
+        if (error !== null) {
           // v1.17.2: whose words are these? The frame is LM Studio's, so the
           // app names LM Studio as the author and leads with its own reading.
           //
@@ -714,30 +687,30 @@ export async function streamChat(
           // transport, one layer down, does not — and the refusal that most
           // needs that number is exactly this one.
           const frame = { subject: 'The request', source: 'LM Studio' }
-          throw new ExplainedError(explainFailure(message, frame), {
-            raw: message,
-            context: frame
-          })
+          throw new ExplainedError(explainFailure(error, frame), { raw: error, context: frame })
         }
         // The usage block rides a final chunk whose `choices` is empty.
         if (json.usage) usage = json.usage
-        if (json.choices?.[0]?.finish_reason === 'length') truncated = true
-        const delta = json.choices?.[0]?.delta
-        if (delta?.reasoning_content) emit({ answer: '', reasoning: delta.reasoning_content })
-        if (delta?.content) emit(splitter.push(delta.content))
-        for (const tc of delta?.tool_calls ?? []) {
-          const idx = tc.index ?? 0
-          const existing = pending.get(idx) ?? {
-            id: tc.id ?? `call_${uid()}`,
-            type: 'function' as const,
-            function: { name: '', arguments: '' }
-          }
-          if (tc.id) existing.id = tc.id
-          if (tc.function?.name) existing.function.name += tc.function.name
-          if (tc.function?.arguments) existing.function.arguments += tc.function.arguments
-          pending.set(idx, existing)
-        }
+        const choice = json.choices?.[0]
+        if (choice?.finish_reason) finishReason = choice.finish_reason
+        if (choice?.finish_reason === 'length') truncated = true
+        const text = frameText(json)
+        if (text.reasoning) emit({ answer: '', reasoning: text.reasoning })
+        if (text.content) emit(splitter.push(text.content))
+        assembler.push(choice?.delta?.tool_calls)
       }
+
+      for (const payload of frames.push(decoder.decode(value, { stream: true }))) handleFrame(payload)
+    }
+    for (const payload of frames.flush()) {
+      // A final frame with no trailing newline — read it the same way.
+      const json = parseChatFrame(payload)
+      if (!json) continue
+      if (json.usage) usage = json.usage
+      const text = frameText(json)
+      if (text.reasoning) emit({ answer: '', reasoning: text.reasoning })
+      if (text.content) emit(splitter.push(text.content))
+      assembler.push(json.choices?.[0]?.delta?.tool_calls)
     }
 
     // A stream that ended mid-`<think>` (max_tokens, abort) still has text held
@@ -750,7 +723,12 @@ export async function streamChat(
     }
     nativeCalls.push(...tail.calls)
 
-    const toolCalls = [...pending.values()]
+    // A reply cut off at its token budget drops the calls it was still writing
+    // (the core's contract): running a call whose JSON the model never finished
+    // is worse than running none, and `truncated` already says what happened.
+    const { calls: assembled, droppedAsTruncated } = assembler.finish(finishReason)
+    const toolCalls: ApiToolCall[] = [...assembled]
+    if (droppedAsTruncated > 0) truncated = true
     for (const call of nativeCalls) {
       toolCalls.push({
         id: `call_native_${uid()}`,

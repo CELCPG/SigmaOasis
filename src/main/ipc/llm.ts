@@ -1,4 +1,5 @@
 import { auditedFetch } from './net'
+import { createSseFrameReader, frameText, parseChatFrame } from '../../shared/sse'
 import { pinChatModel } from './modelPin'
 import { CLOSED_THINK_PREFILL, THINK_TAG_MODELS } from '../../shared/thinking'
 import { getSettings } from './store'
@@ -331,31 +332,24 @@ export class PartialCompletionError extends Error {
  * indistinguishable from no reply at all.
  */
 export function parseSseDeltas(buffer: string): { text: string; reasoning: string; rest: string } {
-  let text = ''
-  let reasoning = ''
+  // v2.4: the frames are read by the shared core (src/shared/sse.ts); this
+  // keeps the buffer-in, text-and-remainder-out shape the stream loop below
+  // and its tests are written against. Only complete lines are read; the
+  // trailing partial line is the remainder.
   const lastBreak = buffer.lastIndexOf('\n')
   if (lastBreak === -1) return { text: '', reasoning: '', rest: buffer }
   const complete = buffer.slice(0, lastBreak)
   const rest = buffer.slice(lastBreak + 1)
-
-  for (const line of complete.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed.startsWith('data:')) continue
-    const payload = trimmed.slice(5).trim()
-    if (!payload || payload === '[DONE]') continue
-    try {
-      const parsed = JSON.parse(payload) as {
-        choices?: {
-          delta?: { content?: string; reasoning_content?: string }
-          message?: { content?: string; reasoning_content?: string }
-        }[]
-      }
-      const choice = parsed.choices?.[0]
-      text += choice?.delta?.content ?? choice?.message?.content ?? ''
-      reasoning += choice?.delta?.reasoning_content ?? choice?.message?.reasoning_content ?? ''
-    } catch {
-      // A malformed frame is skipped rather than failing the whole stream.
-    }
+  const reader = createSseFrameReader()
+  const payloads = [...reader.push(`${complete}\n`), ...reader.flush()]
+  let text = ''
+  let reasoning = ''
+  for (const payload of payloads) {
+    const frame = parseChatFrame(payload)
+    if (!frame) continue // a malformed frame is skipped rather than failing the whole stream
+    const t = frameText(frame)
+    text += t.content
+    reasoning += t.reasoning
   }
   return { text, reasoning, rest }
 }
