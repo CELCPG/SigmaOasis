@@ -53,6 +53,7 @@ export type NetworkPurpose =
   | 'proxytest' // user-initiated "Test proxy" check only
   | 'update' // opt-in update checks
   | 'market' // market_data tool: daily price series (single pinned host)
+  | 'mcp' // an MCP server process started or stopped — its own network activity is NOT visible here
 
 export interface NetworkActivityEntry {
   /** epoch ms */
@@ -124,6 +125,11 @@ function originOf(url: string): string {
 export function allowedHosts(purpose: NetworkPurpose): string[] {
   const settings = getSettings()
   switch (purpose) {
+    // v2.5: an MCP server is a separate process with sockets of its own. The
+    // app opens no connection for it, so it is allowed no host — the row it
+    // writes in the log is about the process, and says its traffic is unseen.
+    case 'mcp':
+      return []
     case 'lmstudio': {
       try {
         return [new URL(settings.baseUrl).hostname]

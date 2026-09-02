@@ -119,6 +119,7 @@ export interface NetworkActivityEntry {
     | 'proxytest'
     | 'update'
     | 'market'
+    | 'mcp'
   /** Origin only — full URLs (and queries) are never logged. */
   origin: string
   method: string
@@ -488,6 +489,54 @@ export interface ProjectDefaults {
 
 export type ProjectColor = 'teal' | 'blue' | 'purple' | 'amber' | 'rose' | 'slate'
 
+/**
+ * v2.5: one MCP server the user added under Settings → MCP. A separate OS
+ * process launched with these exact arguments; it runs with the user's
+ * privileges and outside the app's egress allowlist, which the install
+ * confirmation says in so many words. Off on add; per-tool off is the
+ * escape hatch once the server is on.
+ */
+export interface McpServerConfig {
+  id: string
+  name: string
+  command: string
+  args: string[]
+  /** Variable names and values; the confirmation and the log show names only. */
+  env: Record<string, string>
+  cwd?: string
+  enabled: boolean
+  /** Raw tool names switched off within this server. */
+  disabledTools: string[]
+}
+
+export interface McpSettings {
+  servers: McpServerConfig[]
+}
+
+export type McpServerState = 'stopped' | 'starting' | 'running' | 'failed'
+
+export interface McpToolInfo {
+  rawName: string
+  wireName: string
+  description: string
+  inputSchema: Record<string, unknown>
+  enabled: boolean
+}
+
+export interface McpServerStatus {
+  id: string
+  name: string
+  state: McpServerState
+  enabled: boolean
+  era: 'modern' | 'legacy' | null
+  protocolVersion: string | null
+  serverInfo: { name?: string; version?: string } | null
+  tools: McpToolInfo[]
+  lastError: string | null
+  restarts: number
+  stderr: string[]
+}
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -534,6 +583,8 @@ export interface AppSettings {
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
   audit: AuditSettings
+  /** v2.5: MCP servers the user has added. Off until turned on, one at a time. */
+  mcp: McpSettings
   /** v0.9: multi-step plan generation and execution. */
   plan: PlanSettings
 }

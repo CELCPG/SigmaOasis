@@ -245,6 +245,21 @@ import { indexAttachment, isAttachmentIndexed } from './attachmentIndex'
 import { readTextDocument } from './attachments'
 export type { Project, ProjectColor } from './projects'
 
+export interface McpServerConfig {
+  id: string
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  cwd?: string
+  enabled: boolean
+  disabledTools: string[]
+}
+
+export interface McpSettings {
+  servers: McpServerConfig[]
+}
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -300,6 +315,8 @@ export interface AppSettings {
   audit: AuditSettings
   /** v0.9: multi-step plan generation and execution. */
   plan: PlanSettings
+  /** v2.5: MCP servers. Off until turned on, one at a time. */
+  mcp: McpSettings
 }
 
 /**
@@ -477,6 +494,7 @@ export function defaultSettings(): AppSettings {
       enabled: false,
       autoPurgeOnQuit: false
     },
+    mcp: { servers: [] },
     plan: {
       maxSteps: 6,
       confirmPlan: true
@@ -730,9 +748,50 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     plan: {
       maxSteps: clamp(settings.plan?.maxSteps, 1, 10, defaults.plan.maxSteps),
       confirmPlan: settings.plan?.confirmPlan !== false
-    }
+    },
+    mcp: { servers: normalizeMcpServers(settings.mcp?.servers) }
   }
   return normalized
+}
+
+/**
+ * v2.5: every server config is validated as a whole; a malformed entry is
+ * dropped rather than half-kept, and an id is what the wire name is built
+ * from, so it is sanitized here once. `enabled` is never assumed true.
+ */
+export function normalizeMcpServers(raw: unknown): McpServerConfig[] {
+  if (!Array.isArray(raw)) return []
+  const out: McpServerConfig[] = []
+  const ids = new Set<string>()
+  for (const r of raw as Partial<McpServerConfig>[]) {
+    const id = String(r?.id ?? '')
+      .trim()
+      .replace(/[^A-Za-z0-9_-]+/g, '_')
+      .slice(0, 32)
+    const command = str(r?.command, '').trim()
+    if (!id || !command || ids.has(id)) continue
+    ids.add(id)
+    const env: Record<string, string> = {}
+    if (r?.env && typeof r.env === 'object') {
+      for (const [k, v] of Object.entries(r.env)) if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && typeof v === 'string') env[k] = v
+    }
+    out.push({
+      id,
+      name: str(r?.name, id).trim() || id,
+      command,
+      args: Array.isArray(r?.args) ? r.args.filter((a): a is string => typeof a === 'string') : [],
+      env,
+      ...(typeof r?.cwd === 'string' && r.cwd.trim() ? { cwd: r.cwd.trim() } : {}),
+      enabled: r?.enabled === true,
+      disabledTools: Array.isArray(r?.disabledTools) ? r.disabledTools.filter((t): t is string => typeof t === 'string') : []
+    })
+  }
+  return out
+}
+
+/** v2.5: replace the saved MCP server list, normalized, from the main process. */
+export function saveMcpServers(servers: McpServerConfig[]): void {
+  writeSettings(normalizeSettings({ ...getSettings(), mcp: { servers } }))
 }
 
 /**
@@ -758,7 +817,8 @@ export function migrateSettings(): void {
     grounding: { ...defaults.grounding, ...current.grounding },
     shopping: { ...defaults.shopping, ...current.shopping },
     audit: { ...defaults.audit, ...current.audit },
-    plan: { ...defaults.plan, ...current.plan }
+    plan: { ...defaults.plan, ...current.plan },
+    mcp: { ...defaults.mcp, ...current.mcp }
   } as AppSettings
   writeSettings(normalizeSettings(merged))
 }

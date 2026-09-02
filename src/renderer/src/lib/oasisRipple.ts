@@ -10,7 +10,7 @@ import type { ToolCallRecord } from '../types'
 
 // ---- Tool → visual identity ---------------------------------------------------
 
-export type OasisToolKind = 'search' | 'code' | 'memory' | 'file' | 'write' | 'consult' | 'generic'
+export type OasisToolKind = 'search' | 'code' | 'memory' | 'file' | 'write' | 'consult' | 'mcp' | 'generic'
 
 export interface ToolVisual {
   kind: OasisToolKind
@@ -28,6 +28,7 @@ const TOOL_VISUALS: Record<OasisToolKind, ToolVisual> = {
   file: { kind: 'file', color: '#ff6b6b', label: 'READING', icon: '📄' },
   write: { kind: 'write', color: '#ff9d5c', label: 'WRITING', icon: '✍️' },
   consult: { kind: 'consult', color: '#c084fc', label: 'CONSULTING', icon: '🤝' },
+  mcp: { kind: 'mcp', color: '#60a5fa', label: 'CALLING A SERVER', icon: '🔌' },
   generic: { kind: 'generic', color: '#00d4aa', label: 'WORKING', icon: '⚙️' }
 }
 
@@ -35,6 +36,10 @@ const TOOL_VISUALS: Record<OasisToolKind, ToolVisual> = {
  *  memory precedes search because 'memory_search' contains 'search'. */
 const TOOL_RULES: { match: (name: string) => boolean; kind: OasisToolKind }[] = [
   { match: (n) => n === 'consult_model', kind: 'consult' },
+  // v2.5: a tool from an MCP server, whatever its name says it does — the
+  // indicator names the kind of thing running (another program), not a guess
+  // at what that program does with the network.
+  { match: (n) => n.startsWith('mcp__'), kind: 'mcp' },
   { match: (n) => n.includes('memory') || n.includes('note'), kind: 'memory' },
   // shop_compare searches and fetches; shop_requirements and price_watch stay
   // generic on purpose — they send nothing, and a search indicator over local

@@ -18,7 +18,7 @@ web search, notes), **@mention routing**, and a **collaborative pipeline** mode,
 
 ## ✨ Features
 
-- **Local & private.** Connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `image_search` / `fetch_webpage` tools (provider of your choice), the image hosts an `image_search` result points at (thumbnails only, fetched by the app so the request carries no cookies, referrer or browser fingerprint), the shopping research tools (`shop_compare` / `price_watch`, which contact retailer and manufacturer pages), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default). All of it is enforced by a built-in egress allowlist, visible in a network activity log with a purpose on every row, and can optionally be routed through **Tor or a VPN** while your LM Studio server stays on a direct loopback connection.
+- **Local & private.** Connects only to your LM Studio server (`http://127.0.0.1:1234/v1` by default). The only other outbound paths are the privacy-preserving `web_search` / `image_search` / `fetch_webpage` tools (provider of your choice), the image hosts an `image_search` result points at (thumbnails only, fetched by the app so the request carries no cookies, referrer or browser fingerprint), the shopping research tools (`shop_compare` / `price_watch`, which contact retailer and manufacturer pages), the opt-in JavaScript page renderer (which contacts a page's own origin and nothing else), and update checks (opt-in, off by default). All of **the app's own** traffic is enforced by a built-in egress allowlist, visible in a network activity log with a purpose on every row, and can optionally be routed through **Tor or a VPN** while your LM Studio server stays on a direct loopback connection. The one thing outside that boundary is an **MCP server you add yourself** (2.5): a separate program with sockets of its own, which the app cannot see and does not claim to — it is off until you turn it on, and the log records that it started.
 - **Multi-model roles.** Five slot templates — Assistant, Researcher, Coder, Finance Coach and **Data Analyst** — each with its own model, role name, system prompt, sampling, tool allowlist and colour accent. A slot can declare a *specialty* (coding, research, finance, data) and the pre-flight router sends matching turns to it: attach a spreadsheet and the Data Analyst answers.
 - **Three ways to use your models**
   - **Independent mode.** Pick the active model in the chat panel (right side, ⌘J) under *Strategy*; each conversation keeps its thread.
@@ -207,6 +207,31 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 
 **Enable/disable tools** and set a **working directory** under **Settings → Tools**. Disabled tools
 are not exposed to the models at all.
+
+### MCP servers (2.5) — tools without limit, with the same discipline
+
+Sigma Oasis is an **MCP client** (Model Context Protocol, stdio transport, tools only). Under
+**Settings → MCP** you add a server by its command — `npx -y @modelcontextprotocol/server-filesystem
+"/path"`, a local script, anything that speaks MCP over its standard streams — and its tools join the
+built-in ones on the wire, under exactly the regime the built-ins live under: the per-role allowlists,
+the per-turn budgets (three calls per MCP tool per turn), identical-call reuse, the tool-call block,
+the audit log, and the untrusted-content marker on every result, naming the server. Both protocol
+eras are served: a modern server (revision 2026-07-28, per-request metadata) and a legacy one (the
+`initialize` handshake), found by the spec's probe. A server that crashes is restarted on a
+per-outage budget; a crash-looper is reported as failed, with its stderr in the panel. Wire names are
+`mcp__<server>__<tool>`, a pure function of the tool's identity, so the tool list — and the prompt
+cache — is the same across launches. Details, and what it will not do: [`docs/mcp.md`](docs/mcp.md).
+
+Three things said plainly, because they are the boundary:
+
+- **A server is a program running with your privileges**, outside the confirmation dialog the
+  terminal tool has. Adding one shows the exact command, its arguments and the *names* of any
+  environment variables (never values) before anything is saved, and it is saved **switched off**.
+- **Its network traffic is its own.** The egress allowlist, the activity log and the proxy setting
+  cover the app's requests; a server's sockets are not the app's, and the app does not pretend to see
+  them. The activity log records that the server started, and says so on the row.
+- **Nothing lets a server drive the model.** The client declares no capabilities a server could call
+  on — no sampling, no elicitation — and a result that asks the client for input is refused.
 
 The **working directory** does two things: relative paths resolve against it, and it acts as a
 **boundary**. `read_file`, `write_file`, and `list_directory` refuse any path that resolves outside

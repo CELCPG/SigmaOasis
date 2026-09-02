@@ -4,6 +4,7 @@ import { OUTCOME_NOTE, callOutcome } from '../lib/grounding'
 import { readToolFailure } from '../../../shared/tools/outcomes'
 import { composeFailure, copyableFailure, readingLine } from '../../../shared/failure'
 import { toolVisualForName } from '../lib/oasisRipple'
+import { splitMcpWireName } from '../../../shared/mcpNames'
 import { Disclosure } from './Disclosure'
 
 const STATUS_ICON: Record<ToolCallRecord['status'], string> = {
@@ -55,6 +56,8 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
 
   const isConsult = record.name === 'consult_model'
   const visual = toolVisualForName(record.name)
+  // v2.5: a tool from an MCP server is shown as the server and the tool's own name.
+  const mcpParts = splitMcpWireName(record.name)
   const outcome = callOutcome(record)
   const empty = outcome === 'empty'
   const declined = outcome === 'declined'
@@ -72,7 +75,9 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
   const reason = failure?.headline ?? ''
   const label = isConsult
     ? `🤝 Consulted ${String(record.args.role ?? 'specialist')}`
-    : `${visual.icon} ${record.name}`
+    : mcpParts
+      ? `${visual.icon} ${mcpParts.server} › ${mcpParts.tool}`
+      : `${visual.icon} ${record.name}`
 
   return (
     <div

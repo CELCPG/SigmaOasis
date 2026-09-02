@@ -38,10 +38,12 @@ import { withGrounding, withToolCallPreamble, TOOL_PREAMBLE_INSTRUCTION } from '
 import {
   parseCompletionMessage,
   runToolChoiceEval,
+  summarizeRuns,
   type EvalFixture,
   type EvalFixtureRun
 } from '../src/renderer/src/lib/evalRunner'
 import { TOOL_SCHEMAS } from '../src/shared/tools'
+import { createMcpManager } from '../src/main/ipc/mcp/manager'
 import type { ToolSchema } from '../src/renderer/src/types'
 
 // Compiled by scripts/eval-tools.sh to .eval-build/scripts/eval-tools.js —
@@ -182,16 +184,80 @@ async function main(): Promise<void> {
 
   mkdirSync(RESULTS_DIR, { recursive: true })
 
-  const results = await runToolChoiceEval({
-    models,
-    fixtures,
-    tools: TOOL_SCHEMAS,
-    systemPromptFor,
-    complete: (model, messages, tools) => complete(baseUrl, model, messages, tools),
-    onFixture: (_model, _i, _total, run) => {
-      process.stdout.write(`${mark(run)} ${run.file}\n`)
-    }
+  // v2.5: EVAL_MCP_STUB=<n> connects n stub MCP servers (three tools each,
+  // deliberately overlapping descriptions) through the real manager and puts
+  // their tools on the wire after the built-ins, exactly as the app does. The
+  // question the run answers is whether their presence moves the built-in
+  // correct-tool and spurious-call rates — nobody else shipping MCP publishes
+  // that number. A call to a stub tool is spurious by construction: no fixture
+  // expects one.
+  const stubServers = Math.max(0, Math.round(Number(process.env.EVAL_MCP_STUB ?? '0')) || 0)
+  let tools = TOOL_SCHEMAS
+  let mcp: ReturnType<typeof createMcpManager> | null = null
+  if (stubServers > 0) {
+    mcp = createMcpManager({ builtInNames: new Set(TOOL_SCHEMAS.map((t) => t.function.name)) })
+    const stub = join(REPO_ROOT, 'test', 'fixtures', 'mcp', 'stub-server.mjs')
+    await mcp.apply(
+      Array.from({ length: stubServers }, (_, i) => ({
+        id: `stub${i + 1}`,
+        name: `Stub ${i + 1}`,
+        command: process.execPath,
+        args: [stub],
+        env: { ELECTRON_RUN_AS_NODE: '1' },
+        enabled: true,
+        disabledTools: []
+      }))
+    )
+    const extra = mcp.schemas()
+    tools = [...TOOL_SCHEMAS, ...extra]
+    console.log(`       EVAL_MCP_STUB=${stubServers} — ${extra.length} MCP tool(s) on the wire after the ${TOOL_SCHEMAS.length} built-ins\n`)
+  }
+
+  // v2.5: EVAL_PASSES=N repeats the whole run and reports per-fixture
+  // stability, the way the answer suites do — a ±1 between single runs at
+  // temperature 0 is within what identical prompts produce.
+  const passesWanted = Math.max(1, Math.min(9, Math.round(Number(process.env.EVAL_PASSES ?? '1')) || 1))
+  const allPasses: Awaited<ReturnType<typeof runToolChoiceEval>>[] = []
+  for (let pass = 0; pass < passesWanted; pass++) {
+    if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+    allPasses.push(
+      await runToolChoiceEval({
+        models,
+        fixtures,
+        tools,
+        systemPromptFor,
+        complete: (model, messages, tools) => complete(baseUrl, model, messages, tools),
+        onFixture: (_model, _i, _total, run) => {
+          process.stdout.write(`${mark(run)} ${run.file}\n`)
+        }
+      })
+    )
+  }
+  if (mcp) await mcp.closeAll()
+
+  // One result per model, aggregated over every pass.
+  const results = models.map((model) => {
+    const runs = allPasses.flatMap((p) => p.find((r) => r.model === model)?.runs ?? [])
+    return { model, runs, rates: summarizeRuns(runs) }
   })
+
+  if (passesWanted > 1) {
+    for (const { model } of results) {
+      const perPass = allPasses.map((p) => (p.find((r) => r.model === model)?.runs ?? []).filter((r) => r.correct !== false && !r.spurious && !r.looped && !r.error).length)
+      const byFile = new Map<string, boolean[]>()
+      for (const p of allPasses) for (const r of p.find((x) => x.model === model)?.runs ?? []) {
+        const ok = r.correct !== false && !r.spurious && !r.looped && !r.error
+        byFile.set(r.file, [...(byFile.get(r.file) ?? []), ok])
+      }
+      const flaky = [...byFile].filter(([, oks]) => oks.some(Boolean) && !oks.every(Boolean)).map(([f]) => f)
+      const stablePass = [...byFile].filter(([, oks]) => oks.every(Boolean)).length
+      const stableFail = [...byFile].filter(([, oks]) => !oks.some(Boolean)).length
+      console.log(
+        `\n${model}: clean across ${passesWanted} passes: [${perPass.join(', ')}] · stable-pass ${stablePass} · stable-fail ${stableFail} · flaky ${flaky.length}` +
+          (flaky.length ? ` (${flaky.join(', ')})` : '')
+      )
+    }
+  }
 
   for (const { model, runs, rates } of results) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)

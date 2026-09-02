@@ -4,6 +4,7 @@ import { passagesHandedOver, renumberPassages } from './citations'
 import { validateToolArgs } from './toolArgs'
 import { CLOSED_THINK_PREFILL } from '../../../shared/thinking'
 import { declinedCall, TOOL_TURN_BUDGETS } from '../../../shared/tools'
+import { isMcpWireName, MCP_DEFAULT_TURN_BUDGET } from '../../../shared/mcpNames'
 
 /**
  * The agentic tool-call loop, lifted out of the useLMStudio hook so the
@@ -282,7 +283,16 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   const { messages, tools, records, signal, deps } = options
   const maxIterations = options.maxIterations ?? MAX_TOOL_ITERATIONS
   const maxDelegations = options.maxDelegations ?? MAX_DELEGATIONS_PER_TURN
-  const toolBudgets = options.toolBudgets ?? TOOL_TURN_BUDGETS
+  const configuredBudgets = options.toolBudgets ?? TOOL_TURN_BUDGETS
+  // v2.5: a tool from an MCP server has no row in the static table; it gets
+  // the egress-tool default unless the caller budgeted it by name. An empty
+  // map still disables budgets for the built-ins, as before.
+  const toolBudgets: Record<string, number> = new Proxy(configuredBudgets, {
+    get(target, name: string) {
+      if (name in target) return target[name]
+      return options.toolBudgets === undefined && isMcpWireName(String(name)) ? MCP_DEFAULT_TURN_BUDGET : undefined
+    }
+  })
   let repairAllowance = options.repairIterations ?? 1
   let iterationCap = maxIterations
   let delegationCount = 0

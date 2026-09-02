@@ -28,7 +28,9 @@ import type {
   ToolSchema,
   UpdateStatus,
   WorkbenchStatus,
-  EvalScoreSummary
+  EvalScoreSummary,
+  McpServerConfig,
+  McpServerStatus
 } from '../renderer/src/types'
 import type { EvalFixture } from '../renderer/src/lib/evalRunner'
 
@@ -263,6 +265,14 @@ const api = {
     | { ok: false; canceled?: boolean; error?: string }
   > => ipcRenderer.invoke('audit:export', sessionId),
   auditPurge: (): Promise<{ removed: number }> => ipcRenderer.invoke('audit:purge'),
+
+  // MCP servers (main/ipc/mcp.ts) — v2.5. Off until turned on, one at a time.
+  mcpStatus: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:status'),
+  mcpAdd: (config: McpServerConfig): Promise<{ ok: boolean; error?: string; canceled?: boolean; server?: McpServerConfig }> =>
+    ipcRenderer.invoke('mcp:add', config),
+  mcpUpdate: (config: McpServerConfig): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('mcp:update', config),
+  mcpRemove: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('mcp:remove', id),
+  mcpReload: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('mcp:reload', id),
 
   // Layer 4 trace export (main/ipc/traces.ts) — OpenAI JSONL for out-of-band
   // fine-tuning, labeled from outcomes, redacted, schema-stamped. Opt-in per
