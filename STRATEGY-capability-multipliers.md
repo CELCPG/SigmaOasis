@@ -1,6 +1,6 @@
 # Strategy: Capability multipliers — post v2.2.0
 
-**Status: proposed.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
+**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence (below).** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
 five earlier strategy documents, the v2.1/v2.2 release notes, `docs/evals.md`, the
 head-to-head record (`docs/head-to-head/rounds.json`, verdicts 8–13), and the source tree.
 Companions: `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped), `STRATEGY-speed-and-quality.md`
@@ -184,15 +184,15 @@ because it is a new surface rather than a multiplier of existing ones.
 
 ## Track B — The measured problems
 
-### B1. Make the re-read free instead of forbidden
+### B1. Make the re-read free instead of forbidden — closed, not built (v2.4)
 
-Two attempts to instruct the habit away moved it from 100% to 67–73%. Stop instructing.
-In the sandbox prelude, memoize `pd.read_csv` / `open` on `/work/<name>` by content hash
-within a session, so a second read returns the cached frame in milliseconds and the
-`analyze_file` profile is not recomputed. The habit stays; its cost goes to zero.
-
-*Gate:* multi-turn suite — seconds per follow-up turn is the number; re-read rate is
-reported but no longer the target.
+The premise was that a follow-up's re-read costs seconds. The recorded multi-turn runs say
+otherwise: in the session arm, four of the five follow-ups that re-read the file did so
+*inside their single analysis call* — `df = pd.read_csv(...)` on line one of the same
+`run_python` the analysis ran in — so the re-read costs the model about fifteen tokens and
+the sandbox a few milliseconds of parsing. Memoizing the read would save the milliseconds
+and none of the seconds. The habit is real and harmless; it stays uninstrumented. Recorded
+here so the item is not rediscovered.
 
 ### B2. Retire the library suite's noise floor
 
@@ -241,12 +241,19 @@ max-tokens finish drops possibly-truncated tool calls. With one core, chat traff
 counted in the activity log honestly (closing speed 2b) and A5 has a single place to
 deliver a steer.
 
-### C3. Persistence that is O(what changed)
+### C3. Persistence that is O(what changed) — measured first, then narrowed (v2.4)
 
-Speed 1d as written: an index file so startup reads `{id, title, updatedAt}` and loads
-conversations lazily; image blobs as sidecar files by id; audit rotation; a total-size
-bound on `memory.json` with the watchlist's house style for bounds. Measure: startup time
-flat across 10, 100 and 1,000 conversations.
+Speed 1d proposed an index file and lazy loading so startup reads `{id, title, updatedAt}`
+and conversations load on demand. Measured before building: the built app on synthetic
+profiles of 30-message conversations (~15 KB each), launch to composer — 100 conversations
+0.7 s, 1,000 conversations 0.5 s, the sidebar showing its first hundred rows either way.
+Startup is already flat at that scale; the real profile on the bench machine holds 23. The
+index and lazy loading are not built, and neither are sidecar image blobs (the largest real
+conversation, 228 KB with five inline images, re-serializes in milliseconds). What remains
+of C3 is the two stores with no bound at all: the audit directory (one file per launch,
+appended forever, every file read whole for the status panel) and `memory.json` (chunks
+appended forever). Each gets a cap in the watchlist's house style — stated, disclosed in
+its settings panel, and refused rather than silently trimmed where the data is the user's.
 
 ### C4. Split the new god file along its own seams
 
