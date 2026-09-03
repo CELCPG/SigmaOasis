@@ -7064,3 +7064,19 @@ qwen3.8-9b at 8,192 context, temperature 0, three passes, no flaky case in any r
 does not fit. Neither is the app's turn, which is why `EVAL_SUBSET=1` now exists: the eval
 ranks with the same cosine over LM Studio's `/v1/embeddings` and caps at the same six, per
 fixture, so the number below is the app's.
+
+**The app's list, measured** (`EVAL_SUBSET=1`, same model, context, temperature and passes):
+
+| MCP servers connected | schemas registered | on the wire per fixture | clean per pass | correct-tool | spurious |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 25 | 6.0 | 22, 22, 22 of 24 | 57/63 · 90% | 0/9 |
+| 4 (12 tools) | 37 | 6.0 | 22, 21, 22 | 57/63 · 90% | 0/8 |
+| 12 (36 tools) | 61 | 6.0 | 22, 22, 22 | 57/63 · 90% | 0/9 |
+
+The one non-clean pass in the 4-server row is `18-no-tool-explain`, which LM Studio answered
+with an HTTP 500 on the second pass and correctly on the other two — a server hiccup, recorded
+as flaky, not a model choice. With the app's selection in place, connecting servers changes
+nothing the model sees unless a server's tool outranks a built-in for the user's text, and
+on these 24 fixtures none did: the same six tools went on the wire, the same 57 calls were
+right, and no stub tool was ever called. The scope's reserved-slots mitigation (§4.5) stays
+unbuilt, with this table as the reason.

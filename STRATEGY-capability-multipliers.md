@@ -1,6 +1,6 @@
 # Strategy: Capability multipliers — post v2.2.0
 
-**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below).** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
+**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below); v2.5 — A1 (the MCP client) landed and gated: with the app's own per-turn selection, correct-tool and spurious-call rates are identical at 0, 4 and 12 connected servers (the raw-list finding and the table are in `docs/evals.md`), B3 closed by evidence.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
 five earlier strategy documents, the v2.1/v2.2 release notes, `docs/evals.md`, the
 head-to-head record (`docs/head-to-head/rounds.json`, verdicts 8–13), and the source tree.
 Companions: `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped), `STRATEGY-speed-and-quality.md`
@@ -207,14 +207,16 @@ already fixed by the builder. After: 84/84 answered, 0 flaky, and a finding for 
 with the tool offered, the model called it in 0 of 84 runs, cited less and stated more from
 memory. Both tables in the v2.4 notes.
 
-### B3. Think-harder by domain, not by default
+### B3. Think-harder by domain, not by default — closed by evidence (v2.5)
 
-Deliberation is null on arithmetic and costly. Use the reasoning suite's fixed/broke counts
-per playbook domain to make the playbook-triggered default a per-domain decision, and keep
-the button everywhere.
-
-*Gate:* the reasoning suite per domain; a domain earns the default only where fixed
-exceeds broke over three passes.
+The item assumed a playbook-triggered default to gate. There is none: think-harder is the 🧠
+button and nothing else, and has been since v1.5.1. The measurement that would have decided
+the gate says no domain would earn one on this model anyway: on the fourteen reasoning kinds
+(constraint satisfaction, logic grids, state tracking, rule chains with a non-firing
+conditional, over-constrained problems with no solution, and the rest) a 9B drafts 14 of 14
+correct, and a review-and-revise pass fixes nothing and breaks nothing — the same null the
+quantitative suite recorded. The button stays where it is; no default is added. Recorded here
+so the item is not rediscovered.
 
 ### B4. Close the high-rated bench gaps, then gate
 
