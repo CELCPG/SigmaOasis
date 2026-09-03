@@ -2,7 +2,7 @@
 // its tools, its last error and its stderr. Nothing here starts a program the
 // user did not turn on: a server is saved off, and the switch is on this page.
 import React, { useCallback, useEffect, useState } from 'react'
-import type { McpServerConfig, McpServerStatus } from '../../types'
+import type { McpApproval, McpServerConfig, McpServerStatus } from '../../types'
 
 const REFRESH_MS = 2000
 
@@ -81,7 +81,8 @@ export function McpTab(): JSX.Element {
       env: parseEnv(form.env),
       ...(form.cwd.trim() ? { cwd: form.cwd.trim() } : {}),
       enabled: false,
-      disabledTools: []
+      disabledTools: [],
+      approval: 'ask'
     })
     setAdding(false)
     if (r.ok) {
@@ -142,6 +143,17 @@ export function McpTab(): JSX.Element {
                     />
                     On
                   </label>
+                  <select
+                    className="rounded-lg text-xs"
+                    value={cfg?.approval ?? 'ask'}
+                    onChange={(e) => cfg && void save({ ...cfg, approval: e.target.value as McpApproval })}
+                    aria-label={`${s.name} approval`}
+                    title="ask: confirm each call (Always allow mints a grant) · allowlist: run grants only · full: never ask"
+                  >
+                    <option value="ask">ask each call</option>
+                    <option value="allowlist">grants only</option>
+                    <option value="full">never ask</option>
+                  </select>
                   <button
                     type="button"
                     className="rounded-lg px-2 py-1 text-xs text-ink-secondary transition-colors hover:bg-black/10 dark:hover:bg-white/5"

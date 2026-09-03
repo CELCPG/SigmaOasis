@@ -38,7 +38,7 @@ export function registerToolHandlers(): void {
       // v2.5: an MCP tool leaves here too. Its server's enablement and its own
       // per-tool switch are the manager's to check; the static toggle table has
       // no key for it.
-      if (isMcpWireName(String(name))) return executeMcpTool(String(name), args ?? {})
+      if (isMcpWireName(String(name))) return executeMcpTool(String(name), args ?? {}, event.sender)
       if (!getSettings().tools[name]) {
         return { ok: false, error: `Tool "${String(name)}" is disabled in Settings → Tools.` }
       }

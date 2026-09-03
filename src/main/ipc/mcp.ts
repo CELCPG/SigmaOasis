@@ -22,6 +22,8 @@ import { recordExternalRequest } from './net'
 import { getSettings, normalizeMcpServers, saveMcpServers, type McpServerConfig } from './store'
 import { MAX_OUTPUT_CHARS, truncate } from './toolHandlers/types'
 import { createMcpManager, type McpManager, type McpServerStatus } from './mcp/manager'
+import { createGrant, GRANT_NOTE, useGrant } from './grants'
+import { declinedCall } from '../../shared/tools/outcomes'
 
 let manager: McpManager | null = null
 
@@ -56,16 +58,72 @@ export function mcpUntrustedHeader(serverName: string, rawName: string): string 
   )
 }
 
+/**
+ * v2.6: approval per server. `ask` raises a dialog naming the server, the
+ * tool and the exact arguments, whose "Always allow" mints a grant bound to
+ * all three; `allowlist` runs grants only; `full` runs unasked. A grant is
+ * consulted only where a dialog could be raised — no window, no run.
+ */
+async function approveMcpCall(
+  sender: Electron.WebContents | undefined,
+  config: McpServerConfig,
+  hit: { serverName: string; rawName: string },
+  wireName: string,
+  args: Record<string, unknown>
+): Promise<{ ok: true; granted: boolean } | { ok: false; error: string }> {
+  if (config.approval === 'full') return { ok: true, granted: false }
+  const binding = { tool: wireName, args }
+  const win = sender ? hostWindow(sender) : null
+  if (!win) return { ok: false, error: declinedCall(`no window to confirm the MCP call "${hit.rawName}" in`) }
+  if (await useGrant(binding)) return { ok: true, granted: true }
+  if (config.approval === 'allowlist') {
+    return {
+      ok: false,
+      error:
+        `The MCP server "${config.name}" runs only calls with a standing grant, and none covers ` +
+        `"${hit.rawName}" with these arguments. Switch it to "ask" under Settings → MCP to approve calls.`
+    }
+  }
+  const shownArgs = JSON.stringify(args, null, 1)
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: 'Confirm MCP tool call',
+    message: `A model wants to call "${hit.rawName}" on the MCP server "${config.name}":`,
+    detail:
+      `${shownArgs.length > 1200 ? `${shownArgs.slice(0, 1199)}…` : shownArgs}\n\n` +
+      '"Always allow" lets this exact call, with exactly these arguments, run without asking until you revoke it under Settings → Tools.',
+    buttons: ['Allow once', 'Always allow', 'Cancel'],
+    defaultId: 2,
+    cancelId: 2
+  })
+  if (response === 1) await createGrant(binding, `${hit.rawName} ${JSON.stringify(args)}`)
+  return response === 0 || response === 1
+    ? { ok: true, granted: false }
+    : { ok: false, error: declinedCall(`the user declined the MCP call "${hit.rawName}"`) }
+}
+
 /** Execute one MCP tool by wire name, output wrapped and capped like every other tool. */
 export async function executeMcpTool(
   wireName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  sender?: Electron.WebContents
 ): Promise<{ ok: boolean; output?: string; error?: string }> {
   const m = mcpManager()
   const hit = m.resolve(wireName)
+  if (!hit) return { ok: false, error: `Unknown tool "${wireName}".` }
+  const config = (getSettings().mcp?.servers ?? []).find((s) => s.id === hit.serverId)
+  if (!config) return { ok: false, error: `The MCP server "${hit.serverName}" is no longer configured.` }
+  const approval = await approveMcpCall(sender, config, hit, wireName, args)
+  if (!approval.ok) return approval
   const r = await m.execute(wireName, args)
-  if (!r.ok || !hit) return r
-  return { ok: true, output: truncate(`${mcpUntrustedHeader(hit.serverName, hit.rawName)}\n\n${r.output ?? ''}`, MAX_OUTPUT_CHARS) }
+  if (!r.ok) return r
+  return {
+    ok: true,
+    output: truncate(
+      `${mcpUntrustedHeader(hit.serverName, hit.rawName)}\n\n${r.output ?? ''}${approval.granted ? `\n${GRANT_NOTE}` : ''}`,
+      MAX_OUTPUT_CHARS
+    )
+  }
 }
 
 async function applyFromSettings(): Promise<void> {

@@ -518,6 +518,21 @@ export interface McpServerConfig {
   enabled: boolean
   /** Raw tool names switched off within this server. */
   disabledTools: string[]
+  /** v2.6: `ask` confirms each call (grantable), `allowlist` runs grants only, `full` never asks. */
+  approval: McpApproval
+}
+
+export type McpApproval = 'ask' | 'allowlist' | 'full'
+
+/** v2.6: a standing grant, as listed under Settings → Tools (main/ipc/grants.ts). */
+export interface Grant {
+  id: string
+  tool: string
+  summary: string
+  cwd?: string
+  createdAt: number
+  uses: number
+  lastUsedAt?: number
 }
 
 export interface McpSettings {

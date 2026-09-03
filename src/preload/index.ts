@@ -30,7 +30,8 @@ import type {
   WorkbenchStatus,
   EvalScoreSummary,
   McpServerConfig,
-  McpServerStatus
+  McpServerStatus,
+  Grant
 } from '../renderer/src/types'
 import type { EvalFixture } from '../renderer/src/lib/evalRunner'
 import type { MemoryOrigin } from '../shared/memoryOrigin'
@@ -272,6 +273,13 @@ const api = {
   auditPurge: (): Promise<{ removed: number }> => ipcRenderer.invoke('audit:purge'),
 
   // MCP servers (main/ipc/mcp.ts) — v2.5. Off until turned on, one at a time.
+  // v2.6: standing grants (main/ipc/grants.ts) — list and revoke only; nothing mints one but a dialog.
+  grantsList: (): Promise<Grant[]> => ipcRenderer.invoke('grants:list'),
+  grantsRevoke: (id: string): Promise<{ ok: boolean; removed?: number; error?: string }> =>
+    ipcRenderer.invoke('grants:revoke', id),
+  grantsRevokeAll: (): Promise<{ ok: boolean; removed?: number; error?: string }> =>
+    ipcRenderer.invoke('grants:revokeAll'),
+
   mcpStatus: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:status'),
   mcpAdd: (config: McpServerConfig): Promise<{ ok: boolean; error?: string; canceled?: boolean; server?: McpServerConfig }> =>
     ipcRenderer.invoke('mcp:add', config),

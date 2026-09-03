@@ -56,6 +56,12 @@ export interface HarnessState {
   embedCalls: number
   /** Requests reported by the renderer's webRequest filter. */
   externalRequests: Record<string, unknown>[]
+  /** v2.6: queued button indices for dialog.showMessageBox, consumed in order. */
+  dialogResponses: number[]
+  /** Every dialog the code under test raised, with the options it passed. */
+  dialogsShown: Record<string, unknown>[]
+  /** Whether hostWindow() finds a window; false = nobody to ask, decline. */
+  hasWindow: boolean
   /**
    * Queued /chat/completions replies, consumed in order. The orchestrator makes
    * two model calls per run (plan, then synthesize), so a test scripts both.
@@ -131,6 +137,9 @@ export const state: HarnessState = {
   fetchLog: [],
   embedCalls: 0,
   externalRequests: [],
+  dialogResponses: [],
+  dialogsShown: [],
+  hasWindow: false,
   completions: [],
   completionPrompts: [],
   completionBodies: [],
@@ -164,6 +173,9 @@ export function resetState(): void {
   state.fetchLog = []
   state.embedCalls = 0
   state.externalRequests = []
+  state.dialogResponses = []
+  state.dialogsShown = []
+  state.hasWindow = false
   state.completions = []
   state.completionPrompts = []
   state.completionBodies = []
@@ -545,9 +557,18 @@ const electronStub = {
       return Buffer.from(s.slice(4), 'base64').toString('utf-8')
     }
   },
-  // Only reached by the audit export handler, which tests do not invoke.
-  dialog: {},
-  BrowserWindow: { fromWebContents: () => null }
+  // v2.6: the confirmation dialogs under test. Each showMessageBox consumes the
+  // next queued answer (button index) and records what it was asked; with no
+  // answer queued it cancels, which is what an unattended dialog must mean.
+  dialog: {
+    showMessageBox: async (_win: unknown, options: Record<string, unknown>) => {
+      state.dialogsShown.push(options)
+      const response = state.dialogResponses.shift()
+      return { response: response ?? (typeof options.cancelId === 'number' ? options.cancelId : 1), checkboxChecked: false }
+    }
+  },
+  // A window exists only when a test says so; the handlers decline without one.
+  BrowserWindow: { fromWebContents: () => (state.hasWindow ? { isDestroyed: () => false } : null) }
 }
 
 /** `Module._load` is internal, so it is not in @types/node. */

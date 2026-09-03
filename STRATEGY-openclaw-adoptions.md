@@ -103,6 +103,14 @@ working directory — correct, and the reason nobody enables them. Adopt:
 4. **No `full` mode for host exec.** OpenClaw ships one; we do not. Unattended host execution
    is the sandbox's job, and the sandbox is the Workbench.
 
+*(v2.6: 1, 2 and 4 built. A grant lives in its own file, not in settings, and is bound to a
+SHA-256 over the tool, the canonical arguments and the working directory — for `write_file`
+the resolved path alone, since content changes every write and "always allow writes to this
+file" is the thing worth granting. Nothing mints a grant but a button in a dialog the app
+raised; no window means decline, grant or not. Servers saved before v2.6 migrate to `ask`,
+which is a behaviour change for them and is stated in the notes. Item 3, interpreter
+allowlists, is deferred: it is a pattern match, and the rule adopted here is byte-exact.)*
+
 *Eval gate:* node tests for grant matching (a one-byte difference fails closed; cwd is part of
 the key), the modal-focus and tab-traverse suites for the dialog, the audit suite for the
 record — every grant use is an audit entry.

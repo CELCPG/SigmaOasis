@@ -2,9 +2,84 @@
 // every piece of state and every handler still lives in the modal and arrives here as a prop,
 // so nothing about ordering, effects or behaviour changed; the modal just stopped being 2,500 lines.
 
-import React from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { TOOL_LABELS } from '../../../../shared/tools'
-import type { AppSettings, ToolToggles, WorkbenchStatus } from '../../types'
+import { splitMcpWireName } from '../../../../shared/mcpNames'
+import type { AppSettings, Grant, ToolToggles, WorkbenchStatus } from '../../types'
+
+/** v2.6: what a grant row calls its tool — `server › tool` for an MCP wire name. */
+function grantToolLabel(tool: string): string {
+  const mcp = splitMcpWireName(tool)
+  return mcp ? `${mcp.server} › ${mcp.tool}` : tool
+}
+
+/**
+ * v2.6: the standing grants, listed with their use counts and revoked one at
+ * a time. Self-fetching, like the MCP tab: grants are minted by dialogs in
+ * the main process, not by the Settings draft, so they are not a setting.
+ */
+function GrantsSection(): JSX.Element {
+  const [grants, setGrants] = useState<Grant[] | null>(null)
+  const refresh = useCallback(async () => {
+    setGrants(await window.api.grantsList().catch(() => []))
+  }, [])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-sm font-medium">Standing grants</span>
+        {grants && grants.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void window.api.grantsRevokeAll().then(refresh)}
+            className="ml-auto rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs text-ink-danger hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            Revoke all
+          </button>
+        )}
+      </div>
+      <p className="mb-2 text-xs text-ink-secondary">
+        “Always allow” in a confirmation dialog mints a grant for that exact call — the command in
+        that working directory, the file path, or the MCP tool with those arguments. One byte
+        different asks again. Revoking takes effect on the next call.
+      </p>
+      {grants === null ? (
+        <p className="text-xs text-ink-tertiary">Loading…</p>
+      ) : grants.length === 0 ? (
+        <p className="text-xs text-ink-tertiary">No standing grants.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {grants.map((g) => (
+            <li
+              key={g.id}
+              className="flex items-center gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-xs" title={g.summary}>
+                  {g.summary}
+                </span>
+                <span className="block text-xs text-ink-tertiary">
+                  {grantToolLabel(g.tool)}
+                  {g.cwd ? ` · in ${g.cwd}` : ''}
+                  {` · used ${g.uses} time${g.uses === 1 ? '' : 's'}`}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => void window.api.grantsRevoke(g.id).then(refresh)}
+                className="shrink-0 rounded-lg px-2 py-1 text-xs text-ink-danger hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 export interface ToolsTabProps {
   draft: AppSettings
@@ -134,6 +209,8 @@ export function ToolsTab(props: ToolsTabProps): JSX.Element {
                         ))}
                       </div>
                     </div>
+
+                    <GrantsSection />
                   </div>
   )
 }

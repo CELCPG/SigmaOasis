@@ -245,6 +245,14 @@ import { indexAttachment, isAttachmentIndexed } from './attachmentIndex'
 import { readTextDocument } from './attachments'
 export type { Project, ProjectColor } from './projects'
 
+/**
+ * v2.6: how a server's calls are approved. `ask` confirms each call in a
+ * dialog whose "Always allow" mints a grant for that exact call; `allowlist`
+ * runs grants only and refuses the rest without asking; `full` runs every
+ * call unasked. New and pre-v2.6 servers are `ask`.
+ */
+export type McpApproval = 'ask' | 'allowlist' | 'full'
+
 export interface McpServerConfig {
   id: string
   name: string
@@ -254,6 +262,7 @@ export interface McpServerConfig {
   cwd?: string
   enabled: boolean
   disabledTools: string[]
+  approval: McpApproval
 }
 
 export interface McpSettings {
@@ -783,7 +792,8 @@ export function normalizeMcpServers(raw: unknown): McpServerConfig[] {
       env,
       ...(typeof r?.cwd === 'string' && r.cwd.trim() ? { cwd: r.cwd.trim() } : {}),
       enabled: r?.enabled === true,
-      disabledTools: Array.isArray(r?.disabledTools) ? r.disabledTools.filter((t): t is string => typeof t === 'string') : []
+      disabledTools: Array.isArray(r?.disabledTools) ? r.disabledTools.filter((t): t is string => typeof t === 'string') : [],
+      approval: r?.approval === 'allowlist' || r?.approval === 'full' ? r.approval : 'ask'
     })
   }
   return out

@@ -5,13 +5,59 @@ import { homedir } from 'os'
 import { dirname, isAbsolute, resolve, sep } from 'path'
 import { getSettings } from '../store'
 import { hostWindow } from '../hostWindow'
+import { createGrant, GRANT_NOTE, useGrant } from '../grants'
 import { declinedCall } from '../../../shared/tools/outcomes'
 import { truncate } from './types'
 import type { ToolHandler, ToolResult } from './types'
 
-/** Local filesystem and shell tools: read_file, write_file, list_directory, run_terminal_command. */
+/**
+ * Local filesystem and shell tools: read_file, write_file, list_directory,
+ * run_terminal_command.
+ *
+ * v2.6: the two confirmations gain "Always allow". The answer mints a
+ * standing grant (../grants.ts) bound to the exact call — the command and the
+ * working directory it will run in, or the resolved file path — and a later
+ * call that matches runs without a dialog and says so in its output. A call
+ * that differs by a byte asks. No window still means decline: a grant is
+ * consulted only where a dialog could have been raised, so an unattended
+ * process cannot run under one.
+ */
 
 const TERMINAL_TIMEOUT_MS = 30_000
+
+/** The three answers, in button order; the index is what the dialog returns. */
+const APPROVAL_BUTTONS = ['Allow once', 'Always allow', 'Cancel'] as const
+const ALLOW_ONCE = 0
+const ALWAYS_ALLOW = 1
+const CANCEL = 2
+
+type Approval = 'once' | 'granted' | 'declined'
+
+/**
+ * Ask, or find the grant. `binding` is what a grant would be bound to; `summary`
+ * is the line the panel will show for it. The dialog options are the caller's.
+ */
+async function approve(
+  sender: Electron.WebContents,
+  binding: { tool: string; args: Record<string, unknown>; cwd?: string },
+  summary: string,
+  box: Omit<Electron.MessageBoxOptions, 'buttons' | 'defaultId' | 'cancelId'>
+): Promise<Approval> {
+  const win = hostWindow(sender)
+  if (!win) return 'declined' // window closed — nobody to ask; decline, grant or not
+  if (await useGrant(binding)) return 'granted'
+  const { response } = await dialog.showMessageBox(win, {
+    ...box,
+    buttons: [...APPROVAL_BUTTONS],
+    defaultId: CANCEL,
+    cancelId: CANCEL
+  })
+  if (response === ALWAYS_ALLOW) {
+    await createGrant(binding, summary)
+    return 'once'
+  }
+  return response === ALLOW_ONCE ? 'once' : 'declined'
+}
 
 /** The configured working directory, resolved — or null when none is set. */
 function workingRoot(): string | null {
@@ -37,24 +83,20 @@ export function resolvePath(p: string): string {
   return resolved
 }
 
-/** Writes outside a scoped working directory need explicit user approval. */
-async function confirmWrite(
-  sender: Electron.WebContents,
-  target: string,
-  chars: number
-): Promise<boolean> {
-  const win = hostWindow(sender)
-  if (!win) return false // window closed — nobody to ask; decline
-  const { response } = await dialog.showMessageBox(win, {
+/**
+ * Writes outside a scoped working directory need explicit user approval. A
+ * grant here is bound to the resolved path alone — content changes on every
+ * write, and "always allow writes to this file" is the thing worth granting.
+ */
+function confirmWrite(sender: Electron.WebContents, target: string, chars: number): Promise<Approval> {
+  return approve(sender, { tool: 'write_file', args: { path: target } }, target, {
     type: 'warning',
     title: 'Confirm file write',
     message: 'A model wants to write to a file outside any scoped working directory:',
-    detail: `${target}\n\n${chars} character(s) — this overwrites the file if it exists.`,
-    buttons: ['Write', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1
+    detail:
+      `${target}\n\n${chars} character(s) — this overwrites the file if it exists.\n\n` +
+      '"Always allow" lets any future write to this exact path through without asking, until you revoke it under Settings → Tools.'
   })
-  return response === 0
 }
 
 /**
@@ -87,13 +129,20 @@ const writeFile: ToolHandler = async (args, { sender }) => {
   const content = String(args.content ?? '')
   // A working directory means the user already scoped where writes may
   // land; without one, every write is confirmed.
-  if (!workingRoot() && !(await confirmWrite(sender, target, content.length))) {
-    // Declined, not failed: nothing was written, and the row must say which.
-    return { ok: false, error: declinedCall('the user declined this file write') }
+  let approval: Approval = 'once'
+  if (!workingRoot()) {
+    approval = await confirmWrite(sender, target, content.length)
+    if (approval === 'declined') {
+      // Declined, not failed: nothing was written, and the row must say which.
+      return { ok: false, error: declinedCall('the user declined this file write') }
+    }
   }
   await fs.mkdir(dirname(target), { recursive: true })
   await fs.writeFile(target, content, 'utf-8')
-  return { ok: true, output: `Wrote ${content.length} characters to ${target}` }
+  return {
+    ok: true,
+    output: `Wrote ${content.length} characters to ${target}${approval === 'granted' ? ` ${GRANT_NOTE}` : ''}`
+  }
 }
 
 const listDirectory: ToolHandler = async (args) => {
@@ -105,30 +154,29 @@ const listDirectory: ToolHandler = async (args) => {
 const runTerminalCommand: ToolHandler = async (args, { sender }) => {
   const command = String(args.command ?? '')
   const warning = dangerousCommandWarning(command)
-  const win = hostWindow(sender)
-  if (!win) {
-    return { ok: false, error: declinedCall('the user declined to run this command') }
-  }
-  const { response } = await dialog.showMessageBox(win, {
+  // The directory is part of what is approved, so it is read before the
+  // dialog and the run uses the same value — a settings change in between
+  // cannot move an approved command somewhere else.
+  const cwd = getSettings().workingDirectory || undefined
+  const approval = await approve(sender, { tool: 'run_terminal_command', args: { command }, cwd }, command, {
     type: warning ? 'error' : 'warning',
     title: warning ? 'DANGEROUS command — confirm' : 'Confirm terminal command',
     message: warning ?? 'A model wants to run this terminal command:',
-    detail: command,
-    buttons: ['Run', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1
+    detail:
+      `${command}\n\nIn: ${cwd ?? '(your home directory)'}\n\n` +
+      '"Always allow" lets this exact command run here without asking, until you revoke it under Settings → Tools.'
   })
-  if (response !== 0) {
+  if (approval === 'declined') {
     return { ok: false, error: declinedCall('the user declined to run this command') }
   }
-  const cwd = getSettings().workingDirectory || undefined
   return await new Promise<ToolResult>((resolvePromise) => {
     exec(command, { cwd, timeout: TERMINAL_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       const combined = [stdout, stderr].filter(Boolean).join('\n').trim()
       if (error && !combined) {
         resolvePromise({ ok: false, error: `Command failed: ${error.message}` })
       } else {
-        resolvePromise({ ok: true, output: truncate(combined || '(command completed with no output)') })
+        const output = truncate(combined || '(command completed with no output)')
+        resolvePromise({ ok: true, output: approval === 'granted' ? `${output}\n${GRANT_NOTE}` : output })
       }
     })
   })

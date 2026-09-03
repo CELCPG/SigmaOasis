@@ -54,6 +54,13 @@ Reference servers launch with `npx`, for example:
   it, on the same pattern as text from the public web, and capped at the same length.
 - **Per-tool switches.** Once a server is on, every tool is on; each can be switched off in the
   panel, which takes it off the wire and refuses calls to it.
+- **Approval per server (v2.6).** Each server has an approval mode, set in the panel:
+  `ask` (the default for a newly added server, and what every server saved before v2.6 is
+  migrated to) confirms every call with a dialog that shows the tool and its exact arguments;
+  `allowlist` runs only calls that match a standing grant and refuses the rest without asking;
+  `full` runs every call without a dialog — stated as what it is. The dialog's *Always allow*
+  mints a grant bound to the server, the tool and the exact arguments; a different argument
+  asks again. Grants are listed with use counts and revoked under Settings → Tools.
 
 ## Failure and restart
 
