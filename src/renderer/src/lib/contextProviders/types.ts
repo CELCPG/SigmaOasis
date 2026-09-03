@@ -1,3 +1,4 @@
+import type { MemoryOrigin } from '../../../../shared/memoryOrigin'
 import type {
   AppSettings,
   AttachmentFileRef,
@@ -65,6 +66,13 @@ export interface ToolExecuteContext {
   modelId?: string
   attachments?: AttachmentFileRef[]
   conversationId?: string
+  /**
+   * v2.6: set by lib/taint.ts once a tool has returned content from outside
+   * the machine this turn; carried to main on every later call. One object
+   * per turn, shared by the providers and the agent loop, so the flag is
+   * seen by both.
+   */
+  tainted?: boolean
 }
 
 /**
@@ -78,7 +86,8 @@ export interface ProviderApi {
     query: string,
     topK?: number,
     minScore?: number,
-    sources?: string[] | null
+    sources?: string[] | null,
+    origins?: readonly MemoryOrigin[] | null
   ): Promise<{ ok: boolean; results: MemorySearchResult[]; error?: string }>
   libraryLookup(query: string, packId?: string | null, topK?: number): Promise<LibraryLookupResult>
   attachmentPassages(

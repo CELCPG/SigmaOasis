@@ -57,6 +57,10 @@ export interface ModelConfig {
 import type { ToolToggles } from '../../shared/tools'
 export type { ToolToggles } from '../../shared/tools'
 
+/** v2.6: a memory chunk's provenance — one declaration, shared with main. */
+import type { MemoryOrigin } from '../../shared/memoryOrigin'
+export type { MemoryOrigin } from '../../shared/memoryOrigin'
+
 /** v1.17.3: how a turn ended, so an empty bubble can name who fell silent. */
 import type { TurnEnding } from '../../shared/failure'
 export type { TurnEnding } from '../../shared/failure'
@@ -167,6 +171,8 @@ export interface MemorySourceStat {
   source: string
   chunks: number
   updatedAt: number
+  /** v2.6: who wrote it (src/shared/memoryOrigin.ts). */
+  origin: MemoryOrigin
 }
 
 export interface MemoryStats {
@@ -178,10 +184,13 @@ export interface MemoryStats {
   totalChunks: number
   /** v2.4: the store's bound. A save that would cross it is refused and says so. */
   maxChunks: number
+  /** v2.6: chunks a model saved after reading web or server content — never auto-recalled. */
+  untrustedChunks: number
   sources: MemorySourceStat[]
 }
 
 export interface MemorySearchResult {
+  origin: MemoryOrigin
   source: string
   text: string
   score: number
@@ -347,6 +356,8 @@ export interface MemoryContextItem {
   unsettled?: boolean
   /** The document's own web source, when it has one — shown as a link. */
   url?: string
+  /** v2.6: a memory chunk's origin; library passages carry none. */
+  origin?: MemoryOrigin
 }
 
 // ---- v0.9: session audit log ---------------------------------------------------

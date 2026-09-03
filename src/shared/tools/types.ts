@@ -45,6 +45,14 @@ export interface ToolMeta {
    */
   readonly isSource?: boolean
   /**
+   * v2.6: a successful call puts content from outside the machine in front
+   * of the model — a search, a page, a research brief. The turn is tainted
+   * from that call on, and a memory the model then asks to save is stored as
+   * `untrusted` (src/shared/memoryOrigin.ts). MCP tools are untrusted by
+   * their wire name; this flag is for the built-ins.
+   */
+  readonly untrusted?: boolean
+  /**
    * The opening words this tool's own handler prints when the call succeeded
    * and found nothing — no hits, no passages. The handler builds that output
    * from this string and the source check reads it back off the record, so

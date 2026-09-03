@@ -10,6 +10,7 @@ import type {
 import type { ProviderIO, ToolExecuteContext } from '../lib/contextProviders'
 import type { TurnToolLedger } from '../lib/agentLoop'
 import { audit, uid } from './turnHelpers'
+import { noteToolResult } from '../lib/taint'
 
 /**
  * The one place app-initiated tool bookkeeping is written (it used to be
@@ -67,6 +68,7 @@ export function makeProviderIO(opts: {
         }))
       record.status = result.ok ? 'done' : 'error'
       record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
+      noteToolResult(toolContext, name, result)
       ledger.note(name, args, result)
       patch({ toolCalls: [...allRecords] })
       auditCall(

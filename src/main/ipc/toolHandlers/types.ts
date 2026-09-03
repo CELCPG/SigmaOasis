@@ -46,6 +46,14 @@ export interface ToolContext {
    * state persists within a conversation and never leaks across two.
    */
   conversationId?: string
+  /**
+   * v2.6: the turn has already put content from outside the machine in front
+   * of the model — a search, a page, a research brief, an MCP result. Set by
+   * the renderer's tool bookkeeping (lib/taint.ts), never by the model; the
+   * memory store reads it to mark what a model saves after that as
+   * `untrusted`.
+   */
+  tainted?: boolean
 }
 
 export type ToolHandler = (args: Record<string, unknown>, context: ToolContext) => Promise<ToolResult>

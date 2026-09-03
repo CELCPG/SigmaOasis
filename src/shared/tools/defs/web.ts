@@ -25,6 +25,7 @@ export const webToolDefs = [
       required: ['query']
     },
     toggleDefault: true,
+    untrusted: true,
     turnBudget: 3,
     isSource: true,
     // A provider that answered "nothing matched" is not a source: the reply
@@ -55,6 +56,7 @@ export const webToolDefs = [
       required: ['query']
     },
     toggleDefault: true,
+    untrusted: true,
     // One call is one provider request plus a fetch to every image host it names
     // — the widest third-party fan-out of any tool here, so the tightest budget.
     turnBudget: 2
@@ -93,6 +95,7 @@ export const webToolDefs = [
       required: ['url']
     },
     toggleDefault: true,
+    untrusted: true,
     turnBudget: 2,
     isSource: true
   }

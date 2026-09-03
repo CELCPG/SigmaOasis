@@ -5,6 +5,8 @@ import { getSettings } from './store'
 import { readTextDocument } from './attachments'
 import { writeFileAtomic } from './fsAtomic'
 import { chunkText, embedTexts, resolveEmbeddingModel, toUnitVector, unitDot } from './embeddings'
+import { isMemoryOrigin, MEMORY_ORIGIN_LABELS, MEMORY_ORIGIN_RANK } from '../../shared/memoryOrigin'
+import type { MemoryOrigin } from '../../shared/memoryOrigin'
 
 /**
  * Local long-term memory (RAG): text is chunked, embedded with a local
@@ -26,6 +28,13 @@ interface MemoryChunk {
   /** Embedding model that produced this vector. Absent on pre-v0.6 chunks. */
   model?: string
   createdAt: number
+  /**
+   * v2.6: who put it here. Written by this module from what the caller *is*
+   * (the Settings panel, the note indexer, a tool handler reading the turn's
+   * taint flag), never from what a tool argument *says*. Absent on pre-v2.6
+   * chunks, which read as `unknown`.
+   */
+  origin?: MemoryOrigin
 }
 
 interface MemoryFile {
@@ -36,7 +45,48 @@ export interface MemorySearchResult {
   source: string
   text: string
   score: number
+  origin: MemoryOrigin
 }
+
+export interface AddToMemoryOptions {
+  origin?: MemoryOrigin
+  maxChunks?: number
+  /**
+   * Refuse a save whose text already sits in the store under another source.
+   * The model producers set it: a chunk recalled into a turn and saved again
+   * would otherwise compound forever, one copy per conversation — the recall
+   * loop OpenClaw's memory design names, closed at the writer.
+   */
+  refuseDuplicates?: boolean
+}
+
+export class MemoryOriginError extends Error {
+  constructor(source: string, have: MemoryOrigin, want: MemoryOrigin) {
+    super(
+      `A memory titled "${source}" already exists and was ${MEMORY_ORIGIN_LABELS[have]}; ` +
+        `one ${MEMORY_ORIGIN_LABELS[want]} cannot replace it. Save under a different title.`
+    )
+    this.name = 'MemoryOriginError'
+  }
+}
+
+export class MemoryDuplicateError extends Error {
+  constructor(source: string) {
+    super(`That text is already in long-term memory under "${source}". Nothing was saved.`)
+    this.name = 'MemoryDuplicateError'
+  }
+}
+
+function originOf(chunk: MemoryChunk): MemoryOrigin {
+  return isMemoryOrigin(chunk.origin) ? chunk.origin : 'unknown'
+}
+
+/** Whitespace- and case-insensitive identity for the duplicate check. */
+function normalizeForDuplicate(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+const MIN_DUPLICATE_CHARS = 40
 
 const MAX_DOCUMENT_CHARS = 500_000
 
@@ -144,18 +194,44 @@ function withMemoryLock<T>(fn: () => Promise<T>): Promise<T> {
   return run
 }
 
-/** Add or replace a named source in memory (chunks + embeds + persists). */
+/**
+ * Add or replace a named source in memory (chunks + embeds + persists).
+ *
+ * v2.6: the origin is the caller's identity, stated by the caller's code. A
+ * source already stored is replaced only when the new origin ranks at or
+ * above the old one (shared/memoryOrigin.ts): the model cannot overwrite the
+ * user's document by saving under its title, and a tainted turn cannot
+ * overwrite a clean note. The third argument accepts a bare number for the
+ * cap, which is what the v2.4 bound tests pass.
+ */
 export async function addToMemory(
   source: string,
   text: string,
-  maxChunks: number = MAX_MEMORY_CHUNKS
-): Promise<{ chunks: number }> {
+  options: AddToMemoryOptions | number = {}
+): Promise<{ chunks: number; origin: MemoryOrigin }> {
+  const opts: AddToMemoryOptions = typeof options === 'number' ? { maxChunks: options } : options
+  const origin: MemoryOrigin = opts.origin ?? 'user'
+  const maxChunks = opts.maxChunks ?? MAX_MEMORY_CHUNKS
   const pieces = chunkText(text.slice(0, MAX_DOCUMENT_CHARS))
   if (pieces.length === 0) throw new Error('The document has no text to index.')
 
   const { model, vectors } = await embedTexts(pieces)
   return withMemoryLock(async () => {
     const memory = await readMemory()
+    const existing = memory.chunks.find((c) => c.source === source)
+    if (existing && MEMORY_ORIGIN_RANK[originOf(existing)] > MEMORY_ORIGIN_RANK[origin]) {
+      throw new MemoryOriginError(source, originOf(existing), origin)
+    }
+    if (opts.refuseDuplicates) {
+      const incoming = normalizeForDuplicate(text)
+      const twin = memory.chunks.find(
+        (c) =>
+          c.source !== source &&
+          c.text.length >= MIN_DUPLICATE_CHARS &&
+          incoming.includes(normalizeForDuplicate(c.text))
+      )
+      if (twin) throw new MemoryDuplicateError(twin.source)
+    }
     memory.chunks = memory.chunks.filter((c) => c.source !== source)
     if (memory.chunks.length + pieces.length > maxChunks) {
       throw new MemoryFullError(memory.chunks.length, pieces.length)
@@ -168,11 +244,12 @@ export async function addToMemory(
         text: pieces[i],
         embedding: vectors[i],
         model,
-        createdAt: now
+        createdAt: now,
+        origin
       })
     }
     await writeMemory(memory)
-    return { chunks: pieces.length }
+    return { chunks: pieces.length, origin }
   })
 }
 
@@ -180,7 +257,8 @@ export async function searchMemory(
   query: string,
   topK: number,
   minScore: number = MEMORY_SCORE_FLOOR,
-  sources?: string[] | null
+  sources?: string[] | null,
+  origins?: readonly MemoryOrigin[] | null
 ): Promise<MemorySearchResult[]> {
   const memory = await readMemory()
   if (memory.chunks.length === 0) return []
@@ -208,6 +286,15 @@ export async function searchMemory(
     if (comparable.length === 0) return []
   }
 
+  // v2.6: origin scoping. Auto-recall passes AUTO_RECALL_ORIGINS, which
+  // leaves `untrusted` out; an explicit memory_search passes null and sees
+  // everything, each result carrying its origin.
+  if (origins != null) {
+    const allowed = new Set(origins)
+    comparable = comparable.filter((c) => allowed.has(originOf(c)))
+    if (comparable.length === 0) return []
+  }
+
   const queryUnit = toUnitVector(queryVector)
   return comparable
     .map((c) => {
@@ -216,7 +303,7 @@ export async function searchMemory(
         unit = toUnitVector(c.embedding)
         unitVectors.set(c, unit)
       }
-      return { source: c.source, text: c.text, score: unitDot(queryUnit, unit) }
+      return { source: c.source, text: c.text, score: unitDot(queryUnit, unit), origin: originOf(c) }
     })
     .filter((r) => r.score >= minScore)
     .sort((a, b) => b.score - a.score)
@@ -234,14 +321,31 @@ export async function deleteFromMemory(source: string): Promise<{ removed: numbe
   })
 }
 
+/** v2.6: forget every chunk of one origin. The panel offers it for `untrusted`. */
+export async function deleteFromMemoryByOrigin(origin: MemoryOrigin): Promise<{ removed: number }> {
+  return withMemoryLock(async () => {
+    const memory = await readMemory()
+    const before = memory.chunks.length
+    memory.chunks = memory.chunks.filter((c) => originOf(c) !== origin)
+    await writeMemory(memory)
+    return { removed: before - memory.chunks.length }
+  })
+}
+
 export async function memoryStats(): Promise<unknown> {
   const memory = await readMemory()
   const model = await resolveEmbeddingModel()
-  const bySource = new Map<string, { chunks: number; updatedAt: number }>()
+  const bySource = new Map<string, { chunks: number; updatedAt: number; origin: MemoryOrigin }>()
+  let untrustedChunks = 0
   for (const c of memory.chunks) {
-    const entry = bySource.get(c.source) ?? { chunks: 0, updatedAt: 0 }
+    const origin = originOf(c)
+    if (origin === 'untrusted') untrustedChunks += 1
+    const entry = bySource.get(c.source) ?? { chunks: 0, updatedAt: 0, origin }
     entry.chunks += 1
     entry.updatedAt = Math.max(entry.updatedAt, c.createdAt)
+    // A source is written whole by one caller, so its chunks share an origin;
+    // if a hand-edited file disagrees, the lowest-trust origin is the honest one.
+    if (MEMORY_ORIGIN_RANK[origin] < MEMORY_ORIGIN_RANK[entry.origin]) entry.origin = origin
     bySource.set(c.source, entry)
   }
   // More than one vector space in the store means some sources can no longer
@@ -258,8 +362,9 @@ export async function memoryStats(): Promise<unknown> {
     mixedModels: dimensions.size > 1,
     totalChunks: memory.chunks.length,
     maxChunks: MAX_MEMORY_CHUNKS,
+    untrustedChunks,
     sources: [...bySource.entries()]
-      .map(([source, s]) => ({ source, chunks: s.chunks, updatedAt: s.updatedAt }))
+      .map(([source, s]) => ({ source, chunks: s.chunks, updatedAt: s.updatedAt, origin: s.origin }))
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 }
@@ -269,7 +374,14 @@ export function registerMemoryHandlers(): void {
 
   ipcMain.handle(
     'memory:search',
-    async (_e, query: string, topK?: number, minScore?: number, sources?: string[] | null) => {
+    async (
+      _e,
+      query: string,
+      topK?: number,
+      minScore?: number,
+      sources?: string[] | null,
+      origins?: unknown[] | null
+    ) => {
       try {
         return {
           ok: true,
@@ -277,7 +389,8 @@ export function registerMemoryHandlers(): void {
             String(query ?? ''),
             topK ?? getSettings().memory.topK,
             typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : undefined,
-            Array.isArray(sources) ? sources.map(String) : null
+            Array.isArray(sources) ? sources.map(String) : null,
+            Array.isArray(origins) ? origins.filter(isMemoryOrigin) : null
           )
         }
       } catch (err) {
@@ -286,9 +399,10 @@ export function registerMemoryHandlers(): void {
     }
   )
 
+  // Both Settings-panel producers are the user acting: origin `user`.
   ipcMain.handle('memory:addDocument', async (_e, source: string, text: string) => {
     try {
-      return { ok: true, ...(await addToMemory(String(source ?? ''), String(text ?? ''))) }
+      return { ok: true, ...(await addToMemory(String(source ?? ''), String(text ?? ''), { origin: 'user' })) }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -297,7 +411,7 @@ export function registerMemoryHandlers(): void {
   ipcMain.handle('memory:addDocumentFromPath', async (_e, path: string) => {
     try {
       const doc = await readTextDocument(String(path ?? ''), MAX_DOCUMENT_CHARS)
-      const result = await addToMemory(doc.name, doc.text)
+      const result = await addToMemory(doc.name, doc.text, { origin: 'user' })
       return { ok: true, name: doc.name, truncated: doc.truncated, ...result }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -307,6 +421,15 @@ export function registerMemoryHandlers(): void {
   ipcMain.handle('memory:delete', async (_e, source: string) => {
     try {
       return { ok: true, ...(await deleteFromMemory(String(source ?? ''))) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('memory:deleteOrigin', async (_e, origin: unknown) => {
+    if (!isMemoryOrigin(origin)) return { ok: false, error: 'Unknown memory origin.' }
+    try {
+      return { ok: true, ...(await deleteFromMemoryByOrigin(origin)) }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }

@@ -1,4 +1,5 @@
 import type { ContextProvider } from './types'
+import { AUTO_RECALL_ORIGINS } from '../../../../shared/memoryOrigin'
 
 /**
  * RAG: fold recalled long-term memory into this turn's context (best effort).
@@ -7,6 +8,11 @@ import type { ContextProvider } from './types'
  * can restrict which sources it recalls from (memorySources). Prefetch phase:
  * the embedding call starts at turn open and overlaps the auto-search's
  * network wait instead of queueing behind it.
+ *
+ * v2.6: recall reads AUTO_RECALL_ORIGINS only. A memory a model saved after
+ * reading a page or a server's output is `untrusted` and is never injected
+ * here; it is reachable through an explicit memory_search, labelled, and
+ * visible under Settings → Memory.
  */
 export const memoryRecallProvider: ContextProvider = {
   id: 'memoryRecall',
@@ -26,7 +32,7 @@ export const memoryRecallProvider: ContextProvider = {
     const scoped = input.convo.memorySources
     try {
       const recalled = await io.api
-        .memorySearch(input.lastUserContent!, memorySettings.topK, undefined, scoped ?? null)
+        .memorySearch(input.lastUserContent!, memorySettings.topK, undefined, scoped ?? null, AUTO_RECALL_ORIGINS)
         .catch(() => null)
       if (!(recalled?.ok && recalled.results.length > 0)) return null
       const block = recalled.results.map((r) => `- [${r.source}] ${r.text}`).join('\n')
@@ -34,7 +40,8 @@ export const memoryRecallProvider: ContextProvider = {
         memoryContext: recalled.results.map((r) => ({
           source: r.source,
           score: r.score,
-          text: r.text
+          text: r.text,
+          ...(r.origin ? { origin: r.origin } : {})
         }))
       })
       return {

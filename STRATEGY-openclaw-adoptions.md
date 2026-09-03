@@ -61,10 +61,14 @@ memory-poisoning class, open. Adopt, at `main/ipc/memory.ts` and the fact ledger
    arguments: `user` (typed or added under Settings → Memory), `model` (a `memory_save` the
    model issued), `untrusted` (the turn's context carried `UNTRUSTED_HEADER` content), `app`
    (notes auto-indexed, the ledger). Session kind: interactive, plan step, consultation, job.
-2. **Auto-recall reads only `user` and `app`.** `model` chunks are recalled only when the user's
-   message matches a trigger phrase or by explicit `memory_search`; `untrusted` chunks are never
-   auto-injected and are shown in the panel with their origin, deletable in one click. The
-   recall line under a reply already names sources; it will name origins too.
+2. **Auto-recall admits every origin but `untrusted`.** OpenClaw's rule, adopted as stated:
+   agent-origin memory is admitted to recall, untrusted-origin memory is structurally barred
+   from it. An `untrusted` chunk is reachable only through an explicit `memory_search`, where
+   it is labelled and carries the untrusted marker, and the panel shows it with its origin and
+   forgets the whole class in one click. The recall line under a reply already names sources;
+   it names a model's origin too. *(v2.6: built this way. An earlier draft of this line had
+   `model` chunks recalled only on a trigger phrase; that was narrower than the rule being
+   adopted and is not what shipped.)*
 3. **Taint propagates within a turn.** A save issued after a web tool returned in the same turn
    is `untrusted`, whatever the model says about it. Recalled chunks are marked in the turn so a
    save in that turn cannot re-save them (loop prevention).

@@ -4,6 +4,7 @@
 
 import React from 'react'
 import type { AppSettings, MemoryStats } from '../../types'
+import { MEMORY_ORIGIN_LABELS } from '../../../../shared/memoryOrigin'
 
 export interface MemoryTabProps {
   draft: AppSettings
@@ -128,6 +129,29 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                         </button>
                       </div>
                       {memoryNotice && <p className="text-xs text-ink-secondary">{memoryNotice}</p>}
+                      {(memoryStats?.untrustedChunks ?? 0) > 0 && (
+                        <p className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-ink-primary">
+                          <span className="min-w-0 flex-1">
+                            {memoryStats!.untrustedChunks} chunk(s) were saved by a model after it read web or server
+                            content. They are never added to a conversation automatically; a model can still find them
+                            with <code>memory_search</code>.
+                          </span>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-lg px-2 py-1 text-ink-danger hover:bg-black/10 dark:hover:bg-white/5"
+                            onClick={() =>
+                              void window.api.memoryDeleteOrigin('untrusted').then((r) => {
+                                setMemoryNotice(
+                                  r.ok ? `Forgot ${r.removed ?? 0} chunk(s) of web-origin memory.` : (r.error ?? 'Could not forget them.')
+                                )
+                                void window.api.memoryStats().then(setMemoryStats)
+                              })
+                            }
+                          >
+                            Forget them
+                          </button>
+                        </p>
+                      )}
                       {(memoryStats?.sources.length ?? 0) === 0 ? (
                         <p className="text-xs text-ink-secondary">
                           Nothing indexed yet. Notes created by models are indexed automatically;
@@ -143,6 +167,13 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                               <span className="min-w-0 flex-1 truncate" title={s.source}>
                                 {s.source}
                               </span>
+                              {s.origin !== 'user' && (
+                                <span
+                                  className={`shrink-0 text-xs ${s.origin === 'untrusted' ? 'text-ink-warn' : 'text-ink-tertiary'}`}
+                                >
+                                  {MEMORY_ORIGIN_LABELS[s.origin]}
+                                </span>
+                              )}
                               <span className="shrink-0 text-xs text-ink-tertiary">
                                 {s.chunks} chunk(s)
                               </span>

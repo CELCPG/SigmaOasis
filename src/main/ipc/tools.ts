@@ -28,7 +28,12 @@ export function registerToolHandlers(): void {
       event,
       name: keyof ToolToggles,
       args: Record<string, unknown>,
-      context?: { modelId?: string; attachments?: { name: string; sourcePath: string }[]; conversationId?: string }
+      context?: {
+        modelId?: string
+        attachments?: { name: string; sourcePath: string }[]
+        conversationId?: string
+        tainted?: boolean
+      }
     ) => {
       // v2.5: an MCP tool leaves here too. Its server's enablement and its own
       // per-tool switch are the manager's to check; the static toggle table has
@@ -41,6 +46,7 @@ export function registerToolHandlers(): void {
         sender: event.sender,
         modelId: context?.modelId,
         conversationId: typeof context?.conversationId === 'string' ? context.conversationId : undefined,
+        tainted: context?.tainted === true,
         attachments: Array.isArray(context?.attachments)
           ? context!.attachments.filter((a) => a && typeof a.name === 'string' && typeof a.sourcePath === 'string')
           : []

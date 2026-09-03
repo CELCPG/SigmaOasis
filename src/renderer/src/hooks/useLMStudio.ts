@@ -23,6 +23,8 @@ import { isOffline } from '../lib/libraryRecall'
 import { attachmentFileRefs, TABULAR_FILE } from '../lib/attachmentRecall'
 import { projectInstructionsBlock } from '../lib/projectContext'
 import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProviders'
+import type { ToolExecuteContext } from '../lib/contextProviders'
+import { noteToolResult } from '../lib/taint'
 import {
   createVerifyBudget,
   gatheringPhase,
@@ -234,7 +236,7 @@ async function runTurn(
   // the wire whatever the embedding rank says, because the app is about to
   // tell the model to compute with them.
   const fileRefs = attachmentFileRefs(convo)
-  const toolContext = { modelId: slot.modelId, attachments: fileRefs, conversationId: convo.id }
+  const toolContext: ToolExecuteContext = { modelId: slot.modelId, attachments: fileRefs, conversationId: convo.id }
   const forcedTools = fileRefs.some((f) => TABULAR_FILE.test(f.name)) ? ['run_python', 'analyze_file'] : []
   const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId, forcedTools)
 
@@ -555,7 +557,13 @@ async function runTurn(
         },
         // The caller's model id goes along so main-process tools that need to
         // reason (deep_research) plan with the model the user is talking to.
-        executeTool: (name, args) => window.api.executeTool(name, args, toolContext),
+        executeTool: async (name, args) => {
+          const result = await window.api.executeTool(name, args, toolContext)
+          // v2.6: the turn is tainted from the first foreign result on; the
+          // flag rides toolContext to every later call (lib/taint.ts).
+          noteToolResult(toolContext, name, result)
+          return result
+        },
         consult: delegation
           ? async (role, task): Promise<ToolResult> => {
               const specialist =

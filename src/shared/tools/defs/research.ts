@@ -36,6 +36,7 @@ export const researchToolDefs = [
       required: ['question']
     },
     toggleDefault: true,
+    untrusted: true,
     // One campaign per turn.
     turnBudget: 1,
     isSource: true,

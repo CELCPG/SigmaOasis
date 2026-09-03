@@ -1,4 +1,5 @@
 import type { LibraryPassage, MemoryContextItem, ToolCallRecord } from '../types'
+import { MEMORY_ORIGIN_LABELS } from '../../../shared/memoryOrigin'
 import {
   citedIndices,
   danglingCitations,
@@ -103,8 +104,11 @@ export const UNSETTLED_MARK = '— cannot tell'
 
 /** One line of the recall strip: the bracketed number, when there is one, then the citation. */
 export function contextItemLabel(item: MemoryContextItem): string {
+  // v2.6: a memory's origin is part of its citation when it is not the user's
+  // own — the reader should know a recalled note was a model's.
+  const origin = item.origin && item.origin !== 'user' ? ` · ${MEMORY_ORIGIN_LABELS[item.origin]}` : ''
   return (
-    `${item.index === undefined ? '' : `[${item.index}] `}${item.source} (${item.score.toFixed(2)})` +
+    `${item.index === undefined ? '' : `[${item.index}] `}${item.source} (${item.score.toFixed(2)})${origin}` +
     (item.cited === false ? ` ${UNCITED_MARK}` : item.unsettled ? ` ${UNSETTLED_MARK}` : '')
   )
 }

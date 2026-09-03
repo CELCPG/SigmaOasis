@@ -18,6 +18,7 @@
  */
 
 import type { ToolSchema } from './types'
+import { isMcpWireName } from '../mcpNames'
 import { fileToolDefs } from './defs/files'
 import { webToolDefs } from './defs/web'
 import { researchToolDefs } from './defs/research'
@@ -92,6 +93,21 @@ export const ALWAYS_ON_TOOLS: readonly string[] = TOOL_DEFS.filter(
 export const SOURCE_TOOLS: ReadonlySet<string> = new Set(
   TOOL_DEFS.filter((d) => 'isSource' in d && d.isSource === true).map((d) => d.name)
 )
+
+/**
+ * v2.6: tools whose successful output came from outside the machine. A turn
+ * that ran one is tainted for the memory store (see lib/taint.ts and
+ * src/shared/memoryOrigin.ts). Every MCP tool is untrusted by construction —
+ * the manager says so in each one's description — so the predicate covers
+ * both without the caller knowing which kind it holds.
+ */
+export const UNTRUSTED_TOOLS: ReadonlySet<string> = new Set(
+  TOOL_DEFS.filter((d) => 'untrusted' in d && d.untrusted === true).map((d) => d.name)
+)
+
+export function isUntrustedTool(name: string): boolean {
+  return UNTRUSTED_TOOLS.has(name) || isMcpWireName(name)
+}
 
 /**
  * The opening words each tool prints when the call worked and found nothing.

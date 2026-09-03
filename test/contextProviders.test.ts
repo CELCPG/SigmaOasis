@@ -290,13 +290,17 @@ describe('memoryRecall provider', () => {
   })
 
   test('recalled chunks ride the notes with the standing preamble and are disclosed', async () => {
+    const searches: unknown[][] = []
     const { io, calls } = makeIO({
       settings,
       api: {
-        memorySearch: async () => ({
-          ok: true,
-          results: [{ source: 'favorites', score: 0.9, text: 'The user likes Phish.' }]
-        })
+        memorySearch: async (...args: unknown[]) => {
+          searches.push(args)
+          return {
+            ok: true,
+            results: [{ source: 'favorites', score: 0.9, text: 'The user likes Phish.', origin: 'model' }]
+          }
+        }
       } as unknown as ProviderIO['api']
     })
     const result = await memoryRecallProvider.gather(makeInput(), io)
@@ -305,9 +309,13 @@ describe('memoryRecall provider', () => {
       result!.blocks![0].startsWith('Background notes from your long-term local memory.')
     )
     assert.ok(result!.blocks![0].includes('- [favorites] The user likes Phish.'))
+    // v2.6: the origin rides the disclosure, and recall asks for the
+    // auto-recall origins only — `untrusted` is never in that list.
     assert.deepEqual(calls.patches, [
-      { memoryContext: [{ source: 'favorites', score: 0.9, text: 'The user likes Phish.' }] }
+      { memoryContext: [{ source: 'favorites', score: 0.9, text: 'The user likes Phish.', origin: 'model' }] }
     ])
+    const origins = searches[0]![4] as string[]
+    assert.ok(Array.isArray(origins) && origins.includes('user') && !origins.includes('untrusted'))
   })
 })
 

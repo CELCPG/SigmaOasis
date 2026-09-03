@@ -33,6 +33,7 @@ import type {
   McpServerStatus
 } from '../renderer/src/types'
 import type { EvalFixture } from '../renderer/src/lib/evalRunner'
+import type { MemoryOrigin } from '../shared/memoryOrigin'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -67,7 +68,7 @@ const api = {
   executeTool: (
     name: string,
     args: Record<string, unknown>,
-    context?: { modelId?: string; attachments?: AttachmentFileRef[]; conversationId?: string }
+    context?: { modelId?: string; attachments?: AttachmentFileRef[]; conversationId?: string; tainted?: boolean }
   ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
   /**
    * Rank candidate tools against the user's message by embedding cosine
@@ -239,9 +240,10 @@ const api = {
     query: string,
     topK?: number,
     minScore?: number,
-    sources?: string[] | null
+    sources?: string[] | null,
+    origins?: readonly MemoryOrigin[] | null
   ): Promise<{ ok: boolean; results: MemorySearchResult[]; error?: string }> =>
-    ipcRenderer.invoke('memory:search', query, topK, minScore, sources ?? null),
+    ipcRenderer.invoke('memory:search', query, topK, minScore, sources ?? null, origins ?? null),
   memoryAddDocument: (
     source: string,
     text: string
@@ -253,6 +255,9 @@ const api = {
     ipcRenderer.invoke('memory:addDocumentFromPath', path),
   memoryDeleteSource: (source: string): Promise<{ ok: boolean; removed?: number; error?: string }> =>
     ipcRenderer.invoke('memory:delete', source),
+  /** v2.6: forget every chunk of one origin — the panel's "forget all web-origin memories". */
+  memoryDeleteOrigin: (origin: MemoryOrigin): Promise<{ ok: boolean; removed?: number; error?: string }> =>
+    ipcRenderer.invoke('memory:deleteOrigin', origin),
 
   // Session audit log (main/ipc/audit.ts) — opt-in, encrypted, tamper-evident.
   auditStatus: (): Promise<AuditStatus> => ipcRenderer.invoke('audit:status'),
