@@ -40,6 +40,8 @@ describe('turn-context provider registry', () => {
         'factLedger:serial',
         'autoSearch:serial',
         'libraryPassages:serial',
+        // v2.7: a user's skill takes the method slot and stands the playbook down.
+        'skill:serial',
         'playbook:serial',
         'ledger:serial',
         'shoppingPrice:serial',

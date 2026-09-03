@@ -1,6 +1,6 @@
 # Strategy: Capability multipliers — post v2.2.0
 
-**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below); v2.5 — A1 (the MCP client) landed and gated: with the app's own per-turn selection, correct-tool and spurious-call rates are identical at 0, 4 and 12 connected servers (the raw-list finding and the table are in `docs/evals.md`), B3 closed by evidence; v2.6 — A2 (the fact ledger) landed and gated by the `claims` suite (second asks that searched 20/20 → 9/20, every unchanged case answered from a dated entry, every changed price surfaced as a contradiction; seconds did not fall, stated), A3 (standing questions) landed, A4 (outline-then-fill) built behind a switch that ships off pending the `longform` suite, plus the four OpenClaw adoptions (memory origins, standing grants, the privacy audit, MCP approval modes) — `STRATEGY-openclaw-adoptions.md`.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
+**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below); v2.5 — A1 (the MCP client) landed and gated: with the app's own per-turn selection, correct-tool and spurious-call rates are identical at 0, 4 and 12 connected servers (the raw-list finding and the table are in `docs/evals.md`), B3 closed by evidence; v2.6 — A2 (the fact ledger) landed and gated by the `claims` suite (second asks that searched 20/20 → 9/20, every unchanged case answered from a dated entry, every changed price surfaced as a contradiction; seconds did not fall, stated), A3 (standing questions) landed, A4 (outline-then-fill) built behind a switch that ships off pending the `longform` suite, plus the four OpenClaw adoptions (memory origins, standing grants, the privacy audit, MCP approval modes) — `STRATEGY-openclaw-adoptions.md`; v2.7 — A5 steering landed and gated (delivered 10/10, honoured 9/10), spill closed by evidence, A6 Code Mode built and measured to a null result (16/20 in both arms, 2.7× the time; default native), plus skills and the persona/rules split.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
 five earlier strategy documents, the v2.1/v2.2 release notes, `docs/evals.md`, the
 head-to-head record (`docs/head-to-head/rounds.json`, verdicts 8–13), and the source tree.
 Companions: `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped), `STRATEGY-speed-and-quality.md`
@@ -178,6 +178,13 @@ Ship as a per-slot mode. The honest prior from the orchestration evals is that t
 help small models; **the suite decides**, and a null result is recorded as one.
 
 *Eval gate:* the quantitative and multi-turn suites in native, code, and both modes.
+
+*(v2.7: built — the SDK, the bridge through the preload with the renderer deciding, per-slot
+`native | code | both`, records under the program's block, `[code mode]` audit lines, the
+sandbox's network still blocked. Measured on the fact-ledger fixtures rather than the quant
+suite, because quant is pure computation and Code Mode is orchestration: correctness 16/20 in
+both arms, the same four misses, 2.7× the time. A null result, recorded; the default is
+native, as the prior said. `docs/evals.md`.)*
 
 ### A7. ZIM packs
 

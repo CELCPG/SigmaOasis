@@ -1,7 +1,9 @@
 import type { ContextProvider, ProviderIO, ProviderResult, TurnInput } from './types'
 import type { TurnWait } from '../turnPhase'
+import type { AttachmentFileRef } from '../../types'
 import { factLedgerProvider } from './factLedger'
 import { autoSearchProvider } from './autoSearch'
+import { skillProvider } from './skill'
 import { libraryPassagesProvider } from './libraryPassages'
 import { playbookProvider } from './playbook'
 import { ledgerProvider } from './ledger'
@@ -26,6 +28,8 @@ export const TURN_CONTEXT_PROVIDERS: readonly ContextProvider[] = [
   factLedgerProvider,
   autoSearchProvider,
   libraryPassagesProvider,
+  // v2.7: a user's skill takes the method slot and stands the playbook down.
+  skillProvider,
   playbookProvider,
   ledgerProvider,
   shoppingPriceProvider,
@@ -38,6 +42,8 @@ export const TURN_CONTEXT_PROVIDERS: readonly ContextProvider[] = [
 export interface GatheredContext {
   blocks: string[]
   projectTokens: { recall: number; files: number }
+  /** v2.7: files a provider asked the turn's tools to be able to stage (a skill's helpers). */
+  attachments: AttachmentFileRef[]
   /** True when the turn was aborted mid-sequence; the caller returns. */
   aborted: boolean
 }
@@ -75,12 +81,14 @@ export async function gatherTurnContext(
   // the one that asked can be suppressed — a prefetch already running is
   // folded as it always was.
   const suppressed = new Set<string>()
+  const attachments: AttachmentFileRef[] = []
   const fold = (result: ProviderResult | null): void => {
     if (!result) return
     if (result.blocks) blocks.push(...result.blocks)
     if (result.projectTokens?.recall) projectTokens.recall += result.projectTokens.recall
     if (result.projectTokens?.files) projectTokens.files += result.projectTokens.files
     for (const id of result.suppress ?? []) suppressed.add(id)
+    if (result.attachments) attachments.push(...result.attachments)
   }
 
   try {
@@ -95,9 +103,9 @@ export async function gatherTurnContext(
       // that outlived its work would be worse than none.
       onWait(p.wait ?? null)
       fold(await p.gather(input, io).catch(() => null))
-      if (input.signal.aborted) return { blocks, projectTokens, aborted: true }
+      if (input.signal.aborted) return { blocks, projectTokens, attachments, aborted: true }
     }
-    return { blocks, projectTokens, aborted: false }
+    return { blocks, projectTokens, attachments, aborted: false }
   } finally {
     onWait(null)
   }

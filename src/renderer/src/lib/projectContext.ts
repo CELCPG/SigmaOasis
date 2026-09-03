@@ -26,6 +26,19 @@ export function projectInstructionsBlock(project: Project | null | undefined): s
   return `\n\nThis chat belongs to the project "${project.name}". Standing instructions for every chat in this project:\n${text}`
 }
 
+/**
+ * v2.7: a slot's standing rules — how it operates, as distinct from how it
+ * sounds (the system prompt is the persona). Appended right after the persona
+ * and before any project block, stable for the life of the slot, so it sits
+ * in the cached prefix like the project's instructions do. Disclosed under
+ * the reply as "standing rules applied".
+ */
+export function slotRulesBlock(slot: { rules?: string } | null | undefined): string {
+  const text = slot?.rules?.trim()
+  if (!text) return ''
+  return `\n\nStanding rules for this role — follow them on every turn:\n${text}`
+}
+
 /** Pinned project files as attachment refs: indexed lazily from the path, retrieved per turn like an attached document. */
 export function projectFileRefs(project: Project | null | undefined): AttachmentRef[] {
   if (!project) return []

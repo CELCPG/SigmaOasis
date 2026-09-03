@@ -452,7 +452,33 @@ const storeStub = {
   getSettings: () => state.settings,
   getBraveApiKey: () => null,
   setBraveApiKey: () => ({ ok: true }),
-  braveApiKeyStatus: () => ({ set: false, encrypted: false })
+  braveApiKeyStatus: () => ({ set: false, encrypted: false }),
+  // v2.7: the skill installer saves a server switched off. The same rules the
+  // real normalizer applies to a server row, over the harness's settings.
+  normalizeMcpServers: (raw: unknown): Record<string, unknown>[] => {
+    if (!Array.isArray(raw)) return []
+    const out: Record<string, unknown>[] = []
+    for (const r of raw as Record<string, unknown>[]) {
+      const id = String(r?.id ?? '').trim().replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 32)
+      const command = typeof r?.command === 'string' ? r.command.trim() : ''
+      if (!id || !command) continue
+      out.push({
+        id,
+        name: (typeof r?.name === 'string' && r.name.trim()) || id,
+        command,
+        args: Array.isArray(r?.args) ? r.args.filter((a): a is string => typeof a === 'string') : [],
+        env: r?.env && typeof r.env === 'object' ? r.env : {},
+        ...(typeof r?.cwd === 'string' && r.cwd.trim() ? { cwd: r.cwd.trim() } : {}),
+        enabled: r?.enabled === true,
+        disabledTools: [],
+        approval: r?.approval === 'allowlist' || r?.approval === 'full' ? r.approval : 'ask'
+      })
+    }
+    return out
+  },
+  saveMcpServers: (servers: unknown[]): void => {
+    state.settings = { ...state.settings, mcp: { servers } }
+  }
 }
 
 /**

@@ -21,7 +21,7 @@ import { composeFailure, explainFailure } from '../../../shared/failure'
 import { looksLikeShopping } from '../lib/shopping'
 import { isOffline } from '../lib/libraryRecall'
 import { attachmentFileRefs, TABULAR_FILE } from '../lib/attachmentRecall'
-import { projectInstructionsBlock } from '../lib/projectContext'
+import { projectInstructionsBlock, slotRulesBlock } from '../lib/projectContext'
 import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProviders'
 import type { ToolExecuteContext } from '../lib/contextProviders'
 import { noteToolResult } from '../lib/taint'
@@ -185,6 +185,8 @@ async function runTurn(
   const patch = (p: Partial<ChatMessage>): void =>
     useAppStore.getState().patchMessage(conversationId, assistantMsg.id, p)
   const tail = makeTailStream(assistantMsg, patch)
+  // v2.7: the reader can see that the slot's standing rules rode this turn.
+  if (slot.rules?.trim()) patch({ rulesApplied: true })
   /**
    * Name the wait (lib/turnPhase.ts). Both ends of a turn make the user wait
    * on work the model is not doing — the pre-model providers below, and the
@@ -218,8 +220,10 @@ async function runTurn(
   const project =
     (convo.projectId && store.settings?.projects.find((p) => p.id === convo.projectId)) || null
   const projectBlock = projectInstructionsBlock(project)
+  // v2.7: persona, then the slot's standing rules, then the project's — three
+  // layers, all stable from turn to turn.
   let systemPrompt = withToolCallPreamble(
-    withGrounding(slot.systemPrompt + projectBlock, new Date(), { offline }),
+    withGrounding(slot.systemPrompt + slotRulesBlock(slot) + projectBlock, new Date(), { offline }),
     slot.modelId
   )
   // What the project spent this turn, for the details panel (estimates).
@@ -350,6 +354,9 @@ async function runTurn(
   projectTokens.recall = gathered.projectTokens.recall
   projectTokens.files = gathered.projectTokens.files
   /** The app's own additions for this turn, appended to the turn's user message. */
+  // v2.7: a skill's helper files ride the turn's tool context, so run_python
+  // and run_code find them under /work beside the conversation's attachments.
+  if (gathered.attachments.length > 0) toolContext.attachments = [...fileRefs, ...gathered.attachments]
   const turnContext: string[] = gathered.blocks
 
   // The wire history is maintained locally across tool-loop iterations;
@@ -1270,7 +1277,7 @@ export function useLMStudio(): {
       try {
         const r = await window.api.outlineWrite({
           model: slot.modelId,
-          persona: withGrounding(slot.systemPrompt, new Date(), { offline: isOffline() }),
+          persona: withGrounding(slot.systemPrompt + slotRulesBlock(slot), new Date(), { offline: isOffline() }),
           request,
           messageId: assistantMsg.id
         })

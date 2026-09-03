@@ -1,5 +1,6 @@
 import type { MemoryOrigin } from '../../../../shared/memoryOrigin'
 import type { LedgerHit } from '../../../../shared/factLedger'
+import type { InstalledSkill } from '../../../../shared/skills'
 import type {
   AppSettings,
   AttachmentFileRef,
@@ -95,6 +96,9 @@ export interface ProviderApi {
   libraryLookup(query: string, packId?: string | null, topK?: number): Promise<LibraryLookupResult>
   /** v2.6: the fact ledger. Absent where no ledger is wired (the bare eval arm). */
   ledgerLookup?(query: string): Promise<{ ok: boolean; hits: LedgerHit[]; error?: string }>
+  /** v2.7: the user's installed skills, and a skill's helper files for the Workbench. */
+  skillsList?(): Promise<InstalledSkill[]>
+  skillHelpers?(id: string): Promise<AttachmentFileRef[]>
   attachmentPassages(
     refs: AttachmentRef[],
     query: string,
@@ -142,6 +146,8 @@ export interface ProviderResult {
    * it; a suppressed provider never runs.
    */
   suppress?: string[]
+  /** v2.7: files the turn's tools should be able to stage — a skill's helpers. */
+  attachments?: AttachmentFileRef[]
 }
 
 export interface ContextProvider {

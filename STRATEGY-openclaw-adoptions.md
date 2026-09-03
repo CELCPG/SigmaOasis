@@ -181,6 +181,16 @@ a `skills` suite of twelve prompts measures whether the router picks the right s
 a skill's playbook moves its domain's cases; the tool-choice suite with a skill that carries an
 MCP server, through `EVAL_MCP_STUB` as in v2.5.
 
+*(v2.7: items 1–3 built — `docs/skill-format.md`, a folder-only installer with one
+confirmation listing what the folder carries, selection by trigger phrase at a word boundary
+with code stripped, the playbook standing down for the turn, disclosure under the reply.
+Item 4 is not: the built-in playbooks stay TypeScript. Their selection is by domain classifier,
+not trigger phrase, and repackaging them as skills would change the library suite's selection
+path, which the gate above says must not move — so a skill is the user's own method, and the
+bundled methods are what they were. The eval gate reduces to the node suite (selection,
+validation, install, removal, the provider) plus the library suite unchanged, which it is; a
+`skills` prompt suite waits for a skill worth measuring.)*
+
 ## Tier 5 — Voice and rules as two files (customization)
 
 OpenClaw separates `SOUL.md` ("tone, opinions, brevity, humor, boundaries") from `AGENTS.md`
@@ -196,6 +206,12 @@ in-app eval already does for tool choice. This is small, and it is the customiza
 
 *Eval gate:* the answer suites run per slot; a persona change that moves the library or
 reasoning numbers is a measured change, not a cosmetic one.
+
+*(v2.7: built as a second field, `rules`, on the slot — appended after the persona and before
+the project block on every turn, in plan steps and the outline path too, disclosed under the
+reply; reviewers, critics and the claim check see the persona only. Pinned per slot is what
+the settings file already does; per-slot eval runs from Settings → Models remain the tool-choice
+eval that exists. No prompt-surface number moved: rules are absent by default.)*
 
 ## Tier 6 — A privacy audit that names its checks
 
@@ -272,7 +288,7 @@ adds — and the mapping is the argument for keeping the shape:
 | Release | From this document | Why there |
 | --- | --- | --- |
 | **v2.6** — verification that compounds | Tier 1 (provenance) folded into A2 the ledger; Tier 3 (jobs) *is* A3; Tier 2 (grants) because A3's unattended runs need them; Tier 6 (privacy audit), cheap | the three land on the same seams A2 and A3 open — **done: all four shipped in v2.6** |
-| **v2.7** — the loop opens up | Tier 4 (skills) beside Code Mode, which stages a skill's helpers into the sandbox; Tier 5 (persona and rules) | a skill package needs the sandbox path Code Mode builds |
+| **v2.7** — the loop opens up | Tier 4 (skills) beside Code Mode, which stages a skill's helpers into the sandbox; Tier 5 (persona and rules) | a skill package needs the sandbox path Code Mode builds — **done: both shipped in v2.7, skills without the bundled repackaging (stated above)** |
 | **later** | Tier 7's masked MCP env values with the next MCP change; an opt-in resident mode, as its own decision | small, and separable |
 
 Every tier names its gate above. The one this document adds to the house rules: a mechanism

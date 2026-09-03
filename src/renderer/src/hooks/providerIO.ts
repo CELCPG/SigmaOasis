@@ -92,6 +92,8 @@ export function makeProviderIO(opts: {
       memorySearch: window.api.memorySearch,
       libraryLookup: window.api.libraryLookup,
       ledgerLookup: window.api.ledgerLookup,
+      skillsList: window.api.skillsList,
+      skillHelpers: window.api.skillHelpers,
       attachmentPassages: window.api.attachmentPassages,
       projectRecall: window.api.projectRecall
     },

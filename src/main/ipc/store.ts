@@ -80,6 +80,11 @@ export interface ModelConfig {
    * the quant and multi-turn suites before any default was chosen.
    */
   codeMode?: 'native' | 'code' | 'both'
+  /**
+   * v2.7: standing operating rules, kept apart from the persona in
+   * `systemPrompt` and appended after it on every turn. Absent = none.
+   */
+  rules?: string
 }
 
 /**
@@ -653,7 +658,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
               ? m.specialty
               : backfillSpecialty(m?.roleName),
           // v2.7: absent = native. Only the two other words are stored.
-          ...(m?.codeMode === 'code' || m?.codeMode === 'both' ? { codeMode: m.codeMode } : {})
+          ...(m?.codeMode === 'code' || m?.codeMode === 'both' ? { codeMode: m.codeMode } : {}),
+          ...(typeof m?.rules === 'string' && m.rules.trim() ? { rules: m.rules.trim().slice(0, 8000) } : {})
         }
       })
     : defaults.models

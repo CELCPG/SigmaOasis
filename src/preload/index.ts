@@ -37,6 +37,7 @@ import type { EvalFixture } from '../renderer/src/lib/evalRunner'
 import type { MemoryOrigin } from '../shared/memoryOrigin'
 import type { LedgerEntryDraft, LedgerHit, LedgerUpsertResult } from '../shared/factLedger'
 import type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../shared/jobs'
+import type { InstalledSkill } from '../shared/skills'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -321,6 +322,14 @@ const api = {
       ipcRenderer.removeListener('outline:section', listener)
     }
   },
+
+  // v2.7: skills (main/ipc/skills.ts) — installed from a folder through a confirmation, never a registry.
+  skillsList: (): Promise<InstalledSkill[]> => ipcRenderer.invoke('skills:list'),
+  skillsInstall: (path?: string): Promise<{ ok: boolean; skill?: InstalledSkill; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke('skills:install', path),
+  skillsRemove: (id: string): Promise<{ ok: boolean; removed?: boolean; packLeft?: string; error?: string }> =>
+    ipcRenderer.invoke('skills:remove', id),
+  skillHelpers: (id: string): Promise<AttachmentFileRef[]> => ipcRenderer.invoke('skills:helpers', id),
 
   // v2.6: the fact ledger (main/ipc/factLedger.ts) — the app writes, the reader purges.
   ledgerLookup: (query: string): Promise<{ ok: boolean; hits: LedgerHit[]; error?: string }> =>

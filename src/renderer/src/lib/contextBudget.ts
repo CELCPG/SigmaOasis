@@ -185,7 +185,7 @@ export function conversationContextUsage(
   const conversationTokens =
     conversation.messages.reduce((n, m) => n + estimateMessageTokens(m), 0) +
     estimateTokens(conversation.summary?.text ?? '')
-  const promptTokens = estimateTokens(slot?.systemPrompt ?? '') + estimateTokens(extraSystemText)
+  const promptTokens = estimateTokens((slot?.systemPrompt ?? '') + (slot?.rules ?? '')) + estimateTokens(extraSystemText)
   const toolTokens = toolSchemaCeiling(toolSchemas)
   const reserve = replyReserve(total, slot?.sampling.maxTokens ?? -1)
 

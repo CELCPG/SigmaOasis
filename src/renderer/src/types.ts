@@ -50,6 +50,8 @@ export interface ModelConfig {
   specialty?: 'coding' | 'research' | 'finance' | 'data'
   /** v2.7 Code Mode per slot: absent/native, `code` (run_code only), or `both`. */
   codeMode?: 'native' | 'code' | 'both'
+  /** v2.7: standing operating rules, apart from the persona; appended after it every turn. */
+  rules?: string
 }
 
 /**
@@ -65,6 +67,8 @@ export type { MemoryOrigin } from '../../shared/memoryOrigin'
 
 /** v2.6: standing questions — the job model, shared with main. */
 export type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../../shared/jobs'
+/** v2.7: skills — the installed-skill shape, shared with main. */
+export type { InstalledSkill } from '../../shared/skills'
 
 /** v1.17.3: how a turn ended, so an empty bubble can name who fell silent. */
 import type { TurnEnding } from '../../shared/failure'
@@ -1081,6 +1085,10 @@ export interface ChatMessage {
   ledgerContext?: { hits: number; expired: boolean; checkedAt?: string }
   /** v2.6: what the capture wrote after this reply, and what it contradicted. */
   ledgerUpdate?: { written: number; refreshed: number; superseded: { previous: string; next: string; sentence: string }[] }
+  /** v2.7: the slot's standing rules rode this turn's system prompt. Display-only. */
+  rulesApplied?: boolean
+  /** v2.7: the user's skill that took the method slot this turn. Display-only. */
+  skill?: string
   /** v2.6: the outline a document-shaped request was written from, section by section. */
   outline?: { title: string; sections: { heading: string; words: number; truncated?: boolean; done: boolean }[] }
   /**

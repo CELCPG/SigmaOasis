@@ -1288,6 +1288,26 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
+        {!isStreaming && message.skill && (
+          <div
+            className="mt-2 text-[11px] text-ink-tertiary"
+            title="One of your installed skills matched a trigger phrase in your message; its method was handed to the model in place of the built-in playbook. Settings → Skills."
+            data-testid="skill-applied"
+          >
+            🧩 Skill: {message.skill}
+          </div>
+        )}
+
+        {!isStreaming && message.rulesApplied && (
+          <div
+            className="mt-2 text-[11px] text-ink-tertiary"
+            title="This role has standing rules (Settings → Models) — they were part of its system prompt for this turn, after its persona and before any project instructions."
+            data-testid="rules-applied"
+          >
+            📐 Standing rules applied
+          </div>
+        )}
+
         {!isStreaming && message.ledger && (
           <div
             className="mt-2 text-[11px] text-ink-tertiary"

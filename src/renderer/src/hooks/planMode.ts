@@ -1,6 +1,7 @@
 import { useAppStore } from '../stores/appStore'
 import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
+import { slotRulesBlock } from '../lib/projectContext'
 import { runAgentLoop, TOOL_TURN_BUDGETS, type ApiMessage } from '../lib/agentLoop'
 import {
   endPlan,
@@ -149,7 +150,7 @@ export async function runPlanStep(
     {
       role: 'system',
       content:
-        `${withToolCallPreamble(withGrounding(slot.systemPrompt), slot.modelId)}\n\nYou are executing one step of a larger plan. Produce the ` +
+        `${withToolCallPreamble(withGrounding(slot.systemPrompt + slotRulesBlock(slot)), slot.modelId)}\n\nYou are executing one step of a larger plan. Produce the ` +
         `step's result directly and concisely — later steps and the final answer build on it.` +
         // Without this a step cannot see what the conversation already settled,
         // and reports the absence as missing input rather than reading it.
@@ -462,7 +463,7 @@ export async function runPlanTurn(
     {
       role: 'system',
       content:
-        withGrounding(slot.systemPrompt) +
+        withGrounding(slot.systemPrompt + slotRulesBlock(slot)) +
         (context ? `\n\nThe conversation this task came from:\n${context}` : '')
     },
     {

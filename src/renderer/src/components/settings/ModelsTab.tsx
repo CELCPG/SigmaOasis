@@ -167,6 +167,23 @@ export function ModelsTab(props: ModelsTabProps): JSX.Element {
                           />
                         </div>
 
+                        <div className="mt-3">
+                          <label className="mb-1 block text-xs font-medium text-ink-secondary">
+                            Standing rules <span className="font-normal text-ink-tertiary">(how it operates — apart from how it sounds)</span>
+                          </label>
+                          <textarea
+                            value={m.rules ?? ''}
+                            onChange={(e) => updateModel(m.id, { rules: e.target.value.trim() ? e.target.value : undefined })}
+                            rows={3}
+                            placeholder="e.g. Always give figures with their source and date. Never guess a price; search. Reply in the user's language."
+                            className="w-full resize-y rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none font-mono"
+                          />
+                          <p className="mt-1 text-xs text-ink-tertiary">
+                            Appended after the persona on every turn, before a project&rsquo;s instructions, and disclosed under
+                            the reply. Reviewers and critics see the persona only.
+                          </p>
+                        </div>
+
                         <div className="mt-3 flex flex-wrap items-end gap-4">
                           <div className="min-w-64 flex-1">
                             <label className="mb-1 block text-xs font-medium text-ink-secondary">
