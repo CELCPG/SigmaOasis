@@ -25,6 +25,7 @@ import { projectInstructionsBlock } from '../lib/projectContext'
 import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProviders'
 import type { ToolExecuteContext } from '../lib/contextProviders'
 import { noteToolResult } from '../lib/taint'
+import { extractLedgerEntries } from '../lib/factLedger'
 import {
   createVerifyBudget,
   gatheringPhase,
@@ -971,6 +972,18 @@ async function runTurn(
       }
       verifying('grounding')
       await checkGrounding()
+      // v2.6: what this reply stated and a retrieved source confirms goes to
+      // the fact ledger, so the next ask can be answered from it with its
+      // date. Never from an ephemeral chat, never a claim without a source.
+      if (!convo.ephemeral && useAppStore.getState().settings?.grounding?.factLedger !== false) {
+        const drafts = extractLedgerEntries(assistantMsg.content, allRecords, lastUserContent ?? '')
+        if (drafts.length > 0) {
+          const wrote = await window.api.ledgerUpsert(drafts).catch(() => null)
+          if (wrote?.ok) {
+            patch({ ledgerUpdate: { written: wrote.written.length, refreshed: wrote.refreshed.length, superseded: wrote.superseded } })
+          }
+        }
+      }
     } finally {
       budget.stop()
     }

@@ -1,0 +1,9 @@
+{
+  "question": "What year was Pellworth Rowing Club founded?",
+  "page": "pellworth-rowing.html",
+  "claimClass": "date",
+  "freshness": "never",
+  "mustInclude": [
+    "1898"
+  ]
+}

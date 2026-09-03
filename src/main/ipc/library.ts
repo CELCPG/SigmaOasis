@@ -75,6 +75,15 @@ export interface PackDocMeta {
    */
   sourceMtime?: number
   sourceSize?: number
+  /**
+   * v2.6: an app-written pack's documents carry the machine-readable check
+   * date the free-text `date` never was, and the claim they hold, so the
+   * ledger can find an entry by key and the formatter can print `checked:`.
+   */
+  checkedAt?: number
+  /** null = never expires. Absent on documents that are not claims. */
+  expiresAt?: number | null
+  claim?: { key: string; claimClass: string; value: string }
 }
 
 export interface PackManifest {
@@ -86,8 +95,12 @@ export interface PackManifest {
   version: string
   /** License of the pack as a whole. */
   license: string
-  /** 'curated' = a downloaded/bundled pack; 'user' = built from the user's own folder. */
-  kind: 'curated' | 'user'
+  /**
+   * 'curated' = a downloaded/bundled pack; 'user' = built from the user's own
+   * folder; 'app' (v2.6) = written by the app itself — the fact ledger — and
+   * offered in the panel with a purge control and nothing else.
+   */
+  kind: 'curated' | 'user' | 'app'
   /** Free-text note about sources, freshness, or scope. */
   sourceNote?: string
   /**
@@ -124,6 +137,9 @@ export interface LibraryPassage {
   source?: string
   license?: string
   date?: string
+  /** v2.6: an app-written document's check date, machine-readable. */
+  checkedAt?: number
+  expiresAt?: number | null
 }
 
 export interface LookupOutcome {
@@ -313,7 +329,18 @@ export function validateManifest(raw: unknown): PackManifest {
       file,
       chars: typeof doc.chars === 'number' && Number.isFinite(doc.chars) ? doc.chars : 0,
       sourceMtime: num(doc.sourceMtime),
-      sourceSize: num(doc.sourceSize)
+      sourceSize: num(doc.sourceSize),
+      ...(num(doc.checkedAt) !== undefined ? { checkedAt: num(doc.checkedAt) } : {}),
+      ...(doc.expiresAt === null ? { expiresAt: null } : num(doc.expiresAt) !== undefined ? { expiresAt: num(doc.expiresAt) } : {}),
+      ...(doc.claim && typeof doc.claim === 'object'
+        ? {
+            claim: {
+              key: str((doc.claim as Record<string, unknown>).key),
+              claimClass: str((doc.claim as Record<string, unknown>).claimClass),
+              value: str((doc.claim as Record<string, unknown>).value)
+            }
+          }
+        : {})
     }
   })
   return {
@@ -323,7 +350,7 @@ export function validateManifest(raw: unknown): PackManifest {
     description: str(m.description).trim(),
     version: str(m.version).trim() || '0',
     license: str(m.license).trim() || 'unspecified',
-    kind: m.kind === 'user' ? 'user' : 'curated',
+    kind: m.kind === 'user' ? 'user' : m.kind === 'app' ? 'app' : 'curated',
     sourceNote: str(m.sourceNote) || undefined,
     sourceFolder: str(m.sourceFolder) || undefined,
     installedAt: str(m.installedAt) || new Date().toISOString(),
@@ -677,7 +704,9 @@ export async function lookupLibrary(input: {
         score: Math.round((relevance.get(c.id) ?? 0) * 1000) / 1000,
         source: doc.meta.source,
         license: doc.meta.license,
-        date: doc.meta.date
+        date: doc.meta.date,
+        ...(typeof doc.meta.checkedAt === 'number' ? { checkedAt: doc.meta.checkedAt } : {}),
+        ...(doc.meta.expiresAt !== undefined ? { expiresAt: doc.meta.expiresAt } : {})
       }
     })
     // Relevance order across documents; the citation carries position, so
@@ -710,6 +739,7 @@ export function formatLookup(outcome: LookupOutcome, query: string): string {
       `[${i + 1}] ${citationOf(p)}` +
       (p.source ? `\n    source: ${p.source}` : '') +
       (p.date ? `\n    date: ${p.date}` : '') +
+      (typeof p.checkedAt === 'number' ? `\n    checked: ${new Date(p.checkedAt).toISOString().slice(0, 10)}` : '') +
       (p.license ? `\n    license: ${p.license}` : '') +
       `\n    relevance ${p.score}\n${p.text}`
   )
@@ -772,6 +802,100 @@ export async function installPackFromDirectory(sourceDir: string, opts: { replac
   packs.delete(manifest.id)
   invalidateBm25()
   return (await packSummary(manifest.id))!
+}
+
+/**
+ * v2.6: a pack the app writes (kind `app`). One document per entry, replaced
+ * whole on every write through the same staging-and-rename the installer
+ * uses, so a lookup never sees a half-written pack. Keyword retrieval only:
+ * the entries are short and name their subjects, and embedding on every
+ * write would put a model call between a reply and its ledger.
+ */
+export interface AppPackDoc {
+  id: string
+  title: string
+  text: string
+  source?: string
+  date?: string
+  checkedAt?: number
+  expiresAt?: number | null
+  claim?: { key: string; claimClass: string; value: string }
+}
+
+export async function readAppPack(id: string): Promise<{ manifest: PackManifest; docs: AppPackDoc[] } | null> {
+  const dir = packDir(id)
+  const raw = await readJson<unknown>(join(dir, 'manifest.json'))
+  if (!raw) return null
+  let manifest: PackManifest
+  try {
+    manifest = validateManifest(raw)
+  } catch {
+    return null
+  }
+  if (manifest.kind !== 'app') return null
+  const docs: AppPackDoc[] = []
+  for (const meta of manifest.docs) {
+    let text: string
+    try {
+      text = await fs.readFile(join(dir, 'docs', meta.file), 'utf-8')
+    } catch {
+      continue
+    }
+    docs.push({
+      id: meta.id,
+      title: meta.title,
+      text,
+      source: meta.source,
+      date: meta.date,
+      checkedAt: meta.checkedAt,
+      expiresAt: meta.expiresAt,
+      claim: meta.claim
+    })
+  }
+  return { manifest, docs }
+}
+
+export async function writeAppPack(input: { id: string; name: string; description: string; docs: AppPackDoc[] }): Promise<void> {
+  if (!PACK_ID_RE.test(input.id)) throw new Error(`Invalid pack id "${input.id}".`)
+  if (input.docs.length > MAX_PACK_DOCS) throw new Error(`Pack lists ${input.docs.length} documents; the limit is ${MAX_PACK_DOCS}.`)
+  const target = packDir(input.id)
+  const staging = join(libraryDir(), `.${input.id}.writing`)
+  await fs.rm(staging, { recursive: true, force: true })
+  await fs.mkdir(join(staging, 'docs'), { recursive: true })
+  const docs: PackDocMeta[] = []
+  for (const d of input.docs) {
+    if (!DOC_ID_RE.test(d.id)) throw new Error(`Invalid document id "${d.id}".`)
+    const text = normalizeForChunking(d.text)
+    const file = `${d.id}.md`
+    await fs.writeFile(join(staging, 'docs', file), text, 'utf-8')
+    docs.push({
+      id: d.id,
+      title: d.title,
+      source: d.source,
+      date: d.date,
+      file,
+      chars: text.length,
+      ...(typeof d.checkedAt === 'number' ? { checkedAt: d.checkedAt } : {}),
+      ...(d.expiresAt !== undefined ? { expiresAt: d.expiresAt } : {}),
+      ...(d.claim ? { claim: d.claim } : {})
+    })
+  }
+  const manifest: PackManifest = {
+    formatVersion: PACK_FORMAT_VERSION,
+    id: input.id,
+    name: input.name,
+    description: input.description,
+    version: String(Date.now()),
+    license: 'written by this app on this machine',
+    kind: 'app',
+    installedAt: new Date().toISOString(),
+    docs
+  }
+  await writeFileAtomic(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  await fs.rm(target, { recursive: true, force: true })
+  await fs.rename(staging, target)
+  packs.delete(input.id)
+  invalidateBm25()
 }
 
 function slugify(name: string): string {

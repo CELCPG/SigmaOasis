@@ -1,0 +1,11 @@
+{
+  "prompt": "Draft a 1,200-word onboarding handbook for a new remote employee. Sections: First day, Tools and access, Communication norms, First 30 days, Who to ask.",
+  "sections": [
+    "first day",
+    "tools and access",
+    "communication norms",
+    "first 30 days",
+    "who to ask"
+  ],
+  "minWords": 1000
+}

@@ -1,0 +1,9 @@
+{
+  "question": "When was firmware 3.2 for the Brightwell Home EV charger released?",
+  "page": "brightwell-charger.html",
+  "claimClass": "date",
+  "freshness": "years",
+  "mustInclude": [
+    "2 June 2026|June 2,? 2026|2026-06-02"
+  ]
+}

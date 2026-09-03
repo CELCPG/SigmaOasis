@@ -35,6 +35,7 @@ import type {
 } from '../renderer/src/types'
 import type { EvalFixture } from '../renderer/src/lib/evalRunner'
 import type { MemoryOrigin } from '../shared/memoryOrigin'
+import type { LedgerEntryDraft, LedgerHit, LedgerUpsertResult } from '../shared/factLedger'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -273,6 +274,14 @@ const api = {
   auditPurge: (): Promise<{ removed: number }> => ipcRenderer.invoke('audit:purge'),
 
   // MCP servers (main/ipc/mcp.ts) — v2.5. Off until turned on, one at a time.
+  // v2.6: the fact ledger (main/ipc/factLedger.ts) — the app writes, the reader purges.
+  ledgerLookup: (query: string): Promise<{ ok: boolean; hits: LedgerHit[]; error?: string }> =>
+    ipcRenderer.invoke('ledger:lookup', query),
+  ledgerUpsert: (drafts: LedgerEntryDraft[]): Promise<LedgerUpsertResult & { ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('ledger:upsert', drafts),
+  ledgerStats: (): Promise<{ entries: number; expired: number }> => ipcRenderer.invoke('ledger:stats'),
+  ledgerPurge: (): Promise<{ ok: boolean; removed?: boolean; error?: string }> => ipcRenderer.invoke('ledger:purge'),
+
   // v2.6: standing grants (main/ipc/grants.ts) — list and revoke only; nothing mints one but a dialog.
   grantsList: (): Promise<Grant[]> => ipcRenderer.invoke('grants:list'),
   grantsRevoke: (id: string): Promise<{ ok: boolean; removed?: number; error?: string }> =>

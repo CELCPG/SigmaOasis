@@ -1167,6 +1167,21 @@ export const MessageBubble = memo(function MessageBubble({
           <MemoryContextLine items={message.memoryContext} />
         )}
 
+        {/* v2.6: the fact ledger — what was handed over, and what this reply changed. */}
+        {!isStreaming && message.ledgerContext && message.ledgerContext.hits > 0 && (
+          <div className="mt-1 text-xs text-ink-tertiary" data-testid="ledger-context">
+            📌 {message.ledgerContext.expired ? 'A claim verified earlier had expired and was re-checked' : `Answered from ${message.ledgerContext.hits} claim${message.ledgerContext.hits === 1 ? '' : 's'} this app verified earlier`}
+            {message.ledgerContext.checkedAt ? ` (checked ${message.ledgerContext.checkedAt})` : ''}
+          </div>
+        )}
+        {!isStreaming && message.ledgerUpdate && message.ledgerUpdate.superseded.length > 0 && (
+          <div className="mt-1 text-xs text-ink-warn" data-testid="ledger-update">
+            {message.ledgerUpdate.superseded.map((s, i) => (
+              <div key={i}>⚠️ Changed since it was last verified: was {s.previous}, now {s.next}.</div>
+            ))}
+          </div>
+        )}
+
         {/*
           v2.3: a pass that did NOT happen goes above every line describing one
           that did.

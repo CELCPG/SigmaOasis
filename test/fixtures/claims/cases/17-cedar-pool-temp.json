@@ -1,0 +1,9 @@
+{
+  "question": "How hot is the main pool at Cedar Hollow Hot Springs?",
+  "page": "cedar-hollow.html",
+  "claimClass": "measurement",
+  "freshness": "years",
+  "mustInclude": [
+    "39\\s?°?\\s?C|102\\s?°?\\s?F"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "question": "How much attachment storage does Lumen Notes Pro include?",
+  "page": "lumen-notes.html",
+  "claimClass": "measurement",
+  "freshness": "years",
+  "mustInclude": [
+    "50\\s?GB"
+  ]
+}

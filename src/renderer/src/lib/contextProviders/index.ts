@@ -1,5 +1,6 @@
 import type { ContextProvider, ProviderIO, ProviderResult, TurnInput } from './types'
 import type { TurnWait } from '../turnPhase'
+import { factLedgerProvider } from './factLedger'
 import { autoSearchProvider } from './autoSearch'
 import { libraryPassagesProvider } from './libraryPassages'
 import { playbookProvider } from './playbook'
@@ -21,6 +22,8 @@ export type { ContextProvider, ProviderApi, ProviderIO, ProviderResult, ToolExec
  * ordered themselves through v1.12.
  */
 export const TURN_CONTEXT_PROVIDERS: readonly ContextProvider[] = [
+  // v2.6: ahead of the search it can suppress.
+  factLedgerProvider,
   autoSearchProvider,
   libraryPassagesProvider,
   playbookProvider,
@@ -67,11 +70,17 @@ export async function gatherTurnContext(
 
   const blocks: string[] = []
   const projectTokens = { recall: 0, files: 0 }
+  // v2.6: a result may name later providers it makes unnecessary (the fact
+  // ledger answering suppresses the app-run search). Only providers after
+  // the one that asked can be suppressed — a prefetch already running is
+  // folded as it always was.
+  const suppressed = new Set<string>()
   const fold = (result: ProviderResult | null): void => {
     if (!result) return
     if (result.blocks) blocks.push(...result.blocks)
     if (result.projectTokens?.recall) projectTokens.recall += result.projectTokens.recall
     if (result.projectTokens?.files) projectTokens.files += result.projectTokens.files
+    for (const id of result.suppress ?? []) suppressed.add(id)
   }
 
   try {
@@ -81,7 +90,7 @@ export async function gatherTurnContext(
         if (pending) fold(await pending)
         continue
       }
-      if (!p.enabled(input, io)) continue
+      if (suppressed.has(p.id) || !p.enabled(input, io)) continue
       // Announced before the await, cleared by the next provider — a name
       // that outlived its work would be worse than none.
       onWait(p.wait ?? null)

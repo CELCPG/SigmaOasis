@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,200-word internal guide to designing a REST API. Sections: Resources and naming, Versioning, Errors, Pagination, Authentication, Documentation.",
+  "sections": [
+    "resources and naming",
+    "versioning",
+    "errors",
+    "pagination",
+    "authentication",
+    "documentation"
+  ],
+  "minWords": 1000
+}

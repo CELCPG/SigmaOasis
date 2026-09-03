@@ -1,0 +1,9 @@
+{
+  "question": "How long is the Harrowgate Maritime Museum's guided tour?",
+  "page": "harrowgate-museum.html",
+  "claimClass": "measurement",
+  "freshness": "years",
+  "mustInclude": [
+    "75\\s?min|hour and a quarter|1\\.25 hours"
+  ]
+}

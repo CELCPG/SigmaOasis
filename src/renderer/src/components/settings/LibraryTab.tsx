@@ -262,7 +262,7 @@ export function LibraryTab(): JSX.Element {
                     <div className="text-sm font-medium">
                       {p.name}{' '}
                       <span className="font-normal text-ink-tertiary">
-                        · {p.kind === 'user' ? 'your documents' : 'reference pack'} · v{p.version}
+                        · {p.kind === 'user' ? 'your documents' : p.kind === 'app' ? 'written by this app — claims it verified, with dates' : 'reference pack'}{p.kind === 'app' ? '' : ` · v${p.version}`}
                       </span>
                     </div>
                     {p.description && <p className="mt-0.5 text-ink-secondary">{p.description}</p>}
@@ -309,7 +309,7 @@ export function LibraryTab(): JSX.Element {
                       <button type="button" onClick={() => void window.api.libraryCancelEmbed()} className={BUTTON}>
                         Cancel
                       </button>
-                    ) : (
+                    ) : p.kind === 'app' ? null : (
                       <button
                         type="button"
                         disabled={busy !== null || fully}

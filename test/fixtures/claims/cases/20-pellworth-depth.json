@@ -1,0 +1,9 @@
+{
+  "question": "How deep is the harbour at Pellworth Rowing Club's pontoon?",
+  "page": "pellworth-rowing.html",
+  "claimClass": "measurement",
+  "freshness": "years",
+  "mustInclude": [
+    "3\\.4\\s?(m|metres|meters)"
+  ]
+}

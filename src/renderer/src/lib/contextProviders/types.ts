@@ -1,4 +1,5 @@
 import type { MemoryOrigin } from '../../../../shared/memoryOrigin'
+import type { LedgerHit } from '../../../../shared/factLedger'
 import type {
   AppSettings,
   AttachmentFileRef,
@@ -90,6 +91,8 @@ export interface ProviderApi {
     origins?: readonly MemoryOrigin[] | null
   ): Promise<{ ok: boolean; results: MemorySearchResult[]; error?: string }>
   libraryLookup(query: string, packId?: string | null, topK?: number): Promise<LibraryLookupResult>
+  /** v2.6: the fact ledger. Absent where no ledger is wired (the bare eval arm). */
+  ledgerLookup?(query: string): Promise<{ ok: boolean; hits: LedgerHit[]; error?: string }>
   attachmentPassages(
     refs: AttachmentRef[],
     query: string,
@@ -130,6 +133,13 @@ export interface ProviderResult {
   blocks?: string[]
   /** Token accounting the details panel shows (project recall / pinned files). */
   projectTokens?: { recall?: number; files?: number }
+  /**
+   * v2.6: providers later in the registry that this result makes
+   * unnecessary, by id. The fact ledger answering a question is the one use:
+   * a fresh verified claim suppresses the app-run search. The runner honours
+   * it; a suppressed provider never runs.
+   */
+  suppress?: string[]
 }
 
 export interface ContextProvider {

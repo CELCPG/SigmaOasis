@@ -1,0 +1,12 @@
+{
+  "prompt": "Draft a 1,500-word business plan for a neighbourhood bicycle repair shop. Use the sections Overview, Customers, Services, Pricing approach, Operations, Risks.",
+  "sections": [
+    "overview",
+    "customers",
+    "services",
+    "pricing approach",
+    "operations",
+    "risks"
+  ],
+  "minWords": 1200
+}

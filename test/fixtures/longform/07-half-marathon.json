@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,200-word twelve-week half-marathon plan for a runner who can currently run 5 km. Sections: Principles, Weeks 1-4, Weeks 5-8, Weeks 9-12, Race week, Injury prevention.",
+  "sections": [
+    "principles",
+    "weeks 1-4",
+    "weeks 5-8",
+    "weeks 9-12",
+    "race week",
+    "injury prevention"
+  ],
+  "minWords": 1000
+}

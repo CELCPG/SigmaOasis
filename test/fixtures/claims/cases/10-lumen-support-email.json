@@ -1,0 +1,9 @@
+{
+  "question": "What email address do I use to contact Lumen Notes support?",
+  "page": "lumen-notes.html",
+  "claimClass": "contact",
+  "freshness": "months",
+  "mustInclude": [
+    "support@lumen-notes\\.example"
+  ]
+}

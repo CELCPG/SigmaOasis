@@ -1,0 +1,15 @@
+{
+  "question": "How much is a day pass at Cedar Hollow Hot Springs?",
+  "page": "cedar-hollow.html",
+  "claimClass": "money",
+  "freshness": "hours",
+  "mustInclude": [
+    "\\$32"
+  ],
+  "v2": {
+    "mustInclude": [
+      "\\$35"
+    ],
+    "changed": true
+  }
+}

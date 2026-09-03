@@ -155,7 +155,7 @@ describe('the two reasons the row opens (v1.12.2)', () => {
 describe('every wait has a name', () => {
   test('the serial providers that can block the turn declare one', () => {
     const named = TURN_CONTEXT_PROVIDERS.filter((p) => p.wait).map((p) => p.id)
-    assert.deepEqual(named, ['autoSearch', 'libraryPassages', 'shoppingPrice'])
+    assert.deepEqual(named, ['factLedger', 'autoSearch', 'libraryPassages', 'shoppingPrice'])
     for (const p of TURN_CONTEXT_PROVIDERS) {
       if (!p.wait) continue
       assert.equal(p.phase, 'serial', `${p.id}: only a serial wait is worth naming`)

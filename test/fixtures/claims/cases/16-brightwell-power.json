@@ -1,0 +1,9 @@
+{
+  "question": "What is the maximum charging power of the Brightwell Home EV charger?",
+  "page": "brightwell-charger.html",
+  "claimClass": "measurement",
+  "freshness": "years",
+  "mustInclude": [
+    "11\\s?kW"
+  ]
+}

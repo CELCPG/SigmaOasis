@@ -1740,7 +1740,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,orchestrate,synthesis,research,reasoning   EVAL_CASES=1-5   EVAL_PASSES=3'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,orchestrate,synthesis,research,reasoning,claims   EVAL_CASES=1-5   EVAL_PASSES=3   EVAL_CLAIMS_ARMS=bare,ledger'
     )
     app.exit(0)
     return
@@ -2153,6 +2153,46 @@ async function main(): Promise<void> {
       report.research = { passes: rsPasses, stability }
     } else {
       report.research = { summary: s, runs: rsPasses[0].runs }
+    }
+  }
+
+  if (want.includes('claims')) {
+    // v2.6: does verification compound? Two asks per question in fresh chats;
+    // the second should recall the first's verified claim with its date and
+    // skip the search, or — when the page changed and the entry expired —
+    // surface the contradiction. Arms: `bare` (no ledger) and `ledger`.
+    const arms = (process.env.EVAL_CLAIMS_ARMS ?? 'bare').split(',').map((s) => s.trim()).filter((s): s is import('../src/renderer/src/lib/answerEval').ClaimsArm => s === 'bare' || s === 'ledger')
+    console.log(`claims: the fact ledger, second asks vs first (arms: ${arms.join(', ')}; fixture corpus)`)
+    const { runClaimsSuite } = require('./evalSuites/claims') as typeof import('./evalSuites/claims')
+    const { summarizeClaims, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const clPasses: { runs: Awaited<ReturnType<typeof runClaimsSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      clPasses.push({ runs: await runClaimsSuite(model, { repoRoot: REPO_ROOT, persona: PERSONA, arms, slice, loadJson, complete }) })
+    }
+    const s = summarizeClaims(clPasses.flatMap((p) => p.runs))
+    for (const arm of arms) {
+      const a = s.arms[arm]
+      if (!a) continue
+      console.log(
+        `  ${arm.padEnd(7)} ran ${a.ran.hit}/${a.ran.of} · ask1 answered ${a.firstAnswered.hit}/${a.firstAnswered.of} · ask2 answered ${a.secondAnswered.hit}/${a.secondAnswered.of}` +
+          ` · ask2 searched ${a.secondSearched.hit}/${a.secondSearched.of} · ask2 ${a.secondSeconds.toFixed(0)} s (ask1 ${a.firstSeconds.toFixed(0)} s)` +
+          (arm === 'ledger' ? ` · ask2 from ledger ${a.secondFromLedger.hit}/${a.secondFromLedger.of} · contradiction surfaced ${a.contradictionSurfaced.hit}/${a.contradictionSurfaced.of}` : '')
+      )
+    }
+    console.log('')
+    if (passesWanted > 1) {
+      const stability: Record<string, ReturnType<typeof stabilityAcrossPasses>> = {}
+      for (const arm of arms) {
+        stability[arm] = stabilityAcrossPasses(
+          clPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.arms[arm]?.error ? null : Boolean(r.arms[arm]?.first?.answered && r.arms[arm]?.second?.answered) })))
+        )
+        const st = stability[arm]!
+        console.log(`  ${arm.padEnd(7)} both asks answered across ${passesWanted} passes: [${st.perPass.join(', ')}] · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.claims = { passes: clPasses, stability, summary: s }
+    } else {
+      report.claims = { summary: s, runs: clPasses[0].runs }
     }
   }
 

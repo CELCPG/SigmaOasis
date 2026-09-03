@@ -657,6 +657,28 @@ export function ModelsTab(props: ModelsTabProps): JSX.Element {
                           </span>
                         </span>
                       </label>
+
+                      <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={draft.grounding.factLedger}
+                          onChange={(e) => update({ grounding: { ...draft.grounding, factLedger: e.target.checked } })}
+                          className="mt-0.5 h-4 w-4 accent-accent"
+                        />
+                        <span>
+                          Fact ledger — verification that compounds
+                          <span className="mt-0.5 block text-xs text-ink-secondary">
+                            A price, a measurement, an address, a contact, a URL or a date the reply
+                            states <em>and a retrieved source states too</em> is kept, with the source
+                            and the date it was checked, in a library pack the app writes. The next
+                            factual ask consults it before the app-run search: a fresh entry answers
+                            with its date and the search is skipped; an expired one (prices expire in a
+                            day, addresses in months, a founding year never) is re-checked and a changed
+                            value is disclosed under the reply. Nothing but the app writes it. Off turns
+                            recall and capture off together.
+                          </span>
+                        </span>
+                      </label>
                     </div>
                   </div>
   )

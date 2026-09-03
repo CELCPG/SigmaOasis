@@ -604,7 +604,7 @@ export interface AppSettings {
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
   /** v1.4.6: revise an answer whose specifics the tools did not support. */
-  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean }
+  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean; factLedger: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -647,7 +647,7 @@ export interface LibraryPackSummary {
   description: string
   version: string
   license: string
-  kind: 'curated' | 'user'
+  kind: 'curated' | 'user' | 'app'
   sourceNote?: string
   /** v1.7: the folder a user pack tracks; absent on curated and pre-v1.7 packs. */
   sourceFolder?: string
@@ -1066,6 +1066,10 @@ export interface ChatMessage {
    * (v0.9 visible recall). Display-only — never replayed to a model.
    */
   memoryContext?: MemoryContextItem[]
+  /** v2.6: what the fact ledger handed this turn, as the provider disclosed it. */
+  ledgerContext?: { hits: number; expired: boolean; checkedAt?: string }
+  /** v2.6: what the capture wrote after this reply, and what it contradicted. */
+  ledgerUpdate?: { written: number; refreshed: number; superseded: { previous: string; next: string; sentence: string }[] }
   /**
    * v1.4.8: passages retrieved from the conversation's indexed attachments for
    * this reply — shown like memory recall, so the user sees what the model was

@@ -1,0 +1,9 @@
+{
+  "question": "Where can I download the Nordvik Trekker 40 user manual?",
+  "page": "nordvik-trekker.html",
+  "claimClass": "url",
+  "freshness": "years",
+  "mustInclude": [
+    "nordvik\\.example/manuals/trekker-40\\.pdf"
+  ]
+}

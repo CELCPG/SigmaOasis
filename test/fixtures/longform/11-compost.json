@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,000-word guide to home composting with the sections What to add, What to leave out, Balance, Turning, Common problems, Using the compost.",
+  "sections": [
+    "what to add",
+    "what to leave out",
+    "balance",
+    "turning",
+    "common problems",
+    "using the compost"
+  ],
+  "minWords": 800
+}

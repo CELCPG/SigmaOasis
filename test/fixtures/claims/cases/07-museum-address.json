@@ -1,0 +1,9 @@
+{
+  "question": "Where is the Harrowgate Maritime Museum located?",
+  "page": "harrowgate-museum.html",
+  "claimClass": "address",
+  "freshness": "months",
+  "mustInclude": [
+    "14 Quay Street"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "question": "What is the phone number for Pellworth Rowing Club?",
+  "page": "pellworth-rowing.html",
+  "claimClass": "contact",
+  "freshness": "months",
+  "mustInclude": [
+    "\\(?555\\)?[ -]?014[ -]?2290"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,500-word beginner's guide to starting a vegetable garden. Use these section headings: Planning, Soil, Choosing crops, Watering, Pests, Harvest.",
+  "sections": [
+    "planning",
+    "soil",
+    "choosing crops",
+    "watering",
+    "pests",
+    "harvest"
+  ],
+  "minWords": 1200
+}

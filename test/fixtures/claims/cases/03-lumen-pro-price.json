@@ -1,0 +1,15 @@
+{
+  "question": "What is the monthly price of the Lumen Notes Pro plan?",
+  "page": "lumen-notes.html",
+  "claimClass": "money",
+  "freshness": "hours",
+  "mustInclude": [
+    "\\$7\\.99"
+  ],
+  "v2": {
+    "mustInclude": [
+      "\\$9\\.99"
+    ],
+    "changed": true
+  }
+}

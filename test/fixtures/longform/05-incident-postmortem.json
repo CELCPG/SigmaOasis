@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,000-word template and worked example for a blameless incident post-mortem. Sections: Summary, Timeline, Impact, Root cause, What went well, Action items.",
+  "sections": [
+    "summary",
+    "timeline",
+    "impact",
+    "root cause",
+    "what went well",
+    "action items"
+  ],
+  "minWords": 800
+}

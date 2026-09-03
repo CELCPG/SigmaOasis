@@ -1,0 +1,15 @@
+{
+  "question": "How much is an adult ticket to the Harrowgate Maritime Museum?",
+  "page": "harrowgate-museum.html",
+  "claimClass": "money",
+  "freshness": "hours",
+  "mustInclude": [
+    "\\$18\\.50"
+  ],
+  "v2": {
+    "mustInclude": [
+      "\\$21(\\.00)?"
+    ],
+    "changed": true
+  }
+}

@@ -205,6 +205,11 @@ export interface GroundingSettings {
    */
   workbenchChecks: boolean
   /**
+   * v2.6: the fact ledger — claims the app verified are recalled with their
+   * date on a later ask, and the search skipped while they are fresh.
+   */
+  factLedger: boolean
+  /**
    * v1.9: the conversation ledger — a mechanical record of computed facts,
    * attached files, session state and the user's stated constraints, built
    * from tool results and the user's own words (never earlier replies) and
@@ -487,7 +492,7 @@ export function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -741,7 +746,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       playbooks: settings.grounding?.playbooks !== false,
       selfReview: settings.grounding?.selfReview !== false,
       workbenchChecks: settings.grounding?.workbenchChecks !== false,
-      ledger: settings.grounding?.ledger !== false
+      ledger: settings.grounding?.ledger !== false,
+      factLedger: settings.grounding?.factLedger !== false
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

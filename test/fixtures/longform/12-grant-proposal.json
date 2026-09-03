@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,500-word grant proposal for a community library reading programme. Sections: Need, Programme description, Goals, Evaluation, Budget narrative, Sustainability.",
+  "sections": [
+    "need",
+    "programme description",
+    "goals",
+    "evaluation",
+    "budget narrative",
+    "sustainability"
+  ],
+  "minWords": 1200
+}

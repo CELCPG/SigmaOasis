@@ -36,6 +36,8 @@ describe('turn-context provider registry', () => {
     assert.deepEqual(
       TURN_CONTEXT_PROVIDERS.map((p) => `${p.id}:${p.phase}`),
       [
+        // v2.6: the fact ledger rides ahead of the search it can suppress.
+        'factLedger:serial',
         'autoSearch:serial',
         'libraryPassages:serial',
         'playbook:serial',

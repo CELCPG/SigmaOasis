@@ -1,0 +1,15 @@
+{
+  "question": "What does the Nordvik Trekker 40 backpack cost?",
+  "page": "nordvik-trekker.html",
+  "claimClass": "money",
+  "freshness": "hours",
+  "mustInclude": [
+    "\\$149"
+  ],
+  "v2": {
+    "mustInclude": [
+      "\\$129"
+    ],
+    "changed": true
+  }
+}

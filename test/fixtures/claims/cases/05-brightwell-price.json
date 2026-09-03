@@ -1,0 +1,15 @@
+{
+  "question": "How much does the Brightwell Home EV charger cost?",
+  "page": "brightwell-charger.html",
+  "claimClass": "money",
+  "freshness": "hours",
+  "mustInclude": [
+    "\\$649"
+  ],
+  "v2": {
+    "mustInclude": [
+      "\\$599"
+    ],
+    "changed": true
+  }
+}

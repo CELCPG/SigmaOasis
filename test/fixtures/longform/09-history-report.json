@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,500-word report on the history of the printing press for a general reader, with the sections Before movable type, Gutenberg, Spread across Europe, Effects on religion, Effects on science, Legacy.",
+  "sections": [
+    "before movable type",
+    "gutenberg",
+    "spread across europe",
+    "effects on religion",
+    "effects on science",
+    "legacy"
+  ],
+  "minWords": 1200
+}

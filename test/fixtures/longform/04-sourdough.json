@@ -1,0 +1,13 @@
+{
+  "prompt": "Produce a 1,200-word sourdough starter and first-loaf guide with the sections Starter, Feeding schedule, Mixing, Bulk fermentation, Shaping, Baking, Troubleshooting.",
+  "sections": [
+    "starter",
+    "feeding schedule",
+    "mixing",
+    "bulk fermentation",
+    "shaping",
+    "baking",
+    "troubleshooting"
+  ],
+  "minWords": 1000
+}

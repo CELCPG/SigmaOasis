@@ -1,0 +1,15 @@
+{
+  "question": "What is the annual senior membership fee at Pellworth Rowing Club?",
+  "page": "pellworth-rowing.html",
+  "claimClass": "money",
+  "freshness": "hours",
+  "mustInclude": [
+    "\\$240"
+  ],
+  "v2": {
+    "mustInclude": [
+      "\\$260"
+    ],
+    "changed": true
+  }
+}

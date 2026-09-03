@@ -91,6 +91,7 @@ export function makeProviderIO(opts: {
     api: {
       memorySearch: window.api.memorySearch,
       libraryLookup: window.api.libraryLookup,
+      ledgerLookup: window.api.ledgerLookup,
       attachmentPassages: window.api.attachmentPassages,
       projectRecall: window.api.projectRecall
     },

@@ -482,6 +482,90 @@ export function summarizeReasoning(results: ReasoningCaseResult[]): ReasoningSum
   }
 }
 
+// ---- the fact ledger: does verification compound? (v2.6) --------------------------
+
+export type ClaimsArm = 'bare' | 'ledger'
+
+/** What the ledger provider disclosed on the reply, when it rode the turn. */
+export interface ClaimsLedgerContext {
+  hits: number
+  expired: boolean
+  checkedAt?: string
+}
+
+export interface ClaimsAskResult {
+  /** web_search calls, app-run and model-run together. */
+  searches: number
+  fetches: number
+  ms: number
+  /** Every expected pattern present in the reply. */
+  answered: boolean
+  ledger: ClaimsLedgerContext | null
+  /** The capture superseded an earlier entry for the same claim with a different value. */
+  contradiction: boolean
+  /** Entries the capture wrote after this ask (ledger arm). */
+  captured?: number
+  reply: string
+}
+
+export interface ClaimsCaseResult {
+  file: string
+  question: string
+  claimClass: string
+  freshness: string
+  /** The page changed between asks (the six price cases). */
+  changed: boolean
+  arms: Partial<Record<ClaimsArm, { first?: ClaimsAskResult; second?: ClaimsAskResult; error?: string }>>
+}
+
+export interface ClaimsArmSummary {
+  ran: Rate
+  firstAnswered: Rate
+  secondAnswered: Rate
+  /** Second asks that ran a search at all — the number the ledger must move. */
+  secondSearched: Rate
+  /** Second asks on unchanged cases that recalled a fresh ledger entry (ledger arm). */
+  secondFromLedger: Rate
+  /** Changed cases whose second ask surfaced the contradiction (ledger arm). */
+  contradictionSurfaced: Rate
+  firstSeconds: number
+  secondSeconds: number
+}
+
+export interface ClaimsSummary {
+  arms: Partial<Record<ClaimsArm, ClaimsArmSummary>>
+}
+
+export function summarizeClaims(results: ClaimsCaseResult[]): ClaimsSummary {
+  const arms: ClaimsSummary['arms'] = {}
+  for (const arm of ['bare', 'ledger'] as const) {
+    const all = results.filter((r) => r.arms[arm])
+    if (all.length === 0) continue
+    const ok = all.filter((r) => !r.arms[arm]!.error && r.arms[arm]!.first && r.arms[arm]!.second)
+    const first = ok.map((r) => r.arms[arm]!.first!)
+    const second = ok.map((r) => r.arms[arm]!.second!)
+    const unchanged = ok.filter((r) => !r.changed)
+    const changed = ok.filter((r) => r.changed)
+    arms[arm] = {
+      ran: rate(ok.length, all.length),
+      firstAnswered: rate(first.filter((a) => a.answered).length, first.length),
+      secondAnswered: rate(second.filter((a) => a.answered).length, second.length),
+      secondSearched: rate(second.filter((a) => a.searches > 0).length, second.length),
+      secondFromLedger: rate(
+        unchanged.filter((r) => {
+          const l = r.arms[arm]!.second!.ledger
+          return l !== null && l.hits > 0 && !l.expired
+        }).length,
+        unchanged.length
+      ),
+      contradictionSurfaced: rate(changed.filter((r) => r.arms[arm]!.second!.contradiction).length, changed.length),
+      firstSeconds: mean(first.map((a) => a.ms / 1000)),
+      secondSeconds: mean(second.map((a) => a.ms / 1000))
+    }
+  }
+  return { arms }
+}
+
 // ---- deep research under the ladder (v1.9) ----------------------------------------
 
 export interface ResearchArmResult {

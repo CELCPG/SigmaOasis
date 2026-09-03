@@ -1,0 +1,9 @@
+{
+  "question": "How much does the Nordvik Trekker 40 weigh?",
+  "page": "nordvik-trekker.html",
+  "claimClass": "measurement",
+  "freshness": "years",
+  "mustInclude": [
+    "1\\.35\\s?kg|1,?350\\s?g"
+  ]
+}

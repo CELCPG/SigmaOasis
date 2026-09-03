@@ -1,0 +1,9 @@
+{
+  "question": "What is the street address of Cedar Hollow Hot Springs?",
+  "page": "cedar-hollow.html",
+  "claimClass": "address",
+  "freshness": "months",
+  "mustInclude": [
+    "2210 Cedar Hollow Road"
+  ]
+}

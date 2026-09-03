@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,500-word guide to moving to a new city, with sections Before you go, Housing, Getting around, Paperwork, Meeting people, First month budget.",
+  "sections": [
+    "before you go",
+    "housing",
+    "getting around",
+    "paperwork",
+    "meeting people",
+    "first month budget"
+  ],
+  "minWords": 1200
+}

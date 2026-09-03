@@ -1,0 +1,12 @@
+{
+  "prompt": "Write a 1,500-word explainer on securing a home network for a non-technical reader, with sections titled Router basics, Wi-Fi settings, Guest networks, Updates, Smart devices, Checklist.",
+  "sections": [
+    "router basics",
+    "wi-fi settings",
+    "guest networks",
+    "updates",
+    "smart devices",
+    "checklist"
+  ],
+  "minWords": 1200
+}

@@ -1,0 +1,9 @@
+{
+  "question": "When does the Harrowgate Maritime Museum's Tidewater exhibition open?",
+  "page": "harrowgate-museum.html",
+  "claimClass": "date",
+  "freshness": "years",
+  "mustInclude": [
+    "14 March 2027|March 14,? 2027|2027-03-14"
+  ]
+}
