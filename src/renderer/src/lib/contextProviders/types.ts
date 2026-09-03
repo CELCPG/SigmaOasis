@@ -74,6 +74,8 @@ export interface ToolExecuteContext {
    * seen by both.
    */
   tainted?: boolean
+  /** v2.7 Code Mode: set on a run_code execution so its program's calls can be filed under it. */
+  parentCallId?: string
 }
 
 /**

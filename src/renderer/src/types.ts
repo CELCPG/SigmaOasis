@@ -48,6 +48,8 @@ export interface ModelConfig {
    * Absent = generalist; the slot is never auto-routed a specialty signal.
    */
   specialty?: 'coding' | 'research' | 'finance' | 'data'
+  /** v2.7 Code Mode per slot: absent/native, `code` (run_code only), or `both`. */
+  codeMode?: 'native' | 'code' | 'both'
 }
 
 /**
@@ -1009,6 +1011,12 @@ export interface ToolCallRecord {
    * wall under the answer.
    */
   planStepId?: string
+  /**
+   * v2.7 Code Mode: the run_code call whose program made this call. Set, the
+   * record renders under that program's block rather than in the message's
+   * own list — the program's calls stay grouped with the program.
+   */
+  parentCallId?: string
   /**
    * v1.12.3: the app has already told the user this run verified nothing — a
    * recomputation fed by the model's own constants, say. Such a run must not

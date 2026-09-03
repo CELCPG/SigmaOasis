@@ -1,5 +1,6 @@
 import type { ModelConfig, ToolSchema, ToolToggles } from '../types'
 import { TOOL_SCHEMAS } from '../../../shared/tools'
+import { BRIDGE_EXCLUDED } from '../../../shared/codeSdk'
 
 /**
  * Per-role tool allowlists (strategy Layer 1a).
@@ -17,12 +18,27 @@ import { TOOL_SCHEMAS } from '../../../shared/tools'
  * toolbox changes across versions and a stale name must not break a slot.
  */
 export function toolsForSlot(
-  slot: Pick<ModelConfig, 'tools'>,
+  slot: Pick<ModelConfig, 'tools' | 'codeMode'>,
   available: ToolSchema[]
 ): ToolSchema[] {
-  if (!Array.isArray(slot.tools)) return available
-  const allowed = new Set(slot.tools)
-  return available.filter((t) => allowed.has(t.function.name))
+  const listed = !Array.isArray(slot.tools) ? available : available.filter((t) => new Set(slot.tools).has(t.function.name))
+  // v2.7 Code Mode: native slots never see run_code; a code slot sees only
+  // run_code (its program reaches the rest through the bridge, which checks
+  // this same list at call time); both is both.
+  const mode = slot.codeMode ?? 'native'
+  if (mode === 'native') {
+    // The same array back when nothing was stripped: callers compare by identity.
+    const stripped = listed.filter((t) => t.function.name !== 'run_code')
+    return stripped.length === listed.length ? listed : stripped
+  }
+  if (mode === 'code') return listed.filter((t) => t.function.name === 'run_code')
+  return listed
+}
+
+/** What a program may call through the bridge: the slot's list, minus the sandbox's own tools. */
+export function bridgeToolsForSlot(slot: Pick<ModelConfig, 'tools' | 'codeMode'>, available: ToolSchema[]): ToolSchema[] {
+  const listed = !Array.isArray(slot.tools) ? available : available.filter((t) => new Set(slot.tools).has(t.function.name))
+  return listed.filter((t) => !BRIDGE_EXCLUDED.has(t.function.name))
 }
 
 /**

@@ -97,6 +97,40 @@ async function main(): Promise<void> {
   r = await wb.runPython({ code: 'from js import fetch\nimport asyncio\nasync def go():\n    try:\n        await fetch("https://example.com/")\n        print("REACHED")\n    except Exception as e:\n        print("blocked:", type(e).__name__)\nawait go()' })
   check('nor via the JS bridge', !/REACHED/.test(r.stdout), r.stdout + (r.error ?? ''))
 
+  // ---- v2.7 Code Mode: the tool bridge --------------------------------------
+  const sdkMod = require('../src/shared/codeSdk') as typeof import('../src/shared/codeSdk')
+  const sdk = sdkMod.generateSdk([
+    { type: 'function', function: { name: 'echo_tool', description: 'Echoes.', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } } },
+    { type: 'function', function: { name: 'run_python', description: 'x', parameters: { type: 'object', properties: {} } } }
+  ])
+  const calls: { name: string; args: Record<string, unknown> }[] = []
+  r = await wb.runPython({
+    code: 'import tools\nprint(sorted(n for n in tools.__all__))\nout = await tools.echo_tool(text="ping")\nprint("got:", out)\ntry:\n    await tools._call("nope", {})\nexcept tools.ToolError as e:\n    print("refused:", e)',
+    bridge: {
+      sdk,
+      onCall: async (name, args) => {
+        calls.push({ name, args })
+        return name === 'echo_tool' ? { ok: true, output: `echo ${String(args.text)}` } : { ok: false, error: 'not a tool' }
+      }
+    }
+  })
+  check('a program imports the generated tools module and the sandbox’s own tools are not in it', r.ok && /\['ToolError', 'echo_tool'\]/.test(r.stdout), r.stdout + (r.error ?? ''))
+  check('a tool call from inside the program round-trips through the app', /got: echo ping/.test(r.stdout) && calls.length === 2 && calls[0]!.name === 'echo_tool' && calls[0]!.args.text === 'ping', r.stdout + JSON.stringify(calls))
+  check('a refused call is a ToolError naming the tool, not a crash', /refused: nope: not a tool/.test(r.stdout), r.stdout + (r.error ?? ''))
+  check('the generated module is not reported as a file the program wrote', !r.files.some((f) => f.name === 'tools.py'), r.files.map((f) => f.name).join(','))
+
+  r = await wb.runPython({ code: 'import tools\nprint("imported")' })
+  check('a job with no bridge has no tools module', !r.ok && /ModuleNotFoundError|No module named/.test(r.error ?? ''), r.stdout + (r.error ?? ''))
+
+  r = await wb.runPython({ code: 'from _sigma_bridge import call\nprint(await call("echo_tool", "{}"))' })
+  check('a call outside a bridged job is refused by the app', /cannot call tools/.test(r.stdout), r.stdout + (r.error ?? ''))
+
+  r = await wb.runPython({
+    code: 'import urllib.request\ntry:\n    urllib.request.urlopen("http://127.0.0.1:1234/v1/models", timeout=5)\n    print("REACHED")\nexcept Exception as e:\n    print("blocked:", type(e).__name__)',
+    bridge: { sdk, onCall: async () => ({ ok: false, error: 'no' }) }
+  })
+  check('the bridge did not open the network', !/REACHED/.test(r.stdout), r.stdout + (r.error ?? ''))
+
   // ---- sessions (v1.8): conversation-scoped globals ---------------------------
   console.log('\nWorkbench sessions: conversation-scoped state')
 

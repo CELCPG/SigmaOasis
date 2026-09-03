@@ -2186,7 +2186,7 @@ async function main(): Promise<void> {
     // the second should recall the first's verified claim with its date and
     // skip the search, or — when the page changed and the entry expired —
     // surface the contradiction. Arms: `bare` (no ledger) and `ledger`.
-    const arms = (process.env.EVAL_CLAIMS_ARMS ?? 'bare').split(',').map((s) => s.trim()).filter((s): s is import('../src/renderer/src/lib/answerEval').ClaimsArm => s === 'bare' || s === 'ledger')
+    const arms = (process.env.EVAL_CLAIMS_ARMS ?? 'bare').split(',').map((s) => s.trim()).filter((s): s is import('../src/renderer/src/lib/answerEval').ClaimsArm => s === 'bare' || s === 'ledger' || s === 'code')
     console.log(`claims: the fact ledger, second asks vs first (arms: ${arms.join(', ')}; fixture corpus)`)
     const { runClaimsSuite } = require('./evalSuites/claims') as typeof import('./evalSuites/claims')
     const { summarizeClaims, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')

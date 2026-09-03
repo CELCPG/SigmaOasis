@@ -5,6 +5,10 @@ import { formatRun } from '../workbenchFormat'
 import { formatProfile, parseProfile, profileScript } from '../workbenchProfile'
 import { truncate } from './types'
 import type { ToolContext, ToolHandler } from './types'
+import { getSettings } from '../store'
+import { requestInnerCall } from '../tools'
+import { TOOL_SCHEMAS } from '../../../shared/tools'
+import { bridgeableTools, generateSdk } from '../../../shared/codeSdk'
 
 /**
  * The Workbench's tool faces: run_python and analyze_file. Local, sandboxed
@@ -130,7 +134,45 @@ const analyzeFileTool: ToolHandler = async (args, context) => {
   return { ok: !profile.error, output: profile.error ? undefined : truncate(formatProfile(profile), MAX_RUN_OUTPUT_CHARS), error: profile.error ? formatProfile(profile) : undefined }
 }
 
+/**
+ * v2.7 Code Mode: run_code. The same sandbox and session as run_python, plus
+ * the generated `tools` module in /work, whose calls come back through
+ * requestInnerCall to the renderer that owns the turn. The SDK is built from
+ * the tools enabled under Settings → Tools; whether this slot may call one
+ * is the renderer's decision at call time, so a program sees a refusal in
+ * its own terms and never a tool it was not given.
+ */
+const runCodeTool: ToolHandler = async (args, context) => {
+  const code = String(args.code ?? '')
+  if (!code.trim()) return { ok: false, error: 'Provide the Python program to run in `code`.' }
+  const requested = Number(args.timeout_seconds)
+  const timeoutMs = Number.isFinite(requested) ? Math.round(requested * 1000) : undefined
+  const staged = await stageAttachments(context)
+  const toggles = getSettings().tools
+  const sdk = generateSdk(bridgeableTools(TOOL_SCHEMAS.filter((t) => toggles[t.function.name as keyof typeof toggles])))
+  const outcome = await runPython({
+    code,
+    files: staged.files,
+    timeoutMs,
+    session: context.conversationId ?? null,
+    bridge: {
+      sdk,
+      onCall: (name, callArgs) =>
+        context.innerCall ? context.innerCall(name, callArgs) : requestInnerCall(context.sender, name, callArgs, context.parentCallId)
+    }
+  })
+  const formatted = formatRun(outcome, code)
+  const stagedNote = staged.files.length > 0 ? `\n\nFiles available under /work: ${staged.files.map((f) => f.name).join(', ')}.` : ''
+  const sessionNote = outcome.sessionReset
+    ? '\n\nSession reset: the sandbox restarted since the previous run in this conversation, so variables from earlier runs are gone.'
+    : ''
+  return formatted.ok
+    ? { ok: true, output: truncate(`${formatted.output ?? ''}${stagedNote}${sessionNote}`, MAX_RUN_OUTPUT_CHARS), images: formatted.images }
+    : { ok: false, error: truncate(`${formatted.error ?? 'run failed'}${stagedNote}${sessionNote}`, MAX_RUN_OUTPUT_CHARS), images: formatted.images }
+}
+
 export const workbenchHandlers = {
   run_python: runPythonTool,
-  analyze_file: analyzeFileTool
+  analyze_file: analyzeFileTool,
+  run_code: runCodeTool
 } satisfies Record<string, ToolHandler>

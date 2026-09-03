@@ -35,6 +35,16 @@ export interface WorkbenchJobInput {
    * conversation. Absent = fresh globals for this job, exactly as before.
    */
   session?: string | null
+  /**
+   * v2.7 Code Mode: the generated `tools` module and the app's answer to each
+   * call a program makes through it. The sandbox only relays; `onCall` is the
+   * app's ordinary tool path, allowlists, budgets and audit included, and it
+   * runs in whoever asked for the job — the renderer, for a turn.
+   */
+  bridge?: {
+    sdk: string
+    onCall: (name: string, args: Record<string, unknown>) => Promise<{ ok: boolean; output?: string; error?: string }>
+  }
 }
 
 export interface WorkbenchOutcome {
@@ -223,6 +233,30 @@ const PAGE_JS = String.raw`
   let sessionKey = null;
   let sessionGlobals = null;
 
+  // v2.7 Code Mode: a program's tool calls. Python awaits _sigma_bridge.call,
+  // which posts the call to the app and resolves with the app's JSON answer.
+  // The module is registered once; a job with no SDK never imports it, and a
+  // call outside a bridged job is refused by the app, not answered here.
+  const bridgeWaits = new Map();
+  let bridgeCounter = 0;
+  let currentJobId = null;
+  window.workbench.onToolResult((r) => {
+    const w = bridgeWaits.get(r.callId);
+    if (!w) return;
+    bridgeWaits.delete(r.callId);
+    w(r.resultJson);
+  });
+  const registerBridge = () => {
+    pyodide.registerJsModule('_sigma_bridge', {
+      call: (name, argsJson) => new Promise((resolve) => {
+        const callId = 'call-' + (++bridgeCounter);
+        bridgeWaits.set(callId, resolve);
+        window.workbench.callTool({ jobId: currentJobId, callId, name: String(name), argsJson: String(argsJson) });
+      })
+    });
+  };
+  let bridgeRegistered = false;
+
   window.workbench.onJob(async (job) => {
     const started = performance.now();
     let stdout = '', stderr = '';
@@ -244,6 +278,18 @@ const PAGE_JS = String.raw`
         const safe = String(f.name).replace(/[\/\\]/g, '_');
         pyodide.FS.writeFile('/work/' + safe, b64ToBytes(f.base64));
       }
+      currentJobId = job.id;
+      // A fresh module object each job: the SDK may have changed with the
+      // tool set, and a job with no bridge must not inherit the last one's.
+      try { pyodide.runPython('import sys; sys.modules.pop("tools", None)'); } catch (_) {}
+      if (job.sdk) {
+        if (!bridgeRegistered) { registerBridge(); bridgeRegistered = true; }
+        pyodide.FS.writeFile('/work/tools.py', job.sdk);
+      } else {
+        try { pyodide.FS.unlink('/work/tools.py'); } catch (_) {}
+      }
+      // Snapshot after the SDK is written, so the generated module is the
+      // app's and never reported as a file the program wrote.
       const before = listWork();
       pyodide.setStdout({ batched: (s) => { stdout = cap(stdout, s + '\n'); } });
       pyodide.setStderr({ batched: (s) => { stderr = cap(stderr, s + '\n'); } });
@@ -376,6 +422,8 @@ let runtimeReady = false
 let idleTimer: NodeJS.Timeout | null = null
 let ipcInstalled = false
 const pending = new Map<string, { resolve: (r: WorkbenchOutcome) => void; timer: NodeJS.Timeout }>()
+/** v2.7: the bridge of each job that has one — the app's answer to a program's tool call, and the timer re-arm. */
+const bridges = new Map<string, { onCall: NonNullable<WorkbenchJobInput['bridge']>['onCall']; rearm: () => void }>()
 let queue: Promise<unknown> = Promise.resolve()
 
 function armIdle(): void {
@@ -419,6 +467,30 @@ function installIpc(): void {
       sessionVars: Array.isArray(r.sessionVars) ? r.sessionVars.filter((v) => typeof v === 'string').slice(0, 40) : undefined
     })
     armIdle()
+  })
+  // v2.7 Code Mode: a program's tool call. Relayed to the job's bridge and
+  // answered by callId; a job with no bridge, or a call after the job ended,
+  // is refused in the program's own terms. The sandbox never learns which
+  // tools exist beyond the module it was given.
+  ipcMain.on('workbench:call', (event, call: { jobId: string; callId: string; name: string; argsJson: string }) => {
+    if (!win || event.sender !== win.webContents) return
+    const reply = (result: { ok: boolean; output?: string; error?: string }): void => {
+      if (win && !win.isDestroyed()) win.webContents.send('workbench:callResult', { jobId: call.jobId, callId: call.callId, resultJson: JSON.stringify(result) })
+    }
+    const bridge = bridges.get(String(call.jobId))
+    if (!bridge) return reply({ ok: false, error: 'This program cannot call tools.' })
+    let args: Record<string, unknown>
+    try {
+      const parsed: unknown = JSON.parse(String(call.argsJson ?? '{}'))
+      args = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+    } catch {
+      return reply({ ok: false, error: 'Arguments must be a JSON object.' })
+    }
+    void bridge
+      .onCall(String(call.name), args)
+      .then((r) => reply({ ok: r.ok, ...(r.ok ? { output: r.output ?? '' } : { error: r.error ?? 'failed' }) }))
+      .catch((err: unknown) => reply({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => bridges.get(String(call.jobId))?.rearm())
   })
   // The hidden sandbox must never keep the app alive: when every *other*
   // window has closed, tear it down so window-all-closed fires as before.
@@ -553,13 +625,36 @@ export function runPython(input: WorkbenchJobInput): Promise<WorkbenchOutcome> {
         })
       }, timeoutMs)
       pending.set(id, { resolve, timer })
+      if (input.bridge) {
+        // v2.7: the program's tool calls come back through here. The job
+        // timer is re-armed after every answered call — the budget is per
+        // segment of Python between calls, since the wait for a tool is the
+        // app's time, not the sandbox's.
+        bridges.set(id, {
+          onCall: input.bridge.onCall,
+          rearm: () => {
+            const p = pending.get(id)
+            if (!p) return
+            clearTimeout(p.timer)
+            p.timer = setTimeout(() => {
+              pending.delete(id)
+              bridges.delete(id)
+              restarted = true
+              destroySandbox(`timed out after ${Math.round(timeoutMs / 1000)}s`)
+              resolve({ ok: false, stdout: '', stderr: '', result: null, files: [], durationMs: timeoutMs, error: `Timed out after ${Math.round(timeoutMs / 1000)}s between tool calls; the sandbox was restarted.`, restarted: true })
+            }, timeoutMs)
+          }
+        })
+      }
       w.webContents.send('workbench:job', {
         id,
         code: input.code,
         session: input.session ?? null,
-        files: (input.files ?? []).map((f) => ({ name: f.name, base64: f.data.toString('base64') }))
+        files: (input.files ?? []).map((f) => ({ name: f.name, base64: f.data.toString('base64') })),
+        ...(input.bridge ? { sdk: input.bridge.sdk } : {})
       })
     })
+    bridges.delete(id)
     const final: WorkbenchOutcome = { ...outcome, bootMs, ...(restarted ? { restarted: true } : {}) }
     // v1.8: a session the sandbox has served before that did not resume means
     // its state is gone (restart, idle teardown, relaunch). Tracked across

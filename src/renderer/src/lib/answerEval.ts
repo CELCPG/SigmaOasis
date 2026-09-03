@@ -502,7 +502,8 @@ export function summarizeReasoning(results: ReasoningCaseResult[]): ReasoningSum
 
 // ---- the fact ledger: does verification compound? (v2.6) --------------------------
 
-export type ClaimsArm = 'bare' | 'ledger'
+/** `code` (v2.7): no app-run search and one tool, run_code — the model's program does the searching. */
+export type ClaimsArm = 'bare' | 'ledger' | 'code'
 
 /** What the ledger provider disclosed on the reply, when it rode the turn. */
 export interface ClaimsLedgerContext {
@@ -523,6 +524,10 @@ export interface ClaimsAskResult {
   contradiction: boolean
   /** Entries the capture wrote after this ask (ledger arm). */
   captured?: number
+  /** Tool calls the program made through the bridge (code arm). */
+  innerCalls?: number
+  /** run_code programs the model wrote (code arm). */
+  programs?: number
   reply: string
 }
 
@@ -556,7 +561,7 @@ export interface ClaimsSummary {
 
 export function summarizeClaims(results: ClaimsCaseResult[]): ClaimsSummary {
   const arms: ClaimsSummary['arms'] = {}
-  for (const arm of ['bare', 'ledger'] as const) {
+  for (const arm of ['bare', 'ledger', 'code'] as const) {
     const all = results.filter((r) => r.arms[arm])
     if (all.length === 0) continue
     const ok = all.filter((r) => !r.arms[arm]!.error && r.arms[arm]!.first && r.arms[arm]!.second)

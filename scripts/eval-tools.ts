@@ -193,7 +193,9 @@ async function main(): Promise<void> {
   // that number. A call to a stub tool is spurious by construction: no fixture
   // expects one.
   const stubServers = Math.max(0, Math.round(Number(process.env.EVAL_MCP_STUB ?? '0')) || 0)
-  let tools = TOOL_SCHEMAS
+  // v2.7: run_code rides only a slot in Code Mode; the graded toolbox is the native one.
+  const NATIVE_TOOLS = TOOL_SCHEMAS.filter((t) => t.function.name !== 'run_code')
+  let tools = NATIVE_TOOLS
   let mcp: ReturnType<typeof createMcpManager> | null = null
   if (stubServers > 0) {
     mcp = createMcpManager({ builtInNames: new Set(TOOL_SCHEMAS.map((t) => t.function.name)) })
@@ -210,8 +212,8 @@ async function main(): Promise<void> {
       }))
     )
     const extra = mcp.schemas()
-    tools = [...TOOL_SCHEMAS, ...extra]
-    console.log(`       EVAL_MCP_STUB=${stubServers} — ${extra.length} MCP tool(s) on the wire after the ${TOOL_SCHEMAS.length} built-ins\n`)
+    tools = [...NATIVE_TOOLS, ...extra]
+    console.log(`       EVAL_MCP_STUB=${stubServers} — ${extra.length} MCP tool(s) on the wire after the ${NATIVE_TOOLS.length} built-ins\n`)
   }
 
   // v2.5: EVAL_SUBSET=1 puts on the wire what the app puts on the wire — the

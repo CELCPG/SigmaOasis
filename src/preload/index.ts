@@ -71,8 +71,21 @@ const api = {
   executeTool: (
     name: string,
     args: Record<string, unknown>,
-    context?: { modelId?: string; attachments?: AttachmentFileRef[]; conversationId?: string; tainted?: boolean }
+    context?: { modelId?: string; attachments?: AttachmentFileRef[]; conversationId?: string; tainted?: boolean; parentCallId?: string }
   ): Promise<ToolResult> => ipcRenderer.invoke('tools:execute', name, args, context),
+  /**
+   * v2.7 Code Mode: a program in the sandbox asked for a tool. The renderer
+   * that owns the turn decides — allowlist, budget, repeat reuse — runs it
+   * through executeTool like any other call, and answers by callId.
+   */
+  onInnerToolCall: (cb: (call: { callId: string; name: string; args: Record<string, unknown>; parentCallId?: string }) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, call: { callId: string; name: string; args: Record<string, unknown>; parentCallId?: string }): void => cb(call)
+    ipcRenderer.on('tools:innerCall', listener)
+    return () => {
+      ipcRenderer.removeListener('tools:innerCall', listener)
+    }
+  },
+  innerToolResult: (callId: string, result: ToolResult): Promise<void> => ipcRenderer.invoke('tools:innerResult', callId, result),
   /**
    * Rank candidate tools against the user's message by embedding cosine
    * (main/ipc/toolRank.ts). { ok: false } means "no ranking available" — the

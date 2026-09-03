@@ -74,6 +74,12 @@ export interface ModelConfig {
    * Absent = generalist; the slot is never auto-routed a specialty signal.
    */
   specialty?: 'coding' | 'research' | 'finance' | 'data'
+  /**
+   * v2.7 Code Mode: `native` (absent, the default) — tools as calls; `code` —
+   * one tool, run_code, whose program calls the others; `both`. Measured in
+   * the quant and multi-turn suites before any default was chosen.
+   */
+  codeMode?: 'native' | 'code' | 'both'
 }
 
 /**
@@ -645,7 +651,9 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
             m?.specialty === 'finance' ||
             m?.specialty === 'data'
               ? m.specialty
-              : backfillSpecialty(m?.roleName)
+              : backfillSpecialty(m?.roleName),
+          // v2.7: absent = native. Only the two other words are stored.
+          ...(m?.codeMode === 'code' || m?.codeMode === 'both' ? { codeMode: m.codeMode } : {})
         }
       })
     : defaults.models

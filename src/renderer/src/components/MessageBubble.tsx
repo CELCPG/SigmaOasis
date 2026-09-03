@@ -24,7 +24,7 @@ import { SecondOpinionBlock } from './SecondOpinionBlock'
 import { describeDeliberation, draftWentUnreviewed, thinkHarderNote } from '../lib/deliberation'
 import { ClaimCheckBlock } from './ClaimCheckBlock'
 import { PlanBlock } from './PlanBlock'
-import { answerRecords } from '../hooks/planMode'
+import { answerRecords, childRecords } from '../hooks/planMode'
 import { OasisRipple } from './OasisRipple'
 import { SigmaAvatar } from './SigmaAvatar'
 import { BranchMenu } from './BranchMenu'
@@ -1156,8 +1156,8 @@ export const MessageBubble = memo(function MessageBubble({
         {!hideToolCalls &&
           answerRecords(toolCalls).map((record) => (
             <BlockEnter key={record.id}>
-              {record.name === 'run_python' ? (
-                <RanCodeBlock record={record} onCodeBlockClick={handleCodeBlockClick} />
+              {record.name === 'run_python' || record.name === 'run_code' ? (
+                <RanCodeBlock record={record} onCodeBlockClick={handleCodeBlockClick} children={record.name === 'run_code' ? childRecords(toolCalls, record.id) : undefined} />
               ) : (
                 <ToolCallBlock record={record} />
               )}

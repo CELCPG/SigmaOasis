@@ -29,6 +29,15 @@ describe('toolsForSlot', () => {
     assert.equal(toolsForSlot({ tools: null as unknown as string[] }, AVAILABLE), AVAILABLE)
   })
 
+  test('v2.7 Code Mode: native never sees run_code, code sees only it, both sees both', () => {
+    const withCode: ToolSchema[] = [...AVAILABLE, { type: 'function', function: { name: 'run_code', description: 'x', parameters: {} } }]
+    assert.deepEqual(toolsForSlot({}, withCode).map((t) => t.function.name), ['read_file', 'web_search', 'list_directory'])
+    assert.deepEqual(toolsForSlot({ codeMode: 'code' }, withCode).map((t) => t.function.name), ['run_code'])
+    assert.deepEqual(toolsForSlot({ codeMode: 'both' }, withCode).map((t) => t.function.name), ['read_file', 'web_search', 'list_directory', 'run_code'])
+    // and an allowlist still applies underneath the mode
+    assert.deepEqual(toolsForSlot({ codeMode: 'both', tools: ['run_code', 'web_search'] }, withCode).map((t) => t.function.name), ['web_search', 'run_code'])
+  })
+
   test('an allowlist keeps only named, globally-enabled tools, in wire order', () => {
     const result = toolsForSlot({ tools: ['web_search', 'read_file'] }, AVAILABLE)
     assert.deepEqual(

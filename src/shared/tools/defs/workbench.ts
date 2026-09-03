@@ -2,6 +2,35 @@ import type { ToolMeta } from '../types'
 
 export const workbenchToolDefs = [
   {
+    name: 'run_code',
+    label: 'Code Mode: a Python program that calls the app\'s tools (per-slot mode)',
+    description:
+      'Run a Python program in the sandbox that can call the app\'s tools as functions: the module `tools` ' +
+      'in /work has one coroutine per tool — `await tools.web_search(query=...)`, `await tools.reference_lookup(query=...)`, ' +
+      '`await tools.read_file(path=...)` and the rest; `print(tools.__doc__)` or `help(tools)` lists them with their ' +
+      'parameters. Each call is a real tool call: the same allowlist, per-turn budget and record as calling the tool ' +
+      'directly, and a refused or failed call raises tools.ToolError. Print what you want to report; stdout is the ' +
+      'result.\n' +
+      'Use when: the answer needs several tool calls whose results feed each other — search, then read the best ' +
+      'page, then compute over what it says — and one program states the whole method.\n' +
+      'Do not use when: one tool call answers the question (call it directly), or the work is pure computation on ' +
+      'attached data (run_python).\n' +
+      'The sandbox has no network of its own; everything reaches the outside world through `tools`, or not at all.\n' +
+      'Example: {"code": "r = await tools.web_search(query=\\"Nordvik Trekker 40 price\\")\\nprint(r[:800])"}',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'Python source; top-level await is allowed. Print the result.' },
+        timeout_seconds: { type: 'number', description: 'Wall-clock limit per program segment between tool calls (default 60, max 180)' }
+      },
+      required: ['code']
+    },
+    toggleDefault: true,
+    turnBudget: 3,
+    isSource: true,
+    emptyResultLead: 'The program printed nothing'
+  },
+  {
     name: 'run_python',
     label: 'Run Python (sandboxed WebAssembly runtime — no network, no access to your disk)',
     description:

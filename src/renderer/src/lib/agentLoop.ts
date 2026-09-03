@@ -209,8 +209,8 @@ export interface AgentLoopDeps {
    * only needs the final round text and the accumulated tool calls.
    */
   streamRound: (messages: ApiMessage[], tools: ToolSchema[]) => Promise<StreamRoundResult>
-  /** Execute a real tool (IPC in the app, a stub in tests). */
-  executeTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>
+  /** Execute a real tool (IPC in the app, a stub in tests). `meta.callId` is the record's id — v2.7 Code Mode names its inner calls by it. */
+  executeTool: (name: string, args: Record<string, unknown>, meta?: { callId: string }) => Promise<ToolResult>
   /**
    * Handle a consult_model call: resolve the role, validate the task, run the
    * nested specialist turn. Absent on non-orchestrated turns — a consult_model
@@ -512,7 +512,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
               `You sent ${JSON.stringify(args).slice(0, 140)}. Correct the call and try again.`
           }
         } else {
-          result = await deps.executeTool(tc.function.name, args)
+          result = await deps.executeTool(tc.function.name, args, { callId: record.id })
           // A library lookup numbers its own passages from [1]; a turn's
           // second one would hand the model a number it has already used for
           // a different passage, and the reply's marker would then name two.

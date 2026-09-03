@@ -29,7 +29,8 @@ import {
  */
 
 /** The wire hash at the point the table was extracted from toolSchemas.ts (v1.12.1). */
-const PINNED_SCHEMA_HASH = 'b08f5bd3ef42'
+// v2.7: run_code joined the table (Code Mode); the hash moved with it.
+const PINNED_SCHEMA_HASH = 'd1450cd52b24'
 
 const PINNED_NAMES = [
   'read_file',
@@ -51,6 +52,7 @@ const PINNED_NAMES = [
   'memory_search',
   'memory_forget',
   'reference_lookup',
+  'run_code',
   'run_python',
   'analyze_file',
   'shop_requirements',
@@ -100,6 +102,7 @@ describe('tool table', () => {
       fetch_webpage: 2,
       deep_research: 1,
       reference_lookup: 3,
+      run_code: 3,
       run_python: 4,
       analyze_file: 2,
       shop_requirements: 2,
@@ -122,6 +125,7 @@ describe('tool table', () => {
         'finance_calculator',
         'market_data',
         'reference_lookup',
+        'run_code',
         'run_python',
         'web_search'
       ]

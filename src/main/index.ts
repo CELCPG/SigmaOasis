@@ -166,7 +166,8 @@ app.whenReady().then(() => {
       join(app.getAppPath(), 'test', 'fixtures', 'toolchoice'),
       TOOL_SCHEMAS.map((t) => t.function.name)
     ),
-    tools: TOOL_SCHEMAS
+    // v2.7: run_code rides only a slot in Code Mode; the graded toolbox is the native one.
+    tools: TOOL_SCHEMAS.filter((t) => t.function.name !== 'run_code')
   }))
   ipcMain.handle('eval:saveResult', (_e, payload: unknown) =>
     saveEvalResult(join(app.getAppPath(), '.eval-results'), payload)

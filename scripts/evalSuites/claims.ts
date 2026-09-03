@@ -113,6 +113,10 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
   const { autoSearchProvider } = require('../../src/renderer/src/lib/contextProviders/autoSearch') as typeof import('../../src/renderer/src/lib/contextProviders/autoSearch')
   const { TOOL_SCHEMAS } = require('../../src/shared/tools') as typeof import('../../src/shared/tools')
   const webTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'web_search' || t.function.name === 'fetch_webpage')
+  // v2.7 Code Mode arm: one tool on the wire; its program reaches the two web
+  // tools through the bridge, answered here the way the renderer answers it.
+  const codeTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'run_code')
+  const BRIDGE_ALLOWED = new Set(['web_search', 'fetch_webpage'])
 
   // The ledger arm's modules are required lazily so the bare arm runs on a
   // tree that has no ledger yet — that is how the baseline was measured.
@@ -148,11 +152,24 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
     const out: ClaimsAskResult = { searches: 0, fetches: 0, ms: 0, answered: false, ledger: null, contradiction: false, reply: '' }
     const records: ToolCallRecord[] = []
     const patched: Record<string, unknown> = {}
-    const ctx = { sender: null as never, tainted: false }
     let n = 0
     const note = (name: string): void => {
       if (name === 'web_search') out.searches += 1
       if (name === 'fetch_webpage') out.fetches += 1
+    }
+    const ctx = {
+      sender: null as never,
+      tainted: false,
+      // The code arm's bridge: the program's calls, allowlisted and counted,
+      // through the same handlers a direct call reaches.
+      innerCall: async (name: string, args: Record<string, unknown>) => {
+        out.innerCalls = (out.innerCalls ?? 0) + 1
+        if (!BRIDGE_ALLOWED.has(name)) return { ok: false, error: `Tool "${name}" is not available to this program.` }
+        const r = await registry.executeTool(name, args, { sender: null as never, tainted: false })
+        note(name)
+        records.push({ id: `i${++n}`, name, args, status: r.ok ? 'done' : 'error', result: r.ok ? (r.output ?? '') : (r.error ?? '') })
+        return r
+      }
     }
     const io = {
       async runTool(name: string, args: Record<string, unknown>) {
@@ -191,7 +208,8 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
       assistantMsgId: 'a',
       signal: new AbortController().signal
     }
-    const providers = arm === 'ledger' && ledgerProvider ? [ledgerProvider.factLedgerProvider, autoSearchProvider] : [autoSearchProvider]
+    const providers =
+      arm === 'code' ? [] : arm === 'ledger' && ledgerProvider ? [ledgerProvider.factLedgerProvider, autoSearchProvider] : [autoSearchProvider]
     const gathered = await gatherTurnContext(providers, input as never, io as never)
     const turnContext = buildTurnContext(gathered.blocks)
     const messages: Msg[] = [
@@ -201,7 +219,7 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
     const rounds: string[] = []
     await runAgentLoop({
       messages: messages as never,
-      tools: webTools,
+      tools: arm === 'code' ? codeTools : webTools,
       records,
       signal: input.signal,
       deps: {
@@ -211,6 +229,7 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
           return { content: r.content, toolCalls: r.toolCalls }
         },
         executeTool: async (name, args) => {
+          if (name === 'run_code') out.programs = (out.programs ?? 0) + 1
           const r = await registry.executeTool(name, args, ctx)
           note(name)
           return r
@@ -261,7 +280,8 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
           ? `! ${a.error.slice(0, 80)}`
           : `ask1 ${a.first!.answered ? '✓' : '✗'} ${a.first!.searches}s/${a.first!.fetches}f ${(a.first!.ms / 1000).toFixed(0)}s · ` +
             `ask2 ${a.second!.answered ? '✓' : '✗'} ${a.second!.searches}s/${a.second!.fetches}f ${(a.second!.ms / 1000).toFixed(0)}s` +
-            (arm === 'ledger' ? ` · ledger ${a.second!.ledger ? (a.second!.ledger.expired ? 'expired' : 'hit') : 'miss'}${caseOut.changed ? ` · contradiction ${a.second!.contradiction ? 'surfaced' : 'MISSED'}` : ''}` : '')
+            (arm === 'ledger' ? ` · ledger ${a.second!.ledger ? (a.second!.ledger.expired ? 'expired' : 'hit') : 'miss'}${caseOut.changed ? ` · contradiction ${a.second!.contradiction ? 'surfaced' : 'MISSED'}` : ''}` : '') +
+            (arm === 'code' ? ` · programs ${a.first!.programs ?? 0}/${a.second!.programs ?? 0} · inner calls ${a.first!.innerCalls ?? 0}/${a.second!.innerCalls ?? 0}` : '')
         process.stdout.write(`  ${fx.file.padEnd(28)} [${arm.padEnd(6)}] ${line}  [${i + 1}/${fixtures.length}]\n`)
       }
       results.push(caseOut)

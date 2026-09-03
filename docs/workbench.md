@@ -30,6 +30,18 @@ window (`src/main/ipc/workbench.ts`):
   would not be checking the reply.
 - The idle sandbox is torn down after ten minutes (it holds ~150 MB) and never keeps the app
   alive after the last real window closes.
+- **Code Mode (v2.7):** a slot set to `code` or `both` under Settings → Models gets a tool,
+  `run_code`, whose Python program can call the app's other tools as coroutines through a
+  generated module, `/work/tools.py` — `await tools.web_search(query=...)`. The module is a
+  pure function of the tool table (lexicographic, byte-identical for an unchanged set) and never
+  includes the tools that run the sandbox themselves, or consultation. A call from inside the
+  program is not a sandbox capability: it goes out through the preload as a message, the
+  renderer that owns the turn decides it — the slot's allowlist, the same per-turn budget the
+  loop charges, the same `executeTool` — and files the record under the program's call with an
+  audit line prefixed `[code mode]`. The job timer is re-armed after each answered call, so the
+  budget is per segment of Python. The sandbox's network stays as blocked as before; the check
+  suite proves that a bridged job still cannot reach loopback, that an unbridged job has no
+  `tools` module, and that a call outside a bridged job is refused by the app.
 
 ## The runtime files
 

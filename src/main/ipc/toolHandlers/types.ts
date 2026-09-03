@@ -54,6 +54,14 @@ export interface ToolContext {
    * `untrusted`.
    */
   tainted?: boolean
+  /** v2.7 Code Mode: the run_code call this execution belongs to, so its inner calls can name it. */
+  parentCallId?: string
+  /**
+   * v2.7 Code Mode, test seam: answer a program's tool calls here instead of
+   * asking the renderer. The evals and the check suite set it; the app never
+   * does — in the app the renderer that owns the turn decides.
+   */
+  innerCall?: (name: string, args: Record<string, unknown>) => Promise<{ ok: boolean; output?: string; error?: string }>
 }
 
 export type ToolHandler = (args: Record<string, unknown>, context: ToolContext) => Promise<ToolResult>

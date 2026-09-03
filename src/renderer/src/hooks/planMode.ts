@@ -120,9 +120,14 @@ export function stepRecords(
   return (records ?? []).filter((r) => r.planStepId === stepId)
 }
 
-/** The message's own calls — a step's belong under the step, not the answer. */
+/** The message's own calls — a step's belong under the step, and a program's under the program. */
 export function answerRecords(records: ToolCallRecord[] | undefined): ToolCallRecord[] {
-  return (records ?? []).filter((r) => !r.planStepId)
+  return (records ?? []).filter((r) => !r.planStepId && !r.parentCallId)
+}
+
+/** v2.7 Code Mode: the calls one run_code program made, in order. */
+export function childRecords(records: ToolCallRecord[] | undefined, parentCallId: string): ToolCallRecord[] {
+  return (records ?? []).filter((r) => r.parentCallId === parentCallId)
 }
 
 /**

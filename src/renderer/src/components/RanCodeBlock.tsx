@@ -5,6 +5,7 @@ import { startWaitClock, WAIT_TICK_MS } from '../lib/oasisRipple'
 import { parseRanCode } from '../lib/ranCode'
 import { RanCodeHeader } from './RanCodeHeader'
 import { Disclosure } from './Disclosure'
+import { ToolCallBlock } from './ToolCallBlock'
 
 /**
  * v1.6 "Ran code": what run_python did, visible by default. The code the model
@@ -64,7 +65,16 @@ function useSandboxBoot(running: boolean): { booting: boolean; waitedMs: number 
   return { booting, waitedMs }
 }
 
-export function RanCodeBlock({ record, onCodeBlockClick }: { record: ToolCallRecord; onCodeBlockClick: (e: React.MouseEvent<HTMLDivElement>) => void }): JSX.Element {
+export function RanCodeBlock({
+  record,
+  onCodeBlockClick,
+  children
+}: {
+  record: ToolCallRecord
+  onCodeBlockClick: (e: React.MouseEvent<HTMLDivElement>) => void
+  /** v2.7 Code Mode: the tool calls this program made, shown under its code. */
+  children?: ToolCallRecord[]
+}): JSX.Element {
   const [open, setOpen] = useState(true)
   const code = String(record.args.code ?? '')
   const parsed = useMemo(() => (record.result !== undefined ? parseRanCode(record.result, record.status === 'done') : null), [record.result, record.status])
@@ -86,6 +96,15 @@ export function RanCodeBlock({ record, onCodeBlockClick }: { record: ToolCallRec
       {record.preamble && <div className="px-3 pb-1.5 italic text-ink-secondary">“{record.preamble}”</div>}
       <Disclosure open={open} className="space-y-2 px-3 pb-3">
           <div className="markdown-body text-xs" onClick={onCodeBlockClick} dangerouslySetInnerHTML={{ __html: codeHtml }} />
+          {children && children.length > 0 && (
+            <Section label={`Tool calls the program made (${children.length})`}>
+              <div className="space-y-1.5">
+                {children.map((c) => (
+                  <ToolCallBlock key={c.id} record={c} />
+                ))}
+              </div>
+            </Section>
+          )}
           {parsed && (
             <>
               {parsed.stdout && (

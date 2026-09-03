@@ -3,7 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { stopSpeaking, enqueueSpeech, extractCompleteSentences } from '../lib/voice'
 import { estimateTokens } from '../lib/contextBudget'
 import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
-import { toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
+import { bridgeToolsForSlot, toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
 import { buildCriticMessages, NO_REVIEW_TEXT, pickCritic } from '../lib/secondOpinion'
 import {
   buildTurnContext,
@@ -248,6 +248,50 @@ async function runTurn(
   // One tool ledger for the whole turn: provider pre-flight calls and loop
   // calls share budgets and repeat detection (the old bypass asymmetry).
   const turnLedger = createTurnToolLedger()
+
+  // v2.7 Code Mode: a program in the sandbox asks for a tool through the
+  // bridge and the decision is made here, on this turn's own list and
+  // ledger — the slot's allowlist minus the sandbox's own tools, the same
+  // per-turn budget the loop charges, the same executeTool, a record filed
+  // under the program's call, an audit line prefixed [code mode].
+  const bridgeTools = new Set(bridgeToolsForSlot(slot, tools).map((t) => t.function.name))
+  const unsubscribeInner = window.api.onInnerToolCall(async (call) => {
+    let result: ToolResult
+    if (!bridgeTools.has(call.name)) {
+      result = { ok: false, error: `Tool "${call.name}" is not available to this program.` }
+    } else {
+      const budget = TOOL_TURN_BUDGETS[call.name]
+      const used = turnLedger.executedCounts.get(call.name) ?? 0
+      if (budget !== undefined && used >= budget) {
+        result = { ok: false, error: `Budget: ${call.name} has been called ${used} time(s) this turn, its limit. Work with what you have.` }
+      } else {
+        result = await window.api
+          .executeTool(call.name, call.args, toolContext)
+          .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+        turnLedger.note(call.name, call.args, result)
+        noteToolResult(toolContext, call.name, result)
+      }
+    }
+    const record: ToolCallRecord = {
+      id: uid(),
+      name: call.name,
+      args: call.args,
+      status: result.ok ? 'done' : 'error',
+      result: result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error'),
+      ...(call.parentCallId ? { parentCallId: call.parentCallId } : {})
+    }
+    allRecords.push(record)
+    patch({ toolCalls: [...allRecords] })
+    audit(convo, {
+      kind: 'tool_call',
+      roleName: slot.roleName,
+      modelId: slot.modelId,
+      toolName: call.name,
+      ok: result.ok,
+      text: `[code mode] ${call.name}(${JSON.stringify(call.args)})\n→ ${result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`}`
+    })
+    await window.api.innerToolResult(call.callId, result)
+  })
 
   // Turn classifiers, shared by the context providers and the post-turn checks.
   const factualTurn = lastUserContent ? looksFactual(lastUserContent) : false
@@ -566,8 +610,10 @@ async function runTurn(
         },
         // The caller's model id goes along so main-process tools that need to
         // reason (deep_research) plan with the model the user is talking to.
-        executeTool: async (name, args) => {
-          const result = await window.api.executeTool(name, args, toolContext)
+        executeTool: async (name, args, meta) => {
+          // v2.7: a run_code call carries its own record id, so the calls its
+          // program makes can be filed under it.
+          const result = await window.api.executeTool(name, args, meta?.callId && name === 'run_code' ? { ...toolContext, parentCallId: meta.callId } : toolContext)
           // v2.6: the turn is tainted from the first foreign result on; the
           // flag rides toolContext to every later call (lib/taint.ts).
           noteToolResult(toolContext, name, result)
@@ -627,6 +673,7 @@ async function runTurn(
     // Stop skips the wait entirely. The user asked for the turn to be over,
     // not to watch the rest of it type itself out, so the remainder lands in
     // one publish — which still keeps every character that had streamed.
+    unsubscribeInner()
     await tail.finish(signal.aborted)
     // Nothing is in flight any more, so nothing may still be described as
     // being waited on. Released here rather than at the return, because the

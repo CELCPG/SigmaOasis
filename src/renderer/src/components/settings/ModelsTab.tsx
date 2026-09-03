@@ -229,6 +229,24 @@ export function ModelsTab(props: ModelsTabProps): JSX.Element {
                           </span>
                         </div>
 
+                        <label className="mt-3 block text-xs">
+                          Code Mode
+                          <select
+                            className="mt-1 w-full"
+                            value={m.codeMode ?? 'native'}
+                            onChange={(e) => updateModel(m.id, { codeMode: e.target.value === 'native' ? undefined : (e.target.value as 'code' | 'both') })}
+                            aria-label={`${m.roleName} code mode`}
+                          >
+                            <option value="native">native — tools as calls (default)</option>
+                            <option value="code">code — one tool, run_code, whose Python program calls the others</option>
+                            <option value="both">both</option>
+                          </select>
+                          <span className="mt-0.5 block text-ink-tertiary">
+                            A program in the sandbox reaches this role&rsquo;s tools through a generated <code>tools</code>{' '}
+                            module, with the same allowlist, budgets and audit as direct calls. Measured in{' '}
+                            <code>docs/evals.md</code> before any default was chosen.
+                          </span>
+                        </label>
                         <details className="mt-3">
                           <summary className="cursor-pointer text-xs font-medium text-ink-secondary">
                             Tools
