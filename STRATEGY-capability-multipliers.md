@@ -167,7 +167,8 @@ the 23 conversations saved on this machine — 82 searches, 9 fetched pages, 3 r
 3 Python runs — the largest was 6,387 characters and none reached the 8,000-character cap
 that spill would replace; the cap has never fired here. Spill answers a case the record does
 not contain. The cap's silent drop of a tail stays a stated limitation; steering is the A5
-deliverable.)*
+deliverable — built, and gated: ten steered turns, delivered at a boundary 10/10, honoured
+9/10, still answered 9/10; the suite's own numbers unmoved.)*
 
 ### A6. Code Mode in the Workbench
 

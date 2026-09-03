@@ -12,6 +12,8 @@ so CI stays offline. Scoring is mechanical in every one: no model grades another
 | Reasoning + think-harder (v1.9.1) | multi-step problems with one checkable answer, no tools: **draft vs the same draft after review-and-revise**, counting how often review *fixed* a wrong draft and how often it *broke* a right one | `LMSTUDIO_EVAL=1 EVAL_SUITES=reasoning npm run eval:answers -- <model>` |
 | Multi-turn analysis (v1.8) | follow-up questions over one dataset, **sessions vs. stateless**: per-turn correctness, whether follow-ups re-read the file, calls and seconds per turn | `LMSTUDIO_EVAL=1 EVAL_SUITES=multiturn npm run eval:answers -- <model>` |
 | Long documents (v2.6) | twelve document-shaped requests with required sections, **bare vs. outlined first then written a section at a time**: every section present, the length reached, the token cap not hit, and no two sections restating one another (highest pairwise cosine over section embeddings) | `LMSTUDIO_EVAL=1 EVAL_SUITES=longform EVAL_LONGFORM_ARMS=bare,outline npm run eval:answers -- <model>` |
+| Mid-turn steering (v2.7) | the multi-turn suite with a steer queued at the second turn's first round boundary, through the loop's own hook: **delivered** (the turn reached a boundary), **honoured** (the reply obeyed it), and still answered the question | `LMSTUDIO_EVAL=1 EVAL_SUITES=multiturn EVAL_STEER=1 npm run eval:answers -- <model>` |
+| Code Mode (v2.7) | the fact-ledger fixtures with a third arm, `code`: no app-run search and one tool, `run_code`, whose program reaches the web tools through the bridge — answered, searches, programs written and inner calls made, against `bare` | `LMSTUDIO_EVAL=1 EVAL_SUITES=claims EVAL_CLAIMS_ARMS=bare,code npm run eval:answers -- <model>` |
 | Fact ledger (v2.6) | twenty questions about fictional entities asked twice in fresh chats against a loopback corpus, **bare vs. with the ledger**: searches and seconds on the second ask, whether it answered from a dated verified claim, and whether the six cases whose page changed (and whose entry expired) surfaced the contradiction | `LMSTUDIO_EVAL=1 EVAL_SUITES=claims EVAL_CLAIMS_ARMS=bare,ledger npm run eval:answers -- <model>` |
 
 `EVAL_CASES=1-8` runs a 1-based inclusive slice, so a slow model can be evaluated in chunks that
@@ -7127,6 +7129,30 @@ the ledger arm is not a clean baseline; the bare arm is. Second, one pass, not t
 mechanical rows (searched, from-ledger, contradiction) are app behaviour, not model
 behaviour, and did not need a stability run to be read; the answered rows are within the
 noise the other suites have measured at temperature 0.
+
+## Mid-turn steering (v2.7)
+
+`LMSTUDIO_EVAL=1 EVAL_SUITES=multiturn EVAL_STEER=1 npm run eval:answers -- <model>` runs the
+multi-turn suite as it is — five datasets, three turns each, session and stateless arms — with
+one change: at the second turn of every case a steer waits for the loop's first round boundary,
+through the same hook the app's composer feeds, and says *end your reply with a final line that
+says exactly STEER ACK*. A constraint no fixture needs and every reply can show, so the check is
+a regex. Three numbers: **delivered** (the turn reached a boundary at all — a turn answered in one
+round never does), **honoured** (the reply obeyed it), and **still answered** (the steer did not
+cost the turn its answer).
+
+qwen3.8-9b, one pass (2026-09-03):
+
+| steered turns | delivered at a boundary | honoured | still answered the question |
+| --- | --- | --- | --- |
+| 10 | **10/10** | **9/10** | 9/10 |
+
+The mechanism is the app's: the message goes on the wire after the previous round's tool
+results and before the model reads them, and the record — the bubble, the audit kind
+`user_steer` with the round, the trace export — says where. The one miss is case 03's session
+arm, which also missed its third, unsteered turn; the stateless arm of the same case honoured
+the steer and answered. The suite's other numbers did not move: first turns 5/5 in both arms,
+follow-ups 8/10 and 10/10, the session arm's re-reads 4/10 — the same picture v1.8 recorded.
 
 ## Long documents: outline-then-fill (v2.6)
 

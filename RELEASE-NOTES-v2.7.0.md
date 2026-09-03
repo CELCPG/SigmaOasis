@@ -20,7 +20,16 @@ for the turn.
 
 ## Measured
 
-*(pending)*
+**Steering.** The multi-turn suite with a steer queued at every second turn's first round
+boundary — a constraint the reply must show — on qwen3.8-9b:
+
+| steered turns | delivered at a boundary | honoured | still answered |
+| --- | --- | --- | --- |
+| 10 | 10/10 | 9/10 | 9/10 |
+
+The suite's own numbers did not move. The full account is in `docs/evals.md`.
+
+*(Code Mode — pending)*
 
 ## Measured, and not built
 
