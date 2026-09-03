@@ -2,6 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { load } from './harness'
 import { looksLikeDocumentAsk } from '../src/renderer/src/lib/playbooks'
 import { requiredSectionsPresent, sectionsOf, summarizeLongform, wordCount } from '../src/renderer/src/lib/answerEval'
 import type { LongformCaseResult } from '../src/renderer/src/lib/answerEval'
@@ -36,6 +37,43 @@ describe('a document-shaped request', () => {
       assert.ok(looksLikeDocumentAsk(fx.prompt), f)
       assert.ok(fx.sections.length >= 5 && fx.minWords >= 800, f)
     }
+  })
+})
+
+describe('the outline a request already contains', () => {
+  const { outlineFromRequest, sectionBudget, targetWordsOf } = load<typeof import('../src/main/ipc/outline')>('outline')
+
+  test('listed sections become the outline, in order, with the title read off the ask', () => {
+    const o = outlineFromRequest('Write a 1,500-word beginner\'s guide to starting a vegetable garden. Use these section headings: Planning, Soil, Choosing crops, Watering, Pests, Harvest.')
+    assert.deepEqual(o?.sections.map((s) => s.heading), ['Planning', 'Soil', 'Choosing crops', 'Watering', 'Pests', 'Harvest'])
+    assert.equal(o?.title, "Beginner's guide to starting a vegetable garden")
+    const p = outlineFromRequest('Draft a 1,200-word onboarding handbook for a new remote employee. Sections: First day, Tools and access, Communication norms, First 30 days, Who to ask.')
+    assert.deepEqual(p?.sections.map((s) => s.heading), ['First day', 'Tools and access', 'Communication norms', 'First 30 days', 'Who to ask'])
+    const q = outlineFromRequest('Write a 1,200-word twelve-week half-marathon plan. Sections: Principles, Weeks 1-4, Weeks 5-8, Weeks 9-12, Race week, Injury prevention.')
+    assert.equal(q?.sections.length, 6)
+  })
+
+  test('no listed sections, or too few, means the model plans', () => {
+    assert.equal(outlineFromRequest('Write a 1,500-word explainer on securing a home network.'), null)
+    assert.equal(outlineFromRequest('Write a guide with sections: One, Two.'), null)
+  })
+
+  test('every longform fixture yields its outline without a model', () => {
+    const dir = join(__dirname, '..', '..', 'test', 'fixtures', 'longform')
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+      const fx = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as { prompt: string; sections: string[] }
+      const o = outlineFromRequest(fx.prompt)
+      assert.ok(o, f)
+      assert.equal(o!.sections.length, fx.sections.length, f)
+    }
+  })
+
+  test('the section budget follows the requested length and is told to the section', () => {
+    assert.equal(targetWordsOf('Write a 1,500-word guide'), 1500)
+    assert.equal(targetWordsOf('Write a guide'), 1200)
+    assert.deepEqual(sectionBudget(1500, 6), { words: 250, maxTokens: 550 })
+    assert.deepEqual(sectionBudget(300, 6), { words: 80, maxTokens: 220 })
+    assert.deepEqual(sectionBudget(4000, 3), { words: 1333, maxTokens: 800 })
   })
 })
 

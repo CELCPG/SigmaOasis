@@ -1,6 +1,6 @@
 # Strategy: Capability multipliers — post v2.2.0
 
-**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below); v2.5 — A1 (the MCP client) landed and gated: with the app's own per-turn selection, correct-tool and spurious-call rates are identical at 0, 4 and 12 connected servers (the raw-list finding and the table are in `docs/evals.md`), B3 closed by evidence.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
+**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below); v2.5 — A1 (the MCP client) landed and gated: with the app's own per-turn selection, correct-tool and spurious-call rates are identical at 0, 4 and 12 connected servers (the raw-list finding and the table are in `docs/evals.md`), B3 closed by evidence; v2.6 — A2 (the fact ledger) landed and gated by the `claims` suite (second asks that searched 20/20 → 9/20, every unchanged case answered from a dated entry, every changed price surfaced as a contradiction; seconds did not fall, stated), A3 (standing questions) landed, A4 (outline-then-fill) built behind a switch that ships off pending the `longform` suite, plus the four OpenClaw adoptions (memory origins, standing grants, the privacy audit, MCP approval modes) — `STRATEGY-openclaw-adoptions.md`.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
 five earlier strategy documents, the v2.1/v2.2 release notes, `docs/evals.md`, the
 head-to-head record (`docs/head-to-head/rounds.json`, verdicts 8–13), and the source tree.
 Companions: `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped), `STRATEGY-speed-and-quality.md`
@@ -145,8 +145,11 @@ required-sections score moves and the unsupported-figure rate does not.
 
 *(v2.6: built as `main/ipc/outline.ts` behind a switch that ships off. No tools ride the
 sections, so the figure rung has nothing to trace; the rubric is sections present, length
-reached, cap not hit, and section redundancy by embedding cosine. The `longform` suite's
-numbers are in `docs/evals.md`; the default follows them.)*
+reached, cap not hit, and section redundancy by embedding cosine. Measured: a null result —
+every-section 10/12 vs 9/12, redundancy unmoved, 40% slower — so the default is off, with
+five findings about a 9B reasoning model recorded on the way in `docs/evals.md`. The one
+thing the rubric cannot show: the bare arm's cut-off documents stop mid-sentence, the
+outlined arm's do not.)*
 
 ### A5. Mid-turn steering and spill (from Tier 4)
 

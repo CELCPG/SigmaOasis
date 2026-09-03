@@ -271,7 +271,7 @@ adds — and the mapping is the argument for keeping the shape:
 
 | Release | From this document | Why there |
 | --- | --- | --- |
-| **v2.6** — verification that compounds | Tier 1 (provenance) folded into A2 the ledger; Tier 3 (jobs) *is* A3; Tier 2 (grants) because A3's unattended runs need them; Tier 6 (privacy audit), cheap | the three land on the same seams A2 and A3 open |
+| **v2.6** — verification that compounds | Tier 1 (provenance) folded into A2 the ledger; Tier 3 (jobs) *is* A3; Tier 2 (grants) because A3's unattended runs need them; Tier 6 (privacy audit), cheap | the three land on the same seams A2 and A3 open — **done: all four shipped in v2.6** |
 | **v2.7** — the loop opens up | Tier 4 (skills) beside Code Mode, which stages a skill's helpers into the sandbox; Tier 5 (persona and rules) | a skill package needs the sandbox path Code Mode builds |
 | **later** | Tier 7's masked MCP env values with the next MCP change; an opt-in resident mode, as its own decision | small, and separable |
 

@@ -89,7 +89,23 @@ did not move. Seconds did not fall either, and the table in `docs/evals.md` says
 a loopback server a search costs nothing to skip. The claim the release makes is about
 searches and about what the second ask says, not about time.
 
-*(the longform suite — pending)*
+**Does outlining first help a long document?** Twelve document-shaped requests, each with a
+length and named sections, bare versus outlined. It took five runs to make the outlined arm
+run at all, and each failure was a fact about a 9B reasoning model that the app now designs
+around — sections with no length, a JSON outline call with no cap, a model that thinks before
+any JSON whatever the flag says, and headings containing "and" — all in `docs/evals.md`.
+
+| arm | every section present | length reached | hit a cap | mean section redundancy | s/case |
+| --- | --- | --- | --- | --- | --- |
+| bare | 9/12 | 11/12 | 7/12 | 0.871 | 164 |
+| outlined | 10/12 | 12/12 | 9/12 | 0.878 | 228 |
+
+A null result: one case of movement on the score the gate was set on, no movement on whether
+sections restate one another, and 40% slower. The switch ships off with these numbers, as the
+strategy said it would. What the rubric cannot show is that the bare arm's cap hits are
+documents that stop mid-sentence, while the outlined arm's are sections that ran long inside a
+finished document; the feature is there for a reader who wants the second failure over the
+first.
 
 ## Not in this release
 
