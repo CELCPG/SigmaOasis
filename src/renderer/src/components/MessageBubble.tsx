@@ -876,6 +876,16 @@ export const MessageBubble = memo(function MessageBubble({
             {a.indexed && <span className="ml-1 text-ink-tertiary">(indexed)</span>}
           </span>
         ))}
+        {/* v2.7: a message typed while a turn ran — where it landed, or that it waits. */}
+        {message.delivery && (
+          <span className="text-[11px] text-ink-tertiary" data-testid="steer-delivery">
+            {message.delivery.state === 'queued'
+              ? '⏳ queued — handed to the model at its next round'
+              : message.delivery.round
+                ? `↪ steered in mid-turn, before round ${message.delivery.round + 1}`
+                : '↪ steered in after the turn ended — answered next'}
+          </span>
+        )}
         {/* break-words: a pasted path or key has no break opportunity of its
             own and would otherwise run straight out of the bubble. */}
         {message.content && (

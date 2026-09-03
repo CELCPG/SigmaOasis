@@ -219,6 +219,22 @@ export interface AgentLoopDeps {
   consult?: (role: string, task: string) => Promise<ToolResult>
   /** Called after each executed call (real or consult) — the app's audit hook. */
   onToolExecuted?: (record: ToolCallRecord, result: ToolResult) => void
+  /**
+   * v2.7 mid-turn steering. Called at the top of every round after the first:
+   * whatever the user typed while the previous round ran is returned here and
+   * goes on the wire as user messages after that round's tool results, before
+   * the model is asked again — the one place a running turn can be steered
+   * without abandoning the work it has done. Absent = no steering.
+   */
+  takePendingMessages?: () => SteerMessage[]
+  /** Called once per delivered steer, with the round it landed in front of. */
+  onSteerDelivered?: (steer: SteerMessage, round: number) => void
+}
+
+/** A message typed while a turn ran, waiting for a round boundary. */
+export interface SteerMessage {
+  id: string
+  text: string
 }
 
 export interface AgentLoopOptions {
@@ -347,6 +363,15 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   }
 
   for (let iteration = 0; iteration < iterationCap; iteration++) {
+    // v2.7: a steer lands after the previous round's tool results and before
+    // the model reads them — the round boundary, and only there. The first
+    // round already carries the user's message.
+    if (iteration > 0) {
+      for (const steer of deps.takePendingMessages?.() ?? []) {
+        messages.push({ role: 'user', content: steer.text })
+        deps.onSteerDelivered?.(steer, iteration)
+      }
+    }
     let round = await deps.streamRound(messages, tools)
     if (signal.aborted) return { stopReason: 'aborted' }
 

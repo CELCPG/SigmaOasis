@@ -364,6 +364,12 @@ export interface MultiTurnTurnResult {
   toolResults?: { name: string; code?: string; result: string }[]
   reply?: string
   error?: string
+  /**
+   * v2.7: a steer injected at this turn's first round boundary (EVAL_STEER=1).
+   * `delivered` = the loop reached a boundary and handed it over; `honoured` =
+   * the reply obeyed it. A turn that answered in one round never delivered.
+   */
+  steer?: { delivered: boolean; honoured: boolean }
 }
 
 export interface MultiTurnCaseResult {
@@ -386,6 +392,8 @@ export interface MultiTurnArmSummary {
 export interface MultiTurnSummary {
   session: MultiTurnArmSummary
   stateless: MultiTurnArmSummary
+  /** v2.7, EVAL_STEER=1 only: of the turns a steer was queued for, how many delivered it, obeyed it, and still answered. */
+  steer?: { delivered: Rate; honoured: Rate; answeredAnyway: Rate }
 }
 
 /** Does executed Python read a tabular data file? Matches pandas readers and open() of a data path. */
@@ -407,9 +415,19 @@ function armSummary(turnsOf: (r: MultiTurnCaseResult) => MultiTurnTurnResult[], 
 }
 
 export function summarizeMultiTurn(results: MultiTurnCaseResult[]): MultiTurnSummary {
+  const steered = results.flatMap((r) => [...r.session, ...r.stateless]).filter((t) => t.steer)
   return {
     session: armSummary((r) => r.session, results),
-    stateless: armSummary((r) => r.stateless, results)
+    stateless: armSummary((r) => r.stateless, results),
+    ...(steered.length > 0
+      ? {
+          steer: {
+            delivered: rate(steered.filter((t) => t.steer!.delivered).length, steered.length),
+            honoured: rate(steered.filter((t) => t.steer!.delivered && t.steer!.honoured).length, steered.filter((t) => t.steer!.delivered).length),
+            answeredAnyway: rate(steered.filter((t) => t.steer!.delivered && t.hit).length, steered.filter((t) => t.steer!.delivered).length)
+          }
+        }
+      : {})
   }
 }
 

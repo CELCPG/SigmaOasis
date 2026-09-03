@@ -39,6 +39,8 @@
 export const AUDIT_ENTRY_KINDS = [
   'session_start',
   'user_input',
+  /** v2.7: a message typed while a turn ran, at the round it was handed to the model. */
+  'user_steer',
   'assistant_output',
   'tool_call',
   /** The checklist as the reader was shown it, before anything ran. */

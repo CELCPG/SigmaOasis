@@ -284,7 +284,10 @@ export function InputBar(): JSX.Element {
 
   const submit = (): void => {
     const value = text.trim()
-    if ((!value && attachments.length === 0) || streaming) return
+    if (!value && attachments.length === 0) return
+    // v2.7: while a turn runs, plain text is a steer — queued for the next
+    // round boundary. Attachments and plan mode wait for the turn to end.
+    if (streaming && (!value || attachments.length > 0 || planned || deliberate)) return
     setText('')
     setAttachments([])
     setNotice(null)
@@ -491,13 +494,24 @@ export function InputBar(): JSX.Element {
             />
             {compact && <span className="flex-1" aria-hidden="true" />}
             {streaming ? (
-              <button
-                type="button"
-                onClick={stopStreaming}
-                className="shrink-0 rounded-2xl border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm font-medium text-ink-danger transition-colors hover:bg-red-500/25"
-              >
-                Stop
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={!text.trim() || attachments.length > 0}
+                  title="Steer (Enter): hand this to the model at its next round, without stopping the turn"
+                  className="shrink-0 rounded-2xl border border-black/10 dark:border-white/15 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                >
+                  Steer
+                </button>
+                <button
+                  type="button"
+                  onClick={stopStreaming}
+                  className="shrink-0 rounded-2xl border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm font-medium text-ink-danger transition-colors hover:bg-red-500/25"
+                >
+                  Stop
+                </button>
+              </>
             ) : (
               <button
                 type="button"

@@ -115,6 +115,17 @@ interface AppState {
   setComposerPrefill: (text: string | null) => void
 
   /**
+   * v2.7 mid-turn steering: messages typed while a turn runs, waiting for the
+   * next round boundary. Each is already in its conversation as a user message
+   * marked queued; delivery patches it delivered. Drained by the running
+   * turn's loop, and whatever is left when the turn ends is sent as a turn of
+   * its own — a steer the user typed never vanishes.
+   */
+  pendingSteers: { id: string; conversationId: string; text: string }[]
+  queueSteer: (steer: { id: string; conversationId: string; text: string }) => void
+  takeSteers: (conversationId: string) => { id: string; conversationId: string; text: string }[]
+
+  /**
    * The live text of the message currently being streamed. Tokens land here —
    * a two-field object replace — instead of in `conversations`, so a token
    * re-renders exactly one subscriber (the streaming bubble) rather than every
@@ -149,6 +160,8 @@ interface AppState {
     message: ChatMessage,
     options?: { retitle?: string }
   ) => void
+  /** v2.7: a steer goes in ahead of the reply being written, where the model will have read it. */
+  insertMessageBefore: (conversationId: string, beforeMessageId: string, message: ChatMessage) => void
   patchMessage: (
     conversationId: string,
     messageId: string,
@@ -156,7 +169,7 @@ interface AppState {
   ) => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   settings: null,
   setSettings: (settings) => set({ settings }),
 
@@ -269,6 +282,14 @@ export const useAppStore = create<AppState>((set) => ({
   composerPrefill: null,
   setComposerPrefill: (composerPrefill) => set({ composerPrefill }),
 
+  pendingSteers: [],
+  queueSteer: (steer) => set((s) => ({ pendingSteers: [...s.pendingSteers, steer] })),
+  takeSteers: (conversationId) => {
+    const taken = get().pendingSteers.filter((s) => s.conversationId === conversationId)
+    if (taken.length > 0) set((s) => ({ pendingSteers: s.pendingSteers.filter((x) => x.conversationId !== conversationId) }))
+    return taken
+  },
+
   streamingTail: null,
   setStreamingTail: (streamingTail) => set({ streamingTail }),
 
@@ -289,6 +310,15 @@ export const useAppStore = create<AppState>((set) => ({
             ? { title: options.retitle }
             : {}
         return { ...c, ...retitle, updatedAt: Date.now(), messages: [...c.messages, message] }
+      })
+    })),
+  insertMessageBefore: (conversationId, beforeMessageId, message) =>
+    set((s) => ({
+      conversations: s.conversations.map((c) => {
+        if (c.id !== conversationId) return c
+        const i = c.messages.findIndex((m) => m.id === beforeMessageId)
+        const messages = i < 0 ? [...c.messages, message] : [...c.messages.slice(0, i), message, ...c.messages.slice(i)]
+        return { ...c, updatedAt: Date.now(), messages }
       })
     })),
   patchMessage: (conversationId, messageId, patch) =>

@@ -76,6 +76,8 @@ export interface TraceTurn {
   turnIndex: number
   user: string
   toolCalls: TraceToolCall[]
+  /** v2.7: messages typed while the turn ran, each with the round it was handed to the model before. */
+  steers?: { text: string; beforeRound: number }[]
   /** Final reply. Absent when the turn stopped before one — iteration cap or abort. */
   assistant?: string
   roleName?: string
@@ -147,6 +149,14 @@ export function buildTurns(entries: AuditEntryLike[]): { turns: TraceTurn[]; ski
         user: e.text,
         toolCalls: []
       })
+    } else if (e.kind === 'user_steer') {
+      // Recorded where it landed: after the tool calls of the round it
+      // followed, with the round number the audit text carries.
+      const t = open.get(e.conversationId)
+      if (t) {
+        const m = /^\[before round (\d+)\]\s*/.exec(e.text)
+        ;(t.steers ??= []).push({ text: m ? e.text.slice(m[0].length) : e.text, beforeRound: m ? Number(m[1]) : 0 })
+      }
     } else if (e.kind === 'tool_call') {
       const t = open.get(e.conversationId)
       if (!t) {

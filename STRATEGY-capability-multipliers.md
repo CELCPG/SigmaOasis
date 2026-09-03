@@ -162,6 +162,13 @@ never spill to disk. Both depend on C2 (one streaming core), which is why they s
 metric is whether the steer is honored on the next tool round and whether the record
 (audit + trace export) shows it where it landed.
 
+*(v2.7, measured before built: spill is closed by evidence. Across the 121 tool results in
+the 23 conversations saved on this machine — 82 searches, 9 fetched pages, 3 research briefs,
+3 Python runs — the largest was 6,387 characters and none reached the 8,000-character cap
+that spill would replace; the cap has never fired here. Spill answers a case the record does
+not contain. The cap's silent drop of a tail stays a stated limitation; steering is the A5
+deliverable.)*
+
 ### A6. Code Mode in the Workbench
 
 Generate a typed Python SDK (`tools.<name>(args)`) from the tool table, byte-identical for

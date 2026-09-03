@@ -365,6 +365,10 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
   const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
 
   const MULTITURN_DIR = join(REPO_ROOT, 'test', 'fixtures', 'multiturn')
+  const STEER = process.env.EVAL_STEER === '1'
+  // A constraint no fixture needs and every reply can show: mechanical to check.
+  const STEER_TEXT = 'One more thing while you work: end your reply with a final line that says exactly STEER ACK.'
+  const STEER_CHECK = /STEER ACK/
   const sessionTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'run_python' || t.function.name === 'analyze_file')
   // The stateless arm's schema tells the truth about its sandbox.
   const statelessTools = sessionTools.map((t) =>
@@ -432,6 +436,13 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
         let reread = false
         const rounds: string[] = []
         const records: import('../src/renderer/src/types').ToolCallRecord[] = []
+        // v2.7 steering gate (EVAL_STEER=1): on the second turn a steer waits
+        // for the first round boundary — the app's own mechanism, through the
+        // loop's own hook — and the reply must obey it. A turn that answers in
+        // one round never reaches a boundary, and says so rather than failing.
+        const steering = STEER && ti === 1
+        const steerQueue = steering ? [{ id: `steer-${fx.file}-${arm}`, text: STEER_TEXT }] : []
+        let steerDelivered = false
         try {
           await runAgentLoop({
             messages: messages as never,
@@ -448,7 +459,15 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
                 toolCalls += 1
                 if (name === 'run_python' && typeof args.code === 'string' && codeReadsData(args.code)) reread = true
                 return exec(name, args, attachments, sessionKey)
-              }
+              },
+              ...(steering
+                ? {
+                    takePendingMessages: () => steerQueue.splice(0),
+                    onSteerDelivered: () => {
+                      steerDelivered = true
+                    }
+                  }
+                : {})
             }
           })
           const reply = rounds.join('\n\n')
@@ -464,6 +483,7 @@ async function runMultiTurnSuite(model: string): Promise<import('../src/renderer
             ms: Date.now() - t0,
             toolCalls,
             reread,
+            ...(steering ? { steer: { delivered: steerDelivered, honoured: STEER_CHECK.test(reply) } } : {}),
             toolResults: records.map((rc) => ({ name: rc.name, code: typeof rc.args.code === 'string' ? rc.args.code.slice(0, 500) : undefined, result: (rc.result ?? '').slice(0, 400) })),
             reply: reply.slice(0, 1200)
           })
@@ -1924,6 +1944,11 @@ async function main(): Promise<void> {
       ` · follow-up re-reads ${a.followupRereads.hit}/${a.followupRereads.of}` +
       ` · ${a.secondsPerTurn.toFixed(1)} s/turn · ${a.toolCallsPerTurn.toFixed(1)} calls/turn`
     console.log('\n' + line('session', s.session) + '\n' + line('stateless', s.stateless) + '\n')
+    if (s.steer) {
+      console.log(
+        `  steer      delivered at a round boundary ${s.steer.delivered.hit}/${s.steer.delivered.of} · honoured ${s.steer.honoured.hit}/${s.steer.honoured.of} · still answered the question ${s.steer.answeredAnyway.hit}/${s.steer.answeredAnyway.of}\n`
+      )
+    }
     if (passesWanted > 1) {
       const stability = {
         session: stabilityAcrossPasses(mtPasses.map((p) => p.runs.flatMap((r) => r.session.map((t, i) => ({ file: `${r.file}#${i + 1}`, pass: t.error ? null : t.hit }))))),

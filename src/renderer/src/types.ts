@@ -1151,6 +1151,13 @@ export interface ChatMessage {
    * rollback, plan-mode notices). Filtered out of the wire history.
    */
   marker?: 'rollback' | 'notice' | 'digest'
+  /**
+   * v2.7 mid-turn steering: a user message typed while a turn ran. `queued`
+   * until the loop reaches a round boundary, then `delivered` with the round
+   * it landed in front of. A model-visible message, unlike `marker` — it went
+   * on the wire, and the next turn's history carries it where the model saw it.
+   */
+  delivery?: { state: 'queued' | 'delivered'; round?: number }
   /** A multi-step plan executed on this message (v0.9 Plan mode). */
   plan?: ChatPlan
   /** v1.4 branching: the message this one was branched from, if any. */

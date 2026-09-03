@@ -513,6 +513,13 @@ async function runTurn(
       signal,
       onRecordChange: () => patch({ toolCalls: [...allRecords] }),
       deps: {
+        // v2.7: what the user typed while the last round ran lands here, at
+        // the round boundary, and the record says which round it preceded.
+        takePendingMessages: () => useAppStore.getState().takeSteers(conversationId),
+        onSteerDelivered: (steer, round) => {
+          useAppStore.getState().patchMessage(conversationId, steer.id, { delivery: { state: 'delivered', round } })
+          audit(convo, { kind: 'user_steer', text: `[before round ${round + 1}] ${steer.text}` })
+        },
         streamRound: async (messages, roundTools) => {
           let content = ''
           // Per round, not per turn: the loop asks whether *this* round put its
@@ -1075,7 +1082,21 @@ export function useLMStudio(): {
       const text = rawText.trim()
       const store = useAppStore.getState()
       const settings = store.settings
-      if ((!text && attachments.length === 0) || !settings || store.streaming) return
+      if ((!text && attachments.length === 0) || !settings) return
+      if (store.streaming) {
+        // v2.7 mid-turn steering: typed while a turn runs. The message goes
+        // into the conversation now, ahead of the reply being written and
+        // marked queued, and onto the queue the running loop drains at its
+        // next round boundary. Attachments and plan mode wait for the turn.
+        const running = store.conversations.find((c) => c.id === store.activeConversationId)
+        if (!running || !text || attachments.length > 0 || options?.planned) return
+        const inFlight = [...running.messages].reverse().find((m) => m.role === 'assistant')
+        const steer: ChatMessage = { id: uid(), role: 'user', content: text, delivery: { state: 'queued' }, createdAt: Date.now() }
+        if (inFlight) store.insertMessageBefore(running.id, inFlight.id, steer)
+        else store.appendMessage(running.id, steer)
+        store.queueSteer({ id: steer.id, conversationId: running.id, text })
+        return
+      }
 
       // Title fallback: first words of the message, or the first file's name.
       const titleBasis =
@@ -1334,6 +1355,14 @@ export function useLMStudio(): {
         const final = useAppStore.getState().conversations.find((c) => c.id === convoId)
         // Ephemeral conversations are never persisted — RAM only, by design.
         if (final && !final.ephemeral) void window.api.saveConversation(final)
+      }
+      // v2.7: a steer the turn ended before it could deliver becomes the next
+      // turn — it is already in the conversation, ahead of the reply that
+      // finished without it, and the model reads it there.
+      const leftover = useAppStore.getState().takeSteers(convoId)
+      if (leftover.length > 0 && !controller.signal.aborted) {
+        for (const s of leftover) useAppStore.getState().patchMessage(convoId, s.id, { delivery: { state: 'delivered', round: 0 } })
+        await executeTargets(convoId, baseUrl, targets, delegation, tools)
       }
     },
     []

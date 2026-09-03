@@ -1292,3 +1292,56 @@ describe('runAgentLoop · shared turn ledger', () => {
     assert.equal(executed, 1)
   })
 })
+
+describe('mid-turn steering (v2.7)', () => {
+  test('a steer lands after the previous round’s tool results and before the next model round', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [call('c1', 'web_search', { query: 'nordvik trekker price' })] },
+      { content: 'It costs $149.', toolCalls: [] }
+    ])
+    const delivered: { id: string; round: number }[] = []
+    let asked = 0
+    const queue = [{ id: 's1', text: 'Give the price in euros too.' }]
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: {
+        streamRound,
+        executeTool: async () => ({ ok: true, output: '$149' }),
+        takePendingMessages: () => {
+          asked += 1
+          return queue.splice(0)
+        },
+        onSteerDelivered: (steer, round) => delivered.push({ id: steer.id, round })
+      }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    // Never asked before the first round: the user's message is already there.
+    assert.equal(asked, 1)
+    assert.deepEqual(delivered, [{ id: 's1', round: 1 }])
+    const second = seen[1]!
+    const roles = second.map((m) => m.role)
+    assert.deepEqual(roles, ['system', 'user', 'assistant', 'tool', 'user'])
+    assert.equal(second[second.length - 1]!.content, 'Give the price in euros too.')
+  })
+
+  test('nothing queued means the wire is exactly what it was before steering existed', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [call('c1', 'web_search', { query: 'q' })] },
+      { content: 'done', toolCalls: [] }
+    ])
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: 'r' }), takePendingMessages: () => [] }
+    })
+    assert.deepEqual(
+      seen[1]!.map((m) => m.role),
+      ['system', 'user', 'assistant', 'tool']
+    )
+  })
+})
