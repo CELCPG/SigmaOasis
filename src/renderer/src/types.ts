@@ -61,6 +61,9 @@ export type { ToolToggles } from '../../shared/tools'
 import type { MemoryOrigin } from '../../shared/memoryOrigin'
 export type { MemoryOrigin } from '../../shared/memoryOrigin'
 
+/** v2.6: standing questions — the job model, shared with main. */
+export type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../../shared/jobs'
+
 /** v1.17.3: how a turn ended, so an empty bubble can name who fell silent. */
 import type { TurnEnding } from '../../shared/failure'
 export type { TurnEnding } from '../../shared/failure'
@@ -604,7 +607,7 @@ export interface AppSettings {
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
   /** v1.4.6: revise an answer whose specifics the tools did not support. */
-  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean; factLedger: boolean }
+  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean; factLedger: boolean; outline: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -1070,6 +1073,8 @@ export interface ChatMessage {
   ledgerContext?: { hits: number; expired: boolean; checkedAt?: string }
   /** v2.6: what the capture wrote after this reply, and what it contradicted. */
   ledgerUpdate?: { written: number; refreshed: number; superseded: { previous: string; next: string; sentence: string }[] }
+  /** v2.6: the outline a document-shaped request was written from, section by section. */
+  outline?: { title: string; sections: { heading: string; words: number; truncated?: boolean; done: boolean }[] }
   /**
    * v1.4.8: passages retrieved from the conversation's indexed attachments for
    * this reply — shown like memory recall, so the user sees what the model was
@@ -1145,7 +1150,7 @@ export interface ChatMessage {
    * An in-chat divider rather than a model-visible message (v0.9: context
    * rollback, plan-mode notices). Filtered out of the wire history.
    */
-  marker?: 'rollback' | 'notice'
+  marker?: 'rollback' | 'notice' | 'digest'
   /** A multi-step plan executed on this message (v0.9 Plan mode). */
   plan?: ChatPlan
   /** v1.4 branching: the message this one was branched from, if any. */

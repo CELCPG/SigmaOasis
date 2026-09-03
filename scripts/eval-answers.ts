@@ -1740,7 +1740,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,orchestrate,synthesis,research,reasoning,claims   EVAL_CASES=1-5   EVAL_PASSES=3   EVAL_CLAIMS_ARMS=bare,ledger'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,orchestrate,synthesis,research,reasoning,claims,longform   EVAL_CASES=1-5   EVAL_PASSES=3   EVAL_CLAIMS_ARMS=bare,ledger   EVAL_LONGFORM_ARMS=bare,outline'
     )
     app.exit(0)
     return
@@ -2193,6 +2193,43 @@ async function main(): Promise<void> {
       report.claims = { passes: clPasses, stability, summary: s }
     } else {
       report.claims = { summary: s, runs: clPasses[0].runs }
+    }
+  }
+
+  if (want.includes('longform')) {
+    // v2.6: does a long document hold together — every section present, the
+    // length reached, no section restating another — bare vs outlined.
+    const arms = (process.env.EVAL_LONGFORM_ARMS ?? 'bare').split(',').map((s) => s.trim()).filter((s): s is import('../src/renderer/src/lib/answerEval').LongformArm => s === 'bare' || s === 'outline')
+    console.log(`longform: documents with required sections (arms: ${arms.join(', ')})`)
+    const { runLongformSuite } = require('./evalSuites/longform') as typeof import('./evalSuites/longform')
+    const { summarizeLongform, stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const lfPasses: { runs: Awaited<ReturnType<typeof runLongformSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      lfPasses.push({ runs: await runLongformSuite(model, { repoRoot: REPO_ROOT, persona: PERSONA, arms, slice, loadJson, complete }) })
+    }
+    const s = summarizeLongform(lfPasses.flatMap((p) => p.runs))
+    for (const arm of arms) {
+      const a = s.arms[arm]
+      if (!a) continue
+      console.log(
+        `  ${arm.padEnd(8)} ran ${a.ran.hit}/${a.ran.of} · every section ${a.complete.hit}/${a.complete.of} · long enough ${a.longEnough.hit}/${a.longEnough.of}` +
+          ` · truncated ${a.truncated.hit}/${a.truncated.of} · sections distinct ${a.distinct.hit}/${a.distinct.of} (mean redundancy ${a.meanRedundancy.toFixed(3)}) · ${a.seconds.toFixed(0)} s/case`
+      )
+    }
+    console.log('')
+    if (passesWanted > 1) {
+      const stability: Record<string, ReturnType<typeof stabilityAcrossPasses>> = {}
+      for (const arm of arms) {
+        stability[arm] = stabilityAcrossPasses(
+          lfPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.arms[arm]?.error ? null : Boolean(r.arms[arm] && r.arms[arm]!.sectionsFound === r.arms[arm]!.sectionsOf && !r.arms[arm]!.truncated) })))
+        )
+        const st = stability[arm]!
+        console.log(`  ${arm.padEnd(8)} complete across ${passesWanted} passes: [${st.perPass.join(', ')}] · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      }
+      report.longform = { passes: lfPasses, stability, summary: s }
+    } else {
+      report.longform = { summary: s, runs: lfPasses[0].runs }
     }
   }
 

@@ -10,6 +10,7 @@ import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
 import { withGrounding, withToolCallPreamble } from '../lib/grounding'
 import { LibraryTab } from './settings/LibraryTab'
 import { McpTab } from './settings/McpTab'
+import { JobsTab } from './settings/JobsTab'
 import { describeProfile, profileFor } from '../lib/modelProfiles'
 import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
 import type { ToolSchema } from '../types'
@@ -51,7 +52,7 @@ import { ToolsTab } from './settings/ToolsTab'
 import { VoiceTab } from './settings/VoiceTab'
 import { EvalScoreLine, ProfileLine, isLoopbackUrl } from './settings/helpers'
 
-type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library' | 'mcp'
+type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library' | 'mcp' | 'jobs'
 
 export function SettingsModal(): JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
@@ -358,7 +359,8 @@ export function SettingsModal(): JSX.Element | null {
     { key: 'voice', label: 'Voice' },
     { key: 'memory', label: 'Memory' },
     { key: 'library', label: 'Library' },
-    { key: 'mcp', label: 'MCP' }
+    { key: 'mcp', label: 'MCP' },
+    { key: 'jobs', label: 'Jobs' }
   ]
 
   return (
@@ -431,6 +433,7 @@ export function SettingsModal(): JSX.Element | null {
 
             {tab === 'library' && <LibraryTab />}
             {tab === 'mcp' && <McpTab />}
+            {tab === 'jobs' && <JobsTab />}
 
             {tab === 'memory' && <MemoryTab draft={draft} memoryNotice={memoryNotice} memoryStats={memoryStats} setMemoryNotice={setMemoryNotice} setMemoryStats={setMemoryStats} update={update} />}
           </div>

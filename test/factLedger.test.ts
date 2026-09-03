@@ -287,6 +287,17 @@ describe('fact ledger — the provider', () => {
     assert.deepEqual(runs, ['web_search'])
   })
 
+  test('a fresh entry beside an expired one: both handed over, and the search runs', async () => {
+    const { io: o, runs, patches } = io([hit({ claimClass: 'measurement', value: '1.35 kg', sentence: 'It weighs 1.35 kg.' }), hit({ expired: true })])
+    const gathered = await gatherTurnContext([factLedgerProvider, autoSearchProvider], input(), o)
+    assert.equal(gathered.blocks.length, 3)
+    assert.ok(gathered.blocks[0]!.startsWith(LEDGER_FRESH_LEAD))
+    assert.ok(!gathered.blocks[0]!.includes('was not searched'))
+    assert.ok(gathered.blocks[1]!.startsWith(LEDGER_EXPIRED_LEAD))
+    assert.deepEqual(runs, ['web_search'])
+    assert.equal((patches[0] as { ledgerContext: { expired: boolean } }).ledgerContext.expired, true)
+  })
+
   test('no entry: nothing handed over, nothing patched, search as before', async () => {
     const { io: o, runs, patches } = io([])
     const gathered = await gatherTurnContext([factLedgerProvider, autoSearchProvider], input(), o)

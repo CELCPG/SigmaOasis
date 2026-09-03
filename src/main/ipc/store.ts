@@ -209,6 +209,8 @@ export interface GroundingSettings {
    * date on a later ask, and the search skipped while they are fresh.
    */
   factLedger: boolean
+  /** v2.6: outline-then-fill for document-shaped requests. Ships off; measured in docs/evals.md. */
+  outline: boolean
   /**
    * v1.9: the conversation ledger — a mechanical record of computed facts,
    * attached files, session state and the user's stated constraints, built
@@ -492,7 +494,7 @@ export function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -747,7 +749,9 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       selfReview: settings.grounding?.selfReview !== false,
       workbenchChecks: settings.grounding?.workbenchChecks !== false,
       ledger: settings.grounding?.ledger !== false,
-      factLedger: settings.grounding?.factLedger !== false
+      factLedger: settings.grounding?.factLedger !== false,
+      // Off until the longform suite says it should be on (docs/evals.md).
+      outline: settings.grounding?.outline === true
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

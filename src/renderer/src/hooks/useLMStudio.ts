@@ -26,6 +26,7 @@ import { TURN_CONTEXT_PROVIDERS, gatherTurnContext } from '../lib/contextProvide
 import type { ToolExecuteContext } from '../lib/contextProviders'
 import { noteToolResult } from '../lib/taint'
 import { extractLedgerEntries } from '../lib/factLedger'
+import { looksLikeDocumentAsk } from '../lib/playbooks'
 import {
   createVerifyBudget,
   gatheringPhase,
@@ -1144,6 +1145,12 @@ export function useLMStudio(): {
         await executePlan(convo.id, settings.baseUrl, targets[0]!, tools, text)
         return
       }
+      // v2.6: a document-shaped request goes to outline-then-fill when the
+      // setting is on — measured before it was made a default (docs/evals.md).
+      if (settings.grounding?.outline && targets.length === 1 && !delegation && looksLikeDocumentAsk(text)) {
+        await executeOutline(convo.id, targets[0]!, text)
+        return
+      }
       await executeTargets(convo.id, settings.baseUrl, targets, delegation, tools, routed.routingNote)
       // v1.5.1 think harder: one review-and-revise pass on the reply just
       // produced (the last assistant message of this conversation).
@@ -1151,6 +1158,74 @@ export function useLMStudio(): {
         const after = useAppStore.getState().conversations.find((c) => c.id === convo!.id)
         const last = after ? [...after.messages].reverse().find((m) => m.role === 'assistant') : undefined
         if (last && last.content.trim()) await deliberate(last.id)
+      }
+    },
+    []
+  )
+
+  /**
+   * v2.6: outline-then-fill for a document-shaped request. The main process
+   * asks the model for a JSON outline and then for one section at a time;
+   * each finished section lands in the reply as it is written, and the
+   * outline rides the message so the reader sees the shape it was written
+   * from. No tools ride the sections; the grounding block does.
+   */
+  const executeOutline = useCallback(
+    async (convoId: string, slot: ModelConfig, request: string): Promise<void> => {
+      const store = useAppStore.getState()
+      const convo = store.conversations.find((c) => c.id === convoId)
+      if (!convo) return
+      const assistantMsg: ChatMessage = {
+        id: uid(),
+        role: 'assistant',
+        content: '',
+        modelId: slot.modelId,
+        roleName: slot.roleName,
+        color: slot.color,
+        outline: { title: 'Outlining…', sections: [] },
+        createdAt: Date.now()
+      }
+      store.appendMessage(convoId, assistantMsg)
+      const patch = (p: Partial<ChatMessage>): void => useAppStore.getState().patchMessage(convoId, assistantMsg.id, p)
+      store.setStreaming(true)
+      const written: { heading: string; text: string; words: number; truncated?: boolean }[] = []
+      const render = (title: string, done: boolean): void =>
+        patch({
+          content: `# ${title}\n\n${written.map((s) => `## ${s.heading}\n\n${s.text}`).join('\n\n')}${done ? '\n' : '\n\n_…_'}`,
+          outline: { title, sections: written.map((s) => ({ heading: s.heading, words: s.words, truncated: s.truncated, done: true })) }
+        })
+      const unsubscribe = window.api.onOutlineSection((u) => {
+        if (u.messageId !== assistantMsg.id) return
+        written[u.index] = { heading: u.heading, text: u.text, words: u.words }
+        render(useAppStore.getState().conversations.find((c) => c.id === convoId)?.messages.find((m) => m.id === assistantMsg.id)?.outline?.title ?? 'Document', false)
+      })
+      try {
+        const r = await window.api.outlineWrite({
+          model: slot.modelId,
+          persona: withGrounding(slot.systemPrompt, new Date(), { offline: isOffline() }),
+          request,
+          messageId: assistantMsg.id
+        })
+        if (!r.ok) {
+          patch({ content: `⚠️ ${r.error}`, outline: undefined })
+        } else {
+          patch({
+            content: r.text,
+            outline: {
+              title: r.outline.title,
+              sections: r.sections.map((s) => ({ heading: s.heading, words: s.text.split(/\s+/).filter(Boolean).length, truncated: s.truncated, done: true }))
+            },
+            ...(r.truncated ? { truncated: true } : {})
+          })
+          audit(convo, { kind: 'assistant_output', roleName: slot.roleName, modelId: slot.modelId, text: r.text })
+        }
+      } catch (err) {
+        patch({ content: `⚠️ ${composeFailure(explainFailure(err, { subject: 'The document', request: turnRequestEstimate(convoId) }))}`, outline: undefined })
+      } finally {
+        unsubscribe()
+        useAppStore.getState().setStreaming(false)
+        const final = useAppStore.getState().conversations.find((c) => c.id === convoId)
+        if (final && !final.ephemeral) void window.api.saveConversation(final)
       }
     },
     []

@@ -144,6 +144,14 @@ mode that keeps the app resident is a later, separate decision, and it changes n
 *Eval gate:* a `jobs` node suite (schedule arithmetic, fail-closed grants, the ten-failure
 cutoff) and the audit suite; the render suite pins that a digest renders as a live chat does.
 
+*(v2.6: built, with one simplification that removed item 3. A job never runs a tool that
+confirms — no terminal, no file write, no MCP call under `ask` — and a runner that would need
+one refuses and says so; so a job never carries a grant and cannot mint one, and there is
+nothing to void on edit. The four kinds are the four named above; the price re-check is the
+first caller `recordPrice` ever had. Digests are held while no window is open and handed over
+on the next tick that has one. Fourteen node cases pin the arithmetic, the cap, the guard,
+the held digest and the store.)*
+
 ## Tier 4 — Skills as a package the user can install from a folder
 
 OpenClaw's skill is a directory: `SKILL.md` with `name` and a `description` under 160 characters
@@ -208,6 +216,10 @@ OpenClaw learned the value of this after the incidents; we can have it before.
 
 *Eval gate:* a node suite per check against synthetic settings; the tab-traverse suite for the
 panel.
+
+*(v2.6: built as `lib/privacyAudit.ts`, a pure function over the settings and the live status
+the Privacy tab already fetches, rendered at the top of that tab. Nineteen row kinds; six node
+cases pin the keys. The allowlist row reads the egress table through one new IPC.)*
 
 ## Tier 7 — Secrets: what we already do, and the one addition
 

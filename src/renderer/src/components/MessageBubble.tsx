@@ -1167,6 +1167,20 @@ export const MessageBubble = memo(function MessageBubble({
           <MemoryContextLine items={message.memoryContext} />
         )}
 
+        {/* v2.6: outline-then-fill — the shape the document was written from, section by section. */}
+        {message.outline && (
+          <div className="mt-1 text-xs text-ink-tertiary" data-testid="outline-block">
+            📑 Outlined first: {message.outline.title} —{' '}
+            {message.outline.sections.map((s, i) => (
+              <span key={i}>
+                {i > 0 ? ' · ' : ''}
+                {s.heading}
+                {s.done ? ` (${s.words} words${s.truncated ? ', cut short' : ''})` : ' (writing…)'}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* v2.6: the fact ledger — what was handed over, and what this reply changed. */}
         {!isStreaming && message.ledgerContext && message.ledgerContext.hits > 0 && (
           <div className="mt-1 text-xs text-ink-tertiary" data-testid="ledger-context">

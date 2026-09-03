@@ -42,18 +42,21 @@ export interface AuditedFetchInit {
  * search.ts instead of the allowlist — and is still logged here.
  */
 
-export type NetworkPurpose =
-  | 'lmstudio' // loopback model server: chat, models, embeddings
-  | 'search' // the configured search provider
-  | 'webpage' // fetch_webpage tool (SSRF-guarded in search.ts)
-  | 'shop' // shopping research: retailer/manufacturer product pages
-  | 'image' // thumbnail bytes for image_search results
-  | 'render' // headless page rendering (filtered in render.ts)
-  | 'geo' // place lookups for the geo_locate tool (OpenStreetMap only)
-  | 'proxytest' // user-initiated "Test proxy" check only
-  | 'update' // opt-in update checks
-  | 'market' // market_data tool: daily price series (single pinned host)
-  | 'mcp' // an MCP server process started or stopped — its own network activity is NOT visible here
+export const NETWORK_PURPOSES = [
+  'lmstudio', // loopback model server: chat, models, embeddings
+  'search', // the configured search provider
+  'webpage', // fetch_webpage tool (SSRF-guarded in search.ts)
+  'shop', // shopping research: retailer/manufacturer product pages
+  'image', // thumbnail bytes for image_search results
+  'render', // headless page rendering (filtered in render.ts)
+  'geo', // place lookups for the geo_locate tool (OpenStreetMap only)
+  'proxytest', // user-initiated "Test proxy" check only
+  'update', // opt-in update checks
+  'market', // market_data tool: daily price series (single pinned host)
+  'mcp' // an MCP server process started or stopped — its own network activity is NOT visible here
+] as const
+
+export type NetworkPurpose = (typeof NETWORK_PURPOSES)[number]
 
 export interface NetworkActivityEntry {
   /** epoch ms */
@@ -346,6 +349,10 @@ async function testProxy(): Promise<{ ok: boolean; detail: string }> {
 
 export function registerNetworkHandlers(): void {
   ipcMain.handle('net:getActivity', () => getNetworkActivity())
+  // v2.6: the allowlist as it stands, per purpose, for the privacy audit.
+  ipcMain.handle('net:allowedHosts', () =>
+    Object.fromEntries(NETWORK_PURPOSES.map((p) => [p, allowedHosts(p)])) as Record<NetworkPurpose, string[]>
+  )
   ipcMain.handle('net:proxyStatus', () => {
     const config = currentProxyConfig()
     return { mode: config.mode, description: config.description, error: config.error }

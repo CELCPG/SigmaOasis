@@ -104,6 +104,8 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
   })
 
   const lib = require('../../src/main/ipc/library') as typeof import('../../src/main/ipc/library')
+  const search = require('../../src/main/ipc/search') as typeof import('../../src/main/ipc/search')
+  const researchIndex = require('../../src/main/ipc/researchIndex') as typeof import('../../src/main/ipc/researchIndex')
   const registry = require('../../src/main/ipc/toolHandlers/registry') as typeof import('../../src/main/ipc/toolHandlers/registry')
   const { withGrounding, buildTurnContext, stripTurnNotesEcho } = require('../../src/renderer/src/lib/grounding') as typeof import('../../src/renderer/src/lib/grounding')
   const { runAgentLoop } = require('../../src/renderer/src/lib/agentLoop') as typeof import('../../src/renderer/src/lib/agentLoop')
@@ -137,6 +139,11 @@ export async function runClaimsSuite(model: string, deps: ClaimsDeps): Promise<C
   const ask = async (arm: ClaimsArm, fx: ClaimsFixture, second: boolean, nowMs: number): Promise<ClaimsAskResult> => {
     activeVersion = second && fx.v2 ? 2 : 1
     process.env.SIGMA_LEDGER_NOW = String(nowMs)
+    // The second ask is hours later: the ten-minute search cache and the
+    // thirty-minute page cache would both be gone, so they are cleared here
+    // rather than letting a compressed clock hand the model yesterday's page.
+    search.clearSearchCache()
+    researchIndex.clearResearchIndex()
     const t0 = Date.now()
     const out: ClaimsAskResult = { searches: 0, fetches: 0, ms: 0, answered: false, ledger: null, contradiction: false, reply: '' }
     const records: ToolCallRecord[] = []

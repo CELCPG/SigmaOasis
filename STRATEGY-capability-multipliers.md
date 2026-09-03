@@ -127,6 +127,10 @@ freshness types, which is why it comes after it.
 pins that a digest chat renders identically to a live one, and the audit suite pins that a
 scheduled run writes the same records a typed turn would.
 
+*(v2.6: built as Settings → Jobs, four kinds — research, price, ledger re-check, tracked
+folders — hourly/daily/weekly, one at a time, held digests, ten-failure cutoff. A job never
+runs a confirming tool. `docs/jobs.md`.)*
+
 ### A4. Outline-then-fill for long answers
 
 A JSON-schema outline via `chatCompleteJson`, then sections, so a 9B model writes a
@@ -138,6 +142,11 @@ are.
 present, no section restating another (cosine over section embeddings under a threshold),
 figures still traceable to tools. Compare bare vs outlined; ship as default only if the
 required-sections score moves and the unsupported-figure rate does not.
+
+*(v2.6: built as `main/ipc/outline.ts` behind a switch that ships off. No tools ride the
+sections, so the figure rung has nothing to trace; the rubric is sections present, length
+reached, cap not hit, and section redundancy by embedding cosine. The `longform` suite's
+numbers are in `docs/evals.md`; the default follows them.)*
 
 ### A5. Mid-turn steering and spill (from Tier 4)
 

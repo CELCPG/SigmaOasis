@@ -44,25 +44,26 @@ export const factLedgerProvider: ContextProvider = {
     const hits = looked.hits.slice(0, LEDGER_TOP_K)
     const fresh = hits.filter((h) => !h.expired)
     const expired = hits.filter((h) => h.expired)
+    // One expired entry is enough to run the search: a fresh measurement
+    // beside an expired price must not keep the price from being re-checked.
     io.patch({
       ledgerContext: {
         hits: hits.length,
-        expired: fresh.length === 0,
+        expired: expired.length > 0,
         checkedAt: dateOf(hits[0]!.checkedAt)
       }
     })
+    const blocks: string[] = []
     if (fresh.length > 0) {
-      return {
-        blocks: [
-          `${LEDGER_FRESH_LEAD}. Answer from them, and give the date they were checked; the web was not searched for this turn because these hold:\n${fresh.map(line).join('\n')}`
-        ],
-        suppress: ['autoSearch']
-      }
+      blocks.push(
+        `${LEDGER_FRESH_LEAD}. Answer from them, and give the date they were checked${expired.length === 0 ? '; the web was not searched for this turn because these hold' : ''}:\n${fresh.map(line).join('\n')}`
+      )
     }
-    return {
-      blocks: [
+    if (expired.length > 0) {
+      blocks.push(
         `${LEDGER_EXPIRED_LEAD}. Re-check it against the sources you are given this turn, and if the value has changed, say so and give both the old value with its date and the new one:\n${expired.map(line).join('\n')}`
-      ]
+      )
     }
+    return expired.length === 0 ? { blocks, suppress: ['autoSearch'] } : { blocks }
   }
 }

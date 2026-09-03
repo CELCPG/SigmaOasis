@@ -679,6 +679,27 @@ export function ModelsTab(props: ModelsTabProps): JSX.Element {
                           </span>
                         </span>
                       </label>
+
+                      <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={draft.grounding.outline}
+                          onChange={(e) => update({ grounding: { ...draft.grounding, outline: e.target.checked } })}
+                          className="mt-0.5 h-4 w-4 accent-accent"
+                        />
+                        <span>
+                          Outline long documents first
+                          <span className="mt-0.5 block text-xs text-ink-secondary">
+                            A request shaped like a document — an explicit length of 800 words or more,
+                            or a named form with its sections listed — is written from a JSON outline,
+                            one section at a time, each a bounded completion, so a small model writes the
+                            document it promised instead of drifting after a few hundred words. No tools
+                            ride the sections. Disclosed under the reply (&ldquo;📑 Outlined first&rdquo;).
+                            Off by default: the longform suite in <code>docs/evals.md</code> says what it
+                            measured.
+                          </span>
+                        </span>
+                      </label>
                     </div>
                   </div>
   )

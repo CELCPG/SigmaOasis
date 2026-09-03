@@ -220,6 +220,22 @@ const PLAN_INTENT =
   /\b(?:plan (?:a|my|the|our|for)|make (?:a|me a) plan|itinerary|roadmap|schedule (?:for|out|my)|step[- ]by[- ]step plan|checklist for|how (?:should|do) i (?:organi[sz]e|structure|approach|prepare for))\b/i
 
 /**
+ * v2.6: a request shaped like a document — an explicit length of 800 words
+ * or more, or a named long form with its sections listed. The outline-then-fill
+ * path (main/ipc/outline.ts) takes these; everything else is one completion.
+ */
+const DOCUMENT_FORM =
+  /\b(?:report|guide|handbook|proposal|plan|document|essay|white ?paper|explainer|brief|manual|playbook|post[- ]?mortem|template)\b/i
+const SECTION_LIST = /\b(?:sections?|headings?|parts?|chapters?)\b\s*(?:titled|named|:)/i
+const EXPLICIT_WORDS = /\b(\d{1,2}(?:,\d{3})|\d{3,5})[- ]word\b/i
+
+export function looksLikeDocumentAsk(text: string): boolean {
+  const words = EXPLICIT_WORDS.exec(text)
+  if (words && Number(words[1].replace(/,/g, '')) >= 800) return true
+  return /\b(?:write|draft|produce|prepare|compose)\b/i.test(text) && DOCUMENT_FORM.test(text) && SECTION_LIST.test(text)
+}
+
+/**
  * Is this data work? A tabular attachment says so outright — that file cannot
  * be read by eye and needs the Workbench — and otherwise the vocabulary has to
  * carry it. Shared with the pre-flight router (routing.ts) so a turn that gets

@@ -566,6 +566,105 @@ export function summarizeClaims(results: ClaimsCaseResult[]): ClaimsSummary {
   return { arms }
 }
 
+// ---- long answers: outline-then-fill (v2.6) ---------------------------------------
+
+export type LongformArm = 'bare' | 'outline'
+
+export interface LongformArmResult {
+  words: number
+  /** Required sections whose heading the reply carries. */
+  sectionsFound: number
+  sectionsOf: number
+  missing: string[]
+  /** Highest pairwise cosine between two sections' texts — restatement. null when fewer than two sections. */
+  redundancy: number | null
+  truncated: boolean
+  ms: number
+  reply: string
+  error?: string
+}
+
+export interface LongformCaseResult {
+  file: string
+  prompt: string
+  minWords: number
+  arms: Partial<Record<LongformArm, LongformArmResult>>
+}
+
+export interface LongformArmSummary {
+  ran: Rate
+  /** Every required section present. */
+  complete: Rate
+  /** Reached the length the prompt asked for. */
+  longEnough: Rate
+  /** Hit the token cap. */
+  truncated: Rate
+  /** No two sections restate one another above the threshold. */
+  distinct: Rate
+  meanRedundancy: number
+  seconds: number
+}
+
+export interface LongformSummary {
+  arms: Partial<Record<LongformArm, LongformArmSummary>>
+}
+
+/** Two sections closer than this in embedding space are saying the same thing. */
+export const LONGFORM_REDUNDANCY_MAX = 0.85
+
+/**
+ * The sections a reply carries: a markdown heading or a bold line on its own,
+ * with the text under it. Pure; the scorer embeds the texts.
+ */
+export function sectionsOf(reply: string): { heading: string; text: string }[] {
+  const out: { heading: string; text: string }[] = []
+  let current: { heading: string; text: string } | null = null
+  for (const raw of reply.split('\n')) {
+    const line = raw.trim()
+    const heading = /^#{1,6}\s+(.+?)\s*#*$/.exec(line)?.[1] ?? /^\*\*([^*]{2,80})\*\*:?$/.exec(line)?.[1]
+    if (heading) {
+      if (current) out.push(current)
+      current = { heading: heading.trim(), text: '' }
+    } else if (current) {
+      current.text += `${raw}\n`
+    }
+  }
+  if (current) out.push(current)
+  return out
+}
+
+export function wordCount(text: string): number {
+  return text.split(/\s+/).filter((w) => /\w/.test(w)).length
+}
+
+/** Which required sections the reply's headings name (case-insensitive containment). */
+export function requiredSectionsPresent(required: string[], headings: string[]): { found: string[]; missing: string[] } {
+  const lower = headings.map((h) => h.toLowerCase())
+  const found = required.filter((r) => lower.some((h) => h.includes(r.toLowerCase())))
+  return { found, missing: required.filter((r) => !found.includes(r)) }
+}
+
+export function summarizeLongform(results: LongformCaseResult[]): LongformSummary {
+  const arms: LongformSummary['arms'] = {}
+  for (const arm of ['bare', 'outline'] as const) {
+    const all = results.filter((r) => r.arms[arm])
+    if (all.length === 0) continue
+    const ok = all.filter((r) => !r.arms[arm]!.error)
+    const a = ok.map((r) => ({ r: r.arms[arm]!, min: r.minWords }))
+    const withRed = a.filter((x) => x.r.redundancy !== null)
+    arms[arm] = {
+      ran: rate(ok.length, all.length),
+      complete: rate(a.filter((x) => x.r.sectionsFound === x.r.sectionsOf).length, a.length),
+      longEnough: rate(a.filter((x) => x.r.words >= x.min).length, a.length),
+      truncated: rate(a.filter((x) => x.r.truncated).length, a.length),
+      distinct: rate(withRed.filter((x) => (x.r.redundancy ?? 0) < LONGFORM_REDUNDANCY_MAX).length, withRed.length),
+      meanRedundancy: mean(withRed.map((x) => x.r.redundancy ?? 0)),
+      seconds: mean(a.map((x) => x.r.ms / 1000))
+    }
+  }
+  return { arms }
+}
+
 // ---- deep research under the ladder (v1.9) ----------------------------------------
 
 export interface ResearchArmResult {

@@ -2,8 +2,74 @@
 // every piece of state and every handler still lives in the modal and arrives here as a prop,
 // so nothing about ordering, effects or behaviour changed; the modal just stopped being 2,500 lines.
 
-import React from 'react'
-import type { AppSettings, AuditStatus, NetworkActivityEntry, ResearchIndexStats } from '../../types'
+import React, { useEffect, useState } from 'react'
+import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats, NetworkActivityEntry, ResearchIndexStats } from '../../types'
+import { privacyChecks } from '../../lib/privacyAudit'
+import type { PrivacyCheck } from '../../lib/privacyAudit'
+
+const AUDIT_ICONS: Record<PrivacyCheck['state'], string> = { ok: '✅', warn: '⚠️', info: 'ℹ️' }
+
+/**
+ * v2.6: the privacy audit. Every setting that widens what leaves the machine
+ * or what a model may do, as a named row with a sentence and the place its
+ * switch is. Computed from the draft the tab already holds plus the live
+ * status it fetches here; nothing on this list changes a setting.
+ */
+function PrivacyAuditSection({ draft, auditInfo }: { draft: AppSettings; auditInfo: AuditStatus | null }): JSX.Element {
+  const [live, setLive] = useState<{
+    mcp: McpServerStatus[] | null
+    grants: Grant[] | null
+    memory: MemoryStats | null
+    ledger: { entries: number; expired: number } | null
+    allowedHosts: Record<string, string[]> | null
+  }>({ mcp: null, grants: null, memory: null, ledger: null, allowedHosts: null })
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      window.api.mcpStatus().catch(() => null),
+      window.api.grantsList().catch(() => null),
+      window.api.memoryStats().catch(() => null),
+      window.api.ledgerStats().catch(() => null),
+      window.api.allowedHostsByPurpose().catch(() => null)
+    ]).then(([mcp, grants, memory, ledger, allowedHosts]) => {
+      if (!cancelled) setLive({ mcp, grants, memory, ledger, allowedHosts })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [draft])
+  const checks = privacyChecks({ settings: draft, audit: auditInfo, ...live })
+  const warns = checks.filter((c) => c.state === 'warn').length
+  return (
+    <div data-testid="privacy-audit">
+      <div className="text-sm font-medium">
+        Privacy audit{' '}
+        <span className="font-normal text-ink-tertiary">
+          · {warns === 0 ? 'nothing widened beyond the defaults' : `${warns} setting${warns === 1 ? '' : 's'} widened beyond the defaults`}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-ink-secondary">
+        Every setting that changes what leaves this machine or what a model may do, as it stands now. Nothing here
+        contacts anything; each row says where its switch is.
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {checks.map((c) => (
+          <li key={c.key} className="flex items-start gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-xs">
+            <span className="mt-0.5 leading-none" aria-hidden="true">
+              {AUDIT_ICONS[c.state]}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm">{c.title}</span>
+              <span className="block text-ink-secondary">{c.detail}</span>
+              <span className="block text-ink-tertiary">{c.where}</span>
+            </span>
+            <code className="shrink-0 text-[10px] text-ink-tertiary">{c.key}</code>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export interface PrivacyTabProps {
   auditInfo: AuditStatus | null
@@ -36,6 +102,8 @@ export function PrivacyTab(props: PrivacyTabProps): JSX.Element {
                         allowlist before it is sent.
                       </p>
                     </div>
+
+                    <PrivacyAuditSection draft={draft} auditInfo={auditInfo} />
 
                     <label className="flex cursor-pointer items-start gap-2.5 text-sm">
                       <input

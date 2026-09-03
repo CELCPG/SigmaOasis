@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useAppStore } from './stores/appStore'
 import { useModels } from './hooks/useModels'
 import { useConversations } from './hooks/useConversations'
+import { uid } from './hooks/turnHelpers'
 import { Sidebar } from './components/Sidebar'
 import { ChatPane } from './components/ChatPane'
 import { SettingsModal } from './components/SettingsModal'
@@ -42,6 +43,37 @@ export default function App(): JSX.Element {
     return window.api.onResearchProgress((update) =>
       useAppStore.getState().setResearchProgress(update)
     )
+  }, [])
+
+  // v2.6: a standing question's digest lands in its own conversation — created
+  // on the first delivery, appended to after — and is saved like any turn.
+  useEffect(() => {
+    return window.api.onJobDigest((digest) => {
+      const store = useAppStore.getState()
+      let convo = store.conversations.find((c) => c.id === digest.conversationId)
+      if (!convo) {
+        const enabled = (store.settings?.models ?? []).filter((m) => m.enabled).map((m) => m.id)
+        convo = {
+          id: digest.conversationId,
+          title: `📬 ${digest.title}`,
+          mode: 'independent',
+          activeModelSlotId: enabled[0],
+          messages: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+        store.upsertConversation(convo)
+      }
+      store.appendMessage(digest.conversationId, {
+        id: uid(),
+        role: 'assistant',
+        content: digest.content,
+        marker: 'digest',
+        createdAt: Date.now()
+      })
+      const final = useAppStore.getState().conversations.find((c) => c.id === digest.conversationId)
+      if (final) void window.api.saveConversation(final)
+    })
   }, [])
 
   // Global shortcuts: ⌘N new conversation, ⌘, settings, ⌘B collapse the rail,

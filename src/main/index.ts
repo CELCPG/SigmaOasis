@@ -8,6 +8,8 @@ import { registerToolHandlers } from './ipc/tools'
 import { registerMcpHandlers } from './ipc/mcp'
 import { registerGrantHandlers } from './ipc/grants'
 import { registerFactLedgerHandlers } from './ipc/factLedger'
+import { registerJobHandlers } from './ipc/jobs'
+import { registerOutlineHandlers } from './ipc/outline'
 import { registerToolRankHandlers } from './ipc/toolRank'
 import { registerAttachmentHandlers } from './ipc/attachments'
 import { registerVoiceHandlers } from './ipc/voice'
@@ -133,6 +135,8 @@ app.whenReady().then(() => {
   registerMcpHandlers()
   registerGrantHandlers()
   registerFactLedgerHandlers()
+  registerJobHandlers()
+  registerOutlineHandlers()
 
   // Build version for the sidebar badge. Prefer the project's own
   // package.json: in dev, app.getVersion() can report Electron's version

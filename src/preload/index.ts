@@ -36,6 +36,7 @@ import type {
 import type { EvalFixture } from '../renderer/src/lib/evalRunner'
 import type { MemoryOrigin } from '../shared/memoryOrigin'
 import type { LedgerEntryDraft, LedgerHit, LedgerUpsertResult } from '../shared/factLedger'
+import type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../shared/jobs'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -153,6 +154,8 @@ const api = {
 
   // Network egress audit (main/ipc/net.ts)
   getNetworkActivity: (): Promise<NetworkActivityEntry[]> => ipcRenderer.invoke('net:getActivity'),
+  /** v2.6: hosts each purpose may reach right now — the privacy audit's last row. */
+  allowedHostsByPurpose: (): Promise<Record<string, string[]>> => ipcRenderer.invoke('net:allowedHosts'),
   clearNetworkActivity: (): Promise<boolean> => ipcRenderer.invoke('net:clearActivity'),
   getProxyStatus: (): Promise<{ mode: string; description: string; error?: string }> =>
     ipcRenderer.invoke('net:proxyStatus'),
@@ -274,6 +277,38 @@ const api = {
   auditPurge: (): Promise<{ removed: number }> => ipcRenderer.invoke('audit:purge'),
 
   // MCP servers (main/ipc/mcp.ts) — v2.5. Off until turned on, one at a time.
+  // v2.6: standing questions (main/ipc/jobs.ts) — run while the app is open, delivered as digests.
+  jobsList: (): Promise<Job[]> => ipcRenderer.invoke('jobs:list'),
+  jobsAdd: (input: { kind: JobKind; title?: string; interval?: JobInterval; args?: JobArgs }): Promise<{ ok: boolean; job?: Job; error?: string }> =>
+    ipcRenderer.invoke('jobs:add', input),
+  jobsUpdate: (id: string, patch: { enabled?: boolean; interval?: JobInterval }): Promise<{ ok: boolean; job?: Job; error?: string }> =>
+    ipcRenderer.invoke('jobs:update', id, patch),
+  jobsRemove: (id: string): Promise<{ ok: boolean; removed?: number }> => ipcRenderer.invoke('jobs:remove', id),
+  jobsRunNow: (id: string): Promise<{ ok: boolean; outcome?: JobOutcome; note?: string; error?: string }> =>
+    ipcRenderer.invoke('jobs:runNow', id),
+  watchlistList: (): Promise<{ url: string; name: string; targetPrice?: number; currency?: string }[]> =>
+    ipcRenderer.invoke('watchlist:list'),
+  /** A job's digest for its conversation; the renderer appends it and saves. */
+  onJobDigest: (cb: (digest: { conversationId: string; title: string; content: string }) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, digest: { conversationId: string; title: string; content: string }): void => cb(digest)
+    ipcRenderer.on('jobs:digest', listener)
+    return () => {
+      ipcRenderer.removeListener('jobs:digest', listener)
+    }
+  },
+
+  // v2.6: outline-then-fill (main/ipc/outline.ts) — sections arrive as they are written.
+  outlineWrite: (input: { model: string; persona: string; request: string; messageId: string }): Promise<
+    { ok: true; outline: { title: string; sections: { heading: string; brief: string }[] }; sections: { heading: string; text: string; truncated: boolean }[]; text: string; truncated: boolean } | { ok: false; error: string }
+  > => ipcRenderer.invoke('outline:write', input),
+  onOutlineSection: (cb: (update: { messageId: string; index: number; heading: string; words: number; text: string }) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, update: { messageId: string; index: number; heading: string; words: number; text: string }): void => cb(update)
+    ipcRenderer.on('outline:section', listener)
+    return () => {
+      ipcRenderer.removeListener('outline:section', listener)
+    }
+  },
+
   // v2.6: the fact ledger (main/ipc/factLedger.ts) — the app writes, the reader purges.
   ledgerLookup: (query: string): Promise<{ ok: boolean; hits: LedgerHit[]; error?: string }> =>
     ipcRenderer.invoke('ledger:lookup', query),
