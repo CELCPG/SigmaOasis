@@ -38,6 +38,7 @@ import type { MemoryOrigin } from '../shared/memoryOrigin'
 import type { LedgerEntryDraft, LedgerHit, LedgerUpsertResult } from '../shared/factLedger'
 import type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../shared/jobs'
 import type { InstalledSkill } from '../shared/skills'
+import type { PatchReview } from '../main/ipc/patchReview'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -322,6 +323,17 @@ const api = {
       ipcRenderer.removeListener('outline:section', listener)
     }
   },
+
+  // v2.8: diff-reviewed writes (main/ipc/patchReview.ts) — the diff arrives, the reader decides by id.
+  onPatchReview: (cb: (review: PatchReview) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, review: PatchReview): void => cb(review)
+    ipcRenderer.on('patch:review', listener)
+    return () => {
+      ipcRenderer.removeListener('patch:review', listener)
+    }
+  },
+  patchDecide: (reviewId: string, approved: boolean): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('patch:decide', reviewId, approved),
 
   // v2.8: a Kiwix ZIM file registered as a pack where it is (main/ipc/library.ts registerZimPack).
   libraryAddZim: (path?: string): Promise<{ ok: boolean; pack?: LibraryPackSummary; cancelled?: boolean; error?: string }> =>

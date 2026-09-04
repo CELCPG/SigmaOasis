@@ -1,6 +1,6 @@
 # Strategy: Capability multipliers — post v2.2.0
 
-**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below); v2.5 — A1 (the MCP client) landed and gated: with the app's own per-turn selection, correct-tool and spurious-call rates are identical at 0, 4 and 12 connected servers (the raw-list finding and the table are in `docs/evals.md`), B3 closed by evidence; v2.6 — A2 (the fact ledger) landed and gated by the `claims` suite (second asks that searched 20/20 → 9/20, every unchanged case answered from a dated entry, every changed price surfaced as a contradiction; seconds did not fall, stated), A3 (standing questions) landed, A4 (outline-then-fill) built behind a switch that ships off pending the `longform` suite, plus the four OpenClaw adoptions (memory origins, standing grants, the privacy audit, MCP approval modes) — `STRATEGY-openclaw-adoptions.md`; v2.7 — A5 steering landed and gated (delivered 10/10, honoured 9/10), spill closed by evidence, A6 Code Mode built and measured to a null result (16/20 in both arms, 2.7× the time; default native), plus skills and the persona/rules split.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
+**Status: v2.3 (C1, the Electron upgrade) shipped 2026-09-02 with round 14 as its gate; v2.4 in progress — C5 done, C4 mostly done (the grounding split and the Settings split; the hook extraction is deferred to v2.5 with its reason in the v2.4 notes), C2 landed, C3 measured and narrowed to the two unbounded stores, both now bounded, B1 closed by evidence, B2 measured to a zero noise floor with the instrument fixed (both below); v2.5 — A1 (the MCP client) landed and gated: with the app's own per-turn selection, correct-tool and spurious-call rates are identical at 0, 4 and 12 connected servers (the raw-list finding and the table are in `docs/evals.md`), B3 closed by evidence; v2.6 — A2 (the fact ledger) landed and gated by the `claims` suite (second asks that searched 20/20 → 9/20, every unchanged case answered from a dated entry, every changed price surfaced as a contradiction; seconds did not fall, stated), A3 (standing questions) landed, A4 (outline-then-fill) built behind a switch that ships off pending the `longform` suite, plus the four OpenClaw adoptions (memory origins, standing grants, the privacy audit, MCP approval modes) — `STRATEGY-openclaw-adoptions.md`; v2.7 — A5 steering landed and gated (delivered 10/10, honoured 9/10), spill closed by evidence, A6 Code Mode built and measured to a null result (16/20 in both arms, 2.7× the time; default native), plus skills and the persona/rules split; v2.8 — the later row: A7 ZIM packs built (offline Wikipedia read where it is, a reader of the app's own, gated by the library suite with a ZIM registered), A8 diff-reviewed writes built (`propose_patch`), the in-app LoRA loop closed as designed.** Written 2026-09-01 against v2.2.0 (commit d130348), after reading the
 five earlier strategy documents, the v2.1/v2.2 release notes, `docs/evals.md`, the
 head-to-head record (`docs/head-to-head/rounds.json`, verdicts 8–13), and the source tree.
 Companions: `STRATEGY-routing-and-tools.md` (Layers 0–4, shipped), `STRATEGY-speed-and-quality.md`
@@ -44,7 +44,7 @@ head-to-head bench demoted from roadmap generator to release gate.**
 | speed 2b | Chat traffic in the activity log | **Half open.** The loopback constraint shipped (`store.ts:498`); the renderer still fetches `/chat/completions` directly (`chatTransport.ts:580`), so the log's "everything is here" claim still excludes the highest-volume path. |
 | depth item 7 | Outline-then-fill for long answers | **Open.** |
 | depth "how it grows" | ZIM packs (offline Wikipedia / WikiMed) | **Open.** |
-| routing Layer 4 runner-up | In-app LoRA loop | **Open**, deferred as Apple-silicon-only. |
+| routing Layer 4 runner-up | In-app LoRA loop | **Closed as designed (v2.8).** The loop exists and is out of band on purpose: the app exports outcome-labelled, redacted traces with a schema stamp (`docs/trace-export.md`), any OpenAI-format trainer trains, and the tool-choice harness judges the result against the base model. Moving the training in-app would add a training runtime the app has no other use for, on one chip family, to save one shell command — and would make the app the thing that trains, which `docs/trace-export.md` says it never is. It stays a documented procedure. |
 
 ### The measured problems still open
 
@@ -207,6 +207,13 @@ applies only on approval — the model proposes, the user sees exactly what chan
 the same shape as plan approval and the terminal confirm, applied to edits. Listed last
 because it is a new surface rather than a multiplier of existing ones.
 
+*(v2.8: built as `propose_patch` — search-and-replace edits or a whole file, an LCS unified
+diff of the app's own, a review block under the tool call with Apply and Discard, the write
+only on Apply, the diff kept on the record. No grant applies; the review is the point. The
+gate the plan named, a patch suite, is the node suite that pins the arithmetic and the
+handler; a model-graded gate would need a corpus of edit requests with known good patches,
+which the tree does not have yet.)*
+
 ---
 
 ## Track B — The measured problems
@@ -315,7 +322,7 @@ window (both mechanical, both already specified).
 | **v2.5 — tools without limit** | A1, B3 | Connect any local MCP server; measured tool choice with it | Tool-choice suite with the fixture server, `EVAL_PASSES=3` |
 | **v2.6 — verification that compounds** | A2, A3, A4 | Second asks are faster and cited by date; standing questions; long reports that hold together | `ledger` and `longform` suites |
 | **v2.7 — the loop opens up** | A5, A6 | Steer a running turn; code-mode orchestration if it measures | Multi-turn with steering; quant in three modes |
-| **later** | A7, A8, LoRA loop | Offline Wikipedia; reviewed edits | Library suite with a ZIM; a patch suite |
+| **later** | A7, A8, LoRA loop | Offline Wikipedia; reviewed edits | Library suite with a ZIM; a patch suite — **v2.8: A7 and A8 built; the LoRA loop closed as designed** |
 
 C1 before everything because a Chromium change under the animation and modal work is a
 risk best isolated; C2 before A5 because steering needs one delivery point; A1 before A2

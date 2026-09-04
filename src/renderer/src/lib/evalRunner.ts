@@ -90,6 +90,7 @@ export function evalStubResult(name: string): ToolResult {
     memory_forget: 'No memory with that title.',
     run_python: 'Python ran in 12 ms.\n\nstdout:\n6.4',
     run_code: 'Python ran in 340 ms.\n\nstdout:\nNordvik Trekker 40: $149 (source: nordvik.example)',
+    propose_patch: 'Applied to /work/app.ts: +1 −1 in 1 hunk.\n\n--- /work/app.ts\n+++ /work/app.ts\n@@ -1,1 +1,1 @@\n-const limit = 5\n+const limit = 10',
     analyze_file: 'Profile of /work/sales.csv — delimited text: 1,200 data row(s) × 5 column(s).',
     reference_lookup:
       '[1] First aid › FM 4-25.11 › Burns · 31% in\n    relevance 0.91\nCool the burn with cool running water for at least twenty minutes.',

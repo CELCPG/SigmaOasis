@@ -19,6 +19,7 @@ import { useLMStudio } from '../hooks/useLMStudio'
 import { ToolCallBlock } from './ToolCallBlock'
 import { BlockEnter, Disclosure } from './Disclosure'
 import { RanCodeBlock } from './RanCodeBlock'
+import { PatchBlock } from './PatchBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
 import { describeDeliberation, draftWentUnreviewed, thinkHarderNote } from '../lib/deliberation'
@@ -1158,6 +1159,8 @@ export const MessageBubble = memo(function MessageBubble({
             <BlockEnter key={record.id}>
               {record.name === 'run_python' || record.name === 'run_code' ? (
                 <RanCodeBlock record={record} onCodeBlockClick={handleCodeBlockClick} children={record.name === 'run_code' ? childRecords(toolCalls, record.id) : undefined} />
+              ) : record.name === 'propose_patch' ? (
+                <PatchBlock record={record} />
               ) : (
                 <ToolCallBlock record={record} />
               )}

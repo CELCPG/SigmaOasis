@@ -62,6 +62,11 @@ export interface ToolContext {
    * does — in the app the renderer that owns the turn decides.
    */
   innerCall?: (name: string, args: Record<string, unknown>) => Promise<{ ok: boolean; output?: string; error?: string }>
+  /**
+   * v2.8 diff-reviewed writes, test seam: decide a proposed patch here instead
+   * of asking the renderer. Tests set it; the app never does.
+   */
+  reviewPatch?: (review: { path: string; isNew: boolean; diff: string }) => Promise<boolean>
 }
 
 export type ToolHandler = (args: Record<string, unknown>, context: ToolContext) => Promise<ToolResult>

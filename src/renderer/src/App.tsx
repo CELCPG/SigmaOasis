@@ -45,6 +45,12 @@ export default function App(): JSX.Element {
     )
   }, [])
 
+  // v2.8: a proposed patch's diff arrives for review and waits in the store
+  // until the reader applies or discards it under the tool call that made it.
+  useEffect(() => {
+    return window.api.onPatchReview((review) => useAppStore.getState().addPatchReview(review))
+  }, [])
+
   // v2.6: a standing question's digest lands in its own conversation — created
   // on the first delivery, appended to after — and is saved like any turn.
   useEffect(() => {

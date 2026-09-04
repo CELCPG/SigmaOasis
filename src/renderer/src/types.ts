@@ -533,6 +533,17 @@ export interface McpServerConfig {
 
 export type McpApproval = 'ask' | 'allowlist' | 'full'
 
+/** v2.8: a proposed patch waiting for the reader's Apply or Discard (main/ipc/patchReview.ts). */
+export interface PendingPatch {
+  reviewId: string
+  /** The propose_patch tool call the review belongs to. */
+  callId?: string
+  path: string
+  isNew: boolean
+  diff: string
+  stats: { added: number; removed: number; hunks: number }
+}
+
 /** v2.6: a standing grant, as listed under Settings → Tools (main/ipc/grants.ts). */
 export interface Grant {
   id: string

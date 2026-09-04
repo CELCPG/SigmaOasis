@@ -29,12 +29,13 @@ import {
  */
 
 /** The wire hash at the point the table was extracted from toolSchemas.ts (v1.12.1). */
-// v2.7: run_code joined the table (Code Mode); the hash moved with it.
-const PINNED_SCHEMA_HASH = 'd1450cd52b24'
+// v2.7: run_code joined the table (Code Mode); v2.8: propose_patch. The hash moves with each.
+const PINNED_SCHEMA_HASH = '1026add88761'
 
 const PINNED_NAMES = [
   'read_file',
   'write_file',
+  'propose_patch',
   'list_directory',
   'run_terminal_command',
   'web_search',
@@ -97,6 +98,7 @@ describe('tool table', () => {
 
   test('derived budget table matches the pre-refactor literals', () => {
     assert.deepEqual(TOOL_TURN_BUDGETS, {
+      propose_patch: 3,
       web_search: 3,
       image_search: 2,
       fetch_webpage: 2,

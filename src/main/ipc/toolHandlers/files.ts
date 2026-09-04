@@ -6,6 +6,9 @@ import { dirname, isAbsolute, resolve, sep } from 'path'
 import { getSettings } from '../store'
 import { hostWindow } from '../hostWindow'
 import { createGrant, GRANT_NOTE, useGrant } from '../grants'
+import { requestPatchReview } from '../patchReview'
+import { applyEdits, describeStats, unifiedDiff } from '../../../shared/patch'
+import type { PatchEdit } from '../../../shared/patch'
 import { declinedCall } from '../../../shared/tools/outcomes'
 import { truncate } from './types'
 import type { ToolHandler, ToolResult } from './types'
@@ -145,6 +148,44 @@ const writeFile: ToolHandler = async (args, { sender }) => {
   }
 }
 
+/**
+ * v2.8: a reviewed write. The model proposes edits (or the whole file); the
+ * app computes the diff against the file as it is and shows it in the chat;
+ * the reader applies or discards; the file is written only on Apply. Unlike
+ * write_file this asks every time, working directory or not — the review is
+ * the point — and there is no grant for it. The model is told which happened,
+ * and the diff rides the record so the reader can see it again later.
+ */
+const proposePatch: ToolHandler = async (args, context) => {
+  const target = resolvePath(String(args.path ?? ''))
+  let original = ''
+  let isNew = false
+  try {
+    original = await fs.readFile(target, 'utf-8')
+  } catch {
+    isNew = true
+  }
+  let next: string
+  if (typeof args.content === 'string') next = args.content
+  else if (Array.isArray(args.edits)) {
+    const applied = applyEdits(original, args.edits as PatchEdit[])
+    if (!applied.ok) return { ok: false, error: applied.error }
+    next = applied.text
+  } else return { ok: false, error: 'Give `edits` (search/replace pairs) or `content` (the whole new file).' }
+  if (next === original) return { ok: true, output: `No change: ${target} already reads that way.` }
+  const { diff, stats } = unifiedDiff(original, next, target)
+  const summary = describeStats(stats, isNew)
+  const approved = context.reviewPatch
+    ? await context.reviewPatch({ path: target, isNew, diff })
+    : await requestPatchReview(context.sender, { callId: context.parentCallId, path: target, isNew, diff, stats })
+  if (!approved) {
+    return { ok: false, error: `${declinedCall('the user discarded this patch')}\n\n${diff}` }
+  }
+  await fs.mkdir(dirname(target), { recursive: true })
+  await fs.writeFile(target, next, 'utf-8')
+  return { ok: true, output: `Applied to ${target}: ${summary}.\n\n${diff}` }
+}
+
 const listDirectory: ToolHandler = async (args) => {
   const entries = await fs.readdir(resolvePath(String(args.path ?? '')), { withFileTypes: true })
   const lines = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
@@ -185,6 +226,7 @@ const runTerminalCommand: ToolHandler = async (args, { sender }) => {
 export const fileHandlers = {
   read_file: readFile,
   write_file: writeFile,
+  propose_patch: proposePatch,
   list_directory: listDirectory,
   run_terminal_command: runTerminalCommand
 } satisfies Record<string, ToolHandler>

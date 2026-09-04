@@ -193,6 +193,7 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | Tool | Description |
 | --- | --- |
 | `read_file` | Read the contents of a local file. |
+| `propose_patch` | Propose a change to a file (2.8): exact search-and-replace edits, or the whole new file. The app computes the diff against the file as it is and shows it in the chat with **Apply** and **Discard**; nothing is written until Apply, working directory or not, and there is no standing grant for it. The diff stays on the record. |
 | `write_file` | Write/overwrite a local file. **Off by default**; confirms each write when no working directory is set. The confirmation offers *Allow once* or *Always allow* (2.6): the second mints a standing grant for **that exact path**, listed and revocable under Settings → Tools. |
 | `list_directory` | List entries in a directory. |
 | `run_terminal_command` | Run a shell command. **Off by default**; shows a confirmation dialog before every run, with destructive patterns (e.g. `rm -rf`, `dd`, `curl \| sh`) flagged as dangerous. *Always allow* (2.6) mints a standing grant bound to **that exact command in that exact working directory** — one byte different, or another directory, asks again. Grants are listed with use counts and revoked under Settings → Tools; a run under a grant says so in its output. |

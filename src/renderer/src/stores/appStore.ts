@@ -7,6 +7,7 @@ import type {
   ModelInfo
 } from '../types'
 import type { TurnPhase } from '../lib/turnPhase'
+import type { PendingPatch } from '../types'
 import type { SettingsTarget } from '../../../shared/failure'
 
 /**
@@ -124,6 +125,11 @@ interface AppState {
   pendingSteers: { id: string; conversationId: string; text: string }[]
   queueSteer: (steer: { id: string; conversationId: string; text: string }) => void
   takeSteers: (conversationId: string) => { id: string; conversationId: string; text: string }[]
+
+  /** v2.8 diff-reviewed writes: patches waiting for Apply or Discard, keyed by the tool call they belong to. */
+  pendingPatches: PendingPatch[]
+  addPatchReview: (review: PendingPatch) => void
+  removePatchReview: (reviewId: string) => void
 
   /**
    * The live text of the message currently being streamed. Tokens land here —
@@ -281,6 +287,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   composerPrefill: null,
   setComposerPrefill: (composerPrefill) => set({ composerPrefill }),
+
+  pendingPatches: [],
+  addPatchReview: (review) => set((s) => ({ pendingPatches: [...s.pendingPatches.filter((p) => p.reviewId !== review.reviewId), review] })),
+  removePatchReview: (reviewId) => set((s) => ({ pendingPatches: s.pendingPatches.filter((p) => p.reviewId !== reviewId) })),
 
   pendingSteers: [],
   queueSteer: (steer) => set((s) => ({ pendingSteers: [...s.pendingSteers, steer] })),

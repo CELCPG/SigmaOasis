@@ -620,7 +620,8 @@ async function runTurn(
         executeTool: async (name, args, meta) => {
           // v2.7: a run_code call carries its own record id, so the calls its
           // program makes can be filed under it.
-          const result = await window.api.executeTool(name, args, meta?.callId && name === 'run_code' ? { ...toolContext, parentCallId: meta.callId } : toolContext)
+          // v2.8: a proposed patch's review renders under its own record, so it carries the id too.
+          const result = await window.api.executeTool(name, args, meta?.callId && (name === 'run_code' || name === 'propose_patch') ? { ...toolContext, parentCallId: meta.callId } : toolContext)
           // v2.6: the turn is tainted from the first foreign result on; the
           // flag rides toolContext to every later call (lib/taint.ts).
           noteToolResult(toolContext, name, result)

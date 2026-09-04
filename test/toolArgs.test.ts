@@ -100,7 +100,7 @@ describe('TOOL_SCHEMAS integrity', () => {
     assert.deepEqual(
       TOOL_SCHEMAS.map((t) => t.function.name),
       [
-        'read_file', 'write_file', 'list_directory', 'run_terminal_command',
+        'read_file', 'write_file', 'propose_patch', 'list_directory', 'run_terminal_command',
         'web_search', 'image_search', 'fetch_webpage', 'deep_research', 'finance_calculator',
         'geo_locate', 'date_calculator', 'get_current_datetime', 'create_note', 'list_notes', 'read_note',
         'memory_save', 'memory_search', 'memory_forget', 'reference_lookup', 'run_code', 'run_python', 'analyze_file',
