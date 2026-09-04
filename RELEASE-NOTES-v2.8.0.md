@@ -33,7 +33,18 @@ tool to reach for when a change should be seen before it lands.
 
 ## Measured
 
-*(pending)*
+**A ZIM beside the library.** The library suite with a fixture ZIM registered — three first-aid
+articles, built by the eval — against a same-day control without it, qwen3.8-9b:
+
+| run | retrieved | answered | cited | unsupported figure | from the ZIM |
+| --- | --- | --- | --- | --- | --- |
+| with the fixture ZIM | 28/28 | 27/28 | 24/28 | 4/28 | 2/28 |
+| control, no ZIM | 28/28 | 28/28 | 23/28 | 3/28 | — |
+
+One case each way on answered, cited and unsupported, inside the suite's measured noise and in
+opposite directions: no loss. The two cases that drew on the file answered and cited; no case
+that missed retrieved a ZIM passage. `docs/evals.md` has the account. The gate the strategy named, a WikiMed file, needs a
+WikiMed file on the machine; the reader and the path are proven on the fixture.
 
 ## Not in this release
 

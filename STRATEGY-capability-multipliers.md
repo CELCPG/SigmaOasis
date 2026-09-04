@@ -199,6 +199,15 @@ over the ZIM's own title index, semantic only over the sections a lookup actuall
 cases must not lose retrieval or gain unsupported figures; a new 12-case general-knowledge
 set measures what the pack adds.
 
+*(v2.8: built — a reader of the app's own (`main/ipc/zim.ts`), zstd through Node's zlib,
+xz refused with a sentence; a `zim` pack kind that copies nothing; the ZIM leg of a lookup
+over the file's own title index, the opened articles chunked and ranked with a BM25 of their
+own, embedded only when opened. No SQLite after all: nothing of the file is indexed by the
+app, so nothing had to scale. Gated on a fixture ZIM against a same-day control — retrieved
+28/28 both, answered 27 vs 28, cited 24 vs 23, unsupported 4 vs 3: no loss, inside the noise,
+no miss involving the file. The 12-case set that measures what the pack adds waits for a
+WikiMed file on the machine, `EVAL_ZIM=<path>`.)*
+
 ### A8. Diff-reviewed writes (later)
 
 The Coder slot has file tools and a terminal with a confirmation dialog, but `write_file`
