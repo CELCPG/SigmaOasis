@@ -1,5 +1,16 @@
 # Reference library packs — format v1
 
+> **ZIM files (v2.8).** Beside packs of your own documents, the library reads Kiwix ZIM files —
+> offline Wikipedia, WikiMed, and the rest of the Kiwix catalogue — registered where they are
+> with *Add ZIM file…* under Settings → Library. Nothing is copied and nothing is embedded: a
+> lookup binary-searches the file's own title index for the query's words, opens the few
+> articles it finds, strips and chunks them by section, ranks them by a BM25 over just those
+> chunks — semantic ranking only over what was opened, and only when the rest of the library
+> has vectors — and cites them as `<file>.zim#<article>`. zstd-compressed clusters (every Kiwix
+> file built since 2020) are read with Node's own zlib; an xz-compressed ZIM is refused with a
+> sentence saying so. Reader: `src/main/ipc/zim.ts`. The rest of this page is about packs of
+> documents.
+
 A *pack* is a folder of plain-text or Markdown documents plus a `manifest.json` that says
 what each document is and where it came from. Sigma Oasis installs a pack by **copying** it
 into `userData/library/<id>/` and, from then on, retrieves passages from it by relevance

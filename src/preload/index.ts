@@ -323,6 +323,10 @@ const api = {
     }
   },
 
+  // v2.8: a Kiwix ZIM file registered as a pack where it is (main/ipc/library.ts registerZimPack).
+  libraryAddZim: (path?: string): Promise<{ ok: boolean; pack?: LibraryPackSummary; cancelled?: boolean; error?: string }> =>
+    ipcRenderer.invoke('library:addZim', path),
+
   // v2.7: skills (main/ipc/skills.ts) — installed from a folder through a confirmation, never a registry.
   skillsList: (): Promise<InstalledSkill[]> => ipcRenderer.invoke('skills:list'),
   skillsInstall: (path?: string): Promise<{ ok: boolean; skill?: InstalledSkill; canceled?: boolean; error?: string }> =>

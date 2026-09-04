@@ -233,6 +233,32 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
     process.stdout.write('  EVAL_EMBED=0 — keyword-only retrieval\n')
   }
 
+  // v2.8: EVAL_ZIM=<path to a .zim> registers a Kiwix file beside the packs —
+  // WikiMed is the one the strategy names — and the summary reports how many
+  // cases retrieved a passage from it. EVAL_ZIM=fixture builds a tiny ZIM of
+  // three first-aid articles, which proves the path and nothing about the
+  // catalogue.
+  if (process.env.EVAL_ZIM) {
+    let zimPath = process.env.EVAL_ZIM
+    if (zimPath === 'fixture') {
+      const { buildZim } = require('../test/zimFixture') as typeof import('../test/zimFixture')
+      zimPath = join(libDir, 'fixture.zim')
+      writeFileSync(
+        zimPath,
+        buildZim(
+          [
+            { url: 'Burn', title: 'Burn', html: '<h1>Burn</h1><p>Cool the burn under cool running water for at least twenty minutes. Do not apply ice, butter or toothpaste.</p>' },
+            { url: 'Nosebleed', title: 'Nosebleed', html: '<h1>Nosebleed</h1><p>Sit up, lean forward and pinch the soft part of the nose for ten minutes.</p>' },
+            { url: 'Anaphylaxis', title: 'Anaphylaxis', html: '<h1>Anaphylaxis</h1><p>Use the adrenaline auto-injector in the outer thigh and call emergency services.</p>' }
+          ],
+          { compression: 'zstd', metadata: { Title: 'Fixture first aid', Description: 'three articles' } }
+        )
+      )
+    }
+    const zp = await lib.registerZimPack(zimPath)
+    process.stdout.write(`  EVAL_ZIM — "${zp.name}" registered: ${zp.docs.toLocaleString('en-US')} entries, read on demand\n`)
+  }
+
   const fixtures = slice(loadJson<LibraryFixture>(LIBRARY_DIR))
   const results: import('../src/renderer/src/lib/answerEval').LibraryCaseResult[] = []
   for (const [i, fx] of fixtures.entries()) {
@@ -251,6 +277,7 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
       out.passagesFound = lookup.passages.length
       out.retrieved = lookup.passages.map((p) => `${p.packName} › ${p.docTitle}${p.section ? ` › ${p.section}` : ''}`)
       out.mode = lookup.mode
+      if (process.env.EVAL_ZIM) out.zimPassages = lookup.passages.filter((p) => p.packId.startsWith('zim-')).length
       const blocks: string[] = []
       if (lookup.passages.length > 0) blocks.push(buildLibraryContext(lib.formatLookup(lookup, fx.prompt), false))
       const playbook = selectPlaybook({ text: fx.prompt })
@@ -1821,6 +1848,7 @@ async function main(): Promise<void> {
         `  answered             ${s.answered.hit}/${s.answered.of}  ${pct(s.answered)}\n` +
         `  cited the source     ${s.cited.hit}/${s.cited.of}  ${pct(s.cited)}\n` +
         `  unsupported figures  ${s.unsupported.hit}/${s.unsupported.of}  ${pct(s.unsupported)}  (lower is better)\n` +
+        (s.zimRetrieved ? `  from the ZIM         ${s.zimRetrieved.hit}/${s.zimRetrieved.of}  ${pct(s.zimRetrieved)}  (cases with a ZIM passage among those retrieved)\n` : '') +
         `  ${s.seconds.toFixed(1)} s/case\n`
     )
     if (passesWanted > 1) {

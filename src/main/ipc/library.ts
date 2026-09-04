@@ -15,6 +15,7 @@ import {
 import { Bm25Index, jaccard, mmrSelect, normalizeScores, reciprocalRankFusion, tokenize } from './retrieval'
 import { readTextDocument } from './attachments'
 import { EMPTY_RESULT_LEADS } from '../../shared/tools'
+import { ZimFile, contentNamespace } from './zim'
 
 /**
  * The Almanac: an offline reference library the model reads *before* it
@@ -100,7 +101,13 @@ export interface PackManifest {
    * folder; 'app' (v2.6) = written by the app itself — the fact ledger — and
    * offered in the panel with a purge control and nothing else.
    */
-  kind: 'curated' | 'user' | 'app'
+  kind: 'curated' | 'user' | 'app' | 'zim'
+  /**
+   * v2.8: a `zim` pack is a Kiwix ZIM file at this path — offline Wikipedia,
+   * WikiMed — retrieved from on demand through its own title index. Nothing
+   * is copied; the manifest is a pointer, and `docs` is empty.
+   */
+  zimPath?: string
   /** Free-text note about sources, freshness, or scope. */
   sourceNote?: string
   /**
@@ -160,6 +167,8 @@ export interface PackSummary {
   kind: PackManifest['kind']
   sourceNote?: string
   sourceFolder?: string
+  /** v2.8: the ZIM file a `zim` pack reads from; `docs` is then the file's entry count. */
+  zimPath?: string
   installedAt: string
   docs: number
   chars: number
@@ -243,6 +252,8 @@ interface LoadedPack {
   chunks: LibChunk[]
   /** Model the vectors currently attached to chunks belong to. */
   vectorModel: string | null
+  /** v2.8: an open ZIM reader. `docs` then holds only the articles the last lookup opened; `chunks` stays empty. */
+  zim?: ZimFile
 }
 
 const packs = new Map<string, LoadedPack>()
@@ -306,7 +317,9 @@ export function validateManifest(raw: unknown): PackManifest {
   if (!PACK_ID_RE.test(id)) throw new Error(`Invalid pack id "${id}" — use lowercase letters, digits and dashes.`)
   const name = str(m.name).trim()
   if (!name) throw new Error('Pack manifest needs a name.')
-  if (!Array.isArray(m.docs) || m.docs.length === 0) throw new Error('Pack manifest lists no documents.')
+  const isZim = m.kind === 'zim'
+  if (!Array.isArray(m.docs) || (m.docs.length === 0 && !isZim)) throw new Error('Pack manifest lists no documents.')
+  if (isZim && !str(m.zimPath).trim()) throw new Error('A zim pack needs zimPath.')
   if (m.docs.length > MAX_PACK_DOCS) throw new Error(`Pack lists ${m.docs.length} documents; the limit is ${MAX_PACK_DOCS}.`)
   const seen = new Set<string>()
   const docs: PackDocMeta[] = m.docs.map((d, i) => {
@@ -350,7 +363,8 @@ export function validateManifest(raw: unknown): PackManifest {
     description: str(m.description).trim(),
     version: str(m.version).trim() || '0',
     license: str(m.license).trim() || 'unspecified',
-    kind: m.kind === 'user' ? 'user' : m.kind === 'app' ? 'app' : 'curated',
+    kind: m.kind === 'user' ? 'user' : m.kind === 'app' ? 'app' : m.kind === 'zim' ? 'zim' : 'curated',
+    ...(isZim ? { zimPath: str(m.zimPath).trim() } : {}),
     sourceNote: str(m.sourceNote) || undefined,
     sourceFolder: str(m.sourceFolder) || undefined,
     installedAt: str(m.installedAt) || new Date().toISOString(),
@@ -475,6 +489,12 @@ async function loadPack(id: string, model: string | null): Promise<LoadedPack> {
   const manifest = validateManifest(rawManifest)
   if (manifest.id !== id) throw new Error(`Pack directory "${id}" holds a manifest for "${manifest.id}".`)
 
+  // v2.8: a ZIM pack is opened, not loaded. Its articles are read on demand.
+  if (manifest.kind === 'zim') {
+    const zim = await ZimFile.open(manifest.zimPath!)
+    return { manifest, docs: new Map(), chunks: [], vectorModel: null, zim }
+  }
+
   const docs = new Map<string, LoadedDoc>()
   const chunks: LibChunk[] = []
   let chars = 0
@@ -545,6 +565,73 @@ async function ensureLoaded(onlyPack: string | null, notes: string[]): Promise<v
 
 // ---- lookup ----------------------------------------------------------------------
 
+/** How many articles one ZIM contributes to a lookup, and how many title prefixes are tried. */
+const ZIM_MAX_ARTICLES = 16
+const ZIM_TITLE_HITS = 6
+const ZIM_MAX_ARTICLE_CHARS = 120_000
+
+function capitalize(s: string): string {
+  return s ? s[0]!.toUpperCase() + s.slice(1) : s
+}
+
+/**
+ * v2.8: the ZIM leg of a lookup. The file's own title index is searched for
+ * the query's content words (each as a prefix, capitalised and not) and for
+ * the whole query; the articles found are opened, stripped, chunked by
+ * section and ranked by a BM25 built over just them. Their chunks join the
+ * lookup as any pack's would; the opened articles become the pack's `docs`
+ * for this lookup so citations and sections resolve. Nothing beyond the few
+ * articles opened is read from the file.
+ */
+async function zimCandidates(query: string, zimPacks: LoadedPack[], notes: string[]): Promise<{ chunks: LibChunk[]; ranked: string[] }> {
+  if (zimPacks.length === 0) return { chunks: [], ranked: [] }
+  const terms = tokenize(query)
+  const words = [...new Set(terms.filter((t) => t.length >= 3 && !WEAK_TERMS.has(t)))]
+  const prefixes = [...new Set([capitalize(query.trim()), ...words.map(capitalize), ...words])].filter(Boolean)
+  const chunks: LibChunk[] = []
+  const docsForBm25: { id: string; terms: string[] }[] = []
+  for (const pack of zimPacks) {
+    const zim = pack.zim!
+    const ns = contentNamespace(zim.header)
+    const opened = new Map<string, LoadedDoc>()
+    const seen = new Set<number>()
+    try {
+      for (const prefix of prefixes) {
+        if (opened.size >= ZIM_MAX_ARTICLES) break
+        for (const hit of await zim.searchTitles(prefix, ns, ZIM_TITLE_HITS)) {
+          if (opened.size >= ZIM_MAX_ARTICLES) break
+          const entry = await zim.resolve(hit)
+          if (seen.has(entry.index) || !(entry.mimetype ?? '').startsWith('text/')) continue
+          seen.add(entry.index)
+          const { title, text: raw } = await zim.articleText(entry)
+          const text = normalizeForChunking(raw).slice(0, ZIM_MAX_ARTICLE_CHARS)
+          if (!text.trim()) continue
+          const docId = entry.url
+          const doc: LoadedDoc = {
+            meta: { id: docId, title, source: `${basename(pack.manifest.zimPath ?? '')}#${entry.url}`, file: '', chars: text.length },
+            text,
+            headings: headingsOf(text),
+            chunks: []
+          }
+          doc.chunks = chunkDocumentSections(text, doc.headings).map((c, n) => {
+            const t = tokenize(c.text)
+            return { id: `${pack.manifest.id}/${docId}#${n}`, packId: pack.manifest.id, docId, n, text: c.text, offset: c.offset, terms: t, termSet: new Set(t) }
+          })
+          opened.set(docId, doc)
+          chunks.push(...doc.chunks)
+          docsForBm25.push(...doc.chunks.map((c) => ({ id: c.id, terms: c.terms })))
+        }
+      }
+    } catch (err) {
+      notes.push(`The ZIM "${pack.manifest.name}" could not be read (${err instanceof Error ? err.message : String(err)}).`)
+    }
+    pack.docs = opened
+  }
+  if (chunks.length === 0) return { chunks: [], ranked: [] }
+  const ranked = new Bm25Index(docsForBm25).search(terms).map((s) => s.id)
+  return { chunks, ranked }
+}
+
 /**
  * Retrieve the passages across the library (or one pack) most relevant to
  * `query`. Never throws for retrieval reasons; a missing pack or an unavailable
@@ -566,7 +653,10 @@ export async function lookupLibrary(input: {
     return { ok: false, passages: [], mode: 'keyword', notes, error: `No pack "${packId}" is installed.` }
   }
   const scope = packId ? [packs.get(packId)!] : [...packs.values()]
-  const allChunks = scope.flatMap((p) => p.chunks)
+  // v2.8: ZIM packs contribute the articles their title index finds for this
+  // query, opened and chunked now, ranked by a BM25 of their own.
+  const zimHits = await zimCandidates(query, scope.filter((p) => p.zim), notes)
+  const allChunks = [...scope.flatMap((p) => p.chunks), ...zimHits.chunks]
   if (allChunks.length === 0) {
     return { ok: true, passages: [], mode: 'keyword', notes: [...notes, 'The reference library is empty.'] }
   }
@@ -576,6 +666,8 @@ export async function lookupLibrary(input: {
     .search(tokenize(query))
     .map((s) => s.id)
     .filter((id) => byId.has(id))
+  const keywordFused = zimHits.ranked.length > 0 ? reciprocalRankFusion([bm25Ranked, zimHits.ranked]) : null
+  const keywordRanked = keywordFused ? [...keywordFused].sort((a, b) => b[1] - a[1]).map(([id]) => id) : bm25Ranked
 
   // Semantic leg: only if some chunk in scope has a vector for the current model.
   let queryVector: Float32Array | null = null
@@ -587,8 +679,26 @@ export async function lookupLibrary(input: {
       if (queryVector.length !== withVectors[0].vector!.length) {
         queryVector = null
         notes.push('Stored vectors do not match the current embedding model — keyword-only ranking. Re-embed the library under Settings → Library.')
-      } else if (withVectors.length < allChunks.length) {
-        notes.push(`Semantic ranking covered ${withVectors.length} of ${allChunks.length} passages (the rest are not embedded yet); keyword ranking covered all.`)
+      } else {
+        // v2.8: the sections a ZIM lookup opened are embedded now — semantic
+        // only over what was opened, never over the file.
+        if (zimHits.chunks.length > 0) {
+          try {
+            const { vectors: zv } = await embedTexts(zimHits.chunks.map((c) => c.text))
+            zimHits.chunks.forEach((c, i) => {
+              const v = zv[i]
+              if (v && v.length === queryVector!.length) {
+                c.vector = toUnitVector(v)
+                withVectors.push(c)
+              }
+            })
+          } catch {
+            notes.push('The ZIM passages were ranked by keyword only (their embedding failed).')
+          }
+        }
+        if (withVectors.length < allChunks.length) {
+          notes.push(`Semantic ranking covered ${withVectors.length} of ${allChunks.length} passages (the rest are not embedded yet); keyword ranking covered all.`)
+        }
       }
     } catch (err) {
       notes.push(`Keyword-only ranking — embeddings unavailable (${err instanceof Error ? err.message : String(err)}).`)
@@ -603,10 +713,12 @@ export async function lookupLibrary(input: {
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(50, topK * CANDIDATE_MULTIPLIER * 2))
       .map((s) => s.id)
-    const fused = reciprocalRankFusion([bm25Ranked, semanticRanked])
+    const fused = reciprocalRankFusion([keywordRanked, semanticRanked])
     relevance = normalizeScores([...fused].map(([id, score]) => ({ id, score })))
-  } else if (bm25Ranked.length > 0) {
-    relevance = normalizeScores(bm25().search(tokenize(query)).filter((s) => byId.has(s.id)))
+  } else if (keywordRanked.length > 0) {
+    relevance = keywordFused
+      ? normalizeScores([...keywordFused].map(([id, score]) => ({ id, score })))
+      : normalizeScores(bm25().search(tokenize(query)).filter((s) => byId.has(s.id)))
   } else {
     return { ok: true, passages: [], mode: 'keyword', notes: [...notes, 'No passage matched the query.'] }
   }
@@ -1290,9 +1402,53 @@ export async function removePack(id: string): Promise<{ removed: boolean }> {
   const dir = packDir(id)
   const existed = await pathExists(dir)
   await fs.rm(dir, { recursive: true, force: true })
+  // v2.8: a ZIM pack's file is the user's; only the pointer goes, and the reader closes.
+  await packs.get(id)?.zim?.close()
   packs.delete(id)
   invalidateBm25()
   return { removed: existed }
+}
+
+/**
+ * v2.8: register a ZIM file as a pack. Nothing is copied — the file stays
+ * where it is and the manifest points at it; the pack's name and description
+ * come from the file's own metadata.
+ */
+export async function registerZimPack(path: string): Promise<PackSummary> {
+  const zimPath = resolve(path)
+  const zim = await ZimFile.open(zimPath)
+  let title: string | null
+  let description: string | null
+  let date: string | null
+  try {
+    title = await zim.metadata('Title')
+    description = await zim.metadata('Description')
+    date = await zim.metadata('Date')
+  } finally {
+    await zim.close()
+  }
+  const base = basename(zimPath).replace(/\.zim$/i, '')
+  const id = `zim-${slugify(base)}`.slice(0, 64)
+  const manifest: PackManifest = {
+    formatVersion: PACK_FORMAT_VERSION,
+    id,
+    name: (title ?? base).trim() || base,
+    description: (description ?? '').trim(),
+    version: (date ?? '').trim() || '0',
+    license: 'as stated inside the ZIM file',
+    kind: 'zim',
+    zimPath,
+    sourceNote: `Read on demand from ${zimPath}; ${zim.header.entryCount.toLocaleString('en-US')} entries.`,
+    installedAt: new Date().toISOString(),
+    docs: []
+  }
+  const dir = packDir(id)
+  await fs.mkdir(dir, { recursive: true })
+  await writeFileAtomic(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  await packs.get(id)?.zim?.close()
+  packs.delete(id)
+  invalidateBm25()
+  return (await packSummary(id))!
 }
 
 async function packSummary(id: string): Promise<PackSummary | null> {
@@ -1313,8 +1469,9 @@ async function packSummary(id: string): Promise<PackSummary | null> {
     kind: pack.manifest.kind,
     sourceNote: pack.manifest.sourceNote,
     sourceFolder: pack.manifest.sourceFolder,
+    ...(pack.manifest.zimPath ? { zimPath: pack.manifest.zimPath } : {}),
     installedAt: pack.manifest.installedAt,
-    docs: pack.docs.size,
+    docs: pack.zim ? pack.zim.header.entryCount : pack.docs.size,
     chars,
     chunks,
     embeddedChunks,
@@ -1444,6 +1601,27 @@ export function registerLibraryHandlers(): void {
     }
     try {
       return { ok: true, pack: await installPackFromDirectory(dir, { replace: true }) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  // v2.8: a ZIM file, registered where it is.
+  ipcMain.handle('library:addZim', async (event, path?: string) => {
+    let file = typeof path === 'string' && path.trim() ? path : null
+    if (!file) {
+      const win = hostWindow(event.sender)
+      if (!win) return { ok: false, error: 'No window to show a picker in.' }
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Add a Kiwix ZIM file (offline Wikipedia, WikiMed, …) to the reference library',
+        properties: ['openFile'],
+        filters: [{ name: 'ZIM files', extensions: ['zim'] }]
+      })
+      if (canceled || filePaths.length === 0) return { ok: false, cancelled: true }
+      file = filePaths[0]
+    }
+    try {
+      return { ok: true, pack: await registerZimPack(file) }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }

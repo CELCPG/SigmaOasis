@@ -656,7 +656,7 @@ export interface LibraryPackSummary {
   description: string
   version: string
   license: string
-  kind: 'curated' | 'user' | 'app'
+  kind: 'curated' | 'user' | 'app' | 'zim'
   sourceNote?: string
   /** v1.7: the folder a user pack tracks; absent on curated and pre-v1.7 packs. */
   sourceFolder?: string

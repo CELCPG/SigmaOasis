@@ -108,6 +108,24 @@ export function LibraryTab(): JSX.Element {
   }
 
   /** Add folder → pack, then embed it without being asked (progress is visible; cancel works). */
+  // v2.8: a Kiwix ZIM file, registered where it is — nothing copied, nothing embedded.
+  const addZim = async (): Promise<void> => {
+    setBusy('add')
+    setNotice(null)
+    try {
+      const r = await window.api.libraryAddZim()
+      if (r.cancelled) return
+      if (!r.ok || !r.pack) {
+        setNotice(r.error ?? 'Adding the ZIM file failed.')
+        return
+      }
+      setNotice(`Added "${r.pack.name}" — ${r.pack.docs.toLocaleString()} entries, read on demand from the file where it is.`)
+      refresh()
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const addFolder = async (): Promise<void> => {
     setBusy('add')
     setNotice(null)
@@ -216,6 +234,15 @@ export function LibraryTab(): JSX.Element {
         <button
           type="button"
           disabled={busy !== null}
+          onClick={() => void addZim()}
+          className={BUTTON}
+          title="Register a Kiwix ZIM file — offline Wikipedia, WikiMed, and the rest of the Kiwix catalogue — as a pack. The file stays where it is; a lookup searches its own title index and opens only the articles it needs. zstd-compressed ZIMs (every Kiwix file since 2020); no network."
+        >
+          Add ZIM file…
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
           onClick={() => void run('Installed pack', () => window.api.libraryInstallFromDirectory())}
           className={BUTTON}
           title="Install a downloaded reference pack (a folder containing manifest.json and docs/)"
@@ -262,7 +289,7 @@ export function LibraryTab(): JSX.Element {
                     <div className="text-sm font-medium">
                       {p.name}{' '}
                       <span className="font-normal text-ink-tertiary">
-                        · {p.kind === 'user' ? 'your documents' : p.kind === 'app' ? 'written by this app — claims it verified, with dates' : 'reference pack'}{p.kind === 'app' ? '' : ` · v${p.version}`}
+                        · {p.kind === 'user' ? 'your documents' : p.kind === 'app' ? 'written by this app — claims it verified, with dates' : p.kind === 'zim' ? 'a ZIM file, read on demand — offline wiki' : 'reference pack'}{p.kind === 'app' ? '' : ` · v${p.version}`}
                       </span>
                     </div>
                     {p.description && <p className="mt-0.5 text-ink-secondary">{p.description}</p>}
@@ -309,7 +336,7 @@ export function LibraryTab(): JSX.Element {
                       <button type="button" onClick={() => void window.api.libraryCancelEmbed()} className={BUTTON}>
                         Cancel
                       </button>
-                    ) : p.kind === 'app' ? null : (
+                    ) : p.kind === 'app' || p.kind === 'zim' ? null : (
                       <button
                         type="button"
                         disabled={busy !== null || fully}

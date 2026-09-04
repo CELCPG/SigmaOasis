@@ -321,6 +321,8 @@ export interface LibraryCaseResult {
   /** Which passages the app retrieved, and how they were ranked. */
   retrieved?: string[]
   mode?: 'hybrid' | 'keyword'
+  /** v2.8, EVAL_ZIM: how many of the retrieved passages came from the ZIM pack. */
+  zimPassages?: number
   /**
    * v2.4: the shapes the multi-pass runs kept failing in, recorded per case so
    * the noise floor can be read rather than guessed at. `toolCalls` — the
@@ -341,6 +343,8 @@ export interface LibrarySummary {
   /** Cases whose reply stated a measurement the passages do not support. */
   unsupported: Rate
   seconds: number
+  /** v2.8, EVAL_ZIM: cases where at least one retrieved passage came from the ZIM. */
+  zimRetrieved?: Rate
 }
 
 // ---- multi-turn analysis (v1.8) --------------------------------------------------
@@ -1189,11 +1193,13 @@ export function stabilityAcrossPasses(passes: { file: string; pass: boolean | nu
 export function summarizeLibrary(results: LibraryCaseResult[]): LibrarySummary {
   const ok = results.filter((r) => !r.error)
   const scored = ok.filter((r) => r.score)
+  const zim = ok.filter((r) => r.zimPassages !== undefined)
   return {
     retrieved: rate(ok.filter((r) => r.passagesFound > 0).length, ok.length),
     answered: rate(scored.filter((r) => r.score!.answered).length, scored.length),
     cited: rate(scored.filter((r) => r.score!.cited).length, scored.length),
     unsupported: rate(scored.filter((r) => r.score!.unsupported.length > 0).length, scored.length),
-    seconds: mean(ok.map((r) => r.ms / 1000))
+    seconds: mean(ok.map((r) => r.ms / 1000)),
+    ...(zim.length > 0 ? { zimRetrieved: rate(zim.filter((r) => (r.zimPassages ?? 0) > 0).length, zim.length) } : {})
   }
 }
