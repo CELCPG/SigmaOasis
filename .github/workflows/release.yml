@@ -32,7 +32,7 @@ name: Release
 # v7+), taken at current latest. v5 across the board is the obvious-looking bump
 # and is not enough — upload-artifact v5 and download-artifact v5/v6 advertised
 # "Node 24 support" while still defaulting their own runtime to Node 20, so the
-# deprecation warning survives it. `node-version: 20` below is unrelated: that is
+# deprecation warning survives it. `node-version: 24` below is unrelated: that is
 # the toolchain the build runs on, not the runtime the action itself uses.
 
 on:
@@ -172,7 +172,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -241,7 +241,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -278,7 +278,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
