@@ -402,7 +402,14 @@ async function child(theme: Theme): Promise<void> {
         const rect = r.rect as { x: number; y: number; w: number; h: number } | undefined
         const where = rect ? ` at ${rect.x},${rect.y} ${rect.w}×${rect.h}` : ''
         const cls = typeof r.className === 'string' && r.className ? ` .${r.className.split(/\s+/).slice(0, 3).join('.')}` : ''
-        return `#${r.stop} ${r.tag}${cls} "${String(r.label ?? '')}"${where} behind ${String(r.obscuredBy)}`
+        const placed = r.obscuredByPlaced as
+          | { rect: { x: number; y: number; w: number; h: number }; text: string; chain: (string | null)[] }
+          | null
+          | undefined
+        const behind = placed
+          ? `${String(r.obscuredBy)} at ${placed.rect.x},${placed.rect.y} ${placed.rect.w}×${placed.rect.h} "${placed.text}" under ${placed.chain.join(' < ')}`
+          : String(r.obscuredBy)
+        return `#${r.stop} ${r.tag}${cls} "${String(r.label ?? '').replace(/\s+/g, ' ')}"${where} behind ${behind}`
       }),
       inert: closedInert,
       missed: reach.missed,

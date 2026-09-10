@@ -168,6 +168,19 @@ export function tabStop(stop: number): string {
     var c = typeof n.className === 'string' ? n.className.trim() : ''
     return n.tagName.toLowerCase() + (c ? '.' + c.split(/\s+/).slice(0, 3).join('.') : '')
   }
+  // The covering element, placed: its own box, a line of its text, and the
+  // three ancestors above it. obscuredBy names it; this says where it is.
+  function place(n) {
+    if (!n) return null
+    var b = n.getBoundingClientRect()
+    var chain = []
+    for (var a = n.parentElement, i = 0; a && i < 3; a = a.parentElement, i++) chain.push(describe(a))
+    return {
+      rect: { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) },
+      text: ((n.innerText || n.textContent || '') + '').trim().slice(0, 80),
+      chain: chain
+    }
+  }
   return JSON.stringify({
     stop: ${stop},
     tag: el.tagName.toLowerCase(),
@@ -179,6 +192,7 @@ export function tabStop(stop: number): string {
     surface: T.surfaceOf(el),
     obscured: obscured,
     obscuredBy: obscured ? describe(top) : null,
+    obscuredByPlaced: obscured ? place(top) : null,
     matchesFocusVisible: focusVisible,
     focused: T.snap(el),
     unfocused: T.map.get(el) || null
