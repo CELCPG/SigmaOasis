@@ -194,7 +194,14 @@ workflow's `guard` job, with the limitation noted above.
 ## If the macOS job fails
 
 - **At signing** — re-check all five secrets for typos/extra whitespace, and
-  that the `.p12` contained *both* certificate and private key.
+  that the `.p12` contained *both* certificate and private key. The workflow
+  builds the signing keychain itself (the *Import the Developer ID certificate*
+  step) and hands it to electron-builder through `CSC_KEYCHAIN`; electron-builder
+  24's own keychain path runs `set-key-partition-list` with the wrong password
+  and the macOS 26.6 runner image refuses it (`SecKeychainUnlock: The user name
+  or passphrase you entered is not correct`), which is what broke v2.8.0's first
+  build. If the import step fails, its log shows the identities the keychain
+  holds, which says whether the `.p12` and its password were the problem.
 - **At notarization** — get the log (the submission ID is in the CI log):
 
 ```bash
