@@ -63,6 +63,13 @@ type Theme = 'light' | 'dark'
 interface ClosedReading {
   stops: number
   obscured: number
+  /**
+   * Each obscured stop, named: what it is, where it sat, and what the hit-test
+   * at its centre found instead. The overlay reading always said what its stops
+   * were behind; this one printed a count, which is why the Linux leg's two
+   * obscured stops on the search route went unnamed from the check's first run.
+   */
+  obscuredStops: string[]
   inert: number
   /** Focusable controls the walk never reached. Empty is the requirement. */
   missed: string[]
@@ -387,9 +394,16 @@ async function child(theme: Theme): Promise<void> {
       return JSON.stringify({ focusable: all.length, missed: missed })
     })()`)
 
+    const closedObscured = closedRows.filter((r) => r.obscured === true)
     const closed: ClosedReading = {
       stops: closedRows.filter((r) => r.tag !== null).length,
-      obscured: closedRows.filter((r) => r.obscured === true).length,
+      obscured: closedObscured.length,
+      obscuredStops: closedObscured.map((r) => {
+        const rect = r.rect as { x: number; y: number; w: number; h: number } | undefined
+        const where = rect ? ` at ${rect.x},${rect.y} ${rect.w}×${rect.h}` : ''
+        const cls = typeof r.className === 'string' && r.className ? ` .${r.className.split(/\s+/).slice(0, 3).join('.')}` : ''
+        return `#${r.stop} ${r.tag}${cls} "${String(r.label ?? '')}"${where} behind ${String(r.obscuredBy)}`
+      }),
       inert: closedInert,
       missed: reach.missed,
       reachable: reach.focusable - reach.missed.length,
@@ -545,7 +559,11 @@ async function parent(): Promise<void> {
   for (const r of readings) {
     const where = `${r.theme}/${r.route}`
     check(`${where}: no element is inert`, r.closed.inert === 0, `${r.closed.inert} inert`)
-    check(`${where}: no stop is obscured`, r.closed.obscured === 0, `${r.closed.obscured} of ${r.closed.stops}`)
+    check(
+      `${where}: no stop is obscured`,
+      r.closed.obscured === 0,
+      `${r.closed.obscured} of ${r.closed.stops}: ${r.closed.obscuredStops.join('; ')}`
+    )
     check(
       `${where}: every focusable control is still reached`,
       r.closed.missed.length === 0,
