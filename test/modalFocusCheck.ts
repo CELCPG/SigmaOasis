@@ -70,6 +70,8 @@ interface ClosedReading {
    * obscured stops on the search route went unnamed from the check's first run.
    */
   obscuredStops: string[]
+  /** Frames, animation states and the boxes around the first tool block; see the probe. */
+  probe: Record<string, unknown>
   inert: number
   /** Focusable controls the walk never reached. Empty is the requirement. */
   missed: string[]
@@ -394,6 +396,39 @@ async function child(theme: Theme): Promise<void> {
       return JSON.stringify({ focusable: all.length, missed: missed })
     })()`)
 
+    // Layout probe, printed for every route on every platform so the Linux
+    // reading can be set beside the macOS one: do frames fire, what state are
+    // the entrance animations in, and where do the prose container, the tool
+    // block's wrapper and body, and its header button actually sit.
+    const probe = await json<Record<string, unknown>>(`(async () => {
+      function box(el) { if (!el) return null; var b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)] }
+      var frames = 0
+      await new Promise(function (done) {
+        var stop = Date.now() + 300
+        function tick() { frames++; if (Date.now() < stop) requestAnimationFrame(tick); else done() }
+        requestAnimationFrame(tick)
+        setTimeout(done, 400)
+      })
+      var anims = document.getAnimations().map(function (a) {
+        var t = a.effect && a.effect.target
+        return (t ? t.tagName.toLowerCase() + '.' + String(t.className).split(/\\s+/).slice(0, 2).join('.') : '?') + ':' + a.playState + '@' + Math.round(Number(a.currentTime) || 0)
+      })
+      var wrapper = document.querySelector('.block-enter')
+      var body = wrapper ? wrapper.querySelector('.disclosure-body') : null
+      return JSON.stringify({
+        hidden: document.hidden,
+        visibility: document.visibilityState,
+        framesIn300ms: frames,
+        animations: anims.slice(0, 12),
+        prose: box(document.querySelector('.markdown-body')),
+        proseTransform: document.querySelector('.markdown-body') ? getComputedStyle(document.querySelector('.markdown-body')).transform : null,
+        wrapper: box(wrapper),
+        wrapperRows: wrapper ? getComputedStyle(wrapper).gridTemplateRows : null,
+        wrapperOpen: wrapper ? wrapper.classList.contains('is-open') : null,
+        body: box(body),
+        header: box(wrapper ? wrapper.querySelector('button') : null)
+      })
+    })()`)
     const closedObscured = closedRows.filter((r) => r.obscured === true)
     const closed: ClosedReading = {
       stops: closedRows.filter((r) => r.tag !== null).length,
@@ -411,6 +446,7 @@ async function child(theme: Theme): Promise<void> {
           : String(r.obscuredBy)
         return `#${r.stop} ${r.tag}${cls} "${String(r.label ?? '').replace(/\s+/g, ' ')}"${where} behind ${behind}`
       }),
+      probe,
       inert: closedInert,
       missed: reach.missed,
       reachable: reach.focusable - reach.missed.length,
@@ -561,6 +597,9 @@ async function parent(): Promise<void> {
       `  ${r.theme}/${r.route}: closed ${r.closed.obscured}/${r.closed.stops} obscured · open → ${worst}`
     )
   }
+
+  console.log('\nlayout probe, per route and per theme (frames in 300 ms, animations, boxes as x,y,w,h)')
+  for (const r of readings) console.log(`  ${r.theme}/${r.route}: ${JSON.stringify(r.closed.probe)}`)
 
   console.log('\nwith no overlay open — nothing is contained, nothing is lost')
   for (const r of readings) {
