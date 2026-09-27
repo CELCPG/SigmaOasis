@@ -72,6 +72,10 @@ interface ClosedReading {
   obscuredStops: string[]
   /** Frames, animation states and the boxes around the first tool block; see the probe. */
   probe: Record<string, unknown>
+  /** What `settle` had to finish before the walk; see there. Empty wherever frames flow. */
+  settled: string[]
+  /** The route's first tool block, measured after the settle: null on a route without one. */
+  toolBlockHeight: number | null
   inert: number
   /** Focusable controls the walk never reached. Empty is the requirement. */
   missed: string[]
@@ -245,7 +249,8 @@ async function child(theme: Theme): Promise<void> {
 
   // The app shows its window on `ready-to-show`. A test suite must not throw a
   // window on the user's screen, and an offscreen window still lays out — which
-  // is everything this check reads.
+  // is everything this check reads. What it does not reliably do is advance
+  // time: see `settle` below.
   let win: BrowserWindow | null = null
   app.on('browser-window-created', (_e, created) => {
     win = created
@@ -299,6 +304,56 @@ async function child(theme: Theme): Promise<void> {
       `(() => { var T = window.__h2hTab; if (T && !T.hadTabIndex) document.body.removeAttribute('tabindex'); return 1 })()`
     )
     return rows
+  }
+
+  /**
+   * Bring the page to rest — one real frame, then every finite animation and
+   * transition finished — and name what had to be finished.
+   *
+   * The window is never shown, and on Linux a window that was never mapped gets
+   * next to no frames: the probe read 0 in 300 ms under Xvfb, against a steady
+   * run on macOS. Two things in a tool block's entrance wait on a frame.
+   * BlockEnter adds `is-open` in a requestAnimationFrame callback, and the
+   * 0fr → 1fr transition that starts only gets its start time on a frame. With
+   * neither, the block is 0 px tall and its header button is clipped by the
+   * body's `overflow: hidden`. Whether that clipped button then counted as
+   * obscured was down to font metrics: under the CI runner's fonts its centre
+   * fell inside the reply's `<p>`, and the check failed on every Linux push from
+   * 2026-09-01; on a WSL Ubuntu box under Xvfb it fell on the prose's bottom
+   * edge, hit an ancestor, and passed while measuring the same unfinished
+   * layout.
+   *
+   * No person ever sees that layout: a shown window has frames, and the
+   * entrance is over in 220 ms. What this check measures is the settled page,
+   * so it settles the page rather than hoping time passes. Finishing the
+   * animations alone is not enough, because the transition does not exist
+   * until the rAF callback has run; `capturePage` forces a real frame even for
+   * a window that was never mapped, and `stayHidden` keeps the page's
+   * visibility from changing under the app while it does. Measured under Xvfb
+   * across eight remounts of the search route: with the capture, eight reached
+   * full height; without it, two did.
+   *
+   * Infinite animations (the ambient orbs) have no end to jump to and are left
+   * alone; they move nothing that a hit-test reads. What was finished is
+   * returned, so a platform that starves frames says so in the output instead
+   * of passing or failing silently.
+   */
+  const settle = async (): Promise<string[]> => {
+    await wc.capturePage(undefined, { stayHidden: true })
+    // The rAF callback's setState commits in a task of its own.
+    await new Promise((r) => setTimeout(r, 100))
+    return json<string[]>(`(() => {
+      var done = []
+      document.getAnimations().forEach(function (a) {
+        var timing = a.effect ? a.effect.getComputedTiming() : null
+        if (!timing || a.playState === 'finished' || !isFinite(Number(timing.endTime))) return
+        var t = a.effect.target
+        var what = a.transitionProperty ? 'transition ' + a.transitionProperty : 'animation ' + (a.animationName || '?')
+        done.push((t ? t.tagName.toLowerCase() + '.' + String(t.className).split(/\\s+/).slice(0, 2).join('.') : '?') + ' ' + what)
+        a.finish()
+      })
+      return JSON.stringify(done)
+    })()`)
   }
 
   const inertCount = (): Promise<number> =>
@@ -373,6 +428,11 @@ async function child(theme: Theme): Promise<void> {
     await closeAny()
 
     // --- closed: the true negative -----------------------------------------
+    const settled = await settle()
+    const toolBlockHeight = await evalIn<number | null>(`(() => {
+      var w = document.querySelector('.block-enter')
+      return w ? Math.round(w.getBoundingClientRect().height) : null
+    })()`)
     const closedRows = await walk(WALK)
     const closedInert = await inertCount()
     const reach = await json<{ focusable: number; missed: string[] }>(`(() => {
@@ -447,6 +507,8 @@ async function child(theme: Theme): Promise<void> {
         return `#${r.stop} ${r.tag}${cls} "${String(r.label ?? '').replace(/\s+/g, ' ')}"${where} behind ${behind}`
       }),
       probe,
+      settled,
+      toolBlockHeight,
       inert: closedInert,
       missed: reach.missed,
       reachable: reach.focusable - reach.missed.length,
@@ -503,6 +565,7 @@ async function child(theme: Theme): Promise<void> {
       const ann = await announcement()
       const openInert = await inertCount()
 
+      if (opened) await settle()
       const rows = opened ? await walk(WALK) : []
       const obscuredRows = rows.filter((r) => r.obscured === true)
 
@@ -601,9 +664,30 @@ async function parent(): Promise<void> {
   console.log('\nlayout probe, per route and per theme (frames in 300 ms, animations, boxes as x,y,w,h)')
   for (const r of readings) console.log(`  ${r.theme}/${r.route}: ${JSON.stringify(r.closed.probe)}`)
 
+  console.log('\nsettled before the walk, per element (unfinished where frames are starved; nothing where they flow)')
+  for (const r of readings) {
+    const perElement = new Map<string, number>()
+    for (const entry of r.closed.settled) {
+      const element = entry.slice(0, entry.indexOf(' '))
+      perElement.set(element, (perElement.get(element) ?? 0) + 1)
+    }
+    const line = Array.from(perElement, ([element, n]) => `${element} ×${n}`).join('; ')
+    console.log(`  ${r.theme}/${r.route}: ${line || 'nothing'}`)
+  }
+
   console.log('\nwith no overlay open — nothing is contained, nothing is lost')
   for (const r of readings) {
     const where = `${r.theme}/${r.route}`
+    // The cause of the Linux failure, checked by name: a tool block still at
+    // its entrance's first frame is 0 px tall, and every reading taken through
+    // it is of a layout nobody sees. The search route is seeded with one.
+    if (r.route === 'search') {
+      check(
+        `${where}: the tool block is laid out open`,
+        (r.closed.toolBlockHeight ?? 0) > 0,
+        r.closed.toolBlockHeight === null ? 'no tool block rendered' : `${r.closed.toolBlockHeight} px tall`
+      )
+    }
     check(`${where}: no element is inert`, r.closed.inert === 0, `${r.closed.inert} inert`)
     check(
       `${where}: no stop is obscured`,
