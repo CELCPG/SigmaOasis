@@ -123,6 +123,12 @@ export interface HarnessState {
   dnsFailures: string[]
   /** Whether the safeStorage stub reports an OS keychain (audit log gating). */
   encryptionAvailable: boolean
+  /**
+   * v2.9: the store stub's keychain for MCP environment values, server id →
+   * values. Kept apart from `settings` exactly as the real store keeps them,
+   * so a test can say which of the two a value landed in.
+   */
+  mcpEnv: Record<string, Record<string, string>>
   /** Widths passed to nativeImage.resize(), in order — image thumbnailing. */
   resizeWidths: number[]
 }
@@ -160,7 +166,8 @@ export const state: HarnessState = {
   dnsOverrides: {},
   dnsFailures: [],
   encryptionAvailable: true,
-  resizeWidths: []
+  resizeWidths: [],
+  mcpEnv: {}
 }
 
 export function resetState(): void {
@@ -197,6 +204,7 @@ export function resetState(): void {
   state.dnsFailures = []
   state.encryptionAvailable = true
   state.resizeWidths = []
+  state.mcpEnv = {}
 }
 
 function defaultSettings(): Record<string, unknown> {
@@ -467,7 +475,13 @@ const storeStub = {
         name: (typeof r?.name === 'string' && r.name.trim()) || id,
         command,
         args: Array.isArray(r?.args) ? r.args.filter((a): a is string => typeof a === 'string') : [],
-        env: r?.env && typeof r.env === 'object' ? r.env : {},
+        // v2.9: names only, as the real normalizer — a value handed in is dropped.
+        envNames: [
+          ...new Set([
+            ...(Array.isArray(r?.envNames) ? r.envNames : []),
+            ...(r?.env && typeof r.env === 'object' ? Object.keys(r.env) : [])
+          ])
+        ].filter((n) => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n)),
         ...(typeof r?.cwd === 'string' && r.cwd.trim() ? { cwd: r.cwd.trim() } : {}),
         enabled: r?.enabled === true,
         disabledTools: [],
@@ -476,9 +490,18 @@ const storeStub = {
     }
     return out
   },
-  saveMcpServers: (servers: unknown[]): void => {
+  saveMcpServers: (servers: { id: string }[]): void => {
     state.settings = { ...state.settings, mcp: { servers } }
-  }
+    // As the real store: a server's values go with the server.
+    const ids = new Set(servers.map((s) => s.id))
+    for (const id of Object.keys(state.mcpEnv)) if (!ids.has(id)) delete state.mcpEnv[id]
+  },
+  setMcpEnv: (serverId: string, values: Record<string, string>): { encrypted: boolean } => {
+    if (Object.keys(values).length === 0) delete state.mcpEnv[serverId]
+    else state.mcpEnv[serverId] = { ...values }
+    return { encrypted: state.encryptionAvailable }
+  },
+  getMcpEnv: (serverId: string): Record<string, string> | null => state.mcpEnv[serverId] ?? {}
 }
 
 /**

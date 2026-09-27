@@ -521,14 +521,27 @@ export interface McpServerConfig {
   name: string
   command: string
   args: string[]
-  /** Variable names and values; the confirmation and the log show names only. */
-  env: Record<string, string>
+  /**
+   * v2.9: variable NAMES. The values are in the OS keychain, held by the main
+   * process; the renderer holds a value only between typing it and adding the
+   * server (McpServerDraft).
+   */
+  envNames: string[]
   cwd?: string
   enabled: boolean
   /** Raw tool names switched off within this server. */
   disabledTools: string[]
   /** v2.6: `ask` confirms each call (grantable), `allowlist` runs grants only, `full` never asks. */
   approval: McpApproval
+}
+
+/** v2.9: a server on its way in, carrying its environment values this once. */
+export type McpServerDraft = Omit<McpServerConfig, 'envNames'> & { env: Record<string, string> }
+
+/** v2.9: whether each credential is set and encrypted — never a value. */
+export interface SecretsStatus {
+  braveKey: { set: boolean; encrypted: boolean }
+  mcpEnv: { servers: number; unencrypted: number; unreadable: string[] }
 }
 
 export type McpApproval = 'ask' | 'allowlist' | 'full'

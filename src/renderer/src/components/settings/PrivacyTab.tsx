@@ -3,7 +3,7 @@
 // so nothing about ordering, effects or behaviour changed; the modal just stopped being 2,500 lines.
 
 import React, { useEffect, useState } from 'react'
-import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats, NetworkActivityEntry, ResearchIndexStats } from '../../types'
+import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats, NetworkActivityEntry, ResearchIndexStats, SecretsStatus } from '../../types'
 import { privacyChecks } from '../../lib/privacyAudit'
 import type { PrivacyCheck } from '../../lib/privacyAudit'
 
@@ -22,7 +22,8 @@ function PrivacyAuditSection({ draft, auditInfo }: { draft: AppSettings; auditIn
     memory: MemoryStats | null
     ledger: { entries: number; expired: number } | null
     allowedHosts: Record<string, string[]> | null
-  }>({ mcp: null, grants: null, memory: null, ledger: null, allowedHosts: null })
+    secrets: SecretsStatus | null
+  }>({ mcp: null, grants: null, memory: null, ledger: null, allowedHosts: null, secrets: null })
   useEffect(() => {
     let cancelled = false
     void Promise.all([
@@ -30,9 +31,10 @@ function PrivacyAuditSection({ draft, auditInfo }: { draft: AppSettings; auditIn
       window.api.grantsList().catch(() => null),
       window.api.memoryStats().catch(() => null),
       window.api.ledgerStats().catch(() => null),
-      window.api.allowedHostsByPurpose().catch(() => null)
-    ]).then(([mcp, grants, memory, ledger, allowedHosts]) => {
-      if (!cancelled) setLive({ mcp, grants, memory, ledger, allowedHosts })
+      window.api.allowedHostsByPurpose().catch(() => null),
+      window.api.secretsStatus().catch(() => null)
+    ]).then(([mcp, grants, memory, ledger, allowedHosts, secrets]) => {
+      if (!cancelled) setLive({ mcp, grants, memory, ledger, allowedHosts, secrets })
     })
     return () => {
       cancelled = true

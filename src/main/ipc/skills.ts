@@ -3,8 +3,8 @@ import { promises as fs } from 'fs'
 import { join, resolve } from 'path'
 import { hostWindow } from './hostWindow'
 import { installPackFromDirectory, validateManifest } from './library'
-import { mcpManager } from './mcp'
-import { getSettings, normalizeMcpServers, saveMcpServers } from './store'
+import { applyMcpFromSettings } from './mcp'
+import { getSettings, normalizeMcpServers, saveMcpServers, setMcpEnv } from './store'
 import { writeFileAtomic } from './fsAtomic'
 import { describeSkillForConfirmation, validateSkillManifest } from '../../shared/skills'
 import type { InstalledSkill, SkillManifest } from '../../shared/skills'
@@ -123,11 +123,15 @@ export async function installSkill(sourceDir: string): Promise<InstalledSkill> {
   if (manifest.mcp) {
     const serverId = `skill-${manifest.id}`.slice(0, 32)
     const [config] = normalizeMcpServers([
-      { id: serverId, name: `${manifest.name} (skill)`, command: manifest.mcp.command, args: manifest.mcp.args, env: manifest.mcp.env, cwd: manifest.mcp.cwd, enabled: false, disabledTools: [], approval: 'ask' }
+      { id: serverId, name: `${manifest.name} (skill)`, command: manifest.mcp.command, args: manifest.mcp.args, envNames: Object.keys(manifest.mcp.env), cwd: manifest.mcp.cwd, enabled: false, disabledTools: [], approval: 'ask' }
     ])
     if (config) {
+      // v2.9: the manifest's values go where typed ones do — the keychain —
+      // and the settings row gets their names. Keychain first, because saving
+      // the row prunes entries for servers not in the list.
+      setMcpEnv(serverId, manifest.mcp.env)
       saveMcpServers([...(getSettings().mcp?.servers ?? []).filter((s) => s.id !== serverId), config])
-      await mcpManager().apply(getSettings().mcp?.servers ?? [])
+      await applyMcpFromSettings()
       record.mcpServerId = serverId
     }
   }
@@ -144,7 +148,7 @@ export async function removeSkill(id: string): Promise<{ removed: boolean; packL
   await fs.rm(join(skillsDir(), id), { recursive: true, force: true })
   if (skill.mcpServerId) {
     saveMcpServers((getSettings().mcp?.servers ?? []).filter((s) => s.id !== skill.mcpServerId))
-    await mcpManager().apply(getSettings().mcp?.servers ?? [])
+    await applyMcpFromSettings()
   }
   return { removed: true, ...(skill.packId ? { packLeft: skill.packId } : {}) }
 }

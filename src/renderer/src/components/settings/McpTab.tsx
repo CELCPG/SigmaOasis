@@ -1,8 +1,12 @@
 // Settings → MCP (v2.5): the servers the user has added, each with its state,
 // its tools, its last error and its stderr. Nothing here starts a program the
 // user did not turn on: a server is saved off, and the switch is on this page.
-import React, { useCallback, useEffect, useState } from 'react'
-import type { McpApproval, McpServerConfig, McpServerStatus } from '../../types'
+//
+// v2.9: environment values are typed into masked fields, one variable a row,
+// and leave this page when the server is added — for the keychain, through the
+// main process. What this page gets back, and shows, is their names.
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import type { McpApproval, McpServerConfig, McpServerStatus, SecretsStatus } from '../../types'
 
 const REFRESH_MS = 2000
 
@@ -23,33 +27,48 @@ function splitArgs(text: string): string[] {
   return out
 }
 
-function parseEnv(text: string): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const line of text.split('\n')) {
-    const i = line.indexOf('=')
-    if (i <= 0) continue
-    const k = line.slice(0, i).trim()
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) env[k] = line.slice(i + 1)
-  }
-  return env
+/**
+ * v2.9: the field style the other settings tabs use. Through v2.8 this form's
+ * inputs carried layout classes only, so the dark theme drew them with the
+ * browser's white field background under its own white ink: whatever was typed
+ * into Add a server — command, arguments, environment — was invisible.
+ */
+const FIELD = 'rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none'
+
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+interface EnvRow {
+  key: number
+  name: string
+  value: string
 }
 
 export function McpTab(): JSX.Element {
   const [servers, setServers] = useState<McpServerStatus[]>([])
   const [configs, setConfigs] = useState<McpServerConfig[]>([])
+  const [secrets, setSecrets] = useState<SecretsStatus | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState<string | null>(null)
-  const [form, setForm] = useState({ id: '', name: '', command: '', args: '', env: '', cwd: '' })
+  const [form, setForm] = useState({ id: '', name: '', command: '', args: '', cwd: '' })
+  const [envRows, setEnvRows] = useState<EnvRow[]>([])
+  const nextRowKey = useRef(0)
   const [adding, setAdding] = useState(false)
 
   const refresh = useCallback(async () => {
-    const [status, settings] = await Promise.all([
+    const [status, settings, secretState] = await Promise.all([
       window.api.mcpStatus().catch(() => [] as McpServerStatus[]),
-      window.api.getSettings().catch(() => null)
+      window.api.getSettings().catch(() => null),
+      window.api.secretsStatus().catch(() => null)
     ])
     setServers(status)
     setConfigs(settings?.mcp?.servers ?? [])
+    setSecrets(secretState)
   }, [])
+
+  const addEnvRow = (): void => setEnvRows((rows) => [...rows, { key: nextRowKey.current++, name: '', value: '' }])
+  const editEnvRow = (key: number, patch: Partial<EnvRow>): void =>
+    setEnvRows((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+  const removeEnvRow = (key: number): void => setEnvRows((rows) => rows.filter((r) => r.key !== key))
 
   useEffect(() => {
     void refresh()
@@ -72,13 +91,29 @@ export function McpTab(): JSX.Element {
       setNotice('A server needs a command and an id.')
       return
     }
+    // A row left entirely blank is ignored; one with a value needs a name the
+    // shell would accept, or the value would be dropped without a word.
+    const env: Record<string, string> = {}
+    for (const row of envRows) {
+      const name = row.name.trim()
+      if (!name && !row.value) continue
+      if (!ENV_NAME.test(name)) {
+        setNotice(`"${name}" is not a variable name: letters, digits and _, not starting with a digit.`)
+        return
+      }
+      if (name in env) {
+        setNotice(`The variable ${name} is listed twice.`)
+        return
+      }
+      env[name] = row.value
+    }
     setAdding(true)
     const r = await window.api.mcpAdd({
       id,
       name: form.name.trim() || id,
       command,
       args: splitArgs(form.args),
-      env: parseEnv(form.env),
+      env,
       ...(form.cwd.trim() ? { cwd: form.cwd.trim() } : {}),
       enabled: false,
       disabledTools: [],
@@ -86,8 +121,12 @@ export function McpTab(): JSX.Element {
     })
     setAdding(false)
     if (r.ok) {
-      setForm({ id: '', name: '', command: '', args: '', env: '', cwd: '' })
-      setNotice(`Added "${r.server?.name ?? id}", switched off. Turn it on below when you are ready.`)
+      setForm({ id: '', name: '', command: '', args: '', cwd: '' })
+      // The values are in the keychain now; this page does not keep a copy.
+      setEnvRows([])
+      setNotice(
+        `Added "${r.server?.name ?? id}", switched off. Turn it on below when you are ready.` + (r.warning ? ` ${r.warning}` : '')
+      )
     } else if (!r.canceled) {
       setNotice(r.error ?? 'Could not add the server.')
     }
@@ -144,7 +183,7 @@ export function McpTab(): JSX.Element {
                     On
                   </label>
                   <select
-                    className="rounded-lg text-xs"
+                    className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
                     value={cfg?.approval ?? 'ask'}
                     onChange={(e) => cfg && void save({ ...cfg, approval: e.target.value as McpApproval })}
                     aria-label={`${s.name} approval`}
@@ -179,8 +218,14 @@ export function McpTab(): JSX.Element {
                 {cfg && (
                   <div className="mt-2 font-mono text-xs text-ink-tertiary">
                     {[cfg.command, ...cfg.args].join(' ')}
-                    {Object.keys(cfg.env).length ? ` · env: ${Object.keys(cfg.env).join(', ')}` : ''}
+                    {cfg.envNames.length ? ` · env: ${cfg.envNames.join(', ')} (in the keychain)` : ''}
                   </div>
+                )}
+                {secrets?.mcpEnv.unreadable.includes(s.id) && (
+                  <p className="mt-2 text-xs text-ink-danger" role="status">
+                    Its environment values could not be decrypted on this machine — they were sealed by another
+                    machine’s or account’s keychain — so it is kept off. Remove it and add it again with its values.
+                  </p>
                 )}
                 {s.lastError && (
                   <p className="mt-2 text-xs text-ink-danger" role="status">
@@ -230,27 +275,70 @@ export function McpTab(): JSX.Element {
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs">
             Name
-            <input className="mt-1 w-full" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Filesystem" />
+            <input className={`mt-1 w-full ${FIELD}`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Filesystem" />
           </label>
           <label className="text-xs">
             Id <span className="text-ink-tertiary">(letters, digits, - _)</span>
-            <input className="mt-1 w-full font-mono" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} placeholder="fs" />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} placeholder="fs" />
           </label>
           <label className="text-xs sm:col-span-2">
             Command
-            <input className="mt-1 w-full font-mono" value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="npx" />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="npx" />
           </label>
           <label className="text-xs sm:col-span-2">
             Arguments <span className="text-ink-tertiary">(space-separated; quote a path with spaces)</span>
-            <input className="mt-1 w-full font-mono" value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })} placeholder='-y @modelcontextprotocol/server-filesystem "/Users/me/Documents"' />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })} placeholder='-y @modelcontextprotocol/server-filesystem "/Users/me/Documents"' />
           </label>
-          <label className="text-xs sm:col-span-2">
-            Environment <span className="text-ink-tertiary">(one NAME=value per line; names are shown in the confirmation, values never)</span>
-            <textarea className="mt-1 w-full font-mono" rows={2} value={form.env} onChange={(e) => setForm({ ...form, env: e.target.value })} />
-          </label>
+          <div className="text-xs sm:col-span-2">
+            Environment{' '}
+            <span className="text-ink-tertiary">
+              (values are encrypted in the system keychain; from then on only the names are shown, here and in the
+              confirmation)
+            </span>
+            {envRows.map((row, i) => {
+              const label = row.name.trim() || `variable ${i + 1}`
+              return (
+                <div key={row.key} className="mt-1 flex gap-2">
+                  <input
+                    className={`w-2/5 font-mono ${FIELD}`}
+                    value={row.name}
+                    onChange={(e) => editEnvRow(row.key, { name: e.target.value })}
+                    placeholder="API_TOKEN"
+                    aria-label={`Name of variable ${i + 1}`}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <input
+                    className={`min-w-0 flex-1 font-mono ${FIELD}`}
+                    type="password"
+                    value={row.value}
+                    onChange={(e) => editEnvRow(row.key, { value: e.target.value })}
+                    aria-label={`Value of ${label}`}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-lg px-2 text-xs text-ink-secondary transition-colors hover:bg-black/10 dark:hover:bg-white/5"
+                    onClick={() => removeEnvRow(row.key)}
+                    aria-label={`Remove ${label}`}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )
+            })}
+            <button
+              type="button"
+              className="mt-1 block rounded-lg px-2 py-1 text-xs text-ink-secondary transition-colors hover:bg-black/10 dark:hover:bg-white/5"
+              onClick={addEnvRow}
+            >
+              + Add variable
+            </button>
+          </div>
           <label className="text-xs sm:col-span-2">
             Working directory <span className="text-ink-tertiary">(optional)</span>
-            <input className="mt-1 w-full font-mono" value={form.cwd} onChange={(e) => setForm({ ...form, cwd: e.target.value })} />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.cwd} onChange={(e) => setForm({ ...form, cwd: e.target.value })} />
           </label>
         </div>
         <button
