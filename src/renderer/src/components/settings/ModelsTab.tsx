@@ -15,7 +15,7 @@ import {
   recommendedSampling
 } from '../../lib/sampling'
 import type { ModelInfo } from '../../types'
-import { EvalScoreLine, ProfileLine } from './helpers'
+import { EvalScoreLine, FIELD, ProfileLine } from './helpers'
 
 export interface ModelsTabProps {
   availableModels: ModelInfo[]
@@ -249,7 +249,7 @@ export function ModelsTab(props: ModelsTabProps): JSX.Element {
                         <label className="mt-3 block text-xs">
                           Code Mode
                           <select
-                            className="mt-1 w-full"
+                            className={`mt-1 w-full ${FIELD}`}
                             value={m.codeMode ?? 'native'}
                             onChange={(e) => updateModel(m.id, { codeMode: e.target.value === 'native' ? undefined : (e.target.value as 'code' | 'both') })}
                             aria-label={`${m.roleName} code mode`}

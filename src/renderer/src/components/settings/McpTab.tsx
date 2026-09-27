@@ -3,6 +3,7 @@
 // user did not turn on: a server is saved off, and the switch is on this page.
 import React, { useCallback, useEffect, useState } from 'react'
 import type { McpApproval, McpServerConfig, McpServerStatus } from '../../types'
+import { FIELD, FIELD_COMPACT } from './helpers'
 
 const REFRESH_MS = 2000
 
@@ -144,7 +145,7 @@ export function McpTab(): JSX.Element {
                     On
                   </label>
                   <select
-                    className="rounded-lg text-xs"
+                    className={FIELD_COMPACT}
                     value={cfg?.approval ?? 'ask'}
                     onChange={(e) => cfg && void save({ ...cfg, approval: e.target.value as McpApproval })}
                     aria-label={`${s.name} approval`}
@@ -230,27 +231,27 @@ export function McpTab(): JSX.Element {
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs">
             Name
-            <input className="mt-1 w-full" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Filesystem" />
+            <input className={`mt-1 w-full ${FIELD}`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Filesystem" />
           </label>
           <label className="text-xs">
             Id <span className="text-ink-tertiary">(letters, digits, - _)</span>
-            <input className="mt-1 w-full font-mono" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} placeholder="fs" />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} placeholder="fs" />
           </label>
           <label className="text-xs sm:col-span-2">
             Command
-            <input className="mt-1 w-full font-mono" value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="npx" />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="npx" />
           </label>
           <label className="text-xs sm:col-span-2">
             Arguments <span className="text-ink-tertiary">(space-separated; quote a path with spaces)</span>
-            <input className="mt-1 w-full font-mono" value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })} placeholder='-y @modelcontextprotocol/server-filesystem "/Users/me/Documents"' />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })} placeholder='-y @modelcontextprotocol/server-filesystem "/Users/me/Documents"' />
           </label>
           <label className="text-xs sm:col-span-2">
             Environment <span className="text-ink-tertiary">(one NAME=value per line; names are shown in the confirmation, values never)</span>
-            <textarea className="mt-1 w-full font-mono" rows={2} value={form.env} onChange={(e) => setForm({ ...form, env: e.target.value })} />
+            <textarea className={`mt-1 w-full font-mono ${FIELD}`} rows={2} value={form.env} onChange={(e) => setForm({ ...form, env: e.target.value })} />
           </label>
           <label className="text-xs sm:col-span-2">
             Working directory <span className="text-ink-tertiary">(optional)</span>
-            <input className="mt-1 w-full font-mono" value={form.cwd} onChange={(e) => setForm({ ...form, cwd: e.target.value })} />
+            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.cwd} onChange={(e) => setForm({ ...form, cwd: e.target.value })} />
           </label>
         </div>
         <button
