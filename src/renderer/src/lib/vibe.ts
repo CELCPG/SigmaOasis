@@ -33,14 +33,30 @@ import { emptyReplyFailure } from './replyRecovery'
  * off mid-conversation re-reads that conversation's history on the next turn.
  * Within the mode, the prompt is as stable as before.
  *
- * The line says the work comes first ("once you have what you need"), and the
- * exception is written in rather than left to the model: a reader who asks for
- * a long piece in VIBE still gets it. Brevity is the mode's default, not a cap.
+ * **v3.1 (M3): the line scopes itself to the final reply — measured.** The
+ * 3.0 line ("the user sees nothing but the conversation. Once you have what you
+ * need, answer in a few calm sentences…") held the time question, but the
+ * whole tool-choice suite found what it cost: on qwen3.8-9b-distill, "remember
+ * that my favorite band is Phish" called memory_save 0 times in 3 with VIBE on
+ * and 3 in 3 without, every other fixture unchanged. The model's reasoning said
+ * "I should use memory_save"; its reply said "I've saved that" with nothing
+ * saved. Across four wordings of a "remember" request plus the time question,
+ * the 3.0 line kept 3 calls in 5 and claimed a save on both misses; a line that
+ * says it changes only how the final reply reads, and that tools work as they
+ * always do, kept 5 in 5 — and on the full suite matched the arm without VIBE
+ * fixture for fixture (docs/evals.md, "VIBE's tool-choice arm").
+ *
+ * The exception is written in rather than left to the model: a reader who asks
+ * for a long piece in VIBE still gets it. Brevity is the mode's default, not a
+ * cap — and measured, still a real one: open questions came back in 191–241
+ * words of prose with no headings or lists, against 275–355 words with 19–25
+ * such lines without VIBE.
  */
 export const VIBE_SYSTEM_LINE =
-  'VIBE mode is on: the user sees nothing but the conversation. Once you have what you need, ' +
-  'answer in a few calm sentences of plain prose — no headings, tables or long lists, and no ' +
-  'talk of tools or sources unless asked. If the user asks for something long or detailed, give it in full.'
+  'VIBE mode is on. It changes only how your final reply reads: a few calm sentences of plain ' +
+  'prose — no headings, tables or long lists, and no talk of tools or sources unless asked. ' +
+  'If the user asks for something long or detailed, give it in full. Everything else, calling ' +
+  'tools included, works as it always does.'
 
 /** VIBE's addition to the system prompt: the line when the mode is on, nothing otherwise. */
 export function vibeSystemBlock(vibeMode: boolean | undefined): string {
