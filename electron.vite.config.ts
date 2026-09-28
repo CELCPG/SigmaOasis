@@ -8,7 +8,11 @@ export default defineConfig({
     build: {
       outDir: 'out/main',
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts') }
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // v3.1 (M4): PDF extraction's worker, beside index.js — ipc/pdfOffThread.ts.
+          pdfWorker: resolve(__dirname, 'src/main/ipc/pdfWorker.ts')
+        }
       }
     }
   },

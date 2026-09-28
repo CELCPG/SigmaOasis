@@ -30,6 +30,7 @@
     "test": "bash scripts/test.sh",
     "eval:tools": "bash scripts/eval-tools.sh",
     "bench:render": "bash scripts/render-bench.sh",
+    "bench:main-loop": "bash scripts/main-loop-bench.sh",
     "export:traces": "bash scripts/export-traces.sh",
     "eval:answers": "bash scripts/eval-answers.sh"
   },
