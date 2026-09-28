@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'fs'
 import { join } from 'path'
+import { readSource } from './harness'
 import {
   attribution,
   attributionLabel,
@@ -203,9 +203,8 @@ describe('the four strings a reader could not act on', () => {
     // Where the two readings are actually rendered. The summary carries the
     // control's name; the raw text is inside the disclosure, which is round 8's
     // whole argument about where a runtime string belongs.
-    const bubble = readFileSync(
-      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
-      'utf-8'
+    const bubble = readSource(
+      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx')
     )
     assert.match(bubble, /<summary[^>]*>\s*\{attributionLabel\(c\.detail\)\}/)
     assert.ok(
@@ -360,9 +359,8 @@ describe('the four strings a reader could not act on', () => {
       // Where it is actually read. The `<pre>` is the quote and keeps only the
       // quote; the reading is a sibling in the app's ordinary ink, so the two
       // voices are told apart by the surface as well as by the words.
-      const bubble = readFileSync(
-        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
-        'utf-8'
+      const bubble = readSource(
+        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx')
       )
       assert.match(bubble, /\{readingLine\(c\.detail\)\}/)
       for (const block of bubble.match(/<pre[^>]*>[\s\S]*?<\/pre>/g) ?? [])
@@ -372,9 +370,8 @@ describe('the four strings a reader could not act on', () => {
         )
       // The tool disclosure carries it too — it is one gloss, not a per-surface
       // judgement about who deserves one.
-      const toolBlock = readFileSync(
-        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'ToolCallBlock.tsx'),
-        'utf-8'
+      const toolBlock = readSource(
+        join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'ToolCallBlock.tsx')
       )
       assert.match(toolBlock, /\{readingLine\(failure\.detail\)\}/)
     })

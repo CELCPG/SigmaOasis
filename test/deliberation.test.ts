@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'fs'
 import { join } from 'path'
+import { readSource } from './harness'
 import {
   classifyReview,
   thinkHarderNote,
@@ -239,9 +239,8 @@ describe('a review that never came back', () => {
    * contrast that distinction runs on.
    */
   describe('a review that did not happen says so in its own words, and first', () => {
-    const bubble = readFileSync(
-      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
-      'utf-8'
+    const bubble = readSource(
+      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx')
     )
     const at = (needle: string): number => {
       const i = bubble.indexOf(needle)

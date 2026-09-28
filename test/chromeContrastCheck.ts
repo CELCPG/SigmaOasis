@@ -18,8 +18,9 @@
  * Run through scripts/test-render.sh (Electron proper, not ELECTRON_RUN_AS_NODE).
  */
 import { app, BrowserWindow } from 'electron'
-import { readdirSync, readFileSync, statSync } from 'fs'
+import { readdirSync, statSync } from 'fs'
 import { join } from 'path'
+import { readSource } from './harness'
 import { ACCENT } from '../src/renderer/src/lib/colors'
 import { toolVisualForName } from '../src/renderer/src/lib/oasisRipple'
 
@@ -43,22 +44,22 @@ interface Measured {
   ratio: number
 }
 
-const bubble = readFileSync(join(COMPONENTS, 'MessageBubble.tsx'), 'utf8')
-const reasoning = readFileSync(join(COMPONENTS, 'ReasoningBlock.tsx'), 'utf8')
-const sidebar = readFileSync(join(COMPONENTS, 'Sidebar.tsx'), 'utf8')
-const appRoot = readFileSync(join(RENDERER, 'App.tsx'), 'utf8')
+const bubble = readSource(join(COMPONENTS, 'MessageBubble.tsx'))
+const reasoning = readSource(join(COMPONENTS, 'ReasoningBlock.tsx'))
+const sidebar = readSource(join(COMPONENTS, 'Sidebar.tsx'))
+const appRoot = readSource(join(RENDERER, 'App.tsx'))
 // v2.2: the components that carry the app's bad news. A reply can be perfect
 // and the sentence telling you it failed still be the one thing on screen
 // nobody can read — which is exactly what it was.
-const inputBar = readFileSync(join(COMPONENTS, 'InputBar.tsx'), 'utf8')
-const toolCall = readFileSync(join(COMPONENTS, 'ToolCallBlock.tsx'), 'utf8')
-const claimCheck = readFileSync(join(COMPONENTS, 'ClaimCheckBlock.tsx'), 'utf8')
-const secondOpinion = readFileSync(join(COMPONENTS, 'SecondOpinionBlock.tsx'), 'utf8')
-const ranCode = readFileSync(join(COMPONENTS, 'RanCodeBlock.tsx'), 'utf8')
+const inputBar = readSource(join(COMPONENTS, 'InputBar.tsx'))
+const toolCall = readSource(join(COMPONENTS, 'ToolCallBlock.tsx'))
+const claimCheck = readSource(join(COMPONENTS, 'ClaimCheckBlock.tsx'))
+const secondOpinion = readSource(join(COMPONENTS, 'SecondOpinionBlock.tsx'))
+const ranCode = readSource(join(COMPONENTS, 'RanCodeBlock.tsx'))
 // v2.4: the Settings modal is a frame plus components/settings/<Tab>Tab.tsx; the ink
 // classes this check scrapes moved with their tabs, so the source is all of them.
 const settings = [join(COMPONENTS, 'SettingsModal.tsx'), ...rendererSources(join(COMPONENTS, 'settings'))]
-  .map((f) => readFileSync(f, 'utf8'))
+  .map((f) => readSource(f))
   .join('\n')
 
 /** Every renderer source file, so the raw-neutral guard has nowhere to hide. */
@@ -96,7 +97,7 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   actionButton: { source: bubble, re: /onClick=\{copyMessage\}\s*\n\s*className="([^"]*)"/ },
   timestamp: { source: bubble, re: /className="(ml-auto px-1\.5 text-\[10px\][^"]*)"/ },
   branchButton: {
-    source: readFileSync(join(COMPONENTS, 'BranchMenu.tsx'), 'utf8'),
+    source: readSource(join(COMPONENTS, 'BranchMenu.tsx')),
     re: /className="(ml-2 rounded-md p-1 [^"]*)"/
   },
   reasoningShell: { source: reasoning, re: /className="(my-2 overflow-hidden[^"]*)"/ },
@@ -132,7 +133,7 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   // for the same reason every other row is read out of its component: renaming
   // the class must fail the extraction, not quietly measure an unstyled span.
   unresolvedMarker: {
-    source: readFileSync(join(RENDERER, 'lib/markdown.ts'), 'utf8'),
+    source: readSource(join(RENDERER, 'lib/markdown.ts')),
     re: /class="(citation-ref citation-unresolved)"/
   },
   stats: {
@@ -363,7 +364,7 @@ interface RawInk {
 const rawInks: RawInk[] = (() => {
   const seen = new Map<string, RawInk>()
   for (const path of rendererSources(RENDERER)) {
-    const src = readFileSync(path, 'utf8')
+    const src = readSource(path)
     PALETTE_INK.lastIndex = 0
     for (let m = PALETTE_INK.exec(src); m; m = PALETTE_INK.exec(src)) {
       const chain = m[1] ?? ''
@@ -408,7 +409,7 @@ function paletteProbes(dark: boolean): string {
  * components: a copy passes after the thing it copied has changed.
  */
 const STREAM_EDGE_FLOOR = (() => {
-  const css = readFileSync(CSS_PATH, 'utf8')
+  const css = readSource(CSS_PATH)
   const block = css.match(/@keyframes\s+stream-edge-in\s*\{([\s\S]*?)\n\}/)
   const from = block?.[1]?.match(/from\s*\{[^}]*opacity:\s*([\d.]+)/)
   return { found: !!from, value: from ? Number(from[1]) : NaN }
@@ -682,7 +683,7 @@ function check(name: string, condition: boolean, detail = ''): void {
 }
 
 async function buildCss(): Promise<string> {
-  const source = readFileSync(CSS_PATH, 'utf8')
+  const source = readSource(CSS_PATH)
     // postcss-import is not a dependency, and an unresolvable @import inside a
     // data: document never settles. The highlight.js theme only paints code
     // blocks, which nothing here measures.
@@ -747,7 +748,7 @@ async function main(): Promise<void> {
   const offenders: string[] = []
   let rawSites = 0
   for (const path of sources) {
-    const hits = (readFileSync(path, 'utf8').match(RAW_INK) ?? []).length
+    const hits = (readSource(path).match(RAW_INK) ?? []).length
     if (hits > 0) {
       rawSites += hits
       offenders.push(`${path.slice(RENDERER.length + 1)} (${hits})`)
@@ -797,7 +798,7 @@ async function main(): Promise<void> {
     STREAM_EDGE_FLOOR.value < 1,
     `floor is ${STREAM_EDGE_FLOOR.value} — the fade does nothing`
   )
-  const edgeRule = readFileSync(CSS_PATH, 'utf8').match(/\.stream-edge\s*\{([^}]*)\}/)
+  const edgeRule = readSource(CSS_PATH).match(/\.stream-edge\s*\{([^}]*)\}/)
   check(
     'the tail fade is still animated, not a static dimmer',
     /animation:\s*stream-edge-in\s+[\d.]+m?s/.test(edgeRule?.[1] ?? ''),
