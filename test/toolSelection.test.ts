@@ -6,6 +6,7 @@ import {
   stabilizeTurnTools,
   holdTurnTools,
   rankingIsDecisive,
+  rankingMayMove,
   withBudgetNotes,
   TURN_TOOL_CAP
 } from '../src/renderer/src/lib/toolSelection'
@@ -265,6 +266,25 @@ describe('rankingIsDecisive', () => {
     })
     assert.equal(rankingIsDecisive(spread(0.508, 0.508 - 0.056)), false) // "yes"
     assert.equal(rankingIsDecisive(spread(0.482, 0.482 - 0.091)), true) // weather
+  })
+
+  /** v3.1 (S5): the spread is a property of the scores; small talk is a property of the words. */
+  describe('rankingMayMove', () => {
+    test('small talk never moves the toolbox, however decisive its scores', () => {
+      for (const text of ['thanks!', 'thank you', 'lol', 'hello']) {
+        assert.equal(rankingMayMove(decisive, text), false, text)
+      }
+    })
+
+    test('a request with decisive scores still moves it', () => {
+      assert.equal(rankingMayMove(decisive, 'read the file notes/todo.md'), true)
+      assert.equal(rankingMayMove(decisive, 'thanks — now read notes/todo.md'), true)
+    })
+
+    test('noise stays noise, whatever the words', () => {
+      assert.equal(rankingMayMove(noise, 'read the file notes/todo.md'), false)
+      assert.equal(rankingMayMove(null, 'read the file notes/todo.md'), false)
+    })
   })
 })
 

@@ -205,7 +205,7 @@ Added 2026-09-28 at the owner's request, after a VIBE session on the bench machi
 12 GB) where "hello" took 24–60 s to its first word and "how many cm is 6 foot 3" took eleven
 minutes. The session's own records say where the time went — the stats each reply saves, LM
 Studio's server log, and the conversation export — and most of it was not VIBE. **Status: V1, V2
-and S1–S3 are built on `feat/vibe-polish`; S4–S6 are not.**
+and S1–S3 shipped in #8; S5 and S6 are built on `feat/speed-s4-s6`; S4 is measured and needs nothing.**
 
 Where the time went, in the order it costs:
 
@@ -213,7 +213,7 @@ Where the time went, in the order it costs:
 | --- | --- | --- |
 | Models that do not fit the card | `prism-ml/bonsai-27b` is a 1-bit quant (Q1_0) loaded at a 262,144-token window: 2,378 prompt tokens read at about 40 a second, replies at 3–6 tokens a second. The 35B-A3B's weights are 21.7 GB on a 12 GB card. The same 2,010-token VIBE prompt on `qwen3.8-9b-distill`, resident on the card (7.9 GB with a 68K window) and read from scratch with nothing cached, answered "hello" in **1.1 s**. | The owner's setup |
 | Thinking before trivial answers | "6 foot 3 in cm": 3,795 tokens of thinking, 540 s, then one sentence. "yo whats up?": 2.2 s of thinking on a 9B. | S3 |
-| The prompt re-read from the top each turn | LM Studio's log: within a turn the next round resumes at 95.5% of the prompt in a second; across turns it starts at 0% and takes 20–60 s | S1, S4 |
+| The prompt re-read from the top each turn | LM Studio's log: within a turn the next round resumes at 95.5% of the prompt in a second; across turns it starts at 0% and takes 20–60 s | S1, S5 (S4 ruled out the checks) |
 | Loading after Enter | "hello" on a 27B (2026-09-14): 14 s before the request went out, then 60 s to the first token — the shape of models loading on demand, though that turn's log does not say so | S2 |
 | Two clients on one server | A 35B reply stalled for 60 s while an agent run started on the same server, which was restarted mid-session | Nobody's code — one LM Studio queues |
 
@@ -281,33 +281,61 @@ tokens), two passes each, temperature 0.3:
 *Gate for release:* the VIBE arm of `eval:tools` (M3) with S3 on. A greeting is never a tool
 question, but that arm is where it would show.
 
-### S4. Do the post-answer checks evict the conversation? — measure first
+### S4. The post-answer checks do not evict the conversation — measured, nothing to build
 
-After "6 foot 3" was answered, a check sent a second request to the same 27B, which ran for 60 s
-and was cut off. If LM Studio serves both from one cache slot, every checked turn leaves the next
-turn to re-read the conversation from the top. Measure it: the same two-turn conversation with the
-checks on and off, and turn two's prompt-processing time from the server log. If the checks evict,
-send them with the conversation's prefix, so they reuse it, or skip them on turns with nothing to
-check.
+The worry: after "6 foot 3" was answered, a recompute check sent its own request to the same 27B,
+and if LM Studio serves both from one cache slot, every checked turn would leave the next to re-read
+the conversation from the top.
 
-### S5. "thanks!" is a decisive ranking — measure first
+Measured 2026-09-28 on `qwen3.8-9b-distill` (32K window), three passes, loaded with one cache slot
+(`lms load --parallel 1`) and then two: a conversation of about 4,300 tokens, its next turn sent
+with nothing between, and — in a fresh conversation each time — the same with a recompute-shaped
+check on the same model between the two turns. The server log holds the run's 30 requests and no
+others.
 
-`MIN_RANK_SPREAD` (0.07) calls the ranking for "thanks!" decisive and reaches for `web_search`,
-swapping the toolbox and the cache with it. A small-talk turn (S3's classifier) could hold the
-incumbent outright, or the spread could be read without the always-on tools. Either changes which
-tools the model sees, so `eval:tools` decides: correct-tool and spurious-call rates within noise.
+| Next turn's first token | 1 slot | 2 slots |
+| --- | --- | --- |
+| Nothing between | 204 ms | 206 ms |
+| A check between | 287 ms | 281 ms |
+| The same prompt read from scratch | 1,573–1,617 ms | 1,599–1,600 ms |
 
-### S6. Say when the model does not fit
+LM Studio's engine keeps earlier prompts and restores them, so a check costs the next turn about
+80 ms, not a re-read, with one slot as with two. Nothing is built: the fix sketched here — the
+checks sent with the conversation's prefix, or the prefix re-primed after them — would buy those
+80 ms. The cross-turn re-reads in the owner's log were the toolbox moving (S1, S5). Not measured:
+a window so large that the stored prompt may not fit the server's cache, the 262K case — which S6
+names when it costs the reader anything.
 
-Every reply already saves its prompt tokens and its time to first token, so the app knows how fast
-the model reads: the 9B on this card, 2,010 tokens in about a second; the 27B here, about 40 a
-second. Below a floor set from the bench's own spread, a line under the reply's stats says the
-model is reading slowly — probably not fully on the GPU, or loaded with a very large window — and
-that LM Studio's load settings are where that changes. The loaded window is readable
-(`loaded_context_length`, `/api/v0/models`), so the line can name it. VIBE shows no stats; there,
-the same fact goes in Settings → Models beside the slot.
+### S5. Small talk never moves the toolbox — built
 
-*Gate:* the render suite for the line; no line on the bench's 9B, a line on its 27B.
+`MIN_RANK_SPREAD` (0.07) is a property of the scores, not of the words, and it calls some greetings
+decisive. Measured 2026-09-28 against the owner's 20-tool Assistant slot with nomic-embed-text-v1.5:
+3 of 25 everyday pleasantries cleared it — "thanks!" and "thank you" reaching for
+`reference_lookup`, "lol" for `memory_search` — and each could swap a tool and spend the
+conversation's prompt cache. `rankingMayMove` now requires a decisive ranking *and* words that are
+not small talk (S3's classifier), so a greeting keeps the incumbent.
+
+The roadmap asked `eval:tools` to decide, and it cannot see the change: none of the 268 user
+prompts across the 156 fixture files in `test/fixtures` (tool choice, answers, multi-turn and the
+rest) is small talk, so every suite's input takes the same path as before. The other option — the
+spread read without the always-on tools — would change decisiveness on every turn, and is not
+taken.
+
+### S6. Say when the model does not fit — built
+
+A reply that waited at least 8 s for its first word, having read its prompt at under 150 tokens a
+second, says so under its stats line — shown with the stats off too, since it answers "why is this
+slow" — and says what usually fixes it: a smaller model or quant, full GPU offload, or a shorter
+context window, naming the loaded window when it is 131,072 or more. It also says the other thing
+a long wait can be: LM Studio busy with another client's request. VIBE draws no stats, so the same
+sentence stands beside the slot in Settings → Models, from the model's most recent reply only — a
+model reloaded well since loses its verdict with its next measured reply.
+
+The floor, from the bench's own replies: every slow one read at 33–86 tokens a second (the 27B,
+bonsai at a 262K window, a 9B partly on the CPU); the 9B on the card, about 2,000. Only a long
+wait is judged, because a cached prompt is read in a blink by any model, and a partly cached one
+overstates the rate — which can hide a slow model but never accuse a fast one.
+`lib/modelFit.ts`; `test/modelFit.test.ts` holds all five measured slow replies and the fast one.
 
 ### What the owner can change today
 
@@ -447,7 +475,7 @@ privacy audit, the icon always showing while resident, and no new network access
 | **3.0.1** | L1; L2 if the account is ready; Windows in CI — **landed: L1 and Windows in CI; not L2** | The restart and ledger-job fixes; a signed Windows installer | Suites green on macOS and Linux, node suite on Windows; `signtool verify` in the job |
 | **Launch** | L3, L4 | A build you can buy | An installed copy updates through the new feed on three platforms |
 | **3.1 — the agent, measured** | M1–M4, `useLMStudio.ts` | How often the agent solves a task, on a 9B and a 35B-A3B, whatever the numbers are; long tasks faster | `eval:agent` baselines committed; the VIBE arm of `eval:tools` |
-| **3.1 — VIBE, polished and quick** | V1–V2, S1–S6 — **built: V1, V2, S1–S3** | No box in VIBE's composer; an orb while it thinks; a greeting answered in a fifth of a second on a model that fits the card | The node suite; S3 in the VIBE arm of `eval:tools`; S4 and S5 measured before they change anything |
+| **3.1 — VIBE, polished and quick** | V1–V2, S1–S6 — **built: V1, V2, S1–S3, S5, S6; S4 measured, nothing to build** | No box in VIBE's composer; an orb while it thinks; a greeting answered in a fifth of a second on a model that fits the card | The node suite; S3 in the VIBE arm of `eval:tools`; S4's measurement (a check costs the next turn 80 ms) |
 | **3.2 — a daily tool** | D1–D4; D5 if decided | Hooks, commands, a branch per task, VS Code | `eval:agent` within noise with each one on |
 | **3.3 — reach** | R1, R2, as decided | Talk to VIBE; tasks that outlive the window | The privacy audit's new rows; no new host in the activity log |
 

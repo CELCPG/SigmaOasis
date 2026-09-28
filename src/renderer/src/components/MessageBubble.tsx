@@ -13,6 +13,7 @@ import { emptyReplyFailure, regenerateBlocked, replyAffordances } from '../lib/r
 import { turnContextUsage } from '../hooks/turnHelpers'
 import { VERIFY_BUDGET_MS, waitElapsed, type TurnPhase } from '../lib/turnPhase'
 import { formatTurnCost } from '../lib/turnCost'
+import { FITTING_RATE, slowReading, slowReadingAdvice, slowReadingFact } from '../lib/modelFit'
 import { ESCALATION_REASON_TEXT } from '../lib/routing'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
@@ -1390,8 +1391,27 @@ export const MessageBubble = memo(function MessageBubble({
             {formatTurnCost(message.stats)}
           </div>
         )}
+
+        {!isStreaming && <SlowReadingLine stats={message.stats} modelId={message.modelId} />}
         </div>
       </div>
     </div>
   )
 })
+
+/**
+ * v3.1 (S6): a reply that waited long for its first word because the model
+ * read its prompt slowly says so, and says what usually fixes it
+ * (lib/modelFit.ts). Shown whether or not the stats line is — it is the answer
+ * to "why is this so slow", which is not a statistic.
+ */
+function SlowReadingLine({ stats, modelId }: { stats: ChatMessage['stats']; modelId?: string }): JSX.Element | null {
+  const window = useAppStore((s) => s.availableModels.find((m) => m.id === modelId)?.loadedContextLength)
+  const reading = slowReading(stats)
+  if (!reading) return null
+  return (
+    <div className="mt-1.5 text-[11px] text-ink-secondary" title={slowReadingAdvice(window)} data-slow-reading="true">
+      🐢 Slow start: this model {slowReadingFact(reading)}. {FITTING_RATE}
+    </div>
+  )
+}

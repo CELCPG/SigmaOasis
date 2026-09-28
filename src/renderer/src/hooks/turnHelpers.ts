@@ -14,7 +14,7 @@ import {
   schemasAvailableTo,
   selectTurnTools,
   holdTurnTools,
-  rankingIsDecisive,
+  rankingMayMove,
   TURN_TOOL_CAP,
   withForcedTools
 } from '../lib/toolSelection'
@@ -304,8 +304,9 @@ export async function subsetForTurn(
     // flip both hands the model the wrong tools and discards the prompt cache.
     // With nothing to hold to yet, this turn's arbitrary pick becomes the
     // incumbent and stops moving. (v3.1: and with one, it is kept outright —
-    // see holdTurnTools.)
-    const stable = holdTurnTools(tools, selected, previous, rankingIsDecisive(res.scores))
+    // see holdTurnTools — and small talk never counts as decisive:
+    // rankingMayMove.)
+    const stable = holdTurnTools(tools, selected, previous, rankingMayMove(res.scores, query))
     const withForced = withForcedTools(tools, stable, force)
     turnToolMemo.set(
       stabilityKey,

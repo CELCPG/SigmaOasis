@@ -1,6 +1,7 @@
 import type { ModelConfig, ToolSchema, ToolToggles } from '../types'
 import { TOOL_SCHEMAS } from '../../../shared/tools'
 import { BRIDGE_EXCLUDED } from '../../../shared/codeSdk'
+import { isSmallTalk } from './quickReply'
 
 /**
  * Per-role tool allowlists (strategy Layer 1a).
@@ -176,6 +177,23 @@ export function rankingIsDecisive(
   const ranked = Object.values(scores).sort((a, b) => b - a)
   if (ranked.length <= cap) return true
   return ranked[0] - ranked[cap - 1] >= MIN_RANK_SPREAD
+}
+
+/**
+ * v3.1 (S5): may this turn's ranking move the conversation's toolbox?
+ *
+ * Only a decisive ranking of words that ask for something. Small talk
+ * (lib/quickReply.ts) never needs a tool, but the spread above is a property
+ * of the scores, not of the words, and it calls some greetings decisive.
+ * Measured 2026-09-28 with nomic-embed-text-v1.5 against the owner's 20-tool
+ * Assistant slot: 3 of 25 everyday pleasantries cleared it — "thanks!" and
+ * "thank you" reaching for reference_lookup, "lol" for memory_search — and
+ * each such turn could swap a tool and spend the conversation's prompt cache.
+ * None of the 268 user prompts in the eval fixtures (test/fixtures) is small
+ * talk, so no tool-choice or answer suite can see this rule.
+ */
+export function rankingMayMove(scores: Record<string, number> | null, text: string | undefined): boolean {
+  return rankingIsDecisive(scores) && !isSmallTalk(text)
 }
 
 /**
