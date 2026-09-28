@@ -11,6 +11,7 @@
  * `installStubs()` must run before any module under test is required, so every
  * test file calls it at the top.
  */
+import { readFileSync } from 'fs'
 import Module from 'module'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -651,4 +652,19 @@ export function installStubs(): void {
 export function load<T = Record<string, unknown>>(name: string): T {
   installStubs()
   return require(join(COMPILED_DIR, name)) as T
+}
+
+// ---- the checkout, read as text ---------------------------------------------
+
+/**
+ * A repository file as text, with CRLF folded to LF.
+ *
+ * Some tests pin source across a line break: a JSX line and the one under it, a
+ * body cut at `'\n  }\n'`, a window of so many characters. Git for Windows'
+ * default core.autocrlf=true checks the tree out CRLF, and there a positive
+ * match fails while a negative match or an indexOf bound passes having checked
+ * nothing. The index is LF, so folding CRLF back reads what macOS and Linux read.
+ */
+export function readSource(path: string): string {
+  return readFileSync(path, 'utf-8').replace(/\r\n/g, '\n')
 }

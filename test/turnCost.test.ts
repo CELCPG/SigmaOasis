@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'fs'
 import { join } from 'path'
+import { readSource } from './harness'
 import { formatTurnCost, gatherMs, tailMs } from '../src/renderer/src/lib/turnCost'
 import { VERIFY_BUDGET_MS, createVerifyBudget } from '../src/renderer/src/lib/turnPhase'
 import { describeRecompute } from '../src/renderer/src/lib/workbenchChecks'
@@ -89,7 +89,7 @@ describe('the stat line reports the turn, not just the stream', () => {
   })
 
   test('the bubble renders the turn cost through this formatter', () => {
-    const source = readFileSync(MESSAGE_BUBBLE, 'utf-8')
+    const source = readSource(MESSAGE_BUBBLE)
     assert.ok(source.includes('formatTurnCost'), 'the stat line must come from lib/turnCost.ts')
     assert.ok(
       !source.includes('}s total`'),
@@ -98,7 +98,7 @@ describe('the stat line reports the turn, not just the stream', () => {
   })
 
   test('the live line says the checking is bounded, while it is still running', () => {
-    const source = readFileSync(MESSAGE_BUBBLE, 'utf-8')
+    const source = readSource(MESSAGE_BUBBLE)
     const start = source.indexOf('function TurnPhaseLine')
     assert.ok(start > 0, 'TurnPhaseLine not found')
     const line = source.slice(start, start + 2000)
@@ -251,7 +251,7 @@ describe('the post-answer tail has a deadline that fires with a name', () => {
    * nothing.
    */
   test('a pass the deadline refuses is recorded, not skipped silently', () => {
-    const source = readFileSync(USE_LM_STUDIO, 'utf-8')
+    const source = readSource(USE_LM_STUDIO)
     assert.ok(
       source.includes("!autoCorrect || signal.aborted || !budget.admits('revising')"),
       'the revision gate must reach `admits` when it is the deadline that stopped it'
@@ -533,10 +533,7 @@ describe('a limit on what starts, said as a limit on what starts', () => {
    * deadline had fired.
    */
   test('no further tool call is dispatched once the deadline has landed', () => {
-    const loop = readFileSync(
-      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'lib', 'agentLoop.ts'),
-      'utf-8'
-    )
+    const loop = readSource(join(__dirname, '..', '..', 'src', 'renderer', 'src', 'lib', 'agentLoop.ts'))
     const start = loop.indexOf('for (const tc of round.toolCalls)')
     assert.ok(start > 0, 'the per-call loop not found')
     const body = loop.slice(start, loop.indexOf('deps.executeTool', start))
@@ -549,7 +546,7 @@ describe('a limit on what starts, said as a limit on what starts', () => {
 })
 
 describe('the turn runs its tail under the budget', () => {
-  const source = readFileSync(USE_LM_STUDIO, 'utf-8')
+  const source = readSource(USE_LM_STUDIO)
 
   test('one budget covers the whole tail, and it is disarmed', () => {
     assert.ok(
@@ -743,7 +740,7 @@ describe('the stat line accounts for the gather, the way it accounts for checkin
 })
 
 describe('the turn clock starts before the providers, not after them', () => {
-  const source = readFileSync(USE_LM_STUDIO, 'utf-8')
+  const source = readSource(USE_LM_STUDIO)
 
   test('the origin is stamped ahead of the gather', () => {
     const opened = source.indexOf('const turnOpenedAt = Date.now()')
