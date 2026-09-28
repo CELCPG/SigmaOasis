@@ -9,7 +9,7 @@ import { formatResearch } from './toolHandlers/research'
 import { fetchWebpage } from './search'
 import { extractProduct } from './productExtract'
 import { readWatchlist, recordPrice } from './watchlist'
-import { checkPackFreshness, listPacks, readAppPack, writeAppPack } from './library'
+import { checkPackFreshness, listPacks, readAppPack, removePack, writeAppPack } from './library'
 import { ledgerNow } from './factLedger'
 import { expiresAtFor, LEDGER_PACK_ID, LEDGER_PACK_NAME } from '../../shared/factLedger'
 import type { ClaimClass } from '../../shared/factLedger'
@@ -328,6 +328,8 @@ async function runPriceJob(job: Job): Promise<JobRunResult> {
 
 /** Claims one ledger run re-checks; each is a page fetch. */
 export const LEDGER_RECHECKS_PER_RUN = 10
+/** Re-checks in a row that find the source no longer stating a claim before the claim is dropped. */
+export const LEDGER_MAX_RECHECK_FAILURES = 3
 
 async function runLedgerJob(): Promise<JobRunResult> {
   const pack = await readAppPack(LEDGER_PACK_ID)
@@ -341,12 +343,22 @@ async function runLedgerJob(): Promise<JobRunResult> {
   if (expired.length === 0) return { outcome: 'ok', note: 'nothing past its freshness' }
   const lines: string[] = []
   let confirmed = 0
+  const dropped = new Set<string>()
   for (const doc of expired.slice(0, LEDGER_RECHECKS_PER_RUN)) {
     doc.recheckedAt = now
+    const value = doc.claim!.value
+    const where = `${doc.title} — ${doc.source ?? ''}`
     const page = doc.source ? await fetchWebpage(doc.source, 'webpage') : null
-    const value = doc.claim!.value.toLowerCase()
-    const still = page?.ok === true && page.text.toLowerCase().replace(/\s+/g, ' ').includes(value)
-    if (still) {
+    // A page that is gone no longer states the claim. One that could not be
+    // reached checked nothing, so it counts neither way: an outage or a proxy
+    // that is down must not empty the ledger.
+    const gone = page?.ok === false && /^HTTP (404|410)\b/.test(page.error ?? '')
+    if (!page?.ok && !gone) {
+      // The first clause only: behind a proxy the error goes on with advice meant for a model.
+      lines.push(`⚠️ could not re-check ${value} (${(page?.error ?? 'no source').split(' — ')[0]}): ${where}`)
+      continue
+    }
+    if (page?.ok && page.text.toLowerCase().replace(/\s+/g, ' ').includes(value.toLowerCase())) {
       confirmed += 1
       // Re-confirmed is refreshed: the stamps upsertClaims gives a claim a reply
       // states again, so the claim is fresh for its class's window from now.
@@ -355,19 +367,30 @@ async function runLedgerJob(): Promise<JobRunResult> {
       doc.expiresAt = expiresAtFor(doc.claim!.claimClass as ClaimClass, now)
       doc.date = `checked ${checked}`
       doc.text = doc.text.replace(/\nChecked: [^\n]*/, `\nChecked: ${checked}`)
-      lines.push(`✅ still states ${doc.claim!.value}: ${doc.title}`)
+      doc.recheckFailures = undefined
+      lines.push(`✅ still states ${value}: ${doc.title}`)
+      continue
+    }
+    doc.recheckFailures = (doc.recheckFailures ?? 0) + 1
+    if (doc.recheckFailures >= LEDGER_MAX_RECHECK_FAILURES) {
+      dropped.add(doc.id)
+      lines.push(`🗑️ dropped ${value} — not stated for ${doc.recheckFailures} re-checks in a row: ${where}`)
     } else {
-      lines.push(`⚠️ no longer states ${doc.claim!.value}${page?.ok ? '' : ' (page unavailable)'}: ${doc.title} — ${doc.source ?? ''}`)
+      lines.push(`⚠️ no longer states ${value} (${doc.recheckFailures} of ${LEDGER_MAX_RECHECK_FAILURES} in a row)${gone ? ', the page is gone' : ''}: ${where}`)
     }
   }
   // Every run that re-checked anything writes, confirmed or not: the recheckedAt
-  // stamps are what move the queue on.
-  if (pack) {
-    await writeAppPack({ id: LEDGER_PACK_ID, name: LEDGER_PACK_NAME, description: pack.manifest.description, docs: pack.docs })
+  // stamps are what move the queue on. A pack is never written empty — an app
+  // pack with no documents does not validate — so the last claim takes it along.
+  const kept = (pack?.docs ?? []).filter((d) => !dropped.has(d.id))
+  if (kept.length === 0) {
+    await removePack(LEDGER_PACK_ID)
+  } else if (pack) {
+    await writeAppPack({ id: LEDGER_PACK_ID, name: LEDGER_PACK_NAME, description: pack.manifest.description, docs: kept })
   }
   return {
     outcome: 'ok',
-    note: `${confirmed}/${expired.length} re-confirmed`,
+    note: `${confirmed}/${expired.length} re-confirmed${dropped.size > 0 ? `, ${dropped.size} dropped` : ''}`,
     digest: `**Verified claims** — re-check ${dateLine()}\n\n${lines.join('\n')}${expired.length > LEDGER_RECHECKS_PER_RUN ? `\n\n(${expired.length - LEDGER_RECHECKS_PER_RUN} more past freshness; the next run continues)` : ''}`
   }
 }

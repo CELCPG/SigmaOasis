@@ -90,6 +90,11 @@ export interface PackDocMeta {
    * the back rather than the front of every run.
    */
   recheckedAt?: number
+  /**
+   * Re-checks in a row that found the source no longer stating this claim. The
+   * ledger job drops the claim when it reaches LEDGER_MAX_RECHECK_FAILURES.
+   */
+  recheckFailures?: number
   claim?: { key: string; claimClass: string; value: string }
 }
 
@@ -352,6 +357,7 @@ export function validateManifest(raw: unknown): PackManifest {
       ...(num(doc.checkedAt) !== undefined ? { checkedAt: num(doc.checkedAt) } : {}),
       ...(doc.expiresAt === null ? { expiresAt: null } : num(doc.expiresAt) !== undefined ? { expiresAt: num(doc.expiresAt) } : {}),
       ...(num(doc.recheckedAt) !== undefined ? { recheckedAt: num(doc.recheckedAt) } : {}),
+      ...(num(doc.recheckFailures) !== undefined ? { recheckFailures: num(doc.recheckFailures) } : {}),
       ...(doc.claim && typeof doc.claim === 'object'
         ? {
             claim: {
@@ -939,6 +945,7 @@ export interface AppPackDoc {
   checkedAt?: number
   expiresAt?: number | null
   recheckedAt?: number
+  recheckFailures?: number
   claim?: { key: string; claimClass: string; value: string }
 }
 
@@ -970,6 +977,7 @@ export async function readAppPack(id: string): Promise<{ manifest: PackManifest;
       checkedAt: meta.checkedAt,
       expiresAt: meta.expiresAt,
       recheckedAt: meta.recheckedAt,
+      recheckFailures: meta.recheckFailures,
       claim: meta.claim
     })
   }
@@ -999,6 +1007,7 @@ export async function writeAppPack(input: { id: string; name: string; descriptio
       ...(typeof d.checkedAt === 'number' ? { checkedAt: d.checkedAt } : {}),
       ...(d.expiresAt !== undefined ? { expiresAt: d.expiresAt } : {}),
       ...(typeof d.recheckedAt === 'number' ? { recheckedAt: d.recheckedAt } : {}),
+      ...(typeof d.recheckFailures === 'number' && d.recheckFailures > 0 ? { recheckFailures: d.recheckFailures } : {}),
       ...(d.claim ? { claim: d.claim } : {})
     })
   }

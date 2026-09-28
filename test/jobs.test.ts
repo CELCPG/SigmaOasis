@@ -225,6 +225,14 @@ describe('the ledger runner', () => {
     question
   })
 
+  /** One ledger run at `at` on the ledger's clock: what it said, and which pages it fetched. */
+  const run = async (at: number): Promise<{ note: string; digest: string; fetched: string[] }> => {
+    process.env.SIGMA_LEDGER_NOW = String(at)
+    state.fetchLog = []
+    const r = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
+    return { note: r.note, digest: r.digest ?? '', fetched: state.fetchLog.map((f) => f.url) }
+  }
+
   beforeEach(() => {
     resetState()
     dir = mkdtempSync(join(tmpdir(), 'sigma-ledger-job-'))
@@ -286,12 +294,6 @@ describe('the ledger runner', () => {
       contentType: 'text/html',
       body: `<html><body><p>The ${item} pass costs ${i === n - 1 ? '$18.50' : '$21.00'}.</p></body></html>`
     }))
-    const run = async (at: number): Promise<{ note: string; fetched: string[] }> => {
-      process.env.SIGMA_LEDGER_NOW = String(at)
-      state.fetchLog = []
-      const r = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
-      return { note: r.note, fetched: state.fetchLog.map((f) => f.url) }
-    }
 
     const first = await run(T0 + 2 * DAY)
     assert.equal(first.note, `0/${n} re-confirmed`)
@@ -301,9 +303,75 @@ describe('the ledger runner', () => {
     const second = await run(T0 + 2 * DAY + HOUR)
     assert.equal(second.note, `1/${n} re-confirmed`)
     assert.deepEqual(second.fetched, [...items.slice(batch), ...items.slice(0, batch - 2)].map(url))
-    // And the queue keeps turning: the two failures left out last time lead this one.
+    // And the queue keeps turning: the two failures left out last time lead this
+    // one. (The eight behind them fail for the third time in a row and are dropped.)
     const third = await run(T0 + 2 * DAY + 2 * HOUR)
-    assert.equal(third.note, `0/${n - 1} re-confirmed`)
+    assert.equal(third.note, `0/${n - 1} re-confirmed, ${batch - 2} dropped`)
     assert.deepEqual(third.fetched, [...items.slice(batch - 2, batch), ...items.slice(0, batch - 2)].map(url))
+  })
+
+  test('a claim is dropped when its source has not stated it for three re-checks in a row', async () => {
+    assert.equal(jobsMod.LEDGER_MAX_RECHECK_FAILURES, 3)
+    const url = (name: string): string => `https://museum.example/${name}/`
+    const page = (name: string, price: string) => ({
+      match: `museum.example/${name}/`,
+      contentType: 'text/html',
+      body: `<html><body><p>The ${name} pass costs ${price}.</p></body></html>`
+    })
+    // changed: the page now states another price. deleted: the page is gone.
+    // down: the page cannot be reached. flaky: wrong twice, then right, then wrong again.
+    const names = ['changed', 'deleted', 'down', 'flaky']
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims(names.map((name) => draft('money', `How much is the ${name} pass?`, '$18.50', `The ${name} pass costs $18.50.`, url(name))))
+    const responses = (flaky: string) => [
+      page('changed', '$21.00'),
+      { match: 'museum.example/deleted/', contentType: 'text/html', body: '', status: 404 },
+      { match: 'museum.example/down/', contentType: 'text/html', body: '', status: 503 },
+      page('flaky', flaky)
+    ]
+    const claims = async () =>
+      Object.fromEntries(((await lib.readAppPack(LEDGER_PACK_ID))?.docs ?? []).map((d) => [d.source!.split('/')[3], d]))
+    const t1 = T0 + 2 * DAY
+
+    state.responses = responses('$21.00')
+    assert.equal((await run(t1)).note, '0/4 re-confirmed')
+    assert.equal((await run(t1 + HOUR)).note, '0/4 re-confirmed')
+    let now = await claims()
+    assert.deepEqual([now.changed?.recheckFailures, now.deleted?.recheckFailures, now.flaky?.recheckFailures], [2, 2, 2])
+    // An unreachable page checked nothing, so it counts for nothing: an outage
+    // or a proxy that is down must not empty the ledger.
+    assert.equal(now.down?.recheckFailures, undefined)
+
+    // Third time: the two that are still wrong go; flaky is right again, and its streak ends.
+    state.responses = responses('$18.50')
+    const third = await run(t1 + 2 * HOUR)
+    assert.equal(third.note, '1/4 re-confirmed, 2 dropped')
+    assert.match(third.digest, /🗑️ dropped \$18\.50 .*The changed pass costs/)
+    assert.match(third.digest, /🗑️ dropped \$18\.50 .*The deleted pass costs/)
+    assert.match(third.digest, /could not re-check \$18\.50 .*The down pass costs/)
+    now = await claims()
+    assert.deepEqual(Object.keys(now).sort(), ['down', 'flaky'])
+    assert.equal(now.flaky?.recheckFailures, undefined)
+    assert.deepEqual(await ledger.ledgerStats(), { entries: 2, expired: 1 })
+
+    // Past flaky's new window it is wrong again: a first failure, not a third.
+    state.responses = responses('$21.00')
+    const fourth = await run(t1 + 2 * HOUR + 2 * DAY)
+    assert.equal(fourth.note, '0/2 re-confirmed')
+    assert.match(fourth.digest, /no longer states \$18\.50 \(1 of 3 in a row\).*The flaky pass costs/)
+    now = await claims()
+    assert.deepEqual(Object.keys(now).sort(), ['down', 'flaky'])
+    assert.equal(now.flaky?.recheckFailures, 1)
+  })
+
+  test('dropping the last claim removes the ledger pack rather than leaving it empty', async () => {
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims([draft('money', 'How much is the only pass?', '$18.50', 'The only pass costs $18.50.', 'https://museum.example/only/')])
+    state.responses = [{ match: 'museum.example/only/', contentType: 'text/html', body: '<html><body><p>The only pass costs $21.00.</p></body></html>' }]
+    for (let i = 0; i < 3; i++) await run(T0 + 2 * DAY + i * HOUR)
+    assert.equal(await lib.readAppPack(LEDGER_PACK_ID), null)
+    assert.deepEqual(await lib.listPacks(), [])
+    assert.deepEqual(await ledger.ledgerStats(), { entries: 0, expired: 0 })
+    assert.equal((await run(T0 + 3 * DAY)).note, 'nothing past its freshness')
   })
 })
