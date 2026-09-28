@@ -1,0 +1,5 @@
+{
+  "kind": "fix",
+  "files": ["src/duration.js", "test/"],
+  "commands": ["npm test", "node --test"]
+}

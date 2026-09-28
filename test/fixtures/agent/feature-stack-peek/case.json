@@ -1,0 +1,5 @@
+{
+  "kind": "feature",
+  "files": ["src/stack.js", "test/"],
+  "commands": ["npm test", "node --test"]
+}

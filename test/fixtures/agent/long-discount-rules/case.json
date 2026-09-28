@@ -1,0 +1,14 @@
+{
+  "kind": "long",
+  "files": [
+    "src/rules.js",
+    "src/cart.js",
+    "src/catalog.js",
+    "test/"
+  ],
+  "commands": [
+    "npm test",
+    "node --test"
+  ],
+  "contextTokens": 16384
+}

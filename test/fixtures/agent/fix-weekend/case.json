@@ -1,0 +1,5 @@
+{
+  "kind": "fix",
+  "files": ["src/calendar.js", "test/"],
+  "commands": ["npm test", "node --test"]
+}

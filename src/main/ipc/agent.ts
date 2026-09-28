@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Notification } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { runAgentTask } from '../agent/engine'
+import { restoreCheckpoints } from '../agent/checkpoints'
 import { defaultShell } from '../agent/command'
 import type { AgentEvent, AgentTaskResult, Checkpoint, ChunkTransport, ExtraTools, PermissionMode, ToolSchema } from '../agent/types'
 import { PERMISSION_MODES } from '../agent/types'
@@ -271,9 +272,9 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
 }
 
 /**
- * Undo a turn: put every file it changed back the way it found it — unless
- * the file has changed since the task last wrote it, in which case the edit
- * that came after is somebody's work, and it is left alone and named.
+ * Undo a turn from the checkpoints saved when it ended. The rule — every file
+ * back as the turn found it, except one changed since, which is named and left
+ * alone — is restoreCheckpoints (../agent/checkpoints.ts), shared with the CLI.
  */
 export async function undoTurn(
   conversationId: string,
@@ -286,28 +287,7 @@ export async function undoTurn(
   } catch {
     return { ok: false, restored: [], skipped: [], error: 'There is no record of the files this task changed (it may have been undone already).' }
   }
-  const restored: string[] = []
-  const skipped: { path: string; reason: string }[] = []
-  for (const cp of [...saved.checkpoints].reverse()) {
-    const abs = join(saved.workspace, cp.path)
-    let now: string | null = null
-    try {
-      now = await fs.readFile(abs, 'utf8')
-    } catch {
-      now = null
-    }
-    if (now !== cp.after) {
-      skipped.push({ path: cp.path, reason: now === null ? 'it has been deleted since' : 'it has been changed since the task wrote it' })
-      continue
-    }
-    try {
-      if (cp.before === null) await fs.rm(abs, { force: true })
-      else await fs.writeFile(abs, cp.before, 'utf8')
-      restored.push(cp.path)
-    } catch (err) {
-      skipped.push({ path: cp.path, reason: err instanceof Error ? err.message : String(err) })
-    }
-  }
+  const { restored, skipped } = await restoreCheckpoints(saved.workspace, saved.checkpoints)
   await fs.rm(file, { force: true })
   // The model's own memory of the task would now describe files that no
   // longer read that way; the next turn starts from the visible conversation.

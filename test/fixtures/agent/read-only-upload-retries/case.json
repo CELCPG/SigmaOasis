@@ -1,0 +1,4 @@
+{
+  "kind": "read-only",
+  "mentions": ["config.js", "MAX_UPLOAD_RETRIES"]
+}

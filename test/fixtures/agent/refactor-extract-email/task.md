@@ -1,0 +1,1 @@
+`src/signup.js` and `src/invite.js` each check email addresses with their own copy of the same regular expression. Move that check into a new module, `src/validate.js`, exporting `isValidEmail(address)`, and have both files use it. Their behaviour must not change. Run the tests afterwards.

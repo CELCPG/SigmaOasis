@@ -1,0 +1,1 @@
+`readConfig` in `src/config.js` takes a Node-style callback. Change it to return a Promise instead (an `async` function is fine), and update its caller, `loadPort` in `src/server.js`, to return a Promise too. Errors should reject the Promise with the same messages as before. Update the tests to match and run them.

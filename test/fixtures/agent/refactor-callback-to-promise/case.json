@@ -1,0 +1,5 @@
+{
+  "kind": "refactor",
+  "files": ["src/config.js", "src/server.js", "test/"],
+  "commands": ["npm test", "node --test"]
+}

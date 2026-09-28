@@ -1,0 +1,5 @@
+{
+  "kind": "chain",
+  "files": ["src/slug.js", "test/"],
+  "commands": ["npm test", "node --test"]
+}

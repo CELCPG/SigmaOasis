@@ -1,0 +1,4 @@
+{
+  "kind": "read-only",
+  "mentions": ["names.js", "formatName", "trim"]
+}

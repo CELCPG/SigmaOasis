@@ -1,0 +1,4 @@
+{
+  "kind": "read-only",
+  "mentions": ["shipping.js", "qualifiesForFreeShipping"]
+}

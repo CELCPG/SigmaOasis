@@ -1,0 +1,174 @@
+/**
+ * The agent eval (v3.1, ROADMAP-v3.1.md M1) — the shell around
+ * src/main/agent/evalHarness.ts, which holds every rule that decides a score.
+ *
+ * Each case in test/fixtures/agent/ is run on a fresh copy of its repository
+ * by the shipping engine, then scored off the disk and the event stream:
+ * solved (hidden checks, or for read-only and needs-you the report), false
+ * claims, collateral edits, Undo, and cost. See the harness's header.
+ *
+ * Requires a running LM Studio and is gated behind LMSTUDIO_EVAL=1 so CI stays
+ * offline:
+ *
+ *   LMSTUDIO_EVAL=1 npm run eval:agent -- <model-id> [model-id ...]
+ *
+ *   EVAL_PASSES=3        repeat the suite; the report names stable and flaky cases
+ *   EVAL_CASES=1-5       a 1-based inclusive slice, or case ids: fix-paginate,chain-stats
+ *   EVAL_KEEP=1          keep each run's scratch folder
+ *   LMSTUDIO_BASE_URL=…  default http://127.0.0.1:1234/v1 (loopback only, as in the CLI)
+ *
+ * Needs Node on the PATH: the cases' tests run with `node --test`, in the shell
+ * the agent itself is given. Temperature is pinned to 0. Results are written to
+ * .eval-results/agent-<model>-<time>.json after every case, so a stopped run
+ * keeps what it finished.
+ *
+ * Needs LM Studio to itself. LM Studio unloads a model loaded on demand when
+ * another client asks for a different one, and the first live run of this
+ * suite lost its model that way to a Sigma Oasis window asking for its own:
+ * seven runs, one silent server, six refusals. So the model is warmed before
+ * the first case (a cold load is not charged to case one), a run the server
+ * ended is excluded rather than failed, and two such runs in a row stop the
+ * model's run — nothing after that point would be a measurement.
+ */
+
+import { mkdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { defaultShell } from '../src/main/agent/command'
+import {
+  describeRun,
+  formatSummary,
+  loadCases,
+  runCase,
+  summarize,
+  type AgentCase,
+  type CaseRun,
+  type ModelSummary
+} from '../src/main/agent/evalHarness'
+import { isLoopback } from '../src/cli/sigma'
+
+// Compiled by scripts/eval-agent.sh to .eval-build/scripts/eval-agent.js — the
+// repo root is two levels up from there.
+const REPO_ROOT = join(__dirname, '..', '..')
+const CASES_DIR = join(REPO_ROOT, 'test', 'fixtures', 'agent')
+const RESULTS_DIR = join(REPO_ROOT, '.eval-results')
+const BASE_URL = process.env.LMSTUDIO_BASE_URL ?? 'http://127.0.0.1:1234/v1'
+const USAGE = 'usage: LMSTUDIO_EVAL=1 npm run eval:agent -- <model-id> [model-id ...]'
+
+function selectCases(all: AgentCase[], spec: string | undefined): AgentCase[] {
+  if (!spec) return all
+  const range = /^(\d+)-(\d+)$/.exec(spec.trim())
+  if (range) return all.slice(Number(range[1]) - 1, Number(range[2]))
+  const ids = spec.split(',').map((s) => s.trim()).filter(Boolean)
+  const unknown = ids.filter((id) => !all.some((c) => c.id === id))
+  if (unknown.length) throw new Error(`EVAL_CASES names no such case: ${unknown.join(', ')}`)
+  return all.filter((c) => ids.includes(c.id))
+}
+
+/** One short completion, so the model is loaded and answering before anything is timed. */
+async function warmUp(model: string): Promise<{ ok: true; ms: number } | { ok: false; error: string }> {
+  const started = Date.now()
+  try {
+    const res = await fetch(`${BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Reply with the word ready.' }], max_tokens: 16, temperature: 0, stream: false }),
+      // A cold load of a large model can take minutes.
+      signal: AbortSignal.timeout(10 * 60_000)
+    })
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}` }
+    await res.json()
+    return { ok: true, ms: Date.now() - started }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+async function main(): Promise<void> {
+  if (!process.env.LMSTUDIO_EVAL) {
+    console.log('The agent eval needs a live LM Studio and takes a long time, so it is gated: set LMSTUDIO_EVAL=1 first.\n\n  ' + USAGE)
+    return
+  }
+  const models = process.argv.slice(2).filter((a) => a !== 'help')
+  if (models.length === 0) {
+    console.error(USAGE)
+    process.exitCode = 1
+    return
+  }
+  if (!isLoopback(BASE_URL)) {
+    console.error(`Refusing ${BASE_URL}: the eval talks only to a model server on this machine, as the CLI does.`)
+    process.exitCode = 1
+    return
+  }
+  const cases = selectCases(await loadCases(CASES_DIR), process.env.EVAL_CASES)
+  const passes = Math.max(1, Math.min(9, Math.round(Number(process.env.EVAL_PASSES ?? '1')) || 1))
+  const shell = defaultShell()
+  mkdirSync(RESULTS_DIR, { recursive: true })
+
+  const controller = new AbortController()
+  process.on('SIGINT', () => {
+    if (controller.signal.aborted) process.exit(130)
+    console.log('\n  stopping the current case (Ctrl+C again to quit at once)…')
+    controller.abort()
+  })
+
+  console.log(`agent eval · ${cases.length} case${cases.length === 1 ? '' : 's'} × ${passes} pass${passes === 1 ? '' : 'es'} · ${BASE_URL} · shell: ${shell.name}`)
+  console.log('caveats: temperature 0; commands limited to each case\'s test runner; one model loaded at a time.')
+  console.log('Close other LM Studio clients (a Sigma Oasis window included) for the length of the run.\n')
+
+  const summaries: ModelSummary[] = []
+  for (const model of models) {
+    process.stdout.write(`warming ${model} … `)
+    const warm = await warmUp(model)
+    if (!warm.ok) {
+      console.log(`failed: ${warm.error}\n  skipping ${model}.`)
+      process.exitCode = 1
+      continue
+    }
+    console.log(`answering after ${(warm.ms / 1000).toFixed(1)} s`)
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const outFile = join(RESULTS_DIR, `agent-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
+    const byPass: CaseRun[][] = []
+    const save = (): void =>
+      writeFileSync(
+        outFile,
+        JSON.stringify({ suite: 'agent', model, baseUrl: BASE_URL, shell: shell.name, startedAt: stamp, passes, cases: cases.map((c) => c.id), runs: byPass }, null, 2)
+      )
+    let serverFailures = 0
+    let lost = false
+    for (let p = 0; p < passes && !controller.signal.aborted && !lost; p++) {
+      const runs: CaseRun[] = []
+      byPass.push(runs)
+      for (const c of cases) {
+        if (controller.signal.aborted) break
+        process.stdout.write(`[${model} · pass ${p + 1}/${passes}] ${c.id} (${c.kind}) … `)
+        const run = await runCase(c, {
+          baseUrl: BASE_URL,
+          model,
+          shell,
+          signal: controller.signal,
+          keep: Boolean(process.env.EVAL_KEEP)
+        })
+        runs.push(run)
+        console.log(describeRun(run))
+        save()
+        serverFailures = run.excluded ? serverFailures + 1 : 0
+        if (serverFailures >= 2) {
+          console.log(`\n  stopping ${model}: the server failed two runs in a row, so nothing after this would be a measurement.`)
+          console.log('  Is another client using LM Studio? Close it, then rerun the cases that were not scored (EVAL_CASES).')
+          lost = true
+          process.exitCode = 1
+          break
+        }
+      }
+    }
+    summaries.push(summarize(model, byPass))
+    console.log(`\n  results: ${outFile}\n`)
+  }
+
+  console.log(formatSummary(summaries))
+}
+
+main().catch((err) => {
+  console.error(err instanceof Error ? err.stack ?? err.message : String(err))
+  process.exitCode = 1
+})

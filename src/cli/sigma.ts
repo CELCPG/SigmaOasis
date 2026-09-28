@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, promises as fs } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve } from 'path'
 import { createInterface, type Interface } from 'readline'
 import { runAgentTask, DEFAULT_MAX_ROUNDS } from '../main/agent/engine'
+import { restoreCheckpoints } from '../main/agent/checkpoints'
 import { fetchTransport } from '../main/agent/stream'
 import { defaultShell } from '../main/agent/command'
 import type { AgentEvent, AgentHost, Checkpoint, CommandApproval, EditReview, PermissionMode, TodoItem } from '../main/agent/types'
@@ -501,17 +502,9 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
       write(dim('Nothing to undo.\n'))
       return
     }
-    for (const cp of [...lastCheckpoints].reverse()) {
-      const abs = join(workspace, cp.path)
-      const now = await fs.readFile(abs, 'utf8').catch(() => null)
-      if (now !== cp.after) {
-        write(yellow(`  left ${cp.path} — it has been changed since\n`))
-        continue
-      }
-      if (cp.before === null) await fs.rm(abs, { force: true })
-      else await fs.writeFile(abs, cp.before, 'utf8')
-      write(`  restored ${cp.path}\n`)
-    }
+    const { restored, skipped } = await restoreCheckpoints(workspace, lastCheckpoints)
+    for (const path of restored) write(`  restored ${path}\n`)
+    for (const s of skipped) write(yellow(`  left ${s.path} — ${s.reason}\n`))
     lastCheckpoints = []
     history = []
     write(dim('Undone. The next task starts fresh.\n'))

@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "bash scripts/test.sh",
     "eval:tools": "bash scripts/eval-tools.sh",
+    "eval:agent": "bash scripts/eval-agent.sh",
     "bench:render": "bash scripts/render-bench.sh",
     "export:traces": "bash scripts/export-traces.sh",
     "eval:answers": "bash scripts/eval-answers.sh"
