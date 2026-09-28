@@ -27,6 +27,9 @@
  * the per-chunk JSON files aggregate to the same rates.
  * EVAL_FORCE_PREAMBLE=1 pins the Layer 1d tool-call preamble on regardless of
  * the reasoning gate: an A/B probe, not app behavior.
+ * EVAL_VIBE=1 (v3.1, M3) runs the VIBE arm: VIBE's line in the system prompt,
+ * where the app puts it. Its results are written as vibe-toolchoice-*.json so
+ * the model picker's score line — the full view's number — never folds them in.
  * Results are written as JSON to .eval-results/ and folded into the model
  * picker's score line (Layer 0c).
  */
@@ -35,6 +38,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { ApiMessage, ApiToolCall } from '../src/renderer/src/lib/agentLoop'
 import { withGrounding, withToolCallPreamble, TOOL_PREAMBLE_INSTRUCTION } from '../src/renderer/src/lib/grounding'
+import { vibeSystemBlock } from '../src/renderer/src/lib/vibe'
 import {
   parseCompletionMessage,
   runToolChoiceEval,
@@ -62,8 +66,18 @@ const RESULTS_DIR = join(REPO_ROOT, '.eval-results')
  * gate: an A/B probe for whether prompting would move the under-call failure
  * mode on reasoning models, which the app deliberately does not instruct.
  */
+/**
+ * v3.1 (M3): the VIBE arm. The app appends VIBE's line to the persona, the
+ * slot's rules and the project's instructions — none of which the eval has —
+ * and wraps the lot in the grounding block when it builds a chat turn's system
+ * prompt, so here it rides the persona, ahead of the grounding. 3.0 measured that placement on one
+ * question, "What time is it right now?", 7 turns in 8 (docs/evals.md, "VIBE:
+ * where the brevity line goes"); this arm is the whole suite.
+ */
+const VIBE_ARM = Boolean(process.env.EVAL_VIBE)
+
 function systemPromptFor(model: string): string {
-  const base = withGrounding('You are a helpful local assistant.')
+  const base = withGrounding('You are a helpful local assistant.' + vibeSystemBlock(VIBE_ARM))
   if (process.env.EVAL_FORCE_PREAMBLE) return `${base}\n\n${TOOL_PREAMBLE_INSTRUCTION}`
   return withToolCallPreamble(base, model)
 }
@@ -180,6 +194,10 @@ async function main(): Promise<void> {
       (process.env.EVAL_FORCE_PREAMBLE
         ? '       EVAL_FORCE_PREAMBLE=1 — tool-call preamble instruction pinned ON for all models\n' +
           '       (the app skips it for reasoning-gated models; this is an A/B probe, not app behavior).\n'
+        : '') +
+      (VIBE_ARM
+        ? "       EVAL_VIBE=1 — the VIBE arm: VIBE's line in the system prompt, where the app puts it;\n" +
+          "       results go to vibe-toolchoice-*.json, outside the model picker's score.\n"
         : '')
   )
 
@@ -365,7 +383,7 @@ async function main(): Promise<void> {
       console.log('  (fixtures marked ! errored at the server and are excluded from rates)')
     }
 
-    const outFile = join(RESULTS_DIR, `toolchoice-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
+    const outFile = join(RESULTS_DIR, `${VIBE_ARM ? 'vibe-' : ''}toolchoice-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
     writeFileSync(
       outFile,
       JSON.stringify(
@@ -373,12 +391,14 @@ async function main(): Promise<void> {
           model,
           baseUrl,
           ranAt: new Date().toISOString(),
+          arm: VIBE_ARM ? 'vibe' : 'full',
           caveats: [
             'tool results canned stubs',
             'temperature 0',
             ...(process.env.EVAL_FORCE_PREAMBLE
               ? ['EVAL_FORCE_PREAMBLE=1: preamble pinned on (not app behavior for reasoning models)']
-              : [])
+              : []),
+            ...(VIBE_ARM ? ['EVAL_VIBE=1: VIBE system line in place'] : [])
           ],
           scores: {
             correctTool: rates.correctTool,

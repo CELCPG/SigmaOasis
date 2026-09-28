@@ -187,6 +187,16 @@ what-time-is-it question) becomes a suite's.
 *Gate:* correct-tool and spurious-call rates within the no-VIBE arm's noise floor. If they are
 not, the placement is revisited. The result goes in `docs/evals.md` either way.
 
+*(Built: `EVAL_VIBE=1`, its results kept out of the model picker's score. On qwen3.8-9b-distill the
+gate failed on the 3.0 line and passes on its replacement. With no flaky fixture in either arm,
+one fixture moved: "remember that my favorite band is Phish" called `memory_save` 0 times in 3
+with VIBE on, 3 in 3 without — and the reply said "I've saved that". The placement stayed; the
+wording changed, to a line that says it shapes only the final reply and that tools work as always,
+and with it the VIBE arm matches the arm without VIBE fixture for fixture (21 of 24 on every pass,
+54/63 correct, 0/9 spurious), with replies still in short prose. `docs/evals.md`, "VIBE's
+tool-choice arm". Owed: the 35B-A3B arm — an hour or more of the server that `eval:agent`'s
+baselines also need.)*
+
 ### M4. The main process, now that tasks live in it
 
 Since 3.0 an agent task runs in the main process: its stream, its stall timer, its approvals. Two
@@ -279,7 +289,8 @@ tokens), two passes each, temperature 0.3:
 | thanks! | 1.79–2.08 s | 0.21 s | Same |
 
 *Gate for release:* the VIBE arm of `eval:tools` (M3) with S3 on. A greeting is never a tool
-question, but that arm is where it would show.
+question, but that arm is where it would show. *(Met on the 9B: none of the suite's 24 prompts is
+small talk, so S3 cannot move it, and the arm matches the arm without VIBE — see M3.)*
 
 ### S4. The post-answer checks do not evict the conversation — measured, nothing to build
 

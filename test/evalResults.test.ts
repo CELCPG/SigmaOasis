@@ -1,11 +1,12 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   aggregateEvalFiles,
   readEvalFixtures,
+  readEvalResults,
   saveEvalResult,
   type EvalFixtureRun,
   type EvalResultFile
@@ -170,5 +171,32 @@ describe('saveEvalResult', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * v3.1 (M3): the VIBE arm of eval:tools writes vibe-toolchoice-*.json. The
+ * picker's score line is the full view's number, and the fold is newest-wins
+ * per fixture, so a VIBE run it read would quietly replace that number.
+ */
+describe('readEvalResults and the VIBE arm', () => {
+  test('a vibe-toolchoice file is never folded into the picker score', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oasis-eval-'))
+    try {
+      const full = { model: 'm', ranAt: '2026-09-28T10:00:00Z', runs: [run({ file: 'a.json', correct: true })] }
+      const vibe = { model: 'm', ranAt: '2026-09-28T11:00:00Z', arm: 'vibe', runs: [run({ file: 'a.json', correct: false })] }
+      writeFileSync(join(dir, 'toolchoice-m-2026-09-28T10-00-00.json'), JSON.stringify(full))
+      writeFileSync(join(dir, 'vibe-toolchoice-m-2026-09-28T11-00-00.json'), JSON.stringify(vibe))
+      const [summary] = readEvalResults(dir)
+      assert.deepEqual(summary.correctTool, { hit: 1, of: 1 })
+      assert.equal(summary.ranAt, full.ranAt)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('the CLI names the arm that way', () => {
+    const src = readFileSync(join(__dirname, '..', '..', 'scripts', 'eval-tools.ts'), 'utf-8')
+    assert.match(src, /`\$\{VIBE_ARM \? 'vibe-' : ''\}toolchoice-/)
   })
 })
