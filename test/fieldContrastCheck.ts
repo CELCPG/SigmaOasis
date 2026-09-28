@@ -18,19 +18,19 @@
  * Why the app itself and not a fixture: which controls exist, which classes
  * they carry and which surfaces they sit on is the component tree, and a copy
  * of it would keep passing after the tree changed. So this boots `out/main` on
- * a throwaway profile seeded with one job and one (disabled) MCP server — so
- * the rows that only render when there is something to list do render — opens
- * Settings, walks every tab in its rail, opens every disclosure, and reads
- * every field. MCP's environment editor starts with no rows, so its own
- * "+ Add variable" button is pressed once first; that is local state, and
- * nothing is saved. The Project modal is read the same way.
+ * a throwaway profile seeded with one job, one (disabled) MCP server and one
+ * watched item — so the rows that only render when there is something to list
+ * do render — opens Settings, walks every tab in its rail, opens every
+ * disclosure, and reads every field. MCP's environment editor starts with no
+ * rows, so its own "+ Add variable" button is pressed once first. Jobs is read
+ * twice: as it opens, on a research job, and again with its Kind switched to
+ * "price", the only state in which the watched-item picker renders. Both are
+ * local state, and nothing is saved. The Project modal is read the same way.
  *
- * Not reached: Jobs' watched-item picker, which renders once the kind is
- * "price" and the watchlist has an entry. In the built app the watchlist IPC
- * `require`s a module the single-file main bundle does not contain, so the
- * list always comes back empty and the picker never appears. It carries the
- * same class string as its neighbours, and the probe below covers it; seed a
- * watchlist.json and switch the kind here once that is fixed.
+ * (Until v3.0.1 the picker was out of reach: the built app's watchlist IPC
+ * `require`d a module the single-file main bundle did not contain, so the list
+ * always came back empty and the picker never appeared. mainBundleCheck now
+ * holds that class.)
  *
  * What is measured, per control:
  *
@@ -89,18 +89,23 @@ interface Reading {
   seeded: Record<string, boolean>
 }
 
+/** A page expression: is there an element matching `selector`? */
+const present = (selector: string): string => `!!document.querySelector(${JSON.stringify(selector)})`
+
 /**
  * Rows that render only when there is something to list — a job, a server, a
- * model slot (the defaults bring five), an environment variable — and were
- * among the fields found white on white. Each is named by the aria-label the
- * component gives it, so a rename fails here loudly rather than quietly
- * shrinking what is measured.
+ * model slot (the defaults bring five), an environment variable, a watched
+ * item — and were among the fields found white on white. Each is a page
+ * expression naming the control by the aria-label the component gives it, or,
+ * for the watched-item picker, which has none, by the label that wraps it; so
+ * a rename fails here loudly rather than quietly shrinking what is measured.
  */
 const SEEDED: Record<string, string> = {
-  'a job row’s interval': 'select[aria-label$=" interval"]',
-  'an MCP server row’s approval': 'select[aria-label$=" approval"]',
-  'an MCP environment row’s masked value': 'input[type="password"][aria-label^="Value of "]',
-  'a model slot’s Code Mode': 'select[aria-label$=" code mode"]'
+  'a job row’s interval': present('select[aria-label$=" interval"]'),
+  'an MCP server row’s approval': present('select[aria-label$=" approval"]'),
+  'an MCP environment row’s masked value': present('input[type="password"][aria-label^="Value of "]'),
+  'a model slot’s Code Mode': present('select[aria-label$=" code mode"]'),
+  'the Jobs form’s watched-item picker': `Array.from(document.querySelectorAll('.tab-face label')).some((l) => (l.innerText || '').split('\\n')[0].trim() === 'Watched item' && !!l.querySelector('select'))`
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +156,11 @@ function seedProfile(theme: Theme): string {
         }
       ]
     })
+  )
+  // Listed, never fetched: nothing here schedules a price job.
+  writeFileSync(
+    join(profile, 'watchlist.json'),
+    JSON.stringify([{ url: 'https://example.com/kettle', name: 'Kettle', addedAt: now - 40_000, history: [] }])
   )
   return profile
 }
@@ -309,10 +319,11 @@ async function child(theme: Theme): Promise<void> {
     await wc.capturePage(undefined, { stayHidden: true })
   }
 
-  const waitFor = async (selector: string, ms = 4000): Promise<boolean> => {
+  /** Until the page expression `expression` is true, or `ms` pass. */
+  const waitUntil = async (expression: string, ms = 4000): Promise<boolean> => {
     const end = Date.now() + ms
     while (Date.now() < end) {
-      if (await evalIn<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)) return true
+      if (await evalIn<boolean>(expression)) return true
       await wait(100)
     }
     return false
@@ -346,8 +357,8 @@ async function child(theme: Theme): Promise<void> {
   const read: string[] = []
   const seeded: Record<string, boolean> = {}
   const note = async (): Promise<void> => {
-    for (const [what, sel] of Object.entries(SEEDED)) {
-      if (!seeded[what]) seeded[what] = await evalIn<boolean>(`!!document.querySelector(${JSON.stringify(sel)})`)
+    for (const [what, expression] of Object.entries(SEEDED)) {
+      if (!seeded[what]) seeded[what] = await evalIn<boolean>(expression)
     }
   }
 
@@ -356,7 +367,7 @@ async function child(theme: Theme): Promise<void> {
   // inside it (Jobs' and MCP's "Add" forms, among others).
   const TAB_SURFACES = ['.tab-face', '.tab-face .glass-panel']
   await evalIn<boolean>(`(() => { const b = document.querySelector('[title^="Settings"]'); if (b) b.click(); return !!b })()`)
-  if (!(await waitFor('.tab-face'))) throw new Error('Settings did not open')
+  if (!(await waitUntil(present('.tab-face')))) throw new Error('Settings did not open')
   await settle()
 
   // The rail is whatever sits beside the keyed tab body — read, not listed here.
@@ -375,15 +386,15 @@ async function child(theme: Theme): Promise<void> {
     })()`)
     await wait(350)
     // The self-fetching tabs list their rows after an IPC round trip.
-    if (tab === 'Jobs') await waitFor(SEEDED['a job row’s interval'])
+    if (tab === 'Jobs') await waitUntil(SEEDED['a job row’s interval'])
     if (tab === 'MCP') {
-      await waitFor(SEEDED['an MCP server row’s approval'])
+      await waitUntil(SEEDED['an MCP server row’s approval'])
       await evalIn<boolean>(`(() => {
         const b = Array.from(document.querySelectorAll('.tab-face button')).find((x) => (x.innerText || '').trim() === '+ Add variable')
         if (b) b.click()
         return !!b
       })()`)
-      await waitFor(SEEDED['an MCP environment row’s masked value'])
+      await waitUntil(SEEDED['an MCP environment row’s masked value'])
     }
     await settle()
     const surface = `Settings → ${tab}`
@@ -391,6 +402,27 @@ async function child(theme: Theme): Promise<void> {
     await note()
     await shoot(tab, '.tab-face')
     read.push(surface)
+
+    // The Add-a-job form draws its watched-item picker only for a price job,
+    // and only with something on the watchlist (seeded). Switching Kind is the
+    // form's own state; the research fields it hides were read just above.
+    if (tab === 'Jobs') {
+      await evalIn<boolean>(`(() => {
+        const kind = Array.from(document.querySelectorAll('.tab-face select')).find((s) => s.querySelector('option[value="price"]'))
+        if (!kind) return false
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(kind, 'price')
+        kind.dispatchEvent(new Event('change', { bubbles: true }))
+        return true
+      })()`)
+      if (await waitUntil(SEEDED['the Jobs form’s watched-item picker'])) {
+        await settle()
+        const priced = `${surface}, a price job`
+        fields.push(...(await readFields(priced, '.tab-face', [])))
+        await note()
+        await shoot(`${tab} price`, '.tab-face')
+        read.push(priced)
+      }
+    }
   }
 
   // Leave without saving: Cancel, then the discard prompt if one appears.
@@ -420,7 +452,7 @@ async function child(theme: Theme): Promise<void> {
   }
   await wait(200)
   await press('Enter')
-  if (await waitFor('[role="dialog"] textarea')) {
+  if (await waitUntil(present('[role="dialog"] textarea'))) {
     await settle()
     fields.push(...(await readFields('Project modal', '[role="dialog"]', ['[role="dialog"]'])))
     await shoot('Project modal', '[role="dialog"]')

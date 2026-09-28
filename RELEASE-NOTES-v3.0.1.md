@@ -69,7 +69,10 @@ MCP's masked environment rows read 15.3:1 light and 16.3:1 dark. The list a `<se
 painted in its owner's colour scheme, so on Windows and Linux every dark-theme select opened white
 options on white; the stylesheet now declares `color-scheme` per theme, and the list reads 16.9:1.
 A new check, `fieldContrastCheck`, walks every Settings tab and the Project modal in both themes,
-with an unstyled probe field on each so a control added later without classes is covered too.
+with an unstyled probe field on each so a control added later without classes is covered too. It
+reads the Jobs tab twice, the second time on a price job, because the watched-item picker renders
+only there — and could not render at all before the jobs fix above; it reads 15.3:1 light and
+16.3:1 dark.
 
 ## Windows
 
@@ -87,14 +90,14 @@ with an unstyled probe field on each so a control added later without classes is
 
 On Windows, from a CRLF working copy: `npm run typecheck` clean; the node suite 2,935 of 2,935;
 every Electron check — render 25, style 74 and 123, tab traversal 43, modal focus 179, field
-contrast 20, plan accessibility 175, main bundle 20, markdown 62, Workbench 53, MCP secrets 19,
+contrast 22, plan accessibility 175, main bundle 20, markdown 62, Workbench 53, MCP secrets 19,
 transport 24. The plan fix brings 86 test cases whose guards were checked by mutation: twenty
-deliberate breaks, each caught by named tests.
+deliberate breaks, each caught by named tests. The field-contrast check's picker reading was
+checked the same way: with the watchlist seed withheld, its two new checks fail and nothing else
+does.
 
 ## Not in this release
 
-- **The field-contrast check does not yet open the Jobs tab's watched-item picker.** The picker
-  could not render until the jobs fix above; the check names where to extend it.
 - Anything new for the agent or VIBE.
 
 ## Upgrade notes
