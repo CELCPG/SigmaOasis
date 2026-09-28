@@ -86,6 +86,7 @@ import {
 import { describeCodeCheck, looksArithmetic } from '../lib/workbenchChecks'
 import { planApprovals, runPlanTurn } from './planMode'
 import { outlineAllowed, vibeSystemBlock } from '../lib/vibe'
+import { quickReplyFor } from '../lib/quickReply'
 import { sendToAgent } from './agentTasks'
 
 /**
@@ -569,6 +570,8 @@ async function runTurn(
       // The providers already charged this ledger: an app-run search spends
       // web_search budget, and its byte-identical repeat is reused, not re-run.
       ledger: turnLedger,
+      // v3.1: a greeting is answered without thinking first (lib/quickReply.ts).
+      quickReply: quickReplyFor(slot.modelId, lastUserContent),
       signal,
       onRecordChange: () => patch({ toolCalls: [...allRecords] }),
       deps: {

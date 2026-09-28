@@ -274,6 +274,14 @@ export interface AgentLoopOptions {
    * runTurn passes the ledger its context providers already charged.
    */
   ledger?: TurnToolLedger
+  /**
+   * v3.1: the first round begins with thinking already closed, so a greeting
+   * is answered at once (lib/quickReply.ts). The prefill rides that one
+   * request and never joins the history; tools stay on the wire, and every
+   * later round thinks as usual. The caller decides — only it knows the model
+   * family and the user's words.
+   */
+  quickReply?: boolean
   deps: AgentLoopDeps
 }
 
@@ -372,7 +380,11 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         deps.onSteerDelivered?.(steer, iteration)
       }
     }
+    const quick = options.quickReply === true && iteration === 0
+    if (quick) messages.push({ role: 'assistant', content: CLOSED_THINK_PREFILL } as never)
     let round = await deps.streamRound(messages, tools)
+    // Scaffolding for one request, as below — never conversation history.
+    if (quick) messages.pop()
     if (signal.aborted) return { stopReason: 'aborted' }
 
     if (answeredIntoThinking(round)) {
