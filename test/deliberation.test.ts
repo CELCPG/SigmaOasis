@@ -239,10 +239,12 @@ describe('a review that never came back', () => {
    * contrast that distinction runs on.
    */
   describe('a review that did not happen says so in its own words, and first', () => {
+    // Line endings normalized: a Windows checkout with core.autocrlf reads the
+    // source back with CRLF, and the footer assertion below spans a line break.
     const bubble = readFileSync(
       join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx'),
       'utf-8'
-    )
+    ).replace(/\r\n/g, '\n')
     const at = (needle: string): number => {
       const i = bubble.indexOf(needle)
       assert.ok(i > 0, `MessageBubble no longer contains ${needle}`)
