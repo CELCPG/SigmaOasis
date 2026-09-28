@@ -5,6 +5,21 @@ import type { EvalScoreSummary } from '../../types'
 import { describeProfile, profileFor } from '../../lib/modelProfiles'
 import { describeEvalScore } from '../../lib/modelInfo'
 
+/*
+ * The surface of a text field, select or textarea in a settings tab. Tailwind's
+ * preflight gives form controls `color: inherit` and leaves their background to
+ * the browser, so a control written with layout classes alone (`mt-1 w-full`)
+ * drew the theme's ink on the browser's white field: white on white in the dark
+ * theme, in Settings → MCP, Jobs and every model's Code Mode through v2.8.0.
+ * `outline-none` is safe here — the element-level :focus-visible rule in
+ * index.css outranks it and puts the ring back. test/fieldContrastCheck.ts
+ * reads every field in the built app, in both themes.
+ */
+const FIELD_SURFACE = 'rounded-lg border border-black/10 dark:border-white/10 bg-transparent outline-none'
+export const FIELD = `${FIELD_SURFACE} px-3 py-2 text-sm`
+/** The same surface, sized for a control in a list row beside small buttons. */
+export const FIELD_COMPACT = `${FIELD_SURFACE} px-2 py-1 text-xs`
+
 export /**
  * The renderer's Content-Security-Policy (index.html) only permits connections
  * to loopback, so a remote LM Studio can't be reached for chat even though the

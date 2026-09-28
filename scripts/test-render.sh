@@ -31,6 +31,14 @@
 #                     are four lines of prose is named with all four. Both of
 #                     those were true here, and only the tree says so. Builds
 #                     first, like modalFocus — see below.
+#  - fieldContrast:   every text field, select and the list each select opens,
+#                     on every Settings tab and the Project modal, in both
+#                     themes — plus an unstyled probe field per surface, so a
+#                     control added tomorrow without classes is covered too.
+#                     What a field draws on is the browser's own surface unless
+#                     a class says otherwise, and that surface follows the
+#                     declared colour scheme, so only the shipped build's real
+#                     tree and stylesheet can answer. Builds first — see below.
 #  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
 #                     window. DOMPurify is a no-op without a DOM, so a node test
 #                     of it would pass while sanitizing nothing.
@@ -91,6 +99,7 @@ fi
   test/chromeContrastCheck.ts \
   test/tabTraverseCheck.ts \
   test/modalFocusCheck.ts \
+  test/fieldContrastCheck.ts \
   test/planAccessibilityCheck.ts \
   test/markdownCheck.ts \
   test/workbenchCheck.ts \
@@ -98,11 +107,12 @@ fi
   src/preload/workbench.ts \
   test/httpClientCheck.ts
 
-# modalFocusCheck and planAccessibilityCheck boot out/ — so out/ has to be this
-# tree, not whatever was built last. Unconditionally, not "if it looks stale": a
-# freshness heuristic is one more enumeration to be defeated, and a check that
-# silently measures an old build is worse than no check. Three rounds of one
-# bench arm ran handicapped on exactly this kind of missing precondition.
+# modalFocusCheck, fieldContrastCheck and planAccessibilityCheck boot out/ — so
+# out/ has to be this tree, not whatever was built last. Unconditionally, not
+# "if it looks stale": a freshness heuristic is one more enumeration to be
+# defeated, and a check that silently measures an old build is worse than no
+# check. Three rounds of one bench arm ran handicapped on exactly this kind of
+# missing precondition.
 echo "building out/ so the checks that boot it measure this tree…"
 "${TSC[@]}" node_modules/electron-vite/bin/electron-vite.js build > "$OUT/build.log" 2>&1 || {
   echo "error: build failed; see $OUT/build.log" >&2
@@ -130,7 +140,7 @@ trap 'rm -rf "$PROFILE"' EXIT
 # once in v2.3's upgrade runs). Clear it from the shell, which is never refused.
 rm -rf "$OUT/markdown-bundle"
 status=0
-for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck planAccessibilityCheck markdownCheck workbenchCheck mcpSecretsCheck httpClientCheck; do
+for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck fieldContrastCheck planAccessibilityCheck markdownCheck workbenchCheck mcpSecretsCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox --user-data-dir="$PROFILE/$check" "$OUT/test/$check.js" || status=1
 done
 exit "$status"

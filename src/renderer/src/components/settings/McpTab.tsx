@@ -7,6 +7,7 @@
 // main process. What this page gets back, and shows, is their names.
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { McpApproval, McpServerConfig, McpServerStatus, SecretsStatus } from '../../types'
+import { FIELD, FIELD_COMPACT } from './helpers'
 
 const REFRESH_MS = 2000
 
@@ -26,14 +27,6 @@ function splitArgs(text: string): string[] {
   while ((m = re.exec(text)) !== null) out.push(m[1] ?? m[2])
   return out
 }
-
-/**
- * v2.9: the field style the other settings tabs use. Through v2.8 this form's
- * inputs carried layout classes only, so the dark theme drew them with the
- * browser's white field background under its own white ink: whatever was typed
- * into Add a server — command, arguments, environment — was invisible.
- */
-const FIELD = 'rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none'
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -183,7 +176,7 @@ export function McpTab(): JSX.Element {
                     On
                   </label>
                   <select
-                    className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
+                    className={FIELD_COMPACT}
                     value={cfg?.approval ?? 'ask'}
                     onChange={(e) => cfg && void save({ ...cfg, approval: e.target.value as McpApproval })}
                     aria-label={`${s.name} approval`}
