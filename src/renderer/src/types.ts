@@ -624,6 +624,8 @@ export interface AppSettings {
   sidebarCollapsed: boolean
   /** v1.10: chat panel (right side) collapsed to an icon strip (⌘J). */
   rightPanelCollapsed: boolean
+  /** v3.0: VIBE — the window shows the conversation and nothing else (⌘⇧L). */
+  vibeMode: boolean
   /** v1.10: conversation groups shown in the rail. */
   projects: Project[]
   /**

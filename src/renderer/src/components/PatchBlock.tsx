@@ -12,7 +12,7 @@ import { Disclosure } from './Disclosure'
  * reads the same on reload: what was proposed, and what happened to it.
  */
 
-function DiffView({ diff }: { diff: string }): JSX.Element {
+export function DiffView({ diff }: { diff: string }): JSX.Element {
   const lines = useMemo(() => diff.split('\n'), [diff])
   return (
     <pre className="max-h-96 overflow-auto rounded bg-black/5 p-2 font-mono text-[11px] leading-snug dark:bg-white/5" data-testid="patch-diff">

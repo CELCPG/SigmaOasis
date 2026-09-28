@@ -82,6 +82,20 @@ export function GeneralTab(props: GeneralTabProps): JSX.Element {
                       <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm">
                         <input
                           type="checkbox"
+                          checked={draft.vibeMode}
+                          onChange={(e) => update({ vibeMode: e.target.checked })}
+                          className="h-4 w-4 accent-accent"
+                        />
+                        〰 VIBE mode
+                      </label>
+                      <p className="mt-1 text-xs text-ink-secondary">
+                        The window becomes the conversation and nothing else, on slow night water, and
+                        replies are asked to be short. Tools, memory and every check still run — they
+                        are just not drawn. ⌘⇧L or Esc to come back.
+                      </p>
+                      <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm">
+                        <input
+                          type="checkbox"
                           checked={draft.showResponseStats}
                           onChange={(e) => update({ showResponseStats: e.target.checked })}
                           className="h-4 w-4 accent-accent"

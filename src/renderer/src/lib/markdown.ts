@@ -359,3 +359,28 @@ export function splitStreamingMarkdown(markdown: string): [stable: string, live:
   }
   return ['', markdown]
 }
+
+/**
+ * Wrap the newest word of the still-streaming tail so it fades toward full
+ * ink instead of popping in (.stream-edge in index.css). The streaming body's
+ * HTML is re-set on every paced flush, which remounts the span and restarts
+ * its animation — deliberate: the leading edge of the text holds soft for as
+ * long as it is the leading edge, and settles as the stream moves past it.
+ *
+ * The pattern walks back over any closing tags so the span lands around the
+ * final run of text. The lookbehind requires the run to start after
+ * whitespace or a tag, so a word is always wrapped whole — an HTML entity
+ * (`&amp;`) can never be split across the span. `>` is excluded from the run,
+ * so a tag can never be captured; a >48-char unbroken token (a URL) simply
+ * goes unfaded. Input and output are DOMPurify-sanitized HTML either side of
+ * one span of our own.
+ *
+ * v3.0: shared by the reply bubble and the VIBE view, which draws the same
+ * streaming edge in its own light.
+ */
+export function fadeStreamEdge(liveHtml: string): string {
+  return liveHtml.replace(
+    /(?<=^|[\s>])([^\s>]{1,48})((?:\s*<\/[a-z0-9]+>)*)\s*$/i,
+    '<span class="stream-edge">$1</span>$2'
+  )
+}

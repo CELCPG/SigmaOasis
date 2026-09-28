@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { setVibeMode } from '../hooks/vibeMode'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { useUpdates } from '../hooks/useUpdates'
@@ -321,6 +322,15 @@ export function Sidebar(): JSX.Element {
       >
         🔍
       </button>
+      <button
+        type="button"
+        onClick={() => setVibeMode(true)}
+        className="vibe-entry rounded-full px-2 py-0.5 text-sm"
+        title="VIBE — nothing but the conversation, on calm water (⌘⇧L)"
+        aria-label="Enter VIBE mode"
+      >
+        〰
+      </button>
       <div className="mt-auto flex flex-col items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${dotClass}`} title={`LM Studio: ${connection}`} />
         <button
@@ -371,8 +381,22 @@ export function Sidebar(): JSX.Element {
         </div>
       </div>
 
-      {/* Its own row — beside the two buttons it wrapped mid-phrase at 280px. */}
-      <p className="px-4 pb-3 text-[10px] text-ink-tertiary">Private AI — you own your data</p>
+      {/*
+        Its own row — beside the two buttons it wrapped mid-phrase at 280px.
+        v3.0: the way into VIBE shares it; the header row above has no room
+        for a fourth control at this width.
+      */}
+      <div className="flex items-center gap-2 px-4 pb-3">
+        <p className="min-w-0 flex-1 truncate text-[10px] text-ink-tertiary">Private AI — you own your data</p>
+        <button
+          type="button"
+          onClick={() => setVibeMode(true)}
+          className="vibe-entry shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+          title="VIBE — nothing but the conversation, on calm water (⌘⇧L)"
+        >
+          〰 Vibe
+        </button>
+      </div>
 
       {conversations.length > 0 && (
         <div className="px-4 pb-2">

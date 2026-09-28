@@ -233,6 +233,15 @@ function enter(node: HTMLElement, dismiss: () => void, opener: HTMLElement | nul
   }
 }
 
+/**
+ * v3.0: whether any covering surface is open right now. VIBE reads it before
+ * treating Escape as "leave": the surface on top owns Escape (it closes
+ * itself), and one key press must not also dissolve the view underneath.
+ */
+export function modalSurfaceOpen(): boolean {
+  return stack.length > 0
+}
+
 export interface ModalSurface {
   /** Attach to the element that covers the page (`fixed inset-0 …`). */
   surfaceRef: (node: HTMLElement | null) => void

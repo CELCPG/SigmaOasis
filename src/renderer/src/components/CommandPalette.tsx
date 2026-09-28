@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { setVibeMode } from '../hooks/vibeMode'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
@@ -42,6 +43,7 @@ export function CommandPalette(): JSX.Element | null {
   const projects = useAppStore((s) => s.settings?.projects ?? [])
   const splitConversationId = useAppStore((s) => s.splitConversationId)
   const rightPanelCollapsed = useAppStore((s) => s.settings?.rightPanelCollapsed ?? false)
+  const vibeMode = useAppStore((s) => s.settings?.vibeMode ?? false)
 
   // ⌘K opens and closes it. Escape is not handled here: it belongs to whichever
   // surface is on top, which the modal-surface stack decides (see
@@ -77,6 +79,14 @@ export function CommandPalette(): JSX.Element | null {
       icon: '⚙️',
       action: () => { setSettingsOpen(true); setOpen(false) },
       category: 'settings'
+    },
+    {
+      id: 'toggle-vibe',
+      label: vibeMode ? 'Leave VIBE Mode' : 'Enter VIBE Mode',
+      shortcut: '⌘⇧L',
+      icon: '〰',
+      action: () => { setVibeMode(!vibeMode); setOpen(false) },
+      category: 'navigation'
     },
     {
       id: 'onboarding',
@@ -180,7 +190,7 @@ export function CommandPalette(): JSX.Element | null {
       },
       category: 'actions'
     }
-  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen, projects, rightPanelCollapsed, createProject, moveConversation, splitConversationId])
+  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen, projects, rightPanelCollapsed, vibeMode, createProject, moveConversation, splitConversationId])
 
   const filteredCommands = useMemo(() => {
     const q = query.toLowerCase().trim()

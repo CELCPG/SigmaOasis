@@ -10,6 +10,9 @@ import { OnboardingModal } from './components/OnboardingModal'
 import { CommandPalette } from './components/CommandPalette'
 import { ChatPanel, setRightPanelCollapsed } from './components/ChatPanel'
 import { ProjectModal } from './components/ProjectModal'
+import { VibeView } from './components/vibe/VibeView'
+import { setVibeMode } from './hooks/vibeMode'
+import { isVibeToggle } from './lib/vibe'
 
 /** Hairline between the two panes; purely visual, so it is hidden from the tree. */
 function PaneDivider(): JSX.Element {
@@ -83,11 +86,14 @@ export default function App(): JSX.Element {
   }, [])
 
   // Global shortcuts: ⌘N new conversation, ⌘, settings, ⌘B collapse the rail,
-  // ⌘J collapse the chat panel.
+  // ⌘J collapse the chat panel, ⌘⇧L enter or leave VIBE.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey)) return
-      if (e.key === 'n') {
+      if (isVibeToggle(e)) {
+        e.preventDefault()
+        setVibeMode(!useAppStore.getState().settings?.vibeMode)
+      } else if (e.key === 'n') {
         e.preventDefault()
         createConversation()
       } else if (e.key === ',') {
@@ -159,6 +165,21 @@ export default function App(): JSX.Element {
     }
     root.style.fontSize = `${settings.fontSize}px`
   }, [settings])
+
+  // v3.0: VIBE replaces the whole layout — rail, panes and chat panel — with
+  // the conversation alone. The surfaces a reader summons (Settings, the
+  // palette, the setup checklist) still open over it.
+  if (settings?.vibeMode) {
+    return (
+      <>
+        <VibeView />
+        <SettingsModal />
+        <ProjectModal />
+        <OnboardingModal />
+        <CommandPalette />
+      </>
+    )
+  }
 
   return (
     <div className="relative flex h-screen bg-base-light text-ink-primary dark:bg-base-dark">

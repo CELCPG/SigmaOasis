@@ -251,7 +251,7 @@ body {
 
 /*
  * The newest word of a streaming reply — see fadeStreamEdge() in
- * MessageBubble.tsx. The streaming body re-sets its HTML per paced flush, so
+ * lib/markdown.ts. The streaming body re-sets its HTML per paced flush, so
  * this span remounts (and the animation restarts) for as long as its word is
  * the leading edge; the word settles to full ink once the stream moves past
  * it. Opacity only — a transform here would shift the line under the reader.
@@ -1386,5 +1386,417 @@ summary:focus-visible,
   .ambient-orbs::before,
   .ambient-orbs::after {
     animation: none;
+  }
+}
+
+/* ============================================================================
+   VIBE (v3.0) — the night lagoon.
+   The window is the conversation and nothing else (components/vibe/). Every
+   layer below the text is decoration and says so to assistive tech; every
+   moving layer stops under reduced motion, where the lagoon becomes one still
+   frame of light and the phases change brightness instead of moving.
+   Text sits on #01040c-ish navy under the `dark` tokens, which the root
+   forces whatever the app's theme is.
+   ========================================================================== */
+
+/* The way in, in the rail: the lagoon's two lights on a small pill. Ink is
+   the accent ink, so it reads in both themes (see --accent-ink). */
+.vibe-entry {
+  color: var(--accent-ink);
+  background: linear-gradient(90deg, rgba(79, 255, 209, 0.14), rgba(167, 139, 250, 0.16));
+  border: 1px solid rgba(79, 255, 209, 0.35);
+  box-shadow: 0 0 14px rgba(79, 255, 209, 0.12);
+  transition:
+    box-shadow 0.3s ease,
+    background 0.3s ease;
+}
+.vibe-entry:hover {
+  background: linear-gradient(90deg, rgba(79, 255, 209, 0.24), rgba(167, 139, 250, 0.26));
+  box-shadow: 0 0 20px rgba(79, 255, 209, 0.24);
+}
+
+.vibe-root {
+  isolation: isolate;
+  color: var(--text-primary);
+  background:
+    radial-gradient(120% 80% at 50% -10%, #072a57 0%, rgba(7, 42, 87, 0) 62%),
+    radial-gradient(90% 70% at 85% 110%, #1b1142 0%, rgba(27, 17, 66, 0) 65%),
+    radial-gradient(70% 60% at 10% 90%, #03263a 0%, rgba(3, 38, 58, 0) 70%),
+    #01040c;
+}
+
+.vibe-canvas-host,
+.vibe-aurora,
+.vibe-motes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.vibe-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  transition: opacity 2.4s ease;
+}
+.vibe-canvas[data-ready='true'] {
+  opacity: 1;
+}
+
+/* Two wide, soft lights drifting — the electric part, held low. */
+.vibe-aurora {
+  overflow: hidden;
+  opacity: 0.55;
+  transition: opacity 1.6s ease;
+}
+.vibe-aurora::before,
+.vibe-aurora::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+}
+.vibe-aurora::before {
+  top: -18vmax;
+  left: -12vmax;
+  width: 62vmax;
+  height: 46vmax;
+  background: radial-gradient(circle, rgba(79, 255, 209, 0.2), rgba(79, 255, 209, 0) 68%);
+  animation: vibe-drift-a 38s ease-in-out infinite alternate;
+}
+.vibe-aurora::after {
+  right: -16vmax;
+  bottom: -20vmax;
+  width: 60vmax;
+  height: 50vmax;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.2), rgba(167, 139, 250, 0) 68%);
+  animation: vibe-drift-b 46s ease-in-out infinite alternate;
+}
+.vibe-root[data-phase='breathing'] .vibe-aurora {
+  animation: vibe-breathe 4.8s ease-in-out infinite;
+}
+.vibe-root[data-phase='surfacing'] .vibe-aurora {
+  opacity: 0.9;
+}
+@keyframes vibe-drift-a {
+  to {
+    transform: translate(9vmax, 6vmax) scale(1.12);
+  }
+}
+@keyframes vibe-drift-b {
+  to {
+    transform: translate(-8vmax, -5vmax) scale(1.1);
+  }
+}
+@keyframes vibe-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+.vibe-mote {
+  position: absolute;
+  bottom: -12px;
+  border-radius: 50%;
+  background: rgba(200, 255, 243, 0.75);
+  box-shadow: 0 0 10px rgba(79, 255, 209, 0.75);
+  opacity: 0;
+  animation-name: vibe-rise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes vibe-rise {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.7;
+  }
+  80% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate(var(--vibe-sway, 20px), -106vh);
+    opacity: 0;
+  }
+}
+
+/* Older lines sink into the depth at the top; the newest sit in clear water. */
+.vibe-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12vh, #000 calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12vh, #000 calc(100% - 16px), transparent 100%);
+}
+
+.vibe-line-enter {
+  animation: vibe-surface 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes vibe-surface {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+.vibe-user {
+  align-self: flex-end;
+  max-width: 82%;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  padding: 0.7rem 1.1rem;
+  border-radius: 22px 22px 6px 22px;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: rgba(236, 253, 255, 0.94);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.vibe-prose {
+  font-size: 1.07rem;
+  line-height: 1.8;
+  letter-spacing: 0.004em;
+  color: rgba(228, 250, 255, 0.93);
+  text-shadow: 0 0 24px rgba(79, 255, 209, 0.12);
+}
+.vibe-prose a {
+  color: #86f7df;
+}
+.vibe-prose code {
+  background: rgba(255, 255, 255, 0.07);
+}
+.vibe-prose pre,
+.vibe-prose .code-block {
+  text-shadow: none;
+}
+
+.vibe-quiet {
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+/* The breath: a small light that swells and settles while the model works. */
+.vibe-breath {
+  display: flex;
+  height: 28px;
+  align-items: center;
+}
+.vibe-breath span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #d8fff6 0%, #4fffd1 45%, rgba(167, 139, 250, 0.6) 100%);
+  box-shadow:
+    0 0 18px rgba(79, 255, 209, 0.7),
+    0 0 42px rgba(167, 139, 250, 0.35);
+  animation: vibe-orb 4.8s ease-in-out infinite;
+}
+@keyframes vibe-orb {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+}
+
+.vibe-glyph {
+  font-size: 44px;
+  line-height: 1;
+  color: #aefcea;
+  text-shadow:
+    0 0 24px rgba(79, 255, 209, 0.6),
+    0 0 60px rgba(167, 139, 250, 0.35);
+  animation: vibe-orb 6.5s ease-in-out infinite;
+}
+
+/* The composer: glass on the water, and a current of light around it while
+   a reply is being written. */
+@property --vibe-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+.vibe-composer {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.55rem 0.55rem 0.55rem 1.2rem;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  backdrop-filter: blur(26px) saturate(160%);
+  box-shadow:
+    0 12px 44px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition:
+    border-color 0.6s ease,
+    box-shadow 0.6s ease;
+}
+.vibe-composer:focus-within {
+  border-color: rgba(79, 255, 209, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(79, 255, 209, 0.1),
+    0 0 40px rgba(79, 255, 209, 0.14),
+    0 12px 44px rgba(0, 0, 0, 0.4);
+}
+.vibe-composer::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--vibe-angle),
+    transparent 0deg,
+    rgba(79, 255, 209, 0.75) 70deg,
+    rgba(167, 139, 250, 0.75) 140deg,
+    transparent 220deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s ease;
+  animation: vibe-current 5s linear infinite;
+}
+.vibe-composer[data-live='true']::before {
+  opacity: 1;
+}
+@keyframes vibe-current {
+  to {
+    --vibe-angle: 360deg;
+  }
+}
+
+.vibe-input {
+  flex: 1;
+  min-height: 2.4rem;
+  max-height: 200px;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0.5rem 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: rgba(236, 253, 255, 0.96);
+}
+.vibe-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.vibe-send {
+  display: flex;
+  height: 2.4rem;
+  width: 2.4rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 1.05rem;
+  color: #02131a;
+  background: radial-gradient(circle at 35% 30%, #d8fff6, #4fffd1 55%, #7c6cf0 130%);
+  box-shadow: 0 0 22px rgba(79, 255, 209, 0.35);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+.vibe-send:hover:not(:disabled) {
+  transform: scale(1.06);
+}
+.vibe-send:disabled {
+  opacity: 0.35;
+  box-shadow: none;
+}
+.vibe-send:focus-visible,
+.vibe-link:focus-visible,
+.vibe-button:focus-visible {
+  outline: 2px solid #4fffd1;
+  outline-offset: 2px;
+}
+.vibe-stop-glyph {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #02131a;
+}
+
+.vibe-link {
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+  letter-spacing: 0.04em;
+  transition: color 0.3s ease;
+}
+.vibe-link:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.vibe-approval {
+  padding: 0.8rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 209, 102, 0.07);
+  border: 1px solid rgba(255, 209, 102, 0.28);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.vibe-button {
+  border-radius: 999px;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #02131a;
+  background: #4fffd1;
+}
+.vibe-button--quiet {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vibe-aurora::before,
+  .vibe-aurora::after,
+  .vibe-root[data-phase='breathing'] .vibe-aurora,
+  .vibe-line-enter,
+  .vibe-glyph,
+  .vibe-composer::before {
+    animation: none;
+  }
+  .vibe-root[data-phase='breathing'] .vibe-aurora {
+    opacity: 0.8;
+  }
+  .vibe-breath span {
+    animation: none;
+    transform: none;
+    opacity: 0.9;
+  }
+  .vibe-canvas {
+    transition: none;
   }
 }

@@ -8,7 +8,7 @@
  * Output: docs/screenshots/<scene>.png at the display's native scale. Run all:
  *
  *   ELECTRON="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
- *   for scene in welcome-light chat-light chat-dark; do
+ *   for scene in welcome-light chat-light chat-dark vibe vibe-empty; do
  *     SCENE=$scene "$ELECTRON" scripts/capture-screenshots.js
  *   done
  *
@@ -28,6 +28,8 @@ const ROOT = path.join(__dirname, '..')
 const OUT_DIR = path.join(ROOT, 'docs', 'screenshots')
 
 const THEME = SCENE.endsWith('-dark') ? 'dark' : 'light'
+// v3.0: the VIBE scenes open the app in VIBE mode (the lagoon is always night).
+const VIBE = SCENE.startsWith('vibe')
 const NOW = Date.now()
 const MIN = 60_000
 
@@ -108,12 +110,23 @@ function settings() {
     proxy: { mode: 'none', host: '', port: 0 },
     updates: { autoCheck: true },
     onboardingCompleted: true,
+    vibeMode: VIBE,
     hideToolCalls: false,
     reasoningDisplay: 'collapsed',
     showResponseStats: true,
+    // Settings the fixture predated (v1.10 → v2.7). Without them the renderer
+    // throws on its first `settings.projects.find`, and every scene captured
+    // the error screen instead of the app.
+    sidebarCollapsed: false,
+    rightPanelCollapsed: false,
+    projects: [],
     contextManagement: 'compact',
     secondOpinion: { enabled: true, criticSlotId: null },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false },
+    claimCheck: { enabled: true, maxClaims: 5 },
+    shopping: { requireProxy: true, maxSellers: 4, excludeTierX: true },
     audit: { enabled: false, autoPurgeOnQuit: false },
+    mcp: { servers: [] },
     plan: { maxSteps: 6, confirmPlan: true }
   }
 }
@@ -323,7 +336,55 @@ const SIDEBAR_CONVOS = [
   }
 ]
 
+/** A quiet evening exchange: the kind of conversation VIBE is for. */
+function vibeConversation() {
+  return {
+    id: 'convo-vibe',
+    title: 'Winding down',
+    mode: 'independent',
+    activeModelSlotId: 'model-1',
+    createdAt: NOW - 9 * MIN,
+    updatedAt: NOW,
+    messages: [
+      {
+        id: 'v1',
+        role: 'user',
+        content: "Long day. I can't stop running through tomorrow's presentation in my head.",
+        createdAt: NOW - 9 * MIN
+      },
+      {
+        id: 'v2',
+        role: 'assistant',
+        roleName: 'Assistant',
+        modelId: 'qwen3-32b',
+        color: 'blue',
+        content:
+          'That loop is exhausting — your mind rehearsing something it can’t finish tonight. Write the three points you most want to land on a card, then turn it face down. Tomorrow-you can pick it up; tonight-you is off duty.',
+        createdAt: NOW - 8 * MIN
+      },
+      {
+        id: 'v3',
+        role: 'user',
+        content: 'Okay. One thing to do before bed?',
+        createdAt: NOW - 2 * MIN
+      },
+      {
+        id: 'v4',
+        role: 'assistant',
+        roleName: 'Assistant',
+        modelId: 'qwen3-32b',
+        color: 'blue',
+        content:
+          'Breathe out longer than you breathe in — four counts in, six out, for two minutes. It tells your body the day is done. Then lights off.',
+        createdAt: NOW - 1 * MIN
+      }
+    ]
+  }
+}
+
 function conversations() {
+  if (SCENE === 'vibe-empty') return []
+  if (VIBE) return [vibeConversation()]
   if (SCENE.startsWith('welcome')) {
     return [
       {
@@ -425,7 +486,7 @@ function capture(win) {
       console.error('capture failed:', err)
       app.exit(1)
     }
-  }, 3000)
+  }, VIBE ? 4500 : 3000)
 }
 
 app.whenReady().then(() => {
@@ -434,8 +495,12 @@ app.whenReady().then(() => {
     width: 1440,
     height: 900,
     show: false,
-    backgroundColor: THEME === 'dark' ? '#000000' : '#f4f4f5',
+    backgroundColor: THEME === 'dark' || VIBE ? '#000000' : '#f4f4f5',
+    // The lagoon is drawn by requestAnimationFrame, which a hidden window
+    // would otherwise throttle to nothing before the capture.
+    paintWhenInitiallyHidden: true,
     webPreferences: {
+      backgroundThrottling: false,
       preload: path.join(ROOT, 'out', 'preload', 'index.js'),
       contextIsolation: true,
       nodeIntegration: false,

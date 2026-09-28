@@ -7285,3 +7285,50 @@ their own cap inside a document that is otherwise complete. That is a different 
 a lesser one, but the gate the strategy set was the required-sections score, and it did not
 move. The switch ships off; the numbers ship with it.
 
+## VIBE: where the brevity line goes (v3.0)
+
+VIBE asks for short replies and changes nothing else about a turn. The first build put that
+request where every per-turn addition goes — the notes block on the turn's own user message —
+because that keeps the cached prompt prefix identical with the mode on or off. It cost the mode
+its tools, and that is the one thing the mode promises not to do.
+
+The probe was the plainest question a tool exists for, asked in a fresh chat on the live app
+(throwaway profile, LM Studio on this machine, 2026-09-28): *"What time is it right now?"*,
+counting the turns that called `get_current_datetime`.
+
+| model | where VIBE's line rode | wording | turns that called the tool |
+| --- | --- | --- | --- |
+| qwen3.8-9b | VIBE off (control) | — | 4/4 |
+| qwen3.8-9b | notes block on the user message | three sentences ending "no mention of tools" | 0/1 |
+| qwen3.8-9b | notes block on the user message | "use your tools whenever they would help" | 0/3 |
+| qwen3.8-9b | notes block on the user message | "check it with your tools first — the current time, a calculation, a fact" | 0/4 |
+| qwen3.8-9b | notes block on the user message | one sentence: "once you have what you need, answer in a few calm sentences" | 1/2 |
+| qwen3.8-9b-distill | notes block on the user message | the same one sentence | 0/3 |
+| qwen3.8-9b-distill | VIBE off (control) | — | 3/3 |
+| qwen3.8-9b-distill | **system prompt**, after the project's instructions | the shipped line | **7/8** |
+
+On the notes block, 1 turn in 13 called the tool across four wordings and two models; with VIBE
+off, 7 in 7. The turns that skipped it did not decline it: the reasoning of one reads *"I need
+to use get_current_datetime to find out the current local date and time"*, and the reply that
+followed stated an invented time. Rewording barely moved it, so it is the notes block on the
+user's message, not what the note said. The same kind of line in the system prompt, beside the
+persona and the standing rules, leaves the call alone.
+
+What the move costs is measured in the design rather than here: the system prompt now differs
+between VIBE and the full view, so switching the mode mid-conversation re-reads that
+conversation's history once on the next turn. Within the mode, the prefix is as stable as it
+was.
+
+**Caveats.** Small samples — eight runs on the shipped placement, not a suite. The server
+stopped during the last batch: its final two runs, and the control runs queued after it,
+all came back with nothing and the server was then found down, so none of them is counted. One of
+the eight shipped-placement turns still answered from nothing; with VIBE off none did, so the
+honest reading is "no measurable cost at this sample size", not "none". A wider tool-choice run
+with VIBE on belongs in the next `eval:tools` pass.
+
+Found along the way, and fixed for every turn, not only VIBE's: the system prompt stated the
+**UTC** date (from 8 PM on the US east coast, tomorrow) with no weekday, and `get_current_datetime`
+returned `9/28/2026, 12:13:00 PM` — so the model computed the weekday itself and got it wrong,
+"Sunday" three times and "Tuesday" once for a Monday, once directly after reading the clock.
+Both now state the local date with its weekday (`test/dateLine.test.ts`); after the change, the
+same model named the day correctly in every run.

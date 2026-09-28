@@ -346,6 +346,13 @@ export interface AppSettings {
   sidebarCollapsed: boolean
   /** v1.10: the chat panel (right side) is collapsed to an icon strip (⌘J). */
   rightPanelCollapsed: boolean
+  /**
+   * v3.0: VIBE — the window is the conversation and nothing else. The engine
+   * underneath is unchanged; only what is drawn, and how long replies are
+   * asked to be, differ. Persisted like the rail's collapse: a window someone
+   * made calm should still be calm tomorrow.
+   */
+  vibeMode: boolean
   /** v1.10: conversation groups shown in the rail. */
   projects: Project[]
   /**
@@ -523,6 +530,7 @@ export function defaultSettings(): AppSettings {
     showResponseStats: true,
     sidebarCollapsed: false,
     rightPanelCollapsed: false,
+    vibeMode: false,
     projects: [],
     contextManagement: 'compact',
     secondOpinion: {
@@ -767,6 +775,7 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     showResponseStats: settings.showResponseStats !== false,
     sidebarCollapsed: Boolean(settings.sidebarCollapsed),
     rightPanelCollapsed: Boolean(settings.rightPanelCollapsed),
+    vibeMode: Boolean(settings.vibeMode),
     projects: normalizeProjects(settings.projects),
     contextManagement: settings.contextManagement === 'trim' ? 'trim' : 'compact',
     secondOpinion: {

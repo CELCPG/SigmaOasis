@@ -9,6 +9,7 @@ import {
   type StreamPhase,
   type WaitNotice
 } from '../lib/oasisRipple'
+import { useReducedMotion } from '../hooks/useReducedMotion'
 
 /**
  * The Oasis Ripple — the app's single thinking indicator. A glass pool disc:
@@ -21,20 +22,6 @@ import {
  * escalation a reader gets at sixty seconds can be rendered and asserted in
  * plain Node (test/oasisRipple.test.ts) instead of watched for.
  */
-
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(
-    () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-  )
-  useEffect(() => {
-    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-    if (!mq) return
-    const onChange = (): void => setReduced(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return reduced
-}
 
 interface ToolEvent {
   id: string

@@ -85,6 +85,7 @@ import {
 } from './verification'
 import { describeCodeCheck, looksArithmetic } from '../lib/workbenchChecks'
 import { planApprovals, runPlanTurn } from './planMode'
+import { outlineAllowed, vibeSystemBlock } from '../lib/vibe'
 
 /**
  * The engine: streams chat completions from LM Studio's OpenAI-compatible
@@ -222,8 +223,14 @@ async function runTurn(
   const projectBlock = projectInstructionsBlock(project)
   // v2.7: persona, then the slot's standing rules, then the project's — three
   // layers, all stable from turn to turn.
+  // v3.0: VIBE's one line rides here, after the project's instructions — the
+  // system prompt, not the turn's notes; lib/vibe.ts has the measurement.
   let systemPrompt = withToolCallPreamble(
-    withGrounding(slot.systemPrompt + slotRulesBlock(slot) + projectBlock, new Date(), { offline }),
+    withGrounding(
+      slot.systemPrompt + slotRulesBlock(slot) + projectBlock + vibeSystemBlock(useAppStore.getState().settings?.vibeMode),
+      new Date(),
+      { offline }
+    ),
     slot.modelId
   )
   // What the project spent this turn, for the details panel (estimates).
@@ -1223,7 +1230,13 @@ export function useLMStudio(): {
       }
       // v2.6: a document-shaped request goes to outline-then-fill when the
       // setting is on — measured before it was made a default (docs/evals.md).
-      if (settings.grounding?.outline && targets.length === 1 && !delegation && looksLikeDocumentAsk(text)) {
+      if (
+        settings.grounding?.outline &&
+        outlineAllowed(settings.vibeMode) &&
+        targets.length === 1 &&
+        !delegation &&
+        looksLikeDocumentAsk(text)
+      ) {
         await executeOutline(convo.id, targets[0]!, text)
         return
       }

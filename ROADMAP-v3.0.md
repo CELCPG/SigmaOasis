@@ -15,7 +15,7 @@ signed builds are what is sold; the release is merged, tagged and published by C
 
 | # | Feature | What it is |
 | --- | --- | --- |
-| 1 | **VIBE mode** | The whole window becomes a slow night lagoon — drifting caustic light, an electric cyan/violet glow that breathes while a reply surfaces — and nothing else but the conversation and one composer. Tools, memory, the library and the checks all still run; none of it is drawn. Replies are asked to be short. ⌘⇧V or the 〰 button enters, Esc leaves. Honors reduced motion. |
+| 1 | **VIBE mode** | The whole window becomes a slow night lagoon — drifting caustic light, an electric cyan/violet glow that breathes while a reply surfaces — and nothing else but the conversation and one composer. Tools, memory, the library and the checks all still run; none of it is drawn. Replies are asked to be short. ⌘⇧L or the 〰 pill in the rail enters, Esc leaves. Honors reduced motion. |
 | 2 | **Agent workspace** | Open a folder and give a task. The agent lists, globs, greps and reads (with line numbers and ranges), edits by exact search-and-replace with the diff shown before a byte lands, runs commands with your OK, keeps a visible to-do list, and loops until the work is done or it needs you. |
 | 3 | **Permission modes** | Per task: *Ask* (every edit and command), *Accept edits* (edits inside the folder land without a prompt; commands still ask), *Read-only* (the agent investigates and plans, touches nothing). |
 | 4 | **Checkpoints** | Every file the agent changes is snapshotted first; *Undo changes* on the task restores them all. |
