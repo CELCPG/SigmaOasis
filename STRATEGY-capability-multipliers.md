@@ -40,7 +40,7 @@ head-to-head bench demoted from roadmap generator to release gate.**
 | harness-adoptions T3 | Code Mode in the Workbench | **Open.** |
 | harness-adoptions T4 | Spill for oversized tool results; mid-turn steering; replayable tool cards | **Open.** |
 | speed 1d | Persistence bounds | **Open.** `conversations:list` (`store.ts:971`) still reads and parses every conversation file at startup; image galleries are still inline data URLs; the audit directory has a per-entry cap and no rotation; no total-size bound on `memory.json`. |
-| speed 1d | PDF parsing off the main thread; render-window reuse | **Open.** No `worker_threads` in `main/ipc`; `render.ts` still creates a window per page. |
+| speed 1d | PDF parsing off the main thread; render-window reuse | **Done in 3.1 (M4), measured.** PDF extraction runs in a worker (`pdfOffThread.ts`): a capped PDF held the main loop 320 ms at p99, now 19–20 ms. Render-window reuse is not built: five renders cost the loop 22 ms at p99 (`docs/measuring-main-loop.md`). |
 | speed 2b | Chat traffic in the activity log | **Half open.** The loopback constraint shipped (`store.ts:498`); the renderer still fetches `/chat/completions` directly (`chatTransport.ts:580`), so the log's "everything is here" claim still excludes the highest-volume path. |
 | depth item 7 | Outline-then-fill for long answers | **Open.** |
 | depth "how it grows" | ZIM packs (offline Wikipedia / WikiMed) | **Open.** |

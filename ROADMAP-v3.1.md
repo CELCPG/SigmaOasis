@@ -209,6 +209,26 @@ and the render window is pooled, both specified since v1.4.7.
 
 *Gate:* the delay, before and after, printed with the change; the node suite.
 
+*(Built. `npm run bench:main-loop` runs inside Electron's own main process with a stream held
+open from a stand-in server in another process, and drives the app's code at its caps. On the
+bench machine (Electron 44, Windows):*
+
+| phase | loop delay p99 before | after | the stream's longest gap before | after |
+| --- | --- | --- | --- | --- |
+| the stream alone | 16.5 ms | 16.4–16.6 ms | 32 ms | 32–33 ms |
+| a PDF at the caps (40 MB inflated), three times | **320 ms** | **19–20 ms** | **355 ms** | **32–33 ms** |
+| a folder pack at 8M characters, then the first lookup | 23 ms | 18–20 ms | 102 ms | 95–107 ms |
+| five pages rendered | 22 ms | 21–23 ms | 37 ms | 35 ms |
+
+*Only PDF extraction crossed 100 ms, so only it moved: `extractPdfText` runs unchanged in a
+`worker_threads` worker (`pdfOffThread.ts`, `pdfWorker.ts`, a second main-process entry), for
+attachments, folder packs and fetched PDFs alike; a worker is measured to load from inside the
+asar. The render window is not pooled: five windows cost the loop 22 ms at p99, which is nothing
+to buy back. The nearest to the line is the folder pack's single worst stall, 88–99 ms at its
+maximum — the first lookup building the BM25 index over 8M characters in one pass; under the
+p99 rule it stays, and it is the next thing to move if a library outgrows the cap.
+`docs/measuring-main-loop.md`.)*
+
 ## 3.1 — VIBE, polished and quick
 
 Added 2026-09-28 at the owner's request, after a VIBE session on the bench machine (an RTX 5070,
