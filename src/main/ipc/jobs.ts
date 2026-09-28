@@ -326,15 +326,23 @@ async function runPriceJob(job: Job): Promise<JobRunResult> {
   }
 }
 
+/** Claims one ledger run re-checks; each is a page fetch. */
+export const LEDGER_RECHECKS_PER_RUN = 10
+
 async function runLedgerJob(): Promise<JobRunResult> {
   const pack = await readAppPack(LEDGER_PACK_ID)
   // The ledger's own clock, so this run and a lookup agree on what has expired.
   const now = ledgerNow()
-  const expired = (pack?.docs ?? []).filter((d) => d.claim && typeof d.expiresAt === 'number' && now > d.expiresAt)
+  const expired = (pack?.docs ?? [])
+    .filter((d) => d.claim && typeof d.expiresAt === 'number' && now > d.expiresAt)
+    // Never re-checked first, then the longest ago. A claim that no longer holds
+    // stays expired, and in pack order it would lead every run and starve the rest.
+    .sort((a, b) => (a.recheckedAt ?? 0) - (b.recheckedAt ?? 0))
   if (expired.length === 0) return { outcome: 'ok', note: 'nothing past its freshness' }
   const lines: string[] = []
   let confirmed = 0
-  for (const doc of expired.slice(0, 10)) {
+  for (const doc of expired.slice(0, LEDGER_RECHECKS_PER_RUN)) {
+    doc.recheckedAt = now
     const page = doc.source ? await fetchWebpage(doc.source, 'webpage') : null
     const value = doc.claim!.value.toLowerCase()
     const still = page?.ok === true && page.text.toLowerCase().replace(/\s+/g, ' ').includes(value)
@@ -352,13 +360,15 @@ async function runLedgerJob(): Promise<JobRunResult> {
       lines.push(`⚠️ no longer states ${doc.claim!.value}${page?.ok ? '' : ' (page unavailable)'}: ${doc.title} — ${doc.source ?? ''}`)
     }
   }
-  if (confirmed > 0 && pack) {
+  // Every run that re-checked anything writes, confirmed or not: the recheckedAt
+  // stamps are what move the queue on.
+  if (pack) {
     await writeAppPack({ id: LEDGER_PACK_ID, name: LEDGER_PACK_NAME, description: pack.manifest.description, docs: pack.docs })
   }
   return {
     outcome: 'ok',
     note: `${confirmed}/${expired.length} re-confirmed`,
-    digest: `**Verified claims** — re-check ${dateLine()}\n\n${lines.join('\n')}${expired.length > 10 ? `\n\n(${expired.length - 10} more past freshness; the next run continues)` : ''}`
+    digest: `**Verified claims** — re-check ${dateLine()}\n\n${lines.join('\n')}${expired.length > LEDGER_RECHECKS_PER_RUN ? `\n\n(${expired.length - LEDGER_RECHECKS_PER_RUN} more past freshness; the next run continues)` : ''}`
   }
 }
 

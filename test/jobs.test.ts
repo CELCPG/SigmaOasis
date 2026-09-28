@@ -272,4 +272,38 @@ describe('the ledger runner', () => {
     assert.equal(second.note, '0/1 re-confirmed')
     assert.deepEqual(state.fetchLog.map((f) => f.url), ['https://harrowgate.example/contact'])
   })
+
+  test('a claim that no longer holds goes to the back of the queue, so every expired claim is re-checked in turn', async () => {
+    // Two more expired claims than a run re-checks; only the last one's source still states it.
+    const batch = jobsMod.LEDGER_RECHECKS_PER_RUN
+    const n = batch + 2
+    const items = Array.from({ length: n }, (_, i) => `item${String(i + 1).padStart(2, '0')}`)
+    const url = (item: string): string => `https://museum.example/${item}/`
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims(items.map((item) => draft('money', `How much is the ${item} pass?`, '$18.50', `The ${item} pass costs $18.50.`, url(item))))
+    state.responses = items.map((item, i) => ({
+      match: `museum.example/${item}/`,
+      contentType: 'text/html',
+      body: `<html><body><p>The ${item} pass costs ${i === n - 1 ? '$18.50' : '$21.00'}.</p></body></html>`
+    }))
+    const run = async (at: number): Promise<{ note: string; fetched: string[] }> => {
+      process.env.SIGMA_LEDGER_NOW = String(at)
+      state.fetchLog = []
+      const r = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
+      return { note: r.note, fetched: state.fetchLog.map((f) => f.url) }
+    }
+
+    const first = await run(T0 + 2 * DAY)
+    assert.equal(first.note, `0/${n} re-confirmed`)
+    assert.deepEqual(first.fetched, items.slice(0, batch).map(url))
+    // The next run starts with the two it has not tried, not the ten that just
+    // failed, and fills its batch with the failures it tried longest ago.
+    const second = await run(T0 + 2 * DAY + HOUR)
+    assert.equal(second.note, `1/${n} re-confirmed`)
+    assert.deepEqual(second.fetched, [...items.slice(batch), ...items.slice(0, batch - 2)].map(url))
+    // And the queue keeps turning: the two failures left out last time lead this one.
+    const third = await run(T0 + 2 * DAY + 2 * HOUR)
+    assert.equal(third.note, `0/${n - 1} re-confirmed`)
+    assert.deepEqual(third.fetched, [...items.slice(batch - 2, batch), ...items.slice(0, batch - 2)].map(url))
+  })
 })

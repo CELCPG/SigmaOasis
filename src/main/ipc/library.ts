@@ -84,6 +84,12 @@ export interface PackDocMeta {
   checkedAt?: number
   /** null = never expires. Absent on documents that are not claims. */
   expiresAt?: number | null
+  /**
+   * When the ledger job last re-checked this claim against its source, whatever
+   * the answer. It orders the job's queue: a claim that no longer holds goes to
+   * the back rather than the front of every run.
+   */
+  recheckedAt?: number
   claim?: { key: string; claimClass: string; value: string }
 }
 
@@ -345,6 +351,7 @@ export function validateManifest(raw: unknown): PackManifest {
       sourceSize: num(doc.sourceSize),
       ...(num(doc.checkedAt) !== undefined ? { checkedAt: num(doc.checkedAt) } : {}),
       ...(doc.expiresAt === null ? { expiresAt: null } : num(doc.expiresAt) !== undefined ? { expiresAt: num(doc.expiresAt) } : {}),
+      ...(num(doc.recheckedAt) !== undefined ? { recheckedAt: num(doc.recheckedAt) } : {}),
       ...(doc.claim && typeof doc.claim === 'object'
         ? {
             claim: {
@@ -931,6 +938,7 @@ export interface AppPackDoc {
   date?: string
   checkedAt?: number
   expiresAt?: number | null
+  recheckedAt?: number
   claim?: { key: string; claimClass: string; value: string }
 }
 
@@ -961,6 +969,7 @@ export async function readAppPack(id: string): Promise<{ manifest: PackManifest;
       date: meta.date,
       checkedAt: meta.checkedAt,
       expiresAt: meta.expiresAt,
+      recheckedAt: meta.recheckedAt,
       claim: meta.claim
     })
   }
@@ -989,6 +998,7 @@ export async function writeAppPack(input: { id: string; name: string; descriptio
       chars: text.length,
       ...(typeof d.checkedAt === 'number' ? { checkedAt: d.checkedAt } : {}),
       ...(d.expiresAt !== undefined ? { expiresAt: d.expiresAt } : {}),
+      ...(typeof d.recheckedAt === 'number' ? { recheckedAt: d.recheckedAt } : {}),
       ...(d.claim ? { claim: d.claim } : {})
     })
   }
