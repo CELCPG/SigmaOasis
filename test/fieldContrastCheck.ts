@@ -21,7 +21,9 @@
  * a throwaway profile seeded with one job and one (disabled) MCP server — so
  * the rows that only render when there is something to list do render — opens
  * Settings, walks every tab in its rail, opens every disclosure, and reads
- * every field. The Project modal is read the same way.
+ * every field. MCP's environment editor starts with no rows, so its own
+ * "+ Add variable" button is pressed once first; that is local state, and
+ * nothing is saved. The Project modal is read the same way.
  *
  * Not reached: Jobs' watched-item picker, which renders once the kind is
  * "price" and the watchlist has an entry. In the built app the watchlist IPC
@@ -89,13 +91,15 @@ interface Reading {
 
 /**
  * Rows that render only when there is something to list — a job, a server, a
- * model slot (the defaults bring five) — and were among the fields found white
- * on white. Each is named by the aria-label suffix the component gives it, so a
- * rename fails here loudly rather than quietly shrinking what is measured.
+ * model slot (the defaults bring five), an environment variable — and were
+ * among the fields found white on white. Each is named by the aria-label the
+ * component gives it, so a rename fails here loudly rather than quietly
+ * shrinking what is measured.
  */
 const SEEDED: Record<string, string> = {
   'a job row’s interval': 'select[aria-label$=" interval"]',
   'an MCP server row’s approval': 'select[aria-label$=" approval"]',
+  'an MCP environment row’s masked value': 'input[type="password"][aria-label^="Value of "]',
   'a model slot’s Code Mode': 'select[aria-label$=" code mode"]'
 }
 
@@ -372,7 +376,15 @@ async function child(theme: Theme): Promise<void> {
     await wait(350)
     // The self-fetching tabs list their rows after an IPC round trip.
     if (tab === 'Jobs') await waitFor(SEEDED['a job row’s interval'])
-    if (tab === 'MCP') await waitFor(SEEDED['an MCP server row’s approval'])
+    if (tab === 'MCP') {
+      await waitFor(SEEDED['an MCP server row’s approval'])
+      await evalIn<boolean>(`(() => {
+        const b = Array.from(document.querySelectorAll('.tab-face button')).find((x) => (x.innerText || '').trim() === '+ Add variable')
+        if (b) b.click()
+        return !!b
+      })()`)
+      await waitFor(SEEDED['an MCP environment row’s masked value'])
+    }
     await settle()
     const surface = `Settings → ${tab}`
     fields.push(...(await readFields(surface, '.tab-face', TAB_SURFACES)))
