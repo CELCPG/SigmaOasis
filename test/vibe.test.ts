@@ -59,7 +59,8 @@ describe('the brevity line', () => {
   test('rides the system prompt, never the turn’s notes on the user’s message', () => {
     // The notes block cost the tool call — 1/13 against 7/7; the system prompt
     // kept it (lib/vibe.ts). This pins the placement that was measured.
-    const engine = src('renderer', 'src', 'hooks', 'useLMStudio.ts')
+    // v3.1: a model's turn lives in hooks/chatTurn.ts, moved there verbatim.
+    const engine = src('renderer', 'src', 'hooks', 'chatTurn.ts')
     const systemPromptBuild = engine.slice(engine.indexOf('let systemPrompt = '), engine.indexOf('const projectTokens'))
     assert.match(systemPromptBuild, /projectBlock \+ vibeSystemBlock\(/)
     assert.match(engine, /const turnContext: string\[\] = gathered\.blocks\n/)

@@ -129,7 +129,7 @@ test('whitespace content counts as flowing text', () => {
 // ---- Stress: the agentic loop, exactly as the engine drives it --------------------
 
 test('full tool storm: 8 iterations × 3 parallel calls, most-recent wins', () => {
-  // Mirror useLMStudio.runTurn: records accumulate across iterations and are
+  // Mirror runTurn (hooks/chatTurn.ts): records accumulate across iterations and are
   // patched as running → done. Feed the whole history at every step.
   const tools = ['web_search', 'fetch_webpage', 'read_file', 'run_terminal_command', 'memory_save']
   let records: ToolCallRecord[] = []

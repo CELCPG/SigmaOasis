@@ -20,7 +20,7 @@ import { warmComposerModel } from '../../hooks/warmModel'
  * Everything the full view draws around a reply — role badges, tool-call
  * blocks, the ripple's status labels, provenance strips, check lines, stats,
  * the action row, the rail, the chat panel — is simply not rendered here. The
- * turn underneath is the same turn (hooks/useLMStudio.ts, unchanged but for
+ * turn underneath is the same turn (hooks/chatTurn.ts, unchanged but for
  * the brevity note in lib/vibe.ts), so leaving VIBE shows every one of those
  * things on the very messages written in it.
  *

@@ -93,7 +93,7 @@ const rec = (name: string, status: ToolCallRecord['status'], result: string): To
 })
 
 /**
- * The badge decision, exactly as useLMStudio.ts makes it at both call sites
+ * The badge decision, exactly as the turn's tail makes it (hooks/turnTail.ts)
  * (`checkableTurn && !consultedSources(allRecords)` → `patch({ unverified: true })`,
  * which is what renders the "Answered from model memory" line in MessageBubble).
  */
