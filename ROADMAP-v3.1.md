@@ -12,7 +12,9 @@ owner's accounts exist, a signed Windows installer. 3.1 builds `eval:agent` and 
 agent's speed. 3.2 makes the agent a daily tool on top of those numbers. 3.3 is reach, and each of
 its items waits on a decision only the owner can make.
 
-Written 2026-09-28 against v3.0.0 (`63e7eb0`). Nothing below is built yet.
+Written 2026-09-28 against v3.0.0 (`63e7eb0`). **Status: L1 landed in v3.0.1 (tagged 2026-09-28),
+with the Windows CI leg. L2 did not, so the 3.0.1 Windows installer is still unsigned. Nothing else
+below is built yet.**
 
 ## What 3.0 left, and where it lands
 
@@ -48,6 +50,10 @@ to the matrix once the LF branches land.
 
 *Gate:* the node suite and every Electron check green on macOS and Linux as today, and the node
 suite green on Windows in CI.
+
+*(v3.0.1: done. All five merged, one merge commit per branch, in PR #6 (`1b5ab3d`); none closed.
+`windows-latest` joined `ci.yml`, and on it the whole suite passes, the Electron checks as well as
+the node suite. The five worktrees are removed.)*
 
 ### L2. Windows signing
 
@@ -303,6 +309,8 @@ privacy audit, the icon always showing while resident, and no new network access
   `claude/charming-germain-9469f6`, `claude/serene-ardinghelli-33ee87`,
   `claude/upbeat-fermat-847b70`, `claude/xenodochial-einstein-1189e7`, `feat/mcp-env-keychain`,
   `fix/linux-modal-focus`, `release/v3.0.0` and `worktree-agent-a88dae82b61150a0a`.
+  *(Done with 3.0.1: the worktrees are removed, and every branch merged into main is deleted,
+  locally and on GitHub.)*
 
 ## Decisions for the owner
 
@@ -317,7 +325,7 @@ privacy audit, the icon always showing while resident, and no new network access
 
 | Release | Contents | User-visible claim | Gate |
 | --- | --- | --- | --- |
-| **3.0.1** | L1; L2 if the account is ready; Windows in CI | The restart and ledger-job fixes; a signed Windows installer | Suites green on macOS and Linux, node suite on Windows; `signtool verify` in the job |
+| **3.0.1** | L1; L2 if the account is ready; Windows in CI — **landed: L1 and Windows in CI; not L2** | The restart and ledger-job fixes; a signed Windows installer | Suites green on macOS and Linux, node suite on Windows; `signtool verify` in the job |
 | **Launch** | L3, L4 | A build you can buy | An installed copy updates through the new feed on three platforms |
 | **3.1 — the agent, measured** | M1–M4, `useLMStudio.ts` | How often the agent solves a task, on a 9B and a 35B-A3B, whatever the numbers are; long tasks faster | `eval:agent` baselines committed; the VIBE arm of `eval:tools` |
 | **3.2 — a daily tool** | D1–D4; D5 if decided | Hooks, commands, a branch per task, VS Code | `eval:agent` within noise with each one on |
