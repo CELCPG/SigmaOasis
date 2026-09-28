@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
 import { stopAgent } from '../hooks/agentTasks'
+import { warmComposerModel } from '../hooks/warmModel'
 import { WavRecorder } from '../lib/voice'
 import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
 import { turnContextUsage } from '../hooks/turnHelpers'
@@ -503,7 +504,12 @@ export function InputBar(): JSX.Element {
             <textarea
               ref={textareaRef}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                // v3.1: a message's first keystroke starts the model's load
+                // (hooks/warmModel.ts), so a cold load overlaps the typing.
+                if (!text && e.target.value) warmComposerModel(activeConversationId)
+                setText(e.target.value)
+              }}
               onKeyDown={onKeyDown}
               rows={1}
               placeholder={

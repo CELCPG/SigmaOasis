@@ -1616,21 +1616,56 @@ summary:focus-visible,
   color: var(--text-secondary);
 }
 
-/* The breath: a small light that swells and settles while the model works. */
-.vibe-breath {
-  display: flex;
-  height: 28px;
-  align-items: center;
+/* The thinking orb (v3.1, components/vibe/VibeOrb.tsx): a geodesic sphere of
+   light turning in the water while the model works. The canvas draws the
+   shell, ring and spark; the halo behind it is CSS, breathing on the lagoon's
+   4.8 s. Its box is 144px with the sphere at the centre and the ring's reach
+   inside it, so negative margins set the sphere just in from the prose's left
+   edge and keep the gap to the line above close to a line's. */
+.vibe-thinking {
+  position: relative;
+  width: 144px;
+  height: 144px;
+  margin: -34px 0 -38px -38px;
+  animation: vibe-thinking-enter 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-.vibe-breath span {
-  width: 12px;
-  height: 12px;
+.vibe-thinking::before {
+  content: '';
+  position: absolute;
+  inset: 22px;
   border-radius: 50%;
-  background: radial-gradient(circle, #d8fff6 0%, #4fffd1 45%, rgba(167, 139, 250, 0.6) 100%);
-  box-shadow:
-    0 0 18px rgba(79, 255, 209, 0.7),
-    0 0 42px rgba(167, 139, 250, 0.35);
-  animation: vibe-orb 4.8s ease-in-out infinite;
+  background: radial-gradient(circle, rgba(79, 255, 209, 0.34), rgba(167, 139, 250, 0.16) 46%, rgba(167, 139, 250, 0) 72%);
+  filter: blur(14px);
+  animation: vibe-thinking-halo 4.8s ease-in-out infinite;
+}
+.vibe-thinking canvas {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+@keyframes vibe-thinking-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+@keyframes vibe-thinking-halo {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
 }
 @keyframes vibe-orb {
   0%,
@@ -1734,6 +1769,15 @@ summary:focus-visible,
 .vibe-input::placeholder {
   color: var(--text-tertiary);
 }
+/* v3.1: no box inside the glass. The app-wide ring (`textarea:focus-visible`,
+   above) outranks .vibe-input's own `outline: none`, and Chromium counts a
+   text field as focus-visible after a click and after the focus this composer
+   takes by itself — so every VIBE session drew a hard accent rectangle inside
+   the rounded pill. The pill's own :focus-within glow is the focus indicator
+   here, for the keyboard and the mouse alike. */
+.vibe-input:focus-visible {
+  outline: none;
+}
 
 .vibe-send {
   display: flex;
@@ -1815,10 +1859,9 @@ summary:focus-visible,
   .vibe-root[data-phase='breathing'] .vibe-aurora {
     opacity: 0.8;
   }
-  .vibe-breath span {
+  .vibe-thinking,
+  .vibe-thinking::before {
     animation: none;
-    transform: none;
-    opacity: 0.9;
   }
   .vibe-canvas {
     transition: none;

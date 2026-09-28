@@ -13,7 +13,7 @@ import { projectInstructionsBlock } from '../lib/projectContext'
 import {
   schemasAvailableTo,
   selectTurnTools,
-  stabilizeTurnTools,
+  holdTurnTools,
   rankingIsDecisive,
   TURN_TOOL_CAP,
   withForcedTools
@@ -303,10 +303,9 @@ export async function subsetForTurn(
     // whichever tool wins is arbitrary — and swapping the toolbox on a coin
     // flip both hands the model the wrong tools and discards the prompt cache.
     // With nothing to hold to yet, this turn's arbitrary pick becomes the
-    // incumbent and stops moving.
-    const stable = rankingIsDecisive(res.scores)
-      ? stabilizeTurnTools(tools, selected, previous)
-      : stabilizeTurnTools(tools, selected, previous ?? selected.map((t) => t.function.name))
+    // incumbent and stops moving. (v3.1: and with one, it is kept outright —
+    // see holdTurnTools.)
+    const stable = holdTurnTools(tools, selected, previous, rankingIsDecisive(res.scores))
     const withForced = withForcedTools(tools, stable, force)
     turnToolMemo.set(
       stabilityKey,

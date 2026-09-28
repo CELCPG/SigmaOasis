@@ -211,6 +211,38 @@ export function stabilizeTurnTools(
 }
 
 /**
+ * The subset a conversation's turn carries: this turn's selection, held to the
+ * last turn's where the ranking gives no reason to move.
+ *
+ * v3.1: an indecisive ranking keeps the incumbent outright. v1.4.5 said so —
+ * "an indecisive ranking must not be allowed to move anything" — but passed
+ * the incumbent to `stabilizeTurnTools`, which takes the new selection
+ * whenever the incumbent does not cover it, exactly as for a decisive one. So
+ * a coin flip still swapped a tool and spent the conversation's prefix.
+ * Replayed on 2026-09-28 against nomic-embed-text-v1.5 and a 20-tool slot:
+ * "yo whats up?" then "just testing out your new vibe mode and its super
+ * cool", both indecisive, and the second swapped `list_directory` for
+ * `reference_lookup`. LM Studio's log for that turn shows the prompt re-read
+ * from its system block, 2,325 tokens in 27 s on a 9B that was partly on the
+ * CPU, where the turn before had reused everything up to the new message.
+ *
+ * With nothing to hold to yet, this turn's selection becomes the incumbent.
+ */
+export function holdTurnTools(
+  available: ToolSchema[],
+  selected: ToolSchema[],
+  previousNames: readonly string[] | undefined,
+  decisive: boolean
+): ToolSchema[] {
+  if (!decisive && previousNames && previousNames.length > 0) {
+    const held = new Set(previousNames)
+    const previous = available.filter((t) => held.has(t.function.name))
+    if (previous.length > 0) return previous
+  }
+  return stabilizeTurnTools(available, selected, previousNames)
+}
+
+/**
  * v1.6: guarantee named tools are in the turn's set. When the app has just
  * profiled a data file and told the model "compute with run_python", the tool
  * must be on the wire — measured: the embedding rank dropped run_python for

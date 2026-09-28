@@ -4,6 +4,7 @@ import {
   toolsForSlot,
   selectTurnTools,
   stabilizeTurnTools,
+  holdTurnTools,
   rankingIsDecisive,
   withBudgetNotes,
   TURN_TOOL_CAP
@@ -161,6 +162,49 @@ describe('selectTurnTools', () => {
       const previous = [...names(selected)].reverse()
       const out = stabilizeTurnTools(TURN_TOOLS, selected, previous)
       assert.deepEqual(names(out), names(selected))
+    })
+  })
+
+  /**
+   * v3.1: the indecisive half of the rule, which v1.4.5 stated and did not
+   * implement — an uncovered coin-flip pick still replaced the incumbent.
+   */
+  describe('holdTurnTools', () => {
+    const names = (tools: ToolSchema[]): string[] => tools.map((t) => t.function.name)
+    const previous = ['read_file', 'date_calculator', 'memory_search', 'memory_save']
+
+    test('an indecisive ranking keeps the incumbent even when its pick is not covered', () => {
+      // The shape of the measured case: small talk whose top pick is noise.
+      const selected = selectTurnTools(TURN_TOOLS, { fetch_webpage: 0.61 })
+      // Not covered, so stabilizeTurnTools alone would take it.
+      assert.ok(!names(selected).every((n) => previous.includes(n)))
+      assert.equal(stabilizeTurnTools(TURN_TOOLS, selected, previous), selected)
+      const out = holdTurnTools(TURN_TOOLS, selected, previous, false)
+      assert.deepEqual(names(out), names(TURN_TOOLS).filter((n) => previous.includes(n)))
+    })
+
+    test('a decisive change of subject still moves it', () => {
+      const selected = selectTurnTools(TURN_TOOLS, { fetch_webpage: 0.95 })
+      assert.equal(holdTurnTools(TURN_TOOLS, selected, previous, true), selected)
+    })
+
+    test('with nothing to hold to, the selection becomes the incumbent', () => {
+      const selected = selectTurnTools(TURN_TOOLS, { web_search: 0.6 })
+      assert.equal(holdTurnTools(TURN_TOOLS, selected, undefined, false), selected)
+      assert.equal(holdTurnTools(TURN_TOOLS, selected, [], false), selected)
+    })
+
+    test('an incumbent naming nothing still available gives way to the selection', () => {
+      const selected = selectTurnTools(TURN_TOOLS, { web_search: 0.6 }, 3)
+      assert.equal(holdTurnTools(TURN_TOOLS, selected, ['gone'], false), selected)
+    })
+
+    test('a tool disabled since last turn cannot come back through an indecisive hold', () => {
+      const shrunk = TURN_TOOLS.filter((t) => t.function.name !== 'read_file')
+      const selected = selectTurnTools(shrunk, { web_search: 0.6 })
+      const out = holdTurnTools(shrunk, selected, previous, false)
+      assert.ok(!names(out).includes('read_file'))
+      assert.deepEqual(names(out), names(shrunk).filter((n) => previous.includes(n)))
     })
   })
 })
