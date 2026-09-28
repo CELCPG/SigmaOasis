@@ -10,7 +10,9 @@ import { fetchWebpage } from './search'
 import { extractProduct } from './productExtract'
 import { readWatchlist, recordPrice } from './watchlist'
 import { checkPackFreshness, listPacks, readAppPack, writeAppPack } from './library'
-import { LEDGER_PACK_ID, LEDGER_PACK_NAME } from '../../shared/factLedger'
+import { ledgerNow } from './factLedger'
+import { expiresAtFor, LEDGER_PACK_ID, LEDGER_PACK_NAME } from '../../shared/factLedger'
+import type { ClaimClass } from '../../shared/factLedger'
 import { afterRun, dueJobs, JOB_INTERVAL_MS } from '../../shared/jobs'
 import type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../../shared/jobs'
 
@@ -326,7 +328,8 @@ async function runPriceJob(job: Job): Promise<JobRunResult> {
 
 async function runLedgerJob(): Promise<JobRunResult> {
   const pack = await readAppPack(LEDGER_PACK_ID)
-  const now = Date.now()
+  // The ledger's own clock, so this run and a lookup agree on what has expired.
+  const now = ledgerNow()
   const expired = (pack?.docs ?? []).filter((d) => d.claim && typeof d.expiresAt === 'number' && now > d.expiresAt)
   if (expired.length === 0) return { outcome: 'ok', note: 'nothing past its freshness' }
   const lines: string[] = []
@@ -337,9 +340,13 @@ async function runLedgerJob(): Promise<JobRunResult> {
     const still = page?.ok === true && page.text.toLowerCase().replace(/\s+/g, ' ').includes(value)
     if (still) {
       confirmed += 1
+      // Re-confirmed is refreshed: the stamps upsertClaims gives a claim a reply
+      // states again, so the claim is fresh for its class's window from now.
+      const checked = new Date(now).toISOString().slice(0, 10)
       doc.checkedAt = now
-      doc.expiresAt = doc.expiresAt === null ? null : now + (doc.expiresAt! - (doc.checkedAt ?? now)) // same window again
-      doc.date = `checked ${new Date(now).toISOString().slice(0, 10)}`
+      doc.expiresAt = expiresAtFor(doc.claim!.claimClass as ClaimClass, now)
+      doc.date = `checked ${checked}`
+      doc.text = doc.text.replace(/\nChecked: [^\n]*/, `\nChecked: ${checked}`)
       lines.push(`✅ still states ${doc.claim!.value}: ${doc.title}`)
     } else {
       lines.push(`⚠️ no longer states ${doc.claim!.value}${page?.ok ? '' : ' (page unavailable)'}: ${doc.title} — ${doc.source ?? ''}`)

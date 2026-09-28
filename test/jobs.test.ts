@@ -1,9 +1,12 @@
-import { test, describe, beforeEach } from 'node:test'
+import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { promises as fs } from 'fs'
+import { promises as fs, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
-import { load, resetState, testUserDataDir } from './harness'
+import { load, resetState, state, testUserDataDir } from './harness'
 import { afterRun, dueJobs, JOB_INTERVAL_MS, MAX_JOB_FAILURES } from '../src/shared/jobs'
+import { claimKey, expiresAtFor, LEDGER_PACK_ID } from '../src/shared/factLedger'
+import type { ClaimClass } from '../src/shared/factLedger'
 import type { Job } from '../src/shared/jobs'
 
 /**
@@ -203,5 +206,70 @@ describe('the job store', () => {
   test('a hand-edited file keeps only well-formed jobs', async () => {
     await fs.writeFile(join(testUserDataDir(), 'jobs.json'), JSON.stringify({ jobs: [{ id: 'x' }, job()] }))
     assert.deepEqual((await jobsMod.readJobs()).map((j) => j.id), ['j1'])
+  })
+})
+
+describe('the ledger runner', () => {
+  const jobsMod = load<typeof import('../src/main/ipc/jobs')>('jobs')
+  const ledger = load<typeof import('../src/main/ipc/factLedger')>('factLedger')
+  const lib = load<typeof import('../src/main/ipc/library')>('library')
+  const DAY = 24 * HOUR
+  let dir = ''
+
+  const draft = (claimClass: ClaimClass, question: string, value: string, sentence: string, url: string) => ({
+    key: claimKey(claimClass, question),
+    claimClass,
+    value,
+    sentence,
+    url,
+    question
+  })
+
+  beforeEach(() => {
+    resetState()
+    dir = mkdtempSync(join(tmpdir(), 'sigma-ledger-job-'))
+    lib.setLibraryDirForTests(dir)
+  })
+  afterEach(() => {
+    delete process.env.SIGMA_LEDGER_NOW
+    lib.setLibraryDirForTests(null)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('a claim its source still states is fresh for its class’s window again; one it no longer states stays expired', async () => {
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims([
+      draft('money', 'How much is an adult ticket to the Harrowgate Maritime Museum?', '$18.50', 'An adult ticket costs $18.50.', 'https://harrowgate.example/visit'),
+      draft('contact', 'What is the Harrowgate Maritime Museum’s phone number?', '(555) 014-2290', 'Call (555) 014-2290.', 'https://harrowgate.example/contact')
+    ])
+    // Past both windows: a price holds a day, a phone number 180.
+    const later = T0 + 181 * DAY
+    process.env.SIGMA_LEDGER_NOW = String(later)
+    state.responses = [
+      { match: 'harrowgate.example/visit', contentType: 'text/html', body: '<html><body><p>Adult tickets cost $18.50.</p></body></html>' },
+      { match: 'harrowgate.example/contact', contentType: 'text/html', body: '<html><body><p>Call us on (555) 014-9999.</p></body></html>' }
+    ]
+
+    const first = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
+    assert.equal(first.note, '1/2 re-confirmed')
+    const docs = (await lib.readAppPack(LEDGER_PACK_ID))!.docs
+    const price = docs.find((d) => d.claim?.claimClass === 'money')!
+    const phone = docs.find((d) => d.claim?.claimClass === 'contact')!
+    // Re-confirmed is refreshed, as upsertClaims refreshes a claim a reply states again.
+    assert.equal(price.expiresAt, expiresAtFor('money', later))
+    assert.equal(price.checkedAt, later)
+    const day = new Date(later).toISOString().slice(0, 10)
+    assert.equal(price.date, `checked ${day}`)
+    assert.match(price.text, new RegExp(`\\nChecked: ${day}\\n`))
+    // Not re-confirmed is left as it was: still expired, still dated when it was last true.
+    assert.equal(phone.expiresAt, expiresAtFor('contact', T0))
+    assert.equal(phone.checkedAt, T0)
+    assert.deepEqual(await ledger.ledgerStats(), { entries: 2, expired: 1 })
+
+    // The next run re-checks only what is still past its freshness.
+    state.fetchLog = []
+    const second = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
+    assert.equal(second.note, '0/1 re-confirmed')
+    assert.deepEqual(state.fetchLog.map((f) => f.url), ['https://harrowgate.example/contact'])
   })
 })
