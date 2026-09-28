@@ -6,16 +6,24 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlanBlockView } from '../src/renderer/src/components/PlanBlockView'
 import {
+  ABANDONED_AT_GATE,
+  ABANDONED_MID_RUN,
+  abandonedNote,
+  abandonOrphanedPlans,
+  abandonPlan,
   awaitingApproval,
   endPlan,
   OUTCOME_LABEL,
+  PLAN_OUTCOMES,
   planHeaderCount,
   planHeaderStatus,
   STATUS_LABEL,
   STATUS_NOTE
 } from '../src/renderer/src/lib/planState'
 import type {
+  ChatMessage,
   ChatPlan,
+  Conversation,
   PlanOutcome,
   PlanStep,
   PlanStepStatus,
@@ -86,6 +94,26 @@ const FAILED = endPlan(
   'failed'
 )
 const QUEUED = plan([step(1, 'running'), step(2, 'pending'), step(3, 'pending')])
+/**
+ * The shape a plan comes back from disk in when the app quit while it was
+ * waiting to be approved — unapproved, nothing run, and no resolver behind it.
+ * Built by hand here and produced by `abandonOrphanedPlans` further down, so
+ * the block is measured against the object the load path really makes.
+ */
+const ABANDONED_PLAN = abandonPlan(
+  plan([step(1, 'pending'), step(2, 'pending'), step(3, 'pending')], { approved: false })
+)
+/**
+ * The other half of the same failure: the app quit with a step in flight. Left
+ * alone this rendered `running` in the accent ink over a '◌' pulsing forever.
+ */
+const ABANDONED_MID = abandonPlan(
+  plan([step(1, 'done', 'ok'), step(2, 'running'), step(3, 'pending'), step(4, 'pending')])
+)
+/** The same shape the sweep is asserted to produce, three steps rather than four. */
+const ABANDONED_MID_PLAN = abandonPlan(
+  plan([step(1, 'done', 'ok'), step(2, 'running'), step(3, 'pending')])
+)
 
 describe('a cancelled plan is over', () => {
   const html = render(CANCELLED)
@@ -154,19 +182,20 @@ describe('a plan that failed on its own still reads as a failure', () => {
   })
 })
 
-describe('the six states a reader has to tell apart', () => {
+describe('the seven states a reader has to tell apart', () => {
   const states: ChatPlan[] = [
     plan([step(1, 'pending'), step(2, 'pending')], { approved: false }), // never approved
     plan([step(1, 'done', 'ok'), step(2, 'running')]), // running
     endPlan(plan([step(1, 'done', 'ok'), step(2, 'done', 'ok')]), 'completed'),
     CANCELLED,
     STOPPED,
-    FAILED
+    FAILED,
+    ABANDONED_PLAN
   ]
 
   test('each renders a different header', () => {
     const headers = states.map((p) => header(render(p)))
-    assert.equal(new Set(headers).size, 6)
+    assert.equal(new Set(headers).size, 7)
   })
 
   test('only the one that can still be approved offers the buttons', () => {
@@ -193,7 +222,7 @@ describe('endPlan', () => {
   test('an ended plan never awaits approval again', () => {
     const pendingUnapproved = plan([step(1, 'pending')], { approved: false })
     assert.equal(awaitingApproval(pendingUnapproved), true)
-    for (const outcome of ['completed', 'cancelled', 'stopped', 'failed'] as const) {
+    for (const outcome of ['completed', 'cancelled', 'stopped', 'failed', 'abandoned'] as const) {
       assert.equal(awaitingApproval(endPlan(pendingUnapproved, outcome)), false)
     }
   })
@@ -280,13 +309,14 @@ const INK_TOKENS = (() => {
  * They exist because a raw palette step cannot be theme-aware: the plan block's
  * outcomes and step statuses were `text-red-500` / `text-amber-600` / their
  * `dark:` twins, and the light half of every one of those pairs was under AA
- * (3.10–3.67:1). Hue still has to separate the four outcomes, which is what the
- * assertions below check; these only say what each hue *is*.
+ * (3.10–3.67:1). Hue still has to separate the five outcomes, which is what the
+ * assertions below check; these only say what each hue *is*. `info` is v3.0.1's,
+ * for the app's own ending — see `abandoned` in lib/planState.ts.
  */
 const STATUS_INK = (() => {
   const css = readFileSync(join(REPO, 'src/renderer/src/assets/index.css'), 'utf8')
   const out: Record<string, string[]> = {}
-  for (const name of ['danger', 'warn', 'ok']) {
+  for (const name of ['danger', 'warn', 'ok', 'info']) {
     const found = css.match(new RegExp(`--text-${name}:\\s*(#[0-9a-fA-F]{6})`, 'g')) ?? []
     assert.equal(found.length, 2, `index.css no longer defines --text-${name} once per theme`)
     out[name] = found.map((m) => m.slice(m.indexOf('#')))
@@ -456,7 +486,8 @@ const ENDED: Record<PlanOutcome, ChatPlan> = {
   completed: endPlan(plan([step(1, 'done', 'ok'), step(2, 'done', 'ok')]), 'completed'),
   cancelled: CANCELLED,
   stopped: STOPPED,
-  failed: FAILED
+  failed: FAILED,
+  abandoned: ABANDONED_PLAN
 }
 
 describe('a terminal outcome is the most legible thing in the block', () => {
@@ -489,6 +520,25 @@ describe('a terminal outcome is the most legible thing in the block', () => {
         for (const n of body) assert.notEqual(n.cls, badge!.cls)
       })
     }
+  }
+
+  // "Hue still separates" the outcomes has been OUTCOME_CLASS's claim since
+  // v1.12.3, and until v3.0.1 nothing here checked it: a mutation that gave
+  // `abandoned` the neutral ink of `cancelled` passed this whole file. Those
+  // two in particular must not share one — one is the reader's Cancel, the
+  // other the app's quit — so the claim is measured, as the ink each badge
+  // actually resolves to, in both themes.
+  for (const dark of [false, true]) {
+    test(`no two outcomes share an ink (${dark ? 'dark' : 'light'})`, () => {
+      const inks = (Object.keys(ENDED) as PlanOutcome[]).map((outcome) => {
+        const html = render(ENDED[outcome])
+        const badge = textNodes(html).find((n) => n.text === OUTCOME_LABEL[outcome])
+        assert.ok(badge, `no element renders "${OUTCOME_LABEL[outcome]}" as its own text`)
+        return `${outcome}=${ink(badge!.cls, dark, background(html, dark)).map(Math.round).join(',')}`
+      })
+      const colours = inks.map((s) => s.slice(s.indexOf('=') + 1))
+      assert.equal(new Set(colours).size, inks.length, `outcomes share an ink: ${inks.join(' | ')}`)
+    })
   }
 })
 
@@ -1095,7 +1145,14 @@ describe('the reconciliation is the whole difference, not one side of it', () =>
  * one repeating it.
  */
 describe('a step that never reached its forecast is not faulted for it', () => {
-  for (const status of ['pending', 'running', 'failed', 'stopped', 'skipped'] as const) {
+  for (const status of [
+    'pending',
+    'running',
+    'failed',
+    'stopped',
+    'skipped',
+    'interrupted'
+  ] as const) {
     test(`a ${status} step is not told it skipped its forecast`, () => {
       const html = render(
         plan([
@@ -1149,7 +1206,8 @@ const EVERY_STATUS: PlanStepStatus[] = [
   'done',
   'failed',
   'stopped',
-  'skipped'
+  'skipped',
+  'interrupted'
 ]
 
 /** The tag of the row's disclosure control, if the row rendered one. */
@@ -1159,13 +1217,13 @@ function stepButton(row: string): string | null {
 }
 
 describe('every step status says what it is, not only what colour it is', () => {
-  test('all six statuses are named, and no two alike', () => {
+  test('all seven statuses are named, and no two alike', () => {
     const labels = EVERY_STATUS.map((s) => STATUS_LABEL[s])
     for (const [i, label] of labels.entries()) {
       assert.ok(label && label.trim().length > 0, `${EVERY_STATUS[i]} has no label`)
     }
-    assert.equal(new Set(labels).size, 6, `two statuses share a label: ${labels.join(' | ')}`)
-    assert.equal(Object.keys(STATUS_LABEL).length, 6, 'a status exists with no label')
+    assert.equal(new Set(labels).size, 7, `two statuses share a label: ${labels.join(' | ')}`)
+    assert.equal(Object.keys(STATUS_LABEL).length, 7, 'a status exists with no label')
   })
 
   for (const status of EVERY_STATUS) {
@@ -1225,7 +1283,8 @@ describe('the block has one live region, and it carries the state', () => {
     ['finished', endPlan(plan([step(1, 'done', 'ok')]), 'completed'), OUTCOME_LABEL.completed],
     ['cancelled', CANCELLED, OUTCOME_LABEL.cancelled],
     ['stopped', STOPPED, OUTCOME_LABEL.stopped],
-    ['failed', FAILED, OUTCOME_LABEL.failed]
+    ['failed', FAILED, OUTCOME_LABEL.failed],
+    ['abandoned', ABANDONED_PLAN, OUTCOME_LABEL.abandoned]
   ]
 
   for (const [name, p, expected] of STATES) {
@@ -1242,9 +1301,9 @@ describe('the block has one live region, and it carries the state', () => {
     })
   }
 
-  test('the six states put six different words in that one region', () => {
+  test('the seven states put seven different words in that one region', () => {
     const words = STATES.map(([, p]) => planHeaderStatus(p).text)
-    assert.equal(new Set(words).size, 6, `states collapsed to ${words.join(' | ')}`)
+    assert.equal(new Set(words).size, 7, `states collapsed to ${words.join(' | ')}`)
   })
 
   test('the step count stays outside it, so a run does not narrate itself', () => {
@@ -1297,8 +1356,9 @@ describe('the block names itself out of the header a reader can see', () => {
  * block. Every ending the app reaches on its own is a different word —
  * `stopped` from the abort listener on the approval gate and the
  * `signal.aborted` checks around each step, `failed` from a step that threw,
- * `completed` from a plan that ran out. There is no fourth way in, so there is
- * no second case to write words for.
+ * `completed` from a plan that ran out, and (v3.0.1) `abandoned` from the load
+ * sweep, for a plan whose process died under it. There is no fifth way in, so
+ * there is no second case to write words for.
  *
  * That is a property of the source, not of the render, so the last test here
  * reads the source. A future path that ends a plan without the reader touching
@@ -1316,12 +1376,15 @@ describe('a plan that ended says whose decision it was', () => {
   })
 
   test('exactly the two outcomes the reader causes name the reader', () => {
-    const byReader = (['completed', 'cancelled', 'stopped', 'failed'] as const).filter((o) =>
-      /\byou\b/.test(OUTCOME_LABEL[o])
-    )
-    // The true negative: a plan that finished and a plan that failed are the
-    // app's own doing, and must not be laid at the reader's door.
+    // Every outcome there is, read off the label table rather than typed out:
+    // v3.0.1 added a fifth, and a hand-written list here would have let it
+    // claim the reader without this test ever seeing it.
+    const byReader = PLAN_OUTCOMES.filter((o) => /\byou\b/.test(OUTCOME_LABEL[o]))
+    // The true negative: a plan that finished, a plan that failed and a plan
+    // the app walked out on are not the reader's doing, and must not be laid
+    // at the reader's door.
     assert.deepEqual(byReader, ['cancelled', 'stopped'])
+    assert.ok(PLAN_OUTCOMES.includes('abandoned'), 'the outcome list is not the whole union')
   })
 
   test('the app has exactly one way to write "cancelled", and it is the reader’s button', () => {
@@ -1395,6 +1458,11 @@ describe('a plan that is over stops reporting progress (v2.4)', () => {
     // was the fraction inviting the reader to wait for steps 3 and 4.
     assert.equal(planHeaderCount(STOPPED), '4 steps: 1 done, 1 stopped by you, 2 never ran')
     assert.equal(planHeaderCount(FAILED), '3 steps: 1 done, 1 failed, 1 never ran')
+    // v3.0.1: the plan the app walked out on is a dead checklist too, and the
+    // step it was in the middle of is counted as what it is — neither a step
+    // the reader stopped nor one that never ran.
+    assert.equal(planHeaderCount(ABANDONED_MID), '4 steps: 1 done, 1 cut off, 2 never ran')
+    assert.equal(planHeaderCount(ABANDONED_PLAN), '3 steps: 3 never ran')
   })
 
   test('the census accounts for every step, whatever the statuses are', () => {
@@ -1402,7 +1470,7 @@ describe('a plan that is over stops reporting progress (v2.4)', () => {
     // the header sum to the number of rows below it. A tally that walked a
     // hand-written list of statuses and missed one would leave rows
     // unaccounted for, and this is the assertion that would catch it.
-    for (const p of [CANCELLED, STOPPED, FAILED]) {
+    for (const p of [CANCELLED, STOPPED, FAILED, ABANDONED_PLAN, ABANDONED_MID]) {
       const text = planHeaderCount(p)
       const tallied = Object.values(STATUS_LABEL).reduce((sum, label) => {
         const m = text.match(new RegExp(`\\b(\\d+) ${label.toLowerCase()}\\b`))
@@ -1427,5 +1495,555 @@ describe('a plan that is over stops reporting progress (v2.4)', () => {
       planHeaderCount(plan([step(1, 'pending'), step(2, 'pending')], { approved: false })),
       '0/2 steps done'
     )
+  })
+})
+
+/* ---- v3.0.1: the approval that did not survive the quit -------------------- */
+
+/**
+ * The last opening in the gap v1.12 closed, on the other side of a restart.
+ *
+ * `planApprovals` (hooks/planMode.ts) is a module-level Map and nothing else,
+ * so a plan that reached disk with its gate open came back with
+ * `approved:false`, no outcome and every step 'pending' — which is exactly
+ * what `awaitingApproval` is looking for. The block drew "▶ Run this plan" and
+ * "Cancel" in full colour over a resolver that no longer existed;
+ * `resolvePlan` found nothing in the Map and returned, so both buttons did
+ * nothing and said nothing.
+ *
+ * Two failures at once: a control offered where the app cannot perform the
+ * remedy, and a plan the app abandoned by quitting still asking the reader to
+ * decide. The second is why 'abandoned' had to be its own word — 'cancelled'
+ * and 'stopped' are the reader's, and spending one of them here would have
+ * credited them with a decision the app took away from them.
+ */
+describe('a plan whose approval died with the app', () => {
+  const html = render(ABANDONED_PLAN)
+  assert.equal(ABANDONED_PLAN.approved, false)
+
+  test('no control is offered that the app cannot honour', () => {
+    assert.equal(enabledButtons(html), 0)
+    assert.ok(!/Run this plan/.test(html), 'still renders "▶ Run this plan"')
+    assert.ok(!/>Cancel</.test(html), 'still renders "Cancel"')
+  })
+
+  test('nothing reads as awaiting approval', () => {
+    assert.ok(!/awaiting approval/.test(html), 'still reads "awaiting approval"')
+    assert.equal(awaitingApproval(ABANDONED_PLAN), false)
+  })
+
+  test('the header names the app as what ended it', () => {
+    assert.match(header(html), /the app quit/)
+  })
+
+  test('the header does not attribute the ending to the reader', () => {
+    const h = header(html)
+    assert.ok(!/cancelled/.test(h), 'the app’s own ending is labelled "cancelled"')
+    assert.ok(!/stopped by you/.test(h), 'the app’s own ending is labelled "stopped by you"')
+  })
+
+  test('no step is left looking queued', () => {
+    assert.equal((html.match(/○/g) ?? []).length, 0)
+    for (const row of rows(html)) assert.match(row, /never ran/)
+  })
+
+  test('the reader is told why the buttons are gone and what to do instead', () => {
+    assert.match(html, /The app quit while this plan was waiting to be approved/)
+    assert.match(html, /Send the request again/)
+  })
+
+  test('the note sits where the controls were, below the steps', () => {
+    assert.ok(html.indexOf(ABANDONED_AT_GATE) > html.indexOf('</ol>'), 'the note is above the checklist')
+  })
+
+  test('the note does not outrank the outcome it explains', () => {
+    const note = textNodes(html).find((n) => n.text === ABANDONED_AT_GATE)
+    assert.ok(note, 'no element renders the note as its own text')
+    const badge = textNodes(html).find((n) => n.text === OUTCOME_LABEL.abandoned)
+    assert.ok(badge, 'no element renders the outcome as its own text')
+    assert.ok(weight(note!.cls) < weight(badge!.cls), 'the note is set as heavy as the outcome')
+  })
+
+  for (const dark of [false, true]) {
+    test(`the note clears AA in the ${dark ? 'dark' : 'light'} theme`, () => {
+      const note = textNodes(html).find((n) => n.text === ABANDONED_AT_GATE)!
+      const ratio = legible(note, html, dark)
+      assert.ok(ratio >= 4.5, `${ratio.toFixed(2)}:1`)
+    })
+  }
+
+  test('the note is louder than the steps that never ran', () => {
+    const note = textNodes(html).find((n) => n.text === ABANDONED_AT_GATE)!
+    for (const dark of [false, true]) {
+      const body = textNodes(html).filter(isBodyCopy)
+      assert.ok(body.length > 0, 'no step copy in the block to compare against')
+      const loudest = Math.max(...body.map((n) => legible(n, html, dark)))
+      assert.ok(
+        legible(note, html, dark) > loudest,
+        `note ${legible(note, html, dark).toFixed(2)}:1 vs copy ${loudest.toFixed(2)}:1`
+      )
+    }
+  })
+
+  test('a plan that ended any other way is not given the note', () => {
+    for (const outcome of ['completed', 'cancelled', 'stopped', 'failed'] as const) {
+      assert.ok(
+        !render(ENDED[outcome]).includes(ABANDONED_AT_GATE),
+        `a ${outcome} plan explains itself as abandoned`
+      )
+    }
+    assert.ok(!render(AWAITING).includes(ABANDONED_AT_GATE), 'a live gate explains itself as abandoned')
+  })
+})
+
+/**
+ * The louder half of the same failure, and the one nobody had to press.
+ *
+ * A plan that was *executing* when the app quit reaches disk by the same
+ * routes and comes back with `approved:true`, no outcome, and a step still
+ * marked 'running'. The header rendered `running` in the accent ink and the
+ * row rendered '◌' with `animate-pulse` — an animation asserting that work is
+ * happening right now, in a process that stopped existing, and unlike the dead
+ * buttons it never even had to be interacted with to lie. Nothing resolves it,
+ * because the thing that would have resolved it is what died.
+ */
+describe('a plan the app quit in the middle of', () => {
+  const html = render(ABANDONED_MID)
+  const r = rows(html)
+
+  test('the header no longer says the plan is running', () => {
+    assert.ok(!/running/.test(header(html)), 'the header still claims live work')
+    assert.match(header(html), /the app quit/)
+  })
+
+  test('nothing in the block is still animated', () => {
+    assert.ok(!/animate-pulse/.test(html), 'a row is still pulsing after the process died')
+    assert.equal((html.match(/◌/g) ?? []).length, 0, 'the running glyph survived')
+  })
+
+  test('the step that was in flight says where it was cut off', () => {
+    assert.match(r[1]!, /⊘/)
+    assert.match(r[1]!, /cut off here/)
+  })
+
+  test('being cut off is not being stopped by the reader, and not failing', () => {
+    assert.notEqual(marker(r[1]!), marker(rows(render(STOPPED))[1]!))
+    assert.notEqual(marker(r[1]!), marker(rows(render(FAILED))[1]!))
+    assert.ok(!r[1]!.includes('text-ink-danger'), 'the interrupted step renders in failure red')
+    assert.ok(!r[1]!.includes('text-ink-warn'), 'the interrupted step renders in the reader’s Stop amber')
+    assert.notEqual(STATUS_LABEL.interrupted, STATUS_LABEL.stopped)
+    assert.ok(!/\byou\b/i.test(STATUS_LABEL.interrupted), 'the cut-off row is attributed to the reader')
+    assert.ok(!/stopped here/.test(r[1]!), 'the interrupted step borrows the reader’s word')
+  })
+
+  test('it is also not a step that never ran', () => {
+    assert.notEqual(marker(r[1]!), marker(r[2]!))
+    assert.ok(!/never ran/.test(r[1]!), 'a step that was cut off mid-flight is told it never ran')
+    assert.match(r[2]!, /never ran/)
+    assert.match(r[3]!, /never ran/)
+  })
+
+  test('the step that finished keeps its result', () => {
+    assert.match(r[0]!, /✓/)
+    assert.ok(!/never ran/.test(r[0]!))
+  })
+
+  test('the interrupted row is not struck through like one that never ran', () => {
+    // It ran. What it says about itself is a description of work that started,
+    // which is a different claim from a row whose contents never happened.
+    const strike = (row: string): number => (row.match(/line-through/g) ?? []).length
+    assert.equal(strike(r[1]!), 0)
+    assert.ok(strike(r[2]!) > 0, 'a never-run row stopped being struck')
+  })
+
+  for (const dark of [false, true]) {
+    test(`the cut-off glyph clears AA in the ${dark ? 'dark' : 'light'} theme`, () => {
+      const glyph = textNodes(html).find((n) => n.text === '⊘')
+      assert.ok(glyph, 'no element renders the interrupted glyph as its own text')
+      const ratio = legible(glyph!, html, dark)
+      assert.ok(ratio >= 4.5, `${ratio.toFixed(2)}:1`)
+    })
+  }
+
+  test('the note says the plan was running, not that it was waiting to start', () => {
+    assert.ok(html.includes(ABANDONED_MID_RUN), 'the mid-run note is missing')
+    assert.ok(!html.includes(ABANDONED_AT_GATE), 'a plan that ran says nothing ran')
+    assert.ok(!/nothing ran/.test(ABANDONED_MID_RUN), 'the mid-run note claims nothing ran')
+  })
+
+  test('the two abandonments share a badge and are told apart below it', () => {
+    // The badge names the ending and claims no extent, on purpose — so the
+    // rows and the note are the only things that can carry how far it got, and
+    // they have to.
+    const badge = (h: string): string =>
+      textNodes(h).find((n) => n.text === OUTCOME_LABEL.abandoned)!.cls
+    assert.equal(badge(html), badge(render(ABANDONED_PLAN)))
+    assert.match(header(html), /abandoned when the app quit/)
+    assert.notEqual(abandonedNote(ABANDONED_MID), abandonedNote(ABANDONED_PLAN))
+    assert.notEqual(rows(render(ABANDONED_PLAN))[1], r[1])
+  })
+})
+
+describe('abandonedNote', () => {
+  test('an unapproved plan is told nothing ran, because nothing did', () => {
+    assert.equal(abandonedNote(ABANDONED_PLAN), ABANDONED_AT_GATE)
+    assert.match(ABANDONED_AT_GATE, /waiting to be approved/)
+    assert.match(ABANDONED_AT_GATE, /nothing ran/)
+  })
+
+  test('an approved plan is not', () => {
+    assert.equal(abandonedNote(ABANDONED_MID), ABANDONED_MID_RUN)
+    assert.match(ABANDONED_MID_RUN, /while this plan was running/)
+  })
+
+  test('approval is the discriminator even where no step got going', () => {
+    // The app can quit between "approved" and the first step's own patch. The
+    // rows say nothing ran; the note must not say it was still awaiting a
+    // decision the reader had already given.
+    const justApproved = abandonPlan(plan([step(1, 'pending'), step(2, 'pending')]))
+    assert.deepEqual(justApproved.steps.map((s) => s.status), ['skipped', 'skipped'])
+    assert.equal(abandonedNote(justApproved), ABANDONED_MID_RUN)
+    assert.ok(!render(justApproved).includes(ABANDONED_AT_GATE))
+  })
+
+  test('both notes offer the same way forward', () => {
+    for (const note of [ABANDONED_AT_GATE, ABANDONED_MID_RUN]) {
+      assert.match(note, /The app quit/)
+      assert.match(note, /Send the request again for a fresh plan\./)
+    }
+  })
+})
+
+describe('abandonPlan', () => {
+  test('the step in flight is interrupted; the ones behind it never ran', () => {
+    const out = abandonPlan(
+      plan([step(1, 'done', 'ok'), step(2, 'running'), step(3, 'pending')])
+    )
+    assert.deepEqual(
+      out.steps.map((s) => s.status),
+      ['done', 'interrupted', 'skipped']
+    )
+    assert.equal(out.outcome, 'abandoned')
+  })
+
+  test('a step that already ended keeps what it said', () => {
+    const out = abandonPlan(
+      plan([step(1, 'failed', 'ECONNREFUSED'), step(2, 'stopped'), step(3, 'done', 'ok')])
+    )
+    assert.deepEqual(
+      out.steps.map((s) => s.status),
+      ['failed', 'stopped', 'done']
+    )
+  })
+
+  test('it is endPlan plus the one status endPlan has no reason to touch', () => {
+    // `endPlan` is the executor's, and the executor never hands it a running
+    // step — it patches the row before it settles the plan. Only a process
+    // that died mid-step can, which is why this lives here and not there.
+    const settled = plan([step(1, 'done', 'ok'), step(2, 'failed', 'boom'), step(3, 'pending')])
+    assert.deepEqual(abandonPlan(settled).steps, endPlan(settled, 'abandoned').steps)
+    const midFlight = plan([step(1, 'running')])
+    assert.equal(endPlan(midFlight, 'abandoned').steps[0]!.status, 'running')
+    assert.equal(abandonPlan(midFlight).steps[0]!.status, 'interrupted')
+  })
+})
+
+/* ---- the load sweep, and the two things it must not touch ------------------ */
+
+function planMessage(id: string, p: ChatPlan): ChatMessage {
+  return { id, role: 'assistant', content: '', plan: p, createdAt: 1 }
+}
+
+function convo(...messages: ChatMessage[]): Conversation {
+  return {
+    id: 'c1',
+    title: 'Two weeks of water',
+    mode: 'independent',
+    messages,
+    createdAt: 1,
+    updatedAt: 2
+  }
+}
+
+/** No executor is waiting on anything — the state after a restart. */
+const NOTHING_LIVE = { has: () => false }
+
+const ORPHAN = plan([step(1, 'pending'), step(2, 'pending'), step(3, 'pending')], {
+  approved: false
+})
+
+describe('a plan read off disk with nobody behind it is settled at load', () => {
+  test('the orphan is the shape the failure was found in', () => {
+    assert.equal(awaitingApproval(ORPHAN), true)
+    assert.match(render(ORPHAN), /Run this plan/)
+    assert.equal(enabledButtons(render(ORPHAN)), 2)
+  })
+
+  const swept = abandonOrphanedPlans([convo(planMessage('m1', ORPHAN))], NOTHING_LIVE)
+  const settled = swept[0]!.messages[0]!.plan!
+
+  test('it is marked abandoned, and nothing else', () => {
+    assert.equal(settled.outcome, 'abandoned')
+    assert.equal(settled.approved, false)
+  })
+
+  test('every step says it never ran', () => {
+    assert.deepEqual(
+      settled.steps.map((s) => s.status),
+      ['skipped', 'skipped', 'skipped']
+    )
+  })
+
+  test('the settled plan is the one the block was measured against', () => {
+    assert.deepEqual(settled, ABANDONED_PLAN)
+  })
+
+  test('the dead controls are gone from what renders', () => {
+    assert.equal(enabledButtons(render(settled)), 0)
+    assert.ok(!/Run this plan/.test(render(settled)))
+  })
+
+  test('a second load changes nothing further', () => {
+    const again = abandonOrphanedPlans(swept, NOTHING_LIVE)
+    assert.deepEqual(again[0]!.messages[0]!.plan, settled)
+    assert.equal(again[0], swept[0], 'a settled plan is rewritten on every load')
+  })
+
+  test('the mid-run orphan is settled by the same sweep', () => {
+    const running = plan([step(1, 'done', 'ok'), step(2, 'running'), step(3, 'pending')])
+    assert.equal(running.outcome, undefined)
+    assert.match(render(running), /animate-pulse/)
+
+    const out = abandonOrphanedPlans([convo(planMessage('m1', running))], NOTHING_LIVE)
+    const settledRun = out[0]!.messages[0]!.plan!
+    assert.equal(settledRun.outcome, 'abandoned')
+    assert.deepEqual(
+      settledRun.steps.map((s) => s.status),
+      ['done', 'interrupted', 'skipped']
+    )
+    assert.ok(!/animate-pulse/.test(render(settledRun)), 'the row is still pulsing after the sweep')
+    assert.deepEqual(settledRun, ABANDONED_MID_PLAN)
+  })
+
+  test('one predicate covers both states, not two special cases', () => {
+    // The gate shape and the running shape are the same claim — a plan with no
+    // outcome asserts a process — and the sweep has to be written against the
+    // claim. A sweep keyed on the awaiting-approval shape passes this file's
+    // first half and leaves the louder half of the defect on screen.
+    for (const live of [
+      plan([step(1, 'pending'), step(2, 'pending')], { approved: false }),
+      plan([step(1, 'running'), step(2, 'pending')]),
+      plan([step(1, 'done', 'ok'), step(2, 'running')]),
+      plan([step(1, 'done', 'ok'), step(2, 'pending')])
+    ]) {
+      const out = abandonOrphanedPlans([convo(planMessage('m1', live))], NOTHING_LIVE)
+      assert.equal(out[0]!.messages[0]!.plan!.outcome, 'abandoned')
+      const html = render(out[0]!.messages[0]!.plan!)
+      // No control that resolves the gate. Counted by name rather than by
+      // `enabledButtons`: since v1.18 a row with something to open is a real
+      // button, so a step that finished before the quit still offers its
+      // disclosure — which works, and is not what this is about.
+      assert.ok(!/Run this plan/.test(html), 'still renders "▶ Run this plan"')
+      assert.ok(!/>Cancel</.test(html), 'still renders "Cancel"')
+      assert.ok(!/animate-pulse/.test(html))
+      assert.ok(!/>running</.test(header(html)))
+    }
+  })
+
+  test('the message keeps everything else it had', () => {
+    const message = planMessage('m1', ORPHAN)
+    message.content = 'Here is the plan.'
+    message.modelId = 'qwen3-8b'
+    const out = abandonOrphanedPlans([convo(message)], NOTHING_LIVE)[0]!.messages[0]!
+    assert.equal(out.content, 'Here is the plan.')
+    assert.equal(out.modelId, 'qwen3-8b')
+    assert.equal(out.id, 'm1')
+  })
+})
+
+/**
+ * The true negatives. Each is a plan `awaitingApproval` would answer for the
+ * same way the orphan does, or one the sweep has no business reading at all —
+ * so a sweep that fires on any of them has replaced a false "you may still
+ * decide this" with a false "the app quit on you", which is the same defect
+ * pointed the other way.
+ */
+describe('the load sweep leaves alone what it is not for', () => {
+  test('a gate that is genuinely open is untouched', () => {
+    // `load()` can run mid-session — through v2.8.0 it re-ran on every
+    // base-URL change, which the reader can make with the approval buttons on
+    // screen. The resolver is right there.
+    const live = { has: (id: string) => id === 'm1' }
+    const input = [convo(planMessage('m1', ORPHAN))]
+    const out = abandonOrphanedPlans(input, live)
+    assert.equal(out[0], input[0], 'a live gate was rewritten')
+    assert.equal(out[0]!.messages[0]!.plan!.outcome, undefined)
+    assert.match(render(out[0]!.messages[0]!.plan!), /Run this plan/)
+  })
+
+  test('a step that is genuinely running is untouched', () => {
+    // The other half of the same mirror. A plan mid-execution when `load()`
+    // runs is being worked on by this process; settling it would stop the
+    // pulse on a row where the pulse is telling the truth.
+    const live = { has: (id: string) => id === 'm1' }
+    const running = plan([step(1, 'done', 'ok'), step(2, 'running')])
+    const input = [convo(planMessage('m1', running))]
+    const out = abandonOrphanedPlans(input, live)
+    assert.equal(out[0], input[0], 'a live run was rewritten')
+    assert.equal(out[0]!.messages[0]!.plan!.outcome, undefined)
+    assert.match(render(out[0]!.messages[0]!.plan!), /animate-pulse/)
+    assert.match(header(render(out[0]!.messages[0]!.plan!)), />running</)
+  })
+
+  test('a plan that already ended keeps the ending it had', () => {
+    for (const outcome of Object.keys(ENDED) as PlanOutcome[]) {
+      const input = [convo(planMessage('m1', ENDED[outcome]))]
+      const out = abandonOrphanedPlans(input, NOTHING_LIVE)
+      assert.equal(out[0], input[0], `a ${outcome} plan was rewritten`)
+      assert.equal(out[0]!.messages[0]!.plan!.outcome, outcome)
+    }
+  })
+
+  test('a message carrying no plan is handed straight back', () => {
+    const message: ChatMessage = { id: 'm0', role: 'user', content: 'two weeks of water', createdAt: 1 }
+    const input = [convo(message)]
+    const out = abandonOrphanedPlans(input, NOTHING_LIVE)
+    assert.equal(out[0], input[0])
+    assert.equal(out[0]!.messages[0], message)
+  })
+
+  test('a conversation with nothing to settle is the object it came in as', () => {
+    const input = [convo(planMessage('m1', ENDED.completed)), convo(planMessage('m2', ENDED.failed))]
+    assert.deepEqual(abandonOrphanedPlans(input, NOTHING_LIVE), input)
+  })
+
+  test('only the orphan in a mixed conversation moves', () => {
+    const done = planMessage('m1', ENDED.completed)
+    const orphan = planMessage('m2', ORPHAN)
+    const out = abandonOrphanedPlans([convo(done, orphan)], NOTHING_LIVE)[0]!
+    assert.equal(out.messages[0], done, 'a finished plan was rewritten beside an orphan')
+    assert.equal(out.messages[1]!.plan!.outcome, 'abandoned')
+    assert.equal(out.title, 'Two weeks of water')
+  })
+})
+
+/**
+ * Who is allowed to write which ending.
+ *
+ * The whole point of a fifth outcome is that the four that existed were spoken
+ * for: `cancelled` and `stopped` are the reader's two, and the executor is the
+ * only thing that can observe either. `abandoned` is the app's one, and the
+ * load sweep is the only thing that can observe it. A word that starts being
+ * written from both places stops meaning anything, and the failure would be
+ * silent — the badge would still render, just about the wrong agent.
+ */
+describe('each ending has exactly one thing that can write it', () => {
+  const planStateSrc = readFileSync(join(REPO, 'src/renderer/src/lib/planState.ts'), 'utf8')
+  const planModeSrc = readFileSync(join(REPO, 'src/renderer/src/hooks/planMode.ts'), 'utf8')
+  const loadSrc = readFileSync(join(REPO, 'src/renderer/src/hooks/useConversations.ts'), 'utf8')
+
+  /**
+   * `abandonPlan` and `abandonOrphanedPlans`, up to the label table that follows
+   * them. Bounded rather than run to the end of the module, because the module
+   * went on growing after them — the audit ledger lives there now — and a
+   * reader's word written for the record would otherwise be charged to the
+   * sweep.
+   */
+  const sweep = planStateSrc.slice(
+    planStateSrc.indexOf('export function abandonPlan'),
+    planStateSrc.indexOf('export const OUTCOME_LABEL')
+  )
+  assert.ok(
+    planStateSrc.indexOf('export function abandonPlan') <
+      planStateSrc.indexOf('export function abandonOrphanedPlans') &&
+      planStateSrc.indexOf('export function abandonOrphanedPlans') <
+        planStateSrc.indexOf('export const OUTCOME_LABEL'),
+    'the sweep no longer sits between abandonPlan and OUTCOME_LABEL'
+  )
+
+  /**
+   * Prose out. These files name every one of these words in their own
+   * explanations, and a guard its own documentation trips is a guard nobody
+   * keeps — the repo has learned that one twice (see the grounding banner in
+   * chromeContrastCheck.ts).
+   */
+  const strip = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ')
+
+  test('the sweep is what the load path runs', () => {
+    const load = loadSrc.slice(loadSrc.indexOf('const load ='), loadSrc.indexOf('const createConversation'))
+    assert.ok(load.length > 0, 'useConversations no longer defines load before createConversation')
+    assert.match(load, /abandonOrphanedPlans\(/)
+    assert.match(load, /setConversations\(/)
+    assert.ok(
+      load.indexOf('abandonOrphanedPlans(') < load.indexOf('setConversations('),
+      'the store is filled before the orphans are settled'
+    )
+  })
+
+  test('the sweep is passed the executor’s own record of what it is behind', () => {
+    assert.match(loadSrc, /import \{ livePlans \} from '\.\/planMode'/)
+    assert.match(loadSrc, /abandonOrphanedPlans\([A-Za-z]+, livePlans\)/)
+  })
+
+  test('nothing but the sweep ends a plan as abandoned', () => {
+    // The literal, comments stripped — not a call shape, which a reformat can
+    // break while the property it was guarding still holds. `abandoned:` as a
+    // Record key is bare, so the only quoted use is the one that writes it.
+    const code = strip(planStateSrc)
+    const writes = (code.match(/'abandoned'/g) ?? []).length
+    assert.equal(writes, 1, `${writes} places in planState.ts end a plan as abandoned`)
+    assert.match(strip(sweep), /'abandoned'/)
+  })
+
+  test('the executor never writes the app’s ending', () => {
+    assert.ok(
+      !/'abandoned'/.test(strip(planModeSrc)),
+      'planMode.ts writes the outcome only load may write'
+    )
+  })
+
+  test('nothing but the sweep cuts a step off', () => {
+    const writes = (planStateSrc.match(/status: 'interrupted'/g) ?? []).length
+    assert.equal(writes, 1, `${writes} places in planState.ts mark a step interrupted`)
+    assert.match(sweep, /status: 'interrupted'/)
+    assert.ok(
+      !/'interrupted'/.test(strip(planModeSrc)),
+      'planMode.ts writes the step status only load may write'
+    )
+  })
+
+  test('the executor registers and releases what it is behind', () => {
+    // A leak here is silent and one-way: the id stays "live" forever, and the
+    // orphan it names is the one plan the sweep will never settle.
+    const turn = planModeSrc.slice(
+      planModeSrc.indexOf('export async function runPlanTurn'),
+      planModeSrc.indexOf('patchPlanErrorNotice(conversationId: string')
+    )
+    assert.ok(turn.length > 0, 'runPlanTurn no longer precedes patchPlanErrorNotice')
+    assert.match(turn, /livePlans\.add\(assistantMsg\.id\)/)
+    // `\s*`, not `\n`: a Windows checkout reads this file with CRLF endings.
+    assert.match(turn, /\} finally \{\s*livePlans\.delete\(assistantMsg\.id\)\s*\}/)
+    assert.ok(
+      turn.indexOf('livePlans.add(') < turn.indexOf('planApprovals.set('),
+      'the gate opens before the executor says it is behind the plan'
+    )
+    assert.equal((turn.match(/livePlans\.delete\(/g) ?? []).length, 1, 'more than one release')
+  })
+
+  test('the sweep never writes the reader’s endings', () => {
+    const code = strip(sweep)
+    assert.ok(!/'cancelled'/.test(code), 'the load sweep writes the reader’s Cancel')
+    assert.ok(!/'stopped'/.test(code), 'the load sweep writes the reader’s Stop')
+  })
+
+  test('the executor still owns both of the reader’s endings', () => {
+    // Since v1.17.4 the executor does not pick either word: it forwards the
+    // decision the gate was resolved with (`PlanDecision`), `'stopped'` from
+    // its own abort listener and `'cancelled'` from the Cancel button's
+    // resolver — see "the app has exactly one way to write" above.
+    assert.match(planModeSrc, /signal\.addEventListener\('abort', \(\) => resolve\('stopped'\)/)
+    assert.match(planModeSrc, /finish\(decision\)/)
+    assert.match(planModeSrc, /finish\('stopped'\)/)
   })
 })

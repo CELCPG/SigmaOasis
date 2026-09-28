@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import type { Job, JobInterval, JobKind } from '../../types'
 import { describeInterval, JOB_KIND_LABELS, MAX_JOB_FAILURES } from '../../../../shared/jobs'
+import { FIELD, FIELD_COMPACT } from './helpers'
 
 const REFRESH_MS = 5000
 const BUTTON = 'rounded-lg border border-black/10 dark:border-white/10 px-2.5 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40'
@@ -102,7 +103,7 @@ export function JobsTab(): JSX.Element {
                   On
                 </label>
                 <select
-                  className="rounded-lg text-xs"
+                  className={FIELD_COMPACT}
                   value={j.interval}
                   onChange={(e) => void window.api.jobsUpdate(j.id, { interval: e.target.value as JobInterval }).then(refresh)}
                   aria-label={`${j.title} interval`}
@@ -137,7 +138,7 @@ export function JobsTab(): JSX.Element {
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs">
             Kind
-            <select className="mt-1 w-full" value={kind} onChange={(e) => setKind(e.target.value as JobKind)}>
+            <select className={`mt-1 w-full ${FIELD}`} value={kind} onChange={(e) => setKind(e.target.value as JobKind)}>
               {(Object.keys(JOB_KIND_LABELS) as JobKind[]).map((k) => (
                 <option key={k} value={k}>
                   {JOB_KIND_LABELS[k]}
@@ -147,7 +148,7 @@ export function JobsTab(): JSX.Element {
           </label>
           <label className="text-xs">
             How often
-            <select className="mt-1 w-full" value={interval} onChange={(e) => setInterval_(e.target.value as JobInterval)}>
+            <select className={`mt-1 w-full ${FIELD}`} value={interval} onChange={(e) => setInterval_(e.target.value as JobInterval)}>
               <option value="hourly">every hour</option>
               <option value="daily">every day</option>
               <option value="weekly">every week</option>
@@ -157,11 +158,11 @@ export function JobsTab(): JSX.Element {
             <>
               <label className="text-xs sm:col-span-2">
                 Question
-                <input className="mt-1 w-full" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What changed in the local planning rules this week?" />
+                <input className={`mt-1 w-full ${FIELD}`} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What changed in the local planning rules this week?" />
               </label>
               <label className="text-xs">
                 Depth
-                <select className="mt-1 w-full" value={depth} onChange={(e) => setDepth(e.target.value as 'quick' | 'standard' | 'thorough')}>
+                <select className={`mt-1 w-full ${FIELD}`} value={depth} onChange={(e) => setDepth(e.target.value as 'quick' | 'standard' | 'thorough')}>
                   <option value="quick">quick</option>
                   <option value="standard">standard</option>
                   <option value="thorough">thorough</option>
@@ -175,7 +176,7 @@ export function JobsTab(): JSX.Element {
               {watches.length === 0 ? (
                 <span className="mt-1 block text-ink-tertiary">Nothing on the watchlist — ask a model to <code>price_watch</code> an item first.</span>
               ) : (
-                <select className="mt-1 w-full" value={url} onChange={(e) => setUrl(e.target.value)}>
+                <select className={`mt-1 w-full ${FIELD}`} value={url} onChange={(e) => setUrl(e.target.value)}>
                   {watches.map((w) => (
                     <option key={w.url} value={w.url}>
                       {w.name}

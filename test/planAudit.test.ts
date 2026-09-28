@@ -1,9 +1,9 @@
 import { test, describe, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'crypto'
-import { promises as fs, readFileSync } from 'fs'
+import { promises as fs } from 'fs'
 import { join } from 'path'
-import { load, resetState, state, testUserDataDir } from './harness'
+import { load, readSource, resetState, state, testUserDataDir } from './harness'
 import { AUDIT_ENTRY_KINDS, type AuditEntry } from '../src/shared/audit'
 import { BEYOND_ANY_RECORD, buildRunRecord } from '../scripts/h2h-record'
 import {
@@ -490,10 +490,7 @@ describe('the log accepts every kind it declares, and nothing else', () => {
  * the source, the same way the single writer of `cancelled` is.
  */
 describe('a step status has one writer, and it writes to both places', () => {
-  const planMode = readFileSync(
-    join(REPO, 'src', 'renderer', 'src', 'hooks', 'planMode.ts'),
-    'utf-8'
-  )
+  const planMode = readSource(join(REPO, 'src', 'renderer', 'src', 'hooks', 'planMode.ts'))
 
   test('the executor rewrites a plan’s steps in exactly the two places that record it', () => {
     const writers = planMode.split('\n').filter((l) => /steps: plan\.steps\.map/.test(l)).length

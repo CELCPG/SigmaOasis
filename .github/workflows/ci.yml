@@ -11,11 +11,16 @@ jobs:
     # macOS runs the full suite including the real-Electron window checks.
     # The Linux leg (v1.4.8) proves nothing is macOS-only: the node suite runs in
     # full, and the Electron checks self-skip without a display (xvfb-run
-    # provides one so they run there too).
+    # provides one so they run there too). The Windows leg (v3.0.1) is the only
+    # place the suite reads a Windows checkout and the agent engine's tests run
+    # their commands through cmd.exe; two fixes merged for 3.0.1 existed
+    # because a Windows clone read different bytes and no leg here was one.
+    # The runner has a desktop, so the Electron checks run there as they do
+    # on macOS.
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

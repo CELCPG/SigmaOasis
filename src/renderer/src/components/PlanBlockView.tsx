@@ -4,6 +4,7 @@ import { stepRecords } from '../hooks/planMode'
 import { ToolCallBlock } from './ToolCallBlock'
 import { Disclosure } from './Disclosure'
 import {
+  abandonedNote,
   awaitingApproval,
   forecastDivergenceNote,
   planHeaderCount,
@@ -273,6 +274,19 @@ export function PlanBlockView({
           <span className="ml-auto self-center text-[10px] text-ink-tertiary">
             {streaming ? '' : 'Nothing has run yet. Tools each step may use are the ones enabled in Settings → Tools.'}
           </span>
+        </div>
+      )}
+
+      {/* The same strip, for the plan the app walked out on. It is the one
+          outcome that takes away something the reader was looking at — the
+          approval buttons, or a step that was moving — so it is the one that
+          owes them a sentence in its place; the others are explained by the
+          reader's own action or by a step that says it failed. Not a warning
+          and not struck through: the plan is over, the reason is nobody's
+          fault, and the next move is theirs. */}
+      {plan.outcome === 'abandoned' && (
+        <div className="border-t border-black/10 dark:border-white/10 px-3 py-2 text-ink-secondary">
+          {abandonedNote(plan)}
         </div>
       )}
     </div>
