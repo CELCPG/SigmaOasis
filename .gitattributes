@@ -1,3 +1,14 @@
+# Every text file checks out LF, on every platform. The suite reads the checkout
+# as text — a component's markup, a stylesheet rule, a script's own source — and
+# pins lines of it, so a Windows clone with core.autocrlf=true, which wrote those
+# files CRLF, failed a test the macOS and Linux legs pass. Fixing that in each
+# test would enumerate the readers; this fixes the bytes they all read. The index
+# was already LF (autocrlf normalizes on commit), so no file's content changes,
+# only what a checkout writes. A clone made before this line keeps its CRLF files
+# until they are rewritten; on a clean tree:
+#   git rm --cached -r -q . && git reset --hard
+* text=auto eol=lf
+
 # Shell scripts must be LF even on Windows: git-bash runs them, and CRLF turns
 # `#!/usr/bin/env bash` into an unfindable interpreter and every command
 # substitution into a value with a trailing carriage return. The v1.6.0 Windows
@@ -5,3 +16,16 @@
 *.sh text eol=lf
 # Same reasoning for anything else a POSIX shell or a WASM runtime reads verbatim.
 *.mjs text eol=lf
+# These two predate the rule above and stay: `text` is stricter than `auto`, which
+# leaves alone a file that sniffs as binary (docs/head-to-head/score-round.mjs
+# does) and so would not normalize one committed CRLF.
+
+# A CSV's line terminator is data, not formatting. Six eval fixtures were
+# committed CRLF, and `git add --renormalize .` under the rule above rewrites
+# every line of them to LF. A line-ending fix should not quietly change the
+# evidence an eval ran against, so these keep the bytes they were authored with.
+*.csv -text
+# `auto` sniffs for binary content, and a PDF can be plain ASCII. Taken for text,
+# a commit would turn its CRLFs into LFs and move every byte its xref table
+# points at.
+*.pdf binary
