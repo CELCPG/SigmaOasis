@@ -39,6 +39,15 @@
 #                     a class says otherwise, and that surface follows the
 #                     declared colour scheme, so only the shipped build's real
 #                     tree and stylesheet can answer. Builds first — see below.
+#  - mainBundle:      the shipped main bundle names only modules that exist, and
+#                     the job surfaces work in it. electron-vite bundles main
+#                     into one file, so a runtime require('./x') survives
+#                     verbatim and throws "Cannot find module" in the app while
+#                     the node suite — one CommonJS file per module, ./x right
+#                     beside it — stays green. v2.6's scheduler shipped ten of
+#                     them. Boots out/ against a loopback fixture: the Jobs
+#                     tab's watchlist, and every runner run for real. Builds
+#                     first, like modalFocus.
 #  - markdownCheck:   the markdown → HTML sanitizer (the XSS boundary), in a real
 #                     window. DOMPurify is a no-op without a DOM, so a node test
 #                     of it would pass while sanitizing nothing.
@@ -101,18 +110,19 @@ fi
   test/modalFocusCheck.ts \
   test/fieldContrastCheck.ts \
   test/planAccessibilityCheck.ts \
+  test/mainBundleCheck.ts \
   test/markdownCheck.ts \
   test/workbenchCheck.ts \
   test/mcpSecretsCheck.ts \
   src/preload/workbench.ts \
   test/httpClientCheck.ts
 
-# modalFocusCheck, fieldContrastCheck and planAccessibilityCheck boot out/ — so
-# out/ has to be this tree, not whatever was built last. Unconditionally, not
-# "if it looks stale": a freshness heuristic is one more enumeration to be
-# defeated, and a check that silently measures an old build is worse than no
-# check. Three rounds of one bench arm ran handicapped on exactly this kind of
-# missing precondition.
+# modalFocusCheck, fieldContrastCheck, planAccessibilityCheck and mainBundleCheck
+# boot out/ — so out/ has to be this tree, not whatever was built last.
+# Unconditionally, not "if it looks stale": a freshness heuristic is one more
+# enumeration to be defeated, and a check that silently measures an old build is
+# worse than no check. Three rounds of one bench arm ran handicapped on exactly
+# this kind of missing precondition.
 echo "building out/ so the checks that boot it measure this tree…"
 "${TSC[@]}" node_modules/electron-vite/bin/electron-vite.js build > "$OUT/build.log" 2>&1 || {
   echo "error: build failed; see $OUT/build.log" >&2
@@ -140,7 +150,7 @@ trap 'rm -rf "$PROFILE"' EXIT
 # once in v2.3's upgrade runs). Clear it from the shell, which is never refused.
 rm -rf "$OUT/markdown-bundle"
 status=0
-for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck fieldContrastCheck planAccessibilityCheck markdownCheck workbenchCheck mcpSecretsCheck httpClientCheck; do
+for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck fieldContrastCheck planAccessibilityCheck mainBundleCheck markdownCheck workbenchCheck mcpSecretsCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox --user-data-dir="$PROFILE/$check" "$OUT/test/$check.js" || status=1
 done
 exit "$status"

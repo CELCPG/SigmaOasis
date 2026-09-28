@@ -1,9 +1,12 @@
-import { test, describe, beforeEach } from 'node:test'
+import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { promises as fs } from 'fs'
+import { promises as fs, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
-import { load, resetState, testUserDataDir } from './harness'
+import { load, resetState, state, testUserDataDir } from './harness'
 import { afterRun, dueJobs, JOB_INTERVAL_MS, MAX_JOB_FAILURES } from '../src/shared/jobs'
+import { claimKey, expiresAtFor, LEDGER_PACK_ID } from '../src/shared/factLedger'
+import type { ClaimClass } from '../src/shared/factLedger'
 import type { Job } from '../src/shared/jobs'
 
 /**
@@ -203,5 +206,172 @@ describe('the job store', () => {
   test('a hand-edited file keeps only well-formed jobs', async () => {
     await fs.writeFile(join(testUserDataDir(), 'jobs.json'), JSON.stringify({ jobs: [{ id: 'x' }, job()] }))
     assert.deepEqual((await jobsMod.readJobs()).map((j) => j.id), ['j1'])
+  })
+})
+
+describe('the ledger runner', () => {
+  const jobsMod = load<typeof import('../src/main/ipc/jobs')>('jobs')
+  const ledger = load<typeof import('../src/main/ipc/factLedger')>('factLedger')
+  const lib = load<typeof import('../src/main/ipc/library')>('library')
+  const DAY = 24 * HOUR
+  let dir = ''
+
+  const draft = (claimClass: ClaimClass, question: string, value: string, sentence: string, url: string) => ({
+    key: claimKey(claimClass, question),
+    claimClass,
+    value,
+    sentence,
+    url,
+    question
+  })
+
+  /** One ledger run at `at` on the ledger's clock: what it said, and which pages it fetched. */
+  const run = async (at: number): Promise<{ note: string; digest: string; fetched: string[] }> => {
+    process.env.SIGMA_LEDGER_NOW = String(at)
+    state.fetchLog = []
+    const r = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
+    return { note: r.note, digest: r.digest ?? '', fetched: state.fetchLog.map((f) => f.url) }
+  }
+
+  beforeEach(() => {
+    resetState()
+    dir = mkdtempSync(join(tmpdir(), 'sigma-ledger-job-'))
+    lib.setLibraryDirForTests(dir)
+  })
+  afterEach(() => {
+    delete process.env.SIGMA_LEDGER_NOW
+    lib.setLibraryDirForTests(null)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('a claim its source still states is fresh for its class’s window again; one it no longer states stays expired', async () => {
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims([
+      draft('money', 'How much is an adult ticket to the Harrowgate Maritime Museum?', '$18.50', 'An adult ticket costs $18.50.', 'https://harrowgate.example/visit'),
+      draft('contact', 'What is the Harrowgate Maritime Museum’s phone number?', '(555) 014-2290', 'Call (555) 014-2290.', 'https://harrowgate.example/contact')
+    ])
+    // Past both windows: a price holds a day, a phone number 180.
+    const later = T0 + 181 * DAY
+    process.env.SIGMA_LEDGER_NOW = String(later)
+    state.responses = [
+      { match: 'harrowgate.example/visit', contentType: 'text/html', body: '<html><body><p>Adult tickets cost $18.50.</p></body></html>' },
+      { match: 'harrowgate.example/contact', contentType: 'text/html', body: '<html><body><p>Call us on (555) 014-9999.</p></body></html>' }
+    ]
+
+    const first = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
+    assert.equal(first.note, '1/2 re-confirmed')
+    const docs = (await lib.readAppPack(LEDGER_PACK_ID))!.docs
+    const price = docs.find((d) => d.claim?.claimClass === 'money')!
+    const phone = docs.find((d) => d.claim?.claimClass === 'contact')!
+    // Re-confirmed is refreshed, as upsertClaims refreshes a claim a reply states again.
+    assert.equal(price.expiresAt, expiresAtFor('money', later))
+    assert.equal(price.checkedAt, later)
+    const day = new Date(later).toISOString().slice(0, 10)
+    assert.equal(price.date, `checked ${day}`)
+    assert.match(price.text, new RegExp(`\\nChecked: ${day}\\n`))
+    // Not re-confirmed is left as it was: still expired, still dated when it was last true.
+    assert.equal(phone.expiresAt, expiresAtFor('contact', T0))
+    assert.equal(phone.checkedAt, T0)
+    assert.deepEqual(await ledger.ledgerStats(), { entries: 2, expired: 1 })
+
+    // The next run re-checks only what is still past its freshness.
+    state.fetchLog = []
+    const second = await jobsMod.SHIPPED_RUNNERS.ledger(job({ kind: 'ledger' }))
+    assert.equal(second.note, '0/1 re-confirmed')
+    assert.deepEqual(state.fetchLog.map((f) => f.url), ['https://harrowgate.example/contact'])
+  })
+
+  test('a claim that no longer holds goes to the back of the queue, so every expired claim is re-checked in turn', async () => {
+    // Two more expired claims than a run re-checks; only the last one's source still states it.
+    const batch = jobsMod.LEDGER_RECHECKS_PER_RUN
+    const n = batch + 2
+    const items = Array.from({ length: n }, (_, i) => `item${String(i + 1).padStart(2, '0')}`)
+    const url = (item: string): string => `https://museum.example/${item}/`
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims(items.map((item) => draft('money', `How much is the ${item} pass?`, '$18.50', `The ${item} pass costs $18.50.`, url(item))))
+    state.responses = items.map((item, i) => ({
+      match: `museum.example/${item}/`,
+      contentType: 'text/html',
+      body: `<html><body><p>The ${item} pass costs ${i === n - 1 ? '$18.50' : '$21.00'}.</p></body></html>`
+    }))
+
+    const first = await run(T0 + 2 * DAY)
+    assert.equal(first.note, `0/${n} re-confirmed`)
+    assert.deepEqual(first.fetched, items.slice(0, batch).map(url))
+    // The next run starts with the two it has not tried, not the ten that just
+    // failed, and fills its batch with the failures it tried longest ago.
+    const second = await run(T0 + 2 * DAY + HOUR)
+    assert.equal(second.note, `1/${n} re-confirmed`)
+    assert.deepEqual(second.fetched, [...items.slice(batch), ...items.slice(0, batch - 2)].map(url))
+    // And the queue keeps turning: the two failures left out last time lead this
+    // one. (The eight behind them fail for the third time in a row and are dropped.)
+    const third = await run(T0 + 2 * DAY + 2 * HOUR)
+    assert.equal(third.note, `0/${n - 1} re-confirmed, ${batch - 2} dropped`)
+    assert.deepEqual(third.fetched, [...items.slice(batch - 2, batch), ...items.slice(0, batch - 2)].map(url))
+  })
+
+  test('a claim is dropped when its source has not stated it for three re-checks in a row', async () => {
+    assert.equal(jobsMod.LEDGER_MAX_RECHECK_FAILURES, 3)
+    const url = (name: string): string => `https://museum.example/${name}/`
+    const page = (name: string, price: string) => ({
+      match: `museum.example/${name}/`,
+      contentType: 'text/html',
+      body: `<html><body><p>The ${name} pass costs ${price}.</p></body></html>`
+    })
+    // changed: the page now states another price. deleted: the page is gone.
+    // down: the page cannot be reached. flaky: wrong twice, then right, then wrong again.
+    const names = ['changed', 'deleted', 'down', 'flaky']
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims(names.map((name) => draft('money', `How much is the ${name} pass?`, '$18.50', `The ${name} pass costs $18.50.`, url(name))))
+    const responses = (flaky: string) => [
+      page('changed', '$21.00'),
+      { match: 'museum.example/deleted/', contentType: 'text/html', body: '', status: 404 },
+      { match: 'museum.example/down/', contentType: 'text/html', body: '', status: 503 },
+      page('flaky', flaky)
+    ]
+    const claims = async () =>
+      Object.fromEntries(((await lib.readAppPack(LEDGER_PACK_ID))?.docs ?? []).map((d) => [d.source!.split('/')[3], d]))
+    const t1 = T0 + 2 * DAY
+
+    state.responses = responses('$21.00')
+    assert.equal((await run(t1)).note, '0/4 re-confirmed')
+    assert.equal((await run(t1 + HOUR)).note, '0/4 re-confirmed')
+    let now = await claims()
+    assert.deepEqual([now.changed?.recheckFailures, now.deleted?.recheckFailures, now.flaky?.recheckFailures], [2, 2, 2])
+    // An unreachable page checked nothing, so it counts for nothing: an outage
+    // or a proxy that is down must not empty the ledger.
+    assert.equal(now.down?.recheckFailures, undefined)
+
+    // Third time: the two that are still wrong go; flaky is right again, and its streak ends.
+    state.responses = responses('$18.50')
+    const third = await run(t1 + 2 * HOUR)
+    assert.equal(third.note, '1/4 re-confirmed, 2 dropped')
+    assert.match(third.digest, /🗑️ dropped \$18\.50 .*The changed pass costs/)
+    assert.match(third.digest, /🗑️ dropped \$18\.50 .*The deleted pass costs/)
+    assert.match(third.digest, /could not re-check \$18\.50 .*The down pass costs/)
+    now = await claims()
+    assert.deepEqual(Object.keys(now).sort(), ['down', 'flaky'])
+    assert.equal(now.flaky?.recheckFailures, undefined)
+    assert.deepEqual(await ledger.ledgerStats(), { entries: 2, expired: 1 })
+
+    // Past flaky's new window it is wrong again: a first failure, not a third.
+    state.responses = responses('$21.00')
+    const fourth = await run(t1 + 2 * HOUR + 2 * DAY)
+    assert.equal(fourth.note, '0/2 re-confirmed')
+    assert.match(fourth.digest, /no longer states \$18\.50 \(1 of 3 in a row\).*The flaky pass costs/)
+    now = await claims()
+    assert.deepEqual(Object.keys(now).sort(), ['down', 'flaky'])
+    assert.equal(now.flaky?.recheckFailures, 1)
+  })
+
+  test('dropping the last claim removes the ledger pack rather than leaving it empty', async () => {
+    process.env.SIGMA_LEDGER_NOW = String(T0)
+    await ledger.upsertClaims([draft('money', 'How much is the only pass?', '$18.50', 'The only pass costs $18.50.', 'https://museum.example/only/')])
+    state.responses = [{ match: 'museum.example/only/', contentType: 'text/html', body: '<html><body><p>The only pass costs $21.00.</p></body></html>' }]
+    for (let i = 0; i < 3; i++) await run(T0 + 2 * DAY + i * HOUR)
+    assert.equal(await lib.readAppPack(LEDGER_PACK_ID), null)
+    assert.deepEqual(await lib.listPacks(), [])
+    assert.deepEqual(await ledger.ledgerStats(), { entries: 0, expired: 0 })
+    assert.equal((await run(T0 + 3 * DAY)).note, 'nothing past its freshness')
   })
 })
