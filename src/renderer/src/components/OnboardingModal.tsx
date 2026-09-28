@@ -173,6 +173,23 @@ export function OnboardingModal(): JSX.Element | null {
           ))}
         </div>
 
+        {/* v3.0: the three ways in, said once at the start. */}
+        <div className="mt-5 rounded-xl border border-black/5 bg-black/[0.02] p-3 text-xs dark:border-white/10 dark:bg-white/[0.03]">
+          <p className="mb-1.5 font-medium text-ink-primary">Three ways to use it</p>
+          <ul className="space-y-1 text-ink-secondary">
+            <li>
+              <span className="font-medium text-ink-primary">Chat</span> — answers that are grounded, cited and checked.
+            </li>
+            <li>
+              <span className="font-medium text-ink-primary">〰 Vibe</span> — nothing but the conversation, on calm water. ⌘⇧L.
+            </li>
+            <li>
+              <span className="font-medium text-ink-primary">⚡ Agent</span> — give it a folder and a task; it reads, edits and runs
+              things until it is done, asking before what you tell it to ask about.
+            </li>
+          </ul>
+        </div>
+
         <div className="mt-6 flex items-center justify-between">
           <button
             type="button"

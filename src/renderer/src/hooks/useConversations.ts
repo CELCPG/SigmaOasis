@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { stopAgent } from './agentTasks'
 import { useAppStore } from '../stores/appStore'
 import type { Conversation } from '../types'
 import { conversationDefaultsFromProject } from '../lib/projectContext'
@@ -106,6 +107,9 @@ export function useConversations(): {
 
   const removeConversation = useCallback(async (id: string): Promise<void> => {
     const convo = useAppStore.getState().conversations.find((c) => c.id === id)
+    // v3.0: a chat's agent task stops with the chat — it would otherwise go
+    // on changing files for a conversation nobody can see any more.
+    stopAgent(id)
     useAppStore.getState().removeConversation(id)
     // Ephemeral conversations never touched disk — there is no file to delete.
     if (!convo?.ephemeral) await window.api.deleteConversation(id).catch(() => undefined)

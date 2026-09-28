@@ -84,7 +84,7 @@ Every file a turn changes is checkpointed before its first change — to disk, u
 folder, so Undo survives a restart. **↶ Undo changes** on the turn puts each file back as the task
 found it (a file the task created is removed) — except a file that has changed since the task last
 wrote it: that later change is somebody's work, so it is left alone and named. Deleting the chat
-deletes its checkpoints.
+stops its task and deletes its checkpoints.
 
 ## The `sigma` command
 
@@ -124,7 +124,7 @@ commands and says so; `--accept-edits` lets edits land. In a session, `/mode`, `
 On a small repository with two bugs and a failing test, `qwen3.8-35b-a3b-distill` through LM Studio
 read the test and the source, fixed the first bug, ran the tests, read the new failure, found the
 second bug (a numeric sort that sorted as strings), fixed it and ran the tests to green —
-twelve steps, about thirteen minutes on this machine, most of it the model thinking before each
+eight rounds and nine tool calls, about thirteen minutes on this machine, most of it the model thinking before each
 call. An independent run of the tests afterwards passed. The engine's behaviour against a scripted
 model — review, decline, accept, re-read after edit, helpers, pause, stop, failure, context fitting
 — is pinned in `test/agentEngine.test.ts`; the window's half in `test/agentTurn.test.ts`; the CLI,

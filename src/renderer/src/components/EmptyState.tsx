@@ -1,5 +1,7 @@
 import { useAppStore } from '../stores/appStore'
 import { Logo } from './Logo'
+import { setVibeMode } from '../hooks/vibeMode'
+import { pickWorkspaceAndStart } from '../hooks/agentTasks'
 
 interface Starter {
   icon: string
@@ -124,6 +126,26 @@ export function EmptyState({ heading, onPick }: Props): JSX.Element {
               </span>
             </button>
           ))}
+        </div>
+
+        {/* v3.0: the two other ways to use the app, from the first screen. */}
+        <div className="oasis-enter mt-4 flex flex-wrap justify-center gap-2" style={{ animationDelay: '380ms' }}>
+          <button
+            type="button"
+            onClick={() => void pickWorkspaceAndStart()}
+            className="rounded-full border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.08)] px-3 py-1 text-xs text-accent-ink hover:bg-[rgba(0,212,170,0.16)]"
+            title="The agent works in a folder you choose: it reads, edits and runs things until the task is done"
+          >
+            ⚡ Work in a folder
+          </button>
+          <button
+            type="button"
+            onClick={() => setVibeMode(true)}
+            className="vibe-entry rounded-full px-3 py-1 text-xs"
+            title="VIBE — nothing but the conversation, on calm water (⌘⇧L)"
+          >
+            〰 Just talk, calmly
+          </button>
         </div>
 
         <p

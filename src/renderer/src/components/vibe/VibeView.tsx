@@ -5,6 +5,7 @@ import { useConversations } from '../../hooks/useConversations'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { modalSurfaceOpen } from '../../hooks/useModalSurface'
 import { setVibeMode } from '../../hooks/vibeMode'
+import { stopAgent } from '../../hooks/agentTasks'
 import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, splitStreamingMarkdown } from '../../lib/markdown'
 import { stripCitationMarkers, vibeLines, vibePhase, type VibeLine, type VibePhase } from '../../lib/vibe'
 import type { PendingPatch } from '../../types'
@@ -44,7 +45,11 @@ const MOTES = Array.from({ length: 14 }, (_, i) => ({
 
 export function VibeView(): JSX.Element {
   const conversation = useAppStore((s) => s.conversations.find((c) => c.id === s.activeConversationId))
-  const streaming = useAppStore((s) => s.streaming)
+  const chatStreaming = useAppStore((s) => s.streaming)
+  // v3.0: in an agent chat, "a reply is being written" means its task is
+  // running — whatever a chat elsewhere is doing — and Stop stops the task.
+  const agentRunning = useAppStore((s) => Boolean(conversation?.agent && s.agentRuns[conversation.id]))
+  const streaming = conversation?.agent ? agentRunning : chatStreaming
   const connection = useAppStore((s) => s.connection)
   const pendingPatches = useAppStore((s) => s.pendingPatches)
   const { sendMessage, stopStreaming } = useLMStudio()
@@ -55,7 +60,7 @@ export function VibeView(): JSX.Element {
   const last = messages[messages.length - 1]
   // The same reading the full view makes (ChatArea): the turn in flight is the
   // active conversation's last assistant message.
-  const streamingId = streaming && last?.role === 'assistant' ? last.id : null
+  const streamingId = chatStreaming && !conversation?.agent && last?.role === 'assistant' ? last.id : null
   // A boolean, not the text: the view only needs to know that words have
   // surfaced. The words themselves re-render the one live reply (VibeReply),
   // never this whole view per token.
@@ -125,7 +130,7 @@ export function VibeView(): JSX.Element {
       scrollRef={scrollRef}
       onScroll={onScroll}
       onSend={(text) => void sendMessage(text)}
-      onStop={stopStreaming}
+      onStop={() => (conversation?.agent ? stopAgent(conversation.id) : stopStreaming())}
       onNewChat={() => createConversation()}
       onLeave={() => setVibeMode(false)}
       onDecide={(reviewId, approved) => {

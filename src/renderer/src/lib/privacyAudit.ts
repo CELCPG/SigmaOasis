@@ -1,5 +1,6 @@
 import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats, SecretsStatus } from '../types'
 import { UNTRUSTED_TOOLS } from '../../../shared/tools'
+import { AGENT_APP_TOOLS } from '../../../shared/agentAppTools'
 
 /**
  * v2.6: the privacy audit — every setting that widens what leaves the machine
@@ -94,6 +95,30 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
       : 'Search, page fetching and research are all off.',
     where: tools
   })
+
+  // ---- v3.0: the agent -------------------------------------------------------
+  // Absent from settings written before 3.0; the normalizer fills it on start.
+  if (s.agent) {
+    if (s.agent.defaultPermission === 'acceptEdits') {
+      out.push({
+        key: 'agent.accept_edits_default',
+        title: 'New agent chats edit without asking',
+        state: 'warn',
+        detail: 'An agent chat starts as “Accept edits”: its changes inside the chosen folder land without a review — each is kept as a diff, and a turn can be undone. Commands still ask.',
+        where: 'Settings → Agent'
+      })
+    }
+    const agentWeb = s.agent.appTools ? egressOn.filter((t) => (AGENT_APP_TOOLS as readonly string[]).includes(t)) : []
+    if (agentWeb.length > 0) {
+      out.push({
+        key: 'agent.web_tools',
+        title: `Agent tasks can reach the web`,
+        state: 'info',
+        detail: `${agentWeb.join(', ')} — offered to agent tasks as to a chat, through the same egress allowlist, and only while enabled here and under Tools.`,
+        where: 'Settings → Agent'
+      })
+    }
+  }
 
   // ---- grants ---------------------------------------------------------------
   const grants = input.grants ?? []

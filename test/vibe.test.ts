@@ -100,6 +100,16 @@ describe('what VIBE shows', () => {
     assert.equal(lines[1].quiet, undefined)
   })
 
+  test('an agent turn still working is in progress, not a reply that ended with nothing', () => {
+    const lines = vibeLines(
+      [msg({ id: 'a1', role: 'assistant', agent: { taskId: 't', status: 'running', steps: [], startedAt: 0, workspace: null, permission: 'ask' } })],
+      null
+    )
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0].quiet, undefined)
+    assert.equal(lines[0].text, '')
+  })
+
   test('a finished empty reply says why instead of leaving a blank', () => {
     const lines = vibeLines(
       [

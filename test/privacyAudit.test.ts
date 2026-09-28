@@ -132,3 +132,35 @@ describe('privacy audit', () => {
     }
   })
 })
+
+describe('the agent (v3.0)', () => {
+  const agent = (over: Partial<AppSettings['agent']>): AppSettings['agent'] => ({
+    maxRounds: 40,
+    commandTimeoutSec: 120,
+    defaultPermission: 'ask',
+    appTools: true,
+    notify: true,
+    ...over
+  })
+
+  test('asking first is the private default and adds no row', () => {
+    const checks = privacyChecks({ settings: settings({ agent: agent({}) }) })
+    assert.equal(byKey(checks, 'agent.accept_edits_default'), undefined)
+  })
+
+  test('agent chats that edit without asking are a widening, named', () => {
+    const checks = privacyChecks({ settings: settings({ agent: agent({ defaultPermission: 'acceptEdits' }) }) })
+    assert.equal(byKey(checks, 'agent.accept_edits_default')?.state, 'warn')
+    assert.equal(byKey(checks, 'agent.accept_edits_default')?.where, 'Settings → Agent')
+  })
+
+  test('the web tools an agent may use are listed — only the enabled ones, only when the agent may use them', () => {
+    const on = byKey(privacyChecks({ settings: settings({ agent: agent({}) }) }), 'agent.web_tools')
+    assert.match(on?.detail ?? '', /^web_search, fetch_webpage —/)
+    assert.equal(byKey(privacyChecks({ settings: settings({ agent: agent({ appTools: false }) }) }), 'agent.web_tools'), undefined)
+  })
+
+  test('settings from before 3.0, with no agent group, are audited without it', () => {
+    assert.ok(!keys(privacyChecks({ settings: settings() })).some((k) => k.startsWith('agent.')))
+  })
+})

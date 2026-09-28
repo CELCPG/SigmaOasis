@@ -90,7 +90,9 @@ export function vibeLines(messages: ChatMessage[], streamingId: string | null): 
       lines.push({ id: m.id, role: 'user', text, ...(m.delivery?.state === 'queued' ? { queued: true } : {}) })
       continue
     }
-    if (m.content.trim() || m.id === streamingId) {
+    // v3.0: an agent turn still working is in progress too — its words arrive
+    // when the task ends — not a reply that ended with nothing.
+    if (m.content.trim() || m.id === streamingId || m.agent?.status === 'running') {
       lines.push({ id: m.id, role: 'assistant', text: m.content })
       continue
     }

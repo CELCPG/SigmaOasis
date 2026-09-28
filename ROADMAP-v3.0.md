@@ -13,6 +13,9 @@ signed builds are what is sold; the release is merged, tagged and published by C
 
 ## Ships in 3.0
 
+All eleven shipped in v3.0.0 (2026-09-28); what was measured is in `RELEASE-NOTES-v3.0.0.md`,
+and the agent's full account in `docs/agent.md`.
+
 | # | Feature | What it is |
 | --- | --- | --- |
 | 1 | **VIBE mode** | The whole window becomes a slow night lagoon — drifting caustic light, an electric cyan/violet glow that breathes while a reply surfaces — and nothing else but the conversation and one composer. Tools, memory, the library and the checks all still run; none of it is drawn. Replies are asked to be short. ⌘⇧L or the 〰 pill in the rail enters, Esc leaves. Honors reduced motion. |

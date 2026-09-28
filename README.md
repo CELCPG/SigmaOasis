@@ -4,15 +4,48 @@
 
 Sigma Oasis is a cross-platform (macOS + Windows + Linux) desktop application, inspired by the
 Claude Desktop UI, that talks to models running locally in LM Studio via its OpenAI-compatible
-API. It supports **up to 3 model "roles"** simultaneously, **agentic tools** (file I/O, terminal,
-web search, notes), **@mention routing**, and a **collaborative pipeline** mode, all while keeping
-**every byte of data on your machine**. No cloud, no telemetry.
+API. Three ways to use it: **chat** with grounded, cited, checked answers; **VIBE**, a calm mode
+with nothing on screen but the conversation; and the **agent**, which works in a folder you give it
+— reading, editing, running your tests and checking its own work — in the app or from your
+terminal with `sigma`. All of it keeps **every byte of data on your machine**. No cloud, no
+telemetry.
 
 ![A fresh conversation: starter cards, the conversation rail, and per-chat controls](docs/screenshots/welcome-light.png)
 
 | Light theme | Dark theme |
 | --- | --- |
 | ![A reply with a tool call, visible memory recall, a second opinion, and a running plan — light](docs/screenshots/chat-light.png) | ![The same conversation in the dark theme](docs/screenshots/chat-dark.png) |
+
+---
+
+## 🆕 3.0 — the calm harness
+
+| VIBE | The agent |
+| --- | --- |
+| ![VIBE: nothing but the conversation, on night water](docs/screenshots/vibe.png) | ![An agent turn: its steps in order, the checklist, the diff it applied, and Undo](docs/screenshots/agent-light.png) |
+
+- **VIBE mode.** The window becomes a slow night lagoon — caustic light that flows, a breath while
+  the model works, words that surface — and nothing else but the conversation and one composer.
+  Every tool, memory recall and check still runs, out of sight; replies are asked to be short.
+  ⌘⇧L or 〰 Vibe in the rail; Esc to leave. Reduced motion makes it one still frame.
+- **The agent.** ⚡ Agent task in the rail opens a chat on a folder. It searches and reads the
+  files, edits them with every change shown as a diff (Apply / Discard, or *Accept edits*), runs
+  your tests with your OK, keeps a checklist you can watch, and loops until the task is done or it
+  needs you. Its turn is drawn as a timeline — each step in the order it happened, opening into the
+  diff or the command's output — with **Undo** for everything the turn changed.
+- **Helpers.** The agent hands broad searches and second-look reviews to helpers that start with an
+  empty context and report back once, which keeps a local model's window for the work.
+- **Background tasks.** Tasks run in the app, not the window: switch chats, start another, keep
+  talking. The rail's *Working now* card shows each one's progress; a desktop notification says
+  when one finishes.
+- **`sigma` in your terminal.** The same agent, installed from Settings → Agent, running on the
+  app's own runtime: `sigma` for a session in the current folder, `sigma "fix the failing test"`
+  for one task. Talks to LM Studio on this machine and nothing else.
+- **SIGMA.md.** A project's standing instructions for the agent, in the repository with the code
+  (AGENTS.md and CLAUDE.md are read when there is none).
+
+The details, and what the agent will not do: [`docs/agent.md`](docs/agent.md). What changed and how
+it was measured: [`RELEASE-NOTES-v3.0.0.md`](RELEASE-NOTES-v3.0.0.md).
 
 ---
 
@@ -669,7 +702,16 @@ There is **no cloud sync and no telemetry**.
 ```
 sigma-oasis/
 ├── src/
+│   ├── cli/sigma.ts          # v3.0: the `sigma` CLI — the agent in a terminal
 │   ├── main/                 # Electron main process
+│   │   ├── agent/            # v3.0: the agent engine — plain Node, shared with the CLI
+│   │   │   ├── engine.ts     # One task: the chat's loop, helpers, context fitting
+│   │   │   ├── tools.ts      # list/glob/grep/read/edit/write/run/todo, held to the folder
+│   │   │   ├── editMatch.ts  # Exact search-and-replace, and the three forgiven mismatches
+│   │   │   ├── context.ts    # Fitting a long task into the loaded window
+│   │   │   ├── command.ts    # Shell commands: login shell, tree kill, head+tail output
+│   │   │   ├── prompts.ts    # What the agent is told; SIGMA.md
+│   │   │   └── stream.ts     # One streamed completion, on the shared SSE core
 │   │   ├── index.ts          # App/window bootstrap
 │   │   └── ipc/
 │   │       ├── tools.ts      # Agentic tool implementations + schemas
@@ -694,6 +736,8 @@ sigma-oasis/
 │   │       ├── attachments.ts # Images, text files and PDFs from disk
 │   │       ├── audit.ts      # Opt-in encrypted, hash-chained session transcript (v0.9)
 │   │       ├── plan.ts       # Plan mode: structured task decomposition (v0.9)
+│   │       ├── agent.ts      # v3.0: agent tasks in the main process, approvals, Undo
+│   │       ├── cli.ts        # v3.0: installing the `sigma` launcher on the PATH
 │   │       └── memory.ts     # Durable long-term memory (RAG) on disk
 │   ├── preload/
 │   │   ├── index.ts          # Secure context bridge (window.api)

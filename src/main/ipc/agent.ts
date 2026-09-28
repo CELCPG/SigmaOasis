@@ -7,6 +7,7 @@ import type { AgentEvent, AgentTaskResult, Checkpoint, ChunkTransport, ExtraTool
 import { PERMISSION_MODES } from '../agent/types'
 import type { ApiMessage } from '../../renderer/src/lib/agentLoop'
 import { TOOL_SCHEMAS } from '../../shared/tools'
+import { AGENT_APP_TOOLS } from '../../shared/agentAppTools'
 import { writeFileAtomic } from './fsAtomic'
 import { hostWindow } from './hostWindow'
 import { fetchModelCatalog } from './modelCatalog'
@@ -36,17 +37,7 @@ import { executeTool } from './toolHandlers/registry'
  * file since, which it leaves alone and says so.
  */
 
-/** App tools an agent may be offered, when enabled under Tools. Reads and compute only. */
-export const AGENT_APP_TOOLS = [
-  'web_search',
-  'fetch_webpage',
-  'deep_research',
-  'reference_lookup',
-  'get_current_datetime',
-  'date_calculator',
-  'run_python',
-  'memory_search'
-] as const
+export { AGENT_APP_TOOLS } from '../../shared/agentAppTools'
 
 export interface AgentRunRequest {
   taskId: string

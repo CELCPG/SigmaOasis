@@ -118,10 +118,15 @@ export function stopAgent(conversationId: string): void {
 /** Fold one reported event into its message; save when the task has ended. */
 export function handleAgentEvent(payload: AgentWirePayload): void {
   const store = useAppStore.getState()
+  const { event } = payload
+  // The task is over whatever became of its chat: a chat deleted mid-task
+  // must not leave its task on the rail's Working now card for good.
+  if (event.type === 'final' && store.agentRuns[payload.conversationId]?.taskId === payload.taskId) {
+    store.setAgentRun(payload.conversationId, null)
+  }
   const convo = store.conversations.find((c) => c.id === payload.conversationId)
   const message = convo?.messages.find((m) => m.id === payload.messageId)
   if (!convo || !message) return
-  const { event } = payload
   if (event.type === 'steer_delivered') {
     store.patchMessage(convo.id, event.id, { delivery: { state: 'delivered', round: event.round } })
     audit(convo, { kind: 'user_steer', text: `[agent, before round ${event.round + 1}] ${convo.messages.find((m) => m.id === event.id)?.content ?? ''}` })
@@ -141,7 +146,6 @@ export function handleAgentEvent(payload: AgentWirePayload): void {
   const patch = applyAgentEvent(message, event)
   if (patch) store.patchMessage(convo.id, message.id, patch)
   if (event.type === 'final') {
-    if (store.agentRuns[convo.id]?.taskId === payload.taskId) store.setAgentRun(convo.id, null)
     // A steer the task ended before delivering stays in the conversation as
     // the user's next message; say so rather than leave it "queued".
     for (const m of useAppStore.getState().conversations.find((c) => c.id === convo.id)?.messages ?? []) {

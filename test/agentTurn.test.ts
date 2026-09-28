@@ -239,6 +239,23 @@ describe('the timeline on screen', () => {
   })
 })
 
+describe('the task list follows the task, not the chat', () => {
+  test('a task whose chat was deleted mid-run still leaves the Working now card when it ends', async () => {
+    ;(globalThis as { window?: unknown }).window = { api: { saveConversation: async () => true } }
+    const { handleAgentEvent } = await import('../src/renderer/src/hooks/agentTasks')
+    const { useAppStore } = await import('../src/renderer/src/stores/appStore')
+    useAppStore.setState({ conversations: [], agentRuns: { gone: { taskId: 't9', messageId: 'm9', title: 'x', startedAt: 0 } } } as never)
+    handleAgentEvent({ taskId: 't9', conversationId: 'gone', messageId: 'm9', event: { type: 'final', status: 'stopped', finalText: '', changedFiles: [] } })
+    assert.deepEqual(useAppStore.getState().agentRuns, {})
+  })
+
+  test('deleting a chat stops its task', () => {
+    const src = readFileSync(join(__dirname, '..', '..', 'src', 'renderer', 'src', 'hooks', 'useConversations.ts'), 'utf-8')
+    const del = src.slice(src.indexOf('const removeConversation'), src.indexOf('const renameConversation'))
+    assert.match(del, /stopAgent\(id\)/)
+  })
+})
+
 describe('wiring', () => {
   const src = (...p: string[]): string => readFileSync(join(__dirname, '..', '..', 'src', ...p), 'utf-8').replace(/\r\n/g, '\n')
 
