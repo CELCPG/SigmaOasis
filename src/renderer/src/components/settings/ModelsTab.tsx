@@ -16,6 +16,8 @@ import {
 } from '../../lib/sampling'
 import type { ModelInfo } from '../../types'
 import { EvalScoreLine, FIELD, ProfileLine } from './helpers'
+import { useAppStore } from '../../stores/appStore'
+import { latestSlowReading, slowReadingAdvice, slowReadingFact } from '../../lib/modelFit'
 
 export interface ModelsTabProps {
   availableModels: ModelInfo[]
@@ -118,6 +120,10 @@ export function ModelsTab(props: ModelsTabProps): JSX.Element {
                             </select>
                             <ProfileLine modelId={m.modelId} scores={evalScores} />
                             <EvalScoreLine scores={evalScores} modelId={m.modelId} />
+                            <SlowReadingNote
+                              modelId={m.modelId}
+                              loadedContextLength={availableModels.find((am) => am.id === m.modelId)?.loadedContextLength}
+                            />
                           </div>
                           <div>
                             <label className="mb-1 block text-xs font-medium text-ink-secondary">
@@ -737,5 +743,22 @@ export function ModelsTab(props: ModelsTabProps): JSX.Element {
                       </label>
                     </div>
                   </div>
+  )
+}
+
+/**
+ * v3.1 (S6): the slow-reading verdict where VIBE's reader can find it. VIBE
+ * draws no stats, so a reply there that waited a minute for its first word
+ * says nothing about why; this says it beside the slot, from the model's most
+ * recent reply (lib/modelFit.ts `latestSlowReading`).
+ */
+function SlowReadingNote({ modelId, loadedContextLength }: { modelId: string; loadedContextLength?: number }): JSX.Element | null {
+  const conversations = useAppStore((s) => s.conversations)
+  const reading = React.useMemo(() => latestSlowReading(conversations, modelId), [conversations, modelId])
+  if (!reading) return null
+  return (
+    <p className="mt-1.5 text-xs text-ink-secondary" data-slow-reading="true">
+      🐢 Its last reply {slowReadingFact(reading)}. {slowReadingAdvice(loadedContextLength)}
+    </p>
   )
 }
