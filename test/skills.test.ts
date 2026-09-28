@@ -148,7 +148,7 @@ describe('the skill installer', () => {
     libDir = mkdtempSync(join(tmpdir(), 'sigma-skill-lib-'))
     lib.setLibraryDirForTests(libDir)
     source = mkdtempSync(join(tmpdir(), 'sigma-skill-src-'))
-    writeFileSync(join(source, 'skill.json'), JSON.stringify(manifest({ playbook: 'playbook.md', pack: 'pack', helpers: ['prices.py'], mcp: { command: 'node', args: ['srv.mjs'], env: { TOKEN: 'v' } } })))
+    writeFileSync(join(source, 'skill.json'), JSON.stringify(manifest({ playbook: 'playbook.md', pack: 'pack', helpers: ['prices.py'], mcp: { command: 'node', args: ['srv.mjs'], env: { TOKEN: 'tok-7f3a91-skill' } } })))
     writeFileSync(join(source, 'playbook.md'), '1. Search the price.\n2. Read the page.')
     writeFileSync(join(source, 'prices.py'), 'def parse(s):\n    return s\n')
     mkdirSync(join(source, 'pack', 'docs'), { recursive: true })
@@ -175,6 +175,11 @@ describe('the skill installer', () => {
     const server = (state.settings as { mcp?: { servers: { id: string; enabled: boolean; approval: string }[] } }).mcp?.servers.find((x) => x.id === 'skill-trekker-pricing')
     assert.equal(server?.enabled, false)
     assert.equal(server?.approval, 'ask')
+    // v2.9: the manifest's value went to the keychain; the settings row has its name and nothing else.
+    assert.deepEqual((server as unknown as { envNames: string[] }).envNames, ['TOKEN'])
+    assert.ok(!('env' in (server as object)), 'no env field on the settings row')
+    assert.ok(!JSON.stringify(state.settings).includes('tok-7f3a91-skill'), 'the value is nowhere in settings')
+    assert.deepEqual(state.mcpEnv['skill-trekker-pricing'], { TOKEN: 'tok-7f3a91-skill' })
     const helpers = await skillsMod.skillHelperRefs('trekker-pricing')
     assert.deepEqual(helpers.map((h) => h.name), ['trekker-pricing_prices.py'])
     // the source is not referenced: deleting it changes nothing
@@ -185,5 +190,7 @@ describe('the skill installer', () => {
     assert.deepEqual(await skillsMod.listSkills(), [])
     assert.ok((await lib.listPacks()).some((p) => p.id === 'trekker-prices'))
     assert.ok(!(state.settings as { mcp?: { servers: { id: string }[] } }).mcp?.servers.some((x) => x.id === 'skill-trekker-pricing'))
+    // …and the value left with the server.
+    assert.equal(state.mcpEnv['skill-trekker-pricing'], undefined)
   })
 })

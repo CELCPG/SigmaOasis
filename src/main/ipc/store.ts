@@ -258,6 +258,18 @@ export interface PlanSettings {
 }
 
 import { normalizeProjects, type Project } from './projects'
+import {
+  envNamesOf,
+  liftMcpEnv,
+  mcpEnvStatus,
+  mcpServerId,
+  normalizeMcpEnv,
+  openMcpEnv,
+  pruneMcpEnv,
+  resealMcpEnv,
+  withMcpEnv,
+  type McpEnvTable
+} from './mcpEnv'
 import { recallFromConversations, type StoredConversationLike } from './projectRecall'
 import { indexAttachment, isAttachmentIndexed } from './attachmentIndex'
 import { readTextDocument } from './attachments'
@@ -276,12 +288,24 @@ export interface McpServerConfig {
   name: string
   command: string
   args: string[]
-  env: Record<string, string>
+  /**
+   * v2.9: the NAMES of the variables set in the server's environment. The
+   * values are in the keychain (see mcpEnv.ts); this row has no field one
+   * could be written to, which is the point.
+   */
+  envNames: string[]
   cwd?: string
   enabled: boolean
   disabledTools: string[]
   approval: McpApproval
 }
+
+/**
+ * A server as it is first handed in — typed in Settings → MCP, or read from a
+ * skill's manifest — carrying its environment values this once, on their way
+ * into the keychain.
+ */
+export type McpServerDraft = Omit<McpServerConfig, 'envNames'> & { env: Record<string, string> }
 
 export interface McpSettings {
   servers: McpServerConfig[]
@@ -796,24 +820,22 @@ export function normalizeMcpServers(raw: unknown): McpServerConfig[] {
   if (!Array.isArray(raw)) return []
   const out: McpServerConfig[] = []
   const ids = new Set<string>()
-  for (const r of raw as Partial<McpServerConfig>[]) {
-    const id = String(r?.id ?? '')
-      .trim()
-      .replace(/[^A-Za-z0-9_-]+/g, '_')
-      .slice(0, 32)
+  for (const r of raw as (Partial<McpServerConfig> & { env?: unknown })[]) {
+    const id = mcpServerId(r?.id)
     const command = str(r?.command, '').trim()
     if (!id || !command || ids.has(id)) continue
     ids.add(id)
-    const env: Record<string, string> = {}
-    if (r?.env && typeof r.env === 'object') {
-      for (const [k, v] of Object.entries(r.env)) if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && typeof v === 'string') env[k] = v
-    }
+    // Names only. A pre-v2.9 row's `env` contributes its keys and nothing else:
+    // its values reach the keychain through migrateSettings, which runs before
+    // this on the one path that can still see them, and everywhere else a
+    // value arriving here is dropped rather than written back to the file.
+    const envNames = envNamesOf(r)
     out.push({
       id,
       name: str(r?.name, id).trim() || id,
       command,
       args: Array.isArray(r?.args) ? r.args.filter((a): a is string => typeof a === 'string') : [],
-      env,
+      envNames,
       ...(typeof r?.cwd === 'string' && r.cwd.trim() ? { cwd: r.cwd.trim() } : {}),
       enabled: r?.enabled === true,
       disabledTools: Array.isArray(r?.disabledTools) ? r.disabledTools.filter((t): t is string => typeof t === 'string') : [],
@@ -823,9 +845,16 @@ export function normalizeMcpServers(raw: unknown): McpServerConfig[] {
   return out
 }
 
-/** v2.5: replace the saved MCP server list, normalized, from the main process. */
+/**
+ * v2.5: replace the saved MCP server list, normalized, from the main process.
+ * v2.9: and let go of the keychain entries of any server no longer in it, so a
+ * removed server's token does not outlive the server.
+ */
 export function saveMcpServers(servers: McpServerConfig[]): void {
   writeSettings(normalizeSettings({ ...getSettings(), mcp: { servers } }))
+  const table = readSecrets().mcpEnv ?? {}
+  const kept = pruneMcpEnv(table, (getSettings().mcp?.servers ?? []).map((s) => s.id))
+  if (Object.keys(kept).length !== Object.keys(table).length) writeSecrets({ mcpEnv: kept })
 }
 
 /**
@@ -835,6 +864,21 @@ export function saveMcpServers(servers: McpServerConfig[]): void {
 export function migrateSettings(): void {
   const current = readSettings() as Partial<AppSettings>
   const defaults = defaultSettings()
+
+  // v2.9: MCP environment values out of the settings rows and into the
+  // keychain. Here, before the normalizer below, because it keeps names only
+  // and would drop the values; and the keychain is written first, so a crash
+  // between the two writes leaves the values in both places — the next start
+  // lifts them again — rather than in neither. This runs after `ready`, which
+  // is when safeStorage can say whether a keychain exists on Linux.
+  const lifted = liftMcpEnv(current.mcp?.servers)
+  const before = readSecrets().mcpEnv ?? {}
+  let table = before
+  for (const [id, values] of Object.entries(lifted.values)) table = withMcpEnv(table, id, values)
+  table = resealMcpEnv(table)
+  if (table !== before) writeSecrets({ mcpEnv: table })
+  const mcp = current.mcp ? { ...current.mcp, servers: lifted.servers as McpServerConfig[] } : undefined
+
   const merged: AppSettings = {
     ...defaults,
     ...current,
@@ -852,7 +896,7 @@ export function migrateSettings(): void {
     shopping: { ...defaults.shopping, ...current.shopping },
     audit: { ...defaults.audit, ...current.audit },
     plan: { ...defaults.plan, ...current.plan },
-    mcp: { ...defaults.mcp, ...current.mcp }
+    mcp: { ...defaults.mcp, ...mcp }
   } as AppSettings
   writeSettings(normalizeSettings(merged))
 }
@@ -902,6 +946,8 @@ interface StoredSecrets {
   braveApiKey?: string
   /** True when braveApiKey could only be stored unencrypted (no OS keychain). */
   braveApiKeyUnencrypted?: boolean
+  /** v2.9: each MCP server's environment values, sealed per server. See mcpEnv.ts. */
+  mcpEnv?: McpEnvTable
 }
 
 const store = new Store<{ settings: AppSettings; secrets?: StoredSecrets }>({
@@ -941,6 +987,23 @@ export function writeSettings(settings: AppSettings): void {
   settingsCache = deepFreeze(store.get('settings'))
 }
 
+function readSecrets(): StoredSecrets {
+  return store.get('secrets') ?? {}
+}
+
+/**
+ * Merge into the `secrets` key. v2.9: every writer goes through here, because
+ * the key now holds more than one credential — the Brave key's setter used to
+ * `store.set('secrets', { braveApiKey })`, which from the day a second secret
+ * joined it would have erased every MCP server's environment on each save of
+ * the search key.
+ */
+function writeSecrets(patch: Partial<StoredSecrets>): void {
+  const next: StoredSecrets = { ...readSecrets(), ...patch }
+  for (const k of Object.keys(next) as (keyof StoredSecrets)[]) if (next[k] === undefined) delete next[k]
+  store.set('secrets', next)
+}
+
 /**
  * API keys never live in `settings` (which round-trips to the renderer in
  * plaintext). They go through safeStorage into a separate store key; the
@@ -949,15 +1012,15 @@ export function writeSettings(settings: AppSettings): void {
 export function setBraveApiKey(key: string): { ok: boolean; warning?: string } {
   const trimmed = key.trim()
   if (!trimmed) {
-    store.set('secrets', {})
+    writeSecrets({ braveApiKey: undefined, braveApiKeyUnencrypted: undefined })
     return { ok: true }
   }
   if (safeStorage.isEncryptionAvailable()) {
-    store.set('secrets', { braveApiKey: safeStorage.encryptString(trimmed).toString('base64') })
+    writeSecrets({ braveApiKey: safeStorage.encryptString(trimmed).toString('base64'), braveApiKeyUnencrypted: undefined })
     return { ok: true }
   }
   // No OS keychain (some Linux setups). Store it, but tell the user.
-  store.set('secrets', { braveApiKey: trimmed, braveApiKeyUnencrypted: true })
+  writeSecrets({ braveApiKey: trimmed, braveApiKeyUnencrypted: true })
   return {
     ok: true,
     warning:
@@ -982,6 +1045,30 @@ export function braveApiKeyStatus(): { set: boolean; encrypted: boolean } {
     set: Boolean(secrets?.braveApiKey),
     encrypted: Boolean(secrets?.braveApiKey && !secrets.braveApiKeyUnencrypted)
   }
+}
+
+/**
+ * v2.9: store one MCP server's environment values in the keychain, replacing
+ * what was there. An empty set removes the entry. `encrypted: false` means the
+ * keychain was unavailable and the caller should say so, as the Brave key does.
+ */
+export function setMcpEnv(serverId: string, values: Record<string, string>): { encrypted: boolean } {
+  const table = withMcpEnv(readSecrets().mcpEnv ?? {}, serverId, normalizeMcpEnv(values))
+  writeSecrets({ mcpEnv: table })
+  return { encrypted: !table[serverId]?.unencrypted }
+}
+
+/** One server's values, for the spawn. `null` when they are stored but cannot be decrypted here. */
+export function getMcpEnv(serverId: string): Record<string, string> | null {
+  return openMcpEnv(readSecrets().mcpEnv?.[serverId])
+}
+
+/** What the privacy audit is told: whether each kind of credential is set, and whether it is encrypted. */
+export function secretsStatus(): {
+  braveKey: { set: boolean; encrypted: boolean }
+  mcpEnv: { servers: number; unencrypted: number; unreadable: string[] }
+} {
+  return { braveKey: braveApiKeyStatus(), mcpEnv: mcpEnvStatus(readSecrets().mcpEnv ?? {}) }
 }
 
 // ---- Conversation & note file persistence ----------------------------------
@@ -1058,8 +1145,13 @@ export function registerStoreHandlers(): void {
 
   ipcMain.handle('store:resetSettings', () => {
     writeSettings(defaultSettings())
+    // v2.9: the defaults have no MCP servers, so nothing is left to hold values for.
+    writeSecrets({ mcpEnv: undefined })
     return readSettings()
   })
+
+  // v2.9: for the privacy audit — whether each credential is set and encrypted, never a value.
+  ipcMain.handle('secrets:status', () => secretsStatus())
 
   // Conversations are stored as one JSON file per conversation.
   ipcMain.handle('conversations:list', async () => {

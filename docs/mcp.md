@@ -27,6 +27,20 @@ shown or logged — and says that the program runs with your privileges and outs
 allowlist. The server is saved **switched off**. Turning it on is a second, explicit step, on the
 same page.
 
+**Where the values go (v2.9).** Each value is typed into a masked field and, once the add is
+confirmed, stored in the OS keychain through Electron's `safeStorage` — the mechanism the Brave key
+uses — sealed per server. The settings file keeps the variable **names** only (`envNames`); its row
+has no field a value could be written to. The main process joins the values back onto the config
+at one point, where it spawns the server's process, so the renderer never holds one after the
+moment it was typed. Removing a server removes its values. A profile from before v2.9 has its values
+lifted out of `config.json` into the keychain on the first start.
+
+Where no keychain is available (some Linux setups without a secret service) a value is stored
+unencrypted and marked so, the add says so, and Settings → Privacy warns; such entries are sealed
+the first time the app starts with a keychain. Values sealed by another machine's or account's
+keychain cannot be opened: that server is kept off, not started without them, and Settings → MCP
+says why.
+
 Reference servers launch with `npx`, for example:
 
 | Server | Command | Arguments |

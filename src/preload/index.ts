@@ -30,7 +30,9 @@ import type {
   WorkbenchStatus,
   EvalScoreSummary,
   McpServerConfig,
+  McpServerDraft,
   McpServerStatus,
+  SecretsStatus,
   Grant
 } from '../renderer/src/types'
 import type { EvalFixture } from '../renderer/src/lib/evalRunner'
@@ -160,6 +162,7 @@ const api = {
     ipcRenderer.invoke('search:braveKeyStatus'),
   setBraveApiKey: (key: string): Promise<{ ok: boolean; warning?: string }> =>
     ipcRenderer.invoke('search:setBraveApiKey', key),
+  secretsStatus: (): Promise<SecretsStatus> => ipcRenderer.invoke('secrets:status'),
 
   // Ephemeral research index over fetched pages (main/ipc/researchIndex.ts).
   // RAM only — nothing here is ever written to disk.
@@ -363,8 +366,10 @@ const api = {
     ipcRenderer.invoke('grants:revokeAll'),
 
   mcpStatus: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:status'),
-  mcpAdd: (config: McpServerConfig): Promise<{ ok: boolean; error?: string; canceled?: boolean; server?: McpServerConfig }> =>
-    ipcRenderer.invoke('mcp:add', config),
+  mcpAdd: (
+    draft: McpServerDraft
+  ): Promise<{ ok: boolean; error?: string; canceled?: boolean; server?: McpServerConfig; warning?: string }> =>
+    ipcRenderer.invoke('mcp:add', draft),
   mcpUpdate: (config: McpServerConfig): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('mcp:update', config),
   mcpRemove: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('mcp:remove', id),
   mcpReload: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('mcp:reload', id),

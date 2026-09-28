@@ -52,7 +52,7 @@ describe('privacy audit', () => {
   })
 
   test('each enabled MCP server is a row; full approval warns; proxy is named as not covering it', () => {
-    const server = { id: 'fs', name: 'Files', command: 'npx', args: ['-y', 'srv'], env: { TOKEN: 'x' }, enabled: true, disabledTools: [], approval: 'ask' as const }
+    const server = { id: 'fs', name: 'Files', command: 'npx', args: ['-y', 'srv'], envNames: ['TOKEN'], enabled: true, disabledTools: [], approval: 'ask' as const }
     const ask = privacyChecks({ settings: settings({ mcp: { servers: [server, { ...server, id: 'off', enabled: false }] } }), mcp: [{ id: 'fs', state: 'running' } as never] })
     const row = byKey(ask, 'mcp.enabled.fs')
     assert.equal(row?.state, 'info')
@@ -83,6 +83,46 @@ describe('privacy audit', () => {
     const checks = privacyChecks({ settings: settings(), allowedHosts: { lmstudio: ['localhost'], mcp: [], update: ['github.com'] } })
     const row = byKey(checks, 'egress.allowlist')!
     assert.equal(row.detail, 'lmstudio: localhost · update: github.com')
+  })
+
+  // v2.9: through v2.8 this row was a constant `ok` claiming MCP environment
+  // values never reached the settings file in clear, while they sat there as a
+  // field of each server's row. It is read from the main process now, and each
+  // state it can be in is pinned here.
+  describe('the credentials row says what the main process reports', () => {
+    const secrets = (over: { braveKey?: Partial<{ set: boolean; encrypted: boolean }>; mcpEnv?: Partial<{ servers: number; unencrypted: number; unreadable: string[] }> } = {}) => ({
+      braveKey: { set: false, encrypted: false, ...over.braveKey },
+      mcpEnv: { servers: 0, unencrypted: 0, unreadable: [], ...over.mcpEnv }
+    })
+
+    test('not yet fetched: an info row that claims nothing about encryption', () => {
+      const checks = privacyChecks({ settings: settings() })
+      assert.equal(byKey(checks, 'secrets.unknown')?.state, 'info')
+      assert.equal(byKey(checks, 'secrets.keychain'), undefined)
+    })
+
+    test('everything encrypted, or nothing stored: ok, and the sentence fits which', () => {
+      const stored = byKey(privacyChecks({ settings: settings(), secrets: secrets({ braveKey: { set: true, encrypted: true }, mcpEnv: { servers: 2 } }) }), 'secrets.keychain')
+      assert.equal(stored?.state, 'ok')
+      assert.match(stored!.detail, /encrypted by the OS keychain/)
+      const none = byKey(privacyChecks({ settings: settings(), secrets: secrets() }), 'secrets.keychain')
+      assert.equal(none?.state, 'ok')
+      assert.match(none!.detail, /^No credentials are stored/)
+    })
+
+    test('a credential the keychain could not take warns, names which, and points at its tab', () => {
+      const mcp = byKey(privacyChecks({ settings: settings(), secrets: secrets({ mcpEnv: { servers: 2, unencrypted: 1 } }) }), 'secrets.unencrypted')
+      assert.equal(mcp?.state, 'warn')
+      assert.match(mcp!.detail, /the environment values of 1 MCP server are in config\.json in clear/)
+      assert.equal(mcp!.where, 'Settings → MCP')
+      const brave = byKey(privacyChecks({ settings: settings(), secrets: secrets({ braveKey: { set: true, encrypted: false } }) }), 'secrets.unencrypted')
+      assert.match(brave!.detail, /so the search API key is in config\.json in clear/)
+      assert.equal(brave!.where, 'Settings → Search')
+      const both = byKey(privacyChecks({ settings: settings(), secrets: secrets({ braveKey: { set: true, encrypted: false }, mcpEnv: { servers: 3, unencrypted: 3 } }) }), 'secrets.unencrypted')
+      assert.match(both!.detail, /the search API key and the environment values of 3 MCP servers are in config\.json/)
+      // the private defaults must never warn, so an unencrypted credential is the only way in
+      assert.equal(byKey(privacyChecks({ settings: settings(), secrets: secrets({ braveKey: { set: true, encrypted: true } }) }), 'secrets.unencrypted'), undefined)
+    })
   })
 
   test('every row has a key, a title, a sentence and a place', () => {

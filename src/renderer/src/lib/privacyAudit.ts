@@ -1,4 +1,4 @@
-import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats } from '../types'
+import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats, SecretsStatus } from '../types'
 import { UNTRUSTED_TOOLS } from '../../../shared/tools'
 
 /**
@@ -36,6 +36,8 @@ export interface PrivacyAuditInput {
   ledger?: { entries: number; expired: number } | null
   /** Hosts each purpose may reach right now, from the egress allowlist. */
   allowedHosts?: Record<string, string[]> | null
+  /** v2.9: whether each stored credential is encrypted, from the main process. */
+  secrets?: SecretsStatus | null
 }
 
 function isLoopbackUrl(url: string): boolean {
@@ -115,7 +117,7 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
       state: server.approval === 'full' ? 'warn' : 'info',
       detail:
         `${[server.command, ...server.args].join(' ')} runs with your privileges and outside the egress allowlist; its network traffic is not visible here.` +
-        (Object.keys(server.env).length ? ` Environment: ${Object.keys(server.env).join(', ')}.` : '') +
+        (server.envNames.length ? ` Environment: ${server.envNames.join(', ')}.` : '') +
         (server.approval === 'full' ? ' Every call runs without asking.' : server.approval === 'allowlist' ? ' Only calls with a standing grant run.' : ' Each call is confirmed.') +
         (live ? ` Currently ${live.state}.` : ''),
       where: 'Settings → MCP'
@@ -187,13 +189,51 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
   }
 
   // ---- secrets --------------------------------------------------------------------
-  out.push({
-    key: 'secrets.keychain',
-    title: 'Credentials live in the system keychain',
-    state: 'ok',
-    detail: 'The search API key and MCP environment values are never written to the settings file in clear.',
-    where: 'Settings → Search'
-  })
+  // v2.9: read, not asserted. Through v2.8 this row was a constant `ok` saying
+  // MCP environment values were never written to the settings file in clear,
+  // while they sat in config.json as a field of each server's row. It now says
+  // what the main process reports, and a credential the keychain could not take
+  // is named as the widening it is.
+  const secrets = input.secrets
+  if (!secrets) {
+    out.push({
+      key: 'secrets.unknown',
+      title: 'Credential storage not checked yet',
+      state: 'info',
+      detail: 'The search API key and MCP environment values are kept out of the settings file; whether each is encrypted is read from the main process when this panel opens.',
+      where: 'Settings → Search, Settings → MCP'
+    })
+  } else {
+    const clear: string[] = []
+    if (secrets.braveKey.set && !secrets.braveKey.encrypted) clear.push('the search API key')
+    if (secrets.mcpEnv.unencrypted > 0) {
+      clear.push(`the environment values of ${secrets.mcpEnv.unencrypted} MCP server${secrets.mcpEnv.unencrypted === 1 ? '' : 's'}`)
+    }
+    // Only the search key alone is singular; any MCP values make it plural.
+    const verb = secrets.mcpEnv.unencrypted === 0 ? 'is' : 'are'
+    out.push(
+      clear.length > 0
+        ? {
+            key: 'secrets.unencrypted',
+            title: 'Some credentials are stored without encryption',
+            state: 'warn',
+            detail:
+              `The OS keychain was unavailable when they were saved, so ${clear.join(' and ')} ${verb} in config.json in clear. ` +
+              'MCP values are encrypted at the next start that finds a keychain; the search key when you enter it again.',
+            where: secrets.mcpEnv.unencrypted > 0 ? 'Settings → MCP' : 'Settings → Search'
+          }
+        : {
+            key: 'secrets.keychain',
+            title: 'Credentials live in the system keychain',
+            state: 'ok',
+            detail:
+              secrets.braveKey.set || secrets.mcpEnv.servers > 0
+                ? 'The search API key and MCP environment values are encrypted by the OS keychain and kept out of the settings file; Settings shows their names, never their values.'
+                : 'No credentials are stored. A search API key or MCP environment values, when you add them, are encrypted by the OS keychain and kept out of the settings file.',
+            where: 'Settings → Search, Settings → MCP'
+          }
+    )
+  }
 
   // ---- the allowlist, as it stands -----------------------------------------------
   if (input.allowedHosts) {

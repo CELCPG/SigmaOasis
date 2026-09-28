@@ -19,9 +19,15 @@ import { app, dialog, ipcMain } from 'electron'
 import { TOOL_SCHEMAS } from '../../shared/tools'
 import { hostWindow } from './hostWindow'
 import { recordExternalRequest } from './net'
-import { getSettings, normalizeMcpServers, saveMcpServers, type McpServerConfig } from './store'
+import { getMcpEnv, getSettings, normalizeMcpServers, saveMcpServers, setMcpEnv, type McpServerConfig } from './store'
+import { normalizeMcpEnv } from './mcpEnv'
 import { MAX_OUTPUT_CHARS, truncate } from './toolHandlers/types'
-import { createMcpManager, type McpManager, type McpServerStatus } from './mcp/manager'
+import {
+  createMcpManager,
+  type McpManager,
+  type McpServerConfig as McpRuntimeConfig,
+  type McpServerStatus
+} from './mcp/manager'
 import { createGrant, GRANT_NOTE, useGrant } from './grants'
 import { declinedCall } from '../../shared/tools/outcomes'
 
@@ -126,13 +132,34 @@ export async function executeMcpTool(
   }
 }
 
-async function applyFromSettings(): Promise<void> {
-  await mcpManager().apply(getSettings().mcp?.servers ?? [])
+/**
+ * v2.9: the manager's configs, each with its environment joined back on from
+ * the keychain. This is the only place a value is put back beside its server,
+ * because this is where a process is spawned; the settings row it came from
+ * has names only (mcpEnv.ts).
+ *
+ * A server whose values are stored but cannot be decrypted here — a profile
+ * carried over from another machine or account — is kept off rather than
+ * started without them: a server missing its token can fall back to doing
+ * something else entirely, and nobody asked for that. Settings → MCP says why.
+ */
+function runtimeConfigs(): McpRuntimeConfig[] {
+  return (getSettings().mcp?.servers ?? []).map((c) => {
+    const values = getMcpEnv(c.id)
+    const env: Record<string, string> = {}
+    for (const name of c.envNames) if (values && name in values) env[name] = values[name]
+    return { id: c.id, name: c.name, command: c.command, args: c.args, env, cwd: c.cwd, enabled: c.enabled && values !== null, disabledTools: c.disabledTools }
+  })
+}
+
+/** Start, stop and restart servers to match what is saved. Skills install and remove through this too. */
+export async function applyMcpFromSettings(): Promise<void> {
+  await mcpManager().apply(runtimeConfigs())
 }
 
 function describeForConfirmation(c: McpServerConfig): string {
   const argv = [c.command, ...c.args].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')
-  const envNames = Object.keys(c.env)
+  const envNames = c.envNames
   return (
     `${argv}\n\n` +
     (c.cwd ? `Working directory: ${c.cwd}\n` : '') +
@@ -146,9 +173,14 @@ function describeForConfirmation(c: McpServerConfig): string {
 export function registerMcpHandlers(): void {
   ipcMain.handle('mcp:status', (): McpServerStatus[] => mcpManager().status())
 
+  // The one handler that receives environment values: they were typed a moment
+  // ago, and go to the keychain once the add is confirmed. The row saved beside
+  // them carries their names.
   ipcMain.handle('mcp:add', async (event, raw: unknown) => {
-    const [config] = normalizeMcpServers([raw])
-    if (!config) return { ok: false, error: 'A server needs an id and a command.' }
+    const env = normalizeMcpEnv((raw as { env?: unknown } | null)?.env)
+    const [normalized] = normalizeMcpServers([raw])
+    if (!normalized) return { ok: false, error: 'A server needs an id and a command.' }
+    const config: McpServerConfig = { ...normalized, envNames: Object.keys(env) }
     if ((getSettings().mcp?.servers ?? []).some((s) => s.id === config.id)) {
       return { ok: false, error: `A server with the id "${config.id}" already exists.` }
     }
@@ -166,26 +198,37 @@ export function registerMcpHandlers(): void {
       cancelId: 1
     })
     if (response !== 0) return { ok: false, canceled: true }
+    // Keychain first: saving the row prunes entries for servers not in the list.
+    const { encrypted } = setMcpEnv(config.id, env)
     const saved: McpServerConfig = { ...config, enabled: false }
     saveMcpServers([...(getSettings().mcp?.servers ?? []), saved])
-    await applyFromSettings()
-    return { ok: true, server: saved }
+    await applyMcpFromSettings()
+    return {
+      ok: true,
+      server: saved,
+      ...(encrypted ? {} : { warning: 'OS keychain unavailable — the environment values were stored without encryption in config.json.' })
+    }
   })
 
   ipcMain.handle('mcp:update', async (_e, raw: unknown) => {
-    const [config] = normalizeMcpServers([raw])
-    if (!config) return { ok: false, error: 'Invalid server config.' }
-    const servers = (getSettings().mcp?.servers ?? []).map((s) => (s.id === config.id ? config : s))
-    if (!servers.some((s) => s.id === config.id)) return { ok: false, error: `No server "${config.id}".` }
-    saveMcpServers(servers)
-    await applyFromSettings()
+    const [update] = normalizeMcpServers([raw])
+    if (!update) return { ok: false, error: 'Invalid server config.' }
+    const current = (getSettings().mcp?.servers ?? []).find((s) => s.id === update.id)
+    if (!current) return { ok: false, error: `No server "${update.id}".` }
+    // The switch, the approval mode and the tool list are the renderer's to
+    // change. The environment is not: its names stay those whose values the
+    // keychain holds, whatever this call carried.
+    const config: McpServerConfig = { ...update, envNames: current.envNames }
+    saveMcpServers((getSettings().mcp?.servers ?? []).map((s) => (s.id === config.id ? config : s)))
+    await applyMcpFromSettings()
     return { ok: true }
   })
 
   ipcMain.handle('mcp:remove', async (_e, id: string) => {
+    // Dropping the row drops its keychain entry with it (saveMcpServers).
     const servers = (getSettings().mcp?.servers ?? []).filter((s) => s.id !== String(id))
     saveMcpServers(servers)
-    await applyFromSettings()
+    await applyMcpFromSettings()
     return { ok: true }
   })
 
@@ -201,7 +244,7 @@ export function registerMcpHandlers(): void {
   // Enabled servers start with the app (scope §9.4): lazy starting would grow
   // the tool list mid-conversation and discard the prompt cache on the turn a
   // server first wakes.
-  void applyFromSettings()
+  void applyMcpFromSettings()
   app.on('before-quit', () => {
     void mcpManager().closeAll()
   })
