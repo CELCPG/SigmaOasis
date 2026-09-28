@@ -596,6 +596,22 @@ export interface McpServerStatus {
   stderr: string[]
 }
 
+/** v3.0: the agent workspace (mirrors main/ipc/store.ts AgentSettings). */
+export interface AgentSettings {
+  maxRounds: number
+  commandTimeoutSec: number
+  defaultPermission: AgentPermission
+  appTools: boolean
+  notify: boolean
+}
+
+/**
+ * v3.0: how much an agent may do without asking. `ask`: every edit and command
+ * is approved; `acceptEdits`: edits land (diff shown, task undoable), commands
+ * ask; `readOnly`: nothing that writes or runs is offered.
+ */
+export type AgentPermission = 'ask' | 'acceptEdits' | 'readOnly'
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -648,6 +664,8 @@ export interface AppSettings {
   mcp: McpSettings
   /** v0.9: multi-step plan generation and execution. */
   plan: PlanSettings
+  /** v3.0: the agent workspace. */
+  agent: AgentSettings
 }
 
 // ---- LM Studio / OpenAI-compatible API --------------------------------------
@@ -1202,6 +1220,8 @@ export interface ChatMessage {
   delivery?: { state: 'queued' | 'delivered'; round?: number }
   /** A multi-step plan executed on this message (v0.9 Plan mode). */
   plan?: ChatPlan
+  /** v3.0: this reply is an agent turn — drawn as its timeline (components/agent/AgentTurn.tsx). */
+  agent?: AgentTurnState
   /** v1.4 branching: the message this one was branched from, if any. */
   parentMessageId?: string
   /** v1.4 branching: set on the message a branch was taken from. */
@@ -1294,8 +1314,53 @@ export interface Conversation {
   activeBranchId?: string | null
   /** v1.10: the project this conversation is filed under; absent/null = unfiled. */
   projectId?: string | null
+  /**
+   * v3.0: an agent chat — messages go to an agent task in the main process
+   * instead of a chat turn, working in `workspace` (or with no files at all).
+   */
+  agent?: AgentChatConfig
   createdAt: number
   updatedAt: number
+}
+
+/** v3.0: what an agent chat works on, and how freely. */
+export interface AgentChatConfig {
+  /** The folder the agent may read and change; null for a task with no files. */
+  workspace: string | null
+  permission: AgentPermission
+  /** The model slot it runs on; absent = the conversation's active slot. */
+  slotId?: string
+}
+
+/** v3.0: one step of an agent turn, in the order it happened. */
+export type AgentStep = { kind: 'text'; text: string } | { kind: 'tool'; callId: string }
+
+export interface AgentTodo {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+/** v3.0: an agent turn as it runs and as it ended. */
+export interface AgentTurnState {
+  taskId: string
+  status: 'running' | 'done' | 'stopped' | 'paused' | 'error'
+  /** Why it paused or failed, in a sentence. */
+  detail?: string
+  steps: AgentStep[]
+  todos?: AgentTodo[]
+  /** Workspace-relative paths the turn changed. */
+  changedFiles?: string[]
+  /** Undo ran: what it put back and what it left alone. */
+  undo?: { restored: string[]; skipped: { path: string; reason: string }[] }
+  round?: number
+  completionTokens?: number
+  /** Tool results removed from the model's context to fit its window. */
+  elided?: number
+  startedAt: number
+  endedAt?: number
+  /** The workspace it ran in, as it was when the turn started. */
+  workspace: string | null
+  permission: AgentPermission
 }
 
 export interface ConversationBranch {
@@ -1325,4 +1390,11 @@ export interface ToolResult {
   error?: string
   /** Images to render in the chat, when the tool produced any (image_search). */
   images?: ToolImage[]
+  /**
+   * v3.0: what the record shows, when it differs from what the model is
+   * handed. An agent's edit gives the model one line ("Edited src/a.ts: +3 −1")
+   * and the reader the whole diff — the diff in the model's context would
+   * spend it on text the model just wrote.
+   */
+  display?: string
 }

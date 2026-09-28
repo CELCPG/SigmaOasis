@@ -528,13 +528,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
       if (result.ok) {
         record.status = 'done'
-        record.result = result.output ?? ''
+        // v3.0: a result can show the reader more than it hands the model.
+        record.result = result.display ?? result.output ?? ''
         // Display payloads (image_search thumbnails) ride the record, not the
         // wire history — the model gets the text list, the user gets pictures.
         if (result.images && result.images.length > 0) record.images = result.images
       } else {
         record.status = 'error'
-        record.result = result.error ?? 'Unknown tool error'
+        record.result = result.display ?? result.error ?? 'Unknown tool error'
       }
       options.onRecordChange?.(record)
       deps.onToolExecuted?.(record, result)

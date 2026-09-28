@@ -10,6 +10,7 @@ import { requestPatchReview } from '../patchReview'
 import { applyEdits, describeStats, unifiedDiff } from '../../../shared/patch'
 import type { PatchEdit } from '../../../shared/patch'
 import { declinedCall } from '../../../shared/tools/outcomes'
+import { dangerousCommandWarning } from '../../../shared/commandDanger'
 import { truncate } from './types'
 import type { ToolHandler, ToolResult } from './types'
 
@@ -34,13 +35,13 @@ const ALLOW_ONCE = 0
 const ALWAYS_ALLOW = 1
 const CANCEL = 2
 
-type Approval = 'once' | 'granted' | 'declined'
+export type Approval = 'once' | 'granted' | 'declined'
 
 /**
  * Ask, or find the grant. `binding` is what a grant would be bound to; `summary`
  * is the line the panel will show for it. The dialog options are the caller's.
  */
-async function approve(
+export async function approve(
   sender: Electron.WebContents,
   binding: { tool: string; args: Record<string, unknown>; cwd?: string },
   summary: string,
@@ -100,26 +101,6 @@ function confirmWrite(sender: Electron.WebContents, target: string, chars: numbe
       `${target}\n\n${chars} character(s) — this overwrites the file if it exists.\n\n` +
       '"Always allow" lets any future write to this exact path through without asking, until you revoke it under Settings → Tools.'
   })
-}
-
-/**
- * Command shapes that are destructive even when the user means well. They
- * still can run — the user is in charge — but the confirmation dialog spells
- * out the danger instead of presenting them as routine.
- */
-const DANGEROUS_COMMAND_PATTERNS: { label: string; re: RegExp }[] = [
-  { label: 'recursive force delete', re: /\brm\s+[^\n]*-[a-zA-Z]*[rf][a-zA-Z]*\s/ },
-  { label: 'writes directly to a disk device', re: /\bdd\b[^\n]*\bof=\/dev\// },
-  { label: 'disk format / partition', re: /\b(mkfs|fdisk|diskpart|newfs)[.\w]*\b/ },
-  { label: 'pipes a remote script into a shell', re: /\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(ba|z|fi)?sh\b/ },
-  { label: 'fork bomb shape', re: /:\(\)\s*\{\s*:\|:&\s*\}\s*;:/ },
-  { label: 'broad permission change', re: /\bchmod\s+(-R\s+)?777\s+[~/]/ },
-  { label: 'system-wide removal', re: /\brm\s+[^\n]*-[a-zA-Z]*[rf][a-zA-Z]*\s+(--no-preserve-root\s+)?[/~]/ }
-]
-
-export function dangerousCommandWarning(command: string): string | null {
-  const hits = DANGEROUS_COMMAND_PATTERNS.filter((p) => p.re.test(command)).map((p) => p.label)
-  return hits.length > 0 ? `⚠️ Potentially destructive: ${hits.join('; ')}.` : null
 }
 
 const readFile: ToolHandler = async (args) => {
