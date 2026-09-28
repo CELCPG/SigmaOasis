@@ -17,9 +17,21 @@ const geoLocate: ToolHandler = async (args) =>
 const dateCalculator: ToolHandler = async (args) =>
   fromOutcome(runDateCalculation(args as Parameters<typeof runDateCalculation>[0]))
 
+// v3.0: the weekday and the zone are spelled out. `toLocaleString()` gave
+// "9/28/2026, 12:13:00 PM", and a 9B model reading it named the day wrong —
+// "Sunday" for a Monday — because the weekday was left for it to compute.
 const getCurrentDatetime: ToolHandler = async () => {
   const now = new Date()
-  return { ok: true, output: `${now.toLocaleString()} (ISO: ${now.toISOString()})` }
+  const local = now.toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  })
+  return { ok: true, output: `${local} (ISO: ${now.toISOString()})` }
 }
 
 export const calculatorHandlers = {

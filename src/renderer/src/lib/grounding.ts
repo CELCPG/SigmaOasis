@@ -29,11 +29,27 @@ const MAX_SEARCH_CONTEXT_CHARS = 3000
 const MAX_QUERY_CHARS = 240
 
 /**
+ * v3.0: the reader's calendar day and its weekday, for the date line below.
+ *
+ * Through 2.8 the line was `toISOString().slice(0, 10)` — the UTC date, which
+ * from 8 PM on the US east coast is already tomorrow — and no weekday, which a
+ * small model then worked out for itself and got wrong: measured on
+ * qwen3.8-9b, 2026-09-28, a Monday, answered "Sunday" in three of three turns
+ * and "Tuesday" in a fourth, one of them straight after a tool had read the
+ * clock. The weekday is stated so there is nothing left to compute.
+ */
+export function localDateLine(now: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' })
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} (${weekday})`
+}
+
+/**
  * The honesty rules appended to every slot's system prompt. Deliberately
  * short: small models attend to brief imperative rules and tune out essays.
  */
 export function buildGroundingBlock(now: Date = new Date(), options: { offline?: boolean } = {}): string {
-  const date = now.toISOString().slice(0, 10)
+  const date = localDateLine(now)
   // v1.5: offline, "verify with web_search" is an instruction to fail — the
   // model calls a tool that cannot work, then either apologizes or guesses.
   // The rule names the local reference library instead, and says what "offline"
