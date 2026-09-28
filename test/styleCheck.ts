@@ -731,10 +731,18 @@ async function main(): Promise<void> {
     WRAP_STATE !== '',
     'no `.code-block.<state> pre` rule in index.css'
   )
+  // v3.0: the delegated handler lives beside the renderer that draws the
+  // control (lib/markdown.ts), since the VIBE view and the agent timeline
+  // render code blocks too; the bubble still has to route clicks to it.
   check(
-    'MessageBubble wires the control to that state',
-    WRAP_BTN !== '' && WRAP_STATE !== '' && bubbleSrc.includes(WRAP_BTN) && bubbleSrc.includes(WRAP_STATE),
-    `looked for ${WRAP_BTN || '?'} and ${WRAP_STATE || '?'}`
+    'the code-block click handler wires the control to that state, and the reply bubble uses it',
+    WRAP_BTN !== '' &&
+      WRAP_STATE !== '' &&
+      markdownSrc.includes(`closest('.${WRAP_BTN}')`) &&
+      markdownSrc.includes(`toggle('${WRAP_STATE}')`) &&
+      bubbleSrc.includes('onClick={handleBodyClick}') &&
+      bubbleSrc.includes('handleCodeBlockClick(event)'),
+    `looked for ${WRAP_BTN || '?'} and ${WRAP_STATE || '?'} in markdown.ts, and handleCodeBlockClick in MessageBubble`
   )
   check(
     'in that state the same line wraps instead of scrolling',

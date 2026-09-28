@@ -384,3 +384,30 @@ export function fadeStreamEdge(liveHtml: string): string {
     '<span class="stream-edge">$1</span>$2'
   )
 }
+
+/**
+ * The two controls in a code block's header: Wrap and Copy, both delegated.
+ *
+ * v3.0: here beside the renderer that draws those controls, rather than in
+ * MessageBubble — the VIBE view and the agent timeline render code blocks too.
+ */
+export function handleCodeBlockClick(event: { target: EventTarget }): void {
+  const target = event.target as HTMLElement
+  const wrap = target.closest('.code-wrap-btn')
+  if (wrap) {
+    const block = wrap.closest('.code-block')
+    if (!block) return
+    wrap.setAttribute('aria-pressed', String(block.classList.toggle('code-wrapped')))
+    return
+  }
+  const button = target.closest('.code-copy-btn')
+  if (!button) return
+  const code = button.closest('.code-block')?.querySelector('code')?.textContent ?? ''
+  void navigator.clipboard.writeText(code).then(() => {
+    const original = button.textContent
+    button.textContent = 'Copied!'
+    setTimeout(() => {
+      button.textContent = original
+    }, 1500)
+  })
+}

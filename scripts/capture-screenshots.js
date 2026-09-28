@@ -8,7 +8,7 @@
  * Output: docs/screenshots/<scene>.png at the display's native scale. Run all:
  *
  *   ELECTRON="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
- *   for scene in welcome-light chat-light chat-dark vibe vibe-empty; do
+ *   for scene in welcome-light chat-light chat-dark vibe vibe-empty agent-light agent-dark; do
  *     SCENE=$scene "$ELECTRON" scripts/capture-screenshots.js
  *   done
  *
@@ -30,6 +30,8 @@ const OUT_DIR = path.join(ROOT, 'docs', 'screenshots')
 const THEME = SCENE.endsWith('-dark') ? 'dark' : 'light'
 // v3.0: the VIBE scenes open the app in VIBE mode (the lagoon is always night).
 const VIBE = SCENE.startsWith('vibe')
+// v3.0: the agent scenes show a finished agent turn — its timeline, checklist and Undo.
+const AGENT = SCENE.startsWith('agent')
 const NOW = Date.now()
 const MIN = 60_000
 
@@ -127,7 +129,8 @@ function settings() {
     shopping: { requireProxy: true, maxSellers: 4, excludeTierX: true },
     audit: { enabled: false, autoPurgeOnQuit: false },
     mcp: { servers: [] },
-    plan: { maxSteps: 6, confirmPlan: true }
+    plan: { maxSteps: 6, confirmPlan: true },
+    agent: { maxRounds: 40, commandTimeoutSec: 120, defaultPermission: 'ask', appTools: true, notify: true }
   }
 }
 
@@ -382,7 +385,92 @@ function vibeConversation() {
   }
 }
 
+/** A finished agent turn: two bugs found, fixed after review, verified by the tests. */
+function agentConversation() {
+  const diff1 = [
+    '--- src/stats.js',
+    '+++ src/stats.js',
+    '@@ -1,6 +1,6 @@',
+    ' function mean(xs) {',
+    '   let total = 0',
+    '-  for (let i = 1; i < xs.length; i++) total += xs[i]',
+    '+  for (let i = 0; i < xs.length; i++) total += xs[i]',
+    '   return total / xs.length',
+    ' }'
+  ].join('\n')
+  const diff2 = [
+    '--- src/stats.js',
+    '+++ src/stats.js',
+    '@@ -5,7 +5,7 @@',
+    ' function median(xs) {',
+    '-  const s = [...xs].sort()',
+    '+  const s = [...xs].sort((a, b) => a - b)',
+    '   const mid = Math.floor(s.length / 2)'
+  ].join('\n')
+  const records = [
+    { id: 'r1', name: 'read_file', args: { path: 'test.js' }, status: 'done', result: "    1\tconst assert = require('assert')" },
+    { id: 'r2', name: 'read_file', args: { path: 'src/stats.js' }, status: 'done', result: '    1\tfunction mean(xs) {' },
+    { id: 'r3', name: 'edit_file', args: { path: 'src/stats.js' }, status: 'done', result: `Applied to src/stats.js: +1 −1 in 1 hunk.\n\n${diff1}` },
+    { id: 'r4', name: 'run_command', args: { command: 'node test.js' }, status: 'error', result: '$ node test.js\nAssertionError [ERR_ASSERTION]: 2 !== 10\n(exit code 1, 0.4 s)' },
+    { id: 'r5', name: 'edit_file', args: { path: 'src/stats.js' }, status: 'done', result: `Applied to src/stats.js: +1 −1 in 1 hunk.\n\n${diff2}` },
+    { id: 'r6', name: 'run_command', args: { command: 'node test.js' }, status: 'done', result: '$ node test.js\nall tests passed\n(exit code 0, 0.4 s)' }
+  ]
+  const answer =
+    'Both bugs were in `src/stats.js`:\n\n1. **`mean`** started its loop at index 1, skipping the first value.\n2. **`median`** sorted numbers as strings — `[10, 2, 33]` stayed in that order. It now sorts numerically.\n\n`node test.js` passes.'
+  return {
+    id: 'convo-agent',
+    title: '⚡ The tests in test.js fail — fix src/stats.js',
+    mode: 'independent',
+    activeModelSlotId: 'model-1',
+    agent: { workspace: '/Users/colin/code/stats-demo', permission: 'ask' },
+    createdAt: NOW - 14 * MIN,
+    updatedAt: NOW - 1 * MIN,
+    messages: [
+      { id: 'g1', role: 'user', content: 'The tests in test.js fail. Find the bugs in src/stats.js, fix them, and run the tests to make sure they pass.', createdAt: NOW - 14 * MIN },
+      {
+        id: 'g2',
+        role: 'assistant',
+        roleName: 'Assistant',
+        modelId: 'qwen3-32b',
+        color: 'blue',
+        content: answer,
+        toolCalls: records,
+        agent: {
+          taskId: 'task-demo',
+          status: 'done',
+          workspace: '/Users/colin/code/stats-demo',
+          permission: 'ask',
+          startedAt: NOW - 13 * MIN,
+          endedAt: NOW - 1 * MIN,
+          completionTokens: 3180,
+          changedFiles: ['src/stats.js'],
+          todos: [
+            { content: 'Read the test and the source', status: 'completed' },
+            { content: 'Fix mean() off-by-one', status: 'completed' },
+            { content: 'Fix median() numeric sort', status: 'completed' },
+            { content: 'Run the tests', status: 'completed' }
+          ],
+          steps: [
+            { kind: 'text', text: 'I will read the test first, then the module it tests.' },
+            { kind: 'tool', callId: 'r1' },
+            { kind: 'tool', callId: 'r2' },
+            { kind: 'text', text: '`mean` skips the first element. Fixing that first:' },
+            { kind: 'tool', callId: 'r3' },
+            { kind: 'tool', callId: 'r4' },
+            { kind: 'text', text: 'Still failing — `median([10, 2, 33])` returns 2, so the sort compares as strings.' },
+            { kind: 'tool', callId: 'r5' },
+            { kind: 'tool', callId: 'r6' },
+            { kind: 'text', text: answer }
+          ]
+        },
+        createdAt: NOW - 13 * MIN
+      }
+    ]
+  }
+}
+
 function conversations() {
+  if (AGENT) return [agentConversation(), ...SIDEBAR_CONVOS]
   if (SCENE === 'vibe-empty') return []
   if (VIBE) return [vibeConversation()]
   if (SCENE.startsWith('welcome')) {

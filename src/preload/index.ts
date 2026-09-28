@@ -41,6 +41,8 @@ import type { LedgerEntryDraft, LedgerHit, LedgerUpsertResult } from '../shared/
 import type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../shared/jobs'
 import type { InstalledSkill } from '../shared/skills'
 import type { PatchReview } from '../main/ipc/patchReview'
+import type { AgentRunRequest, AgentWirePayload } from '../main/ipc/agent'
+import type { CliStatus } from '../main/ipc/cli'
 
 /**
  * Secure context bridge — the only surface the renderer can use to talk to
@@ -337,6 +339,39 @@ const api = {
   },
   patchDecide: (reviewId: string, approved: boolean): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('patch:decide', reviewId, approved),
+
+  // v3.0: agent tasks run in the main process (main/ipc/agent.ts); the window
+  // starts, steers, stops and draws them, and is never what keeps one alive.
+  agentRun: (req: AgentRunRequest): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('agent:run', req),
+  agentStop: (taskId: string): Promise<boolean> => ipcRenderer.invoke('agent:stop', taskId),
+  agentSteer: (taskId: string, steer: { id: string; text: string }): Promise<boolean> =>
+    ipcRenderer.invoke('agent:steer', taskId, steer),
+  agentList: (): Promise<{ taskId: string; conversationId: string; messageId: string; title: string; startedAt: number }[]> =>
+    ipcRenderer.invoke('agent:list'),
+  agentUndo: (
+    conversationId: string,
+    messageId: string
+  ): Promise<{ ok: boolean; restored: string[]; skipped: { path: string; reason: string }[]; error?: string }> =>
+    ipcRenderer.invoke('agent:undo', conversationId, messageId),
+  onAgentEvent: (cb: (payload: AgentWirePayload) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: AgentWirePayload): void => cb(payload)
+    ipcRenderer.on('agent:event', listener)
+    return () => {
+      ipcRenderer.removeListener('agent:event', listener)
+    }
+  },
+  // v3.0: the `sigma` command on the user's PATH (main/ipc/cli.ts).
+  cliStatus: (): Promise<CliStatus> => ipcRenderer.invoke('cli:status'),
+  cliInstall: (): Promise<{ ok: boolean; status?: CliStatus; error?: string }> => ipcRenderer.invoke('cli:install'),
+  cliUninstall: (): Promise<{ ok: boolean; status?: CliStatus; error?: string }> => ipcRenderer.invoke('cli:uninstall'),
+  /** A finished task's desktop notification was clicked: open its conversation. */
+  onAgentFocus: (cb: (conversationId: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, id: string): void => cb(id)
+    ipcRenderer.on('agent:focus', listener)
+    return () => {
+      ipcRenderer.removeListener('agent:focus', listener)
+    }
+  },
 
   // v2.8: a Kiwix ZIM file registered as a pack where it is (main/ipc/library.ts registerZimPack).
   libraryAddZim: (path?: string): Promise<{ ok: boolean; pack?: LibraryPackSummary; cancelled?: boolean; error?: string }> =>

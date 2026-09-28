@@ -12,6 +12,7 @@ import { LibraryTab } from './settings/LibraryTab'
 import { McpTab } from './settings/McpTab'
 import { JobsTab } from './settings/JobsTab'
 import { SkillsTab } from './settings/SkillsTab'
+import { AgentTab } from './settings/AgentTab'
 import { describeProfile, profileFor } from '../lib/modelProfiles'
 import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
 import type { ToolSchema } from '../types'
@@ -53,7 +54,7 @@ import { ToolsTab } from './settings/ToolsTab'
 import { VoiceTab } from './settings/VoiceTab'
 import { EvalScoreLine, ProfileLine, isLoopbackUrl } from './settings/helpers'
 
-type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library' | 'mcp' | 'jobs' | 'skills'
+type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'agent' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library' | 'mcp' | 'jobs' | 'skills'
 
 export function SettingsModal(): JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
@@ -354,6 +355,7 @@ export function SettingsModal(): JSX.Element | null {
     { key: 'models', label: 'Models' },
     { key: 'pipeline', label: 'Pipeline' },
     { key: 'general', label: 'General' },
+    { key: 'agent', label: 'Agent' },
     { key: 'tools', label: 'Tools' },
     { key: 'search', label: 'Search' },
     { key: 'privacy', label: 'Privacy' },
@@ -424,6 +426,8 @@ export function SettingsModal(): JSX.Element | null {
             )}
 
             {tab === 'general' && <GeneralTab checkForUpdates={checkForUpdates} draft={draft} installUpdate={installUpdate} update={update} updateStatus={updateStatus} />}
+
+            {tab === 'agent' && <AgentTab draft={draft} update={update} />}
 
             {tab === 'tools' && <ToolsTab draft={draft} pickWorkingDir={pickWorkingDir} setWarming={setWarming} setWorkbench={setWorkbench} update={update} warming={warming} workbench={workbench} />}
 

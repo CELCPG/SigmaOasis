@@ -5,7 +5,7 @@ import { attributionLabel, composeFailure, readingLine } from '../../../shared/f
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
-import { fadeStreamEdge, renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
+import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState, startWaitClock } from '../lib/oasisRipple'
 import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
@@ -20,6 +20,7 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { BlockEnter, Disclosure } from './Disclosure'
 import { RanCodeBlock } from './RanCodeBlock'
 import { PatchBlock } from './PatchBlock'
+import { AgentTurn } from './agent/AgentTurn'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SecondOpinionBlock } from './SecondOpinionBlock'
 import { describeDeliberation, draftWentUnreviewed, thinkHarderNote } from '../lib/deliberation'
@@ -38,28 +39,6 @@ interface Props {
   isLast: boolean
   /** The conversation this message belongs to — enables v1.4 branching. */
   conversation?: Conversation
-}
-
-/** The two controls in a code block's header: Wrap and Copy, both delegated. */
-export function handleCodeBlockClick(event: React.MouseEvent<HTMLDivElement>): void {
-  const target = event.target as HTMLElement
-  const wrap = target.closest('.code-wrap-btn')
-  if (wrap) {
-    const block = wrap.closest('.code-block')
-    if (!block) return
-    wrap.setAttribute('aria-pressed', String(block.classList.toggle('code-wrapped')))
-    return
-  }
-  const button = target.closest('.code-copy-btn')
-  if (!button) return
-  const code = button.closest('.code-block')?.querySelector('code')?.textContent ?? ''
-  void navigator.clipboard.writeText(code).then(() => {
-    const original = button.textContent
-    button.textContent = 'Copied!'
-    setTimeout(() => {
-      button.textContent = original
-    }, 1500)
-  })
 }
 
 function formatTime(ts: number): string {
@@ -881,6 +860,10 @@ export const MessageBubble = memo(function MessageBubble({
       </div>
     )
   }
+
+  // v3.0: an agent turn is drawn as its timeline (agent/AgentTurn.tsx) —
+  // its steps in the order they happened, not text above tools.
+  if (message.agent) return <AgentTurn message={message} conversation={conversation} />
 
   const accent = message.color ? ACCENT[message.color] : null
   const toolCalls = message.toolCalls ?? []

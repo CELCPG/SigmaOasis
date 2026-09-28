@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useLMStudio } from '../hooks/useLMStudio'
+import { stopAgent } from '../hooks/agentTasks'
 import { WavRecorder } from '../lib/voice'
 import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
 import { turnContextUsage } from '../hooks/turnHelpers'
@@ -55,6 +56,12 @@ export function InputBar(): JSX.Element {
   const compact = useAppStore((s) => s.splitConversationId !== null)
   const conversations = useAppStore((s) => s.conversations)
   const { sendMessage, stopStreaming } = useLMStudio()
+  /**
+   * v3.0: in an agent chat the composer follows the chat's task, not the chat
+   * engine — Stop and steer while a task runs there, whatever any other
+   * conversation is doing — and offers only what a task takes: words.
+   */
+  const agentRun = useAppStore((s) => (activeConversationId ? s.agentRuns[activeConversationId] : undefined))
 
   /**
    * Warn before sending an image to a model that cannot see it. LM Studio
@@ -64,6 +71,12 @@ export function InputBar(): JSX.Element {
    * unknown capability stays silent rather than crying wolf.
    */
   const activeConvo = conversations.find((c) => c.id === activeConversationId)
+  const isAgent = Boolean(activeConvo?.agent)
+  const live = isAgent ? Boolean(agentRun) : streaming
+  const stop = (): void => {
+    if (isAgent && activeConversationId) stopAgent(activeConversationId)
+    else stopStreaming()
+  }
   const projects = settings?.projects ?? []
   const activeSlot =
     settings?.models.find((m) => m.id === activeConvo?.activeModelSlotId && m.enabled) ??
@@ -287,7 +300,7 @@ export function InputBar(): JSX.Element {
     if (!value && attachments.length === 0) return
     // v2.7: while a turn runs, plain text is a steer — queued for the next
     // round boundary. Attachments and plan mode wait for the turn to end.
-    if (streaming && (!value || attachments.length > 0 || planned || deliberate)) return
+    if (live && (!value || attachments.length > 0 || planned || deliberate)) return
     setText('')
     setAttachments([])
     setNotice(null)
@@ -344,13 +357,13 @@ export function InputBar(): JSX.Element {
             setDragOver(true)
           }}
           onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => void onDrop(e)}
+          onDrop={(e) => (isAgent ? e.preventDefault() : void onDrop(e))}
           // Named properties, not transition-all: the shell's height is driven
           // by the textarea gliding inside it, and a blanket transition made
           // the border chase that growth a frame behind the box it outlines.
           className={`glass-panel rounded-3xl p-2 transition-[border-color,box-shadow,background-color] duration-200 focus-within:border-[rgba(0,212,170,0.35)] focus-within:shadow-[inset_0_1px_0_var(--glass-inset),0_0_24px_rgba(0,212,170,0.12)] ${
             dragOver ? 'border-accent border-dashed' : ''
-          } ${streaming ? 'composer-live' : ''}`}
+          } ${live ? 'composer-live' : ''}`}
         >
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 px-1 pb-2">
@@ -412,15 +425,17 @@ export function InputBar(): JSX.Element {
             reachable instead of hiding some of them at narrow widths.
           */}
           <div className={`flex items-end gap-1 ${compact ? 'flex-wrap' : ''}`}>
-            <button
-              type="button"
-              onClick={() => void pick()}
-              disabled={streaming}
-              className={GHOST_BUTTON}
-              title="Attach images, text files or PDFs (or drop them here)"
-            >
-              📎
-            </button>
+            {!isAgent && (
+              <button
+                type="button"
+                onClick={() => void pick()}
+                disabled={streaming}
+                className={GHOST_BUTTON}
+                title="Attach images, text files or PDFs (or drop them here)"
+              >
+                📎
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void toggleMic()}
@@ -444,56 +459,66 @@ export function InputBar(): JSX.Element {
                   ? '⏳'
                   : '🎙️'}
             </button>
-            <button
-              type="button"
-              onClick={() => setPlanned((p) => !p)}
-              disabled={streaming}
-              className={
-                planned
-                  ? 'flex h-9 shrink-0 items-center justify-center rounded-full border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-sm text-accent-ink transition-colors disabled:opacity-40'
-                  : GHOST_BUTTON
-              }
-              title={
-                planned
-                  ? 'Plan mode on — your message becomes a step-by-step plan you approve before it runs'
-                  : 'Plan mode — break the task into steps, approve, then execute (Settings → General)'
-              }
-            >
-              {planned ? '📋 Plan' : '📋'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setDeliberate((d) => !d)}
-              disabled={streaming}
-              className={
-                deliberate
-                  ? 'flex h-9 shrink-0 items-center justify-center rounded-full border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-sm text-accent-ink transition-colors disabled:opacity-40'
-                  : GHOST_BUTTON
-              }
-              title={
-                (deliberate
-                  ? 'Think harder on — the reply is reviewed by another role (or by itself, labelled) and revised once before you see the final version'
-                  : 'Think harder — draft, review, revise: one extra pass that catches arithmetic slips and skipped steps. Costs two more model calls.') +
-                // v1.9.1: on a model that already reasons internally, say what was
-                // measured rather than implying a benefit that was not found.
-                (thinkHarderNote(activeSlot?.modelId ?? '') ? `\n\n${thinkHarderNote(activeSlot?.modelId ?? '')}` : '')
-              }
-            >
-              {deliberate ? '🧠 Think harder' : '🧠'}
-            </button>
+            {!isAgent && (
+              <button
+                type="button"
+                onClick={() => setPlanned((p) => !p)}
+                disabled={streaming}
+                className={
+                  planned
+                    ? 'flex h-9 shrink-0 items-center justify-center rounded-full border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-sm text-accent-ink transition-colors disabled:opacity-40'
+                    : GHOST_BUTTON
+                }
+                title={
+                  planned
+                    ? 'Plan mode on — your message becomes a step-by-step plan you approve before it runs'
+                    : 'Plan mode — break the task into steps, approve, then execute (Settings → General)'
+                }
+              >
+                {planned ? '📋 Plan' : '📋'}
+              </button>
+            )}
+            {!isAgent && (
+              <button
+                type="button"
+                onClick={() => setDeliberate((d) => !d)}
+                disabled={streaming}
+                className={
+                  deliberate
+                    ? 'flex h-9 shrink-0 items-center justify-center rounded-full border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-sm text-accent-ink transition-colors disabled:opacity-40'
+                    : GHOST_BUTTON
+                }
+                title={
+                  (deliberate
+                    ? 'Think harder on — the reply is reviewed by another role (or by itself, labelled) and revised once before you see the final version'
+                    : 'Think harder — draft, review, revise: one extra pass that catches arithmetic slips and skipped steps. Costs two more model calls.') +
+                  // v1.9.1: on a model that already reasons internally, say what was
+                  // measured rather than implying a benefit that was not found.
+                  (thinkHarderNote(activeSlot?.modelId ?? '') ? `\n\n${thinkHarderNote(activeSlot?.modelId ?? '')}` : '')
+                }
+              >
+                {deliberate ? '🧠 Think harder' : '🧠'}
+              </button>
+            )}
             <textarea
               ref={textareaRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder="Message Sigma Oasis…"
+              placeholder={
+                isAgent
+                  ? live
+                    ? 'Add a note — the agent reads it at its next step…'
+                    : 'Tell the agent what to do…'
+                  : 'Message Sigma Oasis…'
+              }
               className={`composer-input max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-tertiary ${
                 compact ? 'order-first w-full basis-full' : 'flex-1'
               }`}
             />
             {compact && <span className="flex-1" aria-hidden="true" />}
-            {streaming ? (
+            {live ? (
               <>
                 <button
                   type="button"
@@ -506,7 +531,7 @@ export function InputBar(): JSX.Element {
                 </button>
                 <button
                   type="button"
-                  onClick={stopStreaming}
+                  onClick={stop}
                   className="shrink-0 rounded-2xl border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm font-medium text-ink-danger transition-colors hover:bg-red-500/25"
                 >
                   Stop
@@ -558,7 +583,8 @@ export function InputBar(): JSX.Element {
                 ⚠ can {armed.join(' + ')}
               </span>
             )}
-            {contextMeter && (
+            {/* v3.0: the agent fits its own window (main/agent/context.ts); the chat's meter would measure a request an agent chat never sends. */}
+            {contextMeter && !isAgent && (
               <span
                 className={
                   contextMeter.overflows || contextMeter.ratio > 0.9

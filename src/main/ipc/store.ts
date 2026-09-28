@@ -311,6 +311,25 @@ export interface McpSettings {
   servers: McpServerConfig[]
 }
 
+/**
+ * v3.0: the agent — how far one task may go before it pauses, how long a
+ * command may run, what a new agent chat is allowed to do without asking,
+ * whether the app's own tools join the workspace's, and whether a task that
+ * finishes in the background says so.
+ */
+export interface AgentSettings {
+  /** Rounds before a task pauses and asks to continue. */
+  maxRounds: number
+  /** Default time limit for one command, in seconds. */
+  commandTimeoutSec: number
+  /** The permission a new agent chat starts with. */
+  defaultPermission: 'ask' | 'acceptEdits' | 'readOnly'
+  /** Offer the app's own tools (web search and reading, the library, Python) as enabled under Tools. */
+  appTools: boolean
+  /** A desktop notification when a task finishes while the window is not in front. */
+  notify: boolean
+}
+
 export interface AppSettings {
   baseUrl: string
   models: ModelConfig[]
@@ -375,6 +394,8 @@ export interface AppSettings {
   plan: PlanSettings
   /** v2.5: MCP servers. Off until turned on, one at a time. */
   mcp: McpSettings
+  /** v3.0: the agent workspace. */
+  agent: AgentSettings
 }
 
 /**
@@ -557,6 +578,13 @@ export function defaultSettings(): AppSettings {
     plan: {
       maxSteps: 6,
       confirmPlan: true
+    },
+    agent: {
+      maxRounds: 40,
+      commandTimeoutSec: 120,
+      defaultPermission: 'ask',
+      appTools: true,
+      notify: true
     }
   }
 }
@@ -815,7 +843,20 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       maxSteps: clamp(settings.plan?.maxSteps, 1, 10, defaults.plan.maxSteps),
       confirmPlan: settings.plan?.confirmPlan !== false
     },
-    mcp: { servers: normalizeMcpServers(settings.mcp?.servers) }
+    mcp: { servers: normalizeMcpServers(settings.mcp?.servers) },
+    agent: {
+      maxRounds: clamp(settings.agent?.maxRounds, 5, 200, defaults.agent.maxRounds),
+      commandTimeoutSec: clamp(settings.agent?.commandTimeoutSec, 10, 600, defaults.agent.commandTimeoutSec),
+      // Anything but a known mode falls back to asking: a malformed value must
+      // never widen what an agent may do unasked.
+      defaultPermission: (['ask', 'acceptEdits', 'readOnly'] as const).includes(
+        settings.agent?.defaultPermission as AgentSettings['defaultPermission']
+      )
+        ? (settings.agent!.defaultPermission as AgentSettings['defaultPermission'])
+        : 'ask',
+      appTools: settings.agent?.appTools !== false,
+      notify: settings.agent?.notify !== false
+    }
   }
   return normalized
 }
@@ -905,7 +946,8 @@ export function migrateSettings(): void {
     shopping: { ...defaults.shopping, ...current.shopping },
     audit: { ...defaults.audit, ...current.audit },
     plan: { ...defaults.plan, ...current.plan },
-    mcp: { ...defaults.mcp, ...mcp }
+    mcp: { ...defaults.mcp, ...mcp },
+    agent: { ...defaults.agent, ...current.agent }
   } as AppSettings
   writeSettings(normalizeSettings(merged))
 }
@@ -1136,6 +1178,16 @@ export async function writeNotes(notes: Note[]): Promise<void> {
 }
 
 /**
+ * v3.0: something else to forget when a conversation is deleted — the agent's
+ * checkpoints. A hook rather than an import, so this module does not depend
+ * on the agent's (which depends on this one).
+ */
+let conversationDeleteHook: ((id: string) => Promise<void>) | null = null
+export function onConversationDelete(fn: (id: string) => Promise<void>): void {
+  conversationDeleteHook = fn
+}
+
+/**
  * Registers all IPC handlers related to persistence: settings, conversations.
  */
 export function registerStoreHandlers(): void {
@@ -1202,6 +1254,9 @@ export function registerStoreHandlers(): void {
     } catch {
       // already gone
     }
+    // v3.0: an agent chat's checkpoints hold copies of the files it changed;
+    // they go with the chat rather than outliving it in the app's data folder.
+    await conversationDeleteHook?.(String(id ?? '')).catch(() => undefined)
     return true
   })
 

@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
-import { registerStoreHandlers, migrateSettings, getSettings } from './ipc/store'
+import { registerStoreHandlers, migrateSettings, getSettings, onConversationDelete } from './ipc/store'
 import { hostWindow } from './ipc/hostWindow'
 import { registerToolHandlers } from './ipc/tools'
 import { registerMcpHandlers } from './ipc/mcp'
@@ -12,6 +12,8 @@ import { registerJobHandlers } from './ipc/jobs'
 import { registerOutlineHandlers } from './ipc/outline'
 import { registerSkillHandlers } from './ipc/skills'
 import { registerPatchReviewHandlers } from './ipc/patchReview'
+import { forgetAgentConversation, registerAgentHandlers } from './ipc/agent'
+import { registerCliHandlers } from './ipc/cli'
 import { registerToolRankHandlers } from './ipc/toolRank'
 import { registerAttachmentHandlers } from './ipc/attachments'
 import { registerVoiceHandlers } from './ipc/voice'
@@ -141,6 +143,9 @@ app.whenReady().then(() => {
   registerOutlineHandlers()
   registerSkillHandlers()
   registerPatchReviewHandlers()
+  registerAgentHandlers()
+  onConversationDelete(forgetAgentConversation)
+  registerCliHandlers()
 
   // Build version for the sidebar badge. Prefer the project's own
   // package.json: in dev, app.getVersion() can report Electron's version

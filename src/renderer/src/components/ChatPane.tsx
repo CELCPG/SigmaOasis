@@ -3,6 +3,7 @@ import { useConversations } from '../hooks/useConversations'
 import { ChatArea } from './ChatArea'
 import { EmptyState } from './EmptyState'
 import { InputBar } from './InputBar'
+import { AgentBar } from './agent/AgentBar'
 
 /**
  * One column of the chat area. In single-pane mode this is the whole middle of
@@ -63,6 +64,9 @@ export function ChatPane({
           }}
         />
       )}
+
+      {/* v3.0: an agent chat says what it works on, how freely, and on which model. */}
+      {conversation?.agent && <AgentBar conversation={conversation} />}
 
       {conversation && conversationId ? (
         <ChatArea conversation={conversation} />

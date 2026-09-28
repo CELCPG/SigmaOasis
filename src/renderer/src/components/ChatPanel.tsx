@@ -8,6 +8,7 @@ import { projectInheritanceSummary } from '../lib/projectContext'
 import { useProjectFileStatus } from '../hooks/useProjectFileStatus'
 import { conversationStats, formatTokens, relativeTime } from '../lib/conversationStats'
 import { SessionControls } from './SessionControls'
+import { AgentPanelSection } from './agent/AgentBar'
 import { PanelSection } from './PanelSection'
 
 /**
@@ -80,7 +81,8 @@ export function ChatPanel(): JSX.Element {
             {conversation && settings ? (
               <>
                 <ProjectSection conversation={conversation} />
-                <SessionControls conversation={conversation} />
+                {/* v3.0: an agent chat's own controls replace the chat's strategy and memory. */}
+                {conversation.agent ? <AgentPanelSection conversation={conversation} /> : <SessionControls conversation={conversation} />}
                 <DetailsSection conversation={conversation} />
               </>
             ) : (

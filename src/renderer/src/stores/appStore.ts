@@ -15,6 +15,14 @@ import type { SettingsTarget } from '../../../shared/failure'
  * always persist changes through window.api.setSettings and then update here.
  * Conversations mirror the JSON files in the OS app-data directory.
  */
+/** v3.0: one agent task running in the main process. */
+export interface AgentRun {
+  taskId: string
+  messageId: string
+  title: string
+  startedAt: number
+}
+
 interface AppState {
   settings: AppSettings | null
   setSettings: (settings: AppSettings) => void
@@ -127,6 +135,14 @@ interface AppState {
   takeSteers: (conversationId: string) => { id: string; conversationId: string; text: string }[]
 
   /** v2.8 diff-reviewed writes: patches waiting for Apply or Discard, keyed by the tool call they belong to. */
+  /**
+   * v3.0: agent tasks running now, by conversation. The task itself lives in
+   * the main process; this is what the composer (Stop, steer), the rail's
+   * tasks list and the chat's header read to know one is there.
+   */
+  agentRuns: Record<string, AgentRun>
+  setAgentRun: (conversationId: string, run: AgentRun | null) => void
+
   pendingPatches: PendingPatch[]
   addPatchReview: (review: PendingPatch) => void
   removePatchReview: (reviewId: string) => void
@@ -288,6 +304,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   composerPrefill: null,
   setComposerPrefill: (composerPrefill) => set({ composerPrefill }),
 
+  agentRuns: {},
+  setAgentRun: (conversationId, run) =>
+    set((s) => {
+      const next = { ...s.agentRuns }
+      if (run) next[conversationId] = run
+      else delete next[conversationId]
+      return { agentRuns: next }
+    }),
   pendingPatches: [],
   addPatchReview: (review) => set((s) => ({ pendingPatches: [...s.pendingPatches.filter((p) => p.reviewId !== review.reviewId), review] })),
   removePatchReview: (reviewId) => set((s) => ({ pendingPatches: s.pendingPatches.filter((p) => p.reviewId !== reviewId) })),

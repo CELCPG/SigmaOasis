@@ -4,6 +4,7 @@ import { stopSpeaking } from '../lib/voice'
 import type { Conversation } from '../types'
 import { MessageBubble } from './MessageBubble'
 import { EmptyState } from './EmptyState'
+import { AgentEmpty } from './agent/AgentBar'
 
 /** Distance from the bottom (px) within which the scroll is still "pinned". */
 const PIN_THRESHOLD_PX = 80
@@ -131,6 +132,8 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   }, [])
 
   if (conversation.messages.length === 0) {
+    // v3.0: an agent chat starts from tasks, not questions.
+    if (conversation.agent) return <AgentEmpty conversation={conversation} />
     // v1.10: a chat inside a project says so — its instructions and files are
     // already in play before the first message.
     const project = useAppStore

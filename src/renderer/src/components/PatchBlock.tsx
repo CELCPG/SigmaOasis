@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import type { ToolCallRecord } from '../types'
 import { wasDeclined } from '../../../shared/tools/outcomes'
@@ -48,6 +48,9 @@ function diffOf(result: string | undefined): { lead: string; diff: string } {
 export function PatchBlock({ record }: { record: ToolCallRecord }): JSX.Element {
   const pending = useAppStore((s) => s.pendingPatches.find((p) => p.callId === record.id))
   const removePatchReview = useAppStore((s) => s.removePatchReview)
+  // v3.0: the settled diff opens on request. Through 2.8 it sat in a
+  // Disclosure held shut, so a change could be applied and never looked at.
+  const [showDiff, setShowDiff] = useState(false)
   const path = String(record.args.path ?? '')
   const decide = (approved: boolean): void => {
     if (!pending) return
@@ -89,9 +92,19 @@ export function PatchBlock({ record }: { record: ToolCallRecord }): JSX.Element 
           <span className="font-mono">{path}</span>
         </span>
         {!running && lead && <span className="text-ink-tertiary">{lead.replace(/^Applied to [^:]+: /, '')}</span>}
+        {diff && (
+          <button
+            type="button"
+            onClick={() => setShowDiff((o) => !o)}
+            className="ml-auto rounded px-1.5 py-0.5 text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/10"
+            aria-expanded={showDiff}
+          >
+            {showDiff ? 'Hide diff' : 'Show diff'}
+          </button>
+        )}
       </div>
       {diff && (
-        <Disclosure open={false} className="mt-2">
+        <Disclosure open={showDiff} className="mt-2">
           <DiffView diff={diff} />
         </Disclosure>
       )}

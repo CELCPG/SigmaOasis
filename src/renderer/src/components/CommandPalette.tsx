@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { setVibeMode } from '../hooks/vibeMode'
+import { createAgentConversation, pickWorkspaceAndStart } from '../hooks/agentTasks'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
@@ -79,6 +80,20 @@ export function CommandPalette(): JSX.Element | null {
       icon: '⚙️',
       action: () => { setSettingsOpen(true); setOpen(false) },
       category: 'settings'
+    },
+    {
+      id: 'new-agent-task',
+      label: 'New Agent Task…',
+      icon: '⚡',
+      action: () => { setOpen(false); void pickWorkspaceAndStart() },
+      category: 'actions'
+    },
+    {
+      id: 'new-agent-task-no-folder',
+      label: 'New Agent Task Without a Folder',
+      icon: '⚡',
+      action: () => { setOpen(false); createAgentConversation(null) },
+      category: 'actions'
     },
     {
       id: 'toggle-vibe',

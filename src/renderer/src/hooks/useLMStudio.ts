@@ -86,6 +86,7 @@ import {
 import { describeCodeCheck, looksArithmetic } from '../lib/workbenchChecks'
 import { planApprovals, runPlanTurn } from './planMode'
 import { outlineAllowed, vibeSystemBlock } from '../lib/vibe'
+import { sendToAgent } from './agentTasks'
 
 /**
  * The engine: streams chat completions from LM Studio's OpenAI-compatible
@@ -1145,6 +1146,14 @@ export function useLMStudio(): {
       const store = useAppStore.getState()
       const settings = store.settings
       if ((!text && attachments.length === 0) || !settings) return
+      // v3.0: an agent chat's message is a task (or a steer into a running
+      // one) for the main process, never a chat turn — and it is not held
+      // back by a chat turn streaming in another conversation.
+      const target = store.conversations.find((c) => c.id === store.activeConversationId)
+      if (target?.agent) {
+        await sendToAgent(target.id, text)
+        return
+      }
       if (store.streaming) {
         // v2.7 mid-turn steering: typed while a turn runs. The message goes
         // into the conversation now, ahead of the reply being written and

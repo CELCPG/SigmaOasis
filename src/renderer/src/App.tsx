@@ -12,6 +12,7 @@ import { ChatPanel, setRightPanelCollapsed } from './components/ChatPanel'
 import { ProjectModal } from './components/ProjectModal'
 import { VibeView } from './components/vibe/VibeView'
 import { setVibeMode } from './hooks/vibeMode'
+import { handleAgentEvent, syncAgentRuns } from './hooks/agentTasks'
 import { isVibeToggle } from './lib/vibe'
 
 /** Hairline between the two panes; purely visual, so it is hidden from the tree. */
@@ -47,6 +48,23 @@ export default function App(): JSX.Element {
       useAppStore.getState().setResearchProgress(update)
     )
   }, [])
+
+  // v3.0: an agent task reports from the main process; each event folds into
+  // its message, and the conversation is saved when the task ends.
+  useEffect(() => window.api.onAgentEvent(handleAgentEvent), [])
+
+  // v3.0: a finished task's notification was clicked — open its conversation.
+  useEffect(
+    () =>
+      window.api.onAgentFocus((id) => {
+        const s = useAppStore.getState()
+        if (s.conversations.some((c) => c.id === id)) {
+          if (s.settings?.vibeMode) setVibeMode(false)
+          s.setActiveConversationId(id)
+        }
+      }),
+    []
+  )
 
   // v2.8: a proposed patch's diff arrives for review and waits in the store
   // until the reader applies or discards it under the tool call that made it.
@@ -138,7 +156,9 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (baseUrl === null) return
     void refresh()
-    void load()
+    // v3.0: once the conversations are in, relearn the agent tasks the main
+    // process is still running and settle the ones that died with a restart.
+    void load().then(() => syncAgentRuns())
   }, [baseUrl, refresh, load])
 
   // Theme + font size.

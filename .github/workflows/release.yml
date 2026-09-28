@@ -190,6 +190,10 @@ jobs:
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
 
+      # v3.0: the `sigma` CLI, bundled into out/cli for extraResources.
+      - name: Bundle the sigma CLI
+        run: node scripts/build-cli.mjs
+
       # electron-builder 24.13.3 builds a temporary keychain of its own and then
       # runs `security set-key-partition-list -k` with the *certificate's* p12
       # password where the keychain's own password belongs (app-builder-lib,
@@ -293,6 +297,10 @@ jobs:
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
 
+      # v3.0: the `sigma` CLI, bundled into out/cli for extraResources.
+      - name: Bundle the sigma CLI
+        run: node scripts/build-cli.mjs
+
       - name: Build the installer
         run: npx electron-builder --win --publish never
 
@@ -329,6 +337,10 @@ jobs:
 
       - name: Bundle main, preload & renderer
         run: npx electron-vite build
+
+      # v3.0: the `sigma` CLI, bundled into out/cli for extraResources.
+      - name: Bundle the sigma CLI
+        run: node scripts/build-cli.mjs
 
       # No test run here, like Windows: the macOS job is the test gate for the
       # release, and the suite's Electron checks need a display anyway.

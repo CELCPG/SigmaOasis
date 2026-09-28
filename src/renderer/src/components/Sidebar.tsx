@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { setVibeMode } from '../hooks/vibeMode'
+import { pickWorkspaceAndStart, stopAgent } from '../hooks/agentTasks'
+import { todoProgress } from '../lib/agentTurn'
+import { formatElapsed } from '../lib/oasisRipple'
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { useUpdates } from '../hooks/useUpdates'
@@ -28,6 +31,7 @@ export function Sidebar(): JSX.Element {
   const { createProject, renameProject, deleteProject, moveConversation } = useProjects()
   const settings = useAppStore((s) => s.settings)
   const collapsed = settings?.sidebarCollapsed ?? false
+  const runningCount = useAppStore((s) => Object.keys(s.agentRuns).length)
   const projects = settings?.projects ?? []
 
   /**
@@ -324,6 +328,15 @@ export function Sidebar(): JSX.Element {
       </button>
       <button
         type="button"
+        onClick={() => void pickWorkspaceAndStart()}
+        className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
+        title="New agent task — choose a folder to work in"
+        aria-label="New agent task"
+      >
+        ⚡
+      </button>
+      <button
+        type="button"
         onClick={() => setVibeMode(true)}
         className="vibe-entry rounded-full px-2 py-0.5 text-sm"
         title="VIBE — nothing but the conversation, on calm water (⌘⇧L)"
@@ -331,6 +344,17 @@ export function Sidebar(): JSX.Element {
       >
         〰
       </button>
+      {runningCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex items-center gap-1 rounded-full bg-[rgba(0,212,170,0.12)] px-1.5 py-0.5 text-[10px] text-accent-ink"
+          title={`${runningCount} agent task${runningCount === 1 ? '' : 's'} working — expand to see`}
+        >
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          {runningCount}
+        </button>
+      )}
       <div className="mt-auto flex flex-col items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${dotClass}`} title={`LM Studio: ${connection}`} />
         <button
@@ -381,22 +405,34 @@ export function Sidebar(): JSX.Element {
         </div>
       </div>
 
+      {/* Its own row — beside the two buttons it wrapped mid-phrase at 280px. */}
+      <p className="px-4 pb-2 text-[10px] text-ink-tertiary">Private AI — you own your data</p>
+
       {/*
-        Its own row — beside the two buttons it wrapped mid-phrase at 280px.
-        v3.0: the way into VIBE shares it; the header row above has no room
-        for a fourth control at this width.
+        v3.0: the two other ways to use the app, side by side. A row of their
+        own, because the header above has no room for them at this width and
+        the tagline should not be truncated to make it.
       */}
       <div className="flex items-center gap-2 px-4 pb-3">
-        <p className="min-w-0 flex-1 truncate text-[10px] text-ink-tertiary">Private AI — you own your data</p>
+        <button
+          type="button"
+          onClick={() => void pickWorkspaceAndStart()}
+          className="flex-1 rounded-full border border-[rgba(0,212,170,0.3)] bg-[rgba(0,212,170,0.1)] px-2.5 py-1 text-[11px] font-medium text-accent-ink hover:bg-[rgba(0,212,170,0.18)]"
+          title="New agent task — choose a folder, and the agent reads, edits and runs things in it until the task is done"
+        >
+          ⚡ Agent task
+        </button>
         <button
           type="button"
           onClick={() => setVibeMode(true)}
-          className="vibe-entry shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+          className="vibe-entry flex-1 rounded-full px-2.5 py-1 text-[11px] font-medium"
           title="VIBE — nothing but the conversation, on calm water (⌘⇧L)"
         >
           〰 Vibe
         </button>
       </div>
+
+      <RunningTasks />
 
       {conversations.length > 0 && (
         <div className="px-4 pb-2">
@@ -598,5 +634,63 @@ export function Sidebar(): JSX.Element {
     >
       {face}
     </aside>
+  )
+}
+
+/**
+ * v3.0: the agent tasks working right now, whichever chat is open — the
+ * "background tasks" view. Each row is the task's chat (click to open it),
+ * how long it has run, where its checklist stands, and Stop. Absent when
+ * nothing is running, so it costs the rail nothing the rest of the time.
+ */
+function RunningTasks(): JSX.Element | null {
+  const runs = useAppStore((s) => s.agentRuns)
+  const conversations = useAppStore((s) => s.conversations)
+  const activeId = useAppStore((s) => s.activeConversationId)
+  const [now, setNow] = useState(() => Date.now())
+  const ids = Object.keys(runs)
+  useEffect(() => {
+    if (ids.length === 0) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [ids.length])
+  if (ids.length === 0) return null
+  return (
+    <div className="mx-3 mb-2 rounded-2xl border border-[rgba(0,212,170,0.25)] bg-[rgba(0,212,170,0.06)] px-2 py-1.5" data-testid="running-tasks">
+      <div className="px-1 pb-1 text-[10px] font-semibold tracking-[0.08em] text-accent-ink">WORKING NOW · {ids.length}</div>
+      {ids.map((conversationId) => {
+        const run = runs[conversationId]!
+        const convo = conversations.find((c) => c.id === conversationId)
+        const message = convo?.messages.find((m) => m.id === run.messageId)
+        const progress = todoProgress(message?.agent?.todos)
+        return (
+          <div key={conversationId} className={`group flex items-center gap-2 rounded-xl px-1.5 py-1 ${conversationId === activeId ? 'bg-black/5 dark:bg-white/5' : ''}`}>
+            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent shadow-[0_0_6px_rgba(0,212,170,0.8)]" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => useAppStore.getState().setActiveConversationId(conversationId)}
+              className="min-w-0 flex-1 text-left"
+              title={progress.current ? `Now: ${progress.current}` : 'Open this task'}
+            >
+              <span className="block truncate text-xs text-ink-primary">{convo?.title ?? run.title}</span>
+              <span className="block truncate text-[10px] text-ink-tertiary">
+                {formatElapsed(now - run.startedAt)}
+                {progress.total > 0 ? ` · ${progress.done}/${progress.total}` : ''}
+                {progress.current ? ` · ${progress.current}` : ''}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => stopAgent(conversationId)}
+              className="shrink-0 rounded-lg px-1.5 py-0.5 text-[10px] text-ink-danger opacity-70 hover:bg-red-500/10 hover:opacity-100"
+              title="Stop this task"
+              aria-label={`Stop ${convo?.title ?? 'task'}`}
+            >
+              ■
+            </button>
+          </div>
+        )
+      })}
+    </div>
   )
 }
