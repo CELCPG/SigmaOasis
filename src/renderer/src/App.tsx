@@ -150,16 +150,28 @@ export default function App(): JSX.Element {
   }, [createConversation])
 
   // Keyed on baseUrl alone — settings changes identity on every save, and a
-  // font-size change must not re-probe the server or reload conversations.
+  // font-size change must not re-probe the server.
   // `null` (settings not loaded yet) is distinct from '' (loaded, no URL).
   const baseUrl = settings ? settings.baseUrl : null
   useEffect(() => {
     if (baseUrl === null) return
     void refresh()
-    // v3.0: once the conversations are in, relearn the agent tasks the main
-    // process is still running and settle the ones that died with a restart.
+  }, [baseUrl, refresh])
+
+  // Conversations are local files and have nothing to do with the server
+  // address, so this waits for settings (it reads historyLimit) and then runs
+  // once — v3.0.1, having been keyed on baseUrl too, which re-read the whole
+  // history off disk every time the reader edited the URL. `load` reconciles
+  // now rather than replacing, so a repeat is survivable; it is still work
+  // nothing asked for, and coupling it to the server address is what made
+  // "the store is replaced by disk" a thing that happens mid-session.
+  // v3.0: once the conversations are in, relearn the agent tasks the main
+  // process is still running and settle the ones that died with a restart.
+  const settingsLoaded = settings !== null
+  useEffect(() => {
+    if (!settingsLoaded) return
     void load().then(() => syncAgentRuns())
-  }, [baseUrl, refresh, load])
+  }, [settingsLoaded, load])
 
   // Theme + font size.
   //

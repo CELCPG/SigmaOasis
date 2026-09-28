@@ -40,6 +40,24 @@
  * `aria-live` scores perfectly on "the outcome is announced" while making the
  * block unusable. The negatives are what stop that.
  *
+ * v3.0.1: two of the five fixtures stopped being what they were written as,
+ * and that is the fix, not a regression in the check. This file seeds every
+ * plan through disk, and a plan read off disk with no outcome is now settled at
+ * load (`abandonOrphanedPlans`, lib/planState.ts): nothing in a fresh process
+ * is behind it, so its "awaiting approval" and its pulsing `running` row were
+ * both claims about a process that no longer existed. The awaiting and running
+ * shapes are still written to disk exactly as before; what the tree is now
+ * asked for is what the shipped build turns them into — `abandoned when the
+ * app quit`, no run control, and a `Cut off` row where the pulse was. That
+ * makes this the one check that proves the sweep runs in the real load path
+ * rather than in a unit test of it.
+ *
+ * The cost is stated rather than hidden: `Queued`, `Running`, the "awaiting
+ * approval" / "running" live words, the progress fraction a live plan's name
+ * carries and the approval footer's control names can no longer be reached
+ * from a seeded profile, because only a live executor can hold them. test/planBlock.test.ts still pins every one of them in markup;
+ * reading them from the tree again needs a driver that runs a real plan turn.
+ *
  * Run through scripts/test-render.sh (Electron proper, not ELECTRON_RUN_AS_NODE).
  */
 import { app, BrowserWindow } from 'electron'
@@ -83,19 +101,22 @@ const FIXTURES: Fixture[] = [
     outcome: 'stopped',
     approved: true
   },
+  // Seeded awaiting approval — three `pending` steps, `approved:false`, no
+  // outcome — and read back as the load sweep leaves it.
   {
-    route: 'AX · awaiting',
-    statuses: ['pending', 'pending', 'pending'],
+    route: 'AX · quit at the gate',
+    statuses: ['skipped', 'skipped', 'skipped'],
     expandable: [],
-    approved: false,
-    liveWord: 'awaiting approval'
+    outcome: 'abandoned',
+    approved: false
   },
+  // Seeded mid-run — `done`, `running`, `pending` — and read back likewise.
   {
-    route: 'AX · running',
-    statuses: ['done', 'running', 'pending'],
+    route: 'AX · quit mid-run',
+    statuses: ['done', 'interrupted', 'skipped'],
     expandable: [0],
-    approved: true,
-    liveWord: 'running'
+    outcome: 'abandoned',
+    approved: true
   },
   {
     route: 'AX · failed',
@@ -242,15 +263,18 @@ function seedProfile(): string {
     [st(1, 'done', { output: 'ok' }), st(2, 'stopped'), st(3, 'skipped'), st(4, 'skipped')],
     { approved: true, outcome: 'stopped' }
   )
+  // The two live shapes, written exactly as a plan reaches disk when the app
+  // quits under it (renaming the chat mid-plan is enough to save one). No
+  // outcome on either: the fixtures above expect what load makes of them.
   write(
     'ax-awaiting',
-    'AX · awaiting',
+    'AX · quit at the gate',
     [st(1, 'pending', { tools: ['web_search'] }), st(2, 'pending'), st(3, 'pending')],
     { approved: false }
   )
   write(
     'ax-running',
-    'AX · running',
+    'AX · quit mid-run',
     [st(1, 'done', { output: 'ok' }), st(2, 'running'), st(3, 'pending')],
     { approved: true }
   )
@@ -530,21 +554,25 @@ function judge(readings: BlockReading[]): void {
     const i = f.statuses.indexOf(status)
     return i === -1 ? undefined : r.rows[i]?.marker?.name
   }
-  const running = markerFor('AX · running', 'running')
-  const queued = markerFor('AX · running', 'pending')
   const done = markerFor('AX · failed', 'done')
   const failed = markerFor('AX · failed', 'failed')
-  check(
-    'a running step and a queued step are different to a reader',
-    Boolean(running) && running !== queued,
-    `running ${JSON.stringify(running)} vs queued ${JSON.stringify(queued)}`
-  )
   check(
     'a step that failed and a step that succeeded are different to a reader',
     Boolean(done) && done !== failed,
     `done ${JSON.stringify(done)} vs failed ${JSON.stringify(failed)}`
   )
-  // And the class, not the two instances: all six statuses, pairwise distinct.
+  // v3.0.1: where "running vs queued" stood. Those two can no longer be seeded
+  // (see the header), and the collision that matters in their place is the
+  // misattribution the new status exists to prevent: a step the app's quit cut
+  // off must not be announced as the reader's Stop, or as a step that broke.
+  const cutOff = markerFor('AX · quit mid-run', 'interrupted')
+  const stoppedByYou = markerFor('AX · stopped', 'stopped')
+  check(
+    'a step the quit cut off and a step the reader stopped are different to a reader',
+    Boolean(cutOff) && cutOff !== stoppedByYou && cutOff !== failed,
+    `cut off ${JSON.stringify(cutOff)} vs stopped ${JSON.stringify(stoppedByYou)} vs failed ${JSON.stringify(failed)}`
+  )
+  // And the class, not the instances: every status seeded, pairwise distinct.
   const seen = new Map<string, PlanStepStatus[]>()
   for (const r of readings) {
     const f = FIXTURES.find((x) => x.route === r.route)!
@@ -561,11 +589,29 @@ function judge(readings: BlockReading[]): void {
     collisions.length === 0,
     collisions.map(([n, s]) => `${JSON.stringify(n)} = ${s.join('/')}`).join(', ')
   )
+  // v3.0.1: every status a plan read off disk can still hold. `pending` and
+  // `running` are the two only a live executor can, and the load sweep settles
+  // them — so they are named here rather than dropped from the arithmetic, and
+  // the line below checks the other half: that no seeded row reached the tree
+  // still wearing one.
+  const LIVE_ONLY: PlanStepStatus[] = ['pending', 'running']
   const statusesSeen = new Set(FIXTURES.flatMap((f) => f.statuses))
+  const reachable = (Object.keys(STATUS_LABEL) as PlanStepStatus[]).filter(
+    (s) => !LIVE_ONLY.includes(s)
+  )
   check(
-    'the fixtures cover every status there is',
-    statusesSeen.size === Object.keys(STATUS_LABEL).length,
-    `${statusesSeen.size} of ${Object.keys(STATUS_LABEL).length}: ${[...statusesSeen].join(' ')}`
+    'the fixtures cover every status a plan read off disk can hold',
+    reachable.every((s) => statusesSeen.has(s)),
+    `${reachable.filter((s) => statusesSeen.has(s)).length} of ${reachable.length}: ${[...statusesSeen].join(' ')}`
+  )
+  const liveNames = LIVE_ONLY.map((s) => STATUS_LABEL[s])
+  const stillLive = readings.flatMap((r) =>
+    r.rows.filter((row) => liveNames.includes(row.marker?.name ?? '')).map(() => r.route)
+  )
+  check(
+    'no plan read off disk is still announced as queued or running',
+    stillLive.length === 0,
+    `${stillLive.length} row(s): ${stillLive.join(', ')}`
   )
 
   console.log('\na row is a control only when there is something to open')
@@ -586,8 +632,11 @@ function judge(readings: BlockReading[]): void {
       r.controls.every((n) => !/[▸▾🔧▶📋]/.test(n)),
       JSON.stringify(r.controls.filter((n) => /[▸▾🔧▶📋]/.test(n)))
     )
-    // The awaiting plan is the only one that may offer a control that runs it —
-    // the negative that keeps the line above from passing on an empty list.
+    // Only a plan that can still be approved may offer a control that runs it.
+    // v3.0.1: none of these can — the one seeded awaiting approval comes back
+    // abandoned — so this is now the dead-button fix measured in the shipped
+    // build: the buttons that resolved nothing are gone from the tree, not only
+    // from the markup.
     check(
       `${r.route}: the run control is offered only while the plan can be approved`,
       r.controls.includes('Run this plan') === (!f.approved && !f.outcome),

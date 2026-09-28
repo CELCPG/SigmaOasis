@@ -51,7 +51,9 @@ module.exports = {
            */
           danger: 'var(--text-danger)',
           warn: 'var(--text-warn)',
-          ok: 'var(--text-ok)'
+          ok: 'var(--text-ok)',
+          /* v3.0.1: the app's own ending, which is nobody's fault — see index.css. */
+          info: 'var(--text-info)'
         }
       }
     }
