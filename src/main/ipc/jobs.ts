@@ -4,6 +4,13 @@ import { join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
 import { getSettings } from './store'
 import { recordAuditEntry } from './audit'
+import { runDeepResearch } from './deepResearch'
+import { formatResearch } from './toolHandlers/research'
+import { fetchWebpage } from './search'
+import { extractProduct } from './productExtract'
+import { readWatchlist, recordPrice } from './watchlist'
+import { checkPackFreshness, listPacks, readAppPack, writeAppPack } from './library'
+import { LEDGER_PACK_ID, LEDGER_PACK_NAME } from '../../shared/factLedger'
 import { afterRun, dueJobs, JOB_INTERVAL_MS } from '../../shared/jobs'
 import type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../../shared/jobs'
 
@@ -273,8 +280,6 @@ function firstEnabledModel(): string | undefined {
 }
 
 async function runResearchJob(job: Job): Promise<JobRunResult> {
-  const { runDeepResearch } = require('./deepResearch') as typeof import('./deepResearch')
-  const { formatResearch } = require('./toolHandlers/research') as typeof import('./toolHandlers/research')
   if (getSettings().research.confirmPlan) {
     return { outcome: 'skipped', note: 'Research plans need confirmation (Settings → Search); a job cannot confirm one.' }
   }
@@ -291,9 +296,6 @@ async function runResearchJob(job: Job): Promise<JobRunResult> {
 }
 
 async function runPriceJob(job: Job): Promise<JobRunResult> {
-  const { fetchWebpage } = require('./search') as typeof import('./search')
-  const { extractProduct } = require('./productExtract') as typeof import('./productExtract')
-  const { readWatchlist, recordPrice } = require('./watchlist') as typeof import('./watchlist')
   const settings = getSettings()
   if (settings.shopping.requireProxy && settings.proxy.mode === 'none') {
     return { outcome: 'skipped', note: 'Shopping requires a proxy (Settings → Privacy) and none is set.' }
@@ -323,9 +325,6 @@ async function runPriceJob(job: Job): Promise<JobRunResult> {
 }
 
 async function runLedgerJob(): Promise<JobRunResult> {
-  const { readAppPack, writeAppPack } = require('./library') as typeof import('./library')
-  const { LEDGER_PACK_ID, LEDGER_PACK_NAME } = require('../../shared/factLedger') as typeof import('../../shared/factLedger')
-  const { fetchWebpage } = require('./search') as typeof import('./search')
   const pack = await readAppPack(LEDGER_PACK_ID)
   const now = Date.now()
   const expired = (pack?.docs ?? []).filter((d) => d.claim && typeof d.expiresAt === 'number' && now > d.expiresAt)
@@ -357,7 +356,6 @@ async function runLedgerJob(): Promise<JobRunResult> {
 }
 
 async function runPacksJob(): Promise<JobRunResult> {
-  const { listPacks, checkPackFreshness } = require('./library') as typeof import('./library')
   const tracked = (await listPacks()).filter((p) => p.kind === 'user' && p.sourceFolder)
   if (tracked.length === 0) return { outcome: 'ok', note: 'no tracked folders' }
   const lines: string[] = []
@@ -442,10 +440,7 @@ export function registerJobHandlers(): void {
     const r = await jobScheduler().runNow(String(id ?? ''))
     return r ? { ok: true, ...r } : { ok: false, error: jobScheduler().busy() ? 'A job is already running.' : 'No such job.' }
   })
-  ipcMain.handle('watchlist:list', async () => {
-    const { readWatchlist } = require('./watchlist') as typeof import('./watchlist')
-    return readWatchlist()
-  })
+  ipcMain.handle('watchlist:list', () => readWatchlist())
 
   const first = setTimeout(() => void jobScheduler().tick(), FIRST_TICK_MS)
   const periodic = setInterval(() => void jobScheduler().tick(), TICK_MS)
