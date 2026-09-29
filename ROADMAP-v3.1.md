@@ -13,8 +13,11 @@ agent's speed. 3.2 makes the agent a daily tool on top of those numbers. 3.3 is 
 its items waits on a decision only the owner can make.
 
 Written 2026-09-28 against v3.0.0 (`63e7eb0`). **Status: L1 landed in v3.0.1 (tagged 2026-09-28),
-with the Windows CI leg. L2 did not, so the 3.0.1 Windows installer is still unsigned. Nothing else
-below is built yet.**
+with the Windows CI leg. L2 did not, so the 3.0.1 Windows installer is still unsigned. v3.1.0 was
+tagged 2026-09-28 on `fcb820e` (PR #13): the agent suite (M1's `eval:agent`), M3, M4, V1–V2 and
+S1–S6, and the `useLMStudio.ts` extraction. M1's baseline is still owed — both attempts stopped
+on the bench GPU's PCIe errors — and M2 is built on `feat/m2-speed-candidates`, unmeasured. What
+follows 3.1 is `ROADMAP-v4.0.md`, which takes 3.2's D1–D3 into its agent track.**
 
 ## What 3.0 left, and where it lands
 
