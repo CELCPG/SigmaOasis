@@ -1,7 +1,10 @@
-# Sigma Oasis v4.0.0 — draft
+# Sigma Oasis v4.0.0 — Settings to the app's standard, the front door, and nineteen experiments
 
-*Filled in by each checkpoint of `CHECKLIST-v4.0.md`; the roadmap is `ROADMAP-v4.0.md`. Nothing
-here is released until the version reads 4.0.0 and the tag is on main.*
+4.0 brings the surfaces 3.0 left behind up to the standard the chat sets — Settings rebuilt on one
+kit that applies as you go, a first screen that shows what this machine can do, the machine itself
+read before the first slow reply — and builds the agent's next two years behind switches that are
+all off, because none of it is measured yet. The checkpoints and their grades are in
+`CHECKLIST-v4.0.md`; the plan they answer is `ROADMAP-v4.0.md`.
 
 ## Settings
 
