@@ -124,14 +124,14 @@ Each a sub-checkpoint on its own branch when large; graded together.
 
 ### F. The front door
 
-- ☐ F1 Three doors (Ask, Work in a folder, Just talk); greeting line; project line.
-- ☐ F2 Pick up where you left off: two recent chats, running tasks, unread digests; nothing when empty.
-- ☐ F3 Capability cards from the table, chosen by what is enabled, greyed with a deep link when off, coloured by tool family.
-- ☐ F4 No-server and no-model states in place of the doors; the update line.
-- ☐ F5 `AgentEmpty` merged into the one component with a mode; recipe cards where C3's recipes exist (placeholders until then, hidden when none).
-- ☐ F6 Render checks for every state; reduced-motion; `eval:tools` unchanged; screenshot scenes updated (`welcome-light`, `agent-dark`).
+- ☑ F1 `components/FrontDoor.tsx`: three glass doors — Ask (focuses the composer), Work in a folder (the picker, then an agent chat), Just talk (VIBE) — each with a verb, a line and its shortcut; the heading is the time of day (`greeting`, decision 6's default), the project's name inside a project with its first instruction line under it, or the agent's question in an agent chat.
+- ☑ F2 `pickUp` (`lib/frontDoor.ts`): the two most recent conversations with messages, not this one, never an unsaved one; a digest of the last day set aside with "a digest arrived"; every running task with its elapsed time and checklist progress. The section is absent when there is nothing.
+- ☑ F3 `chooseCards`: eight cards in a table, six shown — enabled ones first in the table's order, then disabled ones greyed with the reason ("the Python sandbox is off", "nothing is remembered yet") and a click that opens the setting (`tools.run_python`, `memory.knowledge`, …). Each carries its family's colour from the style guide and a chip naming what runs. The reader's machine is read once per opening: the Workbench runtime, whether memory holds anything, whether a pack is installed. The agent cards (Tidy a folder, Fix the failing test) pick a folder and start the chat with the task in the composer; C3's recipes take these prompts over when they land.
+- ☑ F4 `readiness`: with LM Studio not answering, or no role holding a model, the doors give way to one card that says which and offers the fix — *Test again* and a link to the address, or a link to Roles. The update line is deferred: the app has no in-app notes and the release page is the owner's to publish (E-track), stated here.
+- ☑ F5 One component: an agent chat's front door is the same screen with the agent's heading, no doors, and the task cards `AgentEmpty` offered (plus *Tidy this folder*); `AgentEmpty` is removed from `AgentBar.tsx`, `EmptyState.tsx` is deleted, and the pane's cold start (no conversation selected) uses the same door with `conversation={null}`.
+- ☑ F6 `test/frontDoor.test.ts` (10 tests: the card choice on a full and a fresh machine, the has-nothing reasons and their targets, SearXNG without an address, the agent cards, the greeting, pick-up, `ago`, readiness); the reduced-motion rule is the existing `.oasis-enter` one; `eval:tools` unchanged (nothing here reaches a model); `welcome-light` and `welcome-dark` recaptured.
 
-**Grade:** —
+**Grade:** see the record.
 
 ### E. Everything else
 

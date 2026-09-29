@@ -3,8 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { stopSpeaking } from '../lib/voice'
 import type { Conversation } from '../types'
 import { MessageBubble } from './MessageBubble'
-import { EmptyState } from './EmptyState'
-import { AgentEmpty } from './agent/AgentBar'
+import { FrontDoor } from './FrontDoor'
 
 /** Distance from the bottom (px) within which the scroll is still "pinned". */
 const PIN_THRESHOLD_PX = 80
@@ -132,19 +131,9 @@ export function ChatArea({ conversation }: { conversation: Conversation }): JSX.
   }, [])
 
   if (conversation.messages.length === 0) {
-    // v3.0: an agent chat starts from tasks, not questions.
-    if (conversation.agent) return <AgentEmpty conversation={conversation} />
-    // v1.10: a chat inside a project says so — its instructions and files are
-    // already in play before the first message.
-    const project = useAppStore
-      .getState()
-      .settings?.projects.find((p) => p.id === conversation.projectId)
-    return (
-      <EmptyState
-        heading={project ? `New chat in ${project.name}` : 'Start a conversation'}
-        onPick={(prompt) => useAppStore.getState().setComposerPrefill(prompt)}
-      />
-    )
+    // v4.0: one front door for a chat, a chat in a project and an agent chat —
+    // it reads the conversation to know which.
+    return <FrontDoor conversation={conversation} onPick={(prompt) => useAppStore.getState().setComposerPrefill(prompt)} />
   }
 
   return (

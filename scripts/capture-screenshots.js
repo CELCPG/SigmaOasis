@@ -318,7 +318,8 @@ const SIDEBAR_CONVOS = [
     title: 'Basic first aid training',
     mode: 'independent',
     activeModelSlotId: 'model-1',
-    messages: [],
+    // v4.0: a message, so the front door's "pick up where you left off" lists it.
+    messages: [{ id: 'edo-u1', role: 'user', content: 'Teach me basic first aid.', createdAt: NOW - 26 * 60 * MIN }],
     createdAt: NOW - 26 * 60 * MIN,
     updatedAt: NOW - 25 * 60 * MIN
   },
@@ -328,7 +329,7 @@ const SIDEBAR_CONVOS = [
     mode: 'orchestrated',
     activeModelSlotId: 'model-1',
     orchestratorSlotId: 'model-1',
-    messages: [],
+    messages: [{ id: 'board-u1', role: 'user', content: 'The kitchen tap drips. Walk me through fixing it.', createdAt: NOW - 49 * 60 * MIN }],
     memorySources: ['company-handbook.pdf'],
     createdAt: NOW - 49 * 60 * MIN,
     updatedAt: NOW - 48 * 60 * MIN

@@ -10,7 +10,7 @@ with nothing on screen but the conversation; and the **agent**, which works in a
 terminal with `sigma`. All of it keeps **every byte of data on your machine**. No cloud, no
 telemetry.
 
-![A fresh conversation: starter cards, the conversation rail, and per-chat controls](docs/screenshots/welcome-light.png)
+![The front door: three ways in, and six things this machine can do — one greyed with the setting that turns it on](docs/screenshots/welcome-light.png)
 
 | Light theme | Dark theme |
 | --- | --- |

@@ -45,6 +45,16 @@ here is released until the version reads 4.0.0 and the tag is on main.*
 
 ## The first screen
 
+- **Three doors, and what this machine can do.** The screen before the first message no longer
+  offers four topics; it offers the three ways in that the rail does — Ask, Work in a folder,
+  Just talk — under a greeting for the hour, then what you left off (the last two conversations,
+  any task still working, a digest that arrived today), then six cards that each show something
+  this machine can do that a cloud chat cannot do privately: summarize a document you drop in,
+  check the math in a spreadsheet, research with the sources, tidy a folder, fix the failing
+  test, ask what it remembers about you. A card whose tool is off is greyed with the reason and
+  opens the setting when clicked. When LM Studio is not answering, or no role has a model, the
+  doors give way to the fix. An agent chat opens on the same screen with its tasks.
+
 ## The agent
 
 ## Underneath

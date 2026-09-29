@@ -92,50 +92,6 @@ export function AgentBar({ conversation }: { conversation: Conversation }): JSX.
   )
 }
 
-/** Starters for an agent chat with nothing in it yet — tasks, not questions. */
-export function AgentEmpty({ conversation }: { conversation: Conversation }): JSX.Element {
-  const hasFolder = Boolean(conversation.agent?.workspace)
-  const starters = hasFolder
-    ? [
-        { icon: '🗺️', text: 'Explain how this project is organized and where to start reading.' },
-        { icon: '🧪', text: 'Run the tests, and fix whatever fails.' },
-        { icon: '🔍', text: 'Review the code for bugs and risky spots, and list them with file and line.' },
-        { icon: '📝', text: 'Write or update the README so a newcomer can run the project.' }
-      ]
-    : [
-        { icon: '🔎', text: 'Research a question across several sources and give me a cited summary.' },
-        { icon: '🧮', text: 'Work through a calculation step by step with Python and show the result.' }
-      ]
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-      <div className="text-3xl" aria-hidden="true">
-        ⚡
-      </div>
-      <h2 className="mt-3 text-lg font-semibold">What should the agent do?</h2>
-      <p className="mt-1 max-w-md text-sm text-ink-secondary">
-        {hasFolder
-          ? 'It reads, edits and runs things in this folder until the task is done — keeping a checklist you can watch, asking before what you asked it to ask about.'
-          : 'No folder is chosen, so it works with the web, the library and Python — whatever is enabled under Settings → Tools.'}
-      </p>
-      <div className="mt-5 grid w-full max-w-xl gap-2 sm:grid-cols-2">
-        {starters.map((s) => (
-          <button
-            key={s.text}
-            type="button"
-            onClick={() => useAppStore.getState().setComposerPrefill(s.text)}
-            className="glass-panel glass-panel--hover rounded-2xl px-3 py-2.5 text-left text-sm text-ink-secondary"
-          >
-            <span className="mr-1.5" aria-hidden="true">
-              {s.icon}
-            </span>
-            {s.text}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 /**
  * The chat panel's section for an agent chat, in place of the chat's strategy
  * and memory controls — none of which drive a task. What it works on, how
