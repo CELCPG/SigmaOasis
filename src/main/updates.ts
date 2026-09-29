@@ -6,7 +6,7 @@ import { getSettings } from './ipc/store'
  * Auto-update via electron-updater + GitHub Releases (the publish provider
  * in electron-builder.yml). Update checks contact GitHub — one of only two
  * non-loopback network paths in the app — so background checks are **opt-in**
- * (Settings → General → "Automatically check for updates"). The manual
+ * (Settings → Appearance & chat → "Automatically check for updates"). The manual
  * "Check now" button always works. In dev the handlers still register
  * (returning a 'dev build' status) so the renderer never has to care which
  * mode it's in.
@@ -98,7 +98,7 @@ export function registerUpdateHandlers(): void {
     return true
   })
 
-  // Background checks only when the user opted in (Settings → General). The
+  // Background checks only when the user opted in (Settings → Appearance & chat). The
   // manual updates:check handler above always works.
   const checkIfEnabled = (): void => {
     if (getSettings().updates.autoCheck) {

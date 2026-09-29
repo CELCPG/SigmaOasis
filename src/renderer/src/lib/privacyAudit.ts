@@ -24,8 +24,39 @@ export interface PrivacyCheck {
   title: string
   state: PrivacyState
   detail: string
-  /** Where the switch is. */
+  /** Where the switch is, in words. */
   where: string
+  /** v4.0: where the switch is, as a Settings target (`tab` or `tab.row`) the panel links to. */
+  target?: string
+}
+
+/**
+ * v4.0: the row each check's switch lives on, by the check's key. The
+ * `where` sentence stays for the log and the tests; the panel draws this as
+ * a link. A key with no row here links to nothing, which is right for
+ * `egress.allowlist` — derived, not set.
+ */
+export function targetForKey(key: string): string | undefined {
+  const rules: [RegExp, string][] = [
+    [/^lmstudio\./, 'connection.baseUrl'],
+    [/^tools\.terminal_/, 'tools.run_terminal_command'],
+    [/^tools\.write_/, 'tools.write_file'],
+    [/^tools\.egress$/, 'tools.web_search'],
+    [/^agent\.accept_edits/, 'agent.defaultPermission'],
+    [/^agent\.web_tools$/, 'agent.appTools'],
+    [/^grants\./, 'tools.grants'],
+    [/^mcp\./, 'mcp.servers'],
+    [/^search\.self_hosted$/, 'search.searxngUrl'],
+    [/^search\.third_party$/, 'search.provider'],
+    [/^search\.confirmed$/, 'search.confirmBeforeSearch'],
+    [/^updates\./, 'privacy.autoCheck'],
+    [/^proxy\./, 'privacy.proxyMode'],
+    [/^audit\./, 'privacy.auditEnabled'],
+    [/^memory\./, 'memory.knowledge'],
+    [/^ledger\./, 'library.packs'],
+    [/^secrets\./, 'search.braveKey']
+  ]
+  return rules.find(([re]) => re.test(key))?.[1]
 }
 
 export interface PrivacyAuditInput {
@@ -54,13 +85,13 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
   const s = input.settings
   const out: PrivacyCheck[] = []
   const tools = 'Settings → Tools'
-  const models = 'Settings → Models'
+  const models = 'Settings → Roles'
 
   // ---- where the model server is -----------------------------------------
   out.push(
     isLoopbackUrl(s.baseUrl)
-      ? { key: 'lmstudio.loopback', title: 'The model server is on this machine', state: 'ok', detail: `Every prompt goes to ${s.baseUrl} and nowhere else.`, where: 'Settings → Connection' }
-      : { key: 'lmstudio.remote', title: 'The model server is not on this machine', state: 'warn', detail: `Prompts, attachments and recalled memory are sent to ${s.baseUrl}. Only you can say whether that host is yours.`, where: 'Settings → Connection' }
+      ? { key: 'lmstudio.loopback', title: 'The model server is on this machine', state: 'ok', detail: `Every prompt goes to ${s.baseUrl} and nowhere else.`, where: 'Settings → LM Studio' }
+      : { key: 'lmstudio.remote', title: 'The model server is not on this machine', state: 'warn', detail: `Prompts, attachments and recalled memory are sent to ${s.baseUrl}. Only you can say whether that host is yours.`, where: 'Settings → LM Studio' }
   )
 
   // ---- tools that touch the host ------------------------------------------
@@ -161,11 +192,11 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
   // ---- search ----------------------------------------------------------------
   out.push(
     s.search.provider === 'searxng'
-      ? { key: 'search.self_hosted', title: 'Search goes to your own SearXNG', state: isLoopbackUrl(s.search.searxngUrl) ? 'ok' : 'info', detail: `Queries go to ${s.search.searxngUrl || '(no URL set)'}.`, where: 'Settings → Search' }
-      : { key: 'search.third_party', title: `Search queries go to ${s.search.provider}`, state: 'info', detail: 'Only the query text leaves, and only when a search tool runs. A self-hosted SearXNG keeps queries on your network.', where: 'Settings → Search' }
+      ? { key: 'search.self_hosted', title: 'Search goes to your own SearXNG', state: isLoopbackUrl(s.search.searxngUrl) ? 'ok' : 'info', detail: `Queries go to ${s.search.searxngUrl || '(no URL set)'}.`, where: 'Settings → Search & research' }
+      : { key: 'search.third_party', title: `Search queries go to ${s.search.provider}`, state: 'info', detail: 'Only the query text leaves, and only when a search tool runs. A self-hosted SearXNG keeps queries on your network.', where: 'Settings → Search & research' }
   )
   if (s.search.confirmBeforeSearch) {
-    out.push({ key: 'search.confirmed', title: 'Every search is confirmed first', state: 'ok', detail: 'A dialog shows the query before it is sent.', where: 'Settings → Search' })
+    out.push({ key: 'search.confirmed', title: 'Every search is confirmed first', state: 'ok', detail: 'A dialog shows the query before it is sent.', where: 'Settings → Search & research' })
   }
 
   // ---- updates ----------------------------------------------------------------
@@ -226,7 +257,7 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
       title: 'Credential storage not checked yet',
       state: 'info',
       detail: 'The search API key and MCP environment values are kept out of the settings file; whether each is encrypted is read from the main process when this panel opens.',
-      where: 'Settings → Search, Settings → MCP'
+      where: 'Settings → Search & research, Settings → MCP'
     })
   } else {
     const clear: string[] = []
@@ -245,7 +276,7 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
             detail:
               `The OS keychain was unavailable when they were saved, so ${clear.join(' and ')} ${verb} in config.json in clear. ` +
               'MCP values are encrypted at the next start that finds a keychain; the search key when you enter it again.',
-            where: secrets.mcpEnv.unencrypted > 0 ? 'Settings → MCP' : 'Settings → Search'
+            where: secrets.mcpEnv.unencrypted > 0 ? 'Settings → MCP' : 'Settings → Search & research'
           }
         : {
             key: 'secrets.keychain',
@@ -255,7 +286,7 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
               secrets.braveKey.set || secrets.mcpEnv.servers > 0
                 ? 'The search API key and MCP environment values are encrypted by the OS keychain and kept out of the settings file; Settings shows their names, never their values.'
                 : 'No credentials are stored. A search API key or MCP environment values, when you add them, are encrypted by the OS keychain and kept out of the settings file.',
-            where: 'Settings → Search, Settings → MCP'
+            where: 'Settings → Search & research, Settings → MCP'
           }
     )
   }
@@ -274,5 +305,5 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
     })
   }
 
-  return out
+  return out.map((c) => (c.target ? c : { ...c, target: targetForKey(c.key) }))
 }

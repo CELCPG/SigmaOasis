@@ -117,7 +117,7 @@ describe('privacy audit', () => {
       assert.equal(mcp!.where, 'Settings → MCP')
       const brave = byKey(privacyChecks({ settings: settings(), secrets: secrets({ braveKey: { set: true, encrypted: false } }) }), 'secrets.unencrypted')
       assert.match(brave!.detail, /so the search API key is in config\.json in clear/)
-      assert.equal(brave!.where, 'Settings → Search')
+      assert.equal(brave!.where, 'Settings → Search & research')
       const both = byKey(privacyChecks({ settings: settings(), secrets: secrets({ braveKey: { set: true, encrypted: false }, mcpEnv: { servers: 3, unencrypted: 3 } }) }), 'secrets.unencrypted')
       assert.match(both!.detail, /the search API key and the environment values of 3 MCP servers are in config\.json/)
       // the private defaults must never warn, so an unencrypted credential is the only way in

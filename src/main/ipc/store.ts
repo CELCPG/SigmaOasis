@@ -380,7 +380,7 @@ export interface AppSettings {
    * silently drops it, which is what every version before 0.8.2 did.
    */
   contextManagement: 'compact' | 'trim'
-  /** v0.9: a second role reviews replies on request (Settings → Models). */
+  /** v0.9: a second role reviews replies on request (Settings → Roles). */
   secondOpinion: SecondOpinionSettings
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
@@ -1203,6 +1203,9 @@ export function registerStoreHandlers(): void {
     writeSettings(normalizeSettings(settings))
     return true
   })
+
+  // v4.0: the defaults themselves, so a Settings section can reset just its own keys.
+  ipcMain.handle('store:defaultSettings', () => defaultSettings())
 
   ipcMain.handle('store:resetSettings', () => {
     writeSettings(defaultSettings())

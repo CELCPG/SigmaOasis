@@ -44,8 +44,8 @@ export function Stepper({ value, onChange, min, max, step = 1, unit, disabled, l
         data-kit="stepper"
         value={draft}
         disabled={disabled}
-        aria-label={labelledBy ? undefined : label}
-        aria-labelledby={labelledBy}
+        aria-label={label}
+        aria-labelledby={label ? undefined : labelledBy}
         aria-describedby={describedBy}
         onChange={(e) => setDraft(e.target.value)}
         onFocus={() => {

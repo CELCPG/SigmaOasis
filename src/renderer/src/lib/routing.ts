@@ -181,7 +181,7 @@ export function routingReadiness(models: ModelConfig[]): {
     return {
       specialists,
       note:
-        'No specialist roles are enabled, so research, money, code and data turns all stay on the active role. Enable Researcher, Coder, Finance Coach or Data Analyst under Settings → Models to route them automatically.'
+        'No specialist roles are enabled, so research, money, code and data turns all stay on the active role. Enable Researcher, Coder, Finance Coach or Data Analyst under Settings → Roles to route them automatically.'
     }
   }
   const covered = new Set(specialists.map((m) => m.specialty))

@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 import { CARD, HELP } from './tokens'
 
-export interface CardProps {
+export interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   /** A title row: a dot, a name, a status, an action at the right. */
   title?: ReactNode
   status?: ReactNode
@@ -10,10 +10,10 @@ export interface CardProps {
   className?: string
 }
 
-/** One card (v4.0): the glass surface at the small radius. Replaces two card styles. */
-export function Card({ title, status, right, children, className = '' }: CardProps): JSX.Element {
+/** One card (v4.0): the glass surface at the small radius. Replaces two card styles. Data attributes pass through, for the checks that find a card by name. */
+export function Card({ title, status, right, children, className = '', ...rest }: CardProps): JSX.Element {
   return (
-    <div className={`${CARD} ${className}`}>
+    <div data-list-row className={`${CARD} ${className}`} {...rest}>
       {(title || right) && (
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1 text-sm font-medium text-ink-primary">

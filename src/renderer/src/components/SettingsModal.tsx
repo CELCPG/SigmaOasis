@@ -3,476 +3,279 @@ import { useAppStore } from '../stores/appStore'
 import { useModels } from '../hooks/useModels'
 import { useUpdates } from '../hooks/useUpdates'
 import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
-import { CollaborativeMode } from './CollaborativeMode'
-import { ACCENT_KEYS, ACCENT } from '../lib/colors'
-import { describeModel, describeEvalScore, modelLabel } from '../lib/modelInfo'
-import { runToolChoiceEval, parseCompletionMessage } from '../lib/evalRunner'
-import { withGrounding, withToolCallPreamble } from '../lib/grounding'
+import { useApplySettings } from '../hooks/settingsApply'
+import type { AppSettings } from '../types'
+import { searchRows, segmentedKey, settingsIndex, tabOfRow } from '../lib/settingsKit'
+import { targetTab } from '../lib/settingsLinks'
+import { SettingsToasts } from './settings/SettingsToasts'
+import { DangerRow, FIELD_COMPACT } from './settings/kit'
+import { SETTINGS_GROUPS, SETTINGS_TABS, filterTabs, settingsTab, type SettingsTabKey } from './settings/tabs'
+import { TabIcon } from './settings/icons'
+import { ConnectionTab } from './settings/ConnectionTab'
+import { ModelsTab } from './settings/ModelsTab'
+import { GeneralTab } from './settings/GeneralTab'
+import { GroundingTab } from './settings/GroundingTab'
+import { MemoryTab } from './settings/MemoryTab'
+import { ToolsTab } from './settings/ToolsTab'
+import { AgentTab } from './settings/AgentTab'
+import { SearchTab } from './settings/SearchTab'
+import { VoiceTab } from './settings/VoiceTab'
 import { LibraryTab } from './settings/LibraryTab'
+import { SkillsTab } from './settings/SkillsTab'
 import { McpTab } from './settings/McpTab'
 import { JobsTab } from './settings/JobsTab'
-import { SkillsTab } from './settings/SkillsTab'
-import { AgentTab } from './settings/AgentTab'
-import { describeProfile, profileFor } from '../lib/modelProfiles'
-import type { ApiMessage, ApiToolCall } from '../lib/agentLoop'
-import type { ToolSchema } from '../types'
-import {
-  LENGTH_PRESETS,
-  TEMPERATURE_PRESETS,
-  activeLengthPreset,
-  activePreset,
-  recommendedSampling
-} from '../lib/sampling'
-import type {
-  AppSettings,
-  AccentColor,
-  AuditStatus,
-  EvalScoreSummary,
-  ModelConfig,
-  ToolToggles,
-  SttStatus,
-  MemoryStats,
-  NetworkActivityEntry,
-  ResearchIndexStats,
-  SamplingSettings,
-  WorkbenchStatus
-} from '../types'
-import { speak } from '../lib/voice'
-
-// Labels derive from the tool table (each ToolMeta's `label`), listed in wire
-// order — so the Settings list and the model's tool list agree on membership
-// by construction. (One visible change from the hand-kept map: finance_calculator
-// now sits with the other calculators instead of after analyze_file.)
-import { TOOL_LABELS } from '../../../shared/tools'
-import { ConnectionTab } from './settings/ConnectionTab'
-import { GeneralTab } from './settings/GeneralTab'
-import { MemoryTab } from './settings/MemoryTab'
-import { ModelsTab } from './settings/ModelsTab'
 import { PrivacyTab } from './settings/PrivacyTab'
-import { SearchTab } from './settings/SearchTab'
-import { ToolsTab } from './settings/ToolsTab'
-import { VoiceTab } from './settings/VoiceTab'
-import { EvalScoreLine, ProfileLine, isLoopbackUrl } from './settings/helpers'
+import { ActivityTab } from './settings/ActivityTab'
 
-type Tab = 'connection' | 'models' | 'pipeline' | 'general' | 'agent' | 'tools' | 'search' | 'privacy' | 'voice' | 'memory' | 'library' | 'mcp' | 'jobs' | 'skills'
+type Tab = SettingsTabKey
 
+/**
+ * Settings (v4.0). The shell: a glass panel with a rail of sixteen tabs under
+ * six headers, a search that narrows the rail, a header that says what the
+ * open tab governs, and a foot that says what just changed with Undo.
+ *
+ * There is no draft and no Save. Every control applies as it commits,
+ * through `apply` (hooks/settingsApply.ts). Each tab owns whatever transient
+ * state it needs — the modal holds only the open tab and the search.
+ */
 export function SettingsModal(): JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const setOpen = useAppStore((s) => s.setSettingsOpen)
-  // `attemptClose` is defined further down (it needs the draft), so Escape is
-  // routed through a holder rather than reordering the component around it.
-  const dismiss = useRef<() => void>(() => {})
   const { mounted, leaving, surfaceRef, dialogProps } = useModalPresence(open, {
-    onDismiss: () => dismiss.current()
+    onDismiss: () => setOpen(false)
   })
   const settings = useAppStore((s) => s.settings)
   const setSettings = useAppStore((s) => s.setSettings)
+  const apply = useApplySettings()
   const availableModels = useAppStore((s) => s.availableModels)
   const connection = useAppStore((s) => s.connection)
   const { refresh } = useModels()
   const { status: updateStatus, check: checkForUpdates, install: installUpdate } = useUpdates()
 
-  const [draft, setDraft] = useState<AppSettings | null>(settings)
+  const [defaults, setDefaults] = useState<AppSettings | null>(null)
   const [tab, setTab] = useState<Tab>('connection')
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
-  const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
-  const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
-  const [evalScores, setEvalScores] = useState<EvalScoreSummary[]>([])
-  const [workbench, setWorkbench] = useState<WorkbenchStatus | null>(null)
-  const [warming, setWarming] = useState(false)
-  const [evalRun, setEvalRun] = useState<{
-    model: string
-    modelIndex: number
-    modelCount: number
-    fixtureIndex: number
-    fixtureCount: number
-    last: string
-  } | null>(null)
-  const [evalNotice, setEvalNotice] = useState<string | null>(null)
-  const evalCancelRef = useRef(false)
-  const [memoryNotice, setMemoryNotice] = useState<string | null>(null)
-  const [researchStats, setResearchStats] = useState<ResearchIndexStats | null>(null)
-  const [searchTest, setSearchTest] = useState<{ ok: boolean; detail: string } | null>(null)
-  const [searchTesting, setSearchTesting] = useState(false)
-  const [proxyTest, setProxyTest] = useState<{ ok: boolean; detail: string } | null>(null)
-  const [proxyTesting, setProxyTesting] = useState(false)
-  const [braveKeyInput, setBraveKeyInput] = useState('')
-  const [braveKeyInfo, setBraveKeyInfo] = useState<{ set: boolean; encrypted: boolean } | null>(null)
-  const [braveKeyNotice, setBraveKeyNotice] = useState<string | null>(null)
-  const [netActivity, setNetActivity] = useState<NetworkActivityEntry[]>([])
-  const [auditInfo, setAuditInfo] = useState<AuditStatus | null>(null)
-  const [auditNotice, setAuditNotice] = useState<string | null>(null)
-  const [confirmingReset, setConfirmingReset] = useState(false)
+  const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  const railRefs = useRef<Record<string, HTMLButtonElement | null>>({})
 
+  // The defaults, for a section's Reset; read once per opening.
   useEffect(() => {
-    if (open) setDraft(settings)
-  }, [open, settings])
-
-  // Live appearance preview: theme and font size follow the draft while the
-  // modal is open, so Save is never a leap of faith. Closing without saving
-  // reverts to the saved values (see attemptClose).
-  useEffect(() => {
-    if (!open || !draft) return
-    document.documentElement.classList.toggle('dark', draft.theme === 'dark')
-    document.documentElement.style.fontSize = `${draft.fontSize}px`
-  }, [open, draft, draft?.theme, draft?.fontSize])
-
-  const dirty = Boolean(draft && settings && JSON.stringify(draft) !== JSON.stringify(settings))
-
-  /** Restore the saved appearance after a preview that was not saved. */
-  const revertAppearance = (): void => {
-    if (!settings) return
-    document.documentElement.classList.toggle('dark', settings.theme === 'dark')
-    document.documentElement.style.fontSize = `${settings.fontSize}px`
-  }
-
-  /** Closing discards the draft; guard that when there is something to lose. */
-  const attemptClose = (): void => {
-    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return
-    revertAppearance()
-    setConfirmingReset(false)
-    setOpen(false)
-  }
-  dismiss.current = attemptClose
-
-  // Load available TTS voices and STT status when the Voice tab opens.
-  useEffect(() => {
-    if (tab !== 'voice') return
-    const loadVoices = (): void => setVoices(window.speechSynthesis?.getVoices() ?? [])
-    loadVoices()
-    window.speechSynthesis?.addEventListener('voiceschanged', loadVoices)
-    void window.api.getSttStatus().then(setSttStatus)
-    return () => window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
-  }, [tab])
+    if (open) void window.api.defaultSettings().then(setDefaults).catch(() => setDefaults(null))
+  }, [open])
 
   // v1.17.2: a remedy control asked for a specific tab. Honour it once, then
   // clear it, so the next manual open lands where the reader left off.
+  // v4.0: the target may be a row (`tab.row`): the tab opens, every fold on
+  // it is opened so the row is in the tree, and the row is scrolled to and
+  // lit once.
   const requestedTab = useAppStore((s) => s.settingsTab)
   const clearSettingsTab = useAppStore((s) => s.clearSettingsTab)
+  const [pendingRow, setPendingRow] = useState<string | null>(null)
   useEffect(() => {
     if (!requestedTab) return
-    setTab(requestedTab)
+    const target = targetTab(requestedTab)
+    if (target) setTab(target)
+    setPendingRow(requestedTab.includes('.') ? requestedTab : null)
     clearSettingsTab()
   }, [requestedTab, clearSettingsTab])
-
-  // Load memory stats when the Memory tab opens.
   useEffect(() => {
-    if (tab === 'memory') void window.api.memoryStats().then(setMemoryStats)
-  }, [tab])
-
-  // Load measured tool-choice scores when the Models tab opens (Layer 0c).
-  useEffect(() => {
-    if (tab === 'models') void window.api.evalScores().then(setEvalScores).catch(() => {})
-    if (tab === 'tools') void window.api.workbenchStatus().then(setWorkbench).catch(() => setWorkbench(null))
-  }, [tab])
-
-  // Load Brave key status when the Search tab opens; reset transient UI state.
-  useEffect(() => {
-    if (tab !== 'search') return
-    void window.api.braveKeyStatus().then(setBraveKeyInfo)
-    setSearchTest(null)
-    setBraveKeyNotice(null)
-    setBraveKeyInput('')
-  }, [tab])
-
-  // Load the network activity log and audit-log status when the Privacy tab opens.
-  useEffect(() => {
-    if (tab === 'privacy') {
-      void window.api.getNetworkActivity().then(setNetActivity)
-      void window.api.researchIndexStats().then(setResearchStats)
-      void window.api.auditStatus().then(setAuditInfo)
-      setAuditNotice(null)
-    }
-  }, [tab])
-
-  // `draft` is local state and outlives `open`, so the panel still has
-  // something to render while it animates out.
-  if (!mounted || !draft) return null
-
-  const update = (partial: Partial<AppSettings>): void =>
-    setDraft((d) => (d ? { ...d, ...partial } : d))
-
-  /**
-   * Layer 0c: run the tool-choice eval against every loaded model, from the
-   * Models tab. The shared runner (lib/evalRunner.ts) is the same code the
-   * CLI shells; here the transport is a loopback fetch and progress renders
-   * under the button. A cancelled run still saves what it measured.
-   */
-  const runEval = async (): Promise<void> => {
-    if (!draft || evalRun) return
-    const models = availableModels.filter((m) => m.loaded).map((m) => m.id)
-    if (models.length === 0) {
-      setEvalNotice('No loaded models to evaluate — load one in LM Studio first.')
-      return
-    }
-    setEvalNotice(null)
-    evalCancelRef.current = false
-
-    let fixtures, tools
-    try {
-      ;({ fixtures, tools } = await window.api.evalFixtures())
-    } catch (err) {
-      setEvalNotice(`Could not load eval fixtures: ${err instanceof Error ? err.message : String(err)}`)
-      return
-    }
-    if (fixtures.length === 0) {
-      setEvalNotice('Eval fixtures are unavailable in this build (they live in the dev checkout).')
-      return
-    }
-
-    const baseUrl = draft.baseUrl
-    const complete = async (
-      model: string,
-      messages: ApiMessage[],
-      wireTools: ToolSchema[]
-    ): Promise<{ content: string; toolCalls: ApiToolCall[] }> => {
-      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(240_000),
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: false,
-          temperature: 0,
-          ...(wireTools.length > 0 ? { tools: wireTools, tool_choice: 'auto' } : {})
-        })
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = (await res.json()) as {
-        choices?: {
-          message?: {
-            content?: string | null
-            tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[]
-          }
-        }[]
+    if (!pendingRow || !mounted) return
+    let tries = 0
+    const find = (): void => {
+      const face = document.querySelector('.tab-face')
+      if (!face) return
+      const row = face.querySelector<HTMLElement>(`[data-row="${CSS.escape(pendingRow)}"]`)
+      if (!row) {
+        face.querySelectorAll<HTMLButtonElement>('[data-kit="fold"][aria-expanded="false"]').forEach((b) => b.click())
+        if (tries++ < 6) window.setTimeout(find, 120)
+        else setPendingRow(null)
+        return
       }
-      return parseCompletionMessage(
-        json.choices?.[0]?.message ?? {},
-        wireTools.map((t) => t.function.name)
-      )
+      row.scrollIntoView({ block: 'center' })
+      row.classList.add('kit-row-flash')
+      window.setTimeout(() => row.classList.remove('kit-row-flash'), 1500)
+      setPendingRow(null)
     }
+    const t = window.setTimeout(find, 60)
+    return () => window.clearTimeout(t)
+  }, [pendingRow, mounted, tab])
 
-    try {
-      const results = await runToolChoiceEval({
-        models,
-        fixtures,
-        tools,
-        systemPromptFor: (model) =>
-          withToolCallPreamble(withGrounding('You are a helpful local assistant.'), model),
-        complete,
-        onFixture: (model, index, total, run) => {
-          const mark = run.error ? '!' : run.correct === false || run.spurious === true || run.looped ? '✗' : '✓'
-          setEvalRun({
-            model,
-            modelIndex: models.indexOf(model) + 1,
-            modelCount: models.length,
-            fixtureIndex: index,
-            fixtureCount: total,
-            last: `${mark} ${run.file}`
-          })
-        },
-        shouldStop: () => evalCancelRef.current
-      })
+  if (!mounted || !settings) return null
 
-      for (const { model, runs, rates } of results) {
-        await window.api.saveEvalResult({
-          model,
-          baseUrl,
-          ranAt: new Date().toISOString(),
-          caveats: ['tool results canned stubs', 'temperature 0', 'run in-app'],
-          scores: {
-            correctTool: rates.correctTool,
-            spuriousCall: rates.spuriousCall,
-            argValidity: rates.argValidity,
-            loop: rates.loop
-          },
-          runs
-        })
-      }
-      const summary = results
-        .map((r) => `${r.model}: ${r.rates.correctTool.hit}/${r.rates.correctTool.of}`)
-        .join(' · ')
-      setEvalNotice(
-        (evalCancelRef.current ? 'Cancelled — partial results saved. ' : 'Done. ') + summary
-      )
-      void window.api.evalScores().then(setEvalScores).catch(() => {})
-    } catch (err) {
-      setEvalNotice(`Eval failed: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setEvalRun(null)
-    }
-  }
+  const close = (): void => setOpen(false)
 
-  const updateModel = (id: string, partial: Partial<AppSettings['models'][number]>): void =>
-    setDraft((d) =>
-      d
-        ? { ...d, models: d.models.map((m) => (m.id === id ? { ...m, ...partial } : m)) }
-        : d
-    )
-
-  /** Sampling is nested, so it needs its own merge rather than updateModel's spread. */
-  const updateSampling = (id: string, partial: Partial<SamplingSettings>): void =>
-    setDraft((d) =>
-      d
-        ? {
-            ...d,
-            models: d.models.map((m) =>
-              m.id === id ? { ...m, sampling: { ...m.sampling, ...partial } } : m
-            )
-          }
-        : d
-    )
-
-  const save = async (): Promise<void> => {
-    await window.api.setSettings(draft)
-    setSettings(draft)
-    setOpen(false)
-    refresh()
-  }
-
+  /** Everything back to the defaults — two clicks, through DangerRow, as Reset always was. */
   const reset = async (): Promise<void> => {
-    // Two-step: the first click arms, the second wipes. A stray click used to
-    // erase every model slot, prompt and provider config with no recourse.
-    if (!confirmingReset) {
-      setConfirmingReset(true)
-      window.setTimeout(() => setConfirmingReset(false), 4000)
-      return
-    }
-    setConfirmingReset(false)
     const fresh = (await window.api.resetSettings()) as AppSettings
-    setDraft(fresh)
     setSettings(fresh)
+    void refresh()
   }
 
-  const pickWorkingDir = async (): Promise<void> => {
-    const dir = await window.api.pickDirectory()
-    if (dir) update({ workingDirectory: dir })
+  // The rail (S1): the registry's order, grouped under headers, narrowed by
+  // the search field. Arrow keys move along it. S5: the search reads every
+  // tab's rows too — a tab whose rows match stays in the rail with those
+  // rows listed under it, each a jump to that row.
+  const matchedRows = query.trim() ? searchRows(settingsIndex(), query) : []
+  const tabsWithRows = new Set(matchedRows.map((r) => tabOfRow(r.id)))
+  const shown = SETTINGS_TABS.filter((t) => filterTabs(query).includes(t) || tabsWithRows.has(t.key))
+  const current = settingsTab(tab)
+  const onRailKey = (e: React.KeyboardEvent, index: number): void => {
+    const next = segmentedKey(e.key, index, shown.length)
+    if (next === null) return
+    e.preventDefault()
+    const target = shown[next]
+    if (!target) return
+    setTab(target.key)
+    railRefs.current[target.key]?.focus()
   }
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'connection', label: 'Connection' },
-    { key: 'models', label: 'Models' },
-    { key: 'pipeline', label: 'Pipeline' },
-    { key: 'general', label: 'General' },
-    { key: 'agent', label: 'Agent' },
-    { key: 'tools', label: 'Tools' },
-    { key: 'search', label: 'Search' },
-    { key: 'privacy', label: 'Privacy' },
-    { key: 'voice', label: 'Voice' },
-    { key: 'memory', label: 'Memory' },
-    { key: 'library', label: 'Library' },
-    { key: 'mcp', label: 'MCP' },
-    { key: 'jobs', label: 'Jobs' },
-    { key: 'skills', label: 'Skills' }
-  ]
+  const common = { settings, apply, defaults }
 
   return (
     <div
       ref={surfaceRef}
       className={`${modalClasses(leaving).backdrop} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
-      onClick={attemptClose}
+      onClick={close}
     >
       <div
         {...dialogProps}
         aria-labelledby="settings-modal-title"
-        className={`${modalClasses(leaving).panel} flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-panel-light dark:bg-panel-dark shadow-2xl`}
+        className={`${modalClasses(leaving).panel} glass-panel glass-popover flex h-[90vh] w-full max-w-[1100px] flex-col`}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          // ⌘F / Ctrl+F inside Settings goes to the settings search, not the page's.
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+            e.preventDefault()
+            searchRef.current?.focus()
+          }
+        }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-black/10 dark:border-white/10 px-5 py-3">
-          <h2 id="settings-modal-title" className="text-lg font-semibold">Settings</h2>
-          <button
-            type="button"
-            onClick={attemptClose}
-            className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            ✕
-          </button>
-        </div>
+        <div className="flex min-h-0 flex-1">
+          <nav data-settings-rail aria-label="Settings sections" className="flex w-56 shrink-0 flex-col border-r border-black/10 dark:border-white/10">
+            <div className="px-4 pb-2 pt-4">
+              <h2 id="settings-modal-title" className="text-[15px] font-semibold tracking-[-0.3px] text-ink-primary">
+                Settings
+              </h2>
+              <input
+                ref={searchRef}
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search settings…"
+                aria-label="Search settings"
+                data-kit="field"
+                className={`${FIELD_COMPACT} mt-2 w-full`}
+              />
+            </div>
+            <div role="tablist" aria-orientation="vertical" className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+              {SETTINGS_GROUPS.map((group) => {
+                const items = shown.filter((t) => t.group === group)
+                if (items.length === 0) return null
+                return (
+                  <div key={group} className="mt-2 first:mt-0">
+                    <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">{group}</div>
+                    {items.map((t) => {
+                      const index = shown.indexOf(t)
+                      const active = tab === t.key
+                      return (
+                        <button
+                          key={t.key}
+                          ref={(el) => {
+                            railRefs.current[t.key] = el
+                          }}
+                          type="button"
+                          role="tab"
+                          data-tab={t.key}
+                          aria-selected={active}
+                          tabIndex={active ? 0 : -1}
+                          title={t.description}
+                          onClick={() => setTab(t.key)}
+                          onKeyDown={(e) => onRailKey(e, index)}
+                          className={`mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                            active ? 'bg-accent/15 font-medium text-accent-ink' : 'text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/5'
+                          }`}
+                        >
+                          <TabIcon name={t.icon} className={active ? 'text-accent-ink' : 'text-ink-tertiary'} />
+                          <span className="min-w-0 truncate">{t.label}</span>
+                        </button>
+                      )
+                    })}
+                    {query.trim() &&
+                      items.map((t) => {
+                        const rows = matchedRows.filter((r) => tabOfRow(r.id) === t.key).slice(0, 6)
+                        if (rows.length === 0) return null
+                        return (
+                          <div key={`${t.key}-rows`} className="mb-1 ml-8 mr-1" data-search-rows={t.key}>
+                            {rows.map((r) => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => {
+                                  setTab(t.key)
+                                  setPendingRow(r.id)
+                                }}
+                                className="block w-full truncate rounded px-2 py-0.5 text-left text-xs text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/5"
+                              >
+                                {r.label}
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      })}
+                  </div>
+                )
+              })}
+              {shown.length === 0 && <p className="px-3 py-2 text-xs text-ink-tertiary">Nothing matches “{query}”.</p>}
+            </div>
+          </nav>
 
-        <div className="flex flex-1 overflow-hidden">
-          {/* Tab rail */}
-          <div className="w-40 shrink-0 border-r border-black/10 dark:border-white/10 p-2">
-            {tabs.map((t) => (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex items-start gap-3 border-b border-black/10 px-6 py-3 dark:border-white/10">
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-semibold text-ink-primary">{current.label}</div>
+                <p className="text-xs text-ink-secondary">{current.description}</p>
+              </div>
               <button
-                key={t.key}
                 type="button"
-                onClick={() => setTab(t.key)}
-                className={`mb-0.5 block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                  tab === t.key
-                    ? 'bg-accent/15 text-accent font-medium'
-                    : 'hover:bg-black/5 dark:hover:bg-white/5'
-                }`}
+                onClick={close}
+                aria-label="Close settings"
+                className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/10"
               >
-                {t.label}
+                ✕
               </button>
-            ))}
-          </div>
+            </div>
 
-          {/*
-            Tab content. Keyed on the tab so the body remounts and fades up
-            (.tab-face) rather than being swapped under the cursor — and so
-            each tab opens at its own top, instead of inheriting however far
-            down the previous one was scrolled.
-          */}
-          <div key={tab} className="tab-face min-h-0 flex-1 overflow-y-auto p-5">
-            {tab === 'connection' && <ConnectionTab availableModels={availableModels} connection={connection} draft={draft} refresh={refresh} update={update} />}
-
-            {tab === 'models' && <ModelsTab availableModels={availableModels} draft={draft} evalCancelRef={evalCancelRef} evalNotice={evalNotice} evalRun={evalRun} evalScores={evalScores} runEval={runEval} update={update} updateModel={updateModel} updateSampling={updateSampling} />}
-
-            {tab === 'pipeline' && (
-              <CollaborativeMode settings={draft} onChange={(pipeline) => update({ pipeline })} />
-            )}
-
-            {tab === 'general' && <GeneralTab checkForUpdates={checkForUpdates} draft={draft} installUpdate={installUpdate} update={update} updateStatus={updateStatus} />}
-
-            {tab === 'agent' && <AgentTab draft={draft} update={update} />}
-
-            {tab === 'tools' && <ToolsTab draft={draft} pickWorkingDir={pickWorkingDir} setWarming={setWarming} setWorkbench={setWorkbench} update={update} warming={warming} workbench={workbench} />}
-
-            {tab === 'search' && <SearchTab braveKeyInfo={braveKeyInfo} braveKeyInput={braveKeyInput} braveKeyNotice={braveKeyNotice} draft={draft} searchTest={searchTest} searchTesting={searchTesting} setBraveKeyInfo={setBraveKeyInfo} setBraveKeyInput={setBraveKeyInput} setBraveKeyNotice={setBraveKeyNotice} setSearchTest={setSearchTest} setSearchTesting={setSearchTesting} setSettings={setSettings} update={update} />}
-
-            {tab === 'privacy' && <PrivacyTab auditInfo={auditInfo} auditNotice={auditNotice} draft={draft} netActivity={netActivity} proxyTest={proxyTest} proxyTesting={proxyTesting} researchStats={researchStats} setAuditInfo={setAuditInfo} setAuditNotice={setAuditNotice} setNetActivity={setNetActivity} setProxyTest={setProxyTest} setProxyTesting={setProxyTesting} setResearchStats={setResearchStats} update={update} />}
-
-            {tab === 'voice' && <VoiceTab draft={draft} setSttStatus={setSttStatus} sttStatus={sttStatus} update={update} voices={voices} />}
-
-            {tab === 'library' && <LibraryTab />}
-            {tab === 'mcp' && <McpTab />}
-            {tab === 'jobs' && <JobsTab />}
-            {tab === 'skills' && <SkillsTab />}
-
-            {tab === 'memory' && <MemoryTab draft={draft} memoryNotice={memoryNotice} memoryStats={memoryStats} setMemoryNotice={setMemoryNotice} setMemoryStats={setMemoryStats} update={update} />}
+            {/*
+              Tab content. Keyed on the tab so the body remounts and fades up
+              (.tab-face) rather than being swapped under the cursor — and so
+              each tab opens at its own top, instead of inheriting however far
+              down the previous one was scrolled.
+            */}
+            <div key={tab} className="tab-face min-h-0 flex-1 overflow-y-auto px-6 py-5">
+              {tab === 'connection' && <ConnectionTab settings={settings} apply={apply} availableModels={availableModels} connection={connection} refresh={refresh} />}
+              {tab === 'models' && <ModelsTab settings={settings} apply={apply} availableModels={availableModels} />}
+              {tab === 'general' && <GeneralTab {...common} checkForUpdates={checkForUpdates} installUpdate={installUpdate} updateStatus={updateStatus} />}
+              {tab === 'grounding' && <GroundingTab {...common} />}
+              {tab === 'memory' && <MemoryTab {...common} />}
+              {tab === 'tools' && <ToolsTab {...common} />}
+              {tab === 'agent' && <AgentTab {...common} />}
+              {tab === 'search' && <SearchTab {...common} />}
+              {tab === 'voice' && <VoiceTab {...common} />}
+              {tab === 'library' && <LibraryTab />}
+              {tab === 'skills' && <SkillsTab />}
+              {tab === 'mcp' && <McpTab />}
+              {tab === 'jobs' && <JobsTab />}
+              {tab === 'privacy' && <PrivacyTab {...common} />}
+              {tab === 'activity' && <ActivityTab settings={settings} />}
+            </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center gap-3 border-t border-black/10 dark:border-white/10 px-5 py-3">
-          <button
-            type="button"
-            onClick={reset}
-            className={`text-sm ${
-              confirmingReset ? 'font-medium text-ink-danger' : 'text-ink-secondary hover:text-ink-danger'
-            }`}
-          >
-            {confirmingReset ? 'Really reset everything? Click again to confirm' : 'Reset to defaults'}
-          </button>
-          <div className="ml-auto flex gap-2">
-            <button
-              type="button"
-              onClick={attemptClose}
-              className="rounded-lg border border-black/10 dark:border-white/10 px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={!dirty}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent"
-            >
-              {dirty ? 'Save' : 'No changes'}
-            </button>
+        {/* Footer: what just changed, with Undo; and the one reset that takes everything. */}
+        <div className="flex min-h-[3.25rem] items-center gap-3 border-t border-black/10 px-6 py-2 dark:border-white/10">
+          <SettingsToasts />
+          <div className="ml-auto shrink-0">
+            <DangerRow variant="inline" label="" action="Reset to defaults" confirm="Reset everything?" onConfirm={reset} />
           </div>
         </div>
       </div>

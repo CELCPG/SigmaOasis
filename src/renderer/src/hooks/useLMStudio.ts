@@ -147,8 +147,8 @@ export function useLMStudio(): {
           id: uid(),
           role: 'assistant',
           content:
-            '⚠️ No routable model. Enable a slot and pick a model under Settings → Models' +
-            (convo.mode === 'collaborative' ? ', then add it to the chain under Settings → Pipeline.' : '.'),
+            '⚠️ No routable model. Enable a slot and pick a model under Settings → Roles' +
+            (convo.mode === 'collaborative' ? ', then add it to the chain under Settings → Roles › Pipeline.' : '.'),
           createdAt: Date.now()
         })
         return
@@ -394,7 +394,7 @@ export function useLMStudio(): {
       store.appendMessage(convo.id, {
         id: uid(),
         role: 'assistant',
-        content: '⚠️ No routable model. Enable a slot and pick a model under Settings → Models.',
+        content: '⚠️ No routable model. Enable a slot and pick a model under Settings → Roles.',
         createdAt: Date.now()
       })
       return
@@ -479,7 +479,7 @@ export function useLMStudio(): {
           modelId: '',
           text:
             'No second role is enabled, so no independent review is possible. ' +
-            'Enable another slot under Settings → Models.',
+            'Enable another slot under Settings → Roles.',
           createdAt: Date.now()
         }
       })

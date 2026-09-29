@@ -20,7 +20,7 @@ export interface ChipsProps<V extends string> {
 /** A row of selectable chips (v4.0): sampling presets, an accent colour. One selected at a time. */
 export function Chips<V extends string>({ value, onChange, chips, label, labelledBy, describedBy }: ChipsProps<V>): JSX.Element {
   return (
-    <div role="radiogroup" aria-label={labelledBy ? undefined : label} aria-labelledby={labelledBy} aria-describedby={describedBy} className="flex flex-wrap gap-1.5">
+    <div role="radiogroup" aria-label={label} aria-labelledby={label ? undefined : labelledBy} aria-describedby={describedBy} className="flex flex-wrap gap-1.5">
       {chips.map((c) => {
         const selected = c.value === value
         if (c.swatch) {

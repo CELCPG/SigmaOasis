@@ -194,8 +194,29 @@ export function readsAsProse(text: string): boolean {
 
 // ---- The reader-facing shape -----------------------------------------------
 
-/** Where a remedy control sends the reader. Mirrors SettingsModal's `Tab`. */
-export type SettingsTarget = 'connection' | 'models' | 'search' | 'tools'
+/**
+ * Where a remedy control sends the reader: a Settings tab key, or a row id
+ * (`tab.row`, as the tabs declare them). Mirrors the registry in
+ * renderer/components/settings/tabs.ts, which test/settingsLinks.test.ts
+ * holds to this list.
+ */
+export type SettingsTabKey =
+  | 'connection'
+  | 'models'
+  | 'general'
+  | 'grounding'
+  | 'memory'
+  | 'tools'
+  | 'agent'
+  | 'search'
+  | 'voice'
+  | 'library'
+  | 'skills'
+  | 'mcp'
+  | 'jobs'
+  | 'privacy'
+  | 'activity'
+export type SettingsTarget = SettingsTabKey | `${SettingsTabKey}.${string}`
 
 /** A control that performs the remedy, rather than describing it in prose. */
 export interface RemedyControl {
@@ -478,7 +499,7 @@ export function explainFailure(raw: unknown, context: FailureContext = {}): Fail
 
   // The app writes its own errors as prose, and those sentences are better than
   // anything this module could substitute for them — "No SearXNG URL configured
-  // — set it under Settings → Search." already names a cause and a remedy.
+  // — set it under Settings → Search & research." already names a cause and a remedy.
   if (readsAsProse(text)) {
     return {
       headline: firstSentence(text),
@@ -780,7 +801,7 @@ function seconds(ms: number): string {
  * No control is offered on any of these, and that is the finding rather than an
  * omission. Round 8's rule is that a control is rendered where the app has
  * PROVED the remedy is right; here the app has proved the opposite — the server
- * answered, so the address in Settings → Connection is correct, and sending the
+ * answered, so the address in Settings → LM Studio is correct, and sending the
  * reader there would be sending them to fix a working setting. The remedy that
  * is real (reload the model) lives in another application.
  */

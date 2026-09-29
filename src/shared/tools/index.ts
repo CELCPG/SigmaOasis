@@ -126,3 +126,30 @@ export const EMPTY_RESULT_LEADS: ReadonlyMap<string, string> = new Map(
 export const TOOL_LABELS: Record<ToolName, string> = Object.fromEntries(
   TOOL_DEFS.map((d) => [d.name, d.label])
 ) as Record<ToolName, string>
+
+/**
+ * v4.0: the tool table's domains, for Settings → Tools — the same grouping
+ * the def files already hold, named. Reading only: the wire order is
+ * TOOL_DEFS and does not change with this.
+ */
+export const TOOL_GROUPS: readonly { label: string; description: string; tools: readonly ToolName[] }[] = [
+  { label: 'Files', description: 'Read, list, write and patch files on this machine, and run a command.', tools: fileToolDefs.map((d) => d.name) },
+  { label: 'Web', description: 'Search and read pages through the provider and the egress allowlist under Search & research.', tools: webToolDefs.map((d) => d.name) },
+  { label: 'Research', description: 'A multi-step, cited research run with its own budget.', tools: researchToolDefs.map((d) => d.name) },
+  { label: 'Calculators', description: 'Exact arithmetic, dates, places — fully local.', tools: calculatorToolDefs.map((d) => d.name) },
+  { label: 'Notes', description: 'Notes the model writes and reads back, in the app’s data folder.', tools: noteToolDefs.map((d) => d.name) },
+  { label: 'Memory', description: 'What the app remembers between conversations.', tools: memoryToolDefs.map((d) => d.name) },
+  { label: 'Library', description: 'The reference packs under Library.', tools: libraryToolDefs.map((d) => d.name) },
+  { label: 'Workbench', description: 'Sandboxed Python: compute, parse, check.', tools: workbenchToolDefs.map((d) => d.name) },
+  { label: 'Shopping', description: 'Private product research — never a login, a cart or a checkout.', tools: shoppingToolDefs.map((d) => d.name) },
+  { label: 'Market', description: 'Market indicators from public data.', tools: marketToolDefs.map((d) => d.name) }
+]
+
+/** The first sentence of a tool's decision-rule description: what it is for, without the when-nots. */
+export function toolSummary(name: ToolName): string {
+  const def = TOOL_DEFS.find((d) => d.name === name)
+  if (!def) return ''
+  const text = def.description.replace(/\s+/g, ' ').trim()
+  const end = text.search(/[.!?](\s|$)/)
+  return end < 0 ? text : text.slice(0, end + 1)
+}

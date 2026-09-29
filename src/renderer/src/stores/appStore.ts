@@ -8,6 +8,7 @@ import type {
 } from '../types'
 import type { TurnPhase } from '../lib/turnPhase'
 import type { PendingPatch } from '../types'
+import { pushToast, type ChangeToast } from '../lib/settingsKit'
 import type { SettingsTarget } from '../../../shared/failure'
 
 /**
@@ -32,7 +33,7 @@ interface AppState {
   /**
    * The tab Settings should land on when it opens, or null for wherever it was.
    *
-   * v1.17.2: a failure sentence that says "Point Settings → Search at a working
+   * v1.17.2: a failure sentence that says "Point Settings → Search & research at a working
    * provider" is a remedy the reader has to go and find. Where the app has
    * PROVEN which setting is wrong, it offers the place instead of describing
    * it — and the place has to be reachable from a button, which needs this.
@@ -40,8 +41,13 @@ interface AppState {
    * does not jump somewhere the reader did not ask for.
    */
   settingsTab: SettingsTarget | null
-  openSettingsAt: (tab: SettingsTarget) => void
+  /** v4.0: a tab key, or a row id (`tab.row`) the modal scrolls to and lights once. */
+  openSettingsAt: (target: SettingsTarget) => void
   clearSettingsTab: () => void
+  /** v4.0: applied changes waiting at the panel's foot with their Undo (hooks/settingsApply.ts). */
+  settingsToasts: ChangeToast[]
+  pushSettingsToast: (toast: ChangeToast) => void
+  dismissSettingsToast: (id: number) => void
 
   onboardingOpen: boolean
   setOnboardingOpen: (open: boolean) => void
@@ -201,6 +207,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   settingsTab: null,
   openSettingsAt: (settingsTab) => set({ settingsTab, settingsOpen: true }),
   clearSettingsTab: () => set({ settingsTab: null }),
+  settingsToasts: [],
+  pushSettingsToast: (toast) => set((s) => ({ settingsToasts: pushToast(s.settingsToasts, toast) })),
+  dismissSettingsToast: (id) => set((s) => ({ settingsToasts: s.settingsToasts.filter((t) => t.id !== id) })),
 
   onboardingOpen: false,
   setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),

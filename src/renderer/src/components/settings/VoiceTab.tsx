@@ -1,181 +1,105 @@
-// Extracted from SettingsModal.tsx (v2.4): the "voice" tab, as it was. Pure prop-drilling —
-// every piece of state and every handler still lives in the modal and arrives here as a prop,
-// so nothing about ordering, effects or behaviour changed; the modal just stopped being 2,500 lines.
-
-import React from 'react'
+// Settings → Voice (v4.0, S4): two cards — replies read aloud through the
+// system's voices, and push-to-talk through whisper.cpp — each with its own
+// status row, the paths as fields with their help beneath rather than inside
+// the label.
+import { useEffect, useState } from 'react'
 import { speak } from '../../lib/voice'
 import type { AppSettings, SttStatus } from '../../types'
+import type { ApplySettings } from '../../hooks/settingsApply'
+import { defineRows, registerRows } from '../../lib/settingsKit'
+import { ActionRow, Button, Field, Notice, Row, Section, Select, Slider, Switch, type ActionResult } from './kit'
+
+export const ROWS = defineRows('voice', {
+  autoRead: { label: 'Read replies aloud', help: 'Every reply is spoken as it finishes, with the voice and speed below.', keywords: ['voice mode', 'tts', 'speak'] },
+  voiceURI: { label: 'Voice', help: 'One of your operating system’s built-in voices — fully on-device.', keywords: ['tts', 'speech'] },
+  rate: { label: 'Speed', help: 'From half speed to double.', keywords: ['rate'] },
+  test: { label: 'Hear it', help: 'One sentence in the voice and speed above.', keywords: ['test voice'] },
+  sttStatus: { label: 'Push-to-talk', help: 'Hold 🎙️ in the composer to dictate. Transcription runs locally through whisper.cpp when it is set up.', keywords: ['dictation', 'stt', 'microphone', 'whisper'] },
+  whisperCliPath: { label: 'whisper-cli path', help: 'Leave empty to look on the PATH and in Homebrew. Applies when you press Enter or leave the field.', keywords: ['whisper', 'binary'] },
+  whisperModelPath: { label: 'Model file', help: 'A ggml .bin from the whisper.cpp releases, such as ggml-base.en.bin. Leave empty to look in ~/.cache/whisper.', keywords: ['whisper', 'ggml', 'bin'] }
+})
+registerRows(ROWS)
 
 export interface VoiceTabProps {
-  draft: AppSettings
-  setSttStatus: React.Dispatch<React.SetStateAction<SttStatus | null>>
-  sttStatus: SttStatus | null
-  update: (partial: Partial<AppSettings>) => void
-  voices: SpeechSynthesisVoice[]
+  settings: AppSettings
+  apply: ApplySettings
+  defaults: AppSettings | null
 }
 
-export function VoiceTab(props: VoiceTabProps): JSX.Element {
-  const { draft, setSttStatus, sttStatus, update, voices } = props
-  return (
-    <div className="space-y-6">
-                    {/* ---- Text-to-speech ---- */}
-                    <div className="space-y-4">
-                      <div className="text-sm font-medium">Text-to-speech</div>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.voice.autoRead}
-                          onChange={(e) =>
-                            update({ voice: { ...draft.voice, autoRead: e.target.checked } })
-                          }
-                          className="accent-accent"
-                        />
-                        Voice mode — automatically read replies aloud
-                      </label>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-ink-secondary">Voice</label>
-                        <select
-                          value={draft.voice.voiceURI}
-                          onChange={(e) => update({ voice: { ...draft.voice, voiceURI: e.target.value } })}
-                          className="w-full rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
-                        >
-                          <option value="">System default</option>
-                          {voices.map((v) => (
-                            <option key={v.voiceURI} value={v.voiceURI}>
-                              {v.name} ({v.lang})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-ink-secondary">
-                          Speed: {draft.voice.rate.toFixed(1)}×
-                        </label>
-                        <input
-                          type="range"
-                          min={0.5}
-                          max={2}
-                          step={0.1}
-                          value={draft.voice.rate}
-                          onChange={(e) =>
-                            update({ voice: { ...draft.voice, rate: Number(e.target.value) } })
-                          }
-                          className="w-64 accent-accent"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          speak(
-                            'Hello! This is how Sigma Oasis will sound when reading replies aloud.',
-                            draft.voice.voiceURI,
-                            draft.voice.rate
-                          )
-                        }
-                        className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-                      >
-                        🔊 Test voice
-                      </button>
-                      <p className="text-xs text-ink-secondary">
-                        Uses your operating system&apos;s built-in voices — fully on-device.
-                      </p>
-                    </div>
+export function VoiceTab({ settings, apply, defaults }: VoiceTabProps): JSX.Element {
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [stt, setStt] = useState<SttStatus | null>(null)
+  useEffect(() => {
+    const loadVoices = (): void => setVoices(window.speechSynthesis?.getVoices() ?? [])
+    loadVoices()
+    window.speechSynthesis?.addEventListener('voiceschanged', loadVoices)
+    void window.api.getSttStatus().then(setStt)
+    return () => window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
+  }, [])
+  const voice = settings.voice
+  const setVoice = (meta: (typeof ROWS)[keyof typeof ROWS], patch: Partial<AppSettings['voice']>, shown?: string): void => apply(meta, { voice: { ...voice, ...patch } }, shown)
+  const setStt2 = (meta: (typeof ROWS)[keyof typeof ROWS], patch: Partial<AppSettings['stt']>): void => apply(meta, { stt: { ...settings.stt, ...patch } })
+  const sttResult: ActionResult | null = stt === null ? { tone: 'info', text: 'Checking…' } : stt.available ? { tone: 'ok', text: 'Ready — transcription runs locally via whisper.cpp' } : { tone: 'warn', text: 'Not set up' }
 
-                    {/* ---- Speech-to-text ---- */}
-                    <div className="space-y-4 border-t border-black/10 dark:border-white/10 pt-4">
-                      <div className="text-sm font-medium">Speech-to-text (push-to-talk 🎙️)</div>
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`h-2.5 w-2.5 rounded-full ${
-                            sttStatus?.available ? 'bg-green-500' : 'bg-red-500'
-                          }`}
-                        />
-                        <span className="text-sm">
-                          {sttStatus === null
-                            ? 'Checking…'
-                            : sttStatus.available
-                              ? 'Ready — transcription runs locally via whisper.cpp'
-                              : 'Not set up'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => void window.api.getSttStatus().then(setSttStatus)}
-                          className="ml-auto rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-                        >
-                          Re-check
-                        </button>
-                      </div>
-                      {sttStatus && !sttStatus.available && (
-                        <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn">
-                          {sttStatus.reason}
-                          <br />
-                          Then download a model (e.g.{' '}
-                          <code>ggml-base.en.bin</code> from the whisper.cpp releases) and point to it
-                          below.
-                        </p>
-                      )}
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-ink-secondary">
-                          whisper-cli path (empty = auto-detect)
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            value={draft.stt.whisperCliPath}
-                            onChange={(e) =>
-                              update({ stt: { ...draft.stt, whisperCliPath: e.target.value } })
-                            }
-                            placeholder="/opt/homebrew/bin/whisper-cli"
-                            className="flex-1 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void window.api.pickFile().then((p) => {
-                                if (p) update({ stt: { ...draft.stt, whisperCliPath: p } })
-                              })
-                            }
-                            className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
-                          >
-                            Browse…
-                          </button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-ink-secondary">
-                          Model file (.bin, empty = auto-detect in ~/.cache/whisper)
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            value={draft.stt.whisperModelPath}
-                            onChange={(e) =>
-                              update({ stt: { ...draft.stt, whisperModelPath: e.target.value } })
-                            }
-                            placeholder="~/.cache/whisper/ggml-base.en.bin"
-                            className="flex-1 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void window.api
-                                .pickFile([{ name: 'Whisper model', extensions: ['bin'] }])
-                                .then((p) => {
-                                  if (p) update({ stt: { ...draft.stt, whisperModelPath: p } })
-                                })
-                            }
-                            className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
-                          >
-                            Browse…
-                          </button>
-                        </div>
-                      </div>
-                      {sttStatus?.available && (
-                        <p className="rounded-lg bg-black/5 dark:bg-white/5 p-3 font-mono text-xs text-ink-secondary">
-                          cli: {sttStatus.cliPath}
-                          <br />
-                          model: {sttStatus.modelPath}
-                        </p>
-                      )}
-                    </div>
-                  </div>
+  return (
+    <div className="space-y-8">
+      <Section title="Text-to-speech" description="Replies read aloud, on this machine." onReset={defaults ? () => apply({ id: 'voice.reset', label: 'Text-to-speech' }, { voice: defaults.voice }, 'defaults') : undefined}>
+        <Row meta={ROWS.autoRead}>
+          <Switch checked={voice.autoRead} onChange={(autoRead) => setVoice(ROWS.autoRead, { autoRead })} />
+        </Row>
+        <Row meta={ROWS.voiceURI}>
+          <Select
+            value={voice.voiceURI}
+            onChange={(voiceURI) => setVoice(ROWS.voiceURI, { voiceURI }, voices.find((v) => v.voiceURI === voiceURI)?.name ?? 'System default')}
+            options={[{ value: '', label: 'System default' }, ...voices.map((v) => ({ value: v.voiceURI, label: `${v.name} (${v.lang})` }))]}
+          />
+        </Row>
+        <Row meta={ROWS.rate}>
+          <Slider value={voice.rate} min={0.5} max={2} step={0.1} format={(v) => `${v.toFixed(1)}×`} onCommit={(rate) => setVoice(ROWS.rate, { rate }, `${rate.toFixed(1)}×`)} />
+        </Row>
+        <Row meta={ROWS.test}>
+          <Button onClick={() => speak('Hello! This is how Sigma Oasis will sound when reading replies aloud.', voice.voiceURI, voice.rate)}>🔊 Test voice</Button>
+        </Row>
+      </Section>
+
+      <Section title="Speech-to-text" description="Dictation through whisper.cpp, which you install; the app finds it or you point to it.">
+        <Row meta={ROWS.sttStatus} layout="stack" foot={stt?.available ? <span className="font-mono text-[11px] text-ink-tertiary">cli: {stt.cliPath} · model: {stt.modelPath}</span> : undefined}>
+          <ActionRow action="Re-check" onAction={() => void window.api.getSttStatus().then(setStt)} result={sttResult} />
+        </Row>
+        {stt && !stt.available && (
+          <Notice tone="warn">
+            {stt.reason} Then download a model (e.g. <code>ggml-base.en.bin</code> from the whisper.cpp releases) and point to it below.
+          </Notice>
+        )}
+        <Row meta={ROWS.whisperCliPath} layout="stack">
+          <div className="flex gap-2">
+            <Field value={settings.stt.whisperCliPath} mono placeholder="/opt/homebrew/bin/whisper-cli" onCommit={(whisperCliPath) => setStt2(ROWS.whisperCliPath, { whisperCliPath })} />
+            <Button
+              onClick={() =>
+                void window.api.pickFile().then((p) => {
+                  if (p) setStt2(ROWS.whisperCliPath, { whisperCliPath: p })
+                })
+              }
+            >
+              Browse…
+            </Button>
+          </div>
+        </Row>
+        <Row meta={ROWS.whisperModelPath} layout="stack">
+          <div className="flex gap-2">
+            <Field value={settings.stt.whisperModelPath} mono placeholder="~/.cache/whisper/ggml-base.en.bin" onCommit={(whisperModelPath) => setStt2(ROWS.whisperModelPath, { whisperModelPath })} />
+            <Button
+              onClick={() =>
+                void window.api.pickFile([{ name: 'Whisper model', extensions: ['bin'] }]).then((p) => {
+                  if (p) setStt2(ROWS.whisperModelPath, { whisperModelPath: p })
+                })
+              }
+            >
+              Browse…
+            </Button>
+          </div>
+        </Row>
+      </Section>
+    </div>
   )
 }

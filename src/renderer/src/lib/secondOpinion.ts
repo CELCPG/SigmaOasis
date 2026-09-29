@@ -61,7 +61,7 @@ export const CRITIC_INSTRUCTION =
   'percentage — state what is unverified, not how sure you feel.'
 
 /**
- * Pick the reviewing slot. An explicit choice (Settings → Models) wins when it
+ * Pick the reviewing slot. An explicit choice (Settings → Roles) wins when it
  * is usable; otherwise the first enabled slot that is not the answerer. A slot
  * counts as the answerer when both its model and role name match — the same
  * model under a different persona is a legitimate second pair of eyes.

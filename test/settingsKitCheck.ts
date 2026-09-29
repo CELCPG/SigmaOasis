@@ -18,7 +18,9 @@
  *     tooltip;
  *   - a label at any size but the kit's one (text-sm, read against the root
  *     size the font-size setting scales), and a status dot in any palette but
- *     the kit's (a raw `bg-green-500` and its kin).
+ *     the kit's (a raw `bg-green-500` and its kin);
+ *   - a control in a row that the Tab key, pressed for real from the tab's
+ *     first control, never reaches (S6.2).
  *
  * Why the app and not a fixture: which controls each tab draws is the
  * component tree, and a copy of it would keep passing after the tree changed.
@@ -115,15 +117,17 @@ const READ_TAB = (tab: string): string => `(() => {
     if (type === 'checkbox' || type === 'radio') continue
     counted += 1
     if (!el.hasAttribute('data-kit')) say('a control not from the kit', el, type)
-    if (!el.closest('[data-row]')) say('a control outside a Row', el, type)
+    // A Row, or a list row (a Card, a DangerRow) whose controls are named by the row itself.
+    if (!el.closest('[data-row], [data-list-row]')) say('a control outside a Row', el, type)
   }
   for (const el of face.querySelectorAll('[role="switch"], [role="radiogroup"]')) {
-    if (!el.closest('[data-row]')) say('a control outside a Row', el, el.getAttribute('role'))
+    if (!el.closest('[data-row], [data-list-row]')) say('a control outside a Row', el, el.getAttribute('role'))
   }
   // The kit's one label size is text-sm, 0.875rem: read against the root, which the font-size setting scales.
   const labelPx = parseFloat(getComputedStyle(document.documentElement).fontSize) * 0.875
   for (const row of face.querySelectorAll('[data-row]')) {
-    if (!row.querySelector('[data-help]')) say('a Row with no help', row, row.getAttribute('data-row'))
+    // A bare row holds cards its section already describes; a labelled row must say what it does.
+    if (!row.hasAttribute('data-bare') && !row.querySelector('[data-help]')) say('a Row with no help', row, row.getAttribute('data-row'))
     const label = row.querySelector('[id$="-label"]')
     if (label) {
       const size = parseFloat(getComputedStyle(label).fontSize)
@@ -131,6 +135,7 @@ const READ_TAB = (tab: string): string => `(() => {
     }
   }
   for (const el of face.querySelectorAll('*')) {
+    if (el.hasAttribute('data-accent-dot')) continue // a role's colour is a label, not a status
     const cls = typeof el.className === 'string' ? el.className : ''
     if (cls.includes('rounded-full') && ${RAW_DOT.toString()}.test(cls)) say('a status dot outside the kit palette', el, cls.match(${RAW_DOT.toString()})[0])
   }
@@ -203,6 +208,32 @@ async function child(): Promise<void> {
     if (out.error) throw new Error(`${tab}: ${out.error}`)
     offences.push(...(out.offences ?? []))
     counted[tab] = out.counted ?? 0
+
+    // The keyboard: from the tab body's first control, Tab must reach every
+    // enabled control in every row — a control the key skips is one a
+    // keyboard user cannot change. Real key events, so what is measured is
+    // the tab order the page has, not the one the markup implies.
+    const targets = await evalIn<number>(`(() => {
+      const face = document.querySelector('.tab-face')
+      const all = [...face.querySelectorAll('[data-row] button, [data-row] input, [data-row] select, [data-row] textarea, [data-row] [tabindex="0"], [data-list-row] button, [data-list-row] input, [data-list-row] select, [data-list-row] [tabindex="0"]')]
+        .filter((el) => !el.disabled && el.getBoundingClientRect().width > 0 && el.tabIndex >= 0)
+      all.forEach((el, i) => el.setAttribute('data-kbd', String(i)))
+      const first = all[0]
+      if (first) first.focus()
+      return all.length
+    })()`)
+    const reached = new Set<number>()
+    for (let i = 0; i < targets + 40 && reached.size < targets; i++) {
+      const at = await evalIn<number>(`(() => { const a = document.activeElement; return a && a.hasAttribute('data-kbd') ? Number(a.getAttribute('data-kbd')) : -1 })()`)
+      if (at >= 0) reached.add(at)
+      wc.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' } as never)
+      wc.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' } as never)
+      await wait(15)
+    }
+    if (reached.size < targets) {
+      const missed = await evalIn<string[]>(`[...document.querySelectorAll('[data-kbd]')].filter((el) => !${JSON.stringify([...reached])}.includes(Number(el.getAttribute('data-kbd')))).slice(0, 5).map((el) => (el.getAttribute('aria-label') || el.innerText || el.tagName).slice(0, 40))`)
+      offences.push({ tab, rule: 'a control the Tab key does not reach', what: `${targets - reached.size} of ${targets}: ${missed.join(' · ')}` })
+    }
     read.push(tab)
   }
 
@@ -273,7 +304,8 @@ async function parent(): Promise<void> {
     'a control outside a Row',
     'a Row with no help',
     'a label at the wrong size',
-    'a status dot outside the kit palette'
+    'a status dot outside the kit palette',
+    'a control the Tab key does not reach'
   ]) {
     const hits = r.offences.filter((o) => o.rule === rule)
     const tabsHit = Array.from(new Set(hits.map((o) => o.tab)))

@@ -202,7 +202,7 @@ export class EgressBlockedError extends Error {
   constructor(purpose: NetworkPurpose, url: string) {
     super(
       `Blocked by Sigma Oasis's egress policy: ${originOf(url)} is not an allowed ${purpose} endpoint. ` +
-        'Check Settings → Search / Connection, or see Settings → Privacy for the network activity log.'
+        'Check Settings → Search & research / Connection, or see Settings → Privacy for the network activity log.'
     )
     this.name = 'EgressBlockedError'
   }
@@ -222,7 +222,7 @@ function friendlyTransportError(err: unknown): Error {
   if (!config.proxyRules) return original
   return new Error(
     `The configured proxy (${config.description}) refused the connection — nothing is ` +
-      `listening there. Start the proxy, or turn it off in Settings → Connection. ` +
+      `listening there. Start the proxy, or turn it off in Settings → LM Studio. ` +
       `(${original.message})`
   )
 }

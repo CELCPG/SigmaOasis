@@ -1,30 +1,39 @@
-// Settings → MCP (v2.5): the servers the user has added, each with its state,
-// its tools, its last error and its stderr. Nothing here starts a program the
+// Settings → MCP (v4.0, S4): each server a card — its state, its switch, its
+// approval, its tools with a switch each, its log behind a fold — and the
+// add-a-server form folded until wanted. Nothing here starts a program the
 // user did not turn on: a server is saved off, and the switch is on this page.
-//
-// v2.9: environment values are typed into masked fields, one variable a row,
-// and leave this page when the server is added — for the keychain, through the
-// main process. What this page gets back, and shows, is their names.
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+// Environment values are typed into masked fields and leave this page when the
+// server is added — for the keychain, through the main process.
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { McpApproval, McpServerConfig, McpServerStatus, SecretsStatus } from '../../types'
-import { FIELD, FIELD_COMPACT } from './helpers'
+import { defineRows, registerRows } from '../../lib/settingsKit'
+import { Button, Card, DangerRow, Field, Fold, Notice, Row, Section, Select, StatusDot, Switch, type ActionResult, type Tone } from './kit'
+
+export const ROWS = defineRows('mcp', {
+  servers: { label: 'Servers', help: 'A Model Context Protocol server is a separate program on this machine whose tools your models can call, beside the built-in ones. It runs with your privileges and outside this app’s egress allowlist, activity log and proxy setting — the app cannot see its network traffic and does not claim to. Every server is saved switched off; its tools reach a model only while it is on.', keywords: ['mcp', 'server', 'tools', 'stdio'] },
+  name: { label: 'Name', help: 'What the panel and the model call it.', keywords: ['mcp', 'add'] },
+  id: { label: 'Id', help: 'Letters, digits, - and _. Part of every tool’s wire name.', keywords: ['mcp', 'add'] },
+  command: { label: 'Command', help: 'The program to launch, as you would type it.', keywords: ['mcp', 'npx', 'command'] },
+  args: { label: 'Arguments', help: 'Space-separated; quote a path with spaces.', keywords: ['mcp', 'args'] },
+  env: { label: 'Environment', help: 'Values are encrypted in the system keychain; from then on only the names are shown, here and in the confirmation.', keywords: ['mcp', 'env', 'api key', 'keychain'] },
+  cwd: { label: 'Working directory', help: 'Optional. Where the server runs.', keywords: ['mcp', 'cwd'] }
+})
+registerRows(ROWS)
 
 const REFRESH_MS = 2000
 
-const STATE_DOT: Record<McpServerStatus['state'], { className: string; label: string }> = {
-  running: { className: 'bg-emerald-500', label: 'running' },
-  starting: { className: 'bg-amber-500', label: 'starting' },
-  stopped: { className: 'bg-ink-muted', label: 'stopped' },
-  failed: { className: 'bg-red-500', label: 'failed' }
+const STATE: Record<McpServerStatus['state'], { tone: Tone; label: string }> = {
+  running: { tone: 'ok', label: 'running' },
+  starting: { tone: 'warn', label: 'starting' },
+  stopped: { tone: 'muted', label: 'stopped' },
+  failed: { tone: 'danger', label: 'failed' }
 }
 
 function splitArgs(text: string): string[] {
-  // A plain split on whitespace, with double-quoted runs kept whole. Enough
-  // for `npx -y @modelcontextprotocol/server-filesystem "/Users/me/My Docs"`.
   const out: string[] = []
   const re = /"([^"]*)"|(\S+)/g
   let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) out.push(m[1] ?? m[2])
+  while ((m = re.exec(text)) !== null) out.push(m[1] ?? m[2]!)
   return out
 }
 
@@ -40,12 +49,12 @@ export function McpTab(): JSX.Element {
   const [servers, setServers] = useState<McpServerStatus[]>([])
   const [configs, setConfigs] = useState<McpServerConfig[]>([])
   const [secrets, setSecrets] = useState<SecretsStatus | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [showLogs, setShowLogs] = useState<string | null>(null)
+  const [notice, setNotice] = useState<ActionResult | null>(null)
   const [form, setForm] = useState({ id: '', name: '', command: '', args: '', cwd: '' })
   const [envRows, setEnvRows] = useState<EnvRow[]>([])
   const nextRowKey = useRef(0)
   const [adding, setAdding] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     const [status, settings, secretState] = await Promise.all([
@@ -57,12 +66,6 @@ export function McpTab(): JSX.Element {
     setConfigs(settings?.mcp?.servers ?? [])
     setSecrets(secretState)
   }, [])
-
-  const addEnvRow = (): void => setEnvRows((rows) => [...rows, { key: nextRowKey.current++, name: '', value: '' }])
-  const editEnvRow = (key: number, patch: Partial<EnvRow>): void =>
-    setEnvRows((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)))
-  const removeEnvRow = (key: number): void => setEnvRows((rows) => rows.filter((r) => r.key !== key))
-
   useEffect(() => {
     void refresh()
     const t = setInterval(() => void refresh(), REFRESH_MS)
@@ -70,282 +73,180 @@ export function McpTab(): JSX.Element {
   }, [refresh])
 
   const configOf = (id: string): McpServerConfig | undefined => configs.find((c) => c.id === id)
-
   const save = async (next: McpServerConfig): Promise<void> => {
     const r = await window.api.mcpUpdate(next)
-    if (!r.ok) setNotice(r.error ?? 'Could not save the server.')
+    if (!r.ok) setNotice({ tone: 'danger', text: r.error ?? 'Could not save the server.' })
     await refresh()
   }
 
   const add = async (): Promise<void> => {
     const command = form.command.trim()
     const id = (form.id.trim() || form.name.trim() || command.split(/[\\/\s]/).pop() || '').replace(/[^A-Za-z0-9_-]+/g, '_')
-    if (!command || !id) {
-      setNotice('A server needs a command and an id.')
-      return
-    }
-    // A row left entirely blank is ignored; one with a value needs a name the
-    // shell would accept, or the value would be dropped without a word.
+    if (!command || !id) return setNotice({ tone: 'warn', text: 'A server needs a command and an id.' })
     const env: Record<string, string> = {}
     for (const row of envRows) {
       const name = row.name.trim()
       if (!name && !row.value) continue
-      if (!ENV_NAME.test(name)) {
-        setNotice(`"${name}" is not a variable name: letters, digits and _, not starting with a digit.`)
-        return
-      }
-      if (name in env) {
-        setNotice(`The variable ${name} is listed twice.`)
-        return
-      }
+      if (!ENV_NAME.test(name)) return setNotice({ tone: 'warn', text: `“${name}” is not a variable name: letters, digits and _, not starting with a digit.` })
+      if (name in env) return setNotice({ tone: 'warn', text: `The variable ${name} is listed twice.` })
       env[name] = row.value
     }
     setAdding(true)
-    const r = await window.api.mcpAdd({
-      id,
-      name: form.name.trim() || id,
-      command,
-      args: splitArgs(form.args),
-      env,
-      ...(form.cwd.trim() ? { cwd: form.cwd.trim() } : {}),
-      enabled: false,
-      disabledTools: [],
-      approval: 'ask'
-    })
+    const r = await window.api.mcpAdd({ id, name: form.name.trim() || id, command, args: splitArgs(form.args), env, ...(form.cwd.trim() ? { cwd: form.cwd.trim() } : {}), enabled: false, disabledTools: [], approval: 'ask' })
     setAdding(false)
     if (r.ok) {
       setForm({ id: '', name: '', command: '', args: '', cwd: '' })
-      // The values are in the keychain now; this page does not keep a copy.
       setEnvRows([])
-      setNotice(
-        `Added "${r.server?.name ?? id}", switched off. Turn it on below when you are ready.` + (r.warning ? ` ${r.warning}` : '')
-      )
-    } else if (!r.canceled) {
-      setNotice(r.error ?? 'Could not add the server.')
-    }
+      setFormOpen(false)
+      setNotice({ tone: 'ok', text: `Added “${r.server?.name ?? id}”, switched off. Turn it on when you are ready.` + (r.warning ? ` ${r.warning}` : '') })
+    } else if (!r.canceled) setNotice({ tone: 'danger', text: r.error ?? 'Could not add the server.' })
     await refresh()
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="text-sm font-medium">MCP servers</div>
-        <p className="mt-1 text-xs text-ink-secondary">
-          A Model Context Protocol server is a separate program on this machine whose tools your models can
-          call, beside the built-in ones. It runs with your privileges and outside this app’s egress
-          allowlist, activity log and proxy setting — the app cannot see its network traffic and does not
-          claim to. Every server is saved switched off; its tools reach a model only while it is on.
-        </p>
-      </div>
-
-      {notice && (
-        <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-ink-primary" role="status">
-          {notice}
-        </p>
-      )}
-
-      {servers.length === 0 ? (
-        <p className="text-sm text-ink-tertiary">No servers added.</p>
-      ) : (
-        <ul className="space-y-3">
-          {servers.map((s) => {
-            const cfg = configOf(s.id)
-            const dot = STATE_DOT[s.state]
-            return (
-              <li key={s.id} className="glass-panel rounded-xl p-3">
-                <div className="flex items-center gap-3">
-                  <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot.className}`} aria-hidden="true" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {s.name} <span className="font-mono text-xs text-ink-tertiary">{s.id}</span>
-                    </div>
-                    <div className="text-xs text-ink-secondary">
-                      {dot.label}
-                      {s.era ? ` · ${s.era} protocol ${s.protocolVersion ?? ''}` : ''}
-                      {s.serverInfo?.name ? ` · ${s.serverInfo.name}${s.serverInfo.version ? ` ${s.serverInfo.version}` : ''}` : ''}
-                      {s.restarts > 0 ? ` · restarted ${s.restarts}×` : ''}
-                    </div>
-                  </div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={cfg?.enabled ?? false}
-                      onChange={(e) => cfg && void save({ ...cfg, enabled: e.target.checked })}
-                      aria-label={`${s.name} enabled`}
-                    />
-                    On
-                  </label>
-                  <select
-                    className={FIELD_COMPACT}
-                    value={cfg?.approval ?? 'ask'}
-                    onChange={(e) => cfg && void save({ ...cfg, approval: e.target.value as McpApproval })}
-                    aria-label={`${s.name} approval`}
-                    title="ask: confirm each call (Always allow mints a grant) · allowlist: run grants only · full: never ask"
-                  >
-                    <option value="ask">ask each call</option>
-                    <option value="allowlist">grants only</option>
-                    <option value="full">never ask</option>
-                  </select>
-                  <button
-                    type="button"
-                    className="rounded-lg px-2 py-1 text-xs text-ink-secondary transition-colors hover:bg-black/10 dark:hover:bg-white/5"
-                    onClick={() => void window.api.mcpReload(s.id).then(refresh)}
-                  >
-                    Reload
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg px-2 py-1 text-xs text-ink-secondary transition-colors hover:bg-black/10 dark:hover:bg-white/5"
-                    onClick={() => setShowLogs(showLogs === s.id ? null : s.id)}
-                  >
-                    {showLogs === s.id ? 'Hide log' : 'Log'}
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg px-2 py-1 text-xs text-ink-danger transition-colors hover:bg-black/10 dark:hover:bg-white/5"
-                    onClick={() => void window.api.mcpRemove(s.id).then(refresh)}
-                  >
-                    Remove
-                  </button>
+    <div className="space-y-8">
+      <Section title="Servers" description={ROWS.servers.help} right={<Button kind="primary" onClick={() => setFormOpen((o) => !o)}>{formOpen ? 'Close' : 'Add a server…'}</Button>}>
+        <Row meta={ROWS.servers} bare>
+          <div className="space-y-3">
+            {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
+            <Fold title="Add a server" summary="a confirmation shows the exact command before anything is saved; the server is added switched off" open={formOpen} onToggle={setFormOpen}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Row meta={ROWS.name} layout="stack">
+                  <Field value={form.name} onChange={(name) => setForm({ ...form, name })} onCommit={(name) => setForm({ ...form, name })} placeholder="Filesystem" />
+                </Row>
+                <Row meta={ROWS.id} layout="stack">
+                  <Field value={form.id} mono onChange={(id) => setForm({ ...form, id })} onCommit={(id) => setForm({ ...form, id })} placeholder="fs" />
+                </Row>
+              </div>
+              <Row meta={ROWS.command} layout="stack">
+                <Field value={form.command} mono onChange={(command) => setForm({ ...form, command })} onCommit={(command) => setForm({ ...form, command })} placeholder="npx" />
+              </Row>
+              <Row meta={ROWS.args} layout="stack">
+                <Field value={form.args} mono onChange={(args) => setForm({ ...form, args })} onCommit={(args) => setForm({ ...form, args })} placeholder='-y @modelcontextprotocol/server-filesystem "/Users/me/Documents"' />
+              </Row>
+              <Row meta={ROWS.env} layout="stack">
+                <div className="space-y-1.5">
+                  {envRows.map((row, i) => {
+                    const label = row.name.trim() || `variable ${i + 1}`
+                    return (
+                      <div key={row.key} className="flex gap-2">
+                        <div className="w-2/5">
+                          <Field value={row.name} mono compact label={`Name of variable ${i + 1}`} placeholder="API_TOKEN" onChange={(name) => setEnvRows((rows) => rows.map((r) => (r.key === row.key ? { ...r, name } : r)))} onCommit={() => undefined} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <Field value={row.value} type="password" mono compact label={`Value of ${label}`} onChange={(value) => setEnvRows((rows) => rows.map((r) => (r.key === row.key ? { ...r, value } : r)))} onCommit={() => undefined} />
+                        </div>
+                        <Button kind="ghost" aria-label={`Remove ${label}`} onClick={() => setEnvRows((rows) => rows.filter((r) => r.key !== row.key))}>
+                          Remove
+                        </Button>
+                      </div>
+                    )
+                  })}
+                  <Button kind="ghost" onClick={() => setEnvRows((rows) => [...rows, { key: nextRowKey.current++, name: '', value: '' }])}>
+                    + Add variable
+                  </Button>
                 </div>
-                {cfg && (
-                  <div className="mt-2 font-mono text-xs text-ink-tertiary">
-                    {[cfg.command, ...cfg.args].join(' ')}
-                    {cfg.envNames.length ? ` · env: ${cfg.envNames.join(', ')} (in the keychain)` : ''}
-                  </div>
-                )}
-                {secrets?.mcpEnv.unreadable.includes(s.id) && (
-                  <p className="mt-2 text-xs text-ink-danger" role="status">
-                    Its environment values could not be decrypted on this machine — they were sealed by another
-                    machine’s or account’s keychain — so it is kept off. Remove it and add it again with its values.
-                  </p>
-                )}
-                {s.lastError && (
-                  <p className="mt-2 text-xs text-ink-danger" role="status">
-                    {s.lastError}
-                  </p>
-                )}
-                {s.tools.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {s.tools.map((t) => (
-                      <li key={t.wireName} className="flex items-start gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5"
-                          checked={t.enabled}
-                          onChange={(e) => {
-                            if (!cfg) return
-                            const off = new Set(cfg.disabledTools)
-                            if (e.target.checked) off.delete(t.rawName)
-                            else off.add(t.rawName)
-                            void save({ ...cfg, disabledTools: [...off] })
-                          }}
-                          aria-label={`${t.rawName} enabled`}
+              </Row>
+              <Row meta={ROWS.cwd} layout="stack">
+                <Field value={form.cwd} mono onChange={(cwd) => setForm({ ...form, cwd })} onCommit={(cwd) => setForm({ ...form, cwd })} />
+              </Row>
+              <Button kind="primary" busy={adding ? 'Confirming…' : undefined} onClick={() => void add()}>
+                Add server…
+              </Button>
+            </Fold>
+
+            {servers.length === 0 ? (
+              <Notice tone="muted">No servers added.</Notice>
+            ) : (
+              servers.map((s) => {
+                const cfg = configOf(s.id)
+                const state = STATE[s.state]
+                return (
+                  <Card
+                    key={s.id}
+                    title={
+                      <span className="inline-flex items-center gap-2">
+                        <StatusDot tone={state.tone} pulse={s.state === 'starting'} />
+                        {s.name} <span className="font-mono text-xs font-normal text-ink-tertiary">{s.id}</span>
+                      </span>
+                    }
+                    status={`${state.label}${s.era ? ` · ${s.era} protocol ${s.protocolVersion ?? ''}` : ''}${s.serverInfo?.name ? ` · ${s.serverInfo.name}${s.serverInfo.version ? ` ${s.serverInfo.version}` : ''}` : ''}${s.restarts > 0 ? ` · restarted ${s.restarts}×` : ''}`}
+                    right={
+                      <>
+                        <Select
+                          compact
+                          label={`${s.name} approval`}
+                          value={cfg?.approval ?? 'ask'}
+                          onChange={(v) => cfg && void save({ ...cfg, approval: v as McpApproval })}
+                          title="ask: confirm each call (Always allow mints a grant) · grants only: run grants only · never ask"
+                          options={[
+                            { value: 'ask', label: 'ask each call' },
+                            { value: 'allowlist', label: 'grants only' },
+                            { value: 'full', label: 'never ask' }
+                          ]}
                         />
-                        <span className="min-w-0">
-                          <span className="font-mono">{t.rawName}</span>
-                          <span className="text-ink-tertiary"> · on the wire as </span>
-                          <span className="font-mono text-ink-tertiary">{t.wireName}</span>
-                          {t.description && <span className="block text-ink-secondary">{t.description}</span>}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {showLogs === s.id && (
-                  <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-black/10 p-2 font-mono text-[11px] leading-snug text-ink-secondary dark:bg-white/5">
-                    {s.stderr.length ? s.stderr.join('\n') : '(nothing on stderr)'}
-                  </pre>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      <div className="glass-panel rounded-xl p-3">
-        <div className="mb-2 text-sm font-medium">Add a server</div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="text-xs">
-            Name
-            <input className={`mt-1 w-full ${FIELD}`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Filesystem" />
-          </label>
-          <label className="text-xs">
-            Id <span className="text-ink-tertiary">(letters, digits, - _)</span>
-            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} placeholder="fs" />
-          </label>
-          <label className="text-xs sm:col-span-2">
-            Command
-            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="npx" />
-          </label>
-          <label className="text-xs sm:col-span-2">
-            Arguments <span className="text-ink-tertiary">(space-separated; quote a path with spaces)</span>
-            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })} placeholder='-y @modelcontextprotocol/server-filesystem "/Users/me/Documents"' />
-          </label>
-          <div className="text-xs sm:col-span-2">
-            Environment{' '}
-            <span className="text-ink-tertiary">
-              (values are encrypted in the system keychain; from then on only the names are shown, here and in the
-              confirmation)
-            </span>
-            {envRows.map((row, i) => {
-              const label = row.name.trim() || `variable ${i + 1}`
-              return (
-                <div key={row.key} className="mt-1 flex gap-2">
-                  <input
-                    className={`w-2/5 font-mono ${FIELD}`}
-                    value={row.name}
-                    onChange={(e) => editEnvRow(row.key, { name: e.target.value })}
-                    placeholder="API_TOKEN"
-                    aria-label={`Name of variable ${i + 1}`}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <input
-                    className={`min-w-0 flex-1 font-mono ${FIELD}`}
-                    type="password"
-                    value={row.value}
-                    onChange={(e) => editEnvRow(row.key, { value: e.target.value })}
-                    aria-label={`Value of ${label}`}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <button
-                    type="button"
-                    className="rounded-lg px-2 text-xs text-ink-secondary transition-colors hover:bg-black/10 dark:hover:bg-white/5"
-                    onClick={() => removeEnvRow(row.key)}
-                    aria-label={`Remove ${label}`}
+                        <Button kind="ghost" onClick={() => void window.api.mcpReload(s.id).then(refresh)}>
+                          Reload
+                        </Button>
+                        <DangerRow variant="inline" label="" action="Remove" confirm={`Remove ${s.name}?`} onConfirm={() => window.api.mcpRemove(s.id).then(refresh)} />
+                        <Switch label={`${s.name} enabled`} checked={cfg?.enabled ?? false} onChange={(enabled) => cfg && void save({ ...cfg, enabled })} />
+                      </>
+                    }
                   >
-                    Remove
-                  </button>
-                </div>
-              )
-            })}
-            <button
-              type="button"
-              className="mt-1 block rounded-lg px-2 py-1 text-xs text-ink-secondary transition-colors hover:bg-black/10 dark:hover:bg-white/5"
-              onClick={addEnvRow}
-            >
-              + Add variable
-            </button>
+                    {cfg && (
+                      <div className="font-mono text-xs text-ink-tertiary">
+                        {[cfg.command, ...cfg.args].join(' ')}
+                        {cfg.envNames.length ? ` · env: ${cfg.envNames.join(', ')} (in the keychain)` : ''}
+                      </div>
+                    )}
+                    {secrets?.mcpEnv.unreadable.includes(s.id) && (
+                      <Notice tone="danger" className="mt-2">
+                        Its environment values could not be decrypted on this machine — they were sealed by another machine’s or account’s keychain — so it is kept off. Remove it and add it again with its values.
+                      </Notice>
+                    )}
+                    {s.lastError && (
+                      <Notice tone="danger" className="mt-2">
+                        {s.lastError}
+                      </Notice>
+                    )}
+                    {s.tools.length > 0 && (
+                      <ul className="mt-3 space-y-1.5">
+                        {s.tools.map((t) => (
+                          <li key={t.wireName} className="flex items-start gap-3 text-xs">
+                            <span className="min-w-0 flex-1">
+                              <span className="font-mono text-ink-primary">{t.rawName}</span>
+                              <span className="text-ink-tertiary"> · on the wire as </span>
+                              <span className="font-mono text-ink-tertiary">{t.wireName}</span>
+                              {t.description && <span className="block text-ink-secondary">{t.description}</span>}
+                            </span>
+                            <Switch
+                              size="sm"
+                              label={`${t.rawName} enabled`}
+                              checked={t.enabled}
+                              onChange={(on) => {
+                                if (!cfg) return
+                                const off = new Set(cfg.disabledTools)
+                                if (on) off.delete(t.rawName)
+                                else off.add(t.rawName)
+                                void save({ ...cfg, disabledTools: [...off] })
+                              }}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="mt-3">
+                      <Fold title="Log" summary={s.stderr.length ? `${s.stderr.length} line${s.stderr.length === 1 ? '' : 's'} on stderr` : 'nothing on stderr'}>
+                        <pre className="max-h-48 overflow-auto rounded-lg bg-black/10 p-2 font-mono text-[11px] leading-snug text-ink-secondary dark:bg-white/5">{s.stderr.length ? s.stderr.join('\n') : '(nothing on stderr)'}</pre>
+                      </Fold>
+                    </div>
+                  </Card>
+                )
+              })
+            )}
           </div>
-          <label className="text-xs sm:col-span-2">
-            Working directory <span className="text-ink-tertiary">(optional)</span>
-            <input className={`mt-1 w-full font-mono ${FIELD}`} value={form.cwd} onChange={(e) => setForm({ ...form, cwd: e.target.value })} />
-          </label>
-        </div>
-        <button
-          type="button"
-          className="mt-3 rounded-lg bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
-          disabled={adding}
-          onClick={() => void add()}
-        >
-          {adding ? 'Confirming…' : 'Add server…'}
-        </button>
-        <p className="mt-2 text-xs text-ink-tertiary">
-          A confirmation shows the exact command before anything is saved. The server is added switched off.
-        </p>
-      </div>
+        </Row>
+      </Section>
     </div>
   )
 }

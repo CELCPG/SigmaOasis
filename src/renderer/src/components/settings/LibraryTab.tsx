@@ -1,21 +1,18 @@
+// Settings → Library (v4.0, S4): the packs as cards with one action order,
+// curated packs, and a lookup you can try — the same retrieval the
+// reference_lookup tool runs. Everything on this tab is local: disk, plus
+// loopback embeddings.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LibraryBundledPack, LibraryFreshness, LibraryLookupResult, LibraryPackSummary } from '../../types'
+import { defineRows, registerRows } from '../../lib/settingsKit'
+import { ActionRow, Button, Card, DangerRow, Field, Notice, Row, Section, type ActionResult } from './kit'
 
-/**
- * Settings → Library (v1.5, the Almanac). Lists installed reference packs,
- * adds a folder of the user's own documents as a pack, installs a downloaded
- * pack directory, embeds a pack for semantic retrieval (with progress), removes
- * packs, and lets the user try a lookup and see exactly what the model would be
- * given. Everything on this tab is local: disk, plus loopback embeddings.
- *
- * First tab split out of SettingsModal.tsx (STRATEGY-speed-and-quality.md 2d):
- * the modal only mounts it; state lives here.
- */
-
-const BUTTON =
-  'rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40'
-const NOTE = 'rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary'
-const WARN = 'rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn'
+export const ROWS = defineRows('library', {
+  packs: { label: 'Your packs', help: 'Reference documents the model reads before it answers — installed packs and folders of your own files. Passages are retrieved by relevance and handed to the model with their source. The reference_lookup tool under Tools is how the model reaches it.', keywords: ['packs', 'folder', 'zim', 'reference', 'almanac'] },
+  curated: { label: 'Curated packs', help: 'Reference packs bundled with this build — first aid, health, preparedness, food safety, finance, home safety, civics. Installing copies them into your library and uses no network.', keywords: ['bundled', 'first aid', 'health'] },
+  lookup: { label: 'Try a lookup', help: 'See what the model would be given for a question. This is the same retrieval the reference_lookup tool runs.', keywords: ['test', 'search', 'passages'] }
+})
+registerRows(ROWS)
 
 function kb(chars: number): string {
   if (chars >= 1_000_000) return `${(chars / 1_000_000).toFixed(1)} M chars`
@@ -27,7 +24,7 @@ export function LibraryTab(): JSX.Element {
   const [packs, setPacks] = useState<LibraryPackSummary[] | null>(null)
   const [bundled, setBundled] = useState<LibraryBundledPack[]>([])
   const [busy, setBusy] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<ActionResult | null>(null)
   const [embedding, setEmbedding] = useState<{ packId: string; done: number; total: number } | null>(null)
   const [freshness, setFreshness] = useState<Record<string, LibraryFreshness>>({})
   const [query, setQuery] = useState('')
@@ -42,9 +39,6 @@ export function LibraryTab(): JSX.Element {
       .then(async (list) => {
         if (!mounted.current) return
         setPacks(list)
-        // Staleness, per tracked user pack. stat-only in the main process, so
-        // running it on every open keeps "your pack is out of date" ambient
-        // rather than something the user has to think to ask for.
         const reports: Record<string, LibraryFreshness> = {}
         for (const p of list) {
           if (p.kind !== 'user' || !p.sourceFolder) continue
@@ -69,19 +63,8 @@ export function LibraryTab(): JSX.Element {
     }
   }, [refresh])
 
-  const run = async (label: string, action: () => Promise<{ ok: boolean; error?: string; cancelled?: boolean; pack?: LibraryPackSummary }>): Promise<void> => {
-    setBusy(label)
-    setNotice(null)
-    try {
-      const result = await action()
-      if (result.cancelled) return
-      if (!result.ok) setNotice(result.error ?? `${label} failed.`)
-      else if (result.pack) setNotice(`${label}: "${result.pack.name}" — ${result.pack.docs} document(s), ${result.pack.chunks} passage(s).`)
-      refresh()
-    } finally {
-      setBusy(null)
-    }
-  }
+  const ok = (text: string): void => setNotice({ tone: 'ok', text })
+  const fail = (text: string): void => setNotice({ tone: 'danger', text })
 
   const embed = async (pack: LibraryPackSummary, opts: { auto?: boolean } = {}): Promise<void> => {
     setBusy(`embed:${pack.id}`)
@@ -89,40 +72,13 @@ export function LibraryTab(): JSX.Element {
     setEmbedding({ packId: pack.id, done: pack.embeddedChunks, total: pack.chunks })
     try {
       const r = await window.api.libraryEmbed(pack.id)
-      if (r.ok) {
-        setNotice(`Embedded "${pack.name}": ${r.embedded} of ${r.total} passages with ${r.model}.`)
-      } else if (opts.auto && (r.error ?? '').includes('No embedding model')) {
-        // The automatic pass after add/update, with no embedding model loaded:
-        // not an error — keyword retrieval already works.
-        setNotice(
-          `"${pack.name}" is ready with keyword search. Load an embedding model in LM Studio and press Embed to add semantic search.`
-        )
-      } else {
-        setNotice(`Embedding "${pack.name}" stopped: ${r.error ?? 'unknown error'} (${r.embedded} of ${r.total} kept).`)
-      }
+      if (r.ok) ok(`Embedded “${pack.name}”: ${r.embedded} of ${r.total} passages with ${r.model}.`)
+      else if (opts.auto && (r.error ?? '').includes('No embedding model')) setNotice({ tone: 'info', text: `“${pack.name}” is ready with keyword search. Load an embedding model in LM Studio and press Embed to add semantic search.` })
+      else fail(`Embedding “${pack.name}” stopped: ${r.error ?? 'unknown error'} (${r.embedded} of ${r.total} kept).`)
     } finally {
       setEmbedding(null)
       setBusy(null)
       refresh()
-    }
-  }
-
-  /** Add folder → pack, then embed it without being asked (progress is visible; cancel works). */
-  // v2.8: a Kiwix ZIM file, registered where it is — nothing copied, nothing embedded.
-  const addZim = async (): Promise<void> => {
-    setBusy('add')
-    setNotice(null)
-    try {
-      const r = await window.api.libraryAddZim()
-      if (r.cancelled) return
-      if (!r.ok || !r.pack) {
-        setNotice(r.error ?? 'Adding the ZIM file failed.')
-        return
-      }
-      setNotice(`Added "${r.pack.name}" — ${r.pack.docs.toLocaleString()} entries, read on demand from the file where it is.`)
-      refresh()
-    } finally {
-      setBusy(null)
     }
   }
 
@@ -132,11 +88,8 @@ export function LibraryTab(): JSX.Element {
     try {
       const r = await window.api.libraryAddFolder()
       if (r.cancelled) return
-      if (!r.ok || !r.pack) {
-        setNotice(r.error ?? 'Adding the folder failed.')
-        return
-      }
-      setNotice(`Added "${r.pack.name}" — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
+      if (!r.ok || !r.pack) return fail(r.error ?? 'Adding the folder failed.')
+      ok(`Added “${r.pack.name}” — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
       refresh()
       if (r.pack.chunks > r.pack.embeddedChunks) await embed(r.pack, { auto: true })
     } finally {
@@ -144,17 +97,41 @@ export function LibraryTab(): JSX.Element {
     }
   }
 
-  /** Install a curated pack shipped inside the app — disk to disk, then embed. */
+  const addZim = async (): Promise<void> => {
+    setBusy('add')
+    setNotice(null)
+    try {
+      const r = await window.api.libraryAddZim()
+      if (r.cancelled) return
+      if (!r.ok || !r.pack) return fail(r.error ?? 'Adding the ZIM file failed.')
+      ok(`Added “${r.pack.name}” — ${r.pack.docs.toLocaleString()} entries, read on demand from the file where it is.`)
+      refresh()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const installDirectory = async (): Promise<void> => {
+    setBusy('add')
+    setNotice(null)
+    try {
+      const r = await window.api.libraryInstallFromDirectory()
+      if (r.cancelled) return
+      if (!r.ok) return fail(r.error ?? 'Installing the pack failed.')
+      if (r.pack) ok(`Installed pack “${r.pack.name}” — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
+      refresh()
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const installBundled = async (b: LibraryBundledPack): Promise<void> => {
     setBusy(`bundled:${b.id}`)
     setNotice(null)
     try {
       const r = await window.api.libraryInstallBundled(b.id)
-      if (!r.ok || !r.pack) {
-        setNotice(r.error ?? `Installing "${b.name}" failed.`)
-        return
-      }
-      setNotice(`Installed "${r.pack.name}" — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
+      if (!r.ok || !r.pack) return fail(r.error ?? `Installing “${b.name}” failed.`)
+      ok(`Installed “${r.pack.name}” — ${r.pack.docs} document(s), ${r.pack.chunks} passage(s).`)
       refresh()
       if (r.pack.chunks > r.pack.embeddedChunks) await embed(r.pack, { auto: true })
     } finally {
@@ -162,22 +139,15 @@ export function LibraryTab(): JSX.Element {
     }
   }
 
-  /** Re-read the tracked folder; unchanged documents keep their embeddings. */
   const update = async (pack: LibraryPackSummary): Promise<void> => {
     setBusy(`update:${pack.id}`)
     setNotice(null)
     try {
       const r = await window.api.libraryUpdateFromFolder(pack.id)
-      if (!r.ok || !r.pack) {
-        setNotice(r.error ?? `Updating "${pack.name}" failed.`)
-        return
-      }
+      if (!r.ok || !r.pack) return fail(r.error ?? `Updating “${pack.name}” failed.`)
       const carried = r.carriedChunks ?? 0
       const missing = r.missingChunks ?? 0
-      setNotice(
-        `Updated "${r.pack.name}": ${r.pack.docs} document(s) · ${carried} passage(s) kept their embeddings` +
-          (missing > 0 ? `, ${missing} to embed.` : '.')
-      )
+      ok(`Updated “${r.pack.name}”: ${r.pack.docs} document(s) · ${carried} passage(s) kept their embeddings${missing > 0 ? `, ${missing} to embed.` : '.'}`)
       refresh()
       if (missing > 0) await embed(r.pack, { auto: true })
     } finally {
@@ -186,11 +156,10 @@ export function LibraryTab(): JSX.Element {
   }
 
   const remove = async (pack: LibraryPackSummary): Promise<void> => {
-    if (!window.confirm(`Remove "${pack.name}" from the reference library? Its copied documents are deleted; the original files are untouched.`)) return
-    await run('Removed', async () => {
-      const r = await window.api.libraryRemove(pack.id)
-      return { ok: r.removed, error: r.removed ? undefined : 'That pack was not found.' }
-    })
+    const r = await window.api.libraryRemove(pack.id)
+    if (r.removed) ok(`Removed “${pack.name}”. Its copied documents are deleted; the original files are untouched.`)
+    else fail('That pack was not found.')
+    refresh()
   }
 
   const tryLookup = async (): Promise<void> => {
@@ -208,259 +177,168 @@ export function LibraryTab(): JSX.Element {
   const totalEmbedded = packs?.reduce((n, p) => n + p.embeddedChunks, 0) ?? 0
 
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="text-sm font-medium">Reference library</div>
-        <p className="mt-1 text-xs text-ink-secondary">
-          Reference documents the model reads <em>before</em> it answers — installed reference packs
-          and folders of your own files. Passages are retrieved by relevance and handed to the model
-          with their source, so answers about first aid, finance, health or your own manuals quote a
-          document instead of guessing. Entirely local: nothing on this tab uses the network. The{' '}
-          <code>reference_lookup</code> tool (Settings → Tools) is how the model reaches it.
-        </p>
-      </div>
-
-      {/* Actions */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => void addFolder()}
-          className={BUTTON}
-          title="Build a pack from a folder of .md, .txt, .pdf and .docx files, then embed it. The folder is remembered: when it changes, the pack shows it and updates in place."
+    <div className="space-y-8">
+      <Section
+        title="Your packs"
+        description={ROWS.packs.help}
+        right={
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <Button disabled={busy !== null} onClick={() => void addFolder()} title="Build a pack from a folder of .md, .txt, .pdf and .docx files, then embed it. The folder is remembered: when it changes, the pack shows it and updates in place.">
+              Add folder…
+            </Button>
+            <Button disabled={busy !== null} onClick={() => void addZim()} title="Register a Kiwix ZIM file — offline Wikipedia, WikiMed, the rest of the Kiwix catalogue — as a pack. The file stays where it is; no network.">
+              Add ZIM file…
+            </Button>
+            <Button disabled={busy !== null} onClick={() => void installDirectory()} title="Install a downloaded reference pack (a folder containing manifest.json and docs/)">
+              Install pack…
+            </Button>
+            <Button onClick={refresh}>Refresh</Button>
+          </span>
+        }
+      >
+        <Row
+          meta={ROWS.packs}
+          bare
+          foot={
+            packs && packs.length > 0 ? (
+              <span className="text-xs text-ink-tertiary">
+                {packs.length} pack{packs.length === 1 ? '' : 's'} · {totalDocs} documents · {totalChunks} passages · {totalEmbedded === totalChunks ? 'all embedded' : `${totalEmbedded} embedded`}. Stored under the app’s data folder; the original files you added are never modified.
+              </span>
+            ) : undefined
+          }
         >
-          Add folder…
-        </button>
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => void addZim()}
-          className={BUTTON}
-          title="Register a Kiwix ZIM file — offline Wikipedia, WikiMed, and the rest of the Kiwix catalogue — as a pack. The file stays where it is; a lookup searches its own title index and opens only the articles it needs. zstd-compressed ZIMs (every Kiwix file since 2020); no network."
-        >
-          Add ZIM file…
-        </button>
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => void run('Installed pack', () => window.api.libraryInstallFromDirectory())}
-          className={BUTTON}
-          title="Install a downloaded reference pack (a folder containing manifest.json and docs/)"
-        >
-          Install pack…
-        </button>
-        <button type="button" onClick={refresh} className={`${BUTTON} ml-auto`}>
-          Refresh
-        </button>
-      </div>
-      {notice && <p className={NOTE}>{notice}</p>}
-
-      {/* Packs */}
-      {packs === null ? (
-        <p className={NOTE}>Loading…</p>
-      ) : packs.length === 0 ? (
-        <p className={NOTE}>
-          No packs installed yet. Install the curated packs below with one click, or add a folder of
-          your own documents. Packs are plain folders — <code>docs/library-pack-format.md</code> in
-          the repository describes the format.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {packs.map((p) => {
-            const progress = embedding && embedding.packId === p.id ? embedding : null
-            const fully = p.chunks > 0 && p.embeddedChunks === p.chunks
-            const fresh = p.kind === 'user' && p.sourceFolder ? freshness[p.id] : undefined
-            const drift = fresh && !fresh.fresh ? fresh : undefined
-            const driftLine = drift
-              ? drift.missingFolder
-                ? 'The source folder no longer exists — lookups keep working from the copy.'
-                : `Source folder has changed: ${[
-                    drift.changed ? `${drift.changed} edited` : '',
-                    drift.added ? `${drift.added} new` : '',
-                    drift.removed ? `${drift.removed} removed` : ''
-                  ]
-                    .filter(Boolean)
-                    .join(', ')}${drift.examples.length ? ` (${drift.examples.join(', ')}${drift.added + drift.changed + drift.removed > drift.examples.length ? ', …' : ''})` : ''}.`
-              : null
-            return (
-              <li key={p.id} className="rounded-xl border border-black/10 dark:border-white/10 p-3 text-xs">
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">
-                      {p.name}{' '}
-                      <span className="font-normal text-ink-tertiary">
-                        · {p.kind === 'user' ? 'your documents' : p.kind === 'app' ? 'written by this app — claims it verified, with dates' : p.kind === 'zim' ? 'a ZIM file, read on demand — offline wiki' : 'reference pack'}{p.kind === 'app' ? '' : ` · v${p.version}`}
-                      </span>
-                    </div>
-                    {p.description && <p className="mt-0.5 text-ink-secondary">{p.description}</p>}
-                    <p className="mt-1 text-ink-tertiary">
-                      {p.docs} document{p.docs === 1 ? '' : 's'} · {p.chunks} passages · {kb(p.chars)} · {p.license}
-                      {' · '}
-                      {progress
-                        ? `embedding ${progress.done}/${progress.total}…`
-                        : fully
-                          ? `embedded (${p.embeddingModel})`
-                          : p.embeddedChunks > 0
-                            ? `${p.embeddedChunks}/${p.chunks} embedded — keyword + partial semantic`
-                            : 'keyword search only — embed for semantic search'}
+          <div className="space-y-2">
+            {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
+            {packs === null ? (
+              <p className="text-xs text-ink-tertiary">Loading…</p>
+            ) : packs.length === 0 ? (
+              <Notice tone="muted">No packs installed yet. Install the curated packs below with one click, or add a folder of your own documents. Packs are plain folders — docs/library-pack-format.md describes the format.</Notice>
+            ) : (
+              packs.map((p) => {
+                const progress = embedding && embedding.packId === p.id ? embedding : null
+                const fully = p.chunks > 0 && p.embeddedChunks === p.chunks
+                const fresh = p.kind === 'user' && p.sourceFolder ? freshness[p.id] : undefined
+                const drift = fresh && !fresh.fresh ? fresh : undefined
+                const driftLine = drift
+                  ? drift.missingFolder
+                    ? 'The source folder no longer exists — lookups keep working from the copy.'
+                    : `Source folder has changed: ${[drift.changed ? `${drift.changed} edited` : '', drift.added ? `${drift.added} new` : '', drift.removed ? `${drift.removed} removed` : ''].filter(Boolean).join(', ')}${drift.examples.length ? ` (${drift.examples.join(', ')}${drift.added + drift.changed + drift.removed > drift.examples.length ? ', …' : ''})` : ''}.`
+                  : null
+                const kind = p.kind === 'user' ? 'your documents' : p.kind === 'app' ? 'written by this app — claims it verified, with dates' : p.kind === 'zim' ? 'a ZIM file, read on demand — offline wiki' : 'reference pack'
+                return (
+                  <Card
+                    key={p.id}
+                    title={p.name}
+                    status={`${kind}${p.kind === 'app' ? '' : ` · v${p.version}`}`}
+                    right={
+                      <>
+                        {p.kind === 'user' && p.sourceFolder && !drift?.missingFolder && !progress && (
+                          <Button disabled={busy !== null} onClick={() => void update(p)} className={drift ? 'border-amber-500/40 text-ink-warn' : ''} title="Re-read the folder this pack was built from. Documents whose text is unchanged keep their embeddings; only new and edited ones are re-embedded.">
+                            Update
+                          </Button>
+                        )}
+                        {progress ? (
+                          <Button onClick={() => void window.api.libraryCancelEmbed()}>Cancel</Button>
+                        ) : p.kind === 'app' || p.kind === 'zim' ? null : (
+                          <Button disabled={busy !== null || fully} onClick={() => void embed(p)} title="Compute embedding vectors with the loaded embedding model so lookups can match meaning, not just words. Stored per model; re-run after changing the embedding model.">
+                            {fully ? 'Embedded' : p.embeddedChunks > 0 ? 'Finish embedding' : 'Embed'}
+                          </Button>
+                        )}
+                        <DangerRow variant="inline" label="" action="Remove" confirm={`Remove “${p.name}”?`} disabled={busy !== null} onConfirm={() => remove(p)} />
+                      </>
+                    }
+                  >
+                    {p.description && <p className="text-xs text-ink-secondary">{p.description}</p>}
+                    <p className="mt-1 text-xs text-ink-tertiary">
+                      {p.docs} document{p.docs === 1 ? '' : 's'} · {p.chunks} passages · {kb(p.chars)} · {p.license} ·{' '}
+                      {progress ? `embedding ${progress.done}/${progress.total}…` : fully ? `embedded (${p.embeddingModel})` : p.embeddedChunks > 0 ? `${p.embeddedChunks}/${p.chunks} embedded — keyword + partial semantic` : 'keyword search only — embed for semantic search'}
                     </p>
-                    {p.sourceNote && <p className="mt-1 text-ink-tertiary break-all">{p.sourceNote}</p>}
+                    {p.sourceNote && <p className="mt-1 break-all text-xs text-ink-tertiary">{p.sourceNote}</p>}
                     {driftLine && (
-                      <p className="mt-1 text-ink-warn">
+                      <p className="mt-1 text-xs text-ink-warn">
                         {driftLine}
                         {!drift?.missingFolder && ' Update to bring the pack up to date — unchanged documents keep their embeddings.'}
                       </p>
                     )}
                     {progress && (
-                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-black/10 dark:bg-white/10">
-                        <div
-                          className="h-full bg-accent transition-all"
-                          style={{ width: `${progress.total ? Math.round((100 * progress.done) / progress.total) : 0}%` }}
-                        />
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-black/10 dark:bg-white/10" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
+                        <div className="h-full bg-accent transition-all" style={{ width: `${progress.total ? Math.round((100 * progress.done) / progress.total) : 0}%` }} />
                       </div>
                     )}
-                  </div>
-                  <div className="flex shrink-0 flex-col gap-1">
-                    {p.kind === 'user' && p.sourceFolder && !drift?.missingFolder && !progress && (
-                      <button
-                        type="button"
-                        disabled={busy !== null}
-                        onClick={() => void update(p)}
-                        className={drift ? `${BUTTON} border-amber-500/40 text-ink-warn` : BUTTON}
-                        title="Re-read the folder this pack was built from. Documents whose text is unchanged keep their embeddings; only new and edited ones are re-embedded."
-                      >
-                        Update
-                      </button>
-                    )}
-                    {progress ? (
-                      <button type="button" onClick={() => void window.api.libraryCancelEmbed()} className={BUTTON}>
-                        Cancel
-                      </button>
-                    ) : p.kind === 'app' || p.kind === 'zim' ? null : (
-                      <button
-                        type="button"
-                        disabled={busy !== null || fully}
-                        onClick={() => void embed(p)}
-                        className={BUTTON}
-                        title="Compute embedding vectors with the loaded embedding model so lookups can match meaning, not just words. Stored per model; re-run after changing the embedding model."
-                      >
-                        {fully ? 'Embedded' : p.embeddedChunks > 0 ? 'Finish embedding' : 'Embed'}
-                      </button>
-                    )}
-                    <button type="button" disabled={busy !== null} onClick={() => void remove(p)} className={`${BUTTON} text-ink-danger`}>
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      {packs && packs.length > 0 && (
-        <p className="text-xs text-ink-tertiary">
-          {packs.length} pack{packs.length === 1 ? '' : 's'} · {totalDocs} documents · {totalChunks} passages ·{' '}
-          {totalEmbedded === totalChunks ? 'all embedded' : `${totalEmbedded} embedded`}. Stored under the app&apos;s
-          data folder; the original files you added are never modified.
-        </p>
-      )}
-
-      {/* Curated packs shipped inside the app (v1.7.1) */}
-      {bundled.length > 0 && (
-        <div className="border-t border-black/10 dark:border-white/10 pt-4">
-          <div className="text-sm font-medium">Curated packs</div>
-          <p className="mt-1 text-xs text-ink-secondary">
-            Reference packs bundled with this build — first aid, health, preparedness, food safety,
-            finance, home safety, civics. Installing copies them into your library and uses no
-            network.
-          </p>
-          {bundled.every((b) => b.installed && b.installedVersion === b.version) ? (
-            <p className={`${NOTE} mt-2`}>
-              All {bundled.length} curated packs are installed and current.
-            </p>
-          ) : (
-            <ul className="mt-2 space-y-1.5">
-              {bundled.map((b) => {
-                const updatable = b.installed && b.installedVersion !== b.version
-                return (
-                  <li key={b.id} className="flex items-center gap-2 rounded-xl border border-black/10 dark:border-white/10 p-2.5 text-xs">
-                    <div className="min-w-0 flex-1">
-                      <span className="font-medium">{b.name}</span>{' '}
-                      <span className="text-ink-tertiary">
-                        · {b.docs} document{b.docs === 1 ? '' : 's'} · v{b.version} · {b.license}
-                      </span>
-                      {b.description && <p className="mt-0.5 text-ink-secondary">{b.description}</p>}
-                    </div>
-                    {b.installed && !updatable ? (
-                      <span className="shrink-0 text-ink-tertiary">✓ installed</span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy !== null}
-                        onClick={() => void installBundled(b)}
-                        className={`${BUTTON} shrink-0`}
-                        title={updatable ? `Installed v${b.installedVersion}; this build ships v${b.version}.` : 'Copy this pack into your library and embed it.'}
-                      >
-                        {updatable ? `Update to v${b.version}` : 'Install'}
-                      </button>
-                    )}
-                  </li>
+                  </Card>
                 )
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {/* Try it */}
-      <div className="border-t border-black/10 dark:border-white/10 pt-4">
-        <div className="text-sm font-medium">Try a lookup</div>
-        <p className="mt-1 text-xs text-ink-secondary">
-          See what the model would be given for a question. This is the same retrieval the{' '}
-          <code>reference_lookup</code> tool runs.
-        </p>
-        <div className="mt-2 flex gap-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void tryLookup()
-            }}
-            placeholder="e.g. how long to cool a burn under running water"
-            className="flex-1 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent/40"
-          />
-          <button type="button" disabled={looking || !query.trim()} onClick={() => void tryLookup()} className={BUTTON}>
-            {looking ? 'Looking…' : 'Look up'}
-          </button>
-        </div>
-        {lookup && (
-          <div className="mt-3 space-y-2">
-            {!lookup.ok && <p className={WARN}>{lookup.error}</p>}
-            {lookup.ok && lookup.passages.length === 0 && <p className={NOTE}>No passages matched.</p>}
-            {lookup.passages.map((p, i) => (
-              <div key={i} className="rounded-xl border border-black/10 dark:border-white/10 p-2.5 text-xs">
-                <div className="font-medium text-ink-secondary">
-                  [{i + 1}] {p.packName} › {p.docTitle}
-                  {p.section ? ` › ${p.section}` : ''} · {Math.round(p.position * 100)}% in · relevance {p.score}
-                </div>
-                {(p.source || p.date || p.license) && (
-                  <div className="mt-0.5 break-all text-ink-tertiary">
-                    {[p.source, p.date, p.license].filter(Boolean).join(' · ')}
-                  </div>
-                )}
-                <p className="mt-1 whitespace-pre-wrap text-ink-secondary">{p.text}</p>
-              </div>
-            ))}
-            {lookup.notes.length > 0 && (
-              <p className="text-xs text-ink-tertiary">
-                {lookup.mode === 'hybrid' ? 'Semantic + keyword ranking. ' : 'Keyword ranking. '}
-                {lookup.notes.join(' ')}
-              </p>
+              })
             )}
           </div>
-        )}
-      </div>
+        </Row>
+      </Section>
+
+      {bundled.length > 0 && (
+        <Section title="Curated packs" description={ROWS.curated.help}>
+          <Row meta={ROWS.curated} bare>
+            {bundled.every((b) => b.installed && b.installedVersion === b.version) ? (
+              <Notice tone="ok">All {bundled.length} curated packs are installed and current.</Notice>
+            ) : (
+              <div className="space-y-1.5">
+                {bundled.map((b) => {
+                  const updatable = b.installed && b.installedVersion !== b.version
+                  return (
+                    <div key={b.id} data-list-row className="flex items-center gap-3 rounded-lg border border-black/10 px-3 py-2 text-xs dark:border-white/10">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium text-ink-primary">{b.name}</span>{' '}
+                        <span className="text-ink-tertiary">
+                          · {b.docs} document{b.docs === 1 ? '' : 's'} · v{b.version} · {b.license}
+                        </span>
+                        {b.description && <p className="mt-0.5 text-ink-secondary">{b.description}</p>}
+                      </div>
+                      {b.installed && !updatable ? (
+                        <span className="shrink-0 text-ink-ok">✓ installed</span>
+                      ) : (
+                        <Button disabled={busy !== null} onClick={() => void installBundled(b)} title={updatable ? `Installed v${b.installedVersion}; this build ships v${b.version}.` : 'Copy this pack into your library and embed it.'}>
+                          {updatable ? `Update to v${b.version}` : 'Install'}
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </Row>
+        </Section>
+      )}
+
+      <Section title="Try a lookup" description={ROWS.lookup.help}>
+        <Row meta={ROWS.lookup} layout="stack">
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Field value={query} onChange={setQuery} onCommit={(q) => { setQuery(q); void tryLookup() }} placeholder="e.g. how long to cool a burn under running water" label="Lookup query" />
+              <ActionRow action="Look up" busy={looking ? 'Looking…' : null} disabled={!query.trim()} onAction={() => void tryLookup()} />
+            </div>
+            {lookup && (
+              <div className="space-y-2">
+                {!lookup.ok && <Notice tone="warn">{lookup.error}</Notice>}
+                {lookup.ok && lookup.passages.length === 0 && <Notice tone="muted">No passages matched.</Notice>}
+                {lookup.passages.map((p, i) => (
+                  <Card key={i}>
+                    <div className="text-xs font-medium text-ink-secondary">
+                      [{i + 1}] {p.packName} › {p.docTitle}
+                      {p.section ? ` › ${p.section}` : ''} · {Math.round(p.position * 100)}% in · relevance {p.score}
+                    </div>
+                    {(p.source || p.date || p.license) && <div className="mt-0.5 break-all text-xs text-ink-tertiary">{[p.source, p.date, p.license].filter(Boolean).join(' · ')}</div>}
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-ink-secondary">{p.text}</p>
+                  </Card>
+                ))}
+                {lookup.notes.length > 0 && (
+                  <p className="text-xs text-ink-tertiary">
+                    {lookup.mode === 'hybrid' ? 'Semantic + keyword ranking. ' : 'Keyword ranking. '}
+                    {lookup.notes.join(' ')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </Row>
+      </Section>
     </div>
   )
 }

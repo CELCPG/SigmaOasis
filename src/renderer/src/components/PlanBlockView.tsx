@@ -3,6 +3,7 @@ import type { ChatPlan, ToolCallRecord } from '../types'
 import { stepRecords } from '../hooks/planMode'
 import { ToolCallBlock } from './ToolCallBlock'
 import { Disclosure } from './Disclosure'
+import { SettingsLink } from './settings/SettingsLink'
 import {
   abandonedNote,
   awaitingApproval,
@@ -272,7 +273,13 @@ export function PlanBlockView({
             Cancel
           </button>
           <span className="ml-auto self-center text-[10px] text-ink-tertiary">
-            {streaming ? '' : 'Nothing has run yet. Tools each step may use are the ones enabled in Settings → Tools.'}
+            {streaming ? (
+              ''
+            ) : (
+              <>
+                Nothing has run yet. Tools each step may use are the ones enabled in <SettingsLink to="tools" />.
+              </>
+            )}
           </span>
         </div>
       )}

@@ -8,6 +8,7 @@ import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
 import { turnContextUsage } from '../hooks/turnHelpers'
 import { thinkHarderNote } from '../lib/deliberation'
 import type { Attachment } from '../types'
+import { SettingsLink } from './settings/SettingsLink'
 
 type MicState = 'idle' | 'recording' | 'transcribing'
 
@@ -473,7 +474,7 @@ export function InputBar(): JSX.Element {
                 title={
                   planned
                     ? 'Plan mode on — your message becomes a step-by-step plan you approve before it runs'
-                    : 'Plan mode — break the task into steps, approve, then execute (Settings → General)'
+                    : 'Plan mode — break the task into steps, approve, then execute (Settings → Appearance & chat)'
                 }
               >
                 {planned ? '📋 Plan' : '📋'}
@@ -582,12 +583,12 @@ export function InputBar(): JSX.Element {
           )}
           <span className="flex items-center gap-3">
             {armed.length > 0 && (
-              <span
-                className="text-ink-warn"
-                title={`Models can ${armed.join(' and ')} on this machine. Change this under Settings → Tools.`}
+              <SettingsLink
+                to={armed.includes('run commands') ? 'tools.run_terminal_command' : 'tools.write_file'}
+                className="text-ink-warn no-underline"
               >
-                ⚠ can {armed.join(' + ')}
-              </span>
+                <span title={`Models can ${armed.join(' and ')} on this machine. Click to change this under Settings → Tools.`}>⚠ can {armed.join(' + ')}</span>
+              </SettingsLink>
             )}
             {/* v3.0: the agent fits its own window (main/agent/context.ts); the chat's meter would measure a request an agent chat never sends. */}
             {contextMeter && !isAgent && (

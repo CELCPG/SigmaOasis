@@ -53,11 +53,11 @@ const MAX_FETCHES_PER_CLAIM = 1
  */
 export const UNREACHABLE_NOTE =
   'Could not check: no source is reachable — every search this turn failed to connect, so ' +
-  'nothing could be checked against anything. Point Settings → Search at a working provider ' +
+  'nothing could be checked against anything. Point Settings → Search & research at a working provider ' +
   'and ask again.'
 
 /** The control the note describes. Offered only where the app has PROVEN it. */
-export const UNREACHABLE_REMEDY: RemedyControl = { label: 'Settings → Search', tab: 'search' }
+export const UNREACHABLE_REMEDY: RemedyControl = { label: 'Settings → Search & research', tab: 'search' }
 
 /**
  * The pre-flight. The answering turn has usually already tried to search — that

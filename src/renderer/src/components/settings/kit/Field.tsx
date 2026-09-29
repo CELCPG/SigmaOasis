@@ -64,8 +64,8 @@ export function Field({
       value={draft}
       placeholder={placeholder}
       disabled={disabled}
-      aria-label={labelledBy ? undefined : label}
-      aria-labelledby={labelledBy}
+      aria-label={label}
+      aria-labelledby={label ? undefined : labelledBy}
       aria-describedby={describedBy}
       onChange={(e) => {
         setDraft(e.target.value)
@@ -105,8 +105,8 @@ export function Select({ value, onChange, options, compact, label, labelledBy, d
       data-kit="select"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      aria-label={labelledBy ? undefined : label}
-      aria-labelledby={labelledBy}
+      aria-label={label}
+      aria-labelledby={label ? undefined : labelledBy}
       aria-describedby={describedBy}
       className={`${compact ? FIELD_COMPACT : FIELD} ${className}`}
       {...rest}
@@ -154,8 +154,8 @@ export function Textarea({ value, onCommit, placeholder, mono, minRows = 3, disa
       value={draft}
       placeholder={placeholder}
       disabled={disabled}
-      aria-label={labelledBy ? undefined : label}
-      aria-labelledby={labelledBy}
+      aria-label={label}
+      aria-labelledby={label ? undefined : labelledBy}
       aria-describedby={describedBy}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => {

@@ -335,6 +335,12 @@ export function registerAgentHandlers(): void {
     return true
   })
 
+  // v4.0: the shell run_command would use here, for Settings → Agent to show.
+  ipcMain.handle('agent:shell', () => {
+    const shell = defaultShell()
+    return { name: shell.name, file: shell.file }
+  })
+
   ipcMain.handle('agent:list', () =>
     [...running.values()].map((t) => ({ taskId: t.taskId, conversationId: t.conversationId, messageId: t.messageId, title: t.title, startedAt: t.startedAt }))
   )

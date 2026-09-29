@@ -2,12 +2,13 @@
 // use it, and the pattern the others follow. Each row is declared once in
 // ROWS — label, help, keywords — which is what the tab draws and what the
 // settings index searches; the control beside it is the kit's, never a bare
-// input. It still writes the modal's draft through `update` until S3 makes
-// every control apply as it commits.
+// input. Every control applies as it commits (S3): `apply` writes the
+// change, names the row in the toast, and offers Undo.
 
 import React from 'react'
 import type { AppSettings, UpdateStatus } from '../../types'
 import { defineRows, registerRows } from '../../lib/settingsKit'
+import type { ApplySettings } from '../../hooks/settingsApply'
 import { ActionRow, Row, Section, Segmented, Select, Slider, Stepper, Switch, type ActionResult } from './kit'
 
 export const ROWS = defineRows('general', {
@@ -27,9 +28,11 @@ registerRows(ROWS)
 
 export interface GeneralTabProps {
   checkForUpdates: () => Promise<void>
-  draft: AppSettings
+  settings: AppSettings
   installUpdate: () => void
-  update: (partial: Partial<AppSettings>) => void
+  apply: ApplySettings
+  /** The defaults, for a section's Reset; null until they have loaded. */
+  defaults: AppSettings | null
   updateStatus: UpdateStatus | null
 }
 
@@ -55,16 +58,19 @@ function updateResult(status: UpdateStatus | null): ActionResult | null {
 }
 
 export function GeneralTab(props: GeneralTabProps): JSX.Element {
-  const { checkForUpdates, draft, installUpdate, update, updateStatus } = props
+  const { checkForUpdates, settings, installUpdate, apply, defaults, updateStatus } = props
   const ready = updateStatus?.state === 'downloaded'
   const busy = updateStatus?.state === 'checking' || updateStatus?.state === 'downloading'
+  /** A section's Reset: those keys of the defaults, applied as one change. */
+  const reset = (label: string, keys: (keyof AppSettings)[]): (() => void) | undefined =>
+    defaults ? () => apply({ id: 'general.reset', label }, Object.fromEntries(keys.map((k) => [k, defaults[k]])) as Partial<AppSettings>, 'defaults') : undefined
   return (
     <div className="space-y-8">
-      <Section title="Appearance" description="How the window looks. Both preview as you change them.">
+      <Section title="Appearance" description="How the window looks. Both preview as you change them." onReset={reset('Appearance', ['theme', 'fontSize'])}>
         <Row meta={ROWS.theme}>
           <Segmented
-            value={draft.theme}
-            onChange={(theme) => update({ theme })}
+            value={settings.theme}
+            onChange={(theme) => apply(ROWS.theme, { theme })}
             options={[
               { value: 'light', label: 'Light' },
               { value: 'dark', label: 'Dark' }
@@ -72,21 +78,30 @@ export function GeneralTab(props: GeneralTabProps): JSX.Element {
           />
         </Row>
         <Row meta={ROWS.fontSize}>
-          <Slider value={draft.fontSize} min={12} max={20} format={(v) => `${v}px`} onPreview={(fontSize) => update({ fontSize })} onCommit={(fontSize) => update({ fontSize })} />
+          <Slider
+            value={settings.fontSize}
+            min={12}
+            max={20}
+            format={(v) => `${v}px`}
+            onPreview={(px) => {
+              document.documentElement.style.fontSize = `${px}px`
+            }}
+            onCommit={(fontSize) => apply(ROWS.fontSize, { fontSize }, `${fontSize}px`)}
+          />
         </Row>
       </Section>
 
-      <Section title="Chat" description="What a reply shows around its words.">
+      <Section title="Chat" description="What a reply shows around its words." onReset={reset('Chat', ['hideToolCalls', 'showResponseStats', 'reasoningDisplay', 'vibeMode'])}>
         <Row meta={ROWS.hideToolCalls}>
-          <Switch checked={draft.hideToolCalls} onChange={(hideToolCalls) => update({ hideToolCalls })} />
+          <Switch checked={settings.hideToolCalls} onChange={(hideToolCalls) => apply(ROWS.hideToolCalls, { hideToolCalls })} />
         </Row>
         <Row meta={ROWS.showResponseStats}>
-          <Switch checked={draft.showResponseStats} onChange={(showResponseStats) => update({ showResponseStats })} />
+          <Switch checked={settings.showResponseStats} onChange={(showResponseStats) => apply(ROWS.showResponseStats, { showResponseStats })} />
         </Row>
         <Row meta={ROWS.reasoningDisplay}>
           <Select
-            value={draft.reasoningDisplay}
-            onChange={(v) => update({ reasoningDisplay: v as AppSettings['reasoningDisplay'] })}
+            value={settings.reasoningDisplay}
+            onChange={(v) => apply(ROWS.reasoningDisplay, { reasoningDisplay: v as AppSettings['reasoningDisplay'] })}
             options={[
               { value: 'collapsed', label: 'Collapsed behind a “Thought” header' },
               { value: 'expanded', label: 'Always expanded' },
@@ -95,15 +110,19 @@ export function GeneralTab(props: GeneralTabProps): JSX.Element {
           />
         </Row>
         <Row meta={ROWS.vibeMode}>
-          <Switch checked={draft.vibeMode} onChange={(vibeMode) => update({ vibeMode })} />
+          <Switch checked={settings.vibeMode} onChange={(vibeMode) => apply(ROWS.vibeMode, { vibeMode })} />
         </Row>
       </Section>
 
-      <Section title="Long conversations" description="What happens as a conversation grows, and how a multi-step plan runs.">
+      <Section
+        title="Long conversations"
+        description="What happens as a conversation grows, and how a multi-step plan runs."
+        onReset={reset('Long conversations', ['contextManagement', 'historyLimit', 'plan'])}
+      >
         <Row meta={ROWS.contextManagement}>
           <Select
-            value={draft.contextManagement}
-            onChange={(v) => update({ contextManagement: v as 'compact' | 'trim' })}
+            value={settings.contextManagement}
+            onChange={(v) => apply(ROWS.contextManagement, { contextManagement: v as 'compact' | 'trim' })}
             options={[
               { value: 'compact', label: 'Summarize what no longer fits' },
               { value: 'trim', label: 'Drop it silently' }
@@ -111,13 +130,13 @@ export function GeneralTab(props: GeneralTabProps): JSX.Element {
           />
         </Row>
         <Row meta={ROWS.historyLimit}>
-          <Stepper value={draft.historyLimit} min={10} max={1000} step={10} onChange={(historyLimit) => update({ historyLimit })} />
+          <Stepper value={settings.historyLimit} min={10} max={1000} step={10} onChange={(historyLimit) => apply(ROWS.historyLimit, { historyLimit })} />
         </Row>
         <Row meta={ROWS.confirmPlan}>
-          <Switch checked={draft.plan.confirmPlan} onChange={(confirmPlan) => update({ plan: { ...draft.plan, confirmPlan } })} />
+          <Switch checked={settings.plan.confirmPlan} onChange={(confirmPlan) => apply(ROWS.confirmPlan, { plan: { ...settings.plan, confirmPlan } })} />
         </Row>
         <Row meta={ROWS.maxSteps}>
-          <Stepper value={draft.plan.maxSteps} min={1} max={10} onChange={(maxSteps) => update({ plan: { ...draft.plan, maxSteps } })} />
+          <Stepper value={settings.plan.maxSteps} min={1} max={10} onChange={(maxSteps) => apply(ROWS.maxSteps, { plan: { ...settings.plan, maxSteps } })} />
         </Row>
       </Section>
 

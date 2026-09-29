@@ -458,7 +458,7 @@ function DeliberationLine({ record }: { record: DeliberationRecord }): JSX.Eleme
           !busy && unreviewed
             ? `${record.reviewerRole} returned no review at all, so no reviewer read this reply. The figure checks above are a different pass and say nothing about it. Run Think harder again, or use 2nd opinion.`
             : record.self
-              ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Models → self-review).'
+              ? 'No second slot was enabled, so the same model reviewed its own draft — weaker than an independent review, and labelled as such (Settings → Roles → self-review).'
               : `A different role (${record.reviewerRole}) listed the problems in the draft; the answerer revised once with that list.`
         }
       >
@@ -1200,7 +1200,7 @@ export const MessageBubble = memo(function MessageBubble({
               <div
                 key={i}
                 className={c.ok ? 'text-ink-tertiary' : 'text-ink-warn'}
-                title="Workbench verification: the app ran Python in the sandbox to check this reply — recomputing its figures, or running the code it contains. Settings → Models → Workbench checks."
+                title="Workbench verification: the app ran Python in the sandbox to check this reply — recomputing its figures, or running the code it contains. Settings → Roles → Workbench checks."
               >
                 {c.summary}
                 {/* This line used to BE the runtime string — measured,
@@ -1247,7 +1247,7 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.playbook && (
           <div
             className="mt-2 text-[11px] text-ink-tertiary"
-            title="The app added a short numbered method for this kind of question to the turn — the model was asked to follow it. Settings → Models → Playbooks."
+            title="The app added a short numbered method for this kind of question to the turn — the model was asked to follow it. Settings → Roles → Playbooks."
           >
             📋 Method: {message.playbook} playbook
           </div>
@@ -1266,7 +1266,7 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.rulesApplied && (
           <div
             className="mt-2 text-[11px] text-ink-tertiary"
-            title="This role has standing rules (Settings → Models) — they were part of its system prompt for this turn, after its persona and before any project instructions."
+            title="This role has standing rules (Settings → Roles) — they were part of its system prompt for this turn, after its persona and before any project instructions."
             data-testid="rules-applied"
           >
             📐 Standing rules applied
@@ -1276,7 +1276,7 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.ledger && (
           <div
             className="mt-2 text-[11px] text-ink-tertiary"
-            title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. It is the record as this turn began, because it had to be written before the model answered: a call in this reply that defines a new Python variable is not in these counts, which is why the “Session variables” list above can be longer. It joins the ledger for the next turn. Settings → Models → Conversation ledger."
+            title="The app handed the model a mechanical record of what this conversation has established — computed figures, files, session variables, your stated constraints — built from tool results and your own words, never from earlier replies. It is the record as this turn began, because it had to be written before the model answered: a call in this reply that defines a new Python variable is not in these counts, which is why the “Session variables” list above can be longer. It joins the ledger for the next turn. Settings → Roles → Conversation ledger."
           >
             {message.ledger}
           </div>
@@ -1335,7 +1335,7 @@ export const MessageBubble = memo(function MessageBubble({
         {!isStreaming && message.truncated && (
           <div
             className="mt-2 text-[11px] text-ink-warn"
-            title="The reply reached this role's max tokens and was cut off. Raise it under Settings → Models → Sampling, or ask for the rest."
+            title="The reply reached this role's max tokens and was cut off. Raise it under Settings → Roles › Sampling, or ask for the rest."
           >
             ✂️ Cut off at the length cap — this reply is unfinished. Raise max tokens in Settings
             → Models, or ask it to continue.

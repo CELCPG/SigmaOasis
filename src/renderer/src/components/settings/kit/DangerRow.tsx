@@ -63,7 +63,7 @@ export function DangerRow({ label, detail, action, confirm, onConfirm, disabled,
     )
   }
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-black/10 px-3 py-2 dark:border-white/10">
+    <div data-list-row className="flex items-center gap-3 rounded-lg border border-black/10 px-3 py-2 dark:border-white/10">
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-ink-primary">{label}</div>
         {detail && <div className={`${HELP} truncate`}>{detail}</div>}

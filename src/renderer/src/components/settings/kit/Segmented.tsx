@@ -43,8 +43,8 @@ export function Segmented<V extends string>({ value, onChange, options, variant 
   }
   const group = {
     role: 'radiogroup' as const,
-    'aria-label': labelledBy ? undefined : label,
-    'aria-labelledby': labelledBy,
+    'aria-label': label,
+    'aria-labelledby': label ? undefined : labelledBy,
     'aria-describedby': describedBy
   }
   if (variant === 'cards') {

@@ -35,9 +35,7 @@ export function Fold({ title, summary, defaultOpen = false, open: controlled, on
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/5"
       >
-        <span className="w-3 text-[9px] text-ink-muted" aria-hidden="true">
-          {open ? '▼' : '▶'}
-        </span>
+        <span className="w-3 text-[9px] text-ink-muted" aria-hidden="true">{open ? '▼' : '▶'}</span>
         <span className="min-w-0 flex-1 text-sm font-medium text-ink-primary">{title}</span>
         {summary && <span className={`${HELP} shrink-0`}>{summary}</span>}
       </button>
