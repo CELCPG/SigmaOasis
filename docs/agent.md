@@ -134,4 +134,5 @@ That is one run. The suite meant to replace it is `eval:agent` (v3.1): twenty re
 fixes, chained bugs, features, refactors, read-only questions, tasks that need you, and two long
 enough to overflow a 16K window — scored for tasks solved, false claims that the tests pass,
 collateral edits, whether Undo restores the folder, and cost. How it scores is in `docs/evals.md`;
-its baselines are not yet run.
+its baselines are owed — the first attempt stopped on a hardware fault on the bench machine, not on
+anything the suite measures (`docs/evals.md`, *Baselines*).

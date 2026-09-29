@@ -3,7 +3,7 @@ import { tmpdir } from 'os'
 import { join, relative, sep } from 'path'
 import { restoreCheckpoints } from './checkpoints'
 import { defaultShell, runCommand } from './command'
-import { runAgentTask } from './engine'
+import { DEFAULT_ROUND_MAX_TOKENS, runAgentTask } from './engine'
 import { fetchTransport } from './stream'
 import type { AgentEvent, AgentHost, AgentStatus, ChunkTransport, PermissionMode, ShellSpec, ToolCallRecord } from './types'
 
@@ -268,11 +268,15 @@ export function outsideAllowed(paths: readonly string[], allowed: readonly strin
 
 /**
  * A run that ended because the model server failed — went silent, refused,
- * unloaded the model, could not be reached — measured the server, not the
- * agent. It is excluded from the score and named, never counted as a failure
- * (the rule every suite in docs/evals.md follows).
+ * unloaded the model, could not be reached, or cut a reply off mid-stream —
+ * measured the server, not the agent. It is excluded from the score and named,
+ * never counted as a failure (the rule every suite in docs/evals.md follows).
+ *
+ * A stream cut mid-reply surfaces as Node's fetch error `terminated`, bare: the
+ * first baseline's LM Studio died that way inside a case, and the run was
+ * scored — solved, as it happened — rather than excluded.
  */
-const SERVER_FAILURE = /LM Studio|fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|HTTP \d{3}|unloaded|Failed to load model/i
+const SERVER_FAILURE = /LM Studio|fetch failed|^terminated$|other side closed|ECONNREFUSED|ECONNRESET|socket hang up|HTTP \d{3}|unloaded|Failed to load model/i
 
 export function serverFailure(end: string, detail: string | undefined): string | null {
   return end === 'error' && detail && SERVER_FAILURE.test(detail) ? detail : null
@@ -305,6 +309,13 @@ export interface CaseRun {
   ms: number
   promptTokens?: number
   completionTokens: number
+  /**
+   * Completion tokens of the run's longest round — what a lower per-round cap
+   * would have cut (ROADMAP-v3.1.md M2). Read as the largest step between two
+   * usage events, so a helper's rounds count toward the round that follows
+   * them: never an undercount.
+   */
+  longestRound: number
   elisions: number
   elidedResults: number
   finalText: string
@@ -340,6 +351,7 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
   let toolCalls = 0
   let promptTokens: number | undefined
   let completionTokens = 0
+  let longestRound = 0
   let elisions = 0
   let elidedResults = 0
   const host: AgentHost = {
@@ -351,6 +363,7 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
       else if (e.type === 'tool_end') records.set(e.record.id, e.record)
       else if (e.type === 'usage') {
         promptTokens = e.promptTokens
+        longestRound = Math.max(longestRound, e.completionTokens - completionTokens)
         completionTokens = e.completionTokens
       } else if (e.type === 'context_elided') {
         elisions++
@@ -451,6 +464,7 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
     ms,
     ...(promptTokens !== undefined ? { promptTokens } : {}),
     completionTokens,
+    longestRound,
     elisions,
     elidedResults,
     finalText: result.finalText.length > 4_000 ? `${result.finalText.slice(0, 4_000)}…` : result.finalText
@@ -485,6 +499,8 @@ export interface ModelSummary {
   /** Median wall time of a solved run, ms; null when nothing was solved. */
   msPerSolvedMedian: number | null
   roundsMedian: number
+  /** The longest single round in any scored run, and its case; null when no run reported usage. */
+  longestRound: { tokens: number; case: string } | null
 }
 
 function median(xs: number[]): number {
@@ -513,6 +529,7 @@ export function summarize(model: string, runsByPass: CaseRun[][]): ModelSummary 
   const runs = all.filter((r) => !r.excluded)
   const solvedPerPass = runsByPass.map((p) => p.filter((r) => !r.excluded && r.solved).length)
   const solvedMs = runs.filter((r) => r.solved).map((r) => r.ms)
+  const longest = runs.reduce<CaseRun | null>((a, r) => (r.longestRound > (a?.longestRound ?? 0) ? r : a), null)
   return {
     model,
     passes: runsByPass.length,
@@ -526,7 +543,8 @@ export function summarize(model: string, runsByPass: CaseRun[][]): ModelSummary 
     runs: runs.length,
     excluded: all.length - runs.length,
     msPerSolvedMedian: solvedMs.length > 0 ? median(solvedMs) : null,
-    roundsMedian: median(runs.map((r) => r.rounds))
+    roundsMedian: median(runs.map((r) => r.rounds)),
+    longestRound: longest ? { tokens: longest.longestRound, case: longest.case } : null
   }
 }
 
@@ -566,6 +584,11 @@ export function formatSummary(summaries: readonly ModelSummary[]): string {
     )
     if (failed.length) lines.push(`  stable-fail: ${failed.join(', ')}`)
     if (flaky.length) lines.push(`  flaky: ${flaky.join(', ')}`)
+    if (s.longestRound) {
+      lines.push(
+        `  longest round: ${s.longestRound.tokens.toLocaleString('en-US')} completion tokens (${s.longestRound.case}); the cap is ${DEFAULT_ROUND_MAX_TOKENS.toLocaleString('en-US')}`
+      )
+    }
   }
   return lines.join('\n')
 }

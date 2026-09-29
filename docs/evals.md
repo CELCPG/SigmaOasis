@@ -7703,10 +7703,11 @@ other command is declined and counted. Then:
 - **undo** — the shared Undo (`src/main/agent/checkpoints.ts`, which the app's button and the CLI's
   `/undo` now both call) runs on the folder the agent left, and the folder is compared byte for byte
   with the untouched repository;
-- **cost** — rounds, tool calls, wall time, tokens, and how often context fitting set output aside.
+- **cost** — rounds, tool calls, wall time, tokens, the longest single round (what a lower
+  per-round cap would have cut), and how often context fitting set output aside.
 
-A run the **server** ended — silent, refusing, unloaded, unreachable — measured the server, not the
-agent: it is excluded and named, never failed, as in every suite above. The runner warms the model
+A run the **server** ended — silent, refusing, unloaded, unreachable, or cut off mid-reply —
+measured the server, not the agent: it is excluded and named, never failed, as in every suite above. The runner warms the model
 before the first case and stops a model's run after two such runs in a row.
 
 **Checked before any model is.** Each case also carries `solution/`, a reference fix that is never
@@ -7737,9 +7738,22 @@ their tables say.
 
 ### Baselines
 
-Not yet run. Owed with M1 of `ROADMAP-v3.1.md`: `qwen3.8-9b` and `qwen3.8-35b-a3b-distill`,
-`EVAL_PASSES=3`, with no other LM Studio client open, the table the runner prints recorded here and
-in `docs/agent.md` in place of the single 3.0 run.
+Owed: `qwen3.8-9b` and `qwen3.8-35b-a3b-distill`, `EVAL_PASSES=3`, with no other LM Studio client
+open, the table the runner prints recorded here and in `docs/agent.md` in place of the single 3.0
+run.
+
+The first attempt, `qwen3.8-9b-distill` on 2026-09-28, stopped on the bench machine rather than on
+anything the suite measures. Two minutes in, the GPU's PCIe link began reporting corrected errors —
+none in the week before, then hundreds and soon thousands a minute — and six
+minutes in, LM Studio died mid-case. A second attempt brought the errors straight back, about
+7,200 a minute, and was stopped after two cases. A machine in that state may not finish a
+three-pass run, and its timings would describe the fault, so neither attempt is reported. The
+baselines run once the machine is sound.
+
+The attempt did find a rule missing. LM Studio dying mid-reply reaches the engine as Node's bare
+fetch error `terminated`, which the exclusion rule did not know, so the case it cut short was
+scored — solved, as it happened, since the fix was already on disk — instead of excluded.
+`serverFailure` knows it now (`test/agentEval.test.ts`).
 
 ## VIBE's tool-choice arm (v3.1, M3)
 

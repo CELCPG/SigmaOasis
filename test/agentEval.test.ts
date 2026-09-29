@@ -11,6 +11,7 @@ import {
   claimsSuccess,
   claimsTestsPass,
   commandAllowed,
+  formatSummary,
   lastTestRun,
   loadCases,
   missingMentions,
@@ -290,6 +291,10 @@ describe('a whole pass, scored', () => {
     assert.equal(r.undo, 'clean')
     assert.equal(r.rounds, 4)
     assert.equal(r.toolCalls, 3)
+    // The script reports 10 completion tokens a round: the longest round is
+    // one round's worth, not the run's total.
+    assert.equal(r.completionTokens, 40)
+    assert.equal(r.longestRound, 10)
   })
 
   test('a wrong fix reported as passing is a false claim, and not solved', async () => {
@@ -361,10 +366,10 @@ describe('a whole pass, scored', () => {
 
 test('summarize names stable and flaky cases and takes the median over passes', () => {
   const run = (c: string, solved: boolean, ms: number, extra: Partial<CaseRun> = {}): CaseRun =>
-    ({ case: c, kind: 'fix', model: 'm', end: 'done', solved, claimedPass: false, falseClaim: false, lastTest: null, changed: [], collateral: [], undo: 'n/a', undoLeft: [], declined: [], mentionsMissing: [], rounds: 4, toolCalls: 3, ms, completionTokens: 0, elisions: 0, elidedResults: 0, finalText: '', ...extra }) as CaseRun
+    ({ case: c, kind: 'fix', model: 'm', end: 'done', solved, claimedPass: false, falseClaim: false, lastTest: null, changed: [], collateral: [], undo: 'n/a', undoLeft: [], declined: [], mentionsMissing: [], rounds: 4, toolCalls: 3, ms, completionTokens: 0, longestRound: 300, elisions: 0, elidedResults: 0, finalText: '', ...extra }) as CaseRun
   const s = summarize('m', [
     [run('a', true, 1000), run('b', false, 5000, { falseClaim: true }), run('c', true, 3000)],
-    [run('a', true, 2000), run('b', false, 5000), run('c', false, 4000)],
+    [run('a', true, 2000), run('b', false, 5000, { longestRound: 12_500 }), run('c', false, 4000)],
     [run('a', true, 3000), run('b', false, 5000), run('c', true, 5000)]
   ])
   assert.deepEqual(s.solvedPerPass, [2, 1, 2])
@@ -381,6 +386,8 @@ test('summarize names stable and flaky cases and takes the median over passes', 
   assert.equal(s.falseClaims, 1)
   assert.equal(s.msPerSolvedMedian, 3000)
   assert.equal(s.excluded, 0)
+  assert.deepEqual(s.longestRound, { tokens: 12_500, case: 'b' })
+  assert.match(formatSummary([s]), /longest round: 12,500 completion tokens \(b\); the cap is 16,384/)
 })
 
 test('a run the server ended is excluded and named, never counted as failed', () => {
@@ -388,16 +395,20 @@ test('a run the server ended is excluded and named, never counted as failed', ()
     'LM Studio went silent for 90 s and the request was cut.',
     'LM Studio refused the request: Model unloaded by user or API request.',
     'LM Studio returned HTTP 400: Failed to load model "x".',
-    'fetch failed'
+    'fetch failed',
+    // Node's fetch when the server dies mid-stream (the first 9B baseline).
+    'terminated',
+    'other side closed'
   ]) {
     assert.equal(serverFailure('error', detail), detail)
   }
+  assert.equal(serverFailure('error', 'the test run was terminated after 60 s'), null, 'only the bare fetch error, not any sentence with the word')
   assert.equal(serverFailure('error', 'eval host: an edit asked for review in a mode that should not ask'), null, 'a harness fault is a failure, not an outage')
   assert.equal(serverFailure('done', 'LM Studio …'), null)
   assert.equal(serverFailure('paused', undefined), null)
 
   const run = (c: string, solved: boolean, excluded?: string): CaseRun =>
-    ({ case: c, kind: 'fix', model: 'm', end: excluded ? 'error' : 'done', ...(excluded ? { excluded } : {}), solved, claimedPass: false, falseClaim: false, lastTest: null, changed: [], collateral: [], undo: 'n/a', undoLeft: [], declined: [], mentionsMissing: [], rounds: 1, toolCalls: 0, ms: 1000, completionTokens: 0, elisions: 0, elidedResults: 0, finalText: '' }) as CaseRun
+    ({ case: c, kind: 'fix', model: 'm', end: excluded ? 'error' : 'done', ...(excluded ? { excluded } : {}), solved, claimedPass: false, falseClaim: false, lastTest: null, changed: [], collateral: [], undo: 'n/a', undoLeft: [], declined: [], mentionsMissing: [], rounds: 1, toolCalls: 0, ms: 1000, completionTokens: 0, longestRound: excluded ? 9_000 : 100, elisions: 0, elidedResults: 0, finalText: '' }) as CaseRun
   const s = summarize('m', [
     [run('a', true), run('b', false, 'fetch failed')],
     [run('a', true), run('b', true)]
@@ -405,6 +416,7 @@ test('a run the server ended is excluded and named, never counted as failed', ()
   assert.deepEqual(s.solvedPerPass, [1, 2])
   assert.equal(s.excluded, 1)
   assert.equal(s.runs, 3)
+  assert.deepEqual(s.longestRound, { tokens: 100, case: 'a' }, 'an excluded run measured the server, not the agent')
   assert.equal(s.of, 2)
   assert.deepEqual(
     s.cases.map((c) => [c.case, c.solved, c.stability]),
