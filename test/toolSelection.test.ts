@@ -351,3 +351,36 @@ describe('withForcedTools (v1.6)', () => {
     assert.deepEqual(out, [...out].sort((a, b) => idx(a) - idx(b)))
   })
 })
+
+/**
+ * v4.0.1: the replay of the 2026-09-29 session. With the default toolbox the
+ * rank gave its two places to get_current_datetime and reference_lookup, and
+ * a question about the weather went to a model holding no web tool.
+ */
+describe('a live turn reaches the web (v4.0.1)', () => {
+  const { selectTurnTools, withForcedTools, ALWAYS_ON_TOOLS, TURN_TOOL_CAP } = require('../src/renderer/src/lib/toolSelection') as typeof import('../src/renderer/src/lib/toolSelection')
+  const { webToolsForTurn } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const schema = (name: string): ToolSchema => ({ type: 'function', function: { name, description: name, parameters: { type: 'object', properties: {} } } })
+  const available = ['read_file', 'web_search', 'image_search', 'fetch_webpage', 'date_calculator', 'get_current_datetime', 'memory_save', 'memory_search', 'memory_forget', 'reference_lookup'].map(schema)
+  // nomic-embed-text-v1.5 on "can you check the weather for righmond va today".
+  const scores = { date_calculator: 0.585, get_current_datetime: 0.582, reference_lookup: 0.577, web_search: 0.559, image_search: 0.513, fetch_webpage: 0.45, read_file: 0.4, memory_search: 0.5, memory_save: 0.4, memory_forget: 0.4 }
+
+  test('the rank alone leaves both web tools off the wire', () => {
+    const ranked = selectTurnTools(available, scores).map((t) => t.function.name)
+    assert.ok(!ranked.includes('web_search') && !ranked.includes('fetch_webpage'))
+  })
+
+  test('the turn puts them on it, inside the cap, with the always-on tools intact', () => {
+    const text = 'can you check the weather for righmond va today'
+    const out = withForcedTools(available, selectTurnTools(available, scores), webToolsForTurn(text)).map((t) => t.function.name)
+    assert.ok(out.includes('web_search') && out.includes('fetch_webpage'))
+    assert.ok(out.length <= TURN_TOOL_CAP)
+    assert.ok(ALWAYS_ON_TOOLS.filter((n) => available.some((t) => t.function.name === n)).every((n) => out.includes(n)))
+  })
+
+  test('a slot without the web tools is not given them', () => {
+    const local = available.filter((t) => !['web_search', 'fetch_webpage'].includes(t.function.name))
+    const out = withForcedTools(local, selectTurnTools(local, scores), webToolsForTurn('what is the weather today')).map((t) => t.function.name)
+    assert.ok(!out.includes('web_search') && !out.includes('fetch_webpage'))
+  })
+})

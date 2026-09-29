@@ -191,6 +191,34 @@ const FIRST_AID_DOMAINS =
 const PLACE_DOMAINS =
   /\b(?:store (?:locations?|hours)|locations? (?:in|near|of|for)|street addresses?|addresses (?:in|of|for)|still (?:open|in business|operating|trading)|permanently closed|closed (?:down|permanently)|out of business|went bankrupt|storefronts?|branches (?:in|near)|plan (?:a|my|the) route|itinerar(?:y|ies)|driving directions|directions (?:to|from))\b/i
 
+/**
+ * v4.0.1: the live world — what is true today and was not when the model was
+ * trained. Weather, a futures quote, the next game on a schedule.
+ *
+ * A measured session (2026-09-29, a 9B on DuckDuckGo) asked for "the weather
+ * for righmond va today", "how are s&p futures looking for today" and "when is
+ * the next miami heat basketball game?". None read as factual: the domain list
+ * above was built from albums and tickers, and the proper-noun rule below
+ * needs a capital letter that nobody types in a chat box. So no search ran,
+ * and the reply to each was a list of websites to go and look at.
+ *
+ * Every alternative names a subject, not a mood — "futures" alone is also a
+ * Rust type and "my next game" is someone's side project, so the first needs
+ * its market and the second refuses a possessive.
+ */
+const LIVE_DOMAINS =
+  /\b(?:weather|forecast (?:for )?(?:today|tonight|tomorrow|(?:this|the) (?:week|weekend))|(?:rain|snow|storm)(?:ing|s)? (?:today|tonight|tomorrow|this (?:week|weekend))|going to (?:rain|snow)|(?:s ?& ?p|nasdaq|dow|index|stock|equity|oil|crude|gold|treasury|e-?mini) futures|futures (?:markets?|prices?|contracts?|trading|today)|pre-?market|after[- ]hours trading|markets? today|(?<!\b(?:my|our|your|his|her|their) )(?:next|last|tonight'?s|today'?s|tomorrow'?s|yesterday'?s|this (?:week|weekend)'?s?) (?:[\w&'.-]+ ){0,4}(?:game|match|race|fight|fixture|kickoff|tip-?off)s?|who (?:won|is winning|'s winning)|final score|box score)\b/i
+
+/**
+ * v4.0.1: the user asked for the web by name — "can you try with duck duck go
+ * now?", "look it up", a URL. Not a fact to check, so it never triggers a
+ * search of its own (the words are about the search, not its subject); it
+ * decides only that the web tools are on the wire this turn. See
+ * `webToolsForTurn`.
+ */
+const ASKS_FOR_WEB =
+  /\b(?:(?:search|check|browse|use|try) (?:on |with |through |via )?(?:the )?(?:web|internet|net)\b|(?:web|internet|online) search|search (?:online|for)|look(?:ing)? (?:it|this|that|them|these|those) up|look up|google (?:it|this|that|for)|duck ?duck ?go|brave search|searxng|go online|internet|(?:the|this|that|their|its) (?:web ?site|web ?page|url|link)|https?:\/\/\S+|www\.\S+)/i
+
 /** Structural, electrical and gas work — where the failure mode is a collapse. */
 const BUILDING_DOMAINS =
   /\b(load[- ]bearing|joists?|rafters?|footings?|psf|span tables?|building code|permits?|structural|amperage|breakers?|gas line|load capacity|dead load|live load)\b/i
@@ -302,11 +330,47 @@ export function looksFactual(text: string): boolean {
   if (CREATIVE_INTENT.test(t)) return false
   if (FACT_DOMAINS.test(t)) return true
   if (HEALTH_DOMAINS.test(t) || BUILDING_DOMAINS.test(t) || PLACE_DOMAINS.test(t)) return true
+  if (LIVE_DOMAINS.test(t)) return true
   const asksQuestion = t.includes('?') || QUESTION_LEAD.test(t)
   if (asksQuestion && PROPER_NOUN.test(t)) return true
   if (ASKS_ABOUT_ENTITY.test(t) && PROPER_NOUN.test(t)) return true
   return false
 }
+
+/**
+ * v4.0.1: the web tools this turn must carry, whatever the embedding rank says.
+ *
+ * The per-turn subset (lib/toolSelection.ts) sends the always-on tools plus
+ * the top matches, and with four always-on and a cap of six that is two
+ * matches. Replayed against nomic-embed-text-v1.5 and the default 20-tool
+ * slot, "can you check the weather for righmond va today" ranked
+ * date_calculator, get_current_datetime and reference_lookup above web_search
+ * — "today" reads as a question about the date — so the model was sent no web
+ * tool at all. Its reasoning for that turn says "I need to use web_search"
+ * five times; it called reference_lookup five times, because that is what it
+ * held, and told the user the internet was not working.
+ *
+ * Such a turn carries both halves: the search, and the fetch that reads what
+ * the search found — a results page of portal links is not an answer, and in
+ * the same session the model found Yahoo's quote page and could only say "I
+ * cannot access the live page".
+ *
+ * Forced tools take ranked picks' places (`withForcedTools`), so the rule is
+ * as narrow as the failure. The live world and an ask for the web by name
+ * always carry them: no installed pack knows today's weather. Any other
+ * factual turn carries them unless the reference library covers its domain —
+ * there the ranking's reference_lookup is the better half of the pair and
+ * keeps its place. Empty for everything else, so the ranking still decides.
+ */
+export function webToolsForTurn(text: string | undefined): readonly string[] {
+  const t = text?.trim() ?? ''
+  if (t.length < 8 || CREATIVE_INTENT.test(t)) return []
+  if (LIVE_DOMAINS.test(t) || ASKS_FOR_WEB.test(t)) return WEB_TOOLS
+  if (looksFactual(t) && !looksReference(t)) return WEB_TOOLS
+  return []
+}
+
+const WEB_TOOLS: readonly string[] = ['web_search', 'fetch_webpage']
 
 /**
  * Does this turn make claims the app should have checked before it spoke?

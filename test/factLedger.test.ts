@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { load, resetState } from './harness'
-import { claimKey, contentWords, expiresAtFor, FRESHNESS_MS, LEDGER_PACK_ID } from '../src/shared/factLedger'
+import { claimKey, contentWords, expiresAtFor, FRESHNESS_MS, isClockClaim, isoDateOf, LEDGER_PACK_ID } from '../src/shared/factLedger'
 import { extractLedgerEntries, sentencesOf, sourcesIn } from '../src/renderer/src/lib/factLedger'
 import { factLedgerProvider, LEDGER_EXPIRED_LEAD, LEDGER_FRESH_LEAD } from '../src/renderer/src/lib/contextProviders/factLedger'
 import { autoSearchProvider } from '../src/renderer/src/lib/contextProviders/autoSearch'
@@ -124,6 +124,72 @@ describe('fact ledger — the capture', () => {
   })
 })
 
+/**
+ * v4.0.1. Measured on 2026-09-29: a reply headed "S&P 500 E-Mini Futures
+ * (ES=F) — September 29, 2026" had its date bound to a prediction-market page
+ * that, being about that day, stated it. The ledger filed today's date as a
+ * verified claim; the next turn's reference_lookup found the entry, and the
+ * capture read the entry back as a source and filed the date again.
+ */
+describe('fact ledger — the clock is not a claim (v4.0.1)', () => {
+  const NOW = new Date(2026, 8, 29, 6, 40).getTime()
+  const market = 'https://markets.example/sp-500-futures-price-on-september-29-2026/'
+  const results = searchRecord([
+    { title: 'S&P 500 futures price on September 29, 2026', url: market, snippet: 'What will the Dec-26 S&P 500 index futures settle at on September 29, 2026?' },
+    { title: 'Tidewater', url: 'https://tidewater.example/', snippet: 'Tidewater opens on 14 March 2027.' }
+  ])
+
+  test('a written date reads as the same day in each of its three shapes', () => {
+    assert.equal(isoDateOf('September 29, 2026'), '2026-09-29')
+    assert.equal(isoDateOf('29 september 2026'), '2026-09-29')
+    assert.equal(isoDateOf('2026-09-29'), '2026-09-29')
+    assert.equal(isoDateOf('Smarch 29, 2026'), null)
+    assert.equal(isoDateOf('$18.50'), null)
+  })
+
+  test('today is the clock; another day, or another class, is a claim', () => {
+    assert.equal(isClockClaim('date', 'september 29, 2026', NOW), true)
+    assert.equal(isClockClaim('date', '14 march 2027', NOW), false)
+    assert.equal(isClockClaim('historical', '2026', NOW), false)
+  })
+
+  test('a reply that states today’s date captures nothing for it, and still captures a real date', () => {
+    const measured = '## S&P 500 E-Mini Futures (ES=F) — September 29, 2026\n\n**Yahoo Finance quote:** **7,744.75**, down **0.03%** (delayed).'
+    assert.deepEqual(extractLedgerEntries(measured, [results], 'can you try with duck duck go now?', NOW), [])
+    const drafts = extractLedgerEntries(`${measured}\n\nTidewater opens on 14 March 2027.`, [results], 'when does Tidewater open?', NOW)
+    assert.deepEqual(drafts.map((d) => d.value), ['14 march 2027'])
+    // The same reply a year on: the date is no longer the clock, and a source states it.
+    const later = extractLedgerEntries(measured, [results], 'what did the futures do?', NOW + 365 * DAY)
+    assert.deepEqual(later.map((d) => d.value), ['september 29, 2026'])
+  })
+
+  test('a span the question itself stated is not something the reply found out', () => {
+    const page = pageRecord('http://127.0.0.1:1/m.html', 'Museum', 'Adult tickets cost $18.50. Tidewater opens on 14 March 2027.')
+    assert.deepEqual(extractLedgerEntries('Yes, an adult ticket costs $18.50.', [page], 'is $18.50 the adult ticket price?', NOW), [])
+    assert.deepEqual(extractLedgerEntries('It opens on 14 March 2027.', [page], 'what opens on 14 March 2027?', NOW), [])
+  })
+
+  test('a ledger entry handed back by reference_lookup is not a source', () => {
+    const lookup: ToolCallRecord = {
+      id: 'r1',
+      name: 'reference_lookup',
+      args: { query: 'q' },
+      status: 'done',
+      result:
+        'Reference passages for "q" from the local library (keyword ranking), most relevant first.\n\n' +
+        '[1] Verified claims › Tidewater opens on 14 March 2027. · 0% in\n' +
+        `    source: ${market}\n` +
+        '    date: checked 2026-09-28\n' +
+        '    checked: 2026-09-28\n' +
+        '    relevance 1\n' +
+        'Tidewater opens on 14 March 2027.\n\n' +
+        `Source: ${market}\nChecked: 2026-09-28\nClaim: date — 14 march 2027\nQuestion: when does Tidewater open?`
+    }
+    assert.deepEqual(sourcesIn([lookup]), [])
+    assert.deepEqual(extractLedgerEntries('Tidewater opens on 14 March 2027.', [lookup], 'and the opening?', NOW), [])
+  })
+})
+
 describe('fact ledger — the store', () => {
   const ledger = load<typeof import('../src/main/ipc/factLedger')>('factLedger')
   const lib = load<typeof import('../src/main/ipc/library')>('library')
@@ -197,6 +263,39 @@ describe('fact ledger — the store', () => {
     await ledger.purgeLedger()
     assert.deepEqual(await ledger.ledgerStats(), { entries: 0, expired: 0 })
     assert.deepEqual(await ledger.lookupLedger('adult ticket'), { ok: true, hits: [] })
+  })
+
+  test('v4.0.1: the clock is refused at the writer, and what 4.0.0 wrote of it is pruned', async () => {
+    const now = 1_700_000_000_000 // 2023-11-14
+    const clock = { ...draft('november 14, 2023', 'Markets — November 14, 2023'), claimClass: 'date' as const, key: claimKey('date', 'duck now try') }
+    assert.deepEqual(await ledger.upsertClaims([clock]), { written: [], refreshed: [], superseded: [] })
+
+    // What 4.0.0 left on disk: written straight to the pack, as it would have.
+    await lib.writeAppPack({
+      id: LEDGER_PACK_ID,
+      name: 'Verified claims',
+      description: 'd',
+      docs: [
+        { id: 'c-clock', title: 'Markets — November 14, 2023', text: 'Markets — November 14, 2023\n\nClaim: date — november 14, 2023\n', source: 'https://example.com/', date: 'checked 2023-11-14', checkedAt: now, expiresAt: now + 730 * DAY, claim: { key: 'date|duck now try', claimClass: 'date', value: 'november 14, 2023' } },
+        { id: 'c-real', title: 'Tidewater opens on 14 March 2027.', text: 'Tidewater opens on 14 March 2027.\n', source: 'https://example.com/', date: 'checked 2023-11-14', checkedAt: now, expiresAt: now + 730 * DAY, claim: { key: 'date|open tidewater', claimClass: 'date', value: '14 march 2027' } }
+      ]
+    })
+    assert.deepEqual((await ledger.lookupLedger('markets november 2023')).hits, [])
+    assert.deepEqual(await ledger.pruneClockClaims(), { removed: 1 })
+    assert.deepEqual(await ledger.ledgerStats(), { entries: 1, expired: 0 })
+    assert.deepEqual(await ledger.pruneClockClaims(), { removed: 0 })
+  })
+
+  test('v4.0.1: a ledger of nothing but the clock is removed whole', async () => {
+    const now = 1_700_000_000_000
+    await lib.writeAppPack({
+      id: LEDGER_PACK_ID,
+      name: 'Verified claims',
+      description: 'd',
+      docs: [{ id: 'c-clock', title: 't', text: 't\n', source: 'https://example.com/', date: 'checked 2023-11-14', checkedAt: now, expiresAt: now + DAY, claim: { key: 'date|x', claimClass: 'date', value: '2023-11-14' } }]
+    })
+    assert.deepEqual(await ledger.pruneClockClaims(), { removed: 1 })
+    assert.deepEqual(await lib.listPacks(), [])
   })
 
   test('a draft without an http source, or with an unknown class, is refused silently', async () => {

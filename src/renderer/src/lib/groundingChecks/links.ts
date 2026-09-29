@@ -8,10 +8,26 @@
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g
 
-/** Trailing punctuation from prose is not part of the URL. */
+/**
+ * Trailing punctuation from prose is not part of the URL.
+ *
+ * v4.0.1: nor is the markdown around it, nor the spelling of a byte. Measured:
+ * a reply wrote `https://finance.yahoo.com/quote/ES=F/**` — a real result,
+ * closing a bold span — and the search had returned it as `/quote/ES%3DF/`.
+ * Both differences are the writer's, neither names another page, and the
+ * reply was flagged for a link it had copied. An escape that does not decode
+ * is left as written, so a malformed URL still only matches itself.
+ */
 function normalizeUrl(url: string): string {
-  return url
-    .replace(/[.,;:!?]+$/, '')
+  const bare = url.replace(/[.,;:!?*_`~]+$/, '').replace(/\/+$/, '').replace(/[.,;:!?*_`~]+$/, '')
+  return bare
+    .replace(/(?:%[0-9a-f]{2})+/gi, (escaped) => {
+      try {
+        return decodeURIComponent(escaped)
+      } catch {
+        return escaped
+      }
+    })
     .replace(/\/+$/, '')
     .toLowerCase()
 }
