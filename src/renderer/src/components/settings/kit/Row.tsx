@@ -14,6 +14,12 @@ export interface RowProps {
   layout?: 'inline' | 'stack'
   /** A second line under the control: a status, a warning, a note. */
   foot?: ReactNode
+  /**
+   * No label and no help drawn — for a row that only holds cards or list
+   * rows whose section already says what they are. The row keeps its id, so
+   * search and deep links still find it.
+   */
+  bare?: boolean
 }
 
 /**
@@ -22,8 +28,16 @@ export interface RowProps {
  * The row carries a `data-row` id so a deep link can scroll to it and the
  * kit check can prove every control lives in one.
  */
-export function Row({ meta, children, layout = 'inline', foot }: RowProps): JSX.Element {
+export function Row({ meta, children, layout = 'inline', foot, bare }: RowProps): JSX.Element {
   const base = useId()
+  if (bare) {
+    return (
+      <div className="kit-row" data-row={meta.id} data-bare>
+        {children}
+        {foot && <div className="mt-1.5">{foot}</div>}
+      </div>
+    )
+  }
   const labelId = `${base}-label`
   const helpId = meta.help ? `${base}-help` : undefined
   const control =

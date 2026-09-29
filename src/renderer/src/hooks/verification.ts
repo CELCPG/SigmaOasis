@@ -148,7 +148,7 @@ export async function runConsultation(
  * cannot go through the manual `secondOpinion` action, which would bail on
  * `store.streaming`.
  *
- * Degrades silently: the master switch (Settings → second opinion) off, or no
+ * Degrades silently: the master switch (Settings → Grounding & checks) off, or no
  * second slot available, means no review — the unverified badge already warns,
  * and a critic-less turn must not ask the answerer to grade itself.
  */
@@ -589,7 +589,7 @@ export async function runDeliberation(
   if (self && settings.grounding.selfReview === false) {
     patchRecord({
       status: 'error',
-      note: 'no second slot is enabled and self-review is off (Settings → Models)'
+      note: 'no second slot is enabled and self-review is off (Settings → Roles)'
     })
     return
   }

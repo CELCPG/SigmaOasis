@@ -61,7 +61,7 @@ export async function sendToAgent(conversationId: string, text: string): Promise
     store.appendMessage(conversationId, {
       id: uid(),
       role: 'assistant',
-      content: '⚠️ No model to run the agent on. Enable a slot and pick a model under Settings → Models.',
+      content: '⚠️ No model to run the agent on. Enable a slot and pick a model under Settings → Roles.',
       createdAt: Date.now()
     })
     save(conversationId)

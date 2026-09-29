@@ -381,7 +381,7 @@ export async function runPlanTurn(
       audit(convo, planEndLine(plan, outcome))
     }
 
-    // 2. Approval gate (Settings → General → Plan mode). Off = auto-approve.
+    // 2. Approval gate (Settings → Appearance & chat › Plan mode). Off = auto-approve.
     if (settings.plan.confirmPlan) {
       const decision = await new Promise<PlanDecision>((resolve) => {
         planApprovals.set(assistantMsg.id, resolve)

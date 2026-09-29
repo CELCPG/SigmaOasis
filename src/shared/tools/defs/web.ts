@@ -7,7 +7,7 @@ export const MAX_PASSAGES = 12
 export const webToolDefs = [
   {
     name: 'web_search',
-    label: 'Web search (provider chosen in Settings → Search)',
+    label: 'Web search (provider chosen in Settings → Search & research)',
     description:
       'Search the public web for facts you cannot verify from context, using the user\'s ' +
       'configured privacy-preserving provider (self-hosted SearXNG, Brave Search, or ' +

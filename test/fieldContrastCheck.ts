@@ -105,7 +105,7 @@ const SEEDED: Record<string, string> = {
   'an MCP server row’s approval': present('select[aria-label$=" approval"]'),
   'an MCP environment row’s masked value': present('input[type="password"][aria-label^="Value of "]'),
   'a model slot’s Code Mode': present('select[aria-label$=" code mode"]'),
-  'the Jobs form’s watched-item picker': `Array.from(document.querySelectorAll('.tab-face label')).some((l) => (l.innerText || '').split('\\n')[0].trim() === 'Watched item' && !!l.querySelector('select'))`
+  'the Jobs form’s watched-item picker': present('.tab-face [data-row="jobs.watchedItem"] select')
 }
 
 // ---------------------------------------------------------------------------
@@ -370,21 +370,26 @@ async function child(theme: Theme): Promise<void> {
   if (!(await waitUntil(present('.tab-face')))) throw new Error('Settings did not open')
   await settle()
 
-  // The rail is whatever sits beside the keyed tab body — read, not listed here.
+  // The rail is read, not listed here: v4.0 marks it `data-settings-rail`
+  // (a header now sits between it and the keyed tab body); earlier builds
+  // put it right beside the body.
   const tabs = await evalIn<string[]>(`(() => {
     const face = document.querySelector('.tab-face')
-    const rail = face && face.previousElementSibling
+    const rail = document.querySelector('[data-settings-rail]') || (face && face.previousElementSibling)
     return rail ? Array.from(rail.querySelectorAll('button')).map((b) => (b.innerText || '').trim()) : []
   })()`)
 
   for (const tab of tabs) {
     await evalIn<boolean>(`(() => {
-      const rail = document.querySelector('.tab-face').previousElementSibling
+      const rail = document.querySelector('[data-settings-rail]') || document.querySelector('.tab-face').previousElementSibling
       const b = Array.from(rail.querySelectorAll('button')).find((x) => (x.innerText || '').trim() === ${JSON.stringify(tab)})
       if (b) b.click()
       return !!b
     })()`)
     await wait(350)
+    // v4.0: the add-a-server and add-a-job forms are folded until wanted; open every fold so their fields are read too.
+    await evalIn<number>(`(() => { document.querySelectorAll('.tab-face [data-kit="fold"][aria-expanded="false"]').forEach((b) => b.click()); return 1 })()`)
+    await wait(300)
     // The self-fetching tabs list their rows after an IPC round trip.
     if (tab === 'Jobs') await waitUntil(SEEDED['a job row’s interval'])
     if (tab === 'MCP') {

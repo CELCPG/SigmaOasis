@@ -273,12 +273,16 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   secondOpinionShell: { source: secondOpinion, re: /className="(my-2 overflow-hidden rounded-2xl border border-violet-400[^"]*)"/ },
   secondOpinionPill: { source: secondOpinion, re: /className="(rounded-full bg-amber-500\/15[^"]*)"/ },
   ranCodeError: { source: ranCode, re: /<pre className="(max-h-72 overflow-auto[^"]*)">\{parsed\.error\}/ },
-  settingsWarning: { source: settings, re: /<p className="(mt-2 rounded-lg bg-amber-500\/10 p-3[^"]*)"/ },
-  settingsTestFailed: {
+  // v4.0: Settings draws every notice and every test result through the kit
+  // (settings/kit/tokens.ts): a warning is Notice's warn surface with the warn
+  // ink, a test result is ActionRow's readout in the danger or ok tone.
+  settingsWarning: {
     source: settings,
-    re: /searchTest\.ok \? 'text-ink-[a-z]+' : '(text-ink-[a-z]+)'/
+    re: /warn: '(bg-amber-500\/10 border-amber-500\/30)'/,
+    wrap: (s) => `rounded-lg border px-3 py-2 text-xs leading-relaxed text-ink-warn ${s}`
   },
-  settingsTestOk: { source: settings, re: /searchTest\.ok \? '(text-ink-[a-z]+)'/ }
+  settingsTestFailed: { source: settings, re: /danger: '(text-ink-[a-z]+)'/, wrap: (s) => `text-xs ${s}` },
+  settingsTestOk: { source: settings, re: /ok: '(text-ink-[a-z]+)'/, wrap: (s) => `text-xs ${s}` }
 }
 
 const classes: Record<string, string> = {}

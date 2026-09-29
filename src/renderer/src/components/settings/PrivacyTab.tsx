@@ -1,21 +1,39 @@
-// Extracted from SettingsModal.tsx (v2.4): the "privacy" tab, as it was. Pure prop-drilling —
-// every piece of state and every handler still lives in the modal and arrives here as a prop,
-// so nothing about ordering, effects or behaviour changed; the modal just stopped being 2,500 lines.
+// Settings → Privacy (v4.0, S4): the promise, the audit as a scorecard whose
+// rows say where their switch is, updates, the proxy with labelled fields,
+// shopping, and the session audit log's switches. What the app has done —
+// the network log, the pages read, the log files — is the Activity tab.
+import { useEffect, useState } from 'react'
+import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats, SecretsStatus } from '../../types'
+import { privacyChecks, type PrivacyCheck } from '../../lib/privacyAudit'
+import type { ApplySettings } from '../../hooks/settingsApply'
+import { defineRows, registerRows } from '../../lib/settingsKit'
+import { ActionRow, Card, Field, Notice, Row, Section, Segmented, Slider, StatusDot, Stepper, Switch, type ActionResult } from './kit'
+import { SettingsLink } from './SettingsLink'
 
-import React, { useEffect, useState } from 'react'
-import type { AppSettings, AuditStatus, Grant, McpServerStatus, MemoryStats, NetworkActivityEntry, ResearchIndexStats, SecretsStatus } from '../../types'
-import { privacyChecks } from '../../lib/privacyAudit'
-import type { PrivacyCheck } from '../../lib/privacyAudit'
+export const ROWS = defineRows('privacy', {
+  audit: { label: 'Privacy audit', help: 'Every setting that changes what leaves this machine or what a model may do, as it stands now. Nothing here contacts anything; each row says where its switch is.', keywords: ['audit', 'widened', 'defaults'] },
+  autoCheck: { label: 'Check for updates automatically', help: 'Contacts GitHub Releases periodically. Off by default — Check now under Appearance & chat always works.', keywords: ['updates', 'github'] },
+  proxyMode: { label: 'Proxy', help: 'Route search, page reads and rendering through a proxy you run. The only control here that hides who is asking rather than what is asked — your provider still sees the query, but no longer your IP address. LM Studio is never proxied.', keywords: ['tor', 'vpn', 'socks5', 'http proxy'] },
+  proxyHost: { label: 'Proxy host', help: 'Tor’s daemon listens on 127.0.0.1; the Tor Browser bundle too.', keywords: ['host'] },
+  proxyPort: { label: 'Proxy port', help: 'Tor’s daemon: 9050. The Tor Browser bundle: 9150.', keywords: ['port', '9050', '9150'] },
+  proxyTest: { label: 'Test the proxy', help: 'The one time the app contacts a third party on its own behalf: it asks api.ipify.org which IP address sites see, because a misconfigured proxy otherwise fails silently by simply not being used.', keywords: ['ipify', 'test'] },
+  requireProxy: { label: 'Require a proxy for shopping fetches', help: 'Refuses rather than going out direct. Big retailers block Tor exits, so this trades success rate for not handing them your IP — deliberately, and in that order.', keywords: ['shopping', 'tor'] },
+  excludeTierX: { label: 'Exclude affiliate listicles and content farms', help: '“Top 10 best…” pages are written to rank, not to inform. The domain list is in src/main/ipc/sourceTiers.ts — a ranking you can read.', keywords: ['shopping', 'listicles'] },
+  maxSellers: { label: 'Sellers checked per comparison', help: 'Each seller is one page fetch. The budget is checked before each fetch and the stop is stated in the result.', keywords: ['shopping', 'sellers'] },
+  auditEnabled: { label: 'Record a session audit log', help: 'An append-only transcript of what was actually said: your inputs, the model’s answers, each tool call — no system prompts or hidden layers. Every line is encrypted with your OS keychain and hash-chained, so an edited or deleted line is detectable on export. Ephemeral chats are never logged. The log starts when you turn it on.', keywords: ['audit log', 'transcript', 'encrypted'] },
+  autoPurgeOnQuit: { label: 'Purge the log when the app quits', help: 'Verification for the current session only; nothing accumulates.', keywords: ['purge', 'quit'] }
+})
+registerRows(ROWS)
 
-const AUDIT_ICONS: Record<PrivacyCheck['state'], string> = { ok: '✅', warn: '⚠️', info: 'ℹ️' }
+const AUDIT_TONE: Record<PrivacyCheck['state'], 'ok' | 'warn' | 'info'> = { ok: 'ok', warn: 'warn', info: 'info' }
 
 /**
  * v2.6: the privacy audit. Every setting that widens what leaves the machine
  * or what a model may do, as a named row with a sentence and the place its
- * switch is. Computed from the draft the tab already holds plus the live
- * status it fetches here; nothing on this list changes a setting.
+ * switch is. Computed from the live settings plus the status it fetches here;
+ * nothing on this list changes a setting.
  */
-function PrivacyAuditSection({ draft, auditInfo }: { draft: AppSettings; auditInfo: AuditStatus | null }): JSX.Element {
+function PrivacyAudit({ settings, auditInfo }: { settings: AppSettings; auditInfo: AuditStatus | null }): JSX.Element {
   const [live, setLive] = useState<{
     mcp: McpServerStatus[] | null
     grants: Grant[] | null
@@ -39,521 +57,131 @@ function PrivacyAuditSection({ draft, auditInfo }: { draft: AppSettings; auditIn
     return () => {
       cancelled = true
     }
-  }, [draft])
-  const checks = privacyChecks({ settings: draft, audit: auditInfo, ...live })
+  }, [settings])
+  const checks = privacyChecks({ settings, audit: auditInfo, ...live })
   const warns = checks.filter((c) => c.state === 'warn').length
   return (
-    <div data-testid="privacy-audit">
-      <div className="text-sm font-medium">
-        Privacy audit{' '}
-        <span className="font-normal text-ink-tertiary">
-          · {warns === 0 ? 'nothing widened beyond the defaults' : `${warns} setting${warns === 1 ? '' : 's'} widened beyond the defaults`}
-        </span>
-      </div>
-      <p className="mt-1 text-xs text-ink-secondary">
-        Every setting that changes what leaves this machine or what a model may do, as it stands now. Nothing here
-        contacts anything; each row says where its switch is.
-      </p>
-      <ul className="mt-2 space-y-1.5">
+    <Card data-testid="privacy-audit" title="Privacy audit" status={warns === 0 ? 'nothing widened beyond the defaults' : `${warns} setting${warns === 1 ? '' : 's'} widened beyond the defaults`}>
+      <ul className="divide-y divide-black/10 dark:divide-white/10">
         {checks.map((c) => (
-          <li key={c.key} className="flex items-start gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-xs">
-            <span className="mt-0.5 leading-none" aria-hidden="true">
-              {AUDIT_ICONS[c.state]}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm">{c.title}</span>
+          <li key={c.key} className="flex items-start gap-3 py-2 text-xs">
+            <StatusDot tone={AUDIT_TONE[c.state]} />
+            <span className="min-w-0 flex-1 -mt-0.5">
+              <span className="block text-sm text-ink-primary">{c.title}</span>
               <span className="block text-ink-secondary">{c.detail}</span>
-              <span className="block text-ink-tertiary">{c.where}</span>
+              <span className="block text-ink-tertiary">{c.target ? <SettingsLink to={c.target}>{c.where}</SettingsLink> : c.where}</span>
             </span>
             <code className="shrink-0 text-[10px] text-ink-tertiary">{c.key}</code>
           </li>
         ))}
       </ul>
-    </div>
+    </Card>
   )
 }
 
 export interface PrivacyTabProps {
-  auditInfo: AuditStatus | null
-  auditNotice: string | null
-  draft: AppSettings
-  netActivity: NetworkActivityEntry[]
-  proxyTest: { ok: boolean; detail: string; } | null
-  proxyTesting: boolean
-  researchStats: ResearchIndexStats | null
-  setAuditInfo: React.Dispatch<React.SetStateAction<AuditStatus | null>>
-  setAuditNotice: React.Dispatch<React.SetStateAction<string | null>>
-  setNetActivity: React.Dispatch<React.SetStateAction<NetworkActivityEntry[]>>
-  setProxyTest: React.Dispatch<React.SetStateAction<{ ok: boolean; detail: string; } | null>>
-  setProxyTesting: React.Dispatch<React.SetStateAction<boolean>>
-  setResearchStats: React.Dispatch<React.SetStateAction<ResearchIndexStats | null>>
-  update: (partial: Partial<AppSettings>) => void
+  settings: AppSettings
+  apply: ApplySettings
+  defaults: AppSettings | null
 }
 
-export function PrivacyTab(props: PrivacyTabProps): JSX.Element {
-  const { auditInfo, auditNotice, draft, netActivity, proxyTest, proxyTesting, researchStats, setAuditInfo, setAuditNotice, setNetActivity, setProxyTest, setProxyTesting, setResearchStats, update } = props
+export function PrivacyTab({ settings, apply, defaults }: PrivacyTabProps): JSX.Element {
+  const [auditInfo, setAuditInfo] = useState<AuditStatus | null>(null)
+  const [proxyTest, setProxyTest] = useState<ActionResult | null>(null)
+  const [testing, setTesting] = useState(false)
+  useEffect(() => {
+    void window.api.auditStatus().then(setAuditInfo)
+  }, [])
+  const proxy = settings.proxy
+  const setProxy = (meta: (typeof ROWS)[keyof typeof ROWS], patch: Partial<AppSettings['proxy']>, shown?: string): void => apply(meta, { proxy: { ...proxy, ...patch } }, shown)
+  const shopping = settings.shopping
+  const setShopping = (meta: (typeof ROWS)[keyof typeof ROWS], patch: Partial<AppSettings['shopping']>): void => apply(meta, { shopping: { ...shopping, ...patch } })
+  const audit = settings.audit
+  const setAudit = (meta: (typeof ROWS)[keyof typeof ROWS], patch: Partial<AppSettings['audit']>): void => apply(meta, { audit: { ...audit, ...patch } })
+
   return (
-    <div className="space-y-5">
-                    <div>
-                      <div className="text-sm font-medium">The privacy promise</div>
-                      <p className="mt-1 text-sm text-ink-secondary">
-                        Sigma Oasis runs your models locally and stores everything on this machine.
-                        The only outbound connections it can make are: your local LM Studio server, the
-                        search provider you chose (only when search tools run), and GitHub — only if
-                        you enable update checks below. Anything else is blocked by the egress
-                        allowlist before it is sent.
-                      </p>
-                    </div>
+    <div className="space-y-8">
+      <Section title="The promise" description="What this app will and will not contact.">
+        <p className="text-sm leading-relaxed text-ink-secondary">
+          Sigma Oasis runs your models locally and stores everything on this machine. The only outbound connections it can make are: your local LM
+          Studio server, the search provider you chose (only when search tools run), and GitHub — only if you enable update checks below. Anything else
+          is blocked by the egress allowlist before it is sent.
+        </p>
+        <Row meta={ROWS.audit} bare>
+          <PrivacyAudit settings={settings} auditInfo={auditInfo} />
+        </Row>
+        <Row meta={ROWS.autoCheck}>
+          <Switch checked={settings.updates.autoCheck} onChange={(autoCheck) => apply(ROWS.autoCheck, { updates: { autoCheck } })} />
+        </Row>
+      </Section>
 
-                    <PrivacyAuditSection draft={draft} auditInfo={auditInfo} />
+      <Section title="Proxy" description={ROWS.proxyMode.help} onReset={defaults ? () => apply({ id: 'privacy.proxyReset', label: 'Proxy' }, { proxy: defaults.proxy }, 'defaults') : undefined}>
+        <Row meta={ROWS.proxyMode} layout="stack">
+          <Segmented
+            variant="cards"
+            value={proxy.mode}
+            onChange={(mode) => setProxy(ROWS.proxyMode, { mode }, mode)}
+            options={[
+              { value: 'none', label: 'No proxy', hint: 'Direct connections.' },
+              { value: 'socks5', label: 'SOCKS5', hint: 'Recommended: Tor, most VPNs. Hostnames resolve at the proxy, so your local resolver never learns which sites you read.' },
+              { value: 'http', label: 'HTTP proxy', hint: 'A plain HTTP proxy.' }
+            ]}
+          />
+        </Row>
+        {proxy.mode !== 'none' && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Row meta={ROWS.proxyHost} layout="stack">
+              <Field value={proxy.host} mono placeholder="127.0.0.1" onCommit={(host) => setProxy(ROWS.proxyHost, { host })} />
+            </Row>
+            <Row meta={ROWS.proxyPort}>
+              <Stepper value={proxy.port} min={1} max={65535} onChange={(port) => setProxy(ROWS.proxyPort, { port })} />
+            </Row>
+          </div>
+        )}
+        <Row meta={ROWS.proxyTest} layout="stack">
+          <ActionRow
+            action="Test proxy"
+            busy={testing ? 'Testing…' : null}
+            result={proxyTest}
+            onAction={() => {
+              setTesting(true)
+              setProxyTest(null)
+              void window.api
+                .testProxy()
+                .then((r) => setProxyTest({ tone: r.ok ? 'ok' : 'danger', text: r.detail }))
+                .finally(() => setTesting(false))
+            }}
+          />
+        </Row>
+      </Section>
 
-                    <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draft.updates.autoCheck}
-                        onChange={(e) => update({ updates: { autoCheck: e.target.checked } })}
-                        className="mt-0.5 h-4 w-4 accent-accent"
-                      />
-                      <span>
-                        Automatically check for updates
-                        <span className="block text-xs text-ink-secondary">
-                          Contacts GitHub Releases periodically. Off by default — the manual
-                          &quot;Check now&quot; button (General tab) always works.
-                        </span>
-                      </span>
-                    </label>
+      <Section
+        title="Shopping"
+        description="Shopping tools contact retailers, who log the visit. Sigma Oasis never logs in, never fills a cart and never checks out — you finish the purchase in your own browser. The watchlist stays on this machine."
+        onReset={defaults ? () => apply({ id: 'privacy.shoppingReset', label: 'Shopping' }, { shopping: defaults.shopping }, 'defaults') : undefined}
+      >
+        <Row meta={ROWS.requireProxy}>
+          <Switch checked={shopping.requireProxy} onChange={(requireProxy) => setShopping(ROWS.requireProxy, { requireProxy })} />
+        </Row>
+        <Row meta={ROWS.excludeTierX}>
+          <Switch checked={shopping.excludeTierX} onChange={(excludeTierX) => setShopping(ROWS.excludeTierX, { excludeTierX })} />
+        </Row>
+        <Row meta={ROWS.maxSellers}>
+          <Slider value={shopping.maxSellers} min={1} max={5} onCommit={(maxSellers) => setShopping(ROWS.maxSellers, { maxSellers })} />
+        </Row>
+      </Section>
 
-
-                    <div className="border-t border-black/10 dark:border-white/10 pt-4">
-                      <div className="text-sm font-medium">Proxy (Tor / VPN)</div>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        Route search, page reads and rendering through a proxy you run. This is the only
-                        control here that hides <em>who is asking</em> rather than what is asked — your
-                        provider still sees the query, but no longer your IP address. Your LM Studio
-                        server is never proxied.
-                      </p>
-
-                      <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-                        <select
-                          value={draft.proxy.mode}
-                          onChange={(e) =>
-                            update({
-                              proxy: {
-                                ...draft.proxy,
-                                mode: e.target.value as AppSettings['proxy']['mode']
-                              }
-                            })
-                          }
-                          className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm"
-                        >
-                          <option value="none">No proxy (direct connection)</option>
-                          <option value="socks5">SOCKS5 — recommended (Tor, most VPNs)</option>
-                          <option value="http">HTTP proxy</option>
-                        </select>
-                        <button
-                          type="button"
-                          disabled={proxyTesting}
-                          onClick={async () => {
-                            setProxyTesting(true)
-                            setProxyTest(null)
-                            // Test the saved settings, so what is verified is what is in force.
-                            await window.api.setSettings(draft)
-                            setProxyTest(await window.api.testProxy())
-                            setProxyTesting(false)
-                          }}
-                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50"
-                        >
-                          {proxyTesting ? 'Testing…' : 'Test proxy'}
-                        </button>
-                      </div>
-
-                      {draft.proxy.mode !== 'none' && (
-                        <div className="mt-2 grid grid-cols-[2fr_1fr] gap-2">
-                          <input
-                            value={draft.proxy.host}
-                            onChange={(e) => update({ proxy: { ...draft.proxy, host: e.target.value } })}
-                            placeholder="127.0.0.1"
-                            spellCheck={false}
-                            className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm font-mono"
-                          />
-                          <input
-                            type="number"
-                            value={draft.proxy.port}
-                            onChange={(e) =>
-                              update({ proxy: { ...draft.proxy, port: Number(e.target.value) } })
-                            }
-                            min={1}
-                            max={65535}
-                            className="rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm font-mono"
-                          />
-                        </div>
-                      )}
-
-                      {draft.proxy.mode === 'socks5' && (
-                        <p className="mt-2 text-xs text-ink-secondary">
-                          With SOCKS5, hostnames are resolved <strong>at the proxy</strong>, so your local
-                          resolver never learns which sites you read. Tor&apos;s daemon listens on port
-                          9050; the Tor Browser bundle uses 9150.
-                        </p>
-                      )}
-                      {proxyTest && (
-                        <p
-                          className={`mt-2 text-xs ${
-                            proxyTest.ok ? 'text-ink-ok' : 'text-ink-danger'
-                          }`}
-                        >
-                          {proxyTest.detail}
-                        </p>
-                      )}
-                      <p className="mt-2 text-xs text-ink-secondary">
-                        &quot;Test proxy&quot; is the one time the app contacts a third party on its own
-                        behalf: it asks <code>api.ipify.org</code> which IP address sites see, because a
-                        misconfigured proxy otherwise fails silently by simply not being used.
-                      </p>
-                    </div>
-
-                    <div className="border-t border-black/10 dark:border-white/10 pt-4">
-                      <div className="text-sm font-medium">Shopping</div>
-                      <p className="mt-1 mb-3 text-xs text-ink-secondary">
-                        Shopping tools contact retailers, who log the visit. Sigma Oasis never logs in,
-                        never fills a cart and never checks out — you finish the purchase in your own
-                        browser. The watchlist stays on this machine.
-                      </p>
-                      <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.shopping.requireProxy}
-                          onChange={(e) =>
-                            update({ shopping: { ...draft.shopping, requireProxy: e.target.checked } })
-                          }
-                          className="mt-0.5 h-4 w-4 accent-accent"
-                        />
-                        <span>
-                          Require a proxy for shopping fetches
-                          <span className="block text-xs text-ink-secondary">
-                            Refuses rather than going out direct. Big retailers block Tor exits, so this
-                            trades success rate for not handing them your IP — deliberately, and in that
-                            order.
-                          </span>
-                        </span>
-                      </label>
-                      <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.shopping.excludeTierX}
-                          onChange={(e) =>
-                            update({ shopping: { ...draft.shopping, excludeTierX: e.target.checked } })
-                          }
-                          className="mt-0.5 h-4 w-4 accent-accent"
-                        />
-                        <span>
-                          Exclude affiliate listicles and content farms
-                          <span className="block text-xs text-ink-secondary">
-                            &quot;Top 10 best…&quot; pages are written to rank, not to inform. The domain
-                            list is in <code>src/main/ipc/sourceTiers.ts</code> — a ranking you can read.
-                          </span>
-                        </span>
-                      </label>
-                      <div className="mt-3">
-                        <label className="mb-1 block text-xs text-ink-secondary">
-                          Sellers checked per comparison: {draft.shopping.maxSellers}
-                        </label>
-                        <input
-                          type="range"
-                          min={1}
-                          max={5}
-                          value={draft.shopping.maxSellers}
-                          onChange={(e) =>
-                            update({
-                              shopping: { ...draft.shopping, maxSellers: Number(e.target.value) }
-                            })
-                          }
-                          className="w-full accent-accent"
-                        />
-                        <p className="text-xs text-ink-secondary">
-                          Each seller is one page fetch. The budget is checked before each fetch and the
-                          stop is stated in the result.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="border-t border-black/10 dark:border-white/10 pt-4">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium">Pages read this session</div>
-                        <button
-                          type="button"
-                          onClick={() => void window.api.researchIndexStats().then(setResearchStats)}
-                          className="ml-auto rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-                        >
-                          Refresh
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void window.api
-                              .clearResearchIndex()
-                              .then(() => window.api.researchIndexStats())
-                              .then(setResearchStats)
-                          }
-                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-ink-danger hover:bg-black/5 dark:hover:bg-white/10"
-                        >
-                          Forget
-                        </button>
-                      </div>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        When a model reads a web page, the text is held in memory and split into
-                        passages so only the relevant parts are shown to it. This is{' '}
-                        <strong>never written to disk</strong> and is discarded when you quit — it is
-                        not part of your long-term memory unless you explicitly save it. Keeping it
-                        means re-reading a page you already fetched costs no new network request.
-                      </p>
-                      {researchStats === null ||
-                      (researchStats.pages === 0 &&
-                        researchStats.searchQueries === 0 &&
-                        (researchStats.pinnedDocs ?? 0) === 0) ? (
-                        <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
-                          Nothing held in memory.
-                        </p>
-                      ) : (
-                        <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
-                          <strong className="text-ink-primary">
-                            {researchStats.pages}
-                          </strong>{' '}
-                          page{researchStats.pages === 1 ? '' : 's'} ·{' '}
-                          <strong className="text-ink-primary">
-                            {researchStats.chunks}
-                          </strong>{' '}
-                          passages ({researchStats.embeddedChunks} embedded) ·{' '}
-                          {Math.round(researchStats.chars / 1024)} KB of text ·{' '}
-                          <strong className="text-ink-primary">
-                            {researchStats.searchQueries}
-                          </strong>{' '}
-                          cached search{researchStats.searchQueries === 1 ? '' : 'es'}
-                          {(researchStats.pinnedDocs ?? 0) > 0 && (
-                            <>
-                              {' '}·{' '}
-                              <strong className="text-ink-primary">
-                                {researchStats.pinnedDocs}
-                              </strong>{' '}
-                              attached document{researchStats.pinnedDocs === 1 ? '' : 's'} (
-                              {Math.round((researchStats.pinnedChars ?? 0) / 1024)} KB)
-                            </>
-                          )}
-                          . In RAM only.
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="border-t border-black/10 dark:border-white/10 pt-4">
-                      <div className="text-sm font-medium">Session audit log</div>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        An append-only transcript of what was actually said: your inputs, the
-                        model&apos;s answers, and each tool call — no system prompts or other hidden
-                        layers. Every line is encrypted with your OS keychain and hash-chained, so an
-                        edited or deleted line is detectable on export. Ephemeral chats are never
-                        logged. Off by default.
-                      </p>
-
-                      {auditInfo && !auditInfo.available && (
-                        <p className="mt-3 rounded-lg bg-amber-500/10 p-3 text-xs text-ink-warn">
-                          Unavailable: your OS keychain is not accessible, and this log is never
-                          written unencrypted.
-                        </p>
-                      )}
-
-                      <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.audit.enabled}
-                          disabled={auditInfo !== null && !auditInfo.available}
-                          onChange={(e) => update({ audit: { ...draft.audit, enabled: e.target.checked } })}
-                          className="mt-0.5 h-4 w-4 accent-accent disabled:opacity-40"
-                        />
-                        <span>
-                          Record a session audit log
-                          <span className="block text-xs text-ink-secondary">
-                            Takes effect after Save. Entries from before enabling are not recovered —
-                            the log starts when you turn it on.
-                          </span>
-                        </span>
-                      </label>
-
-                      {draft.audit.enabled && (
-                        <label className="mt-2 flex cursor-pointer items-start gap-2.5 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={draft.audit.autoPurgeOnQuit}
-                            onChange={(e) =>
-                              update({ audit: { ...draft.audit, autoPurgeOnQuit: e.target.checked } })
-                            }
-                            className="mt-0.5 h-4 w-4 accent-accent"
-                          />
-                          <span>
-                            Purge the log automatically when the app quits
-                            <span className="block text-xs text-ink-secondary">
-                              Verification for the current session only; nothing accumulates.
-                            </span>
-                          </span>
-                        </label>
-                      )}
-
-                      {auditInfo && (
-                        <div className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
-                          {auditInfo.sessions.length === 0 ? (
-                            <span>No audit logs on disk.</span>
-                          ) : (
-                            <span>
-                              <strong className="text-ink-primary">
-                                {auditInfo.sessions.length}
-                              </strong>{' '}
-                              session log{auditInfo.sessions.length === 1 ? '' : 's'} on disk · latest:{' '}
-                              {auditInfo.sessions[0]!.entries} entries,{' '}
-                              {Math.max(1, Math.round(auditInfo.sessions[0]!.sizeBytes / 1024))} KB
-                              {auditInfo.sessions[0]!.sessionId === auditInfo.currentSessionId
-                                ? ' (this session)'
-                                : ''}
-                              . The key is machine-bound, so logs do not survive an OS reinstall.
-                              {' '}Kept to the newest {auditInfo.limits.maxSessions} launches and{' '}
-                              {Math.round(auditInfo.limits.maxBytes / 1048576)} MB, oldest pruned first at each launch
-                              {auditInfo.prunedThisLaunch.sessions > 0
-                                ? ` — this launch pruned ${auditInfo.prunedThisLaunch.sessions} (${Math.max(1, Math.round(auditInfo.prunedThisLaunch.bytes / 1024))} KB)`
-                                : ''}
-                              .
-                            </span>
-                          )}
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              type="button"
-                              disabled={!auditInfo.available || auditInfo.sessions.length === 0}
-                              onClick={() =>
-                                void window.api.auditExport().then((r) => {
-                                  if (r.ok) {
-                                    setAuditNotice(
-                                      `Exported ${r.entries} entries to ${r.path}` +
-                                        (r.chainValid
-                                          ? ' — hash chain verified.'
-                                          : ' — ⚠ hash chain BROKEN: the log was modified.')
-                                    )
-                                  } else if (!r.canceled) {
-                                    setAuditNotice(`Export failed: ${r.error ?? 'unknown error'}`)
-                                  }
-                                })
-                              }
-                              className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
-                              title="Decrypt the latest session log to a file you choose. The export is plaintext — anyone with the file can read it."
-                            >
-                              Export latest (decrypted)
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!auditInfo.available || auditInfo.sessions.length === 0}
-                              onClick={() =>
-                                void window.api.tracesExport().then((r) => {
-                                  if (r.ok) {
-                                    setAuditNotice(
-                                      `Traces: ${r.counts.positive} positive, ${r.counts.rejected} rejected, ` +
-                                        `${r.counts.unlabeled} unlabeled (excluded) — schema ${r.schemaVersion ?? 'n/a'}. ` +
-                                        `Wrote ${r.paths.positive} and siblings.` +
-                                        (r.chainValid
-                                          ? ''
-                                          : ' ⚠ Hash chain BROKEN: the log was modified.')
-                                    )
-                                  } else if (!r.canceled) {
-                                    setAuditNotice(`Trace export failed: ${r.error ?? 'unknown error'}`)
-                                  }
-                                })
-                              }
-                              className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
-                              title="Export the latest session as OpenAI-format fine-tuning traces: positive and rejected JSONL, a manifest, and the tool schemas. Redacted; writes to a location you choose."
-                            >
-                              Export traces (SFT)
-                            </button>
-                            <button
-                              type="button"
-                              disabled={auditInfo.sessions.length === 0}
-                              onClick={() => {
-                                if (!window.confirm('Delete every audit log on disk? This cannot be undone.'))
-                                  return
-                                void window.api.auditPurge().then((r) => {
-                                  setAuditNotice(`Purged ${r.removed} session log${r.removed === 1 ? '' : 's'}.`)
-                                  void window.api.auditStatus().then(setAuditInfo)
-                                })
-                              }}
-                              className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-ink-danger hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
-                            >
-                              Purge all
-                            </button>
-                          </div>
-                          {auditNotice && <p className="mt-2 break-all text-ink-tertiary">{auditNotice}</p>}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="border-t border-black/10 dark:border-white/10 pt-4">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium">Network activity</div>
-                        <button
-                          type="button"
-                          onClick={() => void window.api.getNetworkActivity().then(setNetActivity)}
-                          className="ml-auto rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-                        >
-                          Refresh
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void window.api.clearNetworkActivity().then(() => setNetActivity([]))
-                          }
-                          className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-1 text-xs text-ink-danger hover:bg-black/5 dark:hover:bg-white/10"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        Every request the app makes to the outside, newest first. Only origins are
-                        recorded — never full URLs, so your queries stay private even here.
-                      </p>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        Not listed: the chat stream itself. Replies stream straight from the chat window
-                        to your LM Studio server on this machine ({draft.baseUrl}); that traffic can
-                        only ever go to a loopback address, is never proxied, and does not pass through
-                        this log. Everything that leaves the machine does.
-                      </p>
-                      {netActivity.length === 0 ? (
-                        <p className="mt-3 rounded-lg bg-black/5 dark:bg-white/5 p-3 text-xs text-ink-secondary">
-                          No network activity yet this session. With search disabled, this list should
-                          show nothing but your local LM Studio server.
-                        </p>
-                      ) : (
-                        <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto">
-                          {netActivity.map((a, i) => (
-                            <li
-                              key={i}
-                              className="flex items-center gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-1.5 text-xs"
-                            >
-                              <span
-                                className={`h-2 w-2 shrink-0 rounded-full ${
-                                  a.blocked ? 'bg-red-500' : a.ok ? 'bg-green-500' : 'bg-amber-500'
-                                }`}
-                                title={a.blocked ? 'Blocked by egress policy' : a.ok ? 'OK' : 'Failed'}
-                              />
-                              <span className="shrink-0 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 font-mono">
-                                {a.purpose}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate font-mono" title={a.origin}>
-                                {a.origin}
-                              </span>
-                              <span className="shrink-0 text-ink-tertiary">
-                                {a.blocked ? 'blocked' : (a.status ?? a.error?.slice(0, 30) ?? '—')}
-                              </span>
-                              <span className="shrink-0 text-ink-tertiary">
-                                {new Date(a.at).toLocaleTimeString()}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
+      <Section title="Session audit log" description="A record of what was said, encrypted on this machine. Its files are under Activity.">
+        {auditInfo && !auditInfo.available && <Notice tone="warn">Unavailable: your OS keychain is not accessible, and this log is never written unencrypted.</Notice>}
+        <Row meta={ROWS.auditEnabled}>
+          <Switch checked={audit.enabled} disabled={auditInfo !== null && !auditInfo.available} onChange={(enabled) => setAudit(ROWS.auditEnabled, { enabled })} />
+        </Row>
+        {audit.enabled && (
+          <Row meta={ROWS.autoPurgeOnQuit}>
+            <Switch checked={audit.autoPurgeOnQuit} onChange={(autoPurgeOnQuit) => setAudit(ROWS.autoPurgeOnQuit, { autoPurgeOnQuit })} />
+          </Row>
+        )}
+      </Section>
+    </div>
   )
 }

@@ -108,6 +108,9 @@ describe('the settings index', () => {
     assert.deepEqual(searchRows(all, 'NIGHT').map((r) => r.id), ['appearance.theme'])
     assert.deepEqual(searchRows(all, 'size chat').map((r) => r.id), ['appearance.fontSize'])
     assert.deepEqual(searchRows(all, 'size night'), [])
+    // Word starts, not substrings: "ark" is not in "dark".
+    assert.deepEqual(searchRows(all, 'ark'), [])
+    assert.deepEqual(searchRows(all, 'da').map((r) => r.id), ['appearance.theme'])
   })
 
   test('an empty query matches nothing: the filter is not a listing', () => {

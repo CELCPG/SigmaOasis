@@ -26,7 +26,7 @@ import { renderPage } from './render'
  * Privacy-preserving web search and webpage fetching.
  *
  * Provider abstraction: `web_search` is served by whichever provider the user
- * picked in Settings → Search (self-hosted SearXNG, Brave Search API, or
+ * picked in Settings → Search & research (self-hosted SearXNG, Brave Search API, or
  * DuckDuckGo's HTML endpoint). All providers are reached through the egress
  * allowlist in net.ts, and every request appears in the network activity log.
  *
@@ -370,7 +370,7 @@ async function fetchWithTimeout(
 
 async function searchSearXNG(query: string, maxResults: number): Promise<SearchResult[]> {
   const base = getSettings().search.searxngUrl.trim().replace(/\/+$/, '')
-  if (!base) throw new Error('No SearXNG URL configured — set it under Settings → Search.')
+  if (!base) throw new Error('No SearXNG URL configured — set it under Settings → Search & research.')
   const url = `${base}/search?q=${encodeURIComponent(query)}&format=json`
   const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } }, 'search', 15_000)
   if (!res.ok) {
@@ -396,7 +396,7 @@ async function searchSearXNG(query: string, maxResults: number): Promise<SearchR
 async function searchBrave(query: string, maxResults: number): Promise<SearchResult[]> {
   const apiKey = getBraveApiKey()
   if (!apiKey) {
-    throw new Error('No Brave Search API key set — add one under Settings → Search.')
+    throw new Error('No Brave Search API key set — add one under Settings → Search & research.')
   }
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${maxResults}`
   const res = await fetchWithTimeout(
@@ -506,7 +506,7 @@ function absoluteHttpUrl(url: string): string {
 
 async function searchSearXNGImages(query: string, maxResults: number): Promise<ImageResult[]> {
   const base = getSettings().search.searxngUrl.trim().replace(/\/+$/, '')
-  if (!base) throw new Error('No SearXNG URL configured — set it under Settings → Search.')
+  if (!base) throw new Error('No SearXNG URL configured — set it under Settings → Search & research.')
   const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&categories=images`
   const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } }, 'search', 15_000)
   if (!res.ok) throw new Error(`SearXNG returned HTTP ${res.status}`)
@@ -527,7 +527,7 @@ async function searchSearXNGImages(query: string, maxResults: number): Promise<I
 async function searchBraveImages(query: string, maxResults: number): Promise<ImageResult[]> {
   const apiKey = getBraveApiKey()
   if (!apiKey) {
-    throw new Error('No Brave Search API key set — add one under Settings → Search.')
+    throw new Error('No Brave Search API key set — add one under Settings → Search & research.')
   }
   const url =
     `https://api.search.brave.com/res/v1/images/search?q=${encodeURIComponent(query)}` +
@@ -984,7 +984,7 @@ export async function runWebSearch(
   }
 }
 
-/** Settings → Search "Test connection" button. */
+/** Settings → Search & research "Test connection" button. */
 export async function testSearchProvider(): Promise<{ ok: boolean; detail: string }> {
   const outcome = await runWebSearch('sigma oasis privacy test')
   if (!outcome.ok) return { ok: false, detail: outcome.error ?? 'Unknown error' }

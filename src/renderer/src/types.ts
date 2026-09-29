@@ -117,7 +117,7 @@ export interface UpdateSettings {
   autoCheck: boolean
 }
 
-/** One entry in the main-process network activity log (Settings → Privacy). */
+/** One entry in the main-process network activity log (Settings → Activity). */
 export interface NetworkActivityEntry {
   at: number
   /** Mirrors NetworkPurpose in src/main/ipc/net.ts — keep the two in step. */
@@ -470,7 +470,7 @@ export interface PlanStep {
 
 export interface ChatPlan {
   steps: PlanStep[]
-  /** Execution starts only after the user approves (Settings → General → Plan mode). */
+  /** Execution starts only after the user approves (Settings → Appearance & chat › Plan mode). */
   approved: boolean
   /**
    * Terminal state. Once set the plan is over: no approval controls, and the
@@ -679,7 +679,7 @@ export interface AppSettings {
    * silently drops it, which is what every version before 0.8.2 did.
    */
   contextManagement: 'compact' | 'trim'
-  /** v0.9: a second role reviews replies on request (Settings → Models). */
+  /** v0.9: a second role reviews replies on request (Settings → Roles). */
   secondOpinion: SecondOpinionSettings
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings

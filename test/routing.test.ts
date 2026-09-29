@@ -453,7 +453,7 @@ describe('routingReadiness (v1.12.1)', () => {
     const r = routingReadiness([GENERAL])
     assert.equal(r.specialists.length, 0)
     assert.match(r.note!, /No specialist roles are enabled/)
-    assert.match(r.note!, /Settings → Models/)
+    assert.match(r.note!, /Settings → Roles/)
   })
 
   test('partial coverage names what routes and what does not', () => {

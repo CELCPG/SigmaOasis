@@ -54,6 +54,8 @@ const api = {
   setSettings: (settings: AppSettings): Promise<boolean> =>
     ipcRenderer.invoke('store:setSettings', settings),
   resetSettings: (): Promise<AppSettings> => ipcRenderer.invoke('store:resetSettings'),
+  /** v4.0: the defaults, for a per-section reset. */
+  defaultSettings: (): Promise<AppSettings> => ipcRenderer.invoke('store:defaultSettings'),
 
   // Native dialogs
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory'),
@@ -110,7 +112,7 @@ const api = {
   evalScores: (): Promise<EvalScoreSummary[]> => ipcRenderer.invoke('eval:scores'),
 
   /**
-   * In-app "Run eval" support (Settings → Models): the fixtures plus the full
+   * In-app "Run eval" support (Settings → Roles): the fixtures plus the full
    * unfiltered toolbox, and persistence for each model's result. An empty
    * fixture list means the test tree is unavailable (packaged app).
    */
@@ -344,6 +346,8 @@ const api = {
   // starts, steers, stops and draws them, and is never what keeps one alive.
   agentRun: (req: AgentRunRequest): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('agent:run', req),
   agentStop: (taskId: string): Promise<boolean> => ipcRenderer.invoke('agent:stop', taskId),
+  /** v4.0: the shell the agent's run_command uses on this machine. */
+  agentShell: (): Promise<{ name: string; file: string }> => ipcRenderer.invoke('agent:shell'),
   agentSteer: (taskId: string, steer: { id: string; text: string }): Promise<boolean> =>
     ipcRenderer.invoke('agent:steer', taskId, steer),
   agentList: (): Promise<{ taskId: string; conversationId: string; messageId: string; title: string; startedAt: number }[]> =>

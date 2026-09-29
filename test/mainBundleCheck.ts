@@ -198,12 +198,15 @@ async function child(origin: string): Promise<void> {
     if (!tab) return { opened: false, kindSet: false, pickerOptions: null, emptyNotice: false, detail: 'no Jobs tab in the settings dialog' }
     tab.click()
     await wait(800)
+    // v4.0: the add-a-job form is folded until wanted.
+    dialog.querySelectorAll('[data-kit="fold"][aria-expanded="false"]').forEach((b) => b.click())
+    await wait(400)
     const kind = [...dialog.querySelectorAll('select')].find((s) => s.querySelector('option[value="price"]'))
     if (!kind) return { opened: true, kindSet: false, pickerOptions: null, emptyNotice: false, detail: 'no Kind select offering "price"' }
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(kind, 'price')
     kind.dispatchEvent(new Event('change', { bubbles: true }))
     await wait(400)
-    const label = [...dialog.querySelectorAll('label')].find((l) => l.textContent.includes('Watched item'))
+    const label = dialog.querySelector('[data-row="jobs.watchedItem"]') || [...dialog.querySelectorAll('label')].find((l) => l.textContent.includes('Watched item'))
     if (!label) return { opened: true, kindSet: false, pickerOptions: null, emptyNotice: false, detail: 'no "Watched item" field after choosing price' }
     const picker = label.querySelector('select')
     return {

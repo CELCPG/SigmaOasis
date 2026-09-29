@@ -435,6 +435,22 @@ body {
   animation: tab-face-in 0.18s var(--ease-settle) both;
 }
 
+/* v4.0: a Settings row a deep link landed on, lit once so the eye finds it. */
+@keyframes kit-row-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 212, 170, 0);
+    background: rgba(0, 212, 170, 0.16);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(0, 212, 170, 0);
+    background: transparent;
+  }
+}
+.kit-row-flash {
+  border-radius: 10px;
+  animation: kit-row-flash 1.4s var(--ease-settle) both;
+}
+
 /*
  * Disclosures — a tool call's arguments, a reasoning trace, a plan step. The
  * row is sized in `fr` so it animates to the content's own height without

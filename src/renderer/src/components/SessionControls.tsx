@@ -6,6 +6,7 @@ import { ACCENT } from '../lib/colors'
 import { routingReadiness, sameModelOrchestrationNote } from '../lib/routing'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
 import { PanelSection } from './PanelSection'
+import { SettingsLink } from './settings/SettingsLink'
 
 interface Props {
   conversation: Conversation
@@ -185,7 +186,11 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
               {settings.pipeline
                 .map((id) => settings.models.find((m) => m.id === id)?.roleName)
                 .filter(Boolean)
-                .join(' → ') || 'Empty chain — configure it under Settings → Pipeline'}
+                .join(' → ') || (
+                <>
+                  Empty chain — configure it under <SettingsLink to="models.pipeline" />
+                </>
+              )}
             </p>
           )}
 
@@ -301,7 +306,7 @@ function MemoryScope({
   if (availableSources.length === 0) {
     return (
       <p className="px-1 text-[11px] text-ink-tertiary">
-        No sources yet — add documents under Settings → Memory.
+        No sources yet — add documents under <SettingsLink to="memory.knowledge" />.
       </p>
     )
   }

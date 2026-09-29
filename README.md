@@ -18,7 +18,17 @@ telemetry.
 
 ---
 
-## 🆕 3.0 — the calm harness
+## 🆕 4.0 — Settings to the app's standard
+
+| Tools, by domain | Roles, one fold per slot |
+| --- | --- |
+| ![Settings → Tools: the tool table's domains as cards, a switch per group and per tool](docs/screenshots/settings-tools-dark.png) | ![Settings → Roles: each slot folded to one line, the pipeline order below](docs/screenshots/settings-models-light.png) |
+
+Sixteen tabs under six headers, a search that finds any setting, controls that apply as you change
+them with Undo at the foot, two clicks for anything destructive, and links from the rest of the app
+that land on the setting they name. `docs/settings.md` is the whole account.
+
+## 3.0 — the calm harness
 
 | VIBE | The agent |
 | --- | --- |
@@ -62,15 +72,15 @@ it was measured: [`RELEASE-NOTES-v3.0.0.md`](RELEASE-NOTES-v3.0.0.md).
 - **File, image & PDF attachments.** Drag & drop or use the 📎 button. Images are sent to vision-capable models (multimodal `image_url` parts); text files and **PDFs** are extracted and inlined into context; a document longer than 20 K characters keeps its opening inline and is indexed in RAM, and every question retrieves the passages of it most relevant to that question (shown under the reply as "From the attached document(s)") — nothing is written to disk, and nothing leaves the machine. An encrypted PDF, a scan with no text layer, or an encoding that cannot be decoded is refused by name rather than handed to a model as garbled text.
 - **Per-role sampling, with an honest performance readout.** Each slot has its own temperature, top-p, max tokens and seed; set temperature to 0 with a fixed seed and a role becomes reproducible. Under each reply: tokens/sec and time to first token. Token counts come from LM Studio's own accounting; when a server does not report them, only timing is shown rather than an estimate dressed up as a measurement.
 - **Knows what your models can do.** Model discovery reads LM Studio's REST API, so the picker shows quantization, context length and whether a model is currently loaded, and the composer warns before you send an image to a model LM Studio reports as text-only.
-- **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter beneath the composer shows how full the window is. Switch to plain trimming under Settings → General.
+- **Conversations that don't forget their beginning.** History is budgeted against the context window the model is actually loaded with, not a fixed character count. When a conversation outgrows it, the overflow is **summarized and carried forward** rather than silently deleted, and a context meter beneath the composer shows how full the window is. Switch to plain trimming under Settings → Appearance & chat.
 - **Voice chat, fully local.** 🔊 Any reply can be read aloud with your OS's on-device voices, and an optional **voice mode** auto-reads replies. Push-to-talk 🎙️ records your voice and transcribes it **locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)** plus a ggml model: `brew install whisper-cpp` on macOS/Linux, or `whisper-cli.exe` from the whisper.cpp releases on Windows. Both are auto-detected; override the paths under Settings → Voice. No audio ever leaves your machine.
 - **Long-term local memory (RAG).** A built-in vector store embedded via LM Studio's `/v1/embeddings`. Relevant memories are **automatically recalled into every conversation**; models can save/search/forget memories with dedicated tools; notes are auto-indexed; and you can add documents under **Settings → Memory**. Everything stays on disk as local JSON. Vectors are tied to the model that produced them, so if you switch embedding models, **Settings → Memory** flags the sources that need re-indexing rather than returning meaningless matches. New in 0.9: recall is **visible** (each reply shows which memory chunks it used) and **scoped** (a conversation can restrict which sources it recalls from). New in 2.6: every memory carries an **origin** the app writes and a model cannot — added by you, indexed by the app, saved by a model, or saved by a model *after it read web or server content*. That last kind is never recalled into a conversation on its own: a page that says "remember that the password is…" produces a labelled chunk you can see and forget under **Settings → Memory**, not a standing instruction. A model also cannot overwrite a memory you added by saving under its title, and cannot re-save text that is already stored.
-- **A fact ledger (2.6).** What a turn verified is kept: a price, a measurement, an address, a contact, a URL or a date the reply stated **and a retrieved source states too** is written to a library pack the app maintains, with the source and the date it was checked. The next factual ask consults the ledger before the app-run search: a fresh entry is handed to the model with its date and the search is skipped; an expired one — prices expire in a day, addresses in months, a founding year never — is re-checked, and a changed value is superseded with a line under the reply saying *was X, now Y*. Nothing but the app writes it; ephemeral chats write nothing. Settings → Library lists it; the switch is beside the other grounding checks under Settings → Models. See `docs/ledger.md`.
+- **A fact ledger (2.6).** What a turn verified is kept: a price, a measurement, an address, a contact, a URL or a date the reply stated **and a retrieved source states too** is written to a library pack the app maintains, with the source and the date it was checked. The next factual ask consults the ledger before the app-run search: a fresh entry is handed to the model with its date and the search is skipped; an expired one — prices expire in a day, addresses in months, a founding year never — is re-checked, and a changed value is superseded with a line under the reply saying *was X, now Y*. Nothing but the app writes it; ephemeral chats write nothing. Settings → Library lists it; the switch is under Settings → Grounding & checks. See `docs/ledger.md`.
 - **Mid-turn steering (2.7).** Type while a turn runs and press *Steer* (or Enter): the message goes into the conversation at once, ahead of the reply being written, and is handed to the model at its next round — after the tool results it was reading, before it is asked again — without stopping the work it has done. The bubble says where it landed (*steered in mid-turn, before round 3*); the audit log and the trace export record it there. A steer the turn ends before delivering becomes the next turn on its own; nothing you typed vanishes.
 - **Offline Wikipedia and WikiMed (2.8).** *Add ZIM file…* under Settings → Library registers a Kiwix ZIM file — offline Wikipedia, WikiMed, and the rest of the Kiwix catalogue — as a pack, where it is: nothing is copied, nothing is embedded. A lookup searches the file's own title index for the words of the question, opens only the articles it finds, chunks them by section and ranks them beside the library's other passages; the citation names the file and the article. Reads zstd-compressed ZIMs (every Kiwix file since 2020) with Node's own zlib; no network. See `docs/library-pack-format.md`.
 - **Skills (2.7).** A folder you install under Settings → Skills: a method the model is handed when one of the skill's trigger phrases is in your message — in place of the built-in playbook for that turn, disclosed as *🧩 Skill: name* — and, optionally, a library pack, an MCP server (saved switched off, same confirmation and approval modes as one you added by hand) and Python helper files the sandbox can import. Installed from a folder only, through a confirmation that lists everything the folder carries; no registry, no URL install, no update channel. `docs/skill-format.md` is the format.
-- **Persona and rules (2.7).** A slot's system prompt is its persona — how it sounds. *Standing rules* under Settings → Models are how it operates: appended after the persona on every turn, before a project's instructions, and disclosed under the reply (*📐 Standing rules applied*). Reviewers and critics see the persona only, so a rule about how to answer never leaks into how a reply is judged.
-- **Code Mode (2.7, per slot, default off).** A slot set to *code* or *both* under Settings → Models gets `run_code`: a Python program in the sandbox that calls the app's other tools as coroutines through a generated `tools` module — search, then read the best page, then compute over what it says, in one program. Every call the program makes is a real tool call with the slot's allowlist, the turn's budget and an audit line, filed under the program's block. The sandbox gains no network of its own. Measured in `docs/evals.md`; the default follows the numbers.
+- **Persona and rules (2.7).** A slot's system prompt is its persona — how it sounds. *Standing rules* under Settings → Roles are how it operates: appended after the persona on every turn, before a project's instructions, and disclosed under the reply (*📐 Standing rules applied*). Reviewers and critics see the persona only, so a rule about how to answer never leaks into how a reply is judged.
+- **Code Mode (2.7, per slot, default off).** A slot set to *code* or *both* under Settings → Roles gets `run_code`: a Python program in the sandbox that calls the app's other tools as coroutines through a generated `tools` module — search, then read the best page, then compute over what it says, in one program. Every call the program makes is a real tool call with the slot's allowlist, the turn's budget and an audit line, filed under the program's block. The sandbox gains no network of its own. Measured in `docs/evals.md`; the default follows the numbers.
 - **Standing questions (2.6).** Settings → Jobs re-runs something you already ran once — a research question, a watched price, the verified claims past their freshness, the tracked pack folders — hourly, daily or weekly, **while the app is open and only then**, and delivers each result as a message in a 📬 conversation of its own. A job never invents a request and never runs a tool that confirms; every run is in the audit log and every request in the activity log; ten failures in a row switch it off with the reason on its row. See `docs/jobs.md`.
 - **Offline reference library — the Almanac (1.5).** Install curated **reference packs** (first aid, health, emergency preparedness, food safety, personal finance & tax, home safety, US civic basics — public-domain / OGL sources, 105 documents in `packs/`) or turn a folder of your own manuals and notes into a pack — **tracked** since 1.7: the app notices when the folder changes and updates the pack in place, keeping embeddings for unchanged documents. Passages are retrieved by relevance (keyword + semantic, section-aware since 1.7) with a citation — *pack › document › section*, plus source, license and date — and the app consults the library **before the model answers** first-aid, health, finance, legal, home-repair and food questions, and any factual question while offline. Shown under the reply as **📖 From the library**. Entirely local: nothing about it uses the network.
 - **The Workbench (1.6).** A **Python runtime the model computes with instead of guessing** — sandboxed by construction (CPython in WebAssembly inside a fully sandboxed window: no network, not even loopback; a virtual filesystem; fresh state per run; runaway code killed at its budget). Standard library plus **numpy, pandas and matplotlib**, bundled offline. Attach a CSV/TSV/JSON/XLSX and the app **profiles it mechanically before the model answers** (`analyze_file`: types, nulls, stats, head — computed, not guessed); the file sits at `/work/<name>` for `run_python`; a saved matplotlib figure renders in the chat. The code that ran is shown open by default (**⚡ Ran Python**) with its output — the computation is the evidence.
@@ -78,7 +88,7 @@ it was measured: [`RELEASE-NOTES-v3.0.0.md`](RELEASE-NOTES-v3.0.0.md).
 - **Workbench verification (1.6).** The sandbox checks answers, not just questions: figures a reply states with nothing behind them are **recomputed in Python** and judged against that output; **self-contained Python in a reply is run** before you trust it, and a syntax error, undefined name or failed assertion goes back for one gated revision, kept only if the revised code runs. Disclosed under the reply (🧮 / 🧪); measured live catching a 9B model's wrong out-the-door total and correcting it to the exact figure.
 - **Playbooks (1.5).** One short numbered method per turn for the kind of question — first aid, health, structural/electrical, preparedness, food safety, home repair, finance & tax, legal, data analysis, code, comparison, plans — so a small model acts like it has procedure it does not have. Disclosed under the reply (**📋 Method: …**); off switch on the Models tab.
 - **Think harder (1.5.1).** 🧠 in the composer, or under any reply: the reply becomes a draft, a *different role* lists its concrete problems (arithmetic, missing steps, unsupported claims), and the answerer revises once. Disclosed as **🧠 Deliberated — reviewed by …, revised**, with the review and draft on demand; with one role, a labelled self-review (switchable). Never a confidence score.
-- **Model profiles (1.5.1).** Settings → Models states what the app knows about each model — family, size, reasoning handling, sampling recipe, tool-calling reliability (measured by the eval when run, otherwise a stated prior).
+- **Model profiles (1.5.1).** Settings → Roles states what the app knows about each model — family, size, reasoning handling, sampling recipe, tool-calling reliability (measured by the eval when run, otherwise a stated prior).
 - **Second opinions (0.9).** A "🔍 2nd opinion" action under any reply has a **different role** review it and name the factual claims it could not verify, plus the check that would settle each. Never a confidence score — a model grading its own answer says "yes" nearly always.
 - **Tool grounding (1.3).** After every reply the app checks, mechanically, whether the money figures and links in it actually came from the tools that ran. A payment the calculator did not return, a price on a shopping turn with no price check, a product URL in no search result — each gets a warning under the answer naming what was checked against what. No model call and no network: it is number and string comparison, so it holds even when the prompt telling the model not to invent things does not. Prompts are how you ask; this is how you know.
 - **Plan mode (0.9).** The 📋 toggle in the composer turns a task into a visible step-by-step plan: decomposed by the model, shown for your **approval**, executed step by step with live progress, then synthesized into a final answer. A failed step is marked failed and disclosed, never silently retried.
@@ -185,7 +195,7 @@ Open **Settings** (gear icon, bottom-left) → **Models**. For each of the 3 slo
    answer, which is what you want for a Coder slot and not what you want for a brainstorming one.
    Max tokens `-1` leaves the reply length to LM Studio.
 
-Under **Settings → Connection** you can change the LM Studio base URL and test the connection.
+Under **Settings → LM Studio** you can change the LM Studio base URL and test the connection.
 
 > The capability details come from LM Studio's own REST API. On an older LM Studio without it, the
 > dropdown falls back to plain model ids and the app behaves as it did before; it does not guess.
@@ -209,7 +219,7 @@ The message is routed to that model regardless of the current mode. The reply sh
 
 ## 🔗 Using Collaborative Pipeline mode
 
-1. In **Settings → Pipeline**, tick the models you want to participate and reorder them with the ◀ ▶ buttons.
+1. In **Settings → Roles › Pipeline**, tick the models you want to participate and reorder them with the ◀ ▶ buttons.
 2. In a conversation, switch the top-bar toggle from **Independent** to **Collaborative**.
 3. Send a message. It goes to the **first** model; that model's output is forwarded as context to the **second**, and so on. Each model posts its own reply with its role badge, so you can watch the chain build up.
 
@@ -230,7 +240,7 @@ model. Each call appears as a collapsible **"Tool Used: …"** block showing the
 | `write_file` | Write/overwrite a local file. **Off by default**; confirms each write when no working directory is set. The confirmation offers *Allow once* or *Always allow* (2.6): the second mints a standing grant for **that exact path**, listed and revocable under Settings → Tools. |
 | `list_directory` | List entries in a directory. |
 | `run_terminal_command` | Run a shell command. **Off by default**; shows a confirmation dialog before every run, with destructive patterns (e.g. `rm -rf`, `dd`, `curl \| sh`) flagged as dangerous. *Always allow* (2.6) mints a standing grant bound to **that exact command in that exact working directory** — one byte different, or another directory, asks again. Grants are listed with use counts and revoked under Settings → Tools; a run under a grant says so in its output. |
-| `web_search` | Web search via your chosen privacy-preserving provider: self-hosted **SearXNG**, **Brave Search API**, or **DuckDuckGo** (Settings → Search). Queries are sanitized (emails, tokens, paths, etc. redacted) before they leave the machine. |
+| `web_search` | Web search via your chosen privacy-preserving provider: self-hosted **SearXNG**, **Brave Search API**, or **DuckDuckGo** (Settings → Search & research). Queries are sanitized (emails, tokens, paths, etc. redacted) before they leave the machine. |
 | `image_search` | Find pictures and show them as thumbnails in the chat, each linked to its source page. Same provider and same query sanitization as `web_search`. Thumbnails are fetched **by the main process** — through the SSRF guard, your proxy and the activity log, with no cookies, referrer or browser fingerprint — then downscaled and inlined as `data:` URLs, so the chat window itself makes no network request. Capped at 6 images per search; those hosts still see your IP unless a proxy is on, and the confirmation dialog says so. |
 | `fetch_webpage` | Fetch and read a public web page or **PDF** (HTTPS only, scripts/ads/site chrome stripped). Private/internal addresses are refused (SSRF guard). Pass a `query` and the page is split into passages and **ranked**, so the model gets the parts that answer the query instead of the first few thousand characters. Outbound links are returned so a citation can be followed directly. Re-reading a page already fetched makes no new network request. |
 | `deep_research` | Research a question across many sources in **one call**: plans sub-questions, searches, reads and ranks the best pages, checks what is still unanswered, and returns a brief with numbered citations. See below. |
@@ -311,7 +321,7 @@ Two changes:
   block however long the conversation runs.
 
 A context meter beneath the composer shows how full the window is (`~12.4K / 32K`, amber near the
-limit), and `· compacted` once a conversation has been summarized. **Settings → General** switches back to plain trimming.
+limit), and `· compacted` once a conversation has been summarized. **Settings → Appearance & chat** switches back to plain trimming.
 
 Two honest caveats, both stated in the UI as well:
 
@@ -335,7 +345,7 @@ itself, and privacy promises are enforced in code rather than stated in prose.
 ### Second opinions — a different model, never a self-grade
 
 A "🔍 2nd opinion" button under any reply hands the question and answer to **another role** (auto:
-the first enabled slot that did not answer; choose one under Settings → Models). The reviewer lists
+the first enabled slot that did not answer; choose one under Settings → Roles). The reviewer lists
 the specific factual claims it cannot verify from the conversation — names, dates, numbers,
 versions — and the one check that would settle each. That is the whole output. There is deliberately
 no confidence score or percentage: asking a model how sure it is returns "sure" nearly always, which
@@ -350,7 +360,7 @@ quietly asking the answerer to review itself.
 
 Toggle 📋 in the composer and your message becomes a plan instead of a direct answer. The model
 decomposes the task into a short ordered checklist (structured JSON with grammar enforcement where
-the server supports it, capped under Settings → General), the checklist renders in chat and — by
+the server supports it, capped under Settings → Appearance & chat), the checklist renders in chat and — by
 default — **waits for your approval** before anything runs. Each step then executes as a bounded
 sub-turn with the enabled tools, its result feeding the next step and ticking off live in the list.
 A final synthesis answers from all step results.
@@ -459,7 +469,7 @@ Twelve short numbered methods (`src/renderer/src/lib/playbooks.ts`), one chosen 
 domain classifiers: first aid, health & medication, structural/electrical/gas, emergencies &
 preparedness, food safety, home repair, personal finance & tax, legal & civic, data analysis, code,
 comparing options, plans. Each is under 130 words, rides the turn's notes after any reference
-passages, and is disclosed as **📋 Method: … playbook**. Settings → Models → Playbooks.
+passages, and is disclosed as **📋 Method: … playbook**. Settings → Grounding & checks › Playbooks.
 
 ---
 
@@ -616,7 +626,7 @@ happened to plan.
   sub-question) and a second round targets only what is still open. Asking a model to grade its own
   work would return "yes" nearly always, and the second round would never happen.
 - **Every phase has a budget.** Rounds, searches, pages, distinct domains and wall clock, chosen by
-  **Settings → Search → Deep research budget** (quick / standard / thorough). Limits are checked before
+  **Settings → Search & research → Deep research budget** (quick / standard / thorough). Limits are checked before
   each action, not reported after, and any limit that stopped the run is disclosed in the result.
 - **Sources are ranked before they are fetched.** Snippets are scored against the sub-questions first,
   so a page that will not help is a host never contacted. A per-domain cap keeps one prolific site from
@@ -628,7 +638,7 @@ happened to plan.
 #### What leaves your machine
 
 Your question does not. Only the planner's keyword queries go out, each through the same redaction as
-any other search. Turn on **Settings → Search → Approve research plans** and you get one dialog showing
+any other search. Turn on **Settings → Search & research → Approve research plans** and you get one dialog showing
 every sub-question and every outgoing query before anything is sent. It is more informative than six
 separate prompts, and it is the moment to catch a query carrying context it should not. The result
 reports every domain contacted, the number of searches and pages, and any redactions applied.
@@ -636,7 +646,7 @@ reports every domain contacted, the number of searches and pages, and any redact
 ### JavaScript-dependent pages (opt-in)
 
 Documentation sites and single-page apps return an empty shell to a plain HTTP fetch; their content
-arrives only once scripts run. Enable **Settings → Search → Read JavaScript-dependent pages** and
+arrives only once scripts run. Enable **Settings → Search & research → Read JavaScript-dependent pages** and
 Sigma Oasis will re-read such a page in an offscreen browser window.
 
 It is **off by default**, and static-first when on: the plain fetch is always tried first, and the
@@ -665,11 +675,11 @@ because a person reviewing the page never sees them. That text is dropped before
 the amount removed is reported. The static regex path cannot do this at all, since the styling may
 live in an external stylesheet.
 
-### Choosing a search provider (Settings → Search)
+### Choosing a search provider (Settings → Search & research)
 
 | Provider | Privacy profile | Setup |
 | --- | --- | --- |
-| **Self-hosted SearXNG** (recommended) | Best: metasearch over 70+ engines from a server **you** run; only infrastructure you control ever sees queries. | `docker run -p 8888:8080 searxng/searxng`, enable JSON output (`formats: [html, json]`), set the URL in Settings → Search. |
+| **Self-hosted SearXNG** (recommended) | Best: metasearch over 70+ engines from a server **you** run; only infrastructure you control ever sees queries. | `docker run -p 8888:8080 searxng/searxng`, enable JSON output (`formats: [html, json]`), set the URL in Settings → Search & research. |
 | **Brave Search API** | Strong: independent index, no user profiling. | Free API key from brave.com/search/api; stored via your OS keychain (Electron `safeStorage`), never in the plaintext settings file. |
 | **DuckDuckGo** | Good: no key, no tracking; rate-limited. | Works out of the box (default). |
 
@@ -847,10 +857,10 @@ Both skip themselves, rather than failing, where no display is available.
   notice. If the app was moved to Trash, drag it back to `/Applications` first. On macOS 26+, the old
   `xattr -dr com.apple.quarantine` workaround no longer bypasses this block.
 - **"LM Studio not detected".** Make sure LM Studio's local server is **started** and a model is
-  **loaded**. Click the **Retry** button or **Settings → Connection → Test / Refresh**.
-- **A model slot says "No model selected".** Open **Settings → Models** and choose a model from the
+  **loaded**. Click the **Retry** button or **Settings → LM Studio → Test / Refresh**.
+- **A model slot says "No model selected".** Open **Settings → Roles** and choose a model from the
   dropdown for that slot.
-- **Different port/URL.** Update the base URL in **Settings → Connection** (e.g.
+- **Different port/URL.** Update the base URL in **Settings → LM Studio** (e.g.
   `http://127.0.0.1:1234/v1`). The server must be on **this machine**: the renderer's
   Content-Security-Policy only permits loopback connections, so a LAN or remote LM Studio won't work
   for chat.

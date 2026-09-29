@@ -31,8 +31,8 @@ export function Switch({ checked, onChange, label, labelledBy, describedBy, disa
       role="switch"
       data-kit="switch"
       aria-checked={checked}
-      aria-label={labelledBy ? undefined : label}
-      aria-labelledby={labelledBy}
+      aria-label={label}
+      aria-labelledby={label ? undefined : labelledBy}
       aria-describedby={describedBy}
       disabled={disabled}
       onClick={() => onChange(!checked)}

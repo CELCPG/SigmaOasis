@@ -256,18 +256,16 @@ export function requestEstimate(usage: ContextUsage): RequestEstimate {
       label: usage.largest.label,
       tokens: usage.largest.tokens,
       ...(usage.largest.tab
-        ? { control: { label: `Settings → ${TAB_LABEL[usage.largest.tab]}`, tab: usage.largest.tab } }
+        ? { control: { label: `Settings → ${TAB_LABEL[usage.largest.tab] ?? usage.largest.tab}`, tab: usage.largest.tab } }
         : {})
     }
   }
 }
 
-/** Mirrors SettingsModal's tab titles, for a control that names where it goes. */
-const TAB_LABEL: Record<SettingsTarget, string> = {
-  connection: 'Connection',
-  models: 'Models',
-  search: 'Search',
-  tools: 'Tools'
+/** The tab titles a control names, for the two tabs this module can send a reader to. */
+const TAB_LABEL: Partial<Record<SettingsTarget, string>> = {
+  tools: 'Tools',
+  models: 'Roles'
 }
 
 export interface HistoryPlan {

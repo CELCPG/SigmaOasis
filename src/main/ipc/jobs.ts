@@ -283,7 +283,7 @@ function firstEnabledModel(): string | undefined {
 
 async function runResearchJob(job: Job): Promise<JobRunResult> {
   if (getSettings().research.confirmPlan) {
-    return { outcome: 'skipped', note: 'Research plans need confirmation (Settings → Search); a job cannot confirm one.' }
+    return { outcome: 'skipped', note: 'Research plans need confirmation (Settings → Search & research); a job cannot confirm one.' }
   }
   const modelId = job.args.modelId ?? firstEnabledModel()
   if (!modelId) return { outcome: 'failed', note: 'No enabled model to research with.' }

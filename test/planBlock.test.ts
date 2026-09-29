@@ -60,11 +60,19 @@ function render(p: ChatPlan, records: ToolCallRecord[] = []): string {
 }
 
 /** Buttons the user can actually press — the disabled ones are step toggles. */
+/**
+ * The plan's own enabled buttons — Run this plan, Cancel. v4.0 put a link
+ * into Settings in the block's footer (`data-kit="link"`); a link is a way
+ * out, not one of the plan's actions, and is not counted.
+ */
 function enabledButtons(html: string): number {
   return html
     .split('<button')
     .slice(1)
-    .filter((t) => !t.slice(0, t.indexOf('>')).includes('disabled')).length
+    .filter((t) => {
+      const open = t.slice(0, t.indexOf('>'))
+      return !open.includes('disabled') && !open.includes('data-kit="link"')
+    }).length
 }
 
 /** One <li> per step, in order. */

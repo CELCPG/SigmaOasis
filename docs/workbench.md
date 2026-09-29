@@ -30,7 +30,7 @@ window (`src/main/ipc/workbench.ts`):
   would not be checking the reply.
 - The idle sandbox is torn down after ten minutes (it holds ~150 MB) and never keeps the app
   alive after the last real window closes.
-- **Code Mode (v2.7):** a slot set to `code` or `both` under Settings → Models gets a tool,
+- **Code Mode (v2.7):** a slot set to `code` or `both` under Settings → Roles gets a tool,
   `run_code`, whose Python program can call the app's other tools as coroutines through a
   generated module, `/work/tools.py` — `await tools.web_search(query=...)`. The module is a
   pure function of the tool table (lexicographic, byte-identical for an unchanged set) and never

@@ -70,7 +70,7 @@ export function slowReadingAdvice(loadedContextLength?: number): string {
 }
 
 /**
- * For Settings → Models, where VIBE's reader sees it: the model's most recent
+ * For Settings → Roles, where VIBE's reader sees it: the model's most recent
  * reply that recorded stats, if that reply read slowly. Only the latest — a
  * model that has since been reloaded well must not keep an old verdict.
  */

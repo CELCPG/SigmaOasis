@@ -34,8 +34,8 @@ export function Slider({ value, onCommit, min, max, step = 1, format, onPreview,
         step={step}
         value={live}
         disabled={disabled}
-        aria-label={labelledBy ? undefined : label}
-        aria-labelledby={labelledBy}
+        aria-label={label}
+        aria-labelledby={label ? undefined : labelledBy}
         aria-describedby={describedBy}
         aria-valuetext={format ? format(live) : undefined}
         onChange={(e) => {

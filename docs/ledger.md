@@ -33,7 +33,7 @@ does not.
 - **Contradiction, surfaced.** When a re-check binds a different value to the same claim, the
   entry is superseded and the reply carries a line: *changed since it was last verified: was X,
   now Y*. The old value is not silently replaced.
-- **A switch.** Settings → Models, under the grounding checks: *Fact ledger* turns recall and
+- **A switch.** Settings → Grounding & checks: *Fact ledger* turns recall and
   capture off together.
 
 ## What the model sees

@@ -931,7 +931,8 @@ async function main(): Promise<void> {
   /* -- (b) focus indicators ------------------------------------------------- */
 
   console.log(`\nfocus rings on the ${probes.length} controls that clear their outline`)
-  check('found the outline-none controls to probe', probes.length >= 25, `${probes.length} found`)
+  // v4.0: the Settings kit is one FIELD class list where fourteen tabs had thirty; a dozen distinct lists is the app now.
+  check('found the outline-none controls to probe', probes.length >= 10, `${probes.length} found`)
 
   const canvas = parseColor(light.canvas)
   const panel = over(parseColor(light.panel), canvas)

@@ -61,11 +61,16 @@ export function tabOfRow(id: string): string {
  * and "everything" is what the rail already shows.
  */
 export function searchRows(rows: readonly RowMeta[], query: string): RowMeta[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'))
   if (words.length === 0) return []
+  // Word starts, not substrings: "tor" should find Tor, not calculators.
   return rows.filter((r) => {
-    const hay = `${r.label} ${r.help ?? ''} ${(r.keywords ?? []).join(' ')} ${r.id}`.toLowerCase()
-    return words.every((w) => hay.includes(w))
+    const hay = `${r.label} ${r.help ?? ''} ${(r.keywords ?? []).join(' ')} ${r.id.replace(/\./g, ' ')}`
+    return words.every((w) => w.test(hay))
   })
 }
 

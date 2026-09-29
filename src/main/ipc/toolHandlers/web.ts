@@ -55,7 +55,7 @@ async function confirmSearch(
         `Approving this also fetches up to ${MAX_IMAGE_RESULTS} thumbnails from the image ` +
         'hosts the results point at. Those hosts see a request from this machine — with no ' +
         'cookies, no referrer and no browser fingerprint, but with your IP address unless a ' +
-        'proxy is configured under Settings → Connection. Every request is listed in the ' +
+        'proxy is configured under Settings → LM Studio. Every request is listed in the ' +
         'network activity log.'
       : `"${query}"\n\nThis is the only information that will leave your machine.`
   const { response } = await dialog.showMessageBox(win, {

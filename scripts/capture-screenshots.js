@@ -8,7 +8,7 @@
  * Output: docs/screenshots/<scene>.png at the display's native scale. Run all:
  *
  *   ELECTRON="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
- *   for scene in welcome-light chat-light chat-dark vibe vibe-empty agent-light agent-dark; do
+ *   for scene in welcome-light chat-light chat-dark vibe vibe-empty agent-light agent-dark settings-tools-dark settings-models-light; do
  *     SCENE=$scene "$ELECTRON" scripts/capture-screenshots.js
  *   done
  *
@@ -32,6 +32,11 @@ const THEME = SCENE.endsWith('-dark') ? 'dark' : 'light'
 const VIBE = SCENE.startsWith('vibe')
 // v3.0: the agent scenes show a finished agent turn — its timeline, checklist and Undo.
 const AGENT = SCENE.startsWith('agent')
+// v4.0: `settings-<tab>-<theme>` opens Settings on that tab (a key from
+// src/renderer/src/components/settings/tabs.ts: connection, models, general,
+// grounding, memory, tools, agent, search, voice, library, skills, mcp, jobs,
+// privacy, activity) over the chat scene.
+const SETTINGS_TAB = SCENE.startsWith('settings-') ? SCENE.replace(/^settings-/, '').replace(/-(dark|light)$/, '') : null
 const NOW = Date.now()
 const MIN = 60_000
 
@@ -563,6 +568,23 @@ function capture(win) {
   // Let React mount, fonts load, and the entrance animations (0.4s) finish.
   setTimeout(async () => {
     try {
+      if (SETTINGS_TAB) {
+        // The gear, then the tab by its key. The modal fades up over 0.22s;
+        // a hidden window may not paint it, so the settings scenes show the
+        // window (inactive) — see app.whenReady below.
+        await win.webContents.executeJavaScript(`(() => {
+          const gear = [...document.querySelectorAll('button')].find((b) => (b.title || '').startsWith('Settings'))
+          if (gear) gear.click()
+          return !!gear
+        })()`)
+        await new Promise((r) => setTimeout(r, 800))
+        await win.webContents.executeJavaScript(`(() => {
+          const tab = document.querySelector('[data-tab="${SETTINGS_TAB}"]')
+          if (tab) tab.click()
+          return !!tab
+        })()`)
+        await new Promise((r) => setTimeout(r, 900))
+      }
       const image = await win.webContents.capturePage()
       fs.mkdirSync(OUT_DIR, { recursive: true })
       const file = path.join(OUT_DIR, `${SCENE}.png`)
@@ -595,6 +617,9 @@ app.whenReady().then(() => {
       sandbox: true
     }
   })
-  win.webContents.on('did-finish-load', () => capture(win))
+  win.webContents.on('did-finish-load', () => {
+    if (SETTINGS_TAB) win.showInactive()
+    capture(win)
+  })
   void win.loadFile(path.join(ROOT, 'out', 'renderer', 'index.html'))
 })
