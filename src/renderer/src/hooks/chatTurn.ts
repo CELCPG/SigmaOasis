@@ -8,6 +8,7 @@ import {
   looksFactual,
   looksReference,
   needsVerification,
+  webToolsForTurn,
   withGrounding,
   withToolCallPreamble
 } from '../lib/grounding'
@@ -209,7 +210,13 @@ export async function runTurn(
   // tell the model to compute with them.
   const fileRefs = attachmentFileRefs(convo)
   const toolContext: ToolExecuteContext = { modelId: slot.modelId, attachments: fileRefs, conversationId: convo.id }
-  const forcedTools = fileRefs.some((f) => TABULAR_FILE.test(f.name)) ? ['run_python', 'analyze_file'] : []
+  // v4.0.1: and a turn about the live world, or one that asks for the web by
+  // name, carries the web tools on the same terms (lib/grounding.ts
+  // `webToolsForTurn`) — offline excepted, where there is no web to reach.
+  const forcedTools = [
+    ...(fileRefs.some((f) => TABULAR_FILE.test(f.name)) ? ['run_python', 'analyze_file'] : []),
+    ...(offline ? [] : webToolsForTurn(lastUserContent))
+  ]
   const turnToolsPending = subsetForTurn(slotTools, lastUserContent, conversationId, forcedTools)
 
   // Tool-call records for the whole turn, including app-initiated provider

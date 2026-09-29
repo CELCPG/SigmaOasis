@@ -126,6 +126,24 @@ describe('unsourcedLinks', () => {
     assert.deepEqual(unsourcedLinks(answer, searchOutput), [])
   })
 
+  test('v4.0.1: markdown around a link and the spelling of a byte are not a different page', () => {
+    // Measured: the result was /quote/ES%3DF/ and the reply closed a bold span on it.
+    const results = `1. E-Mini S&P 500 Dec 26 (ES=F)
+   https://finance.yahoo.com/quote/ES%3DF/
+   Find the latest E-Mini S&P 500 quote.`
+    const answer = '- Open **https://finance.yahoo.com/quote/ES=F/** in your browser.'
+    assert.deepEqual(unsourcedLinks(answer, results), [])
+    // …and a page the results never named is still one.
+    assert.deepEqual(unsourcedLinks('See **https://finance.yahoo.com/quote/NQ=F/**', results), [
+      'https://finance.yahoo.com/quote/nq=f'
+    ])
+  })
+
+  test('v4.0.1: an escape that does not decode is compared as written', () => {
+    assert.deepEqual(unsourcedLinks('see https://example.com/a%ZZb', 'https://example.com/a%ZZb'), [])
+    assert.deepEqual(unsourcedLinks('see https://example.com/%E0%A4%A', 'https://example.com/%E0%A4%A'), [])
+  })
+
   test('nothing to compare against means nothing is claimed', () => {
     assert.deepEqual(unsourcedLinks('see https://example.com', ''), [])
   })

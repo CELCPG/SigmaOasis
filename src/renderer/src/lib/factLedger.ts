@@ -1,4 +1,4 @@
-import { claimKey } from '../../../shared/factLedger'
+import { claimKey, isClockClaim, LEDGER_PACK_NAME } from '../../../shared/factLedger'
 import type { ClaimClass, LedgerEntryDraft } from '../../../shared/factLedger'
 import { measurementsIn } from '../../../shared/measurements'
 import { parseCitations, webSource } from './citations'
@@ -40,6 +40,9 @@ export function sourcesIn(records: ToolCallRecord[]): Source[] {
       if (m) out.push({ url: m[1], text: r.result })
     } else if (r.name === 'reference_lookup') {
       for (const c of parseCitations(r.result)) {
+        // v4.0.1: a ledger entry is a record of a source, not a source. Read
+        // back as one, it re-files itself under each new question that finds it.
+        if (c.label.startsWith(`${LEDGER_PACK_NAME} ›`)) continue
         const url = webSource(c.source)
         if (url && c.text) out.push({ url, text: c.text })
       }
@@ -130,15 +133,27 @@ function spansOf(sentence: string): { claimClass: ClaimClass; span: string }[] {
  * The claims a reply made that a retrieved source states, one draft per
  * (class, question) key — the first sentence that carries a bound claim of a
  * class wins, so a reply that restates a price twice yields one entry.
+ *
+ * v4.0.1: two spans are never claims, whatever a source says. Today's date
+ * (shared/factLedger.ts `isClockClaim`), and a span the question itself
+ * stated — a reply repeating "$20" back to "is $20 a fair price" has found
+ * nothing out.
  */
-export function extractLedgerEntries(reply: string, records: ToolCallRecord[], question: string): LedgerEntryDraft[] {
+export function extractLedgerEntries(
+  reply: string,
+  records: ToolCallRecord[],
+  question: string,
+  now: number = Date.now()
+): LedgerEntryDraft[] {
   const sources = sourcesIn(records)
   if (sources.length === 0 || !question.trim()) return []
+  const asked = normalizeSpan(question)
   const drafts = new Map<string, LedgerEntryDraft>()
   for (const sentence of sentencesOf(reply)) {
     for (const { claimClass, span } of spansOf(sentence)) {
       const key = claimKey(claimClass, question)
       if (drafts.has(key)) continue
+      if (isClockClaim(claimClass, span, now) || asked.includes(normalizeSpan(span))) continue
       const source = sources.find((s) => sourceStates(claimClass, span, s))
       if (!source) continue
       drafts.set(key, { key, claimClass, value: normalizeSpan(span), sentence, url: source.url, question })

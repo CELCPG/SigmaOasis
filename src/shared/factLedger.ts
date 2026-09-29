@@ -101,3 +101,52 @@ export function expiresAtFor(claimClass: ClaimClass, checkedAt: number): number 
   const ttl = FRESHNESS_MS[claimClass]
   return ttl === null ? null : checkedAt + ttl
 }
+
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+
+/**
+ * A written date as YYYY-MM-DD, or null when the text is not one: "29 September
+ * 2026", "September 29, 2026" and "2026-09-29" are the three shapes the capture
+ * recognizes as a date claim, in any casing.
+ */
+export function isoDateOf(span: string): string | null {
+  const t = span.trim().toLowerCase()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
+  const dayFirst = /^(\d{1,2})\s+([a-z]+)\s+(\d{4})$/.exec(t)
+  const monthFirst = /^([a-z]+)\s+(\d{1,2}),?\s+(\d{4})$/.exec(t)
+  const [day, month, year] = dayFirst
+    ? [dayFirst[1], dayFirst[2], dayFirst[3]]
+    : monthFirst
+      ? [monthFirst[2], monthFirst[1], monthFirst[3]]
+      : []
+  const m = MONTH_NAMES.indexOf(month ?? '')
+  if (m < 0) return null
+  return `${year}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/** The calendar day of `at`, as the machine's own clock reads it. */
+export function localIsoDate(at: number): string {
+  const d = new Date(at)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * v4.0.1: is this "claim" only the date it was checked on?
+ *
+ * Every turn is told today's date and a reply to a question about today
+ * repeats it; any page published today states it too. So the capture bound
+ * "September 29, 2026" to a prediction-market page and filed it as a verified
+ * claim, twice in one conversation, where `reference_lookup` then found it for
+ * a question about the weather. The clock is not a claim: nothing was looked
+ * up to learn it, and a day later it is wrong.
+ *
+ * Read from the stored entry alone, so entries 4.0.0 wrote can be recognized
+ * and removed. Both the local and the UTC day count, because `checkedAt` is an
+ * instant and the reply wrote a calendar date.
+ */
+export function isClockClaim(claimClass: string, value: string, checkedAt: number): boolean {
+  if (claimClass !== 'date') return false
+  const stated = isoDateOf(value)
+  if (!stated) return false
+  return stated === localIsoDate(checkedAt) || stated === new Date(checkedAt).toISOString().slice(0, 10)
+}

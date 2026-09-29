@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { createHash } from 'crypto'
-import { LEDGER_PACK_ID, LEDGER_PACK_NAME, expiresAtFor } from '../../shared/factLedger'
+import { LEDGER_PACK_ID, LEDGER_PACK_NAME, expiresAtFor, isClockClaim } from '../../shared/factLedger'
 import type { ClaimClass, LedgerEntryDraft, LedgerHit, LedgerUpsertResult } from '../../shared/factLedger'
 import { lookupLibrary, readAppPack, removePack, writeAppPack } from './library'
 import type { AppPackDoc } from './library'
@@ -62,14 +62,41 @@ function isDraft(d: unknown): d is LedgerEntryDraft {
   )
 }
 
+const LEDGER_PACK_DESCRIPTION =
+  'Claims this app verified against a source, with the date each was checked. Written by the app; never by a model.'
+
+/** v4.0.1: an entry that records only the day it was written (shared/factLedger.ts `isClockClaim`). */
+function isClockDoc(d: AppPackDoc): boolean {
+  return !!d.claim && typeof d.checkedAt === 'number' && isClockClaim(d.claim.claimClass, d.claim.value, d.checkedAt)
+}
+
+/**
+ * v4.0.1: remove the clock entries 4.0.0 wrote. They sit in a library pack, so
+ * until they are gone `reference_lookup` hands them to the model as the
+ * library's answer to any question with "today" in it. Run once at startup;
+ * a ledger with nothing else in it is removed whole.
+ */
+export async function pruneClockClaims(): Promise<{ removed: number }> {
+  const pack = await readAppPack(LEDGER_PACK_ID)
+  if (!pack) return { removed: 0 }
+  const kept = pack.docs.filter((d) => !isClockDoc(d))
+  const removed = pack.docs.length - kept.length
+  if (removed === 0) return { removed }
+  if (kept.length === 0) await removePack(LEDGER_PACK_ID)
+  else await writeAppPack({ id: LEDGER_PACK_ID, name: LEDGER_PACK_NAME, description: LEDGER_PACK_DESCRIPTION, docs: kept })
+  return { removed }
+}
+
 /** Write drafts into the pack: new keys written, unchanged values refreshed, changed values superseded. */
 export async function upsertClaims(rawDrafts: unknown[]): Promise<LedgerUpsertResult> {
-  const drafts = rawDrafts.filter(isDraft)
+  const now = ledgerNow()
+  // The renderer's capture already refuses the clock; refused here too, because
+  // this is the one writer and the pack is what the model is later shown.
+  const drafts = rawDrafts.filter(isDraft).filter((d) => !isClockClaim(d.claimClass, d.value, now))
   const out: LedgerUpsertResult = { written: [], refreshed: [], superseded: [] }
   if (drafts.length === 0) return out
-  const now = ledgerNow()
   const existing = (await readAppPack(LEDGER_PACK_ID)) ?? { docs: [] as AppPackDoc[] }
-  const byKey = new Map(existing.docs.filter((d) => d.claim).map((d) => [d.claim!.key, d]))
+  const byKey = new Map(existing.docs.filter((d) => d.claim && !isClockDoc(d)).map((d) => [d.claim!.key, d]))
   for (const d of drafts) {
     const prior = byKey.get(d.key)
     const doc: AppPackDoc = {
@@ -99,7 +126,7 @@ export async function upsertClaims(rawDrafts: unknown[]): Promise<LedgerUpsertRe
   await writeAppPack({
     id: LEDGER_PACK_ID,
     name: LEDGER_PACK_NAME,
-    description: 'Claims this app verified against a source, with the date each was checked. Written by the app; never by a model.',
+    description: LEDGER_PACK_DESCRIPTION,
     docs
   })
   return out
@@ -117,7 +144,7 @@ export async function lookupLedger(query: string): Promise<{ ok: boolean; hits: 
   const hits: LedgerHit[] = []
   for (const p of outcome.passages) {
     const doc = byId.get(p.docId)
-    if (!doc?.claim || typeof doc.checkedAt !== 'number' || seen.has(doc.id)) continue
+    if (!doc?.claim || typeof doc.checkedAt !== 'number' || seen.has(doc.id) || isClockDoc(doc)) continue
     seen.add(doc.id)
     const expiresAt = doc.expiresAt === undefined ? null : doc.expiresAt
     hits.push({
@@ -151,6 +178,9 @@ export async function purgeLedger(): Promise<{ removed: boolean }> {
 }
 
 export function registerFactLedgerHandlers(): void {
+  // Housekeeping, never a startup failure: a ledger that cannot be read now
+  // cannot be read by a lookup either, and that path reports it.
+  void pruneClockClaims().catch(() => undefined)
   ipcMain.handle('ledger:lookup', (_e, query: unknown) => lookupLedger(String(query ?? '')))
   ipcMain.handle('ledger:upsert', async (_e, drafts: unknown) => {
     try {

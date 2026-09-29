@@ -10,6 +10,7 @@ import {
   looksReference,
   needsVerification,
   stripTurnNotesEcho,
+  webToolsForTurn,
   withGrounding,
   withToolCallPreamble,
   BREVITY_RULES,
@@ -300,6 +301,89 @@ describe('looksFactual — places and businesses', () => {
       assert.equal(looksFactual(text), false)
     })
   }
+})
+
+/**
+ * v4.0.1. A session on 2026-09-29 asked a 9B for the weather, the S&P futures
+ * and the next Miami Heat game, in the lowercase everyone types in. None read
+ * as factual, so the app searched for none of them; and the embedding rank
+ * left web_search off the wire for the weather and the game, so the model
+ * could not search either. It said the internet was not working.
+ */
+describe('looksFactual — the live world (v4.0.1)', () => {
+  const live = [
+    'can you check the weather for righmond va today',
+    'can you check the weather channel?',
+    'how are s&p futures looking  for today',
+    'when is the next miami heat basketball game?',
+    'who won the world series last year',
+    'is it going to rain tomorrow',
+    'what was the final score',
+    'how did the markets today do'
+  ]
+  for (const text of live) {
+    test(`"${text}" earns a search`, () => {
+      assert.equal(looksFactual(text), true)
+    })
+  }
+
+  const notLive = [
+    // A subject, not a mood: each of these shares a word with the list above.
+    'how do futures work in rust',
+    'what should i add to my next game',
+    'build a revenue forecast in a spreadsheet',
+    'write a poem about the weather',
+    'ok how are yo udoing  today?'
+  ]
+  for (const text of notLive) {
+    test(`"${text}" is left alone`, () => {
+      assert.equal(looksFactual(text), false)
+    })
+  }
+})
+
+describe('webToolsForTurn (v4.0.1)', () => {
+  const WEB = ['web_search', 'fetch_webpage']
+
+  test('the live world carries the search and the fetch that reads its results', () => {
+    assert.deepEqual(webToolsForTurn('can you check the weather for righmond va today'), WEB)
+    assert.deepEqual(webToolsForTurn('when is the next miami heat basketball game?'), WEB)
+    assert.deepEqual(webToolsForTurn('how are s&p futures looking  for today'), WEB)
+  })
+
+  test('so does asking for the web by name, which is not itself a thing to search for', () => {
+    for (const text of [
+      'can you try with duck duck go now?',
+      'you can access teh internet through duc kduckgo?',
+      'look it up please',
+      'what does https://example.com/pricing say'
+    ]) {
+      assert.deepEqual(webToolsForTurn(text), WEB, text)
+    }
+    assert.equal(looksFactual('can you try with duck duck go now?'), false)
+  })
+
+  test('a live question wins over the library: no pack knows today', () => {
+    // "stock" is a finance-pack word, and the question is about this morning.
+    assert.equal(looksReference('what is happening in the stock market today'), true)
+    assert.deepEqual(webToolsForTurn('what is happening in the stock market today'), WEB)
+  })
+
+  test('a factual turn the library covers leaves the ranking alone', () => {
+    assert.equal(looksFactual('he says he feels dizzy, what do i do'), true)
+    assert.deepEqual(webToolsForTurn('he says he feels dizzy, what do i do'), [])
+    assert.deepEqual(webToolsForTurn('how long do leftovers last in the fridge'), [])
+  })
+
+  test('any other factual turn carries them', () => {
+    assert.deepEqual(webToolsForTurn('Who is the CEO of Tesla?'), WEB)
+  })
+
+  test('chat, creative and coding work force nothing', () => {
+    for (const text of ['hello', 'ok how are yo udoing  today?', 'write a poem about the internet', 'refactor this code to use async await', undefined, '']) {
+      assert.deepEqual(webToolsForTurn(text), [], String(text))
+    }
+  })
 })
 
 describe('grounding block · offline (v1.5)', () => {
