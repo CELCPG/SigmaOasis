@@ -86,9 +86,19 @@ export /**
  * A heading that opens the reply's own account of its tool use: "Tools used:",
  * "**Tools I used**", "### Tools called". Optional markdown furniture, and the
  * word "tool" is what makes it a disclosure rather than a sentence.
+ *
+ * v4.0.1: the furniture is one character class, not a group of runs. It was
+ * `[ \t]*(?:[#>*_\-|]+[ \t]*)*\**[ \t]*` — the same strings, but a run of
+ * furniture could be split between the repeats in 2^n ways, and every one was
+ * tried before a line that does not go on to say "tools" was given up. A
+ * markdown table's separator row is such a line: measured, `|----…|` at 30
+ * characters held the pattern for 2 s, doubling per character, and the first
+ * live reply with a weather table (a 50-character row) held the window at
+ * 100% CPU until it was killed. Three checks read this pattern, so every turn
+ * that ran a tool and answered with a table paid it three times.
  */
 const DISCLOSURE_HEADING =
-  /^[ \t]*(?:[#>*_\-|]+[ \t]*)*\**[ \t]*tools?[ \t]+(?:i[ \t]+|we[ \t]+)?(?:used|use|called|ran|run|invoked|consulted)\b/im
+  /^[ \t#>*_\-|]*tools?[ \t]+(?:i[ \t]+|we[ \t]+)?(?:used|use|called|ran|run|invoked|consulted)\b/im
 
 /** A disclosure that says nothing ran is honest about naming no tool. */
 const DISCLOSED_NOTHING = /\b(?:none|no tools?|nothing|without[ \t]+(?:any[ \t]+)?tools?)\b/i
