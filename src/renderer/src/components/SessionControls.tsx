@@ -7,6 +7,7 @@ import { routingReadiness, sameModelOrchestrationNote } from '../lib/routing'
 import { conversationToMarkdown } from '../lib/exportMarkdown'
 import { PanelSection } from './PanelSection'
 import { SettingsLink } from './settings/SettingsLink'
+import { Segmented } from './settings/kit'
 
 interface Props {
   conversation: Conversation
@@ -131,26 +132,14 @@ export function SessionControls({ conversation }: Props): JSX.Element | null {
   return (
     <>
       <PanelSection title="Strategy" hint={MODE_HINTS[conversation.mode]}>
-        <div
-          className="grid grid-cols-3 gap-0.5 rounded-full bg-black/5 dark:bg-white/5 p-0.5 text-[10px]"
-          title={MODE_HINTS[conversation.mode]}
-        >
-          {(Object.keys(MODE_LABELS) as ChatMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setMode(mode)}
-              disabled={streaming}
-              className={`truncate rounded-full px-1 py-1 transition-colors ${
-                conversation.mode === mode
-                  ? 'bg-white/70 dark:bg-white/10 font-medium text-ink-primary shadow-sm'
-                  : 'text-ink-tertiary hover:text-ink-secondary'
-              } disabled:opacity-50`}
-              title={MODE_HINTS[mode]}
-            >
-              {MODE_LABELS[mode]}
-            </button>
-          ))}
+        {/* v4.0 (E3): the Settings kit's segmented control, so the switcher looks the same here as there. */}
+        <div className="text-[10px]">
+          <Segmented
+            label="Strategy"
+            value={conversation.mode}
+            onChange={(mode) => setMode(mode)}
+            options={(Object.keys(MODE_LABELS) as ChatMode[]).map((mode) => ({ value: mode, label: MODE_LABELS[mode], hint: MODE_HINTS[mode], disabled: streaming }))}
+          />
         </div>
         <p className="mt-1.5 px-1 text-[10px] leading-relaxed text-ink-tertiary">
           {MODE_HINTS[conversation.mode]}

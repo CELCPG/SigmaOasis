@@ -13,6 +13,12 @@ and the M2 candidates on `feat/m2-speed-candidates`, both unmerged, and no v3.1.
 below is built. The measurement work in `ROADMAP-v3.1.md` is the entrance to this release, not a
 rival to it; where an item there moves here, the table below says so.
 
+**Status, 2026-09-28 (4.0.0):** every track is built — S (the settings shell, kit, apply-as-you-go,
+every tab, search and links, the gate), F (the front door), E (E1–E9), A (A1–A10) and C (C1–C8),
+the last two as `agent.experiments.*` switches, every one off, none measured: `eval:agent`'s
+baseline is still owed to a sound machine. `CHECKLIST-v4.0.md` holds the graded record and every
+deviation; `RELEASE-NOTES-v4.0.0.md` the account.
+
 ## Four tracks
 
 | Track | What it claims | Changes what a model does? | Gate |

@@ -1,7 +1,11 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { promises as fs } from 'fs'
-import { join } from 'path'
+import { basename, isAbsolute, join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
+import { runAgentTask } from '../agent/engine'
+import { defaultShell } from '../agent/command'
+import { auditedTransport } from './agent'
+import { pinChatModel } from './modelPin'
 import { getSettings } from './store'
 import { recordAuditEntry } from './audit'
 import { runDeepResearch } from './deepResearch'
@@ -144,7 +148,7 @@ export function createScheduler(deps: SchedulerDeps): Scheduler {
 
 // ---- the store -----------------------------------------------------------------
 
-const KINDS: ReadonlySet<string> = new Set(['research', 'price', 'ledger', 'packs'])
+const KINDS: ReadonlySet<string> = new Set(['research', 'price', 'ledger', 'packs', 'agent'])
 const INTERVALS: ReadonlySet<string> = new Set(['hourly', 'daily', 'weekly'])
 export const MAX_JOBS = 50
 
@@ -205,6 +209,11 @@ function sanitizeArgs(kind: JobKind, raw: unknown): JobArgs {
     if (typeof a.modelId === 'string' && a.modelId.trim()) args.modelId = a.modelId.trim()
   }
   if (kind === 'price') args.url = String(a.url ?? '').trim()
+  if (kind === 'agent') {
+    args.folder = String(a.folder ?? '').trim()
+    args.prompt = String(a.prompt ?? '').trim().slice(0, 2_000)
+    if (typeof a.modelId === 'string' && a.modelId.trim()) args.modelId = a.modelId.trim()
+  }
   return args
 }
 
@@ -215,9 +224,15 @@ export async function addJob(input: { kind: unknown; title?: unknown; interval?:
   const args = sanitizeArgs(kind as JobKind, input.args)
   if (kind === 'research' && !args.question) throw new Error('A research job needs a question.')
   if (kind === 'price' && !/^https?:\/\//.test(args.url ?? '')) throw new Error('A price job needs the watched item’s URL.')
+  if (kind === 'agent') {
+    // C5 (v4.0): an experiment, off by default — the switch is checked when the job is added and again when it runs.
+    if (!getSettings().agent?.experiments?.agentJobs) throw new Error('Agent jobs are an experiment; turn them on under Settings → Agent → Experiments first.')
+    if (!args.folder || !isAbsolute(args.folder)) throw new Error('An agent job needs a folder (a full path).')
+    if (!args.prompt) throw new Error('An agent job needs the task to run.')
+  }
   const title =
     String(input.title ?? '').trim().slice(0, 120) ||
-    (kind === 'research' ? args.question! : kind === 'price' ? args.url! : kind === 'ledger' ? 'Verified claims' : 'Tracked folders')
+    (kind === 'research' ? args.question! : kind === 'price' ? args.url! : kind === 'ledger' ? 'Verified claims' : kind === 'agent' ? `${args.prompt!.slice(0, 60)} (${basename(args.folder!)})` : 'Tracked folders')
   return withLock(async () => {
     const jobs = await readJobs()
     if (jobs.length >= MAX_JOBS) throw new Error(`Too many jobs (${MAX_JOBS}).`)
@@ -420,11 +435,66 @@ async function runPacksJob(): Promise<JobRunResult> {
   }
 }
 
+/**
+ * C5 (v4.0, an experiment): a read-only agent task in a folder on a schedule.
+ * Read-only is the rule every job lives by — no edit, no command, no question
+ * — so nothing runs unasked and nothing needs a grant. The report is the digest.
+ */
+const AGENT_JOB_MS = 15 * 60_000
+async function runAgentJob(job: Job): Promise<JobRunResult> {
+  const settings = getSettings()
+  if (!settings.agent?.experiments?.agentJobs) return { outcome: 'skipped', note: 'Agent jobs are an experiment, off under Settings → Agent → Experiments.' }
+  const folder = job.args.folder ?? ''
+  const prompt = job.args.prompt ?? ''
+  if (!folder || !prompt) return { outcome: 'failed', note: 'The job needs a folder and a task.' }
+  try {
+    if (!(await fs.stat(folder)).isDirectory()) throw new Error('not a folder')
+  } catch {
+    return { outcome: 'failed', note: `The folder is gone: ${folder}` }
+  }
+  const modelId = job.args.modelId ?? firstEnabledModel()
+  if (!modelId) return { outcome: 'failed', note: 'No enabled model to run the task with.' }
+  await pinChatModel(modelId).catch(() => undefined)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), AGENT_JOB_MS)
+  try {
+    const result = await runAgentTask(
+      {
+        baseUrl: settings.baseUrl,
+        model: modelId,
+        workspace: folder,
+        permission: 'readOnly',
+        prompt,
+        maxRounds: Math.min(settings.agent.maxRounds, 20),
+        commandTimeoutSec: settings.agent.commandTimeoutSec,
+        experiments: settings.agent.experiments,
+        signal: controller.signal
+      },
+      {
+        transport: auditedTransport,
+        shell: defaultShell(),
+        emit: () => undefined,
+        reviewEdit: async () => false,
+        approveCommand: async () => 'declined'
+      }
+    )
+    if (result.status !== 'done') return { outcome: 'failed', note: result.detail ?? `the task ended ${result.status}` }
+    return {
+      outcome: 'ok',
+      note: `${result.finalText.length.toLocaleString('en-US')} characters`,
+      digest: `**${job.title}** — ${dateLine()}\n\n${result.finalText}`
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export const SHIPPED_RUNNERS: Record<JobKind, JobRunner> = {
   research: runResearchJob,
   price: runPriceJob,
   ledger: runLedgerJob,
-  packs: runPacksJob
+  packs: runPacksJob,
+  agent: runAgentJob
 }
 
 // ---- wiring ----------------------------------------------------------------------

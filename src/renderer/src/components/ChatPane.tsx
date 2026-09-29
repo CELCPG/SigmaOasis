@@ -1,7 +1,7 @@
 import { useAppStore } from '../stores/appStore'
 import { useConversations } from '../hooks/useConversations'
 import { ChatArea } from './ChatArea'
-import { EmptyState } from './EmptyState'
+import { FrontDoor } from './FrontDoor'
 import { InputBar } from './InputBar'
 import { AgentBar } from './agent/AgentBar'
 
@@ -71,8 +71,8 @@ export function ChatPane({
       {conversation && conversationId ? (
         <ChatArea conversation={conversation} />
       ) : (
-        <EmptyState
-          heading="Welcome to Sigma Oasis"
+        <FrontDoor
+          conversation={null}
           onPick={(prompt) => {
             createConversation()
             useAppStore.getState().setComposerPrefill(prompt)

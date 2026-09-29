@@ -299,9 +299,10 @@ export const ESCALATION_REASON_TEXT: Record<EscalationReason, string> = {
  */
 export function escalationReason(
   message: { unverified?: boolean; claimCheck?: ClaimCheckRecord },
-  stopReason: 'completed' | 'aborted' | 'iteration_cap'
+  stopReason: 'completed' | 'aborted' | 'iteration_cap' | 'paused'
 ): EscalationReason | null {
-  if (stopReason === 'aborted') return null
+  // A paused turn (v4.0: the agent asked the user) is the agent's, never a chat's; nothing to escalate.
+  if (stopReason === 'aborted' || stopReason === 'paused') return null
   if (stopReason === 'iteration_cap') return 'iteration_cap'
   if (message.claimCheck?.claims.some((c) => c.verdict === 'contradicted')) return 'contradicted'
   if (message.unverified) return 'unverified'

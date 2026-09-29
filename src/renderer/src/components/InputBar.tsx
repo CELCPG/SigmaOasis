@@ -9,6 +9,7 @@ import { turnContextUsage } from '../hooks/turnHelpers'
 import { thinkHarderNote } from '../lib/deliberation'
 import type { Attachment } from '../types'
 import { SettingsLink } from './settings/SettingsLink'
+import { inboxNote } from '../../../shared/slashCommands'
 
 type MicState = 'idle' | 'recording' | 'transcribing'
 
@@ -204,6 +205,28 @@ export function InputBar(): JSX.Element {
   const onDrop = async (e: React.DragEvent): Promise<void> => {
     e.preventDefault()
     setDragOver(false)
+    const paths = droppedPaths(e)
+    if (paths.length > 0) addResult(await window.api.loadAttachments(paths))
+  }
+
+  // C6 (v4.0, an experiment): files dropped on an agent chat go to the folder's inbox, and the composer says where.
+  const onAgentDrop = async (e: React.DragEvent): Promise<void> => {
+    e.preventDefault()
+    setDragOver(false)
+    if (!settings?.agent.experiments?.inbox || !activeConvo?.agent) return
+    const paths = droppedPaths(e)
+    if (paths.length === 0) return
+    const r = await window.api.agentInbox(activeConvo.agent.workspace, paths)
+    if (r.error) {
+      setNotice(r.error)
+      setTimeout(() => setNotice(null), 4000)
+      return
+    }
+    const note = inboxNote(r)
+    if (note) setText((t) => (t.trim() ? `${t.trimEnd()}\n${note}` : note))
+  }
+
+  const droppedPaths = (e: React.DragEvent): string[] => {
     const paths = Array.from(e.dataTransfer.files)
       .map((f) => {
         try {
@@ -232,7 +255,7 @@ export function InputBar(): JSX.Element {
         }
       }
     }
-    if (paths.length > 0) addResult(await window.api.loadAttachments(paths))
+    return paths
   }
 
   const removeAttachment = (id: string): void =>
@@ -359,7 +382,7 @@ export function InputBar(): JSX.Element {
             setDragOver(true)
           }}
           onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => (isAgent ? e.preventDefault() : void onDrop(e))}
+          onDrop={(e) => (isAgent ? void onAgentDrop(e) : void onDrop(e))}
           // Named properties, not transition-all: the shell's height is driven
           // by the textarea gliding inside it, and a blanket transition made
           // the border chase that growth a frame behind the box it outlines.
@@ -434,6 +457,7 @@ export function InputBar(): JSX.Element {
                 disabled={streaming}
                 className={GHOST_BUTTON}
                 title="Attach images, text files or PDFs (or drop them here)"
+                aria-label="Attach files"
               >
                 📎
               </button>
@@ -454,6 +478,7 @@ export function InputBar(): JSX.Element {
                     ? 'Transcribing locally…'
                     : 'Push-to-talk (local whisper.cpp transcription)'
               }
+              aria-label={micState === 'recording' ? `Stop recording, ${recSeconds} seconds so far` : micState === 'transcribing' ? 'Transcribing' : 'Push to talk'}
             >
               {micState === 'recording'
                 ? `🔴 ${recSeconds}s`
@@ -476,6 +501,8 @@ export function InputBar(): JSX.Element {
                     ? 'Plan mode on — your message becomes a step-by-step plan you approve before it runs'
                     : 'Plan mode — break the task into steps, approve, then execute (Settings → Appearance & chat)'
                 }
+                aria-label={planned ? 'Plan mode on' : 'Plan mode'}
+                aria-pressed={planned}
               >
                 {planned ? '📋 Plan' : '📋'}
               </button>
@@ -490,6 +517,8 @@ export function InputBar(): JSX.Element {
                     ? 'flex h-9 shrink-0 items-center justify-center rounded-full border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.15)] px-3 text-sm text-accent-ink transition-colors disabled:opacity-40'
                     : GHOST_BUTTON
                 }
+                aria-label={deliberate ? 'Think harder on' : 'Think harder'}
+                aria-pressed={deliberate}
                 title={
                   (deliberate
                     ? 'Think harder on — the reply is reviewed by another role (or by itself, labelled) and revised once before you see the final version'

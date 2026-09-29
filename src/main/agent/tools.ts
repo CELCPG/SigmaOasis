@@ -1,10 +1,12 @@
 import { promises as fs } from 'fs'
-import { dirname } from 'path'
+import { basename, dirname, join, relative, sep } from 'path'
 import { describeStats, unifiedDiff } from '../../shared/patch'
 import { declinedCall } from '../../shared/tools/outcomes'
 import { dangerousCommandWarning } from '../../shared/commandDanger'
 import { applyEdit } from './editMatch'
+import { changedSpan, digestCommandOutput, editedWindow, groupGrepOutput } from './digests'
 import { runCommand } from './command'
+import { documentKind, readDocument, writeDocument, type Sheet } from './documents'
 import {
   assertWritableInside,
   globToRegExp,
@@ -15,7 +17,7 @@ import {
   walkFiles,
   WorkspaceError
 } from './workspace'
-import type { AgentHost, Checkpoint, PermissionMode, ShellSpec, SubagentType, TodoItem, ToolResult, ToolSchema } from './types'
+import type { AgentExperiments, AgentHost, Checkpoint, PermissionMode, ShellSpec, SubagentType, TodoItem, ToolResult, ToolSchema } from './types'
 
 /**
  * The agent's workspace tools (v3.0): find, read, change, run, keep a list.
@@ -33,20 +35,22 @@ import type { AgentHost, Checkpoint, PermissionMode, ShellSpec, SubagentType, To
 export const READ_DEFAULT_LINES = 400
 const READ_MAX_BYTES = 5 * 1024 * 1024
 const READ_LINE_CHARS = 1_000
+/** v3.1 (M2): files a single read_file may add beside its path. */
+export const READ_MORE_PATHS = 3
 const GLOB_MAX = 200
 const GREP_MAX_MATCHES = 120
 const GREP_MAX_FILE_BYTES = 2 * 1024 * 1024
 const LIST_MAX = 300
 
 /** Tools that change the workspace or run something; not offered read-only. */
-export const WRITING_TOOLS = new Set(['edit_file', 'write_file', 'run_command'])
+export const WRITING_TOOLS = new Set(['edit_file', 'write_file', 'run_command', 'write_document', 'move_file', 'copy_file', 'make_directory', 'delete_file'])
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
   type: 'function',
   function: { name, description, parameters: { type: 'object', properties, required } }
 })
 
-export function workspaceToolSchemas(shell: ShellSpec, commandTimeoutSec: number): ToolSchema[] {
+export function workspaceToolSchemas(shell: ShellSpec, commandTimeoutSec: number, experiments?: Partial<AgentExperiments>): ToolSchema[] {
   return [
     fn(
       'list_directory',
@@ -81,7 +85,17 @@ export function workspaceToolSchemas(shell: ShellSpec, commandTimeoutSec: number
       {
         path: { type: 'string', description: 'File path relative to the workspace.' },
         offset: { type: 'number', description: 'First line to read, starting at 1.' },
-        limit: { type: 'number', description: `How many lines to read (default ${READ_DEFAULT_LINES}).` }
+        limit: { type: 'number', description: `How many lines to read (default ${READ_DEFAULT_LINES}).` },
+        // A1 (v4.0): offered only while the multi-read experiment is on; the chat's pinned tool list never moves either way.
+        ...(experiments?.multiRead
+          ? {
+              more_paths: {
+                type: 'array',
+                items: { type: 'string' },
+                description: `Up to ${READ_MORE_PATHS} more files to read in the same call, each from its first line — for a first look at several files at once.`
+              }
+            }
+          : {})
       },
       ['path']
     ),
@@ -113,7 +127,56 @@ export function workspaceToolSchemas(shell: ShellSpec, commandTimeoutSec: number
         timeout_seconds: { type: 'number', description: 'Time limit in seconds (max 600).' }
       },
       ['command']
-    )
+    ),
+    // C1 (v4.0, an experiment): documents — the files people actually have.
+    ...(experiments?.documents
+      ? [
+          fn(
+            'read_document',
+            'Read a document as text: .docx (headings, paragraphs, bullets, tables), .xlsx (every sheet as a table), .pptx (slide by slide), .pdf, .csv, .md, .txt. For source and other text files use read_file.',
+            { path: { type: 'string', description: 'File path relative to the workspace.' } },
+            ['path']
+          ),
+          fn(
+            'write_document',
+            'Create or replace a document whole. .docx from Markdown content (headings with #, bullets with -, tables with |); .md and .txt from content; .xlsx from sheets ([{ name, rows }], rows as arrays of text, numbers or booleans) or from CSV content; .csv from sheets or content. Read an existing document first. The user sees the diff of what the document says.',
+            {
+              path: { type: 'string', description: 'File path relative to the workspace, ending in .docx, .xlsx, .csv, .md or .txt.' },
+              content: { type: 'string', description: 'Markdown (.docx, .md, .txt) or CSV text (.xlsx, .csv).' },
+              sheets: {
+                type: 'array',
+                description: 'For .xlsx or .csv: the sheets, each { name, rows }.',
+                items: { type: 'object', properties: { name: { type: 'string' }, rows: { type: 'array', items: { type: 'array' } } } }
+              }
+            },
+            ['path']
+          )
+        ]
+      : []),
+    // C2 (v4.0, an experiment): folder chores, typed so no command is needed for them.
+    ...(experiments?.chores
+      ? [
+          fn(
+            'move_file',
+            'Move or rename a file or a folder inside the workspace. The destination must not exist yet. The user sees it; Undo reverses it.',
+            { from: { type: 'string', description: 'The path now, relative to the workspace.' }, to: { type: 'string', description: 'The new path, relative to the workspace.' } },
+            ['from', 'to']
+          ),
+          fn(
+            'copy_file',
+            'Copy one file inside the workspace. The destination must not exist yet.',
+            { from: { type: 'string', description: 'The file to copy.' }, to: { type: 'string', description: 'Where the copy goes.' } },
+            ['from', 'to']
+          ),
+          fn('make_directory', 'Create a folder (and any missing parents) inside the workspace.', { path: { type: 'string', description: 'Folder path relative to the workspace.' } }, ['path']),
+          fn(
+            'delete_file',
+            'Send one file to the trash. It is never removed outright, and Undo restores it. For a folder, delete its files one by one or move it.',
+            { path: { type: 'string', description: 'File path relative to the workspace.' } },
+            ['path']
+          )
+        ]
+      : [])
   ]
 }
 
@@ -135,6 +198,17 @@ export const TODO_SCHEMA: ToolSchema = fn(
     }
   },
   ['todos']
+)
+
+/** v4.0 (A6, an experiment): a question for the user; the task pauses on it. */
+export const ASK_USER_SCHEMA: ToolSchema = fn(
+  'ask_user',
+  'Ask the user one question when the task cannot go on without their answer — a choice between real alternatives, or a fact only they know. The task pauses and their answer arrives as your next message. Do not ask what you could find out with your tools, and do not ask for permission to do what the task already says.',
+  {
+    question: { type: 'string', description: 'The question, in one or two sentences.' },
+    choices: { type: 'array', items: { type: 'string' }, description: 'Optional: up to six short answers to pick from.' }
+  },
+  ['question']
 )
 
 export function taskSchema(types: readonly SubagentType[]): ToolSchema {
@@ -175,6 +249,8 @@ export interface ToolboxOptions {
   commandTimeoutSec: number
   state: TaskState
   signal: AbortSignal
+  /** v4.0: the experiments on for this task; absent means none. */
+  experiments?: Partial<AgentExperiments>
 }
 
 /** A tool's answer, with what the record shows when it differs from what the model is handed. */
@@ -192,7 +268,7 @@ export class Toolbox {
   /** The workspace tools this agent may be offered, before todo/task/extra tools. */
   schemas(): ToolSchema[] {
     if (!this.o.root) return []
-    const all = workspaceToolSchemas(this.o.shell, this.o.commandTimeoutSec)
+    const all = workspaceToolSchemas(this.o.shell, this.o.commandTimeoutSec, this.o.experiments)
     return this.o.permission === 'readOnly' ? all.filter((s) => !WRITING_TOOLS.has(s.function.name)) : all
   }
 
@@ -207,14 +283,29 @@ export class Toolbox {
           return await this.listDirectory(args)
         case 'glob':
           return await this.glob(args)
-        case 'grep':
-          return await this.grep(args)
+        case 'grep': {
+          // A2 (v4.0, an experiment): hits grouped by file, the busiest first.
+          const r = await this.grep(args)
+          return this.o.experiments?.digests && r.ok && r.output ? { ...r, output: groupGrepOutput(r.output) } : r
+        }
         case 'read_file':
           return await this.readFile(args)
         case 'edit_file':
           return await this.editFile(args, callId)
         case 'write_file':
           return await this.writeFile(args, callId)
+        case 'read_document':
+          return await this.readDocument(args)
+        case 'write_document':
+          return await this.writeDocument(args, callId)
+        case 'move_file':
+          return await this.moveFile(args, callId, false)
+        case 'copy_file':
+          return await this.moveFile(args, callId, true)
+        case 'make_directory':
+          return await this.makeDirectory(args)
+        case 'delete_file':
+          return await this.deleteFile(args, callId)
         case 'run_command':
           return await this.runCommand(args)
         case 'todo_write':
@@ -365,7 +456,32 @@ export class Toolbox {
     return { ok: true, output: [...out, ...notes].join('\n') }
   }
 
+  /**
+   * v3.1 (M2): `more_paths` reads several files in one call, each windowed as
+   * a single read is, each under its own header; one that cannot be read says
+   * why in its place and does not fail the others. Only the agent's own schema
+   * changes — the chat's pinned tool list does not move.
+   */
   private async readFile(args: Record<string, unknown>): Promise<ToolboxResult> {
+    const more =
+      this.o.experiments?.multiRead && Array.isArray(args.more_paths)
+        ? args.more_paths.filter((p): p is string => typeof p === 'string' && p.trim() !== '').slice(0, READ_MORE_PATHS)
+        : []
+    if (more.length === 0) return this.readOneFile(args)
+    const parts: string[] = []
+    let anyOk = false
+    for (const [i, path] of [args.path, ...more].entries()) {
+      const one = await this.readOneFile(i === 0 ? args : { path }).catch((err: unknown) => ({
+        ok: false as const,
+        error: err instanceof Error ? err.message : String(err)
+      }))
+      anyOk ||= one.ok
+      parts.push(`=== ${String(path)} ===\n${one.ok ? one.output : `(not read: ${one.error})`}`)
+    }
+    return anyOk ? { ok: true, output: parts.join('\n\n') } : { ok: false, error: parts.join('\n\n') }
+  }
+
+  private async readOneFile(args: Record<string, unknown>): Promise<ToolboxResult> {
     const root = this.root()
     const abs = resolveInside(root, args.path)
     const s = await fs.stat(abs)
@@ -412,12 +528,16 @@ export class Toolbox {
     if (!this.o.state.checkpoints.has(rel)) this.o.state.checkpoints.set(rel, { path: rel, before: original, after: null })
     await fs.mkdir(dirname(abs), { recursive: true })
     await fs.writeFile(abs, next, 'utf8')
-    this.o.state.checkpoints.get(rel)!.after = next
+    this.recordAfter(rel, Buffer.from(next, 'utf8'))
     this.readPaths.add(abs)
     this.o.host.emit({ type: 'files_changed', paths: [...this.o.state.checkpoints.keys()] })
+    // A2 (v4.0, an experiment): the lines around the change, numbered as
+    // read_file numbers them, so the model sees what landed without a re-read.
+    const span = this.o.experiments?.digests && original !== null ? changedSpan(original, next) : null
+    const window = span ? `\n\n${editedWindow(next, span.from, span.to)}` : ''
     return {
       ok: true,
-      output: `${verb} ${rel}: ${summary}.`,
+      output: `${verb} ${rel}: ${summary}.${window}`,
       display: `Applied to ${rel}: ${summary}.\n\n${diff}`
     }
   }
@@ -482,8 +602,194 @@ export class Toolbox {
       : r.timedOut
         ? `stopped at the ${seconds} s time limit`
         : `exit code ${r.exitCode ?? '?'}`
-    const text = `$ ${command}\n${r.output || '(no output)'}\n(${status}, ${(r.ms / 1000).toFixed(1)} s${approval === 'granted' ? ', run under a standing grant' : ''})`
+    // A2 (v4.0, an experiment): a test runner's output with its totals and failures first.
+    const shown = this.o.experiments?.digests && r.output ? digestCommandOutput(r.output) : r.output || '(no output)'
+    const text = `$ ${command}\n${shown}\n(${status}, ${(r.ms / 1000).toFixed(1)} s${approval === 'granted' ? ', run under a standing grant' : ''})`
     return r.exitCode === 0 && !r.timedOut && !r.aborted ? { ok: true, output: text } : { ok: false, error: text }
+  }
+
+  // ---- C1 (v4.0, an experiment): documents ----------------------------------------
+
+  private async readDocument(args: Record<string, unknown>): Promise<ToolboxResult> {
+    const root = this.root()
+    const abs = resolveInside(root, args.path)
+    const rel = relPath(root, abs)
+    const s = await fs.stat(abs)
+    if (s.isDirectory()) return { ok: false, error: `${rel} is a folder; use list_directory.` }
+    if (s.size > READ_MAX_BYTES) return { ok: false, error: `${rel} is ${formatSize(s.size)} — too large to read whole.` }
+    const bytes = await fs.readFile(abs)
+    let text: string
+    try {
+      text = await readDocument(abs, bytes, this.o.host.readPdf)
+    } catch (err) {
+      return { ok: false, error: `${rel}: ${err instanceof Error ? err.message : String(err)}` }
+    }
+    this.readPaths.add(abs)
+    if (!text.trim()) return { ok: true, output: `${rel} has no text.` }
+    const clipped = text.length > DOCUMENT_MAX_CHARS ? `${text.slice(0, DOCUMENT_MAX_CHARS)}\n… (${(text.length - DOCUMENT_MAX_CHARS).toLocaleString('en-US')} more characters)` : text
+    return { ok: true, output: `${rel} (${documentKind(abs).slice(1)}, ${formatSize(s.size)}):\n${clipped}` }
+  }
+
+  private async writeDocument(args: Record<string, unknown>, callId: string): Promise<ToolboxResult> {
+    const root = this.root()
+    const abs = resolveInside(root, args.path)
+    const rel = relPath(root, abs)
+    let next: Buffer
+    try {
+      next = writeDocument(abs, { content: typeof args.content === 'string' ? args.content : undefined, sheets: Array.isArray(args.sheets) ? (args.sheets as Sheet[]) : undefined })
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+    let original: Buffer | null = null
+    try {
+      original = await fs.readFile(abs)
+    } catch {
+      original = null
+    }
+    if (original !== null && !this.readPaths.has(abs)) return { ok: false, error: `${rel} already exists. Read it with read_document first, then write it whole.` }
+    if (original !== null && original.equals(next)) return { ok: true, output: `No change: ${rel} already says that.` }
+    const says = async (bytes: Buffer | null): Promise<string> => (bytes === null ? '' : readDocument(abs, bytes, this.o.host.readPdf).catch(() => '(unreadable)'))
+    return this.commitBytes(abs, original, next, callId, 'Wrote', await says(original), await says(next))
+  }
+
+  /**
+   * The bytes door of `commit`: a document, checkpointed as base64 and
+   * reviewed as the diff of what it says rather than of its bytes.
+   */
+  private async commitBytes(abs: string, original: Buffer | null, next: Buffer, callId: string, verb: 'Wrote', beforeText: string, afterText: string): Promise<ToolboxResult> {
+    const root = this.root()
+    const rel = relPath(root, abs)
+    await assertWritableInside(root, abs)
+    const isNew = original === null
+    const { diff, stats } = unifiedDiff(beforeText, afterText, rel)
+    const summary = describeStats(stats, isNew)
+    const approved = this.o.permission === 'acceptEdits' ? true : await this.o.host.reviewEdit({ callId, path: rel, isNew, diff, stats })
+    if (this.o.signal.aborted) return { ok: false, error: declinedCall('the task was stopped before this change was written, so nothing changed.') }
+    if (!approved) {
+      const error = declinedCall(`the user discarded this change to ${rel}, so the file is unchanged.`, 'Do not propose the same change again; ask what they want instead, or take a different approach.')
+      return { ok: false, error, display: `${error}\n\n${diff}` }
+    }
+    this.checkpointBytes(rel, original)
+    await fs.mkdir(dirname(abs), { recursive: true })
+    await fs.writeFile(abs, next)
+    this.recordAfter(rel, next)
+    this.readPaths.add(abs)
+    this.o.host.emit({ type: 'files_changed', paths: [...this.o.state.checkpoints.keys()] })
+    return { ok: true, output: `${verb} ${rel}: ${summary}.`, display: `Applied to ${rel}: ${summary}.\n\n${diff}` }
+  }
+
+  /** Checkpoint a file's bytes (base64) before its first change this task; an existing checkpoint, text or bytes, is kept. */
+  private checkpointBytes(rel: string, original: Buffer | null): void {
+    if (this.o.state.checkpoints.has(rel)) return
+    this.o.state.checkpoints.set(rel, { path: rel, before: original === null ? null : original.toString('base64'), after: null, encoding: 'base64' })
+  }
+
+  /** What the task last wrote at `rel`, in the checkpoint's own encoding. */
+  private recordAfter(rel: string, bytes: Buffer | null): void {
+    const cp = this.o.state.checkpoints.get(rel)
+    if (!cp) return
+    cp.after = bytes === null ? null : cp.encoding === 'base64' ? bytes.toString('base64') : bytes.toString('utf8')
+  }
+
+  // ---- C2 (v4.0, an experiment): folder chores ---------------------------------------
+
+  /** Approval for a chore in *Ask first*: shown through the edit review, as one line saying what moves. */
+  private async approveChore(callId: string, path: string, line: string): Promise<boolean> {
+    if (this.o.permission === 'acceptEdits') return true
+    return this.o.host.reviewEdit({ callId, path, isNew: true, diff: line, stats: { added: 0, removed: 0, hunks: 0 } })
+  }
+
+  private async moveFile(args: Record<string, unknown>, callId: string, copy: boolean): Promise<ToolboxResult> {
+    const root = this.root()
+    const from = resolveInside(root, args.from)
+    const to = resolveInside(root, args.to)
+    const relFrom = relPath(root, from)
+    const relTo = relPath(root, to)
+    const verb = copy ? 'Copy' : 'Move'
+    if (from === to) return { ok: false, error: 'from and to are the same path.' }
+    let st: import('fs').Stats
+    try {
+      st = await fs.stat(from)
+    } catch {
+      return { ok: false, error: `${relFrom} does not exist. Use glob or list_directory to find the right path.` }
+    }
+    if (await exists(to)) return { ok: false, error: `${relTo} already exists; choose another name, or delete it first.` }
+    await assertWritableInside(root, to)
+    if (st.isDirectory()) {
+      if (copy) return { ok: false, error: `${relFrom} is a folder; copy_file copies one file. Copy its files one at a time.` }
+      const files = await filesUnder(from)
+      if (files.length > MOVE_MAX_FILES) return { ok: false, error: `${relFrom} holds ${files.length} files; move at most ${MOVE_MAX_FILES} at once (move its sub-folders one at a time).` }
+      if (!(await this.approveChore(callId, relTo, `Move ${relFrom}/ → ${relTo}/ (${files.length} file${files.length === 1 ? '' : 's'})`))) return this.declinedChore(`${verb.toLowerCase()} ${relFrom}`)
+      for (const f of files) {
+        const bytes = await fs.readFile(join(from, f))
+        this.checkpointBytes(`${relFrom}/${f}`, bytes)
+        this.recordAfter(`${relFrom}/${f}`, null)
+        this.checkpointBytes(`${relTo}/${f}`, null)
+        this.recordAfter(`${relTo}/${f}`, bytes)
+      }
+      await fs.mkdir(dirname(to), { recursive: true })
+      await fs.rename(from, to)
+      this.o.host.emit({ type: 'files_changed', paths: [...this.o.state.checkpoints.keys()] })
+      return { ok: true, output: `Moved ${relFrom}/ → ${relTo}/ (${files.length} file${files.length === 1 ? '' : 's'}).` }
+    }
+    if (!(await this.approveChore(callId, relTo, `${verb} ${relFrom} → ${relTo}`))) return this.declinedChore(`${verb.toLowerCase()} ${relFrom}`)
+    const bytes = await fs.readFile(from)
+    if (!copy) {
+      this.checkpointBytes(relFrom, bytes)
+      this.recordAfter(relFrom, null)
+    }
+    this.checkpointBytes(relTo, null)
+    this.recordAfter(relTo, bytes)
+    await fs.mkdir(dirname(to), { recursive: true })
+    if (copy) await fs.copyFile(from, to)
+    else await fs.rename(from, to)
+    this.readPaths.add(to)
+    this.o.host.emit({ type: 'files_changed', paths: [...this.o.state.checkpoints.keys()] })
+    return { ok: true, output: `${copy ? 'Copied' : 'Moved'} ${relFrom} → ${relTo}.` }
+  }
+
+  private declinedChore(what: string): ToolboxResult {
+    return { ok: false, error: declinedCall(`the user declined to ${what}, so nothing moved.`, 'Do not try it again; ask what they want instead.') }
+  }
+
+  private async makeDirectory(args: Record<string, unknown>): Promise<ToolboxResult> {
+    const root = this.root()
+    const abs = resolveInside(root, args.path)
+    const rel = relPath(root, abs)
+    await assertWritableInside(root, abs)
+    if (await exists(abs)) return { ok: true, output: `${rel}/ already exists.` }
+    await fs.mkdir(abs, { recursive: true })
+    return { ok: true, output: `Created ${rel}/.` }
+  }
+
+  private async deleteFile(args: Record<string, unknown>, callId: string): Promise<ToolboxResult> {
+    const root = this.root()
+    const abs = resolveInside(root, args.path)
+    const rel = relPath(root, abs)
+    let st: import('fs').Stats
+    try {
+      st = await fs.stat(abs)
+    } catch {
+      return { ok: false, error: `${rel} does not exist.` }
+    }
+    if (st.isDirectory()) return { ok: false, error: `${rel} is a folder; delete_file takes one file. Delete its files one by one, or move the folder.` }
+    await assertWritableInside(root, abs)
+    const bytes = await fs.readFile(abs)
+    if (!(await this.approveChore(callId, rel, `Delete ${rel} (to the trash; Undo restores it)`))) return this.declinedChore(`delete ${rel}`)
+    this.checkpointBytes(rel, bytes)
+    this.recordAfter(rel, null)
+    let where: string
+    if (this.o.host.trash) {
+      await this.o.host.trash(abs)
+      where = 'the system trash'
+    } else {
+      const trashDir = join(root, '.sigma', 'trash')
+      await fs.mkdir(trashDir, { recursive: true })
+      await fs.rename(abs, join(trashDir, `${Date.now()}-${basename(abs)}`))
+      where = '.sigma/trash/'
+    }
+    this.o.host.emit({ type: 'files_changed', paths: [...this.o.state.checkpoints.keys()] })
+    return { ok: true, output: `Deleted ${rel} (to ${where}; Undo restores it).` }
   }
 
   private todoWrite(args: Record<string, unknown>): ToolboxResult {
@@ -512,6 +818,34 @@ export class Toolbox {
       output: `Checklist updated: ${done} of ${todos.length} done${active[0] ? `; now: ${active[0].content}` : ''}.${nudge}`
     }
   }
+}
+
+/** What read_document hands the model at most; a longer document says how much more there is. */
+const DOCUMENT_MAX_CHARS = 60_000
+/** Files a single folder move may carry. */
+const MOVE_MAX_FILES = 500
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await fs.stat(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Every file under `dir`, as `/`-separated paths relative to it. */
+async function filesUnder(dir: string): Promise<string[]> {
+  const out: string[] = []
+  const walk = async (d: string): Promise<void> => {
+    for (const e of await fs.readdir(d, { withFileTypes: true })) {
+      const abs = join(d, e.name)
+      if (e.isDirectory()) await walk(abs)
+      else if (e.isFile()) out.push(relative(dir, abs).split(sep).join('/'))
+    }
+  }
+  await walk(dir)
+  return out.sort()
 }
 
 function formatSize(bytes: number): string {

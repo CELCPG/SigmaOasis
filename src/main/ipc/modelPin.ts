@@ -147,9 +147,12 @@ export function pinChatModel(model: string): Promise<void> {
     }
 
     // Preferred: the current REST API, whose TTL makes the pin self-cleaning.
+    // v4.0: a slot marked *Keep loaded* (Settings → Roles) pins for a month
+    // idle rather than an hour, so the app's own embedding calls and another
+    // client's requests do not evict it between sessions.
     const modern = await postLoad(`${root}/api/v0/models/load`, {
       model: trimmed,
-      ttl: 3600
+      ttl: keepLoadedTtl(trimmed, settings.models)
     })
     if (modern === 'ok') return
 
@@ -170,6 +173,68 @@ export function pinChatModel(model: string): Promise<void> {
   })()
   attempts.set(key, attempt)
   return attempt
+}
+
+/** An hour idle by default; a month for a slot the user asked to keep loaded. */
+export const PIN_TTL_S = 3600
+export const KEEP_LOADED_TTL_S = 30 * 24 * 3600
+export function keepLoadedTtl(model: string, slots: readonly { modelId: string; keepLoaded?: boolean; enabled: boolean }[] | undefined): number {
+  // A settings object with no slots (a test's stub, a cold store) keeps the hour.
+  return (slots ?? []).some((s) => s.enabled && s.modelId === model && s.keepLoaded) ? KEEP_LOADED_TTL_S : PIN_TTL_S
+}
+
+/**
+ * v4.0 (E2): load or unload a model on the user's click, from Settings →
+ * LM Studio. The same two routes the pin uses, tried in the same order; the
+ * outcome is a sentence for the row, never a throw.
+ */
+export async function loadModel(model: string): Promise<{ ok: boolean; detail: string }> {
+  const trimmed = model.trim()
+  if (!trimmed) return { ok: false, detail: 'No model named.' }
+  const settings = getSettings()
+  const root = restApiRoot(settings.baseUrl)
+  if (await isAlreadyLoaded(root, trimmed)) return { ok: true, detail: 'Already loaded.' }
+  const modern = await postLoad(`${root}/api/v0/models/load`, { model: trimmed, ttl: keepLoadedTtl(trimmed, settings.models) })
+  if (modern === 'ok') {
+    attempts.delete(`${root}::${trimmed}`)
+    return { ok: true, detail: 'Loaded.' }
+  }
+  if (modern === 'missing') {
+    const legacy = await postLoad(`${root}/api/v1/models/load`, { model: trimmed })
+    if (legacy === 'ok') {
+      legacyPins.add(trimmed)
+      return { ok: true, detail: 'Loaded (an older LM Studio: unloaded again when the app quits).' }
+    }
+    if (legacy === 'missing') return { ok: false, detail: 'This LM Studio has no load route; load it in LM Studio itself.' }
+    if (legacy === 'refused') return { ok: false, detail: 'LM Studio refused: not enough memory for it.' }
+    return { ok: false, detail: 'LM Studio did not load it; its server log says why.' }
+  }
+  if (modern === 'refused') return { ok: false, detail: 'LM Studio refused: not enough memory for it.' }
+  return { ok: false, detail: 'LM Studio did not load it; its server log says why.' }
+}
+
+export async function unloadModel(model: string): Promise<{ ok: boolean; detail: string }> {
+  const trimmed = model.trim()
+  if (!trimmed) return { ok: false, detail: 'No model named.' }
+  const root = restApiRoot(getSettings().baseUrl)
+  for (const url of [`${root}/api/v0/models/unload`, `${root}/api/v1/models/unload`]) {
+    try {
+      const res = await auditedFetch(
+        url,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: trimmed, instance_id: trimmed }), timeoutMs: UNLOAD_TIMEOUT_MS },
+        'lmstudio'
+      )
+      const text = await res.text().catch(() => '')
+      if (res.ok && !text.includes('Unexpected endpoint')) {
+        legacyPins.delete(trimmed)
+        attempts.delete(`${root}::${trimmed}`)
+        return { ok: true, detail: 'Unloaded.' }
+      }
+    } catch {
+      // try the next route
+    }
+  }
+  return { ok: false, detail: 'LM Studio did not unload it; unload it in LM Studio itself.' }
 }
 
 /** Whether quitting should wait for legacy unloads. */
@@ -213,4 +278,7 @@ export function registerModelPinHandlers(): void {
     if (typeof model === 'string') await pinChatModel(model)
     return true
   })
+  // v4.0 (E2): the user's own Load and Unload, from Settings → LM Studio.
+  ipcMain.handle('models:load', (_e, model: unknown) => loadModel(String(model ?? '')))
+  ipcMain.handle('models:unload', (_e, model: unknown) => unloadModel(String(model ?? '')))
 }

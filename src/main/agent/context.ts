@@ -28,6 +28,17 @@ export const CHARS_PER_TOKEN = 3.5
 export const KEEP_RECENT_RESULTS = 4
 /** Assumed when the host does not know the loaded window. */
 export const DEFAULT_CONTEXT_TOKENS = 32_768
+/**
+ * v3.1 (M2): once over budget, elide down to this share of it, not just under
+ * it. A local server reuses its prompt cache only up to the first token that
+ * changed, and each elision rewrites a message near the history's start — so
+ * trimming to just under the line meant the next round's output crossed it
+ * again, the next-oldest result went, and every round from then on re-read
+ * nearly the whole history. Trimming to 70% changes the start once every
+ * several rounds. Rounds are still dropped only to get under the budget
+ * itself: they are what cannot be fetched again.
+ */
+export const LOW_WATER = 0.7
 
 const ELIDED_PREFIX = '[Earlier output of '
 
@@ -68,10 +79,12 @@ export interface FitResult {
  * Fit `messages` (mutated in place) under `budgetTokens`, given `fixedChars`
  * of tool schemas that ride every request.
  */
-export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedChars = 0): FitResult {
+export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedChars = 0, lowWaterShare = LOW_WATER): FitResult {
   const result: FitResult = { elided: 0, chars: 0, droppedRounds: 0, stillOver: false }
-  const over = (): boolean => estimateTokens(messages, fixedChars) > budgetTokens
+  const over = (limit = budgetTokens): boolean => estimateTokens(messages, fixedChars) > limit
   if (!over()) return result
+  // v4.0: the low-water mark is the A1 experiment; the engine passes 1 (elide to just under the budget, as 3.0 did) while it is off.
+  const lowWater = Math.floor(budgetTokens * lowWaterShare)
 
   // The tool name for each call id, so an elision note can say what it was.
   const nameOf = new Map<string, string>()
@@ -80,7 +93,7 @@ export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedCh
   const toolIdx = messages.map((m, i) => (m.role === 'tool' ? i : -1)).filter((i) => i >= 0)
   const elidable = toolIdx.slice(0, Math.max(0, toolIdx.length - KEEP_RECENT_RESULTS))
   for (const i of elidable) {
-    if (!over()) return result
+    if (!over(lowWater)) return result
     const m = messages[i]!
     if (typeof m.content !== 'string' || m.content.startsWith(ELIDED_PREFIX) || m.content.length < 400) continue
     const name = nameOf.get(m.tool_call_id ?? '') ?? 'a tool'
@@ -118,3 +131,22 @@ export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedCh
 
 export const DROPPED_NOTE =
   '[Earlier rounds of this task were removed to fit the context window. Your checklist and the files on disk are the record of what was done; re-read anything you need.]'
+
+/**
+ * v4.0 (A4): replace every sizeable tool result before `index` with the
+ * elision note, whether or not the budget demands it — a finished step's
+ * output, set aside so the next step starts clean. Returns how many.
+ */
+export function setAsideBefore(messages: ApiMessage[], index: number): number {
+  const nameOf = new Map<string, string>()
+  for (const m of messages) for (const c of m.tool_calls ?? []) nameOf.set(c.id, c.function.name)
+  let count = 0
+  for (let i = 0; i < Math.min(index, messages.length); i++) {
+    const m = messages[i]!
+    if (m.role !== 'tool' || typeof m.content !== 'string' || m.content.startsWith(ELIDED_PREFIX) || m.content.length < 400) continue
+    const name = nameOf.get(m.tool_call_id ?? '') ?? 'a tool'
+    m.content = `${ELIDED_PREFIX}${name} set aside: that step is done (${m.content.length.toLocaleString('en-US')} characters). Call it again if you still need it.]`
+    count++
+  }
+  return count
+}

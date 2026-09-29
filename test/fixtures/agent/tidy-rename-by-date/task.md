@@ -1,0 +1,1 @@
+Rename each note in Notes/ whose first line is "Date: YYYY-MM-DD" to YYYY-MM-DD-<original name> (so meeting.md dated 2026-03-04 becomes 2026-03-04-meeting.md). Leave a note with no date line exactly as it is, and do not change any note's content.

@@ -34,6 +34,7 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { defaultShell } from '../src/main/agent/command'
+import { describeGpu, machineMoved, readGpuSync } from './gpuHealth'
 import {
   describeRun,
   formatSummary,
@@ -113,7 +114,10 @@ async function main(): Promise<void> {
 
   console.log(`agent eval · ${cases.length} case${cases.length === 1 ? '' : 's'} × ${passes} pass${passes === 1 ? '' : 'es'} · ${BASE_URL} · shell: ${shell.name}`)
   console.log('caveats: temperature 0; commands limited to each case\'s test runner; one model loaded at a time.')
-  console.log('Close other LM Studio clients (a Sigma Oasis window included) for the length of the run.\n')
+  console.log('Close other LM Studio clients (a Sigma Oasis window included) for the length of the run.')
+  // v4.0 (E9): the GPU's error counter, before the run and after each case.
+  let gpu = readGpuSync()
+  console.log(`${describeGpu(gpu)}\n`)
 
   const summaries: ModelSummary[] = []
   for (const model of models) {
@@ -148,8 +152,17 @@ async function main(): Promise<void> {
           signal: controller.signal,
           keep: Boolean(process.env.EVAL_KEEP)
         })
+        // A case during which the GPU's error counter moved measured the
+        // machine: excluded and named, like a run the server ended.
+        const after = readGpuSync()
+        const moved = machineMoved(gpu, after)
+        gpu = after
+        if (moved.moved) {
+          run.machine = `PCIe replay counter rose by ${moved.delta} during this case`
+          run.excluded = `the machine: ${run.machine}`
+        }
         runs.push(run)
-        console.log(describeRun(run))
+        console.log(describeRun(run) + (moved.moved ? `  [machine: ${run.machine}]` : ''))
         save()
         serverFailures = run.excluded ? serverFailures + 1 : 0
         if (serverFailures >= 2) {

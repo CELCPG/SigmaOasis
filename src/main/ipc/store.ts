@@ -2,11 +2,12 @@ import Store from 'electron-store'
 import { app, dialog, ipcMain, safeStorage } from 'electron'
 import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
-import { existsSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
 import { isLoopbackBaseUrl } from './loopback'
 import { DEFAULT_TOOL_TOGGLES, type ToolToggles } from '../../shared/tools'
+import { EXPERIMENT_KEYS } from '../agent/types'
 
 /**
  * Default settings shape. The renderer keeps a mirror of this shape in its
@@ -326,6 +327,8 @@ export interface AgentSettings {
   defaultPermission: 'ask' | 'acceptEdits' | 'readOnly'
   /** Offer the app's own tools (web search and reading, the library, Python) as enabled under Tools. */
   appTools: boolean
+  /** v4.0: the experiments (main/agent/types.ts AgentExperiments), each off until measured. */
+  experiments: Record<string, boolean>
   /** A desktop notification when a task finishes while the window is not in front. */
   notify: boolean
 }
@@ -584,7 +587,9 @@ export function defaultSettings(): AppSettings {
       commandTimeoutSec: 120,
       defaultPermission: 'ask',
       appTools: true,
-      notify: true
+      notify: true,
+      // v4.0: every experiment off. The keys are EXPERIMENT_KEYS in main/agent/types.ts; a key not listed there is dropped by the normalizer.
+      experiments: Object.fromEntries(EXPERIMENT_KEYS.map((k) => [k, false]))
     }
   }
 }
@@ -855,7 +860,9 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
         ? (settings.agent!.defaultPermission as AgentSettings['defaultPermission'])
         : 'ask',
       appTools: settings.agent?.appTools !== false,
-      notify: settings.agent?.notify !== false
+      notify: settings.agent?.notify !== false,
+      // Only known experiments, only true when written as true: a stale or misspelt key cannot switch one on.
+      experiments: Object.fromEntries(EXPERIMENT_KEYS.map((k) => [k, settings.agent?.experiments?.[k] === true]))
     }
   }
   return normalized
@@ -1206,6 +1213,55 @@ export function registerStoreHandlers(): void {
 
   // v4.0: the defaults themselves, so a Settings section can reset just its own keys.
   ipcMain.handle('store:defaultSettings', () => defaultSettings())
+
+  // v4.0 (E8): the settings as a file, for a second machine. The settings
+  // object holds no secret — the search key and MCP environment values live in
+  // the keychain, and the file names only what they are named here — so what
+  // is written is exactly what is stored, and what is read is normalized the
+  // way a cold start would normalize it.
+  ipcMain.handle('store:exportSettings', async (event) => {
+    const win = hostWindow(event.sender)
+    if (!win) return { ok: false, canceled: true }
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Export settings',
+      defaultPath: join(app.getPath('documents'), 'sigma-oasis-settings.json'),
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (canceled || !filePath) return { ok: false, canceled: true }
+    const settings = normalizeSettings({ ...defaultSettings(), ...readSettings() })
+    const payload = {
+      sigmaOasisSettings: 1,
+      exportedAt: new Date().toISOString(),
+      appVersion: app.getVersion(),
+      note: 'Every setting, no credential: the search API key and MCP environment values stay in the keychain of the machine that holds them.',
+      secretsLeftBlank: [...(readSecrets().braveApiKey ? ['braveApiKey'] : []), ...Object.keys(readSecrets().mcpEnv ?? {}).map((id) => `mcpEnv.${id}`)],
+      settings
+    }
+    writeFileSync(filePath, JSON.stringify(payload, null, 2))
+    return { ok: true, path: filePath, secretsLeftBlank: payload.secretsLeftBlank }
+  })
+  ipcMain.handle('store:importSettings', async (event) => {
+    const win = hostWindow(event.sender)
+    if (!win) return { ok: false, canceled: true }
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Import settings',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    const file = filePaths?.[0]
+    if (canceled || !file) return { ok: false, canceled: true }
+    try {
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as { sigmaOasisSettings?: number; settings?: unknown }
+      if (raw.sigmaOasisSettings !== 1 || !raw.settings || typeof raw.settings !== 'object') {
+        return { ok: false, error: 'Not a Sigma Oasis settings file.' }
+      }
+      const next = normalizeSettings({ ...defaultSettings(), ...(raw.settings as Partial<AppSettings>) } as AppSettings)
+      writeSettings(next)
+      return { ok: true, settings: next, secretsLeftBlank: (raw as { secretsLeftBlank?: string[] }).secretsLeftBlank ?? [] }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
 
   ipcMain.handle('store:resetSettings', () => {
     writeSettings(defaultSettings())

@@ -52,6 +52,8 @@ export interface ModelConfig {
   codeMode?: 'native' | 'code' | 'both'
   /** v2.7: standing operating rules, apart from the persona; appended after it every turn. */
   rules?: string
+  /** v4.0: pin this slot's model for a month idle rather than an hour, so nothing evicts it between sessions. */
+  keepLoaded?: boolean
 }
 
 /**
@@ -625,6 +627,53 @@ export interface McpServerStatus {
   stderr: string[]
 }
 
+/**
+ * v4.0: the agent's experiments — each a change to what the agent does on
+ * every task, built, tested against the scripted model, and off until
+ * `eval:agent`'s baseline exists on a sound machine and the change holds
+ * or improves it. Settings → Agent → Experiments says so beside each switch.
+ */
+export interface AgentExperiments {
+  /** A1: context fitting elides to a low-water mark so the prompt cache survives several rounds. */
+  lowWaterMark: boolean
+  /** A1: read_file takes up to three more paths in one call. */
+  multiRead: boolean
+  /** A2: tool results shaped for a small reader — test-runner digests, grouped grep, sizes, the edited window. */
+  digests: boolean
+  /** A3: thinking on the first round and after a failed check; none on a round whose last result was a read. */
+  thinkByPhase: boolean
+  /** A4: a plan round first, then one step at a time with the plan in view. */
+  planFocus: boolean
+  /** A5: a verify round the report cannot skip, and a report that cannot claim a check that did not run. */
+  verifyRound: boolean
+  /** A6: ask_user as a tool: a question pauses the task and the answer is the next message. */
+  askUser: boolean
+  /** A7: a review helper reads the diff before the report. */
+  reviewer: boolean
+  /** A8: .sigma/hooks.json — after-edit, before-command and task-end commands, each under the grant rule. */
+  hooks: boolean
+  /** A9: a task in a git repository runs in its own worktree on its own branch. */
+  worktrees: boolean
+  /** A10: .sigma/notes.md — what the agent learned about a folder, proposed as an edit. */
+  notes: boolean
+  /** C1: read_document and write_document — .docx, .xlsx, .pptx, .pdf, .csv, .md, .txt. */
+  documents: boolean
+  /** C2: move_file, copy_file, make_directory, delete_file — folder chores, checkpointed, to the trash never gone. */
+  chores: boolean
+  /** C3: recipes — a skill's agent.md, and the four the app ships, as the method for a task. */
+  recipes: boolean
+  /** C4: browse(url, instruction) — the headless renderer for pages that are applications; read-only. */
+  browse: boolean
+  /** C5: a read-only agent task as a job kind. */
+  agentJobs: boolean
+  /** C6: files dropped on an agent chat land in .sigma/inbox/. */
+  inbox: boolean
+  /** C7: slash commands from .sigma/commands/*.md, in the composer and the CLI. */
+  commands: boolean
+  /** C8: MCP servers that are on join the agent's tools under their own approval. */
+  mcpTools: boolean
+}
+
 /** v3.0: the agent workspace (mirrors main/ipc/store.ts AgentSettings). */
 export interface AgentSettings {
   maxRounds: number
@@ -632,6 +681,8 @@ export interface AgentSettings {
   defaultPermission: AgentPermission
   appTools: boolean
   notify: boolean
+  /** v4.0: every experiment off until measured. */
+  experiments: AgentExperiments
 }
 
 /**
@@ -1385,6 +1436,8 @@ export interface AgentTurnState {
   completionTokens?: number
   /** Tool results removed from the model's context to fit its window. */
   elided?: number
+  /** v4.0 (A6): the question the task paused on, with its choices. */
+  question?: { question: string; choices: string[] }
   startedAt: number
   endedAt?: number
   /** The workspace it ran in, as it was when the turn started. */

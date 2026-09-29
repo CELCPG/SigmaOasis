@@ -33,6 +33,12 @@ it does not.
   shopping proxy is required and none is set, research plans need confirmation — is not a
   failure and says why. Switching a job back on forgives its failures and runs it soon.
 
+- **A fifth kind, as an experiment (v4.0, C5).** With *A read-only agent task as a job* on under
+  Settings → Agent → Experiments, a job can run an agent task in a folder on the schedule — in
+  *Read-only*, so it cannot change a file, run a command or ask a question — and its report is the
+  digest. Twenty rounds and fifteen minutes at most. Off by default, and unmeasured, like every
+  experiment there.
+
 ## What it will not do
 
 - **Run while the app is closed.** A resident, menu-bar mode is a separate decision and would

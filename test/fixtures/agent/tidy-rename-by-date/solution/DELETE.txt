@@ -1,0 +1,3 @@
+Notes/meeting.md
+Notes/ideas.md
+Notes/retro.md

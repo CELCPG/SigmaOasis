@@ -2,7 +2,7 @@
 // asking, the shell it will use on this machine (decided silently in
 // main/agent/command.ts until now), and the sigma command as a card.
 import { useEffect, useState } from 'react'
-import type { AgentPermission, AppSettings } from '../../types'
+import type { AgentExperiments, AgentPermission, AppSettings } from '../../types'
 import type { ApplySettings } from '../../hooks/settingsApply'
 import { defineRows, registerRows } from '../../lib/settingsKit'
 import { ActionRow, Card, DangerRow, Notice, Row, Section, Segmented, Stepper, Switch, type ActionResult } from './kit'
@@ -14,6 +14,7 @@ export const ROWS = defineRows('agent', {
   appTools: { label: 'Let the agent use the app’s own tools', help: 'Web search and page reading, deep research, the reference library, memory search, dates and the Python sandbox — each only if it is enabled under Tools, and under the same privacy rules as in a chat.', keywords: ['web', 'research', 'library', 'python'] },
   notify: { label: 'Notify me when a task finishes in the background', help: 'A desktop notification, only when this window is not in front. Nothing leaves the machine.', keywords: ['notification'] },
   shell: { label: 'Shell for commands', help: 'What run_command uses on this machine, found when the app started.', keywords: ['bash', 'git bash', 'cmd', 'terminal'] },
+  experiments: { label: 'Experiments', help: 'Changes to what the agent does on every task, each built and tested against a scripted model and off until eval:agent’s baseline exists on a sound machine and the change holds or improves it. Turn one on to try it; nothing here is claimed to be better yet.', keywords: ['experimental', 'unmeasured', 'lab'] },
   cli: { label: 'The sigma command', help: 'sigma runs this same agent from any terminal, in the folder you are in — the same server, model and limits as here, approvals as terminal prompts, and nothing but LM Studio on this machine to talk to.', keywords: ['cli', 'terminal', 'install', 'path'] }
 })
 registerRows(ROWS)
@@ -22,6 +23,29 @@ const PERMISSIONS: { value: AgentPermission; label: string; hint: string }[] = [
   { value: 'ask', label: 'Ask first', hint: 'Every edit is a diff to Apply or Discard; every command asks.' },
   { value: 'acceptEdits', label: 'Accept edits', hint: 'Edits inside the folder land without asking — each diff is kept, and the task can be undone. Commands still ask.' },
   { value: 'readOnly', label: 'Read-only', hint: 'No edits and no commands: for questions and plans.' }
+]
+
+/** The experiments, in the roadmap's order, each one line of what it changes. */
+const EXPERIMENTS: { key: keyof AgentExperiments; label: string; help: string }[] = [
+  { key: 'lowWaterMark', label: 'Context fitting keeps the cache (A1)', help: 'Once over budget, old tool output is set aside down to 70% of the window, so the history’s start moves once every several rounds instead of every round and the server’s prompt cache survives between.' },
+  { key: 'multiRead', label: 'read_file takes several files (A1)', help: 'Up to three more paths in one call, each windowed as a single read, for a first look at a project in one round instead of four.' },
+  { key: 'digests', label: 'Tool results shaped for a small reader (A2)', help: 'A test run says “3 failed, 41 passed” and the failures first; grep groups hits by file; a directory listing shows sizes; an edit returns the lines around it so no re-read is needed.' },
+  { key: 'thinkByPhase', label: 'Think when it matters (A3)', help: 'On a model that thinks in <think> tags: thought on the first round and after a failed check; a round whose last result was a successful read starts with the thinking block closed.' },
+  { key: 'planFocus', label: 'Plan, then one step at a time (A4)', help: 'A task judged to be three steps or more starts with a plan that becomes the checklist; each step then runs with the plan in view and earlier steps’ output set aside first.' },
+  { key: 'verifyRound', label: 'A verify round that cannot be skipped (A5)', help: 'When files changed and a test command is known, one more round offering only run_command before the report; a report that claims a check the timeline does not show is rewritten to say so.' },
+  { key: 'askUser', label: 'ask_user as a tool (A6)', help: 'A question with optional choices pauses the task; the answer is the next message. Helpers cannot ask.' },
+  { key: 'reviewer', label: 'A reviewer before the report (A7)', help: 'A review helper reads the diff of everything changed and returns “no problems” or a list, which becomes one more round.' },
+  { key: 'hooks', label: 'Hooks (A8)', help: 'A project’s .sigma/hooks.json names commands to run after an edit, before a command and when a task ends — each under the same grant rule as any command, each a line on the timeline.' },
+  { key: 'worktrees', label: 'A worktree per task (A9)', help: 'In a git repository a task runs in its own worktree on its own branch, sigma/<slug>; the app does the git and the model is handed none of it.' },
+  { key: 'notes', label: 'Notes about a folder (A10)', help: 'At the end of a task the agent may propose an edit to .sigma/notes.md — how the tests run, where things are — shown as any edit is; the next task in the folder reads it.' },
+  { key: 'documents', label: 'Documents: read and write (C1)', help: 'read_document turns .docx, .xlsx, .pptx, .pdf, .csv and .md into text with headings, tables and sheet names; write_document makes a .docx from Markdown or an .xlsx from rows. A document edit shows as the diff of what it says.' },
+  { key: 'chores', label: 'Folder chores (C2)', help: 'move_file, copy_file, make_directory and delete_file — inside the folder, each checkpointed so Undo reverses a move and restores a delete; delete sends to the trash and never removes.' },
+  { key: 'recipes', label: 'Recipes (C3)', help: 'A skill with an agent.md fires in an agent chat when its trigger matches the task; the app ships four — tidy a folder, summarize what is here, fill a template from data, fix the failing test.' },
+  { key: 'browse', label: 'browse, read-only (C4)', help: 'browse(url, instruction): the headless renderer loads the page and returns what the instruction asks for — the links, the prices, the passages. No form is submitted, no cookie kept, no login. In the app only.' },
+  { key: 'agentJobs', label: 'A read-only agent task as a job (C5)', help: 'Jobs gains a kind: a read-only task in a folder on a schedule — no edit, no command, no question — whose report lands in the digest conversation.' },
+  { key: 'inbox', label: 'Files into an agent chat (C6)', help: 'Dropping files on an agent chat copies them into the folder’s .sigma/inbox/ and tells the model where they are.' },
+  { key: 'commands', label: 'Slash commands (C7)', help: '.sigma/commands/<name>.md in the folder becomes /name in the composer and in sigma; $ARGUMENTS is what follows the name.' },
+  { key: 'mcpTools', label: 'MCP tools for the agent (C8)', help: 'MCP servers that are on join the agent’s tools under the server’s own approval mode, marked untrusted as the chat marks them.' }
 ]
 
 export interface AgentTabProps {
@@ -59,6 +83,15 @@ export function AgentTab({ settings, apply, defaults }: AgentTabProps): JSX.Elem
         <Row meta={ROWS.notify}>
           <Switch checked={agent.notify} onChange={(notify) => set(ROWS.notify, { notify })} />
         </Row>
+      </Section>
+
+      <Section title="Experiments" description={ROWS.experiments.help} onReset={defaults ? () => set({ id: 'agent.experiments', label: 'Experiments' }, { experiments: defaults.agent.experiments }, 'all off') : undefined}>
+        <Notice tone="warn">Unmeasured. `eval:agent`’s baseline has not run on a sound machine; each of these is judged against it before it is on by default.</Notice>
+        {EXPERIMENTS.map((x) => (
+          <Row key={x.key} meta={{ id: `agent.experiments.${x.key}`, label: x.label, help: x.help }}>
+            <Switch checked={Boolean(agent.experiments?.[x.key])} onChange={(on) => set({ id: `agent.experiments.${x.key}`, label: x.label }, { experiments: { ...agent.experiments, [x.key]: on } })} />
+          </Row>
+        ))}
       </Section>
 
       <Section title="This machine" description="What the agent found here.">

@@ -27,6 +27,7 @@ import { registerTraceHandlers } from './ipc/traces'
 import { registerPlanHandlers } from './ipc/plan'
 import { registerModelPinHandlers, hasLegacyPins, unloadLegacyPins } from './ipc/modelPin'
 import { registerModelCatalogHandlers } from './ipc/modelCatalog'
+import { registerGpu } from './ipc/gpu'
 import { registerSummarizeHandlers } from './ipc/summarize'
 import { readEvalResults, readEvalFixtures, saveEvalResult } from './ipc/evalResults'
 import { TOOL_SCHEMAS } from '../shared/tools'
@@ -120,6 +121,7 @@ registerWorkbenchScheme()
 app.whenReady().then(() => {
   migrateSettings()
   registerStoreHandlers()
+  registerGpu()
   registerToolHandlers()
   registerToolRankHandlers()
   registerAttachmentHandlers()

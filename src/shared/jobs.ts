@@ -12,7 +12,7 @@
  * the renderer (the panel) and the tests.
  */
 
-export type JobKind = 'research' | 'price' | 'ledger' | 'packs'
+export type JobKind = 'research' | 'price' | 'ledger' | 'packs' | 'agent'
 export type JobInterval = 'hourly' | 'daily' | 'weekly'
 export type JobOutcome = 'ok' | 'failed' | 'skipped'
 
@@ -29,7 +29,8 @@ export const JOB_KIND_LABELS: Record<JobKind, string> = {
   research: 'Re-run a research question',
   price: 'Re-check a watched price',
   ledger: 'Re-check verified claims past their freshness',
-  packs: 'Check tracked pack folders for changes'
+  packs: 'Check tracked pack folders for changes',
+  agent: 'Run a read-only agent task in a folder'
 }
 
 export interface JobArgs {
@@ -39,6 +40,9 @@ export interface JobArgs {
   modelId?: string
   /** price: the watchlist entry's URL */
   url?: string
+  /** agent (v4.0, C5): the folder and the task; read-only, so nothing runs unasked. */
+  folder?: string
+  prompt?: string
 }
 
 export interface Job {

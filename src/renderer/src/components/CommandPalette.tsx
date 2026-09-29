@@ -7,6 +7,8 @@ import { conversationToMarkdown } from '../lib/exportMarkdown'
 import { useProjects } from '../hooks/useProjects'
 import { modalClasses, useModalPresence } from '../hooks/useModalPresence'
 import { setRightPanelCollapsed } from './ChatPanel'
+import { settingsIndex, tabOfRow } from '../lib/settingsKit'
+import { settingsTab, type SettingsTabKey } from './settings/tabs'
 
 interface CommandItem {
   id: string
@@ -45,6 +47,27 @@ export function CommandPalette(): JSX.Element | null {
   const splitConversationId = useAppStore((s) => s.splitConversationId)
   const rightPanelCollapsed = useAppStore((s) => s.settings?.rightPanelCollapsed ?? false)
   const vibeMode = useAppStore((s) => s.settings?.vibeMode ?? false)
+  // C7 (v4.0, an experiment): the folder's slash commands, listed while an agent chat is active.
+  const commandsOn = useAppStore((s) => Boolean(s.settings?.agent.experiments?.commands))
+  const setComposerPrefill = useAppStore((s) => s.setComposerPrefill)
+  const activeAgent = conversations.find((c) => c.id === activeConversationId)?.agent
+  const [slashCommands, setSlashCommands] = useState<{ name: string; summary: string }[]>([])
+  useEffect(() => {
+    if (!open || !commandsOn || !activeAgent) {
+      setSlashCommands([])
+      return
+    }
+    let alive = true
+    void window.api
+      .agentCommands(activeAgent.workspace)
+      .then((list) => {
+        if (alive) setSlashCommands(list.map((c) => ({ name: c.name, summary: c.summary })))
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [open, commandsOn, activeAgent])
 
   // ⌘K opens and closes it. Escape is not handled here: it belongs to whichever
   // surface is on top, which the modal-surface stack decides (see
@@ -192,6 +215,22 @@ export function CommandPalette(): JSX.Element | null {
       action: () => { createConversation({ ephemeral: true }); setOpen(false) },
       category: 'actions'
     },
+    // C7 (v4.0, an experiment): a slash command prefills the composer with its name.
+    ...slashCommands.map((c) => ({
+      id: `command-${c.name}`,
+      label: `Command: /${c.name} — ${c.summary}`,
+      icon: '⚡',
+      action: () => { setComposerPrefill(`/${c.name} `); setOpen(false) },
+      category: 'actions' as const
+    })),
+    // v4.0 (E4): every setting, by its tab and label — typing "proxy" opens Privacy at the proxy row.
+    ...settingsIndex().map((row) => ({
+      id: `setting-${row.id}`,
+      label: `Settings: ${settingsTab(tabOfRow(row.id) as SettingsTabKey).label} › ${row.label}`,
+      icon: '⚙️',
+      action: () => { useAppStore.getState().openSettingsAt(row.id as never); setOpen(false) },
+      category: 'settings' as const
+    })),
     {
       id: 'export-chat',
       label: 'Export Current Chat as Markdown',
@@ -205,7 +244,7 @@ export function CommandPalette(): JSX.Element | null {
       },
       category: 'actions'
     }
-  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen, projects, rightPanelCollapsed, vibeMode, createProject, moveConversation, splitConversationId])
+  ], [conversations, activeConversationId, createConversation, selectConversation, setSettingsOpen, setOnboardingOpen, projects, rightPanelCollapsed, vibeMode, createProject, moveConversation, splitConversationId, slashCommands, setComposerPrefill])
 
   const filteredCommands = useMemo(() => {
     const q = query.toLowerCase().trim()

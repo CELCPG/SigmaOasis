@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, shell } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { runAgentTask } from '../agent/engine'
@@ -13,6 +13,16 @@ import { writeFileAtomic } from './fsAtomic'
 import { hostWindow } from './hostWindow'
 import { fetchModelCatalog } from './modelCatalog'
 import { pinChatModel } from './modelPin'
+import { extractPdfText } from './pdf'
+import { listSkills } from './skills'
+import { recipeFromSkill, selectRecipe } from '../agent/recipes'
+import { loadCommands } from '../agent/commands'
+import { copyToInbox } from '../agent/inbox'
+import { executeMcpTool, mcpManager } from './mcp'
+import { isMcpWireName } from './mcp/naming'
+import { renderPage } from './render'
+import { assertPublicHost } from './search'
+import { extractByInstruction } from '../../shared/browseExtract'
 import { auditedFetch } from './net'
 import { requestPatchReview } from './patchReview'
 import { getSettings } from './store'
@@ -88,6 +98,8 @@ interface RunningTask {
 const running = new Map<string, RunningTask>()
 /** The wire history per conversation, so a task's next turn continues where it left off. */
 const histories = new Map<string, ApiMessage[]>()
+/** v4.0 (A9): the worktree a conversation's task works in, so its next turn carries on there. */
+const worktrees = new Map<string, { path: string; branch: string }>()
 
 function checkpointDir(conversationId: string): string {
   return join(app.getPath('userData'), 'agent-checkpoints', conversationId.replace(/[^\w.-]/g, '_'))
@@ -103,11 +115,12 @@ async function saveCheckpoints(conversationId: string, messageId: string, worksp
 /** Remove a conversation's checkpoints — called when the conversation is deleted. */
 export async function forgetAgentConversation(conversationId: string): Promise<void> {
   histories.delete(conversationId)
+  worktrees.delete(conversationId)
   await fs.rm(checkpointDir(conversationId), { recursive: true, force: true }).catch(() => {})
 }
 
 /** The app's transport: LM Studio through the audited path, bytes to the engine as they arrive. */
-const auditedTransport: ChunkTransport = async (url, init) => {
+export const auditedTransport: ChunkTransport = async (url, init) => {
   const res = await auditedFetch(
     url,
     {
@@ -132,17 +145,59 @@ function appTools(sender: Electron.WebContents, conversationId: string, model: s
   if (!settings.agent.appTools) return undefined
   const names = new Set<string>(AGENT_APP_TOOLS.filter((n) => settings.tools[n as keyof typeof settings.tools]))
   const schemas: ToolSchema[] = TOOL_SCHEMAS.filter((s) => names.has(s.function.name))
+  // C4 (v4.0, an experiment): browse — the headless renderer for pages that are applications, read-only.
+  const browseOn = Boolean(settings.agent.experiments?.browse)
+  if (browseOn) schemas.push(BROWSE_SCHEMA)
+  // C8 (v4.0, an experiment): MCP servers that are on join under their own approval, as in a chat.
+  if (settings.agent.experiments?.mcpTools) schemas.push(...mcpManager().schemas())
   if (schemas.length === 0) return undefined
   return {
     schemas,
-    execute: (name, args) =>
+    execute: (name, args) => {
+      if (name === 'browse') return browseOn && getSettings().agent.experiments?.browse ? browse(args) : Promise.resolve({ ok: false, error: 'browse was turned off under Settings → Agent → Experiments.' })
+      // An MCP tool leaves here as in the chat: its server's enablement and its own switch are the manager's to check.
+      if (isMcpWireName(name)) return getSettings().agent.experiments?.mcpTools ? executeMcpTool(name, args, sender) : Promise.resolve({ ok: false, error: 'MCP tools for the agent were turned off under Settings → Agent → Experiments.' })
       // The global switch is read again at the moment of the call, as the chat's
       // tools:execute does: turning a tool off under Settings takes effect on
       // a task that is already running.
-      getSettings().tools[name as keyof ReturnType<typeof getSettings>['tools']]
+      return getSettings().tools[name as keyof ReturnType<typeof getSettings>['tools']]
         ? executeTool(name, args, { sender, modelId: model, conversationId })
         : Promise.resolve({ ok: false, error: `${name} was turned off under Settings → Tools.` })
+    }
   }
+}
+
+const BROWSE_SCHEMA: ToolSchema = {
+  type: 'function',
+  function: {
+    name: 'browse',
+    description:
+      'Load a web page in a headless browser (JavaScript runs, so pages that are applications render) and return what the instruction asks for: "the links …" lists links, "the prices …" the lines with an amount, anything else the passages that match. Read-only: no form is submitted, no cookie is kept, no login. Use fetch_webpage for plain pages.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'An https:// address.' },
+        instruction: { type: 'string', description: 'What to extract, in a few words.' }
+      },
+      required: ['url', 'instruction']
+    }
+  }
+}
+
+async function browse(args: Record<string, unknown>): Promise<{ ok: boolean; output?: string; error?: string }> {
+  const url = String(args.url ?? '').trim()
+  const instruction = String(args.instruction ?? '').trim()
+  if (!url) return { ok: false, error: 'Give the url.' }
+  try {
+    await assertPublicHost(new URL(url))
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  const page = await renderPage(url)
+  if (!page.ok) return { ok: false, error: page.error }
+  const body = extractByInstruction({ title: page.title, text: page.text, links: page.links.map((l) => ({ text: l.text, url: l.url })) }, instruction)
+  const blocked = page.blockedOrigins.length > 0 ? `\n\n(${page.blockedOrigins.length} third-party origin${page.blockedOrigins.length === 1 ? '' : 's'} refused; ${page.hiddenTextRemoved} hidden text node${page.hiddenTextRemoved === 1 ? '' : 's'} dropped.)` : ''
+  return { ok: true, output: `${page.url}\n${body}${blocked}` }
 }
 
 /** Coalesce streamed text so the window gets a frame's worth at a time, not one IPC message per token. */
@@ -231,12 +286,22 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
         contextTokens: entry?.loadedContextLength ?? entry?.maxContextLength ?? undefined,
         maxRounds: settings.agent.maxRounds,
         commandTimeoutSec: settings.agent.commandTimeoutSec,
+        experiments: settings.agent.experiments,
+        worktree: worktrees.get(req.conversationId),
+        recipe: settings.agent.experiments?.recipes ? await matchRecipe(req.prompt) : undefined,
         signal: controller.signal,
         takeSteers: () => task.steers.splice(0)
       },
       {
         transport: auditedTransport,
         shell: defaultShell(),
+        // C1 (v4.0): the app's own PDF extractor for read_document; C2: the system trash for delete_file.
+        readPdf: async (bytes) => {
+          const r = extractPdfText(bytes)
+          if (!r.ok) throw new Error(r.error)
+          return r.text
+        },
+        trash: (p) => shell.trashItem(p),
         emit: (e) => out.push(e),
         reviewEdit: (r) => requestPatchReview(sender, { callId: r.callId, path: r.path, isNew: r.isNew, diff: r.diff, stats: r.stats }),
         approveCommand: ({ command, cwd, warning }) =>
@@ -260,15 +325,32 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
       todos: [],
       changedFiles: [],
       checkpoints: [],
+      workspace: req.workspace,
       detail: err instanceof Error ? err.message : String(err)
     }
   }
   out.flush()
   running.delete(req.taskId)
   if (result.history.length > 0) histories.set(req.conversationId, result.history)
-  if (req.workspace) await saveCheckpoints(req.conversationId, req.messageId, req.workspace, result.checkpoints).catch(() => undefined)
+  if (result.worktree) worktrees.set(req.conversationId, result.worktree)
+  // Undo restores the folder the task worked in — the worktree when it made one.
+  const workedIn = result.workspace ?? req.workspace
+  if (workedIn) await saveCheckpoints(req.conversationId, req.messageId, workedIn, result.checkpoints).catch(() => undefined)
   send({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, ...(result.detail ? { detail: result.detail } : {}) })
   notifyFinished(sender, task, result.status)
+}
+
+/** C3 (v4.0): the recipe for this task — the shipped four, then any installed skill with an agent.md. */
+async function matchRecipe(prompt: string): Promise<{ name: string; text: string } | undefined> {
+  const skills = await listSkills().catch(() => [])
+  const mine = skills.map(recipeFromSkill).filter((r): r is NonNullable<typeof r> => r !== null)
+  const hit = selectRecipe(prompt, mine)
+  return hit ? { name: hit.name, text: hit.text } : undefined
+}
+
+/** C7 (v4.0): the app's own slash commands live beside its skills. */
+function appCommandsDir(): string {
+  return join(app.getPath('userData'), 'commands')
 }
 
 /**
@@ -335,6 +417,18 @@ export function registerAgentHandlers(): void {
     return true
   })
 
+  // C7 (v4.0, an experiment): the slash commands a folder and the app offer; none while the switch is off.
+  ipcMain.handle('agent:commands', async (_e, workspace: unknown) => {
+    if (!getSettings().agent.experiments?.commands) return []
+    return loadCommands(typeof workspace === 'string' && workspace ? workspace : null, appCommandsDir())
+  })
+  // C6 (v4.0, an experiment): files dropped on an agent chat, copied into the folder's inbox.
+  ipcMain.handle('agent:inbox', async (_e, workspace: unknown, paths: unknown) => {
+    if (!getSettings().agent.experiments?.inbox) return { copied: [], skipped: [], off: true }
+    if (typeof workspace !== 'string' || !workspace) return { copied: [], skipped: [], error: 'This chat has no folder to receive files.' }
+    const list = Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string' && p.trim() !== '') : []
+    return copyToInbox(workspace, list)
+  })
   // v4.0: the shell run_command would use here, for Settings → Agent to show.
   ipcMain.handle('agent:shell', () => {
     const shell = defaultShell()

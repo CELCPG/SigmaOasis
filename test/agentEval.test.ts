@@ -196,6 +196,19 @@ describe('the fixtures', () => {
     }
   })
 
+  /**
+   * A reference solution is copied over the repository; `solution/DELETE.txt`,
+   * when present, lists the files a correct run removes (v4.0's tidy cases),
+   * one workspace-relative path a line — a copy cannot express a deletion.
+   */
+  const applySolution = (c: AgentCase, after: string): void => {
+    cpSync(join(c.dir, 'solution'), after, { recursive: true })
+    const list = join(after, 'DELETE.txt')
+    if (!existsSync(list)) return
+    for (const line of readFileSync(list, 'utf8').split(/\r?\n/)) if (line.trim()) rmSync(join(after, line.trim()), { force: true })
+    rmSync(list, { force: true })
+  }
+
   const run = async (dir: string, command: string): Promise<number | null> =>
     (await runCommand(command, dir, NODE_SHELL, 60_000, new AbortController().signal)).exitCode
 
@@ -212,7 +225,7 @@ describe('the fixtures', () => {
             cpSync(join(c.dir, 'repo'), before, { recursive: true })
             cpSync(join(c.dir, 'check'), join(before, 'check'), { recursive: true })
             cpSync(before, after, { recursive: true })
-            cpSync(join(c.dir, 'solution'), after, { recursive: true })
+            applySolution(c, after)
             assert.notEqual(await run(before, c.check!), 0, `${c.id}: the hidden checks pass before any fix`)
             assert.equal(await run(after, c.check!), 0, `${c.id}: the hidden checks fail on the reference solution`)
           } finally {
@@ -234,7 +247,7 @@ describe('the fixtures', () => {
             const after = join(scratch, 'after')
             cpSync(join(c.dir, 'repo'), before, { recursive: true })
             cpSync(before, after, { recursive: true })
-            cpSync(join(c.dir, 'solution'), after, { recursive: true })
+            applySolution(c, after)
             const command = c.commands.find((x) => x.startsWith('node')) ?? c.commands[0]!
             assert.notEqual(await run(before, command), 0, `${c.id}: the visible test already passes`)
             assert.equal(await run(after, command), 0, `${c.id}: the solution does not pass the visible test`)

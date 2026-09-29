@@ -3,17 +3,22 @@
 // detected models as rows — what each is, whether it is loaded, which role
 // uses it — instead of a monospace bullet list.
 
+import { useEffect, useState } from 'react'
 import type { AppSettings, ConnectionStatus, ModelInfo } from '../../types'
 import type { ApplySettings } from '../../hooks/settingsApply'
 import { defineRows, registerRows } from '../../lib/settingsKit'
+import { fitSentence, fitVerdict } from '../../lib/modelFit'
 import { isLoopbackUrl } from './helpers'
-import { ActionRow, Card, Field, Notice, RoleDot, Row, Section, StatusDot, type ActionResult } from './kit'
+import { ActionRow, Button, Card, Field, Notice, RoleDot, Row, Section, StatusDot, type ActionResult } from './kit'
 
 export const ROWS = defineRows('connection', {
   baseUrl: { label: 'Server address', help: 'LM Studio’s OpenAI-compatible endpoint on this machine. Applies when you press Enter or leave the field.', keywords: ['url', 'base url', 'endpoint', 'port', '1234'] },
-  models: { label: 'Detected models', help: 'What the server lists right now, and which role uses each.', keywords: ['loaded', 'quantization', 'context'] }
+  machine: { label: 'This machine', help: 'The GPU as its own tool reports it, and whether it has been reporting errors. A model is judged against it before its first slow reply.', keywords: ['gpu', 'vram', 'card', 'memory', 'nvidia', 'errors'] },
+  models: { label: 'Detected models', help: 'What the server lists right now, which role uses each, whether it fits the card, and Load or Unload on your click.', keywords: ['loaded', 'quantization', 'context', 'load', 'unload'] }
 })
 registerRows(ROWS)
+
+type Gpu = Awaited<ReturnType<typeof window.api.gpuInfo>>
 
 export interface ConnectionTabProps {
   settings: AppSettings
@@ -37,6 +42,22 @@ function contextLabel(m: ModelInfo): string {
 export function ConnectionTab({ settings, apply, availableModels, connection, refresh }: ConnectionTabProps): JSX.Element {
   const loaded = availableModels.filter((m) => m.loaded).length
   const usedBy = (id: string): string[] => settings.models.filter((m) => m.enabled && m.modelId === id).map((m) => m.roleName)
+  const [gpu, setGpu] = useState<Gpu | undefined>(undefined)
+  const [acting, setActing] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<{ id: string; result: ActionResult } | null>(null)
+  useEffect(() => {
+    void window.api.gpuInfo().then(setGpu).catch(() => setGpu(null))
+  }, [])
+  const act = (id: string, verb: 'load' | 'unload'): void => {
+    setActing(id)
+    void (verb === 'load' ? window.api.modelsLoad(id) : window.api.modelsUnload(id))
+      .then((r) => setOutcome({ id, result: { tone: r.ok ? 'ok' : 'danger', text: r.detail } }))
+      .catch((e: unknown) => setOutcome({ id, result: { tone: 'danger', text: String(e) } }))
+      .finally(() => {
+        setActing(null)
+        void refresh()
+      })
+  }
   return (
     <div className="space-y-8">
       <Card
@@ -60,6 +81,20 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
         )}
       </Card>
 
+      <Section title="This machine" description="What the model is judged against.">
+        <Row meta={ROWS.machine}>
+          <span className="text-sm text-ink-secondary">
+            {gpu === undefined ? 'Reading…' : gpu === null ? 'No GPU tool answered (nvidia-smi is what the app reads); fit is not judged.' : `${gpu.name} · ${(gpu.memoryBytes / 1024 ** 3).toFixed(0)} GB`}
+          </span>
+        </Row>
+        {gpu?.pcieReplays !== null && gpu?.pcieReplays !== undefined && gpu.pcieReplays > 0 && (
+          <Notice tone="warn">
+            The GPU reports {gpu.pcieReplays.toLocaleString()} PCIe replays since the driver last reset. A count that keeps rising while a model runs is the card or its slot, not the model — a slow reply
+            during it says nothing about fit.
+          </Notice>
+        )}
+      </Section>
+
       <Section title="Models" description={ROWS.models.help}>
         <Row meta={ROWS.models} bare>
           {availableModels.length === 0 ? (
@@ -68,8 +103,9 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
             <ul className="divide-y divide-black/10 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/10">
               {availableModels.map((m) => {
                 const roles = usedBy(m.id)
+                const verdict = gpu && m.type !== 'embeddings' ? fitVerdict(m, gpu.memoryBytes) : null
                 return (
-                  <li key={m.id} className="flex items-center gap-3 px-3 py-2">
+                  <li key={m.id} data-list-row className="flex items-center gap-3 px-3 py-2">
                     <StatusDot tone={m.loaded ? 'ok' : 'muted'} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-mono text-xs text-ink-primary">{m.id}</div>
@@ -78,7 +114,12 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
                           .filter(Boolean)
                           .join(' · ')}
                       </div>
+                      {verdict && <div className={`text-xs ${verdict.kind === 'fits' ? 'text-ink-tertiary' : verdict.kind === 'tight' ? 'text-ink-warn' : 'text-ink-danger'}`}>{fitSentence(verdict, m.id)}</div>}
+                      {outcome?.id === m.id && <div className={`text-xs ${outcome.result.tone === 'ok' ? 'text-ink-ok' : 'text-ink-danger'}`}>{outcome.result.text}</div>}
                     </div>
+                    <Button busy={acting === m.id ? '…' : undefined} onClick={() => act(m.id, m.loaded ? 'unload' : 'load')} title={m.loaded ? 'Unload it from LM Studio' : 'Load it in LM Studio, pinned so the app’s embedding calls do not evict it'}>
+                      {m.loaded ? 'Unload' : 'Load'}
+                    </Button>
                     {roles.length > 0 && (
                       <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-xs text-ink-secondary">
                         {settings.models

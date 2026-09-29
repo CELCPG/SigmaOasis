@@ -1,0 +1,1 @@
+Write one letter per customer in customers.csv from template.md, filling in {name}, {balance} and {due} with the customer's values exactly as they appear in the CSV. Save each as letters/<name>.txt (for example letters/Ada Lovelace.txt). Do not change customers.csv or template.md.

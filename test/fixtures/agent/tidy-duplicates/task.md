@@ -1,0 +1,1 @@
+Some files in Photos/ have exactly the same content as another. For each set of identical files keep the one whose name sorts first (plain ASCII order) and delete the others. Leave every file with unique content alone.

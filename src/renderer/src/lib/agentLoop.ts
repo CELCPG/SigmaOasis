@@ -282,6 +282,24 @@ export interface AgentLoopOptions {
    * family and the user's words.
    */
   quickReply?: boolean
+  /**
+   * v4.0 (A3, the agent's experiment): per round, whether this one begins with
+   * thinking closed — the caller reads the history and decides. Same
+   * scaffolding rule as `quickReply`: the prefill never joins the history.
+   */
+  quickReplyFor?: (iteration: number, messages: ApiMessage[]) => boolean
+  /**
+   * v4.0 (A4): a transient message appended before a round is asked for —
+   * the plan in view. Scaffolding for one request, popped after it, never
+   * history.
+   */
+  preface?: (iteration: number, messages: ApiMessage[]) => string | null
+  /**
+   * v4.0 (A6): asked after a round's tool calls have run. True ends the loop
+   * with 'paused' — a tool asked the user something, and the answer is the
+   * next turn.
+   */
+  pauseRequested?: () => boolean
   deps: AgentLoopDeps
 }
 
@@ -292,6 +310,8 @@ export type AgentLoopStopReason =
   | 'aborted'
   /** The final permitted round still asked for tools — the cap stopped the turn. */
   | 'iteration_cap'
+  /** v4.0: a tool asked the user something; the turn waits for the answer. */
+  | 'paused'
 
 export interface AgentLoopOutcome {
   stopReason: AgentLoopStopReason
@@ -380,11 +400,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         deps.onSteerDelivered?.(steer, iteration)
       }
     }
-    const quick = options.quickReply === true && iteration === 0
+    const preface = options.preface?.(iteration, messages) ?? null
+    if (preface) messages.push({ role: 'user', content: preface })
+    const quick = (options.quickReply === true && iteration === 0) || options.quickReplyFor?.(iteration, messages) === true
     if (quick) messages.push({ role: 'assistant', content: CLOSED_THINK_PREFILL } as never)
     let round = await deps.streamRound(messages, tools)
     // Scaffolding for one request, as below — never conversation history.
     if (quick) messages.pop()
+    if (preface) messages.pop()
     if (signal.aborted) return { stopReason: 'aborted' }
 
     if (answeredIntoThinking(round)) {
@@ -565,6 +588,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       repairAllowance -= 1
       iterationCap += 1
     }
+    if (options.pauseRequested?.() === true) return { stopReason: 'paused' }
   }
 
   return { stopReason: signal.aborted ? 'aborted' : 'iteration_cap' }

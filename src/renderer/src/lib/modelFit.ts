@@ -85,3 +85,66 @@ export function latestSlowReading(conversations: Conversation[], modelId: string
   }
   return latest ? slowReading(latest.stats) : null
 }
+
+// ---- Before the first reply: does it fit the card? (v4.0, E1) ---------------
+
+/** Bytes per weight for a GGUF quantization name, near enough to say fits or does not. */
+export function bytesPerWeight(quantization: string | undefined): number {
+  const q = (quantization ?? '').toUpperCase()
+  if (/F32/.test(q)) return 4
+  if (/F16|BF16/.test(q)) return 2
+  const m = /Q(\d)/.exec(q) ?? /IQ(\d)/.exec(q)
+  if (!m) return 0.6 // unknown: a mid quant, so the verdict errs towards "tight"
+  const bits = Number(m[1])
+  return { 1: 0.22, 2: 0.36, 3: 0.48, 4: 0.6, 5: 0.72, 6: 0.85, 8: 1.07 }[bits] ?? 0.6
+}
+
+/** Billions of parameters, read from the model id: "9b", "27b", "35b-a3b" (the total, not the active). */
+export function paramsFromId(id: string): number | null {
+  const m = /(\d+(?:\.\d+)?)\s*b(?![a-z0-9])/i.exec(id.replace(/-a\d+b/i, ''))
+  return m ? Number(m[1]) : null
+}
+
+export interface FitVerdict {
+  kind: 'fits' | 'tight' | 'no'
+  /** What the estimate was, for the sentence. */
+  weightsGb: number
+  cacheGb: number
+  gpuGb: number
+  /** A context window that would fit, when the loaded one does not; null when the weights alone do not fit. */
+  windowThatFits: number | null
+}
+
+/**
+ * A rough estimate, stated as one: the weights at the quant's bytes per
+ * weight, plus the KV cache at about 0.05 GB per thousand tokens per ten
+ * billion parameters. It errs towards "tight" on purpose — the bench's own
+ * slow replies (test/modelFit.test.ts) are the fixture it must call right.
+ */
+export function fitVerdict(model: { id: string; quantization?: string; loadedContextLength?: number; maxContextLength?: number }, gpuBytes: number): FitVerdict | null {
+  const params = paramsFromId(model.id)
+  if (!params || gpuBytes <= 0) return null
+  const gpuGb = gpuBytes / 1024 ** 3
+  const weightsGb = params * bytesPerWeight(model.quantization)
+  const ctx = model.loadedContextLength ?? model.maxContextLength ?? 8192
+  const cachePerK = 0.05 * (params / 10)
+  const cacheGb = (ctx / 1024) * cachePerK
+  const total = weightsGb + cacheGb
+  const room = gpuGb * 0.9
+  let windowThatFits: number | null = null
+  if (weightsGb < room) {
+    const kTokens = Math.floor((room - weightsGb) / cachePerK)
+    windowThatFits = Math.max(2048, Math.min(ctx, Math.pow(2, Math.floor(Math.log2(Math.max(1, kTokens)))) * 1024))
+  }
+  const kind = total <= room * 0.85 ? 'fits' : total <= room ? 'tight' : 'no'
+  return { kind, weightsGb, cacheGb, gpuGb, windowThatFits }
+}
+
+/** The verdict as a sentence for the row under LM Studio, with the `lms` line that would fix it. */
+export function fitSentence(v: FitVerdict, id: string): string {
+  const gb = (n: number): string => `${n.toFixed(1)} GB`
+  if (v.kind === 'fits') return `Fits: about ${gb(v.weightsGb)} of weights and ${gb(v.cacheGb)} of cache on a ${gb(v.gpuGb)} card.`
+  if (v.kind === 'tight') return `Tight: about ${gb(v.weightsGb + v.cacheGb)} on a ${gb(v.gpuGb)} card — expect the first word to wait.`
+  if (v.windowThatFits === null) return `Does not fit: about ${gb(v.weightsGb)} of weights on a ${gb(v.gpuGb)} card — a smaller model or quant.`
+  return `Does not fit at this window: about ${gb(v.weightsGb + v.cacheGb)} on a ${gb(v.gpuGb)} card. A ${(v.windowThatFits / 1024).toFixed(0)}K window would: lms load ${id} --context-length ${v.windowThatFits}`
+}

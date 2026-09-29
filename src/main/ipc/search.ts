@@ -1112,7 +1112,7 @@ function literalAddress(hostname: string): { address: string; family: number } |
  * alternative silently defeats the user's stated intent. It is documented in
  * SECURITY.md rather than left as a surprise.
  */
-async function assertPublicHost(url: URL): Promise<void> {
+export async function assertPublicHost(url: URL): Promise<void> {
   const hostname = url.hostname
   if (isResearchFixtureOrigin(url)) return
   if (isLoopbackHostname(hostname)) {
