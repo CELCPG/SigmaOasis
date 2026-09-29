@@ -18,7 +18,7 @@ import {
 import type { PassageOutcome } from './researchIndex'
 import { decodeEntities, extractFromHtml, stripTags } from './extract'
 import type { ExtractedLink } from './extract'
-import { extractPdfText } from './pdf'
+import { extractPdfTextOffThread } from './pdfOffThread'
 import { GENERIC_USER_AGENT } from './userAgent'
 import { renderPage } from './render'
 
@@ -1269,7 +1269,8 @@ export async function fetchWebpage(
 
       if (/application\/pdf|application\/x-pdf/.test(contentType)) {
         const bytes = await readCappedBytes(res, MAX_PAGE_BYTES)
-        const pdf = extractPdfText(bytes)
+        // v3.1 (M4): off the main thread, where an agent task's stream runs.
+        const pdf = await extractPdfTextOffThread(bytes)
         if (!pdf.ok) return failedPage(finalUrl, pdf.error)
         return {
           ok: true,

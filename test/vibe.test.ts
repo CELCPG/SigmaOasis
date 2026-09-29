@@ -44,10 +44,18 @@ describe('the brevity line', () => {
     assert.match(VIBE_SYSTEM_LINE, /asks for something long or detailed, give it in full/i)
   })
 
-  test('puts the work first — the reply is short, the checking is not', () => {
-    // Measured: a note that only asked for brevity cost the mode its tools.
-    assert.match(VIBE_SYSTEM_LINE, /once you have what you need/i)
+  test('shapes the final reply only — the tools work as they always do', () => {
+    // Measured (v3.1, M3): the 3.0 line lost memory_save on "remember that…"
+    // and the reply claimed the save anyway; a line scoped to the final reply
+    // matched the no-VIBE arm on every tool-choice fixture.
+    assert.match(VIBE_SYSTEM_LINE, /changes only how your final reply reads/i)
+    assert.match(VIBE_SYSTEM_LINE, /calling tools included, works as it always does/i)
     assert.doesNotMatch(VIBE_SYSTEM_LINE, /\bno (?:tools|tool calls)\b/i)
+    // The 3.0 line's two framings, both implicated: together they cost the call,
+    // and a line keeping only the second still lost it on the full suite and on
+    // the time question.
+    assert.doesNotMatch(VIBE_SYSTEM_LINE, /sees nothing but the conversation/i)
+    assert.doesNotMatch(VIBE_SYSTEM_LINE, /once you have what you need/i)
   })
 
   test('is added only when VIBE is on', () => {
@@ -59,7 +67,8 @@ describe('the brevity line', () => {
   test('rides the system prompt, never the turn’s notes on the user’s message', () => {
     // The notes block cost the tool call — 1/13 against 7/7; the system prompt
     // kept it (lib/vibe.ts). This pins the placement that was measured.
-    const engine = src('renderer', 'src', 'hooks', 'useLMStudio.ts')
+    // v3.1: a model's turn lives in hooks/chatTurn.ts, moved there verbatim.
+    const engine = src('renderer', 'src', 'hooks', 'chatTurn.ts')
     const systemPromptBuild = engine.slice(engine.indexOf('let systemPrompt = '), engine.indexOf('const projectTokens'))
     assert.match(systemPromptBuild, /projectBlock \+ vibeSystemBlock\(/)
     assert.match(engine, /const turnContext: string\[\] = gathered\.blocks\n/)

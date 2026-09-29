@@ -187,6 +187,16 @@ what-time-is-it question) becomes a suite's.
 *Gate:* correct-tool and spurious-call rates within the no-VIBE arm's noise floor. If they are
 not, the placement is revisited. The result goes in `docs/evals.md` either way.
 
+*(Built: `EVAL_VIBE=1`, its results kept out of the model picker's score. On qwen3.8-9b-distill the
+gate failed on the 3.0 line and passes on its replacement. With no flaky fixture in either arm,
+one fixture moved: "remember that my favorite band is Phish" called `memory_save` 0 times in 3
+with VIBE on, 3 in 3 without — and the reply said "I've saved that". The placement stayed; the
+wording changed, to a line that says it shapes only the final reply and that tools work as always,
+and with it the VIBE arm matches the arm without VIBE fixture for fixture (21 of 24 on every pass,
+54/63 correct, 0/9 spurious), with replies still in short prose. `docs/evals.md`, "VIBE's
+tool-choice arm". Owed: the 35B-A3B arm — an hour or more of the server that `eval:agent`'s
+baselines also need.)*
+
 ### M4. The main process, now that tasks live in it
 
 Since 3.0 an agent task runs in the main process: its stream, its stall timer, its approvals. Two
@@ -198,6 +208,174 @@ pack folder re-indexes. If the p99 is over 100 ms, extraction moves to a `worker
 and the render window is pooled, both specified since v1.4.7.
 
 *Gate:* the delay, before and after, printed with the change; the node suite.
+
+*(Built. `npm run bench:main-loop` runs inside Electron's own main process with a stream held
+open from a stand-in server in another process, and drives the app's code at its caps. On the
+bench machine (Electron 44, Windows):*
+
+| phase | loop delay p99 before | after | the stream's longest gap before | after |
+| --- | --- | --- | --- | --- |
+| the stream alone | 16.5 ms | 16.4–16.6 ms | 32 ms | 32–33 ms |
+| a PDF at the caps (40 MB inflated), three times | **320 ms** | **19–20 ms** | **355 ms** | **32–33 ms** |
+| a folder pack at 8M characters, then the first lookup | 23 ms | 18–20 ms | 102 ms | 95–107 ms |
+| five pages rendered | 22 ms | 21–23 ms | 37 ms | 35 ms |
+
+*Only PDF extraction crossed 100 ms, so only it moved: `extractPdfText` runs unchanged in a
+`worker_threads` worker (`pdfOffThread.ts`, `pdfWorker.ts`, a second main-process entry), for
+attachments, folder packs and fetched PDFs alike; a worker is measured to load from inside the
+asar. The render window is not pooled: five windows cost the loop 22 ms at p99, which is nothing
+to buy back. The nearest to the line is the folder pack's single worst stall, 88–99 ms at its
+maximum — the first lookup building the BM25 index over 8M characters in one pass; under the
+p99 rule it stays, and it is the next thing to move if a library outgrows the cap.
+`docs/measuring-main-loop.md`.)*
+
+## 3.1 — VIBE, polished and quick
+
+Added 2026-09-28 at the owner's request, after a VIBE session on the bench machine (an RTX 5070,
+12 GB) where "hello" took 24–60 s to its first word and "how many cm is 6 foot 3" took eleven
+minutes. The session's own records say where the time went — the stats each reply saves, LM
+Studio's server log, and the conversation export — and most of it was not VIBE. **Status: V1, V2
+and S1–S3 shipped in #8; S5 and S6 are built on `feat/speed-s4-s6`; S4 is measured and needs nothing.**
+
+Where the time went, in the order it costs:
+
+| Cause | Measured | Whose |
+| --- | --- | --- |
+| Models that do not fit the card | `prism-ml/bonsai-27b` is a 1-bit quant (Q1_0) loaded at a 262,144-token window: 2,378 prompt tokens read at about 40 a second, replies at 3–6 tokens a second. The 35B-A3B's weights are 21.7 GB on a 12 GB card. The same 2,010-token VIBE prompt on `qwen3.8-9b-distill`, resident on the card (7.9 GB with a 68K window) and read from scratch with nothing cached, answered "hello" in **1.1 s**. | The owner's setup |
+| Thinking before trivial answers | "6 foot 3 in cm": 3,795 tokens of thinking, 540 s, then one sentence. "yo whats up?": 2.2 s of thinking on a 9B. | S3 |
+| The prompt re-read from the top each turn | LM Studio's log: within a turn the next round resumes at 95.5% of the prompt in a second; across turns it starts at 0% and takes 20–60 s | S1, S5 (S4 ruled out the checks) |
+| Loading after Enter | "hello" on a 27B (2026-09-14): 14 s before the request went out, then 60 s to the first token — the shape of models loading on demand, though that turn's log does not say so | S2 |
+| Two clients on one server | A 35B reply stalled for 60 s while an agent run started on the same server, which was restarted mid-session | Nobody's code — one LM Studio queues |
+
+### V1. The composer's focus box — built
+
+The app-wide focus ring (`textarea:focus-visible`, `index.css`) outranks `.vibe-input`'s own
+`outline: none`, and Chromium counts a text field as focus-visible after a mouse click and after
+the focus the composer takes by itself. So every VIBE session drew a 2px accent rectangle inside
+the rounded glass. Measured in the built renderer with a real click into the field: `outline: solid
+2px rgb(79, 255, 209)` before, `none` after. The pill's own `:focus-within` glow is the focus
+indicator, for keyboard and mouse alike. The full view's composer draws the same ring on a click,
+for the same reason; it is unchanged here, and the same one-line rule fixes it if the owner wants
+it gone there too.
+
+### V2. The thinking orb — built
+
+The 12-pixel breathing dot is replaced, in the same place and with the same `role="status"` and
+"Thinking" label, by a geodesic sphere of light: an icosahedron subdivided once (42 points, 120
+edges) turning on two axes, its surface rippling on a travelling wave, a tilted ring round it
+carrying a comet spark, cyan into violet, breathing on the lagoon's 4.8 s. It is a 2D canvas, not a
+second WebGL context beside the lagoon's; a 144-pixel canvas of short lines costs nothing a GPU
+notices. Under reduced motion it is one still frame and its halo holds still. It says that
+something is happening, never what: naming the tool is the noise VIBE removes.
+
+`lib/vibeOrb.ts` is the motion, pure and deterministic in time (`test/vibeOrb.test.ts`: the mesh,
+the bounds, the breath's period); `components/vibe/VibeOrb.tsx` only draws it.
+
+### S1. A coin-flip ranking no longer moves the toolbox — built
+
+v1.4.5 wrote the rule — "an indecisive ranking must not be allowed to move anything" — and
+implemented it only for a conversation's first turn. With an incumbent, the indecisive branch
+called the same function as the decisive one, which takes the new selection whenever the old one
+does not cover it. Replayed with nomic-embed-text-v1.5 against the 20-tool Assistant slot: "yo
+whats up?" then "just testing out your new vibe mode and its super cool", both indecisive, and the
+second swapped `list_directory` for `reference_lookup`. Tools render inside the system block, so
+the swap cost the conversation's whole prompt cache — that turn's 27 s re-read in the server log.
+`holdTurnTools` keeps the incumbent outright when the ranking is indecisive; replayed after the
+fix, the list holds across all three small-talk turns.
+
+### S2. The model loads while the reader types — built
+
+A message's first keystroke, in either composer, and arriving in VIBE, pin the composer's model
+(`hooks/warmModel.ts`). The pin is one promise per server and model (`modelPin.ts`), so the turn's
+own pin finds the load finished or joins it in flight: a cold load overlaps the typing instead of
+following Enter. At most once per model per 15 s; on a resident model it costs one loopback GET.
+
+### S3. A greeting is answered without thinking first — built, measured
+
+When the whole message is small talk — greetings, thanks, "what's up", a name, an emoji; no digit,
+no question behind the greeting, and not "ok" or "sounds good", which are go-aheads — the first
+round begins with thinking already closed (`shared/thinking.ts`), the lever measured for this job
+in v1.4.1 where `enable_thinking`, `/no_think` and `reasoning_effort` were inert. It rides the first
+round only, and tools stay on the wire. Only on the `<think>`-delimited families the closed block
+is measured on (`THINK_TAG_MODELS`); `bonsai-27b` is outside them and still thinks.
+
+Measured on `qwen3.8-9b-distill` with the app's own VIBE system prompt and six tools (2,010 prompt
+tokens), two passes each, temperature 0.3:
+
+| Message | First word, thinking | First word, quick | Reply |
+| --- | --- | --- | --- |
+| hello | 0.64–0.85 s | 0.13 s | Identical: "Hello! How can I help you today?" |
+| yo whats up? | 0.60–2.43 s | 0.14–0.21 s | Same register, shorter |
+| thanks! | 1.79–2.08 s | 0.21 s | Same |
+
+*Gate for release:* the VIBE arm of `eval:tools` (M3) with S3 on. A greeting is never a tool
+question, but that arm is where it would show. *(Met on the 9B: none of the suite's 24 prompts is
+small talk, so S3 cannot move it, and the arm matches the arm without VIBE — see M3.)*
+
+### S4. The post-answer checks do not evict the conversation — measured, nothing to build
+
+The worry: after "6 foot 3" was answered, a recompute check sent its own request to the same 27B,
+and if LM Studio serves both from one cache slot, every checked turn would leave the next to re-read
+the conversation from the top.
+
+Measured 2026-09-28 on `qwen3.8-9b-distill` (32K window), three passes, loaded with one cache slot
+(`lms load --parallel 1`) and then two: a conversation of about 4,300 tokens, its next turn sent
+with nothing between, and — in a fresh conversation each time — the same with a recompute-shaped
+check on the same model between the two turns. The server log holds the run's 30 requests and no
+others.
+
+| Next turn's first token | 1 slot | 2 slots |
+| --- | --- | --- |
+| Nothing between | 204 ms | 206 ms |
+| A check between | 287 ms | 281 ms |
+| The same prompt read from scratch | 1,573–1,617 ms | 1,599–1,600 ms |
+
+LM Studio's engine keeps earlier prompts and restores them, so a check costs the next turn about
+80 ms, not a re-read, with one slot as with two. Nothing is built: the fix sketched here — the
+checks sent with the conversation's prefix, or the prefix re-primed after them — would buy those
+80 ms. The cross-turn re-reads in the owner's log were the toolbox moving (S1, S5). Not measured:
+a window so large that the stored prompt may not fit the server's cache, the 262K case — which S6
+names when it costs the reader anything.
+
+### S5. Small talk never moves the toolbox — built
+
+`MIN_RANK_SPREAD` (0.07) is a property of the scores, not of the words, and it calls some greetings
+decisive. Measured 2026-09-28 against the owner's 20-tool Assistant slot with nomic-embed-text-v1.5:
+3 of 25 everyday pleasantries cleared it — "thanks!" and "thank you" reaching for
+`reference_lookup`, "lol" for `memory_search` — and each could swap a tool and spend the
+conversation's prompt cache. `rankingMayMove` now requires a decisive ranking *and* words that are
+not small talk (S3's classifier), so a greeting keeps the incumbent.
+
+The roadmap asked `eval:tools` to decide, and it cannot see the change: none of the 268 user
+prompts across the 156 fixture files in `test/fixtures` (tool choice, answers, multi-turn and the
+rest) is small talk, so every suite's input takes the same path as before. The other option — the
+spread read without the always-on tools — would change decisiveness on every turn, and is not
+taken.
+
+### S6. Say when the model does not fit — built
+
+A reply that waited at least 8 s for its first word, having read its prompt at under 150 tokens a
+second, says so under its stats line — shown with the stats off too, since it answers "why is this
+slow" — and says what usually fixes it: a smaller model or quant, full GPU offload, or a shorter
+context window, naming the loaded window when it is 131,072 or more. It also says the other thing
+a long wait can be: LM Studio busy with another client's request. VIBE draws no stats, so the same
+sentence stands beside the slot in Settings → Models, from the model's most recent reply only — a
+model reloaded well since loses its verdict with its next measured reply.
+
+The floor, from the bench's own replies: every slow one read at 33–86 tokens a second (the 27B,
+bonsai at a 262K window, a 9B partly on the CPU); the 9B on the card, about 2,000. Only a long
+wait is judged, because a cached prompt is read in a blink by any model, and a partly cached one
+overstates the rate — which can hide a slow model but never accuse a fast one.
+`lib/modelFit.ts`; `test/modelFit.test.ts` holds all five measured slow replies and the fast one.
+
+### What the owner can change today
+
+- **Settings → Models → Assistant** still names `_disabled-qwen3.8-9b`, which LM Studio no longer
+  has. `qwen3.8-9b-distill` is installed and fits the card with room for a 68K window.
+- In LM Studio, load the 27B and the 35B-A3B at 16–32K rather than 262K, and keep them for the
+  agent, where a long wait is expected. `bonsai-27b`'s 1-bit quant is slow on this card whatever
+  its window.
+- `eval:agent` and a chat share one server: a run in progress holds the chat's replies.
 
 ## 3.2 — the agent as a daily tool
 
@@ -328,6 +506,7 @@ privacy audit, the icon always showing while resident, and no new network access
 | **3.0.1** | L1; L2 if the account is ready; Windows in CI — **landed: L1 and Windows in CI; not L2** | The restart and ledger-job fixes; a signed Windows installer | Suites green on macOS and Linux, node suite on Windows; `signtool verify` in the job |
 | **Launch** | L3, L4 | A build you can buy | An installed copy updates through the new feed on three platforms |
 | **3.1 — the agent, measured** | M1–M4, `useLMStudio.ts` | How often the agent solves a task, on a 9B and a 35B-A3B, whatever the numbers are; long tasks faster | `eval:agent` baselines committed; the VIBE arm of `eval:tools` |
+| **3.1 — VIBE, polished and quick** | V1–V2, S1–S6 — **built: V1, V2, S1–S3, S5, S6; S4 measured, nothing to build** | No box in VIBE's composer; an orb while it thinks; a greeting answered in a fifth of a second on a model that fits the card | The node suite; S3 in the VIBE arm of `eval:tools`; S4's measurement (a check costs the next turn 80 ms) |
 | **3.2 — a daily tool** | D1–D4; D5 if decided | Hooks, commands, a branch per task, VS Code | `eval:agent` within noise with each one on |
 | **3.3 — reach** | R1, R2, as decided | Talk to VIBE; tasks that outlive the window | The privacy audit's new rows; no new host in the activity log |
 

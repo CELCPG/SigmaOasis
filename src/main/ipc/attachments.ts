@@ -2,7 +2,7 @@ import { dialog, ipcMain } from 'electron'
 import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { basename, extname } from 'path'
-import { extractPdfText } from './pdf'
+import { extractPdfTextOffThread } from './pdfOffThread'
 import { runPython, workbenchRuntimePresent } from './workbench'
 import { docxScript } from './workbenchProfile'
 import { indexAttachment, retrieveAttachmentPassages } from './attachmentIndex'
@@ -90,7 +90,7 @@ export async function readTextDocument(
     if (stat.size > MAX_PDF_BYTES) {
       throw new Error(`PDF is larger than ${MAX_PDF_BYTES / 1024 / 1024} MB.`)
     }
-    const outcome = extractPdfText(new Uint8Array(await fs.readFile(path)))
+    const outcome = await extractPdfTextOffThread(new Uint8Array(await fs.readFile(path)))
     // The extractor's refusals are specific and actionable — pass them through
     // rather than flattening them into "could not read the file".
     if (!outcome.ok) throw new Error(outcome.error)
@@ -253,7 +253,7 @@ async function loadOne(path: string): Promise<AttachmentPayload | { name: string
     if (stat.size > MAX_PDF_BYTES) {
       return { name, reason: `PDF is larger than ${MAX_PDF_BYTES / 1024 / 1024} MB.` }
     }
-    const outcome = extractPdfText(new Uint8Array(await fs.readFile(path)))
+    const outcome = await extractPdfTextOffThread(new Uint8Array(await fs.readFile(path)))
     if (!outcome.ok) return { name, reason: outcome.error }
     return textPayload({
       path,

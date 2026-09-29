@@ -11,6 +11,8 @@ import { stripCitationMarkers, vibeLines, vibePhase, type VibeLine, type VibePha
 import type { PendingPatch } from '../../types'
 import { DiffView } from '../PatchBlock'
 import { LagoonCanvas } from './LagoonCanvas'
+import { VibeOrb } from './VibeOrb'
+import { warmComposerModel } from '../../hooks/warmModel'
 
 /**
  * VIBE (v3.0): the window is the conversation and nothing else.
@@ -18,7 +20,7 @@ import { LagoonCanvas } from './LagoonCanvas'
  * Everything the full view draws around a reply — role badges, tool-call
  * blocks, the ripple's status labels, provenance strips, check lines, stats,
  * the action row, the rail, the chat panel — is simply not rendered here. The
- * turn underneath is the same turn (hooks/useLMStudio.ts, unchanged but for
+ * turn underneath is the same turn (hooks/chatTurn.ts, unchanged but for
  * the brevity note in lib/vibe.ts), so leaving VIBE shows every one of those
  * things on the very messages written in it.
  *
@@ -116,6 +118,13 @@ export function VibeView(): JSX.Element {
     }
   }, [])
 
+  // v3.1: arriving in VIBE is the clearest sign a message is coming, so the
+  // model's load starts now rather than at Enter (hooks/warmModel.ts).
+  const conversationId = conversation?.id ?? null
+  useEffect(() => {
+    warmComposerModel(conversationId)
+  }, [conversationId])
+
   const removePatchReview = useAppStore((s) => s.removePatchReview)
   return (
     <VibeScene
@@ -130,6 +139,7 @@ export function VibeView(): JSX.Element {
       scrollRef={scrollRef}
       onScroll={onScroll}
       onSend={(text) => void sendMessage(text)}
+      onStartTyping={() => warmComposerModel(conversationId)}
       onStop={() => (conversation?.agent ? stopAgent(conversation.id) : stopStreaming())}
       onNewChat={() => createConversation()}
       onLeave={() => setVibeMode(false)}
@@ -154,6 +164,8 @@ export interface VibeSceneProps {
   scrollRef?: React.RefObject<HTMLDivElement>
   onScroll?: () => void
   onSend: (text: string) => void
+  /** A message's first keystroke — the view starts the model's load (v3.1). */
+  onStartTyping?: () => void
   onStop: () => void
   onNewChat: () => void
   onLeave: () => void
@@ -179,6 +191,7 @@ export function VibeScene({
   scrollRef,
   onScroll,
   onSend,
+  onStartTyping,
   onStop,
   onNewChat,
   onLeave,
@@ -222,11 +235,7 @@ export function VibeScene({
                   <VibeReply key={line.id} line={line} live={line.id === streamingId} />
                 )
               )}
-              {phase === 'breathing' && (
-                <div className="vibe-breath" role="status" aria-label="Thinking">
-                  <span />
-                </div>
-              )}
+              {phase === 'breathing' && <VibeOrb still={reducedMotion} />}
             </div>
           )}
         </div>
@@ -241,7 +250,7 @@ export function VibeScene({
                 LM Studio isn’t answering — start its local server, and the water will wait.
               </p>
             )}
-            <VibeComposer streaming={streaming} onSend={onSend} onStop={onStop} />
+            <VibeComposer streaming={streaming} onSend={onSend} onStartTyping={onStartTyping} onStop={onStop} />
             <div className="flex justify-center gap-5 text-[11px] text-ink-tertiary">
               {ephemeral && (
                 <span title="Ephemeral chat — nothing is written to disk; it is gone when you close it or quit">
@@ -354,10 +363,12 @@ function VibeApproval({
 function VibeComposer({
   streaming,
   onSend,
+  onStartTyping,
   onStop
 }: {
   streaming: boolean
   onSend: (text: string) => void
+  onStartTyping?: () => void
   onStop: () => void
 }): JSX.Element {
   const [text, setText] = useState('')
@@ -397,7 +408,10 @@ function VibeComposer({
         ref={ref}
         rows={1}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          if (!text && e.target.value) onStartTyping?.()
+          setText(e.target.value)
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()

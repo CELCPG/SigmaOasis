@@ -1,6 +1,7 @@
 import type { ModelConfig, ToolSchema, ToolToggles } from '../types'
 import { TOOL_SCHEMAS } from '../../../shared/tools'
 import { BRIDGE_EXCLUDED } from '../../../shared/codeSdk'
+import { isSmallTalk } from './quickReply'
 
 /**
  * Per-role tool allowlists (strategy Layer 1a).
@@ -179,6 +180,23 @@ export function rankingIsDecisive(
 }
 
 /**
+ * v3.1 (S5): may this turn's ranking move the conversation's toolbox?
+ *
+ * Only a decisive ranking of words that ask for something. Small talk
+ * (lib/quickReply.ts) never needs a tool, but the spread above is a property
+ * of the scores, not of the words, and it calls some greetings decisive.
+ * Measured 2026-09-28 with nomic-embed-text-v1.5 against the owner's 20-tool
+ * Assistant slot: 3 of 25 everyday pleasantries cleared it — "thanks!" and
+ * "thank you" reaching for reference_lookup, "lol" for memory_search — and
+ * each such turn could swap a tool and spend the conversation's prompt cache.
+ * None of the 268 user prompts in the eval fixtures (test/fixtures) is small
+ * talk, so no tool-choice or answer suite can see this rule.
+ */
+export function rankingMayMove(scores: Record<string, number> | null, text: string | undefined): boolean {
+  return rankingIsDecisive(scores) && !isSmallTalk(text)
+}
+
+/**
  * v1.5: hold the subset steady across turns of the same conversation.
  *
  * Per-turn ranking is good for accuracy and bad for latency, because chat
@@ -208,6 +226,38 @@ export function stabilizeTurnTools(
   if (previous.length === 0) return selected
   const covered = selected.every((t) => held.has(t.function.name))
   return covered ? previous : selected
+}
+
+/**
+ * The subset a conversation's turn carries: this turn's selection, held to the
+ * last turn's where the ranking gives no reason to move.
+ *
+ * v3.1: an indecisive ranking keeps the incumbent outright. v1.4.5 said so —
+ * "an indecisive ranking must not be allowed to move anything" — but passed
+ * the incumbent to `stabilizeTurnTools`, which takes the new selection
+ * whenever the incumbent does not cover it, exactly as for a decisive one. So
+ * a coin flip still swapped a tool and spent the conversation's prefix.
+ * Replayed on 2026-09-28 against nomic-embed-text-v1.5 and a 20-tool slot:
+ * "yo whats up?" then "just testing out your new vibe mode and its super
+ * cool", both indecisive, and the second swapped `list_directory` for
+ * `reference_lookup`. LM Studio's log for that turn shows the prompt re-read
+ * from its system block, 2,325 tokens in 27 s on a 9B that was partly on the
+ * CPU, where the turn before had reused everything up to the new message.
+ *
+ * With nothing to hold to yet, this turn's selection becomes the incumbent.
+ */
+export function holdTurnTools(
+  available: ToolSchema[],
+  selected: ToolSchema[],
+  previousNames: readonly string[] | undefined,
+  decisive: boolean
+): ToolSchema[] {
+  if (!decisive && previousNames && previousNames.length > 0) {
+    const held = new Set(previousNames)
+    const previous = available.filter((t) => held.has(t.function.name))
+    if (previous.length > 0) return previous
+  }
+  return stabilizeTurnTools(available, selected, previousNames)
 }
 
 /**

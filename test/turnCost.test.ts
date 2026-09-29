@@ -23,6 +23,13 @@ import type { ResponseStats } from '../src/renderer/src/types'
 
 const MESSAGE_BUBBLE = join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx')
 const USE_LM_STUDIO = join(__dirname, '..', '..', 'src', 'renderer', 'src', 'hooks', 'useLMStudio.ts')
+// v3.1: a model's turn moved to hooks/chatTurn.ts and its tail to
+// hooks/turnTail.ts, verbatim. What these pin is the engine's behaviour,
+// wherever its lines live, so they read all three files.
+const CHAT_TURN = join(__dirname, '..', '..', 'src', 'renderer', 'src', 'hooks', 'chatTurn.ts')
+const TURN_TAIL = join(__dirname, '..', '..', 'src', 'renderer', 'src', 'hooks', 'turnTail.ts')
+const engineSource = (): string =>
+  [USE_LM_STUDIO, CHAT_TURN, TURN_TAIL].map((p) => readSource(p)).join('\n')
 
 const stats = (over: Partial<ResponseStats> = {}): ResponseStats => ({
   ttftMs: 850,
@@ -251,7 +258,7 @@ describe('the post-answer tail has a deadline that fires with a name', () => {
    * nothing.
    */
   test('a pass the deadline refuses is recorded, not skipped silently', () => {
-    const source = readSource(USE_LM_STUDIO)
+    const source = engineSource()
     assert.ok(
       source.includes("!autoCorrect || signal.aborted || !budget.admits('revising')"),
       'the revision gate must reach `admits` when it is the deadline that stopped it'
@@ -546,7 +553,7 @@ describe('a limit on what starts, said as a limit on what starts', () => {
 })
 
 describe('the turn runs its tail under the budget', () => {
-  const source = readSource(USE_LM_STUDIO)
+  const source = engineSource()
 
   test('one budget covers the whole tail, and it is disarmed', () => {
     assert.ok(
@@ -740,7 +747,7 @@ describe('the stat line accounts for the gather, the way it accounts for checkin
 })
 
 describe('the turn clock starts before the providers, not after them', () => {
-  const source = readSource(USE_LM_STUDIO)
+  const source = readSource(CHAT_TURN)
 
   test('the origin is stamped ahead of the gather', () => {
     const opened = source.indexOf('const turnOpenedAt = Date.now()')
