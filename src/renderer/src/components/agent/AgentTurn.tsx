@@ -99,7 +99,7 @@ export const AgentTurn = memo(function AgentTurn({ message, conversation }: { me
 
           {agent.todos && agent.todos.length > 0 && <Checklist todos={agent.todos} done={progress.done} />}
 
-          <ol className="flex flex-col gap-1" aria-label="What the agent did">
+          <ol className="flex flex-col gap-1" aria-label="What the agent did" aria-live="polite" aria-relevant="additions">
             {agent.steps.map((step, i) => {
               if (step.kind === 'text') {
                 const answer = finished && i === lastTextIndex
@@ -268,7 +268,7 @@ function Outcome({ message, conversation, elapsed }: { message: ChatMessage; con
             {changed.length > 3 ? ` +${changed.length - 3}` : ''}
           </span>
         )}
-        {agent.status === 'paused' && conversation && (
+        {agent.status === 'paused' && conversation && !agent.question && (
           <button
             type="button"
             onClick={() => void sendToAgent(conversation.id, 'continue')}
@@ -276,6 +276,20 @@ function Outcome({ message, conversation, elapsed }: { message: ChatMessage; con
           >
             Continue
           </button>
+        )}
+        {agent.status === 'paused' && conversation && agent.question && agent.question.choices.length > 0 && (
+          <span className="flex flex-wrap items-center gap-1" role="group" aria-label="Answer the agent">
+            {agent.question.choices.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                onClick={() => void sendToAgent(conversation.id, choice)}
+                className="rounded-lg border border-[rgba(0,212,170,0.4)] bg-[rgba(0,212,170,0.12)] px-2 py-0.5 text-accent-ink hover:bg-[rgba(0,212,170,0.2)]"
+              >
+                {choice}
+              </button>
+            ))}
+          </span>
         )}
         {canUndo && conversation && (
           <button

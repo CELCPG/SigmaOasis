@@ -4,6 +4,7 @@
 // schedule while the app is open, its result delivered to a digest
 // conversation of its own.
 import { useCallback, useEffect, useState } from 'react'
+import { useAppStore } from '../../stores/appStore'
 import type { Job, JobInterval, JobKind } from '../../types'
 import { describeInterval, JOB_KIND_LABELS, MAX_JOB_FAILURES } from '../../../../shared/jobs'
 import { defineRows, registerRows } from '../../lib/settingsKit'
@@ -15,7 +16,9 @@ export const ROWS = defineRows('jobs', {
   interval: { label: 'How often', help: 'The first run is on the next tick after you add it.', keywords: ['hourly', 'daily', 'weekly'] },
   question: { label: 'Question', help: 'The research question, as you would type it.', keywords: ['research'] },
   depth: { label: 'Depth', help: 'The deep research budget for each run.', keywords: ['quick', 'standard', 'thorough'] },
-  watchedItem: { label: 'Watched item', help: 'An item already on the price_watch list.', keywords: ['price', 'watchlist'] }
+  watchedItem: { label: 'Watched item', help: 'An item already on the price_watch list.', keywords: ['price', 'watchlist'] },
+  folder: { label: 'Folder', help: 'The folder the task reads. Read-only: the job cannot change a file, run a command or ask a question.', keywords: ['agent', 'workspace'] },
+  task: { label: 'Task', help: 'What to do in the folder, each run — “summarize what changed since last week”, “list the files that need a reply”.', keywords: ['agent', 'prompt'] }
 })
 registerRows(ROWS)
 
@@ -36,7 +39,11 @@ export function JobsTab(): JSX.Element {
   const [question, setQuestion] = useState('')
   const [depth, setDepth] = useState<'quick' | 'standard' | 'thorough'>('standard')
   const [url, setUrl] = useState('')
+  const [folder, setFolder] = useState('')
+  const [task, setTask] = useState('')
   const [interval, setIntervalValue] = useState<JobInterval>('daily')
+  // C5 (v4.0, an experiment): the agent kind is offered only while its switch is on.
+  const agentJobs = useAppStore((st) => Boolean(st.settings?.agent.experiments?.agentJobs))
 
   const refresh = useCallback(async () => {
     const [list, w] = await Promise.all([window.api.jobsList().catch(() => []), window.api.watchlistList().catch(() => [])])
@@ -51,7 +58,7 @@ export function JobsTab(): JSX.Element {
   }, [refresh])
 
   const add = async (): Promise<void> => {
-    const r = await window.api.jobsAdd({ kind, interval, args: kind === 'research' ? { question, depth } : kind === 'price' ? { url } : {} })
+    const r = await window.api.jobsAdd({ kind, interval, args: kind === 'research' ? { question, depth } : kind === 'price' ? { url } : kind === 'agent' ? { folder, prompt: task } : {} })
     setNotice(r.ok ? { tone: 'ok', text: `Added. It runs on the next tick, then ${describeInterval(interval)}; its digests land in a conversation named after it.` } : { tone: 'danger', text: r.error ?? 'Could not add the job.' })
     if (r.ok) {
       setQuestion('')
@@ -71,7 +78,11 @@ export function JobsTab(): JSX.Element {
             <Fold title="Add a job" summary="runs on the next tick, then on its schedule" open={formOpen} onToggle={setFormOpen}>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Row meta={ROWS.kind} layout="stack">
-                  <Select value={kind} onChange={(v) => setKind(v as JobKind)} options={(Object.keys(JOB_KIND_LABELS) as JobKind[]).map((k) => ({ value: k, label: JOB_KIND_LABELS[k] }))} />
+                  <Select
+                    value={kind}
+                    onChange={(v) => setKind(v as JobKind)}
+                    options={(Object.keys(JOB_KIND_LABELS) as JobKind[]).filter((k) => k !== 'agent' || agentJobs).map((k) => ({ value: k, label: JOB_KIND_LABELS[k] }))}
+                  />
                 </Row>
                 <Row meta={ROWS.interval} layout="stack">
                   <Select
@@ -112,7 +123,28 @@ export function JobsTab(): JSX.Element {
                   )}
                 </Row>
               )}
-              <Button kind="primary" disabled={(kind === 'research' && !question.trim()) || (kind === 'price' && !url)} onClick={() => void add()}>
+              {kind === 'agent' && (
+                <>
+                  <Row meta={ROWS.folder} layout="stack">
+                    <span className="flex items-center gap-2">
+                      <Field value={folder} onChange={setFolder} onCommit={setFolder} placeholder="A full path" />
+                      <Button
+                        onClick={() => {
+                          void window.api.pickDirectory().then((p) => {
+                            if (p) setFolder(p)
+                          })
+                        }}
+                      >
+                        Choose…
+                      </Button>
+                    </span>
+                  </Row>
+                  <Row meta={ROWS.task} layout="stack">
+                    <Field value={task} onChange={setTask} onCommit={setTask} placeholder="Summarize what changed in this folder since last week" />
+                  </Row>
+                </>
+              )}
+              <Button kind="primary" disabled={(kind === 'research' && !question.trim()) || (kind === 'price' && !url) || (kind === 'agent' && (!folder.trim() || !task.trim()))} onClick={() => void add()}>
                 Add job
               </Button>
             </Fold>

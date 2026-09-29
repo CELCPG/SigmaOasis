@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import type { Checkpoint } from './types'
 
 /**
@@ -25,14 +25,19 @@ export async function restoreCheckpoints(workspace: string, checkpoints: readonl
   const skipped: { path: string; reason: string }[] = []
   for (const cp of [...checkpoints].reverse()) {
     const abs = join(workspace, cp.path)
-    const now = await fs.readFile(abs, 'utf8').catch(() => null)
+    // v4.0: a document or a moved file is checkpointed as bytes (base64); text stays text.
+    const enc = cp.encoding ?? 'utf8'
+    const now = await fs.readFile(abs, enc).catch(() => null)
     if (now !== cp.after) {
       skipped.push({ path: cp.path, reason: now === null ? 'it has been deleted since' : 'it has been changed since the task wrote it' })
       continue
     }
     try {
       if (cp.before === null) await fs.rm(abs, { force: true })
-      else await fs.writeFile(abs, cp.before, 'utf8')
+      else {
+        await fs.mkdir(dirname(abs), { recursive: true })
+        await fs.writeFile(abs, cp.before, enc)
+      }
       restored.push(cp.path)
     } catch (err) {
       skipped.push({ path: cp.path, reason: err instanceof Error ? err.message : String(err) })

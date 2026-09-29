@@ -9,6 +9,7 @@ import type { ApplySettings } from '../../hooks/settingsApply'
 import { defineRows, registerRows } from '../../lib/settingsKit'
 import { ActionRow, Card, Field, Notice, Row, Section, Segmented, Slider, StatusDot, Stepper, Switch, type ActionResult } from './kit'
 import { SettingsLink } from './SettingsLink'
+import { useAppStore } from '../../stores/appStore'
 
 export const ROWS = defineRows('privacy', {
   audit: { label: 'Privacy audit', help: 'Every setting that changes what leaves this machine or what a model may do, as it stands now. Nothing here contacts anything; each row says where its switch is.', keywords: ['audit', 'widened', 'defaults'] },
@@ -21,7 +22,9 @@ export const ROWS = defineRows('privacy', {
   excludeTierX: { label: 'Exclude affiliate listicles and content farms', help: '“Top 10 best…” pages are written to rank, not to inform. The domain list is in src/main/ipc/sourceTiers.ts — a ranking you can read.', keywords: ['shopping', 'listicles'] },
   maxSellers: { label: 'Sellers checked per comparison', help: 'Each seller is one page fetch. The budget is checked before each fetch and the stop is stated in the result.', keywords: ['shopping', 'sellers'] },
   auditEnabled: { label: 'Record a session audit log', help: 'An append-only transcript of what was actually said: your inputs, the model’s answers, each tool call — no system prompts or hidden layers. Every line is encrypted with your OS keychain and hash-chained, so an edited or deleted line is detectable on export. Ephemeral chats are never logged. The log starts when you turn it on.', keywords: ['audit log', 'transcript', 'encrypted'] },
-  autoPurgeOnQuit: { label: 'Purge the log when the app quits', help: 'Verification for the current session only; nothing accumulates.', keywords: ['purge', 'quit'] }
+  autoPurgeOnQuit: { label: 'Purge the log when the app quits', help: 'Verification for the current session only; nothing accumulates.', keywords: ['purge', 'quit'] },
+  exportSettings: { label: 'Export settings', help: 'Every setting as one JSON file, for a second machine. The search API key and MCP environment values stay in this machine’s keychain; the file names them and leaves them blank.', keywords: ['export', 'backup', 'move', 'another machine'] },
+  importSettings: { label: 'Import settings', help: 'Replaces every setting with the file’s, normalized as a cold start would. Credentials are entered again here.', keywords: ['import', 'restore'] }
 })
 registerRows(ROWS)
 
@@ -89,6 +92,7 @@ export function PrivacyTab({ settings, apply, defaults }: PrivacyTabProps): JSX.
   const [auditInfo, setAuditInfo] = useState<AuditStatus | null>(null)
   const [proxyTest, setProxyTest] = useState<ActionResult | null>(null)
   const [testing, setTesting] = useState(false)
+  const [transfer, setTransfer] = useState<{ kind: 'export' | 'import'; result: ActionResult } | null>(null)
   useEffect(() => {
     void window.api.auditStatus().then(setAuditInfo)
   }, [])
@@ -168,6 +172,36 @@ export function PrivacyTab({ settings, apply, defaults }: PrivacyTabProps): JSX.
         </Row>
         <Row meta={ROWS.maxSellers}>
           <Slider value={shopping.maxSellers} min={1} max={5} onCommit={(maxSellers) => setShopping(ROWS.maxSellers, { maxSellers })} />
+        </Row>
+      </Section>
+
+      <Section title="Move to another machine" description="The settings as a file, and back. No credential ever leaves the keychain.">
+        <Row meta={ROWS.exportSettings}>
+          <ActionRow
+            action="Export…"
+            result={transfer?.kind === 'export' ? transfer.result : null}
+            onAction={() =>
+              void window.api.exportSettings().then((r) => {
+                if (r.canceled) return
+                setTransfer({ kind: 'export', result: r.ok ? { tone: 'ok', text: `Written to ${r.path}${r.secretsLeftBlank?.length ? ` — left blank: ${r.secretsLeftBlank.join(', ')}` : ''}` } : { tone: 'danger', text: 'Could not write the file.' } })
+              })
+            }
+          />
+        </Row>
+        <Row meta={ROWS.importSettings}>
+          <ActionRow
+            action="Import…"
+            result={transfer?.kind === 'import' ? transfer.result : null}
+            onAction={() =>
+              void window.api.importSettings().then((r) => {
+                if (r.canceled) return
+                if (r.ok && r.settings) {
+                  useAppStore.getState().setSettings(r.settings)
+                  setTransfer({ kind: 'import', result: { tone: 'ok', text: `Imported.${r.secretsLeftBlank?.length ? ` Enter again: ${r.secretsLeftBlank.join(', ')}.` : ''}` } })
+                } else setTransfer({ kind: 'import', result: { tone: 'danger', text: r.error ?? 'Could not read the file.' } })
+              })
+            }
+          />
         </Row>
       </Section>
 

@@ -7681,6 +7681,8 @@ it leaves behind, off the disk and the event stream. The rules live in
 | read-only | 3 | explain or locate, in *Read-only* | the report names the file and symbol the case lists |
 | needs you | 3 | a task the folder cannot satisfy: a missing token, a missing spreadsheet, a file outside it | nothing changed, the missing thing named, no success claimed |
 | long | 2 | a fix among files that together overflow a 16K window | the hidden checks pass |
+| office | 3 | v4.0, C1: total a column in a spreadsheet, fill a template from a CSV, merge two sheets on a key — with `read_document`/`write_document` on | the hidden checks read the files back and find the figures |
+| tidy | 3 | v4.0, C2: sort a Downloads folder by kind, delete duplicates keeping the first by name, rename notes by their date line — with the chore tools on | the hidden checks find the layout and nothing lost; Undo must restore the folder byte for byte |
 
 `chain-stats` is 3.0's live case rebuilt from the record `scripts/capture-screenshots.js` keeps of
 it (`mean` off by one, `median` sorting as strings, `node test.js`); the original files were not

@@ -1,0 +1,1 @@
+Make merged.xlsx with one sheet named Orders and the columns order_id, name, email, amount: every order from orders.csv, in the same order, joined to its customer in customers.xlsx by customer_id. Leave orders.csv and customers.xlsx unchanged.

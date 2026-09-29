@@ -1,0 +1,5 @@
+Downloads/report.pdf
+Downloads/notes.txt
+Downloads/budget.xlsx
+Downloads/holiday.jpg
+Downloads/screenshot.png

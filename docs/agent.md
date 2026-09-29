@@ -56,6 +56,40 @@ instructions: how to run the tests, the style to keep, what not to touch. It liv
 with the code it describes. When there is no `SIGMA.md`, an `AGENTS.md` or `CLAUDE.md` is read
 instead, so a project already set up for another agent works unchanged.
 
+## Experiments (v4.0) — off until measured
+
+Settings → Agent → *Experiments* lists eleven switches, each off. Every one changes how the
+agent works in a way that ought to help a small model, and not one has been measured against
+`eval:agent`'s baseline on a sound machine — so none is on by default and none is described
+anywhere as an improvement. They are here so the measurement can happen with the shipped build,
+switch by switch. The engine reads them per task (`AgentTaskSpec.experiments`); the CLI reads the
+same settings.
+
+| Switch | What it changes when on |
+| --- | --- |
+| Context fitting keeps the cache (A1) | Once the history is over budget, old tool output is set aside down to 70% of the window rather than to just under it, so the start of the history moves once every several rounds and the server's prompt cache survives between. |
+| `read_file` takes several files (A1) | `more_paths`: up to three more files in one call, each windowed as a single read. |
+| Tool results shaped for a small reader (A2) | A test runner's output leads with its totals and failures; `grep` groups hits by file; a listing shows sizes; an edit returns the lines around it. |
+| Think when it matters (A3) | On a model that thinks in `<think>` tags, the first round thinks and so does a round after a failed check; a round whose last result was a successful read, listing, search or edit starts with the thinking block already closed. Helpers keep thinking. |
+| Plan, then one step at a time (A4) | The checklist is the plan: each round after the first ends with a transient message naming the steps and the one in progress, and when a step is marked completed the tool output before that round is set aside before the budget asks. |
+| A verify round that cannot be skipped (A5) | When a file changed after the last successful command and a command is known, one more round offers `run_command` alone before the report; a report that still claims a passing check the timeline does not show gets a sentence saying so, in the text you read. |
+| `ask_user` as a tool (A6) | The agent may ask you one question, with up to six choices; the task pauses, the question and its choices show on the turn (and in the terminal), and your next message is the answer. Helpers cannot ask. |
+| A reviewer before the report (A7) | Before the report, a *review* helper reads the diff of everything the task changed; its findings become one more round, or "no problems" ends it. |
+| Hooks (A8) | `.sigma/hooks.json` names commands for three moments — `afterEdit` (with `{file}`), `beforeCommand` (with `{command}`) and `onEnd`, five each at most. Each runs under the same approval and standing grants as any command, and each is a line on the timeline; a failed after-edit hook is told to the model. |
+| A worktree per task (A9) | In a git repository with a commit, the task works in `.sigma/worktrees/<slug>` on branch `sigma/<slug>` (the first words of the task and the minute); the folder you look at is untouched, Undo restores the worktree, the next turn carries on there, and the report names the branch. Not a repository: the task runs in the folder and no worktree is reported. |
+| Notes about a folder (A10) | `.sigma/notes.md` — what the agent verified about this folder — is read after `SIGMA.md` at the start of every task here, and the agent is asked to add to it before its report, as an edit you see like any other. |
+| Documents: read and write (C1) | `read_document` turns `.docx`, `.xlsx`, `.pptx`, `.pdf` (in the app), `.csv`, `.md` and `.txt` into text with headings, bullets, pipe tables and sheet names; `write_document` makes a `.docx` from Markdown, an `.xlsx` or `.csv` from rows or CSV text, a `.md` or `.txt` from text. The Office formats are read and written directly (ZIP and XML, no library). A document edit is reviewed as the diff of what it says, checkpointed as bytes, and Undo puts the old bytes back. |
+| Folder chores (C2) | `move_file` (a file or a whole folder; rename is a move), `copy_file`, `make_directory`, `delete_file` — inside the folder, the destination never overwritten, each approved in *Ask first* as one line, each checkpointed so Undo reverses a move and restores a delete. Delete sends to the system trash in the app and to the folder's `.sigma/trash/` from the CLI; nothing is removed outright. |
+| Recipes (C3) | A method for a task: four ship — *Tidy a folder*, *Summarize what is here*, *Fill a template from data*, *Fix the failing test* — and an installed skill's `agent.md` joins them. When a trigger phrase is in the task the recipe rides the system prompt after `SIGMA.md`, named, and the report says if it was departed from. |
+| `browse`, read-only (C4) | `browse(url, instruction)`: the headless renderer (the one Settings → Search & research offers for JavaScript pages) loads the page and returns what the instruction asks for — the links, the lines with an amount, or the passages matching the words. No form is submitted, no cookie is kept, no login; every request is in the activity log. In the app only. |
+| A read-only agent task as a job (C5) | Jobs gains a kind: a task in a folder on the schedule Jobs offers, in *Read-only* — no edit, no command, no question — whose report is the digest. Fifteen minutes at most, twenty rounds at most. |
+| Files into an agent chat (C6) | Dropping files on an agent chat copies them into the folder's `.sigma/inbox/` (never overwriting; a numbered suffix on a clash) and puts a line in the composer naming where they landed. |
+| Slash commands (C7) | `.sigma/commands/<name>.md` in the folder, and the app's own `commands/` folder, become `/name` in the composer and in `sigma`; `$ARGUMENTS` is what followed the name. A folder's command wins a name. |
+| MCP tools for the agent (C8) | MCP servers that are on join the agent's tools under the server's own approval mode and per-tool switches, exactly as in a chat. |
+
+`.sigma/` is the folder's own: notes and hooks are yours to commit; `worktrees/` and the
+ignore file that hides it never show in `git status`.
+
 ## Long tasks
 
 - A task runs up to *Steps before a task pauses* (Settings → Agent, 40 by default); then it pauses,

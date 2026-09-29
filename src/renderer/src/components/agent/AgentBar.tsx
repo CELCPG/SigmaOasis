@@ -2,6 +2,7 @@ import { useAppStore } from '../../stores/appStore'
 import { agentSlot, updateAgentConfig } from '../../hooks/agentTasks'
 import type { AgentPermission, Conversation } from '../../types'
 import { PanelSection } from '../PanelSection'
+import { Select } from '../settings/kit'
 
 /**
  * The header of an agent chat (v3.0): what it works on, how freely, and on
@@ -53,38 +54,27 @@ export function AgentBar({ conversation }: { conversation: Conversation }): JSX.
           ✕
         </button>
       )}
-      <label className="flex items-center gap-1 text-ink-tertiary" title={current.hint}>
-        <span className="sr-only">Permission</span>
-        <select
-          value={agent.permission}
-          disabled={running}
-          onChange={(e) => updateAgentConfig(conversation.id, { permission: e.target.value as AgentPermission })}
-          className="rounded-lg border border-black/10 bg-transparent px-1.5 py-0.5 text-xs text-ink-secondary outline-none dark:border-white/10"
-        >
-          {PERMISSIONS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* v4.0 (E3): the header's controls are the Settings kit's, so a select looks the same here as there. */}
+      <Select
+        compact
+        label="Permission"
+        title={current.hint}
+        value={agent.permission}
+        disabled={running}
+        onChange={(v) => updateAgentConfig(conversation.id, { permission: v as AgentPermission })}
+        options={PERMISSIONS.map((p) => ({ value: p.value, label: p.label }))}
+      />
       {enabled.length > 1 ? (
-        <label className="ml-auto flex items-center gap-1 text-ink-tertiary">
-          <span className="sr-only">Model</span>
-          <select
-            value={slot?.id ?? ''}
-            disabled={running}
-            onChange={(e) => updateAgentConfig(conversation.id, { slotId: e.target.value })}
-            className="max-w-[180px] truncate rounded-lg border border-black/10 bg-transparent px-1.5 py-0.5 text-xs text-ink-secondary outline-none dark:border-white/10"
-            title="The model slot this agent runs on"
-          >
-            {enabled.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.roleName} · {m.modelId}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          compact
+          label="Model"
+          title="The model slot this agent runs on"
+          className="ml-auto max-w-[200px] truncate"
+          value={slot?.id ?? ''}
+          disabled={running}
+          onChange={(v) => updateAgentConfig(conversation.id, { slotId: v })}
+          options={enabled.map((m) => ({ value: m.id, label: `${m.roleName} · ${m.modelId}` }))}
+        />
       ) : (
         slot && <span className="ml-auto truncate font-mono text-ink-tertiary">{slot.modelId}</span>
       )}

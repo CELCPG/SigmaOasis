@@ -28,6 +28,16 @@ Sixteen tabs under six headers, a search that finds any setting, controls that a
 them with Undo at the foot, two clicks for anything destructive, and links from the rest of the app
 that land on the setting they name. `docs/settings.md` is the whole account.
 
+The first screen offers the three ways in — Ask, Work in a folder, Just talk — what you left off,
+and six things this machine can do that a cloud chat cannot do privately. Settings → LM Studio reads
+the GPU and judges every model against it before the first slow reply, with Load, Unload and *Keep
+loaded* on your click. And the agent gains **nineteen experiments, every one off** — context
+fitting that keeps the cache, thinking only when it matters, a verify round the report cannot skip,
+`ask_user`, a reviewer, hooks, a worktree per task, documents read and written (`.docx`, `.xlsx`,
+`.pptx`, `.pdf`), folder chores with Undo, recipes, `browse`, slash commands and more — each a switch
+under Settings → Agent that says it is unmeasured, waiting for `eval:agent`'s baseline on a sound
+machine. `docs/agent.md` lists them; `RELEASE-NOTES-v4.0.0.md` says what is and is not measured.
+
 ## 3.0 — the calm harness
 
 | VIBE | The agent |

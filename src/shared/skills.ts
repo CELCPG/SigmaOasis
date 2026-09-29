@@ -45,6 +45,8 @@ export interface SkillManifest {
   triggers: string[]
   /** File name under the folder, `.md`; its text is the method block. */
   playbook?: string
+  /** v4.0 (C3): file name under the folder, `.md`; its text is the recipe an agent task follows when a trigger matches. */
+  agent?: string
   /** Sub-folder holding a library pack (manifest.json + docs/). */
   pack?: string
   mcp?: SkillMcpSpec
@@ -56,6 +58,8 @@ export interface SkillManifest {
 export interface InstalledSkill extends SkillManifest {
   /** The playbook text, read at install. */
   playbookText?: string
+  /** v4.0 (C3): the agent.md text, read with the skill. */
+  agentText?: string
   packId?: string
   mcpServerId?: string
   installedAt: string
@@ -92,6 +96,11 @@ export function validateSkillManifest(raw: unknown): SkillManifest {
     const p = str(m.playbook)
     if (!SAFE_FILE.test(p) || !p.endsWith('.md')) throw new Error(`The playbook must be a .md file name in the skill folder, not "${p}".`)
     out.playbook = p
+  }
+  if (m.agent !== undefined) {
+    const p = str(m.agent)
+    if (!SAFE_FILE.test(p) || !p.endsWith('.md')) throw new Error(`The agent recipe must be a .md file name in the skill folder, not "${p}".`)
+    out.agent = p
   }
   if (m.pack !== undefined) {
     const p = str(m.pack)
@@ -164,6 +173,7 @@ export function describeSkillForConfirmation(m: SkillManifest): string {
   const parts = [`${m.name} (${m.id})`, m.description, '', 'This folder carries:']
   parts.push(`- ${m.triggers.length} trigger phrase(s): ${m.triggers.slice(0, 6).join(', ')}${m.triggers.length > 6 ? ', …' : ''}`)
   parts.push(m.playbook ? `- a method (${m.playbook}) the model is handed when the skill fires` : '- no method file')
+  if (m.agent) parts.push(`- a recipe (${m.agent}) an agent task follows when a trigger matches`)
   parts.push(m.pack ? `- a library pack (${m.pack}/) — installed like any pack, its documents copied` : '- no library pack')
   if (m.mcp) {
     const argv = [m.mcp.command, ...m.mcp.args].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')

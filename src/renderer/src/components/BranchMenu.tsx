@@ -90,6 +90,8 @@ export function BranchMenu({ message, conversation }: BranchMenuProps): JSX.Elem
         onClick={() => setIsOpen(!isOpen)}
         className="ml-2 rounded-md p-1 text-xs text-ink-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-accent-ink"
         title="Explore alternative response"
+        aria-label="Explore an alternative response"
+        aria-expanded={isOpen}
       >
         🌿
       </button>

@@ -31,6 +31,7 @@ export const ROWS = defineRows('models', {
   capability: { label: 'Capability', help: 'One line other roles and the pre-flight router read: “send me X; don’t send me Y”. Shown in the consult roster.', keywords: ['routing', 'capability'] },
   specialty: { label: 'Specialty', help: 'What the router matches on — code to Coding, finance questions to Finance, factual questions to Research. General opts out of auto-routing.', keywords: ['routing', 'specialty', 'coding', 'research', 'finance', 'data'] },
   color: { label: 'Accent', help: 'The colour this role’s replies carry.', keywords: ['colour', 'color'] },
+  keepLoaded: { label: 'Keep loaded', help: 'Pin this model for a month idle rather than an hour, so the app’s own embedding calls and another client’s requests do not evict it between sessions. LM Studio still unloads it when memory runs short.', keywords: ['pin', 'evict', 'resident', 'ttl'] },
   codeMode: { label: 'Code Mode', help: 'native: tools as calls (default). code: one tool, run_code, whose Python program calls the others through a generated tools module, with the same allowlist, budgets and audit. both: both. Measured in docs/evals.md before any default was chosen.', keywords: ['code mode', 'run_code'] },
   tools: { label: 'Tools', help: 'Which of the enabled tools this role holds. A shorter, focused list helps a small model choose — and keeps a powerful tool out of the wrong hands.', keywords: ['allowlist', 'restrict'] },
   presets: { label: 'Temperature preset', help: 'Lower means fewer invented facts; higher means more varied prose. The family’s own recipe is warmer than the Factual preset — the trade is yours to make.', keywords: ['sampling', 'preset', 'factual', 'creative'] },
@@ -161,6 +162,9 @@ export function ModelsTab({ settings, apply, availableModels }: ModelsTabProps):
                       onChange={(color) => updateModel(m.id, ROWS.color, { color: color as AccentColor }, color)}
                       chips={ACCENT_KEYS.map((c) => ({ value: c, label: c, swatch: SWATCH[c] }))}
                     />
+                  </Row>
+                  <Row meta={ROWS.keepLoaded}>
+                    <Switch checked={Boolean(m.keepLoaded)} onChange={(keepLoaded) => updateModel(m.id, ROWS.keepLoaded, { keepLoaded: keepLoaded || undefined })} />
                   </Row>
                   <Row meta={ROWS.codeMode}>
                     <Select

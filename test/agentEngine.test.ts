@@ -10,6 +10,8 @@ import { agentSystemPrompt, loadProjectNotes } from '../src/main/agent/prompts'
 import { Toolbox, newTaskState, workspaceToolSchemas } from '../src/main/agent/tools'
 import { globToRegExp, resolveInside, WorkspaceError } from '../src/main/agent/workspace'
 import { dangerousCommandWarning } from '../src/shared/commandDanger'
+import { restoreCheckpoints } from '../src/main/agent/checkpoints'
+import { sheetsToXlsx, xlsxToSheets } from '../src/main/agent/documents'
 import type { AgentEvent, AgentHost, ChunkTransport, EditReview, ShellSpec } from '../src/main/agent/types'
 import type { ApiMessage } from '../src/renderer/src/lib/agentLoop'
 
@@ -276,7 +278,7 @@ describe('helpers', () => {
 })
 
 describe('the toolbox on a real folder', () => {
-  const box = (permission: 'ask' | 'acceptEdits' | 'readOnly' = 'acceptEdits', over: Partial<AgentHost> = {}) =>
+  const box = (permission: 'ask' | 'acceptEdits' | 'readOnly' = 'acceptEdits', over: Partial<AgentHost> = {}, experiments: { multiRead?: boolean } = {}) =>
     new Toolbox({
       root: dir,
       permission,
@@ -284,7 +286,8 @@ describe('the toolbox on a real folder', () => {
       shell: NODE_SHELL,
       commandTimeoutSec: 30,
       state: newTaskState(),
-      signal: new AbortController().signal
+      signal: new AbortController().signal,
+      experiments
     })
 
   test('paths stay inside the workspace', async () => {
@@ -325,9 +328,19 @@ describe('the toolbox on a real folder', () => {
     assert.match(bin.error ?? '', /binary file/)
   })
 
+  /** v4.0 (A1, off by default): with the experiment off, read_file offers no more_paths and reads only its path. */
+  test('read_file: more_paths is neither offered nor honoured while the multi-read experiment is off', async () => {
+    const b = box()
+    const schema = b.schemas().find((s) => s.function.name === 'read_file')!
+    assert.equal('more_paths' in (schema.function.parameters as { properties: Record<string, unknown> }).properties, false)
+    const r = await b.execute('read_file', { path: 'src/math.ts', more_paths: ['src/math.test.ts'] }, 'x')
+    assert.equal(r.ok, true)
+    assert.equal((r.output ?? '').includes('=== src/math.test.ts ==='), false)
+  })
+
   /** v3.1 (M2): a first look at several files in one round, not one round each. */
   test('read_file: more_paths reads several files in one call; one unreadable file does not sink the rest', async () => {
-    const b = box()
+    const b = box('acceptEdits', {}, { multiRead: true })
     const r = await b.execute('read_file', { path: 'src/math.ts', more_paths: ['src/math.test.ts', 'nope.ts'] }, 'x')
     assert.equal(r.ok, true)
     const out = r.output ?? ''
@@ -339,7 +352,7 @@ describe('the toolbox on a real folder', () => {
     assert.doesNotMatch(edit.error ?? '', /before editing/)
     // One path is exactly the single read it always was.
     assert.equal((await box().execute('read_file', { path: 'src/math.ts' }, 'x')).output?.startsWith('    1\t'), true)
-    const none = await box().execute('read_file', { path: 'nope.ts', more_paths: ['also-nope.ts'] }, 'x')
+    const none = await box('acceptEdits', {}, { multiRead: true }).execute('read_file', { path: 'nope.ts', more_paths: ['also-nope.ts'] }, 'x')
     assert.equal(none.ok, false)
   })
 
@@ -555,5 +568,441 @@ describe('boundaries', () => {
     for (const cmd of ['npm test', 'git status', 'git diff', 'ls -la', 'git push origin feature']) {
       assert.equal(dangerousCommandWarning(cmd), null, `${cmd} flagged`)
     }
+  })
+})
+
+describe('experiments (v4.0, each off by default)', () => {
+  const echo = 'echo ok'
+  const fail = process.platform === 'win32' ? 'exit /b 1' : 'exit 1'
+
+  test('thinkByPhase: on a <think> family, a round after a successful read starts closed; the first round and the round after a failure think', async () => {
+    const { transport, requests } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'nowhere', new_string: 'x' })],
+      () => [text('Done.')]
+    ])
+    await runAgentTask(spec(transport, { model: 'qwen3-9b', experiments: { thinkByPhase: true } }), host(transport).host)
+    const last = (i: number) => requests[i]!.messages.at(-1)!
+    assert.notEqual(last(0).role, 'assistant', 'the first round thinks')
+    assert.equal(last(1).role, 'assistant', 'after a read the round starts with the block closed')
+    assert.match(String(last(1).content), /^<think>\n\n<\/think>/)
+    assert.notEqual(last(2).role, 'assistant', 'after a failed edit the round thinks')
+    assert.ok(!requests[2]!.messages.some((m) => m.role === 'assistant' && /^<think>\n\n<\/think>/.test(String(m.content))), 'the prefill never joins the history')
+  })
+
+  test('thinkByPhase does nothing off, and nothing on a model without a think tag', async () => {
+    for (const over of [{ model: 'qwen3-9b' }, { model: 'gemma-3-12b', experiments: { thinkByPhase: true } }]) {
+      const { transport, requests } = scripted([() => [call('c1', 'read_file', { path: 'src/math.ts' })], () => [text('Done.')]])
+      await runAgentTask(spec(transport, over), host(transport).host)
+      assert.notEqual(requests[1]!.messages.at(-1)!.role, 'assistant')
+    }
+  })
+
+  test('verifyRound: an edit with no check after it gets one more round with run_command only; the exit code decides the report', async () => {
+    const { transport, requests } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('c2', 'run_command', { command: fail })],
+      () => [call('c3', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [text('Fixed add(). All tests pass.')],
+      // The verify round: only run_command is on the table.
+      () => [call('c4', 'run_command', { command: echo })],
+      () => [text('Ran it: exit code 0. Fixed add().')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { verifyRound: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.deepEqual(requests[4]!.tools, ['run_command'])
+    assert.match(String(requests[4]!.messages.at(-1)!.content), /Files changed after the last check\. Run `.*` with run_command now/)
+    assert.equal(r.finalText, 'Ran it: exit code 0. Fixed add().')
+  })
+
+  test('verifyRound: a report that still claims a passing check the timeline lacks is told so, in the text the user sees', async () => {
+    const { transport, requests } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('c2', 'run_command', { command: echo })],
+      () => [call('c3', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [text('All tests pass.')],
+      () => [text('All tests pass, trust me.')]
+    ])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { verifyRound: true } }), h.host)
+    assert.equal(requests.length, 5, 'the verify round ran, and the model refused it')
+    assert.match(r.finalText, /All tests pass, trust me\.\n\n\(No check ran after the last edit in this task/)
+    const streamed = h.events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')
+    assert.match(streamed, /No check ran after the last edit/)
+  })
+
+  test('verifyRound: a check that ran after the last edit needs no extra round; off, nothing changes', async () => {
+    for (const experiments of [{ verifyRound: true }, {}]) {
+      const { transport, requests } = scripted([
+        () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+        () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+        () => [call('c3', 'run_command', { command: echo })],
+        () => [text('All tests pass.')]
+      ])
+      const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments }), host(transport).host)
+      assert.equal(requests.length, 4)
+      assert.equal(r.finalText, 'All tests pass.')
+    }
+  })
+
+  test('reviewer: a review helper reads the diff before the report, and its findings become one more round', async () => {
+    const { transport, requests } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [text('Fixed add().')],
+      // The review helper's one round:
+      () => [text('src/math.ts:2 — no test covers add(); add one.')],
+      // Back in the parent:
+      () => [text('Fixed add(); the missing test is left for you.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { reviewer: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    const review = requests[3]!
+    assert.match(String(review.messages[0]!.content), /careful reviewer/)
+    assert.match(String(review.messages[1]!.content), /Review this diff[\s\S]*-  return a - b\n\+  return a \+ b/)
+    assert.match(String(requests[4]!.messages.at(-1)!.content), /A review helper read the diff[\s\S]*no test covers add\(\)/)
+    assert.equal(r.finalText, 'Fixed add(); the missing test is left for you.')
+  })
+
+  test('reviewer: "No problems." ends it; nothing changed means no review at all', async () => {
+    const clean = scripted([
+      () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [text('Fixed add().')],
+      () => [text('No problems.')]
+    ])
+    const r = await runAgentTask(spec(clean.transport, { permission: 'acceptEdits', experiments: { reviewer: true } }), host(clean.transport).host)
+    assert.equal(r.finalText, 'Fixed add().')
+    assert.equal(clean.requests.length, 4)
+    const untouched = scripted([() => [text('Nothing to do.')]])
+    await runAgentTask(spec(untouched.transport, { experiments: { reviewer: true } }), host(untouched.transport).host)
+    assert.equal(untouched.requests.length, 1)
+  })
+
+  test('notes: .sigma/notes.md rides the prompt after the project file, and the rule to keep it is on only with the switch', async () => {
+    mkdirSync(join(dir, '.sigma'))
+    writeFileSync(join(dir, 'SIGMA.md'), 'Tabs, not spaces.')
+    writeFileSync(join(dir, '.sigma', 'notes.md'), 'Tests: node --test.')
+    const off = await loadProjectNotes(dir)
+    assert.doesNotMatch(off!.text, /node --test/)
+    const on = await loadProjectNotes(dir, true)
+    assert.equal(on!.file, 'SIGMA.md')
+    assert.match(on!.text, /Tabs, not spaces\.\n\n## Notes the agent kept here \(\.sigma\/notes\.md\)\nTests: node --test\./)
+    rmSync(join(dir, 'SIGMA.md'))
+    assert.equal((await loadProjectNotes(dir, true))!.file, '.sigma/notes.md')
+    for (const experiments of [{ notes: true }, {}]) {
+      const { transport, requests } = scripted([() => [text('ok')]])
+      await runAgentTask(spec(transport, { experiments }), host(transport).host)
+      const system = String(requests[0]!.messages[0]!.content)
+      assert.equal(/add it to \.sigma\/notes\.md/.test(system), experiments.notes === true)
+      assert.equal(/Tests: node --test/.test(system), experiments.notes === true)
+    }
+  })
+})
+
+describe('experiments, the second four (v4.0, each off by default)', () => {
+  const big = 'x'.repeat(600)
+  const plan = (statuses: ('pending' | 'in_progress' | 'completed')[]) => ({ todos: ['read', 'fix', 'test'].map((content, i) => ({ content, status: statuses[i] })) })
+
+  test('planFocus: the plan rides each round as a transient message, and a finished step’s output is set aside before the next round', async () => {
+    writeFileSync(join(dir, 'src', 'big.ts'), big)
+    const { transport, requests } = scripted([
+      () => [call('c1', 'todo_write', plan(['in_progress', 'pending', 'pending']))],
+      () => [call('c2', 'read_file', { path: 'src/big.ts' })],
+      () => [call('c3', 'todo_write', plan(['completed', 'in_progress', 'pending']))],
+      () => [text('Done.')]
+    ])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { experiments: { planFocus: true } }), h.host)
+    assert.notEqual(requests[0]!.messages.at(-1)!.content, undefined)
+    assert.doesNotMatch(String(requests[0]!.messages.at(-1)!.content), /Plan in view/, 'the first round has no plan yet')
+    const third = requests[2]!.messages.at(-1)!
+    assert.equal(third.role, 'user')
+    assert.match(String(third.content), /Plan in view[\s\S]*▶ read\n☐ fix\n☐ test\nYou are on: read\./)
+    const fourth = requests[3]!.messages
+    assert.match(String(fourth.at(-1)!.content), /☑ read\n▶ fix/)
+    const readResult = fourth.find((m) => m.role === 'tool' && m.tool_call_id === 'c2')
+    assert.match(String(readResult?.content), /^\[Earlier output of read_file set aside: that step is done/)
+    assert.ok(h.events.some((e) => e.type === 'context_elided' && e.toolResults === 1))
+    assert.ok(!r.history.some((m) => /Plan in view/.test(String(m.content))), 'the plan message never joins the history')
+  })
+
+  test('planFocus off: no plan message, and a read stays in the context after a step completes', async () => {
+    writeFileSync(join(dir, 'src', 'big.ts'), big)
+    const { transport, requests } = scripted([
+      () => [call('c1', 'todo_write', plan(['in_progress', 'pending', 'pending']))],
+      () => [call('c2', 'read_file', { path: 'src/big.ts' })],
+      () => [call('c3', 'todo_write', plan(['completed', 'in_progress', 'pending']))],
+      () => [text('Done.')]
+    ])
+    await runAgentTask(spec(transport), host(transport).host)
+    assert.notEqual(requests[2]!.messages.at(-1)!.role, 'user')
+    assert.match(String(requests[3]!.messages.find((m) => m.tool_call_id === 'c2')?.content), /xxxx/)
+  })
+
+  test('askUser: the tool is offered only with the switch; a question pauses the task, is reported with its choices, and the answer is the next turn', async () => {
+    const off = scripted([() => [text('ok')]])
+    await runAgentTask(spec(off.transport), host(off.transport).host)
+    assert.ok(!off.requests[0]!.tools.includes('ask_user'))
+
+    const { transport, requests } = scripted([
+      () => [call('q1', 'ask_user', { question: 'Which runner?', choices: ['jest', 'vitest'] })],
+      // The next turn, with the answer:
+      () => [text('Using vitest.')]
+    ])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { experiments: { askUser: true } }), h.host)
+    assert.ok(requests[0]!.tools.includes('ask_user'))
+    assert.equal(r.status, 'paused')
+    assert.match(r.detail ?? '', /The agent asks: Which runner\? \(jest \/ vitest\)/)
+    assert.deepEqual(h.events.find((e) => e.type === 'question'), { type: 'question', question: 'Which runner?', choices: ['jest', 'vitest'] })
+    assert.equal(requests.length, 1, 'no round runs after the question')
+    const next = await runAgentTask(spec(transport, { experiments: { askUser: true }, history: r.history, prompt: 'vitest' }), h.host)
+    assert.equal(next.status, 'done')
+    assert.equal(next.finalText, 'Using vitest.')
+    const wire = requests[1]!.messages
+    assert.equal(wire.at(-1)!.content, 'vitest')
+    assert.equal(wire.at(-2)!.role, 'tool', 'the question’s tool result stays on the wire before the answer')
+  })
+
+  test('askUser: a helper cannot ask', async () => {
+    const { transport } = scripted([
+      () => [call('t1', 'task', { subagent_type: 'explore', description: 'look', prompt: 'Which runner?' })],
+      () => [call('h1', 'ask_user', { question: 'Which runner?' })],
+      () => [text('Could not ask.')],
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { experiments: { askUser: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+  })
+
+  test('hooks: .sigma/hooks.json runs after an edit, before a command and at the end — each a line on the timeline under the command grant', async () => {
+    mkdirSync(join(dir, '.sigma'))
+    writeFileSync(join(dir, '.sigma', 'hooks.json'), JSON.stringify({ afterEdit: ['echo edited {file}'], beforeCommand: ['echo before {command}'], onEnd: ['echo ended'], junk: ['ignored'] }))
+    const { transport } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [call('c3', 'run_command', { command: 'echo tests' })],
+      () => [text('Done.')]
+    ])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { hooks: true } }), h.host)
+    assert.equal(r.status, 'done')
+    const hooks = h.events.filter((e): e is Extract<AgentEvent, { type: 'tool_end' }> => e.type === 'tool_end' && e.record.name === 'hook')
+    assert.deepEqual(
+      hooks.map((e) => [e.record.args.when, e.record.args.command, e.record.status]),
+      [
+        ['afterEdit', 'echo edited src/math.ts', 'done'],
+        ['beforeCommand', 'echo before echo tests', 'done'],
+        ['onEnd', 'echo ended', 'done']
+      ]
+    )
+    assert.match(hooks[0]!.record.result ?? '', /edited src\/math\.ts/)
+    assert.deepEqual(h.commands, ['echo edited src/math.ts', 'echo before echo tests', 'echo tests', 'echo ended'], 'every hook went through the approval, in order')
+  })
+
+  test('hooks: a failed after-edit hook is told to the model; off, the file is never read', async () => {
+    mkdirSync(join(dir, '.sigma'))
+    writeFileSync(join(dir, '.sigma', 'hooks.json'), JSON.stringify({ afterEdit: [process.platform === 'win32' ? 'exit /b 3' : 'exit 3'] }))
+    const script = () =>
+      scripted([
+        () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+        () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+        () => [text('Done.')]
+      ])
+    const on = script()
+    await runAgentTask(spec(on.transport, { permission: 'acceptEdits', experiments: { hooks: true } }), host(on.transport).host)
+    const editResult = on.requests[2]!.messages.find((m) => m.tool_call_id === 'c2')
+    assert.match(String(editResult?.content), /Hook afterEdit `exit.*3` failed:/)
+    const off = script()
+    const h = host(off.transport)
+    await runAgentTask(spec(off.transport, { permission: 'acceptEdits' }), h.host)
+    assert.ok(!h.events.some((e) => e.type === 'tool_start' && e.record.name === 'hook'))
+  })
+
+  test('worktrees: in a git repository the task works on its own branch in .sigma/worktrees, the folder itself untouched; the next turn carries on there', async (t) => {
+    const { execFileSync } = await import('node:child_process')
+    try {
+      execFileSync('git', ['--version'], { stdio: 'ignore' })
+    } catch {
+      t.skip('git is not on this machine')
+      return
+    }
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim()
+    git('init', '-q')
+    git('config', 'user.email', 'test@example.com')
+    git('config', 'user.name', 'Test')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'init')
+    const { transport } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [text('Fixed.')],
+      // The next turn:
+      () => [call('c3', 'read_file', { path: 'src/math.ts' })],
+      () => [text('Still fixed.')]
+    ])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { worktrees: true }, prompt: 'Fix add() please', now: new Date(2026, 8, 28, 9, 5) }), h.host)
+    assert.equal(r.status, 'done')
+    assert.ok(r.worktree, 'a worktree was made')
+    assert.equal(r.worktree!.branch, 'sigma/fix-add-please-0928-0905')
+    assert.equal(r.workspace, r.worktree!.path)
+    assert.match(r.worktree!.path, /[\\/]\.sigma[\\/]worktrees[\\/]fix-add-please-0928-0905$/)
+    assert.match(readFileSync(join(r.worktree!.path, 'src', 'math.ts'), 'utf8'), /return a \+ b/, 'the edit landed in the worktree')
+    assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /return a - b/, 'the folder itself is untouched')
+    assert.match(git('branch', '--list', 'sigma/*'), /sigma\/fix-add-please-0928-0905/)
+    assert.match(git('status', '--short'), /^$/, 'the outer repository sees nothing untracked (.sigma/.gitignore)')
+    assert.match(r.detail ?? '', /Worked on branch sigma\/fix-add-please-0928-0905/)
+    const next = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { worktrees: true }, prompt: 'Check it', history: r.history, worktree: r.worktree }), h.host)
+    assert.equal(next.worktree!.path, r.worktree!.path, 'the same worktree')
+    assert.equal(next.finalText, 'Still fixed.')
+  })
+
+  test('worktrees: not a repository, or off — the task runs in the folder itself and no worktree is reported', async () => {
+    for (const experiments of [{ worktrees: true }, {}]) {
+      const { transport } = scripted([
+        () => [call('c1', 'read_file', { path: 'src/math.ts' })],
+        () => [call('c2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+        () => [text('Fixed.')]
+      ])
+      const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments }), host(transport).host)
+      assert.equal(r.worktree, undefined)
+      assert.equal(r.workspace, dir)
+      assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /return a \+ b/)
+      writeFileSync(join(dir, 'src', 'math.ts'), 'export function add(a: number, b: number) {\n  return a - b\n}\n')
+    }
+  })
+})
+
+describe('documents and chores (v4.0, C1 and C2, each off by default)', () => {
+  const box = (permission: 'ask' | 'acceptEdits' | 'readOnly', over: Partial<AgentHost>, experiments: Partial<import('../src/main/agent/types').AgentExperiments>, state = newTaskState()) => ({
+    state,
+    toolbox: new Toolbox({ root: dir, permission, host: host(scripted([]).transport, over).host, shell: NODE_SHELL, commandTimeoutSec: 30, state, signal: new AbortController().signal, experiments })
+  })
+  const names = (b: Toolbox): string[] => b.schemas().map((s) => s.function.name)
+
+  test('the tools are offered only with their switch; read-only keeps read_document and loses the rest', () => {
+    const off = box('acceptEdits', {}, {}).toolbox
+    assert.ok(!names(off).some((n) => /document|move_file|copy_file|make_directory|delete_file/.test(n)))
+    const on = names(box('acceptEdits', {}, { documents: true, chores: true }).toolbox)
+    for (const n of ['read_document', 'write_document', 'move_file', 'copy_file', 'make_directory', 'delete_file']) assert.ok(on.includes(n), n)
+    const ro = names(box('readOnly', {}, { documents: true, chores: true }).toolbox)
+    assert.ok(ro.includes('read_document'))
+    assert.ok(!ro.some((n) => /write_document|move_file|copy_file|make_directory|delete_file/.test(n)))
+  })
+
+  test('write_document makes a .docx Word would open, read_document reads it back, the diff is of what it says, and Undo removes it', async () => {
+    const { toolbox, state } = box('acceptEdits', {}, { documents: true })
+    const w = await toolbox.execute('write_document', { path: 'letter.docx', content: '# Hello\n\nDear all,\n\n- one\n- two' }, 'd1')
+    assert.ok(w.ok, w.error)
+    assert.match(w.display ?? '', /\+# Hello[\s\S]*\+- two/)
+    const r = await toolbox.execute('read_document', { path: 'letter.docx' }, 'd2')
+    assert.ok(r.ok, r.error)
+    assert.match(r.output ?? '', /^letter\.docx \(docx, [\d.]+ K?B\):\n# Hello\n\nDear all,\n\n- one\n- two$/)
+    const cp = state.checkpoints.get('letter.docx')!
+    assert.equal(cp.encoding, 'base64')
+    assert.equal(cp.before, null)
+    assert.equal(cp.after, readFileSync(join(dir, 'letter.docx')).toString('base64'))
+    const undone = await restoreCheckpoints(dir, [...state.checkpoints.values()])
+    assert.deepEqual(undone, { restored: ['letter.docx'], skipped: [] })
+    assert.ok(!existsSync(join(dir, 'letter.docx')))
+  })
+
+  test('an existing document must be read before it is replaced; the replacement is reviewed as a text diff and Undo puts the old bytes back', async () => {
+    writeFileSync(join(dir, 'sheet.xlsx'), sheetsToXlsx([{ name: 'Q1', rows: [['item', 'amount'], ['a', 1]] }]))
+    const original = readFileSync(join(dir, 'sheet.xlsx'))
+    const reviews: EditReview[] = []
+    const { toolbox, state } = box('ask', { reviewEdit: async (r) => (reviews.push(r), true) }, { documents: true })
+    const blind = await toolbox.execute('write_document', { path: 'sheet.xlsx', sheets: [{ name: 'Q1', rows: [['item', 'amount'], ['a', 1], ['b', 2]] }] }, 'x1')
+    assert.equal(blind.ok, false)
+    assert.match(blind.error ?? '', /Read it with read_document first/)
+    const read = await toolbox.execute('read_document', { path: 'sheet.xlsx' }, 'x2')
+    assert.match(read.output ?? '', /## Sheet: Q1\n\| item \| amount \|/)
+    const w = await toolbox.execute('write_document', { path: 'sheet.xlsx', sheets: [{ name: 'Q1', rows: [['item', 'amount'], ['a', 1], ['b', 2]] }] }, 'x3')
+    assert.ok(w.ok, w.error)
+    assert.equal(reviews.length, 1)
+    assert.match(reviews[0]!.diff, /\+\| b \| 2 \|/)
+    assert.deepEqual(xlsxToSheets(readFileSync(join(dir, 'sheet.xlsx')))[0]!.rows, [['item', 'amount'], ['a', 1], ['b', 2]])
+    await restoreCheckpoints(dir, [...state.checkpoints.values()])
+    assert.ok(readFileSync(join(dir, 'sheet.xlsx')).equals(original), 'the original bytes are back')
+  })
+
+  test('write_document refuses what it cannot make, and read_document what it cannot read', async () => {
+    const { toolbox } = box('acceptEdits', {}, { documents: true })
+    assert.match((await toolbox.execute('write_document', { path: 'x.pptx', content: 'a' }, 'e1')).error ?? '', /use write_file/)
+    assert.match((await toolbox.execute('write_document', { path: 'x.xlsx' }, 'e2')).error ?? '', /Give sheets/)
+    assert.match((await toolbox.execute('read_document', { path: 'src/math.ts' }, 'e3')).error ?? '', /use read_file/)
+    writeFileSync(join(dir, 'bad.docx'), 'not a zip')
+    assert.match((await toolbox.execute('read_document', { path: 'bad.docx' }, 'e4')).error ?? '', /not a ZIP archive/)
+  })
+
+  test('move, copy, make_directory and delete — each inside the folder, each checkpointed, and Undo puts the folder back byte for byte', async () => {
+    const photo = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 255, 254])
+    writeFileSync(join(dir, 'IMG_1.png'), photo)
+    writeFileSync(join(dir, 'notes.txt'), 'keep me')
+    const { toolbox, state } = box('acceptEdits', {}, { chores: true })
+    assert.match((await toolbox.execute('make_directory', { path: 'Photos/2026' }, 'm1')).output ?? '', /Created Photos\/2026\//)
+    assert.match((await toolbox.execute('make_directory', { path: 'Photos/2026' }, 'm1b')).output ?? '', /already exists/)
+    const mv = await toolbox.execute('move_file', { from: 'IMG_1.png', to: 'Photos/2026/IMG_1.png' }, 'm2')
+    assert.ok(mv.ok, mv.error)
+    assert.ok(!existsSync(join(dir, 'IMG_1.png')) && readFileSync(join(dir, 'Photos', '2026', 'IMG_1.png')).equals(photo))
+    const cpFrom = state.checkpoints.get('IMG_1.png')!
+    const cpTo = state.checkpoints.get('Photos/2026/IMG_1.png')!
+    assert.deepEqual([cpFrom.encoding, cpFrom.after, cpTo.before], ['base64', null, null])
+    assert.equal(cpFrom.before, photo.toString('base64'))
+    assert.equal(cpTo.after, photo.toString('base64'))
+    const cp = await toolbox.execute('copy_file', { from: 'notes.txt', to: 'notes-copy.txt' }, 'm3')
+    assert.ok(cp.ok, cp.error)
+    assert.equal(readFileSync(join(dir, 'notes-copy.txt'), 'utf8'), 'keep me')
+    assert.equal(state.checkpoints.get('notes.txt'), undefined, 'a copy leaves the source unchanged and unrecorded')
+    assert.match((await toolbox.execute('copy_file', { from: 'notes.txt', to: 'notes-copy.txt' }, 'm4')).error ?? '', /already exists/)
+    const del = await toolbox.execute('delete_file', { path: 'notes.txt' }, 'm5')
+    assert.ok(del.ok, del.error)
+    assert.match(del.output ?? '', /to \.sigma\/trash\/; Undo restores it/)
+    assert.ok(!existsSync(join(dir, 'notes.txt')))
+    assert.ok(readdirSync(join(dir, '.sigma', 'trash')).some((n) => n.endsWith('-notes.txt')), 'the file is in the folder’s trash, not gone')
+    assert.match((await toolbox.execute('delete_file', { path: 'src' }, 'm6')).error ?? '', /is a folder/)
+    assert.match((await toolbox.execute('move_file', { from: 'nope.txt', to: 'x.txt' }, 'm7')).error ?? '', /does not exist/)
+    await assert.rejects(toolbox.execute('move_file', { from: 'src/math.ts', to: '../out.ts' }, 'm8').then((r) => (r.ok ? Promise.resolve() : Promise.reject(new Error(r.error)))), /outside the workspace/)
+    const undone = await restoreCheckpoints(dir, [...state.checkpoints.values()])
+    assert.deepEqual(undone.skipped, [])
+    assert.ok(readFileSync(join(dir, 'IMG_1.png')).equals(photo), 'the photo is back where it was')
+    assert.ok(!existsSync(join(dir, 'Photos', '2026', 'IMG_1.png')))
+    assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'keep me', 'the deleted file is restored')
+    assert.ok(!existsSync(join(dir, 'notes-copy.txt')))
+  })
+
+  test('a folder moves with every file inside checkpointed; the host’s trash is used when it has one; Ask first asks once per chore', async () => {
+    mkdirSync(join(dir, 'Downloads', 'sub'), { recursive: true })
+    writeFileSync(join(dir, 'Downloads', 'a.pdf'), 'A')
+    writeFileSync(join(dir, 'Downloads', 'sub', 'b.pdf'), 'B')
+    const reviews: EditReview[] = []
+    const trashed: string[] = []
+    const trash = async (p: string): Promise<void> => {
+      trashed.push(p)
+      rmSync(p)
+    }
+    const { toolbox, state } = box('ask', { reviewEdit: async (r) => (reviews.push(r), r.diff.startsWith('Delete') ? false : true), trash }, { chores: true })
+    const mv = await toolbox.execute('move_file', { from: 'Downloads', to: 'Archive/2026' }, 'f1')
+    assert.ok(mv.ok, mv.error)
+    assert.equal(mv.output, 'Moved Downloads/ → Archive/2026/ (2 files).')
+    assert.equal(reviews[0]!.diff, 'Move Downloads/ → Archive/2026/ (2 files)')
+    assert.deepEqual([...state.checkpoints.keys()].sort(), ['Archive/2026/a.pdf', 'Archive/2026/sub/b.pdf', 'Downloads/a.pdf', 'Downloads/sub/b.pdf'])
+    const del = await toolbox.execute('delete_file', { path: 'Archive/2026/a.pdf' }, 'f2')
+    assert.equal(del.ok, false, 'declined in Ask first')
+    assert.match(del.error ?? '', /declined to delete/)
+    assert.ok(existsSync(join(dir, 'Archive', '2026', 'a.pdf')))
+    assert.deepEqual(trashed, [])
+    const accept = box('acceptEdits', { trash }, { chores: true }, state)
+    const del2 = await accept.toolbox.execute('delete_file', { path: 'Archive/2026/a.pdf' }, 'f3')
+    assert.match(del2.output ?? '', /to the system trash/)
+    assert.equal(trashed.length, 1)
+    assert.match(trashed[0]!, /a\.pdf$/)
+    const undone = await restoreCheckpoints(dir, [...state.checkpoints.values()])
+    assert.deepEqual(undone.skipped, [])
+    assert.equal(readFileSync(join(dir, 'Downloads', 'a.pdf'), 'utf8'), 'A')
+    assert.equal(readFileSync(join(dir, 'Downloads', 'sub', 'b.pdf'), 'utf8'), 'B')
+    assert.ok(!existsSync(join(dir, 'Archive', '2026', 'sub', 'b.pdf')))
   })
 })

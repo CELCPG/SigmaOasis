@@ -110,6 +110,7 @@ fi
   test/modalFocusCheck.ts \
   test/fieldContrastCheck.ts \
   test/settingsKitCheck.ts \
+  test/buttonNamesCheck.ts \
   test/planAccessibilityCheck.ts \
   test/mainBundleCheck.ts \
   test/markdownCheck.ts \
@@ -151,7 +152,7 @@ trap 'rm -rf "$PROFILE"' EXIT
 # once in v2.3's upgrade runs). Clear it from the shell, which is never refused.
 rm -rf "$OUT/markdown-bundle"
 status=0
-for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck fieldContrastCheck settingsKitCheck planAccessibilityCheck mainBundleCheck markdownCheck workbenchCheck mcpSecretsCheck httpClientCheck; do
+for check in renderCheck styleCheck chromeContrastCheck tabTraverseCheck modalFocusCheck fieldContrastCheck settingsKitCheck buttonNamesCheck planAccessibilityCheck mainBundleCheck markdownCheck workbenchCheck mcpSecretsCheck httpClientCheck; do
   "$ELECTRON" --no-sandbox --user-data-dir="$PROFILE/$check" "$OUT/test/$check.js" || status=1
 done
 exit "$status"

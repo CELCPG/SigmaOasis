@@ -2,6 +2,7 @@ import { useAppStore } from '../stores/appStore'
 import { applyAgentEvent, historyFromConversation, newAgentTurn } from '../lib/agentTurn'
 import type { AgentWirePayload } from '../../../main/ipc/agent'
 import type { AgentChatConfig, AgentPermission, ChatMessage, Conversation, ModelConfig } from '../types'
+import { expandCommand } from '../../../shared/slashCommands'
 import { wireSampling } from './chatTransport'
 import { audit, uid } from './turnHelpers'
 
@@ -33,11 +34,17 @@ function save(conversationId: string): void {
 }
 
 /** Send `text` to the agent in `conversationId`: a new turn, or a steer if one is running. */
-export async function sendToAgent(conversationId: string, text: string): Promise<void> {
+export async function sendToAgent(conversationId: string, rawText: string): Promise<void> {
   const store = useAppStore.getState()
   const convo = store.conversations.find((c) => c.id === conversationId)
   const settings = store.settings
-  if (!convo?.agent || !settings || !text.trim()) return
+  if (!convo?.agent || !settings || !rawText.trim()) return
+  // C7 (v4.0, an experiment): a leading /name is a slash command from the folder or the app.
+  let text = rawText
+  if (settings.agent.experiments?.commands && /^\/[a-z0-9]/i.test(rawText.trim())) {
+    const commands = await window.api.agentCommands(convo.agent.workspace).catch(() => [])
+    text = expandCommand(rawText, commands).text
+  }
 
   const run = store.agentRuns[conversationId]
   if (run) {

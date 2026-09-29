@@ -97,6 +97,15 @@ describe('folding events into the turn', () => {
     assert.deepEqual(todoProgress(m.agent!.todos), { done: 1, total: 2, current: 'b' })
   })
 
+  test('a question the task paused on is kept with its choices (v4.0, A6)', () => {
+    const m = fold(turn(), [
+      { type: 'question', question: 'Which runner?', choices: ['jest', 'vitest'] },
+      { type: 'final', status: 'paused', finalText: '', changedFiles: [], detail: 'The agent asks: Which runner? (jest / vitest)' }
+    ])
+    assert.equal(m.agent!.status, 'paused')
+    assert.deepEqual(m.agent!.question, { question: 'Which runner?', choices: ['jest', 'vitest'] })
+  })
+
   test('reasoning is kept, but only its newest stretch', () => {
     const big = 'r'.repeat(REASONING_KEEP_CHARS)
     const m = fold(turn(), [{ type: 'reasoning', delta: big }, { type: 'reasoning', delta: 'NEWEST' }])

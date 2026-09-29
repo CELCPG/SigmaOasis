@@ -56,6 +56,14 @@ const api = {
   resetSettings: (): Promise<AppSettings> => ipcRenderer.invoke('store:resetSettings'),
   /** v4.0: the defaults, for a per-section reset. */
   defaultSettings: (): Promise<AppSettings> => ipcRenderer.invoke('store:defaultSettings'),
+  /** v4.0 (E8): the settings as a file, and back. */
+  exportSettings: (): Promise<{ ok: boolean; canceled?: boolean; path?: string; secretsLeftBlank?: string[] }> => ipcRenderer.invoke('store:exportSettings'),
+  importSettings: (): Promise<{ ok: boolean; canceled?: boolean; error?: string; settings?: AppSettings; secretsLeftBlank?: string[] }> => ipcRenderer.invoke('store:importSettings'),
+  /** v4.0 (E1, E9): what this machine's GPU is and whether it is well; null where no tool reports it. */
+  gpuInfo: (force?: boolean): Promise<{ source: 'nvidia-smi' | 'unified-memory'; name: string; memoryBytes: number; pcieReplays: number | null } | null> => ipcRenderer.invoke('gpu:info', force),
+  /** v4.0 (E2): load or unload a model in LM Studio on the user's click. */
+  modelsLoad: (model: string): Promise<{ ok: boolean; detail: string }> => ipcRenderer.invoke('models:load', model),
+  modelsUnload: (model: string): Promise<{ ok: boolean; detail: string }> => ipcRenderer.invoke('models:unload', model),
 
   // Native dialogs
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory'),
@@ -348,6 +356,12 @@ const api = {
   agentStop: (taskId: string): Promise<boolean> => ipcRenderer.invoke('agent:stop', taskId),
   /** v4.0: the shell the agent's run_command uses on this machine. */
   agentShell: (): Promise<{ name: string; file: string }> => ipcRenderer.invoke('agent:shell'),
+  /** v4.0 (C7): the slash commands for a folder (and the app's); empty while the experiment is off. */
+  agentCommands: (workspace: string | null): Promise<{ name: string; summary: string; body: string; source: 'folder' | 'app' }[]> =>
+    ipcRenderer.invoke('agent:commands', workspace),
+  /** v4.0 (C6): copy dropped files into the folder's .sigma/inbox. */
+  agentInbox: (workspace: string | null, paths: string[]): Promise<{ copied: string[]; skipped: { path: string; reason: string }[]; off?: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:inbox', workspace, paths),
   agentSteer: (taskId: string, steer: { id: string; text: string }): Promise<boolean> =>
     ipcRenderer.invoke('agent:steer', taskId, steer),
   agentList: (): Promise<{ taskId: string; conversationId: string; messageId: string; title: string; startedAt: number }[]> =>

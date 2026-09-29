@@ -12,6 +12,7 @@ is written. Reader: `src/main/ipc/skills.ts`; the format: `src/shared/skills.ts`
 my-skill/
   skill.json          required
   playbook.md         optional — the method, plain text or Markdown
+  agent.md            optional — the recipe for an agent task (v4.0, an experiment)
   pack/               optional — a library pack: manifest.json + docs/ (docs/library-pack-format.md)
   helpers.py          optional — any .py files named in skill.json, staged into the sandbox
 ```
@@ -26,6 +27,7 @@ my-skill/
 | `description` | yes | a decision rule, at most 400 characters: when to use it, when not to, one example. It is the first thing the model reads when the skill fires |
 | `triggers` | yes | 1 to 20 phrases, 3 to 80 characters. Matched case-insensitively at word boundaries, with fenced and inline code stripped. The first installed skill with a matching phrase wins |
 | `playbook` | no | a `.md` file name in the folder; its text (up to 6,000 characters) follows the description in the method block |
+| `agent` | no | v4.0, an experiment: a `.md` file name in the folder; its text (up to 6,000 characters) is the **recipe** an agent task follows when one of the triggers is in the task, after the project's `SIGMA.md`. Off until *Recipes* is on under Settings → Agent → Experiments |
 | `pack` | no | a sub-folder holding a library pack; installed like any pack under its own manifest id, and left in place when the skill is removed |
 | `mcp` | no | `{ command, args, env, cwd }` — saved as an MCP server named `skill-<id>`, **switched off**, approval `ask`. Environment values are stored; the confirmation and the panel show names only |
 | `helpers` | no | up to 8 `.py` file names in the folder; when the skill fires they are staged into `/work` as `<id>_<file>` so a program can `import <id>_<file without .py>` |

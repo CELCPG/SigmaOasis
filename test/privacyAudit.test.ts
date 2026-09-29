@@ -2,6 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { privacyChecks } from '../src/renderer/src/lib/privacyAudit'
 import type { AppSettings } from '../src/renderer/src/types'
+import { EXPERIMENT_KEYS } from '../src/main/agent/types'
 
 /**
  * v2.6: the privacy audit is a pure function of the settings and the live
@@ -140,6 +141,7 @@ describe('the agent (v3.0)', () => {
     defaultPermission: 'ask',
     appTools: true,
     notify: true,
+    experiments: Object.fromEntries(EXPERIMENT_KEYS.map((k) => [k, false])) as unknown as AppSettings['agent']['experiments'],
     ...over
   })
 

@@ -92,7 +92,9 @@ export async function listSkills(): Promise<InstalledSkill[]> {
     const record = (await readJson<InstallRecord>(join(dir, id, '.installed.json'))) ?? { installedAt: '' }
     let playbookText: string | undefined
     if (manifest.playbook) playbookText = (await fs.readFile(join(dir, id, manifest.playbook), 'utf-8').catch(() => '')) || undefined
-    out.push({ ...manifest, ...(playbookText ? { playbookText } : {}), ...(record.packId ? { packId: record.packId } : {}), ...(record.mcpServerId ? { mcpServerId: record.mcpServerId } : {}), installedAt: record.installedAt })
+    let agentText: string | undefined
+    if (manifest.agent) agentText = (await fs.readFile(join(dir, id, manifest.agent), 'utf-8').catch(() => '')) || undefined
+    out.push({ ...manifest, ...(playbookText ? { playbookText } : {}), ...(agentText ? { agentText } : {}), ...(record.packId ? { packId: record.packId } : {}), ...(record.mcpServerId ? { mcpServerId: record.mcpServerId } : {}), installedAt: record.installedAt })
   }
   // Install order: the first installed is matched first.
   return out.sort((a, b) => a.installedAt.localeCompare(b.installedAt))

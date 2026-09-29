@@ -5,7 +5,7 @@ import { restoreCheckpoints } from './checkpoints'
 import { defaultShell, runCommand } from './command'
 import { DEFAULT_ROUND_MAX_TOKENS, runAgentTask } from './engine'
 import { fetchTransport } from './stream'
-import type { AgentEvent, AgentHost, AgentStatus, ChunkTransport, PermissionMode, ShellSpec, ToolCallRecord } from './types'
+import type { AgentEvent, AgentExperiments, AgentHost, AgentStatus, ChunkTransport, PermissionMode, ShellSpec, ToolCallRecord } from './types'
 
 /**
  * The agent eval (v3.1, `eval:agent`): how often the agent actually finishes
@@ -33,11 +33,24 @@ import type { AgentEvent, AgentHost, AgentStatus, ChunkTransport, PermissionMode
  * against a scripted model.
  */
 
-export const CASE_KINDS = ['fix', 'chain', 'feature', 'refactor', 'read-only', 'needs-you', 'long'] as const
+export const CASE_KINDS = ['fix', 'chain', 'feature', 'refactor', 'read-only', 'needs-you', 'long', 'office', 'tidy'] as const
 export type CaseKind = (typeof CASE_KINDS)[number]
 
-/** Kinds scored by the hidden checks; the other two are scored by the report. */
-const CHECKED_KINDS: ReadonlySet<CaseKind> = new Set(['fix', 'chain', 'feature', 'refactor', 'long'])
+/** Kinds scored by the hidden checks; read-only and needs-you are scored by the report. */
+const CHECKED_KINDS: ReadonlySet<CaseKind> = new Set(['fix', 'chain', 'feature', 'refactor', 'long', 'office', 'tidy'])
+
+/**
+ * v4.0 (C1, C2): the office and tidy kinds measure the document and chore
+ * tools, so those experiments are on for their cases — and only theirs. A
+ * case of any other kind runs with every experiment off, as the app ships.
+ */
+export const KIND_EXPERIMENTS: Partial<Record<CaseKind, Partial<AgentExperiments>>> = {
+  office: { documents: true },
+  tidy: { chores: true, documents: true }
+}
+
+/** Kinds whose task is a document or a folder, with no test command to run. */
+const NO_COMMAND_KINDS: ReadonlySet<CaseKind> = new Set(['office', 'tidy'])
 
 /** Node's own glob, quoted so no shell expands it first. */
 export const DEFAULT_CHECK = 'node --test "check/**/*.test.js"'
@@ -91,7 +104,7 @@ export async function loadCase(dir: string): Promise<AgentCase> {
   if (CHECKED_KINDS.has(kind)) {
     if (!hasCheck) throw bad(`a ${kind} case needs a check/ folder`)
     if (files.length === 0) throw bad(`a ${kind} case names the files a correct run may change`)
-    if (commands.length === 0) throw bad(`a ${kind} case names its test command`)
+    if (commands.length === 0 && !NO_COMMAND_KINDS.has(kind)) throw bad(`a ${kind} case names its test command`)
   } else if (mentions.length === 0) {
     throw bad(`a ${kind} case names what the report must mention`)
   }
@@ -233,7 +246,8 @@ export function lastTestRun(records: readonly ToolCallRecord[], allowed: readonl
 
 // ---- the folder -------------------------------------------------------------
 
-const SKIP_DIRS = new Set(['node_modules', '.git'])
+/** `.sigma` is the folder's own plumbing (a trash, notes, worktrees): never the task's collateral, never Undo's business. */
+const SKIP_DIRS = new Set(['node_modules', '.git', '.sigma'])
 
 async function listFiles(root: string): Promise<Map<string, Buffer>> {
   const out = new Map<string, Buffer>()
@@ -290,6 +304,8 @@ export interface CaseRun {
   detail?: string
   /** Set when the run ended on a server failure; the run is excluded from every rate. */
   excluded?: string
+  /** v4.0 (E9): set when the GPU's error counter moved during the run — excluded, and named as the machine's. */
+  machine?: string
   solved: boolean
   /** Why it did not count as solved, in a few words; absent when solved. */
   why?: string
@@ -395,6 +411,7 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
       contextTokens: c.contextTokens,
       maxRounds: c.maxRounds,
       commandTimeoutSec: o.commandTimeoutSec,
+      experiments: KIND_EXPERIMENTS[c.kind],
       signal,
       now: o.now
     },

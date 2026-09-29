@@ -60,6 +60,8 @@ export function applyAgentEvent(message: ChatMessage, event: AgentWireEvent): Pa
       return { agent: { ...agent, changedFiles: event.paths } }
     case 'context_elided':
       return { agent: { ...agent, elided: (agent.elided ?? 0) + event.toolResults } }
+    case 'question':
+      return { agent: { ...agent, question: { question: event.question, choices: event.choices } } }
     case 'status':
       // 'running' is the start; the ending arrives with 'final', which also
       // carries the answer, so the bubble never shows "done" with no text.

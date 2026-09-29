@@ -52,6 +52,8 @@ export type AgentEvent =
   | { type: 'steer_delivered'; id: string; round: number }
   | { type: 'files_changed'; paths: string[] }
   | { type: 'context_elided'; toolResults: number; chars: number }
+  /** v4.0 (A6): ask_user posed a question; the task pauses and the answer is the next turn. */
+  | { type: 'question'; question: string; choices: string[] }
   | { type: 'status'; status: AgentStatus; detail?: string }
 
 /** One streamed request's worth of bytes, however they travel. */
@@ -100,6 +102,10 @@ export interface AgentHost {
   emit: (event: AgentEvent) => void
   /** The platform's shell for run_command; resolved once by the host. */
   shell?: ShellSpec
+  /** v4.0 (C1): the host's PDF extractor, for read_document; the CLI has none. */
+  readPdf?: (bytes: Buffer) => Promise<string>
+  /** v4.0 (C2): send a file to the system trash; without it, delete_file moves the file to .sigma/trash/. */
+  trash?: (absolutePath: string) => Promise<void>
 }
 
 export interface ShellSpec {
@@ -138,7 +144,66 @@ export interface AgentTaskSpec {
   /** The slot's standing rules (v2.7), which ride every turn. */
   rules?: string
   now?: Date
+  /** v4.0: the experiments switched on under Settings → Agent; absent means none. */
+  experiments?: Partial<AgentExperiments>
+  /** v4.0 (A9): the worktree an earlier turn of this task used, to carry on in. */
+  worktree?: { path: string; branch: string }
+  /** v4.0 (C3): the recipe the host matched to this task — its method rides the prompt after the project's instructions. */
+  recipe?: { name: string; text: string }
 }
+
+/** v4.0: the agent's experiments (mirrors renderer/src/types.ts AgentExperiments); each off until measured. */
+export interface AgentExperiments {
+  lowWaterMark: boolean
+  multiRead: boolean
+  digests: boolean
+  thinkByPhase: boolean
+  planFocus: boolean
+  verifyRound: boolean
+  askUser: boolean
+  reviewer: boolean
+  hooks: boolean
+  worktrees: boolean
+  notes: boolean
+  /** C1: read_document and write_document — .docx, .xlsx, .pptx, .pdf, .csv, .md, .txt. */
+  documents: boolean
+  /** C2: move_file, copy_file, make_directory, delete_file — folder chores, checkpointed, to the trash never gone. */
+  chores: boolean
+  /** C3: recipes — a skill's agent.md, and the four the app ships, as the method for a task. */
+  recipes: boolean
+  /** C4: browse(url, instruction) — the headless renderer for pages that are applications; read-only. */
+  browse: boolean
+  /** C5: a read-only agent task as a job kind. */
+  agentJobs: boolean
+  /** C6: files dropped on an agent chat land in .sigma/inbox/. */
+  inbox: boolean
+  /** C7: slash commands from .sigma/commands/*.md, in the composer and the CLI. */
+  commands: boolean
+  /** C8: MCP servers that are on join the agent's tools under their own approval. */
+  mcpTools: boolean
+}
+
+export const EXPERIMENT_KEYS: readonly (keyof AgentExperiments)[] = [
+  'lowWaterMark',
+  'multiRead',
+  'digests',
+  'thinkByPhase',
+  'planFocus',
+  'verifyRound',
+  'askUser',
+  'reviewer',
+  'hooks',
+  'worktrees',
+  'notes',
+  'documents',
+  'chores',
+  'recipes',
+  'browse',
+  'agentJobs',
+  'inbox',
+  'commands',
+  'mcpTools'
+]
 
 export interface AgentTaskResult {
   status: Exclude<AgentStatus, 'running'>
@@ -151,6 +216,10 @@ export interface AgentTaskResult {
   changedFiles: string[]
   /** Pre-task contents of every changed file, for Undo. */
   checkpoints: Checkpoint[]
+  /** v4.0: the folder the task actually worked in — the worktree (A9) when one was made, else the workspace. */
+  workspace: string | null
+  /** v4.0 (A9): the worktree and branch this task worked on, for the next turn and the user. */
+  worktree?: { path: string; branch: string }
   detail?: string
 }
 
@@ -160,4 +229,6 @@ export interface Checkpoint {
   before: string | null
   /** What the task last wrote, so Undo can tell a later hand-edit apart. */
   after: string | null
+  /** v4.0: set when `before` and `after` hold the file's bytes as base64 — a document or a moved file, not text. */
+  encoding?: 'base64'
 }

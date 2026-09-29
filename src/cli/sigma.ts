@@ -6,6 +6,8 @@ import { runAgentTask, DEFAULT_MAX_ROUNDS } from '../main/agent/engine'
 import { restoreCheckpoints } from '../main/agent/checkpoints'
 import { fetchTransport } from '../main/agent/stream'
 import { defaultShell } from '../main/agent/command'
+import { expandCommand, loadCommands } from '../main/agent/commands'
+import { selectRecipe } from '../main/agent/recipes'
 import type { AgentEvent, AgentHost, Checkpoint, CommandApproval, EditReview, PermissionMode, TodoItem } from '../main/agent/types'
 import type { ApiMessage } from '../renderer/src/lib/agentLoop'
 import { describeStep } from '../renderer/src/lib/agentTurn'
@@ -77,7 +79,7 @@ function fail(s: string): void {
 interface AppSettingsLike {
   baseUrl?: string
   models?: { id?: string; modelId?: string; enabled?: boolean; specialty?: string; rules?: string }[]
-  agent?: { maxRounds?: number; commandTimeoutSec?: number; defaultPermission?: PermissionMode }
+  agent?: { maxRounds?: number; commandTimeoutSec?: number; defaultPermission?: PermissionMode; experiments?: Record<string, boolean> }
 }
 
 /** Where electron-store keeps the app's settings on this platform (SIGMA_CONFIG overrides it). */
@@ -348,6 +350,8 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
   const alwaysCommands = new Set<string>()
   let history: ApiMessage[] = []
   let lastCheckpoints: Checkpoint[] = []
+  /** v4.0 (A9): the worktree the last turn worked in, carried to the next. */
+  let lastWorktree: { path: string; branch: string } | undefined
   let controller: AbortController | null = null
   const steers: { id: string; text: string }[] = []
 
@@ -418,6 +422,10 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
           case 'steer_delivered':
             write(dim('  (your note reached the agent)\n'))
             break
+          case 'question':
+            stopSpinner()
+            write(`\n${bold('The agent asks:')} ${e.question}${e.choices.length > 0 ? dim(`  [${e.choices.join(' / ')}]`) : ''}\n${dim('Your next line is the answer.')}\n`)
+            break
           case 'status':
             stopSpinner()
             break
@@ -467,6 +475,17 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
 
   const runTask = async (prompt: string): Promise<number> => {
     controller = new AbortController()
+    // C7 (v4.0, an experiment): a leading /name is a slash command from the folder's .sigma/commands.
+    if (app.agent?.experiments?.commands && workspace && /^\/[a-z0-9]/i.test(prompt.trim())) {
+      const { text, command } = expandCommand(prompt, await loadCommands(workspace, null))
+      if (command) {
+        write(dim(`  (/${command.name}: ${command.summary})\n`))
+        prompt = text
+      }
+    }
+    // C3 (v4.0, an experiment): the shipped recipes; a skill's agent.md is the app's to match.
+    const recipe = app.agent?.experiments?.recipes ? selectRecipe(prompt) : null
+    if (recipe) write(dim(`  (recipe: ${recipe.name})\n`))
     const result = await runAgentTask(
       {
         baseUrl,
@@ -478,6 +497,9 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
         rules: slot?.rules,
         maxRounds,
         commandTimeoutSec,
+        experiments: app.agent?.experiments,
+        worktree: lastWorktree,
+        ...(recipe ? { recipe: { name: recipe.name, text: recipe.text } } : {}),
         signal: controller.signal,
         takeSteers: () => steers.splice(0)
       },
@@ -485,6 +507,7 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
     )
     controller = null
     history = result.history
+    if (result.worktree) lastWorktree = result.worktree
     if (result.checkpoints.length > 0) lastCheckpoints = result.checkpoints
     if (o.json) {
       write(`${JSON.stringify({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, detail: result.detail })}\n`)

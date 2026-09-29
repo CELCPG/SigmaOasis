@@ -79,7 +79,8 @@ describe('the scheduler', () => {
           throw new Error('research blew up')
         },
         price: async () => ({ outcome: 'skipped', note: 'no proxy' }),
-        ledger: async () => ({ outcome: 'ok', note: 'nothing' })
+        ledger: async () => ({ outcome: 'ok', note: 'nothing' }),
+        agent: async () => ({ outcome: 'ok', note: '' })
       },
       deliver: (j, digest) => {
         if (opts.window === false) return false
@@ -157,7 +158,8 @@ describe('the scheduler', () => {
         },
         research: async () => ({ outcome: 'ok', note: '' }),
         price: async () => ({ outcome: 'ok', note: '' }),
-        ledger: async () => ({ outcome: 'ok', note: '' })
+        ledger: async () => ({ outcome: 'ok', note: '' }),
+        agent: async () => ({ outcome: 'ok', note: '' })
       },
       deliver: () => true,
       audit: async () => {},
@@ -189,6 +191,8 @@ describe('the job store', () => {
     await assert.rejects(() => jobsMod.addJob({ kind: 'research', args: {} }), /needs a question/)
     await assert.rejects(() => jobsMod.addJob({ kind: 'price', args: { url: 'ftp://x' } }), /needs the watched item/)
     await assert.rejects(() => jobsMod.addJob({ kind: 'nope' }), /Unknown job kind/)
+    // v4.0 (C5): the agent kind is an experiment, refused while its switch is off.
+    await assert.rejects(() => jobsMod.addJob({ kind: 'agent', args: { folder: '/somewhere', prompt: 'Summarize' } }), /an experiment/)
     const j = await jobsMod.addJob({ kind: 'research', interval: 'weekly', args: { question: 'What changed?', depth: 'quick' } })
     assert.equal(j.title, 'What changed?')
     assert.equal(j.interval, 'weekly')

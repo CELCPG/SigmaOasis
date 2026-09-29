@@ -31,19 +31,39 @@ export interface ProjectNotes {
  * when there is no SIGMA.md, so a project already set up for another agent
  * works here unchanged. Only the first found is used.
  */
-export async function loadProjectNotes(root: string): Promise<ProjectNotes | null> {
+export async function loadProjectNotes(root: string, agentNotes = false): Promise<ProjectNotes | null> {
+  let found: ProjectNotes | null = null
   for (const file of PROJECT_NOTE_FILES) {
     try {
       const text = await fs.readFile(join(root, file), 'utf8')
       if (!text.trim()) continue
       const truncated = text.length > PROJECT_NOTE_MAX_CHARS
-      return { file, text: truncated ? `${text.slice(0, PROJECT_NOTE_MAX_CHARS)}\n…` : text, truncated }
+      found = { file, text: truncated ? `${text.slice(0, PROJECT_NOTE_MAX_CHARS)}\n…` : text, truncated }
+      break
     } catch {
       /* not there — try the next */
     }
   }
-  return null
+  // A10 (v4.0, an experiment): what the agent itself kept about this folder,
+  // after the user's own file, never in its place.
+  if (agentNotes) {
+    try {
+      const text = (await fs.readFile(join(root, AGENT_NOTES_FILE), 'utf8')).trim()
+      if (text) {
+        const clipped = text.length > AGENT_NOTES_MAX_CHARS ? `${text.slice(0, AGENT_NOTES_MAX_CHARS)}\n…` : text
+        const block = `\n\n## Notes the agent kept here (${AGENT_NOTES_FILE})\n${clipped}`
+        found = found ? { ...found, text: `${found.text}${block}` } : { file: AGENT_NOTES_FILE, text: clipped, truncated: text.length > AGENT_NOTES_MAX_CHARS }
+      }
+    } catch {
+      /* none kept yet */
+    }
+  }
+  return found
 }
+
+/** A10: where the agent keeps what it learned about a folder. */
+export const AGENT_NOTES_FILE = '.sigma/notes.md'
+const AGENT_NOTES_MAX_CHARS = 4_000
 
 /** The workspace's top level, folders first — a map the model starts from. */
 export async function topLevel(root: string, max = 60): Promise<string[]> {
@@ -88,6 +108,10 @@ export interface PromptEnv {
   tools: string[]
   /** The slot's standing rules (v2.7), which ride every turn. */
   rules?: string
+  /** v4.0: the experiments on for this task, for the rules that come with one. */
+  experiments?: Partial<import('./types').AgentExperiments>
+  /** v4.0 (C3): the recipe matched to this task, when the experiment is on. */
+  recipe?: { name: string; text: string }
 }
 
 const PERMISSION_LINE: Record<PermissionMode, string> = {
@@ -121,11 +145,21 @@ export function agentSystemPrompt(env: PromptEnv): string {
   if (has('task')) rules.push('For a broad search or an independent review, use task: the helper starts fresh and returns a summary, which keeps your context small.')
   if (has('read_file')) rules.push('Keep tool output small: grep before reading big files, read only the lines you need (offset/limit), and do not re-read a file you already have.')
   rules.push('Finish with a short report: what you changed (files), how you checked it, and anything left undone. Never claim a check you did not run.')
+  // A10 (v4.0, an experiment): notes the agent keeps about a folder.
+  if (env.experiments?.notes && env.workspace && has('write_file')) {
+    rules.push(
+      'Before the report, if you learned something durable about this folder — how to run the tests, where the entry points are, what surprised you — add it to .sigma/notes.md with edit_file (create it with write_file if missing): facts you verified, not this task’s story, under forty lines in all. It is read at the start of every task here.'
+    )
+  }
   lines.push('', '## How to work', ...rules.map((r, i) => `${i + 1}. ${r}`))
 
   if (env.rules?.trim()) lines.push('', '## The user’s standing rules', env.rules.trim())
   if (env.notes) {
     lines.push('', `## Project instructions (${env.notes.file})`, env.notes.text.trim())
+  }
+  // C3 (v4.0, an experiment): the method for this kind of task, after the project's own word.
+  if (env.recipe?.text.trim()) {
+    lines.push('', `## Method for this task (the “${env.recipe.name}” recipe — follow it, and say in the report if you depart from it)`, env.recipe.text.trim())
   }
   if (env.listing.length > 0) lines.push('', '## Workspace top level', env.listing.join('  '))
   return lines.join('\n')

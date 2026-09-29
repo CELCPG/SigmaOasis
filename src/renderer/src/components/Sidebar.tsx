@@ -380,6 +380,7 @@ export function Sidebar(): JSX.Element {
             disabled={streaming}
             className="rounded-2xl border border-violet-400/30 bg-violet-400/10 px-2 py-1 text-xs text-violet-600 dark:text-violet-400 hover:bg-violet-400/20 disabled:opacity-50"
             title="New ephemeral chat — nothing is written to disk; gone when you close it or quit"
+            aria-label="New ephemeral chat"
           >
             ◌
           </button>
@@ -610,6 +611,7 @@ export function Sidebar(): JSX.Element {
           onClick={() => useAppStore.getState().setOnboardingOpen(true)}
           className="ml-auto rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Setup checklist"
+          aria-label="Setup checklist"
         >
           🧭
         </button>
@@ -618,6 +620,7 @@ export function Sidebar(): JSX.Element {
           onClick={() => setSettingsOpen(true)}
           className="rounded-lg p-1.5 text-ink-secondary hover:bg-black/5 dark:hover:bg-white/10"
           title="Settings (⌘,)"
+          aria-label="Settings"
         >
           ⚙️
         </button>
