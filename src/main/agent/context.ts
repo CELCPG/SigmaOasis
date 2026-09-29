@@ -28,6 +28,17 @@ export const CHARS_PER_TOKEN = 3.5
 export const KEEP_RECENT_RESULTS = 4
 /** Assumed when the host does not know the loaded window. */
 export const DEFAULT_CONTEXT_TOKENS = 32_768
+/**
+ * v3.1 (M2): once over budget, elide down to this share of it, not just under
+ * it. A local server reuses its prompt cache only up to the first token that
+ * changed, and each elision rewrites a message near the history's start — so
+ * trimming to just under the line meant the next round's output crossed it
+ * again, the next-oldest result went, and every round from then on re-read
+ * nearly the whole history. Trimming to 70% changes the start once every
+ * several rounds. Rounds are still dropped only to get under the budget
+ * itself: they are what cannot be fetched again.
+ */
+export const LOW_WATER = 0.7
 
 const ELIDED_PREFIX = '[Earlier output of '
 
@@ -70,8 +81,9 @@ export interface FitResult {
  */
 export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedChars = 0): FitResult {
   const result: FitResult = { elided: 0, chars: 0, droppedRounds: 0, stillOver: false }
-  const over = (): boolean => estimateTokens(messages, fixedChars) > budgetTokens
+  const over = (limit = budgetTokens): boolean => estimateTokens(messages, fixedChars) > limit
   if (!over()) return result
+  const lowWater = Math.floor(budgetTokens * LOW_WATER)
 
   // The tool name for each call id, so an elision note can say what it was.
   const nameOf = new Map<string, string>()
@@ -80,7 +92,7 @@ export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedCh
   const toolIdx = messages.map((m, i) => (m.role === 'tool' ? i : -1)).filter((i) => i >= 0)
   const elidable = toolIdx.slice(0, Math.max(0, toolIdx.length - KEEP_RECENT_RESULTS))
   for (const i of elidable) {
-    if (!over()) return result
+    if (!over(lowWater)) return result
     const m = messages[i]!
     if (typeof m.content !== 'string' || m.content.startsWith(ELIDED_PREFIX) || m.content.length < 400) continue
     const name = nameOf.get(m.tool_call_id ?? '') ?? 'a tool'

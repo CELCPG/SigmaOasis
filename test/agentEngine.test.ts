@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runAgentTask } from '../src/main/agent/engine'
 import { applyEdit } from '../src/main/agent/editMatch'
-import { fitContext, DROPPED_NOTE } from '../src/main/agent/context'
+import { fitContext, DROPPED_NOTE, estimateTokens, LOW_WATER } from '../src/main/agent/context'
 import { agentSystemPrompt, loadProjectNotes } from '../src/main/agent/prompts'
 import { Toolbox, newTaskState, workspaceToolSchemas } from '../src/main/agent/tools'
 import { globToRegExp, resolveInside, WorkspaceError } from '../src/main/agent/workspace'
@@ -325,6 +325,24 @@ describe('the toolbox on a real folder', () => {
     assert.match(bin.error ?? '', /binary file/)
   })
 
+  /** v3.1 (M2): a first look at several files in one round, not one round each. */
+  test('read_file: more_paths reads several files in one call; one unreadable file does not sink the rest', async () => {
+    const b = box()
+    const r = await b.execute('read_file', { path: 'src/math.ts', more_paths: ['src/math.test.ts', 'nope.ts'] }, 'x')
+    assert.equal(r.ok, true)
+    const out = r.output ?? ''
+    assert.match(out, /^=== src\/math\.ts ===\n {4}1\t/)
+    assert.match(out, /\n=== src\/math\.test\.ts ===\n {4}1\t/)
+    assert.match(out, /\n=== nope\.ts ===\n\(not read: /)
+    // Every file read is a file that may now be edited.
+    const edit = await b.execute('edit_file', { path: 'src/math.test.ts', old_string: 'add', new_string: 'add', replace_all: true }, 'x')
+    assert.doesNotMatch(edit.error ?? '', /before editing/)
+    // One path is exactly the single read it always was.
+    assert.equal((await box().execute('read_file', { path: 'src/math.ts' }, 'x')).output?.startsWith('    1\t'), true)
+    const none = await box().execute('read_file', { path: 'nope.ts', more_paths: ['also-nope.ts'] }, 'x')
+    assert.equal(none.ok, false)
+  })
+
   test('an edit needs the file read first; write_file will not clobber an unread file', async () => {
     const b = box()
     const blind = await b.execute('edit_file', { path: 'src/math.ts', old_string: 'a - b', new_string: 'a + b' }, 'x')
@@ -459,6 +477,37 @@ describe('context fitting', () => {
     const before = JSON.stringify(m)
     fitContext(m, 100_000)
     assert.equal(JSON.stringify(m), before)
+  })
+
+  /**
+   * v3.1 (M2): a server reuses its prompt cache only up to the first changed
+   * token, and an elision rewrites the start of the history. Trimmed to just
+   * under the line, the next round crossed it again and the start moved every
+   * round; trimmed to the low-water mark, the next rounds fit untouched.
+   */
+  test('once over, it trims to the low-water mark, so the next rounds leave the start alone', () => {
+    const m = history()
+    const budget = 9_000
+    const first = fitContext(m, budget)
+    assert.ok(first.elided > 0)
+    assert.ok(estimateTokens(m) <= budget * LOW_WATER, 'trimmed to the low-water mark, not just under the budget')
+    const start = JSON.stringify(m.slice(0, 6))
+    // Three more rounds of ordinary size.
+    for (let i = 8; i < 11; i++) {
+      m.push({ role: 'assistant', content: null, tool_calls: [{ id: `c${i}`, type: 'function', function: { name: 'read_file', arguments: '{}' } }] })
+      m.push({ role: 'tool', tool_call_id: `c${i}`, content: 'y'.repeat(1_500) })
+      assert.equal(fitContext(m, budget).elided, 0, `round ${i} rewrote the history's start`)
+    }
+    assert.equal(JSON.stringify(m.slice(0, 6)), start)
+  })
+
+  test('rounds are still dropped only to get under the budget, not to the low-water mark', () => {
+    const m = history()
+    const r = fitContext(m, 3_000)
+    assert.ok(r.droppedRounds > 0)
+    assert.equal(r.stillOver, false)
+    // One round fewer would have been over: nothing beyond the budget was dropped.
+    assert.ok(estimateTokens(m) > 3_000 * LOW_WATER || r.droppedRounds === 1)
   })
 })
 

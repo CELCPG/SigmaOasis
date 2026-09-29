@@ -33,6 +33,8 @@ import type { AgentHost, Checkpoint, PermissionMode, ShellSpec, SubagentType, To
 export const READ_DEFAULT_LINES = 400
 const READ_MAX_BYTES = 5 * 1024 * 1024
 const READ_LINE_CHARS = 1_000
+/** v3.1 (M2): files a single read_file may add beside its path. */
+export const READ_MORE_PATHS = 3
 const GLOB_MAX = 200
 const GREP_MAX_MATCHES = 120
 const GREP_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -81,7 +83,12 @@ export function workspaceToolSchemas(shell: ShellSpec, commandTimeoutSec: number
       {
         path: { type: 'string', description: 'File path relative to the workspace.' },
         offset: { type: 'number', description: 'First line to read, starting at 1.' },
-        limit: { type: 'number', description: `How many lines to read (default ${READ_DEFAULT_LINES}).` }
+        limit: { type: 'number', description: `How many lines to read (default ${READ_DEFAULT_LINES}).` },
+        more_paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: `Up to ${READ_MORE_PATHS} more files to read in the same call, each from its first line — for a first look at several files at once.`
+        }
       },
       ['path']
     ),
@@ -365,7 +372,31 @@ export class Toolbox {
     return { ok: true, output: [...out, ...notes].join('\n') }
   }
 
+  /**
+   * v3.1 (M2): `more_paths` reads several files in one call, each windowed as
+   * a single read is, each under its own header; one that cannot be read says
+   * why in its place and does not fail the others. Only the agent's own schema
+   * changes — the chat's pinned tool list does not move.
+   */
   private async readFile(args: Record<string, unknown>): Promise<ToolboxResult> {
+    const more = Array.isArray(args.more_paths)
+      ? args.more_paths.filter((p): p is string => typeof p === 'string' && p.trim() !== '').slice(0, READ_MORE_PATHS)
+      : []
+    if (more.length === 0) return this.readOneFile(args)
+    const parts: string[] = []
+    let anyOk = false
+    for (const [i, path] of [args.path, ...more].entries()) {
+      const one = await this.readOneFile(i === 0 ? args : { path }).catch((err: unknown) => ({
+        ok: false as const,
+        error: err instanceof Error ? err.message : String(err)
+      }))
+      anyOk ||= one.ok
+      parts.push(`=== ${String(path)} ===\n${one.ok ? one.output : `(not read: ${one.error})`}`)
+    }
+    return anyOk ? { ok: true, output: parts.join('\n\n') } : { ok: false, error: parts.join('\n\n') }
+  }
+
+  private async readOneFile(args: Record<string, unknown>): Promise<ToolboxResult> {
     const root = this.root()
     const abs = resolveInside(root, args.path)
     const s = await fs.stat(abs)
