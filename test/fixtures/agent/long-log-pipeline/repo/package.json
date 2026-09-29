@@ -1,0 +1,9 @@
+{
+  "name": "ops-report",
+  "version": "1.8.0",
+  "private": true,
+  "scripts": {
+    "report": "node src/report.js data/sample.log",
+    "test": "node --test"
+  }
+}

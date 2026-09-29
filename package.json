@@ -1,6 +1,6 @@
 {
   "name": "sigma-oasis",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Sigma Oasis — a private, local-first desktop AI chat powered by LM Studio. Your safe oasis of data protection.",
   "author": "Colin Long",
   "license": "MIT",
@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "bash scripts/test.sh",
     "eval:tools": "bash scripts/eval-tools.sh",
+    "eval:agent": "bash scripts/eval-agent.sh",
     "bench:render": "bash scripts/render-bench.sh",
     "bench:main-loop": "bash scripts/main-loop-bench.sh",
     "export:traces": "bash scripts/export-traces.sh",

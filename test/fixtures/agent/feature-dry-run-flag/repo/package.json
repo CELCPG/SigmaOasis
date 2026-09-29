@@ -1,0 +1,9 @@
+{
+  "name": "bundle-cli",
+  "version": "0.9.0",
+  "private": true,
+  "bin": { "bundle": "src/cli.js" },
+  "scripts": {
+    "test": "node --test"
+  }
+}

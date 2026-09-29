@@ -7,6 +7,8 @@ out/
 dist/
 .build/
 *.log
+# The agent eval's fixtures are repositories as their cases need them, logs included.
+!test/fixtures/agent/**/*.log
 .DS_Store
 scripts/signing.env
 .test-build/

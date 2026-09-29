@@ -50,6 +50,20 @@ export interface CommandResult {
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g
 
+/**
+ * The environment a command runs in: the host's, less what belongs to the
+ * host's own process. NODE_TEST_CONTEXT is set by Node's test runner for the
+ * files it runs; a `node --test` started beneath one inherits it, reports to a
+ * parent that is not listening, and exits 0 whatever its tests did — measured
+ * when the agent eval's own tests first ran a fixture's failing suite.
+ */
+export function commandEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  if (env.NODE_TEST_CONTEXT === undefined) return env
+  const own = { ...env }
+  delete own.NODE_TEST_CONTEXT
+  return own
+}
+
 function killTree(child: ChildProcess): void {
   if (child.pid === undefined || child.exitCode !== null) return
   if (process.platform === 'win32') {
@@ -82,11 +96,12 @@ export function runCommand(
     const isCmd = /cmd(?:\.exe)?$/i.test(shell.file)
     // cmd.exe needs Node's own quoting of `/s /c "…"`; every other shell takes
     // the command as one argument after its flags.
+    const env = commandEnv()
     const child = isCmd
-      ? spawn(command, { cwd, shell: shell.file, env: process.env, windowsHide: true })
+      ? spawn(command, { cwd, shell: shell.file, env, windowsHide: true })
       : spawn(shell.file, [...shell.args, command], {
           cwd,
-          env: process.env,
+          env,
           windowsHide: true,
           detached: process.platform !== 'win32'
         })

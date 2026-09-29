@@ -155,6 +155,16 @@ is no pass mark for 3.1 itself: the baseline is the deliverable. From then on ev
 is judged against it — solved may not fall outside the stable set's noise, and false claims and
 collateral may not rise on the stable set at all.
 
+*(Built and shipped in 3.1.0: the suite, its twenty cases each proven to fail untouched and pass
+with a reference fix, and its scoring rules pinned in `test/agentEval.test.ts` — `docs/evals.md`,
+"The agent, measured". Each run also records its longest single round, which M2's cap needs.
+**Owed: both baselines.** The 9B's first attempt, 2026-09-28, stopped on the bench machine: its
+GPU's PCIe link began reporting corrected errors under load, thousands a minute, LM Studio died
+mid-case, and a second attempt brought the errors straight back — so nothing from either is
+reported. It found one rule missing: a reply cut off mid-stream arrives as a bare `terminated`,
+which the exclusion rule now knows. The baselines run once the machine is sound; the 35B's was
+already deferred by the owner.)*
+
 ### M2. Speed, where the suite says it is
 
 Most of 3.0's thirteen minutes was the model thinking before each call. Three changes to try, each
@@ -177,6 +187,12 @@ collateral hold:
 3. **Fewer rounds spent reading.** `read_file` takes one path, and a first round of exploration
    often wants three. Letting it take several, each windowed as today, changes only the agent's
    own schema — the chat's pinned tool hash does not move. Measured as rounds per solved task.
+
+*(Built, not shipped: candidates 1 and 3 — `LOW_WATER` at 70% in `fitContext`, and `read_file`'s
+`more_paths` for up to three more files — each with its tests, on the branch
+`feat/m2-speed-candidates`. Their gate is M1's baseline, so they wait for it. Candidate 2 waits for
+the same run: each run now records its longest round, so the baseline itself says whether any round
+comes near 8K or 4K, and a cap nothing reaches changes nothing.)*
 
 ### M3. VIBE's tool-choice run
 

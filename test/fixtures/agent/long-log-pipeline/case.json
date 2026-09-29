@@ -1,0 +1,14 @@
+{
+  "kind": "long",
+  "files": [
+    "src/filters.js",
+    "src/aggregate.js",
+    "src/parse.js",
+    "test/"
+  ],
+  "commands": [
+    "npm test",
+    "node --test"
+  ],
+  "contextTokens": 16384
+}
