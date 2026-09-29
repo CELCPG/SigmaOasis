@@ -1,10 +1,29 @@
-// Extracted from SettingsModal.tsx (v2.4): the "general" tab, as it was. Pure prop-drilling —
-// every piece of state and every handler still lives in the modal and arrives here as a prop,
-// so nothing about ordering, effects or behaviour changed; the modal just stopped being 2,500 lines.
+// Settings → General, rebuilt on the control kit (v4.0, S2): the first tab to
+// use it, and the pattern the others follow. Each row is declared once in
+// ROWS — label, help, keywords — which is what the tab draws and what the
+// settings index searches; the control beside it is the kit's, never a bare
+// input. It still writes the modal's draft through `update` until S3 makes
+// every control apply as it commits.
 
 import React from 'react'
-import type { AppSettings } from '../../types'
-import type { UpdateStatus } from '../../types'
+import type { AppSettings, UpdateStatus } from '../../types'
+import { defineRows, registerRows } from '../../lib/settingsKit'
+import { ActionRow, Row, Section, Segmented, Select, Slider, Stepper, Switch, type ActionResult } from './kit'
+
+export const ROWS = defineRows('general', {
+  theme: { label: 'Theme', help: 'Light or dark. Previewed as you choose.', keywords: ['dark mode', 'light mode', 'appearance'] },
+  fontSize: { label: 'Font size', help: 'The base size of everything in the window.', keywords: ['text size', 'zoom'] },
+  historyLimit: { label: 'Conversations to keep', help: 'Beyond this, the oldest saved conversation is dropped when a new one is saved. Unsaved chats never count.', keywords: ['history', 'limit'] },
+  hideToolCalls: { label: 'Hide tool-call details', help: 'Tool activity collapses to a quiet thinking animation and the chat stays clean.', keywords: ['tools', 'clean'] },
+  vibeMode: { label: '〰 VIBE mode', help: 'The window becomes the conversation and nothing else, on slow night water, and replies are asked to be short. Tools, memory and every check still run — they are just not drawn. ⌘⇧L or Esc to come back.', keywords: ['vibe', 'calm', 'lagoon'] },
+  showResponseStats: { label: 'Show response stats', help: 'Tokens per second and time to first token under each reply. When a server does not report token counts, only timing is shown.', keywords: ['tokens', 'speed', 'ttft'] },
+  reasoningDisplay: { label: 'Reasoning display', help: 'How a model’s chain of thought appears above its reply. The reasoning itself is always kept.', keywords: ['thinking', 'chain of thought', 'thought'] },
+  contextManagement: { label: 'When a conversation outgrows the context window', help: 'Summarizing costs one extra local model call when the limit is first reached and keeps the model aware of how the conversation began. Dropping is what versions before 0.8.2 did.', keywords: ['compact', 'trim', 'summarize', 'context'] },
+  confirmPlan: { label: 'Show a plan for approval before it runs', help: 'One dialog with every step before anything runs — the moment to catch a plan that misread the task. Off means generated plans run at once.', keywords: ['plan mode', 'approve'] },
+  maxSteps: { label: 'Steps per plan', help: 'Each step is a bounded sub-turn with the enabled tools.', keywords: ['plan'] },
+  updates: { label: 'Updates', help: 'The version this window runs, and whether a newer one is ready.', keywords: ['version', 'about', 'update'] }
+})
+registerRows(ROWS)
 
 export interface GeneralTabProps {
   checkForUpdates: () => Promise<void>
@@ -14,212 +33,109 @@ export interface GeneralTabProps {
   updateStatus: UpdateStatus | null
 }
 
+/** What the update row says, in one line and one tone. */
+function updateResult(status: UpdateStatus | null): ActionResult | null {
+  if (!status) return null
+  switch (status.state) {
+    case 'dev':
+      return { tone: 'muted', text: 'Development build — updates apply to packaged releases.' }
+    case 'checking':
+      return { tone: 'info', text: 'Checking for updates…' }
+    case 'available':
+      return { tone: 'info', text: `Update ${status.version} found — downloading…` }
+    case 'downloading':
+      return { tone: 'info', text: `Downloading update… ${status.percent ?? 0}%` }
+    case 'downloaded':
+      return { tone: 'ok', text: `Update ${status.version} is ready to install.` }
+    case 'error':
+      return { tone: 'danger', text: `Update check failed: ${status.error ?? 'unknown error'}` }
+    default:
+      return { tone: 'ok', text: 'You’re up to date.' }
+  }
+}
+
 export function GeneralTab(props: GeneralTabProps): JSX.Element {
   const { checkForUpdates, draft, installUpdate, update, updateStatus } = props
+  const ready = updateStatus?.state === 'downloaded'
+  const busy = updateStatus?.state === 'checking' || updateStatus?.state === 'downloading'
   return (
-    <div className="space-y-5">
-                    <div>
-                      <label className="mb-1 block text-sm font-medium">Theme</label>
-                      <div className="flex rounded-lg bg-black/5 dark:bg-white/10 p-0.5 text-sm w-fit">
-                        {(['light', 'dark'] as const).map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => update({ theme: t })}
-                            className={`px-4 py-1.5 rounded-md capitalize ${
-                              draft.theme === t ? 'bg-white dark:bg-neutral-700 shadow-sm' : 'text-ink-secondary'
-                            }`}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium">
-                        Font size: {draft.fontSize}px
-                      </label>
-                      <input
-                        type="range"
-                        min={12}
-                        max={20}
-                        value={draft.fontSize}
-                        onChange={(e) => update({ fontSize: Number(e.target.value) })}
-                        className="w-64 accent-accent"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium">
-                        Conversation history limit
-                      </label>
-                      <input
-                        type="number"
-                        min={10}
-                        max={1000}
-                        value={draft.historyLimit}
-                        onChange={(e) => update({ historyLimit: Number(e.target.value) })}
-                        className="w-32 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
-                      />
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        Maximum number of conversations to keep.
-                      </p>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium">Chat appearance</label>
-                      <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.hideToolCalls}
-                          onChange={(e) => update({ hideToolCalls: e.target.checked })}
-                          className="h-4 w-4 accent-accent"
-                        />
-                        Hide tool-call details
-                      </label>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        When on, tool activity collapses to a subtle thinking animation — the chat
-                        stays clean. Off by default.
-                      </p>
-                      <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.vibeMode}
-                          onChange={(e) => update({ vibeMode: e.target.checked })}
-                          className="h-4 w-4 accent-accent"
-                        />
-                        〰 VIBE mode
-                      </label>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        The window becomes the conversation and nothing else, on slow night water, and
-                        replies are asked to be short. Tools, memory and every check still run — they
-                        are just not drawn. ⌘⇧L or Esc to come back.
-                      </p>
-                      <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.showResponseStats}
-                          onChange={(e) => update({ showResponseStats: e.target.checked })}
-                          className="h-4 w-4 accent-accent"
-                        />
-                        Show response stats
-                      </label>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        Tokens/sec and time to first token under each reply. Token counts come from LM
-                        Studio; when a server does not report them, only timing is shown.
-                      </p>
-                      <div className="mt-3">
-                        <label className="mb-1 block text-sm">Reasoning display</label>
-                        <select
-                          value={draft.reasoningDisplay}
-                          onChange={(e) =>
-                            update({
-                              reasoningDisplay: e.target.value as AppSettings['reasoningDisplay']
-                            })
-                          }
-                          className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
-                        >
-                          <option value="collapsed">Collapsed behind a &quot;Thought&quot; header</option>
-                          <option value="expanded">Always expanded</option>
-                          <option value="hidden">Hidden</option>
-                        </select>
-                        <p className="mt-1 text-xs text-ink-secondary">
-                          How a model&apos;s chain-of-thought appears above its reply. Applies to new
-                          views of a message; the reasoning itself is always kept.
-                        </p>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium">
-                        When a conversation outgrows the context window
-                      </label>
-                      <select
-                        value={draft.contextManagement}
-                        onChange={(e) =>
-                          update({ contextManagement: e.target.value as 'compact' | 'trim' })
-                        }
-                        className="w-64 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
-                      >
-                        <option value="compact">Summarize what no longer fits</option>
-                        <option value="trim">Drop it silently</option>
-                      </select>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        Summarizing costs one extra local model call when the limit is first reached,
-                        and keeps the model aware of how the conversation began. Dropping is what
-                        versions before 0.8.2 did.
-                      </p>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium">Plan mode (📋 in the composer)</label>
-                      <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.plan.confirmPlan}
-                          onChange={(e) => update({ plan: { ...draft.plan, confirmPlan: e.target.checked } })}
-                          className="mt-0.5 h-4 w-4 accent-accent"
-                        />
-                        <span>
-                          Show the plan for approval before executing
-                          <span className="block text-xs text-ink-secondary">
-                            One dialog with every step before anything runs — the moment to catch a plan
-                            that misread the task. Off means generated plans run immediately.
-                          </span>
-                        </span>
-                      </label>
-                      <div className="mt-2 flex items-center gap-2">
-                        <label className="text-xs text-ink-secondary">Max steps per plan</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={10}
-                          value={draft.plan.maxSteps}
-                          onChange={(e) => update({ plan: { ...draft.plan, maxSteps: Number(e.target.value) } })}
-                          className="w-20 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm outline-none"
-                        />
-                        <span className="text-xs text-ink-tertiary">
-                          Each step is a bounded sub-turn with the enabled tools.
-                        </span>
-                      </div>
-                    </div>
-                    <div className="border-t border-black/10 dark:border-white/10 pt-4">
-                      <label className="mb-1 block text-sm font-medium">About</label>
-                      <p className="text-sm text-ink-secondary">
-                        Sigma Oasis v{updateStatus?.currentVersion ?? '…'}
-                      </p>
-                      <div className="mt-2 flex items-center gap-3">
-                        <span className="text-xs text-ink-secondary">
-                          {updateStatus?.state === 'dev'
-                            ? 'Development build — updates apply to packaged releases.'
-                            : updateStatus?.state === 'checking'
-                              ? 'Checking for updates…'
-                              : updateStatus?.state === 'available'
-                                ? `Update ${updateStatus.version} found — downloading…`
-                                : updateStatus?.state === 'downloading'
-                                  ? `Downloading update… ${updateStatus.percent ?? 0}%`
-                                  : updateStatus?.state === 'downloaded'
-                                    ? `Update ${updateStatus.version} is ready to install.`
-                                    : updateStatus?.state === 'error'
-                                      ? `Update check failed: ${updateStatus.error ?? 'unknown error'}`
-                                      : 'You’re up to date.'}
-                        </span>
-                        {updateStatus?.state === 'downloaded' ? (
-                          <button
-                            type="button"
-                            onClick={installUpdate}
-                            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
-                          >
-                            Restart to update
-                          </button>
-                        ) : updateStatus?.state !== 'dev' ? (
-                          <button
-                            type="button"
-                            onClick={() => void checkForUpdates()}
-                            disabled={updateStatus?.state === 'checking' || updateStatus?.state === 'downloading'}
-                            className="rounded-lg border border-black/10 dark:border-white/15 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
-                          >
-                            Check now
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
+    <div className="space-y-8">
+      <Section title="Appearance" description="How the window looks. Both preview as you change them.">
+        <Row meta={ROWS.theme}>
+          <Segmented
+            value={draft.theme}
+            onChange={(theme) => update({ theme })}
+            options={[
+              { value: 'light', label: 'Light' },
+              { value: 'dark', label: 'Dark' }
+            ]}
+          />
+        </Row>
+        <Row meta={ROWS.fontSize}>
+          <Slider value={draft.fontSize} min={12} max={20} format={(v) => `${v}px`} onPreview={(fontSize) => update({ fontSize })} onCommit={(fontSize) => update({ fontSize })} />
+        </Row>
+      </Section>
+
+      <Section title="Chat" description="What a reply shows around its words.">
+        <Row meta={ROWS.hideToolCalls}>
+          <Switch checked={draft.hideToolCalls} onChange={(hideToolCalls) => update({ hideToolCalls })} />
+        </Row>
+        <Row meta={ROWS.showResponseStats}>
+          <Switch checked={draft.showResponseStats} onChange={(showResponseStats) => update({ showResponseStats })} />
+        </Row>
+        <Row meta={ROWS.reasoningDisplay}>
+          <Select
+            value={draft.reasoningDisplay}
+            onChange={(v) => update({ reasoningDisplay: v as AppSettings['reasoningDisplay'] })}
+            options={[
+              { value: 'collapsed', label: 'Collapsed behind a “Thought” header' },
+              { value: 'expanded', label: 'Always expanded' },
+              { value: 'hidden', label: 'Hidden' }
+            ]}
+          />
+        </Row>
+        <Row meta={ROWS.vibeMode}>
+          <Switch checked={draft.vibeMode} onChange={(vibeMode) => update({ vibeMode })} />
+        </Row>
+      </Section>
+
+      <Section title="Long conversations" description="What happens as a conversation grows, and how a multi-step plan runs.">
+        <Row meta={ROWS.contextManagement}>
+          <Select
+            value={draft.contextManagement}
+            onChange={(v) => update({ contextManagement: v as 'compact' | 'trim' })}
+            options={[
+              { value: 'compact', label: 'Summarize what no longer fits' },
+              { value: 'trim', label: 'Drop it silently' }
+            ]}
+          />
+        </Row>
+        <Row meta={ROWS.historyLimit}>
+          <Stepper value={draft.historyLimit} min={10} max={1000} step={10} onChange={(historyLimit) => update({ historyLimit })} />
+        </Row>
+        <Row meta={ROWS.confirmPlan}>
+          <Switch checked={draft.plan.confirmPlan} onChange={(confirmPlan) => update({ plan: { ...draft.plan, confirmPlan } })} />
+        </Row>
+        <Row meta={ROWS.maxSteps}>
+          <Stepper value={draft.plan.maxSteps} min={1} max={10} onChange={(maxSteps) => update({ plan: { ...draft.plan, maxSteps } })} />
+        </Row>
+      </Section>
+
+      <Section title="About" description={`Sigma Oasis v${updateStatus?.currentVersion ?? '…'}`}>
+        <Row meta={ROWS.updates} layout="stack">
+          {updateStatus?.state === 'dev' ? (
+            <ActionRow action="Check now" onAction={() => undefined} disabled result={updateResult(updateStatus)} />
+          ) : (
+            <ActionRow
+              action={ready ? 'Restart to update' : 'Check now'}
+              kind={ready ? 'primary' : 'secondary'}
+              onAction={() => (ready ? installUpdate() : void checkForUpdates())}
+              busy={busy ? (updateStatus?.state === 'checking' ? 'Checking…' : 'Downloading…') : null}
+              result={updateResult(updateStatus)}
+            />
+          )}
+        </Row>
+      </Section>
+    </div>
   )
 }
