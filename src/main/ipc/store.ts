@@ -86,6 +86,8 @@ export interface ModelConfig {
    * `systemPrompt` and appended after it on every turn. Absent = none.
    */
   rules?: string
+  /** v4.1: `on` or `off`; absent = auto (shared/thinking.ts). */
+  thinking?: 'on' | 'off'
 }
 
 /**
@@ -724,7 +726,10 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
               : backfillSpecialty(m?.roleName),
           // v2.7: absent = native. Only the two other words are stored.
           ...(m?.codeMode === 'code' || m?.codeMode === 'both' ? { codeMode: m.codeMode } : {}),
-          ...(typeof m?.rules === 'string' && m.rules.trim() ? { rules: m.rules.trim().slice(0, 8000) } : {})
+          ...(typeof m?.rules === 'string' && m.rules.trim() ? { rules: m.rules.trim().slice(0, 8000) } : {}),
+          // v4.1: absent = auto; only the two other words are stored, and a
+          // stray value spread in from `m` above is cleared.
+          thinking: m?.thinking === 'on' || m?.thinking === 'off' ? m.thinking : undefined
         }
       })
     : defaults.models

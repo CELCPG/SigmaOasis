@@ -1,4 +1,4 @@
-import { THINK_TAG_MODELS } from '../../../shared/thinking'
+import { THINK_TAG_MODELS, thinkingMode, type ThinkingMode } from '../../../shared/thinking'
 
 /**
  * v3.1: a greeting is answered without thinking first.
@@ -68,4 +68,21 @@ export function isSmallTalk(text: string | undefined): boolean {
  */
 export function quickReplyFor(modelId: string, text: string | undefined): boolean {
   return THINK_TAG_MODELS.test(modelId) && isSmallTalk(text)
+}
+
+/**
+ * v4.1 (S4): how a chat turn's rounds think, from the slot's setting
+ * (shared/thinking.ts `ThinkingMode`). `auto` is the rule above; `on` thinks
+ * even on a greeting; `off` closes the block on every round, the rounds
+ * after a tool call included — for the think-tag families only, as above.
+ * Shaped as the agent loop's two options (lib/agentLoop.ts).
+ */
+export function turnThinking(
+  slot: { modelId: string; thinking?: ThinkingMode },
+  text: string | undefined
+): { quickReply: boolean; quickReplyFor?: () => boolean } {
+  const mode = thinkingMode(slot.thinking)
+  if (mode === 'on') return { quickReply: false }
+  if (mode === 'off' && THINK_TAG_MODELS.test(slot.modelId)) return { quickReply: true, quickReplyFor: () => true }
+  return { quickReply: quickReplyFor(slot.modelId, text) }
 }

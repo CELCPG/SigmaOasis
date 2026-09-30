@@ -44,7 +44,7 @@ import { makeTailStream, newWitness, streamChat } from './chatTransport'
 import { audit, planAndCompact, subsetForTurn, toApiContent, uid } from './turnHelpers'
 import { runConsultation } from './verification'
 import { vibeSystemBlock } from '../lib/vibe'
-import { quickReplyFor } from '../lib/quickReply'
+import { turnThinking } from '../lib/quickReply'
 import { offerEscalation, startTurnTail } from './turnTail'
 
 /**
@@ -538,7 +538,8 @@ export async function runTurn(
       // web_search budget, and its byte-identical repeat is reused, not re-run.
       ledger: turnLedger,
       // v3.1: a greeting is answered without thinking first (lib/quickReply.ts).
-      quickReply: quickReplyFor(slot.modelId, lastUserContent),
+      // v4.1 (S4): and the slot's thinking setting decides the rest.
+      ...turnThinking(slot, lastUserContent),
       signal,
       onRecordChange: () => patch({ toolCalls: [...allRecords] }),
       deps: {
