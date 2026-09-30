@@ -11,6 +11,8 @@ import type { ProviderIO, ToolExecuteContext } from '../lib/contextProviders'
 import type { TurnToolLedger } from '../lib/agentLoop'
 import { audit, uid } from './turnHelpers'
 import { noteToolResult } from '../lib/taint'
+import { passagesHandedOver, renumberPassages } from '../lib/citations'
+import { numberWebSources } from '../lib/webSources'
 
 /**
  * The one place app-initiated tool bookkeeping is written (it used to be
@@ -36,6 +38,8 @@ export function makeProviderIO(opts: {
   ledger: TurnToolLedger
   patch: (p: Partial<ChatMessage>) => void
   settings: () => AppSettings | null
+  /** v4.1 (G5): where a provider's late-forced tools are collected for the turn. */
+  forceTools?: (names: readonly string[]) => void
 }): ProviderIO {
   const { convo, slot, slotTools, toolContext, allRecords, ledger, patch, settings } = opts
 
@@ -50,7 +54,7 @@ export function makeProviderIO(opts: {
     })
 
   return {
-    async runTool(name, args) {
+    async runTool(name, args, options = {}) {
       // The per-slot allowlist is a security boundary. Every provider also
       // gates on it, but the refusal here makes the boundary structural: a
       // future provider that forgets the check cannot widen it.
@@ -60,16 +64,22 @@ export function makeProviderIO(opts: {
       const record: ToolCallRecord = { id: uid(), name, args, status: 'running' }
       allRecords.push(record)
       patch({ toolCalls: [...allRecords] })
-      const result: ToolResult = await window.api
+      let result: ToolResult = await window.api
         .executeTool(name, args, toolContext)
         .catch((err: unknown) => ({
           ok: false,
           error: err instanceof Error ? err.message : String(err)
         }))
+      // v4.1 (G3): the turn's one source numbering, before anything reads the text.
+      if (result.ok && result.output) {
+        result = { ...result, output: numberWebSources(name, args, result.output, allRecords, passagesHandedOver(allRecords)) }
+      }
       record.status = result.ok ? 'done' : 'error'
       record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
       noteToolResult(toolContext, name, result)
       ledger.note(name, args, result)
+      // v4.1: an uncharged call is still a repeat the model gets reused, not re-run.
+      if (options.charge === false) ledger.executedCounts.set(name, Math.max(0, (ledger.executedCounts.get(name) ?? 1) - 1))
       patch({ toolCalls: [...allRecords] })
       auditCall(
         name,
@@ -80,12 +90,16 @@ export function makeProviderIO(opts: {
       return result
     },
 
-    recordSyntheticCall(name, args, output) {
+    recordSyntheticCall(name, args, rawOutput) {
+      // v4.1 (G3): a pre-flight lookup after the app's search continues the
+      // turn's numbering rather than restarting it at [1].
+      const output = name === 'reference_lookup' ? renumberPassages(rawOutput, passagesHandedOver(allRecords)) : rawOutput
       const record: ToolCallRecord = { id: uid(), name, args, status: 'done', result: output }
       allRecords.push(record)
       ledger.note(name, args, { ok: true, output })
       patch({ toolCalls: [...allRecords] })
       auditCall(name, args, true, output)
+      return output
     },
 
     api: {
@@ -99,6 +113,7 @@ export function makeProviderIO(opts: {
     },
 
     patch,
-    settings
+    settings,
+    ...(opts.forceTools ? { forceTools: opts.forceTools } : {})
   }
 }

@@ -38,14 +38,17 @@ export const libraryPassagesProvider: ContextProvider = {
     if (!(looked?.ok && looked.passages.length > 0 && looked.formatted)) return null
     // Recorded like the auto-search: a tool-call record the user can open,
     // an audit line, and a source for the grounding check.
-    io.recordSyntheticCall('reference_lookup', { query }, looked.formatted)
+    // v4.1 (G3): the record's text is the one the model gets — renumbered past
+    // the app's own web results when its search ran first.
+    const formatted = io.recordSyntheticCall('reference_lookup', { query }, looked.formatted) || looked.formatted
+    const first = Number(/^\[(\d{1,3})\]/m.exec(formatted)?.[1] ?? 1)
     io.patch({
-      libraryContext: toLibraryContextItems(looked.passages),
+      libraryContext: toLibraryContextItems(looked.passages, first),
       // The lookup fires on the domain, not on the corpus: a library with no
       // plumbing in it still returns its five closest passages. Whether any of
       // them is about the question is a separate fact, and the strip says so.
       libraryMiss: libraryMissedTheQuestion(input.lastUserContent!, looked.passages)
     })
-    return { blocks: [buildLibraryContext(looked.formatted, input.offline)] }
+    return { blocks: [buildLibraryContext(formatted, input.offline)] }
   }
 }

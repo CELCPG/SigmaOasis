@@ -1,4 +1,5 @@
 import type { ToolCallRecord } from '../types'
+import { highestWebSource, webCitations } from './webSources'
 
 /**
  * v1.13: making a citation the app produced followable.
@@ -112,7 +113,9 @@ export function parseCitations(output: string): Citation[] {
  * the model. `renumberPassages` continues from here.
  */
 export function passagesHandedOver(records: ToolCallRecord[]): number {
-  let high = 0
+  // v4.1 (G3): web sources share the turn's one sequence, so a lookup after a
+  // search continues past the search's numbers too (lib/webSources.ts).
+  let high = highestWebSource(records)
   for (const r of records) {
     if (r.name !== 'reference_lookup' || r.status !== 'done') continue
     for (const c of parseCitations(r.result ?? '')) if (c.index > high) high = c.index
@@ -179,6 +182,20 @@ export function retrievedCitations(records: ToolCallRecord[]): Citation[] {
     }
   }
   return [...byIndex.values()].sort((a, b) => a.index - b.index)
+}
+
+/**
+ * v4.1 (G3): every numbered source this turn handed the model — the library's
+ * passages and the web's results and pages, one sequence (lib/webSources.ts).
+ * What a marker in the reply can name, so what the binder resolves it to and
+ * what the dangling and wrong-source checks read. A number is claimed once;
+ * the library's claim, being the older rule, wins a collision recorded before
+ * the sequences were shared.
+ */
+export function turnCitations(records: ToolCallRecord[]): Citation[] {
+  const library = retrievedCitations(records)
+  const taken = new Set(library.map((c) => c.index))
+  return [...library, ...webCitations(records).filter((c) => !taken.has(c.index))].sort((a, b) => a.index - b.index)
 }
 
 /** The bracketed numbers a reply cites, code blocks excluded. */

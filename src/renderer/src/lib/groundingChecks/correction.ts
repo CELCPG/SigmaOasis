@@ -484,7 +484,7 @@ export function describeGroundingFindings(report: GroundingReport): string {
   if (report.citations?.length) {
     lines.push(
       `- Citation markers naming a passage that was never retrieved: ${report.citations.join(', ')}. ` +
-        'Cite only the numbered passages you were handed, or drop the marker and say what is uncited.'
+        'Cite only the numbered passages and web sources you were handed, or drop the marker and say what is uncited.'
     )
   }
   if (report.figures.length) {

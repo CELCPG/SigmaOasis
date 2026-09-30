@@ -4,6 +4,7 @@ import {
   citedIndices,
   danglingCitations,
   retrievedCitations,
+  turnCitations,
   turnLookups,
   webSource,
   type Citation
@@ -62,14 +63,16 @@ export function citationOf(p: LibraryPassage): string {
  * These stay 1..N: this lookup is the turn's first, so `renumberPassages`
  * leaves its numbering alone and a later lookup continues past it.
  */
-export function toLibraryContextItems(passages: LibraryPassage[]): MemoryContextItem[] {
+export function toLibraryContextItems(passages: LibraryPassage[], first = 1): MemoryContextItem[] {
+  // v4.1 (G3): `first` is where the turn's numbering stood — past the app's
+  // own web results when its search ran before this lookup.
   return passages.map((p, i) => {
     const url = webSource(p.source)
     return {
       source: citationOf(p),
       score: p.score,
       text: p.text,
-      index: i + 1,
+      index: i + first,
       ...(url ? { url } : {})
     }
   })
@@ -309,7 +312,9 @@ export function libraryStrip(input: {
     input.answer
   )
   const cited = items.filter((i) => i.cited).map((i) => `[${i.index}]`)
-  const unresolved = danglingCitations(input.answer, retrievedCitations(input.records))
+  // v4.1 (G3): a web source's marker resolves too — it is not the strip's
+  // business, and it is not a sign the strip lost a passage.
+  const unresolved = danglingCitations(input.answer, turnCitations(input.records))
   const many = lookups.length > 1
 
   const label = !input.miss

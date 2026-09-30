@@ -9,6 +9,7 @@ import {
   citedIndices,
   danglingCitations,
   retrievedCitations,
+  turnCitations,
   turnLookups,
   type Citation,
   type Lookup
@@ -254,7 +255,12 @@ export function checkToolGrounding(
   // actually retrieved, which is the only situation in which a bracketed
   // number is a claim about them.
   const retrieved = retrievedCitations(records)
-  const citations = danglingCitations(answer, retrieved)
+  // v4.1 (G3): a marker can name a web result or page too — the turn numbers
+  // both on one sequence — so these two checks read the whole list. The
+  // measurements rung below keeps the library's passages: it names a line the
+  // reader can open, and a snippet is not one.
+  const cited = turnCitations(records)
+  const citations = danglingCitations(answer, cited)
   // Quotation fidelity, gated on retrieval the same way: with nothing fetched
   // there is no source a quotation could be checked against, and a quoted
   // phrase is just prose. The corpus is what every tool RETURNED plus the
@@ -307,7 +313,7 @@ export function checkToolGrounding(
       return stated.includes(flat) || flat.includes(stated)
     })
   })
-  const attributions = misattributedCitations(answer, retrieved)
+  const attributions = misattributedCitations(answer, cited)
   // Every measurement the rung compared and found stated somewhere, with the
   // passage that states it. A flagged one drops out on its own — it was
   // compared against values of the same kind and matched none of them, so

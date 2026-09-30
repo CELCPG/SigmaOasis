@@ -47,6 +47,8 @@ import type {
   ToolSchema
 } from '../types'
 import { streamChat } from './chatTransport'
+import { passagesHandedOver } from '../lib/citations'
+import { numberWebSources } from '../lib/webSources'
 import { audit, subsetForTurn, uid } from './turnHelpers'
 import { MAX_PLAN_STEP_ITERATIONS } from './planMode'
 
@@ -534,7 +536,13 @@ export async function reviseAgainstFindings(
           revised = roundContent || revised
           return { content: roundContent, toolCalls }
         },
-        executeTool: (name, args) => window.api.executeTool(name, args, { modelId: slot.modelId }),
+        // v4.1 (G3): the revision's web sources continue the turn's numbering.
+        executeTool: async (name, args) => {
+          const result = await window.api.executeTool(name, args, { modelId: slot.modelId })
+          return result.ok && result.output
+            ? { ...result, output: numberWebSources(name, args, result.output, records, passagesHandedOver(records)) }
+            : result
+        },
         onToolExecuted: (record, result) => {
           audit(convo, {
             kind: 'tool_call',

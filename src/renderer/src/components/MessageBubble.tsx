@@ -3,7 +3,7 @@ import type { ChatMessage, Conversation, DeliberationRecord, GroundingReport, To
 import { describeCoverage, describeMatchedMeasurements, describeRevisionOutcome, describeUnbackedItems, marksABreak, QUOTE_BREAK_MARKS, unlistedLinks } from '../lib/toolGrounding'
 import { attributionLabel, composeFailure, readingLine } from '../../../shared/failure'
 import { ACCENT } from '../lib/colors'
-import { retrievedCitations, webSource } from '../lib/citations'
+import { turnCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
 import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
@@ -343,8 +343,8 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
           under this reply, so the mismatch is checkable by eye. */}
       {citations.length > 0 && (
         <div className="mt-1">
-          ⚠️ {citations.join(', ')} {citations.length === 1 ? 'cites' : 'cite'} no passage the
-          library returned this turn — that citation points at nothing.
+          ⚠️ {citations.join(', ')} {citations.length === 1 ? 'cites' : 'cite'} no library passage or
+          web source this turn returned — that citation points at nothing.
         </div>
       )}
       {report.links.length > 0 && (
@@ -695,7 +695,8 @@ export const MessageBubble = memo(function MessageBubble({
   // v1.13: the passages this turn's library lookups returned, so an inline
   // [1] renders as the passage it names rather than as three dead characters.
   const citations = useMemo(
-    () => (message.role === 'assistant' ? retrievedCitations(message.toolCalls ?? []) : []),
+    // v4.1 (G3): and the web results and pages the turn numbered with them.
+    () => (message.role === 'assistant' ? turnCitations(message.toolCalls ?? []) : []),
     [message.role, message.toolCalls]
   )
   // v1.13.1: the strip lists what the app retrieved before the model spoke;
