@@ -18,7 +18,7 @@ import { runToolChoiceEval, parseCompletionMessage } from '../../lib/evalRunner'
 import { withGrounding, withToolCallPreamble } from '../../lib/grounding'
 import type { ApiMessage, ApiToolCall } from '../../lib/agentLoop'
 import type { ToolSchema } from '../../types'
-import { ActionRow, Button, Chips, Field, Fold, Notice, RoleDot, Row, Section, Select, Stepper, Switch, Textarea, type ActionResult } from './kit'
+import { ActionRow, Button, Chips, Field, Fold, Notice, RoleDot, Row, Section, Segmented, Select, Stepper, Switch, Textarea, type ActionResult } from './kit'
 
 export const ROWS = defineRows('models', {
   slots: { label: 'Roles', help: 'Each role is a model, a persona and its own tools; a message goes to one of them, by @handle or by the router.', keywords: ['slots', 'models', 'roles'] },
@@ -32,6 +32,7 @@ export const ROWS = defineRows('models', {
   specialty: { label: 'Specialty', help: 'What the router matches on — code to Coding, finance questions to Finance, factual questions to Research. General opts out of auto-routing.', keywords: ['routing', 'specialty', 'coding', 'research', 'finance', 'data'] },
   color: { label: 'Accent', help: 'The colour this role’s replies carry.', keywords: ['colour', 'color'] },
   keepLoaded: { label: 'Keep loaded', help: 'Pin this model for a month idle rather than an hour, so the app’s own embedding calls and another client’s requests do not evict it between sessions. LM Studio still unloads it when memory runs short.', keywords: ['pin', 'evict', 'resident', 'ttl'] },
+  thinking: { label: 'Thinking', help: 'For reasoning models that think in <think> tags (Qwen3, DeepSeek-R1, Magistral). Auto: the answer thinks, a greeting does not, and the app’s own checks (claim check, critic, recompute) answer without thinking. On: everything this role runs thinks. Off: nothing it runs thinks — fastest, weakest on hard questions. Other models are not affected.', keywords: ['reasoning', 'think', 'chain of thought', 'no_think', 'speed'] },
   codeMode: { label: 'Code Mode', help: 'native: tools as calls (default). code: one tool, run_code, whose Python program calls the others through a generated tools module, with the same allowlist, budgets and audit. both: both. Measured in docs/evals.md before any default was chosen.', keywords: ['code mode', 'run_code'] },
   tools: { label: 'Tools', help: 'Which of the enabled tools this role holds. A shorter, focused list helps a small model choose — and keeps a powerful tool out of the wrong hands.', keywords: ['allowlist', 'restrict'] },
   presets: { label: 'Temperature preset', help: 'Lower means fewer invented facts; higher means more varied prose. The family’s own recipe is warmer than the Factual preset — the trade is yours to make.', keywords: ['sampling', 'preset', 'factual', 'creative'] },
@@ -165,6 +166,18 @@ export function ModelsTab({ settings, apply, availableModels }: ModelsTabProps):
                   </Row>
                   <Row meta={ROWS.keepLoaded}>
                     <Switch checked={Boolean(m.keepLoaded)} onChange={(keepLoaded) => updateModel(m.id, ROWS.keepLoaded, { keepLoaded: keepLoaded || undefined })} />
+                  </Row>
+                  <Row meta={ROWS.thinking}>
+                    <Segmented
+                      label={`${m.roleName} thinking`}
+                      value={m.thinking ?? 'auto'}
+                      onChange={(v) => updateModel(m.id, ROWS.thinking, { thinking: v === 'auto' ? undefined : v }, v)}
+                      options={[
+                        { value: 'auto', label: 'Auto', hint: 'The answer thinks; greetings and the app’s checks do not.' },
+                        { value: 'on', label: 'On', hint: 'Everything this role runs thinks.' },
+                        { value: 'off', label: 'Off', hint: 'Nothing this role runs thinks.' }
+                      ]}
+                    />
                   </Row>
                   <Row meta={ROWS.codeMode}>
                     <Select

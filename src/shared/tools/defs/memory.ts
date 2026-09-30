@@ -10,8 +10,7 @@ export const memoryToolDefs = [
       'Use when: the user states a preference, fact, or decision worth keeping ("remember ' +
       'that…"), or asks you to keep something across conversations.\n' +
       'Do not use when: they are drafting a note to read back verbatim (create_note) or saving ' +
-      'text to a file (write_file).\n' +
-      'Example: {"title": "favorite band", "text": "The user\'s favorite band is Phish."}',
+      'text to a file (write_file).',
     parameters: {
       type: 'object',
       properties: {
@@ -32,8 +31,7 @@ export const memoryToolDefs = [
       'Use when: the answer might depend on something the user told you before — preferences, ' +
       'history, prior decisions ("what do you remember about…").\n' +
       'Do not use when: they name a note\'s exact title (read_note), or the question needs ' +
-      'current facts from the web (web_search).\n' +
-      'Example: {"query": "music preferences"}',
+      'current facts from the web (web_search).',
     parameters: {
       type: 'object',
       properties: {
@@ -52,8 +50,7 @@ export const memoryToolDefs = [
       'Delete a long-term memory source by its exact title.\n' +
       'Use when: the user asks you to forget or delete something you remembered.\n' +
       'Do not use when: they want a note removed — there is no note-deletion tool; say so ' +
-      'instead of guessing.\n' +
-      'Example: {"title": "favorite band"}',
+      'instead of guessing.',
     parameters: {
       type: 'object',
       properties: { title: { type: 'string', description: 'Title of the memory to delete' } },

@@ -5,7 +5,7 @@ import { attributionLabel, composeFailure, readingLine } from '../../../shared/f
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
-import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
+import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, renderStreamingMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState, startWaitClock } from '../lib/oasisRipple'
 import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
@@ -683,6 +683,16 @@ export const MessageBubble = memo(function MessageBubble({
     s.streamingTail && s.streamingTail.messageId === message.id ? s.streamingTail.text : null
   )
   const displayContent = tailText ?? message.content
+  // v4.1 (S3): and its reasoning, on the same terms — committed to the message
+  // only at round and stream boundaries (hooks/chatTransport.ts makeTailStream).
+  const tailReasoning = useAppStore((s) =>
+    s.streamingTail && s.streamingTail.messageId === message.id ? (s.streamingTail.reasoning ?? null) : null
+  )
+  const tailReasoningMs = useAppStore((s) =>
+    s.streamingTail && s.streamingTail.messageId === message.id ? s.streamingTail.reasoningMs : undefined
+  )
+  const displayReasoning = tailReasoning ?? message.reasoning
+  const displayReasoningMs = tailReasoning !== null ? tailReasoningMs : message.reasoningMs
 
   // Finished messages parse once, memoized on their content. The streaming
   // one parses its stable prefix only when a block completes, and re-parses
@@ -727,7 +737,7 @@ export const MessageBubble = memo(function MessageBubble({
   // only wraps already-sanitized text in a span of our own.
   const html =
     livePart && message.role === 'assistant'
-      ? stableHtml + fadeStreamEdge(renderMarkdown(livePart, citations))
+      ? stableHtml + fadeStreamEdge(renderStreamingMarkdown(livePart, citations))
       : stableHtml
   // Declared before the marker/user branches below: hooks must run in the same
   // order on every render, and an early return would skip them. That includes
@@ -875,7 +885,7 @@ export const MessageBubble = memo(function MessageBubble({
   // Everything that would count as output arriving. While any of it moves the
   // ripple's silence clock keeps resetting; when it stops, the clock runs and
   // the disc starts saying how long it has been and what it is waiting on.
-  const streamActivity = `${displayContent.length}:${(message.reasoning ?? '').length}:${toolCalls
+  const streamActivity = `${displayContent.length}:${(displayReasoning ?? '').length}:${toolCalls
     .map((t) => `${t.id}${t.status}`)
     .join(',')}`
   /**
@@ -1061,10 +1071,10 @@ export const MessageBubble = memo(function MessageBubble({
           <PlanBlock messageId={message.id} plan={message.plan} records={toolCalls} />
         )}
 
-        {message.reasoning && reasoningDisplay !== 'hidden' && (
+        {displayReasoning && reasoningDisplay !== 'hidden' && (
           <ReasoningBlock
-            reasoning={message.reasoning}
-            reasoningMs={message.reasoningMs}
+            reasoning={displayReasoning}
+            reasoningMs={displayReasoningMs}
             isStreaming={isStreaming && displayContent === ''}
             defaultOpen={reasoningDisplay === 'expanded'}
           />

@@ -14,8 +14,7 @@ export const shoppingToolDefs = [
       'Do not use when: they named an exact product (go straight to shop_compare), or the question is ' +
       'about how something works rather than which to buy — answer that directly.\n' +
       'Call it twice: once with only `need` to get the questions, then again with the user\'s `answers`. ' +
-      'Show the derived requirements to the user for correction BEFORE searching.\n' +
-      'Example: {"need": "laptop", "answers": {"primary_use": "video or photo editing", "portability": "constant travel"}}',
+      'Show the derived requirements to the user for correction BEFORE searching.',
     parameters: {
       type: 'object',
       properties: {
@@ -41,8 +40,7 @@ export const shoppingToolDefs = [
       'Use when: you have a product and its specifications, ideally after shop_requirements.\n' +
       'Do not use when: the query would contain who the user is rather than what the product is — ' +
       'personal framing is refused at egress. Search specifications and a price ceiling only.\n' +
-      'Never claim a product meets a requirement the table marks unverifiable.\n' +
-      'Example: {"product": "laptop 32GB RAM 1TB discrete GPU under 2000", "maxSellers": 4}',
+      'Never claim a product meets a requirement the table marks unverifiable.',
     parameters: {
       type: 'object',
       properties: {
@@ -70,8 +68,7 @@ export const shoppingToolDefs = [
       'Track a product price locally. The watchlist is a file on this machine; no service is told what ' +
       'is on it.\n' +
       'Use when: the user wants to be told if something drops, or asks what they are tracking.\n' +
-      'Do not use for: fetching a current price (that is shop_compare).\n' +
-      'Example: {"action": "add", "url": "https://example.com/product/123", "targetPrice": 250}',
+      'Do not use for: fetching a current price (that is shop_compare).',
     parameters: {
       type: 'object',
       properties: {

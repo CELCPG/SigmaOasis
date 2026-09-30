@@ -12,6 +12,10 @@ import type { TurnToolLedger } from '../lib/agentLoop'
 import { audit, uid } from './turnHelpers'
 import { noteToolResult } from '../lib/taint'
 
+/** v4.1 (S2): what a record says when its result came back after the turn moved on. */
+export const LATE_RESULT_NOTE =
+  'Not used: this came back after the app stopped waiting for it, and the model was asked without it.'
+
 /**
  * The one place app-initiated tool bookkeeping is written (it used to be
  * copy-pasted into each pre-flight block of runTurn): create the record, push
@@ -50,7 +54,7 @@ export function makeProviderIO(opts: {
     })
 
   return {
-    async runTool(name, args) {
+    async runTool(name, args, options) {
       // The per-slot allowlist is a security boundary. Every provider also
       // gates on it, but the refusal here makes the boundary structural: a
       // future provider that forgets the check cannot widen it.
@@ -66,17 +70,23 @@ export function makeProviderIO(opts: {
           ok: false,
           error: err instanceof Error ? err.message : String(err)
         }))
+      const outcome = result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`
+      // v4.1 (S2): the turn stopped waiting before this came back, so the model
+      // never saw it. It is not a source, spends no budget, seeds no repeat and
+      // taints nothing; the record and the audit line say what happened.
+      if (options?.discardAfter?.aborted) {
+        record.status = 'error'
+        record.result = LATE_RESULT_NOTE
+        patch({ toolCalls: [...allRecords] })
+        auditCall(name, args, result.ok, `${outcome}\n(${LATE_RESULT_NOTE})`)
+        return result
+      }
       record.status = result.ok ? 'done' : 'error'
       record.result = result.ok ? (result.output ?? '') : (result.error ?? 'Unknown tool error')
       noteToolResult(toolContext, name, result)
       ledger.note(name, args, result)
       patch({ toolCalls: [...allRecords] })
-      auditCall(
-        name,
-        args,
-        result.ok,
-        result.ok ? (result.output ?? '') : `Error: ${result.error ?? 'unknown error'}`
-      )
+      auditCall(name, args, result.ok, outcome)
       return result
     },
 

@@ -92,3 +92,45 @@ describe('sandbox image refs are dropped from rendered markdown (v1.12)', () => 
     }
   })
 })
+
+describe('an open code block is highlighted in settled runs while it streams (v4.1 S6)', () => {
+  // DOMPurify is a factory with no sanitize() outside a DOM. The sanitizer is
+  // pinned in a real window (test/markdownCheck.ts); what is measured here is
+  // the highlighting ahead of it, so it passes HTML through.
+  const purify = require('dompurify') as { sanitize?: (html: string) => string }
+  if (typeof purify.sanitize !== 'function') purify.sanitize = (html: string) => html
+  const md = require('../src/renderer/src/lib/markdown') as typeof import('../src/renderer/src/lib/markdown')
+  const hljs = require('highlight.js/lib/core') as typeof import('highlight.js').default
+
+  // Line-local code, like the render bench's reply: no construct spans a line.
+  const lines = Array.from({ length: 400 }, (_, i) => `    out[key_${i}] = out.get("k${i}", 0) + int(record.get("count", 1))  # step ${i}`)
+  const code = lines.join('\n')
+  const reply = `Here it is.\n\n\`\`\`python\n${code}\n\`\`\`\n`
+
+  test('a finished message is highlighted whole, exactly as before', () => {
+    const html = md.renderMarkdown(reply)
+    assert.ok(html.includes(hljs.highlight(code, { language: 'python' }).value))
+  })
+
+  test('the streaming render of line-local code is byte-identical to the finished one', () => {
+    assert.equal(md.renderStreamingMarkdown(reply), md.renderMarkdown(reply))
+  })
+
+  test('the cost per flush follows the new text, not the whole block', () => {
+    const open = `\`\`\`python\n${code}`
+    const before = md.streamingHighlightWork()
+    let naive = 0
+    let flushes = 0
+    // A flush every ~120 characters, the pacer's order of magnitude at 60 tok/s.
+    for (let end = 200; end <= open.length; end += 120) {
+      md.renderStreamingMarkdown(open.slice(0, end))
+      naive += end
+      flushes++
+    }
+    const work = md.streamingHighlightWork() - before
+    assert.ok(flushes > 200)
+    // Bounded by one unsettled run per flush, where whole-block highlighting grows with the block.
+    assert.ok(work * 5 < naive, `highlighted ${work} chars where whole-block re-highlighting is ${naive}`)
+    assert.ok(work / flushes < 40 * 100, `${Math.round(work / flushes)} chars a flush`)
+  })
+})

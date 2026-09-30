@@ -1,6 +1,7 @@
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  frameCoalesced,
   makeTailStream,
   TAIL_DRAIN_MS,
   TAIL_FLUSH_MS
@@ -238,5 +239,74 @@ describe('the caller can never be stranded', () => {
     await tail.finish()
     rec.stop()
     assert.equal(lastPainted(rec.steps()).length, 500)
+  })
+})
+
+describe('reasoning rides the tail (v4.1 S3)', () => {
+  test('reasoning chunks publish through the slice and never patch the message mid-stream', async () => {
+    const msg = assistant()
+    const patches: Partial<ChatMessage>[] = []
+    const seen: (string | undefined)[] = []
+    const unsubscribe = useAppStore.subscribe((s) => {
+      if (s.streamingTail?.messageId === 'a1') seen.push(s.streamingTail.reasoning)
+    })
+    const tail = makeTailStream(msg, (p) => patches.push(p))
+    let thought = ''
+    for (let i = 0; i < 200; i++) {
+      thought += 'hmm '
+      tail.reasoning(thought, i)
+    }
+    // Two hundred chunks inside one frame: no patch, and not one publish each.
+    assert.equal(patches.length, 0, 'the conversations array is not rebuilt per reasoning chunk')
+    await new Promise((r) => setTimeout(r, 60))
+    assert.ok(seen.length >= 1 && seen.length <= 3, `published ${seen.length} times`)
+    assert.equal(seen[seen.length - 1], thought)
+    assert.equal(patches.length, 0)
+    msg.content = 'The answer.'
+    tail.schedule()
+    await tail.finish()
+    unsubscribe()
+    // Landed on the message with the text, once, at the end.
+    const last = patches[patches.length - 1]
+    assert.equal(last.reasoning, thought)
+    assert.equal(last.reasoningMs, 199)
+    assert.equal(last.content, 'The answer.')
+  })
+
+  test('a round boundary commits the reasoning so far', () => {
+    const msg = assistant()
+    const patches: Partial<ChatMessage>[] = []
+    const tail = makeTailStream(msg, (p) => patches.push(p))
+    tail.reasoning('first round thinking', 5)
+    tail.commit()
+    assert.equal(patches[0].reasoning, 'first round thinking')
+    void tail.finish(true)
+  })
+
+  test('a turn with no reasoning commits none', async () => {
+    const msg = assistant()
+    const patches: Partial<ChatMessage>[] = []
+    const tail = makeTailStream(msg, (p) => patches.push(p))
+    msg.content = 'plain'
+    await tail.finish(true)
+    assert.ok(patches.every((p) => !('reasoning' in p)))
+  })
+})
+
+describe('frameCoalesced (v4.1 S3)', () => {
+  test('many schedules inside a frame publish once, and flush lands what is pending', async () => {
+    let published = 0
+    const paced = frameCoalesced(() => published++)
+    for (let i = 0; i < 50; i++) paced.schedule()
+    assert.equal(published, 0)
+    await new Promise((r) => setTimeout(r, 40))
+    assert.equal(published, 1)
+    paced.schedule()
+    paced.flush()
+    assert.equal(published, 2)
+    // Nothing pending: a flush is free, and the cancelled frame never fires.
+    paced.flush()
+    await new Promise((r) => setTimeout(r, 40))
+    assert.equal(published, 2)
   })
 })

@@ -16,6 +16,14 @@ const PORT = Number(process.env.BENCH_STUB_PORT || 1235)
 const TOKENS_PER_SEC = Number(process.env.BENCH_TOK_PER_SEC || 60)
 /** Code blocks in the generated reply; raise for a longer answer. */
 const BLOCKS = Number(process.env.BENCH_BLOCKS || 8)
+/**
+ * v4.1 (S3): characters of chain-of-thought streamed before the answer, as
+ * `delta.reasoning_content` the way LM Studio sends a reasoning model's. Off
+ * (0) by default so results recorded before it stay comparable; the reasoning
+ * used to be patched onto the message per chunk and now rides the paced tail,
+ * and this is the knob that measures the difference.
+ */
+const REASONING_CHARS = Number(process.env.BENCH_REASONING || 0)
 /** Roughly one token. LM Studio emits one SSE frame per token. */
 const CHARS_PER_CHUNK = 4
 
@@ -69,8 +77,22 @@ const REPLY = buildReply()
 const CHUNKS = []
 for (let i = 0; i < REPLY.length; i += CHARS_PER_CHUNK) CHUNKS.push(REPLY.slice(i, i + CHARS_PER_CHUNK))
 
+/** Fixed deliberation text, repeated to length — the same every run, like the reply. */
+function buildReasoning() {
+  const line =
+    'The user wants the modules in order. I should check whether the cache key depends on ' +
+    'position, then decide how to present the sort, and keep each block independently testable. '
+  let text = ''
+  while (text.length < REASONING_CHARS) text += line
+  return text.slice(0, REASONING_CHARS)
+}
+const REASONING = buildReasoning()
+const THOUGHTS = []
+for (let i = 0; i < REASONING.length; i += CHARS_PER_CHUNK) THOUGHTS.push(REASONING.slice(i, i + CHARS_PER_CHUNK))
+
 console.log(
   `stub: ${REPLY.length} chars / ${REPLY.split('\n').length} lines / ${CHUNKS.length} chunks ` +
+    (REASONING.length ? `after ${REASONING.length} chars of reasoning ` : '') +
     `at ${TOKENS_PER_SEC} tok/s (~${(CHUNKS.length / TOKENS_PER_SEC).toFixed(1)}s per stream)`
 )
 
@@ -91,7 +113,13 @@ const MODELS = {
   ]
 }
 
-const stats = { lastStreamStart: 0, lastStreamEnd: 0, replyChars: REPLY.length, tokensPerSec: TOKENS_PER_SEC }
+const stats = {
+  lastStreamStart: 0,
+  lastStreamEnd: 0,
+  replyChars: REPLY.length,
+  reasoningChars: REASONING.length,
+  tokensPerSec: TOKENS_PER_SEC
+}
 
 function json(res, body) {
   const text = JSON.stringify(body)
@@ -120,9 +148,14 @@ async function streamCompletion(res) {
   stats.lastStreamEnd = 0
   const interval = 1000 / TOKENS_PER_SEC
 
-  for (let i = 0; i < CHUNKS.length; i++) {
+  // Reasoning first, then the answer, on one schedule.
+  const deltas = [
+    ...THOUGHTS.map((t) => ({ reasoning_content: t })),
+    ...CHUNKS.map((c) => ({ content: c }))
+  ]
+  for (let i = 0; i < deltas.length; i++) {
     if (res.writableEnded) return
-    res.write(frame({ content: CHUNKS[i] }))
+    res.write(frame(deltas[i]))
     // Pace against a fixed wall-clock schedule rather than sleeping a fixed
     // amount, so a slow write cannot stretch the whole stream and change the
     // very cadence being compared.
@@ -132,7 +165,7 @@ async function streamCompletion(res) {
   res.write(
     frame({}, {
       finish: 'stop',
-      usage: { prompt_tokens: 40, completion_tokens: CHUNKS.length, total_tokens: 40 + CHUNKS.length }
+      usage: { prompt_tokens: 40, completion_tokens: deltas.length, total_tokens: 40 + deltas.length }
     })
   )
   res.write('data: [DONE]\n\n')

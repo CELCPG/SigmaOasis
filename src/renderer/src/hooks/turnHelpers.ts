@@ -2,6 +2,9 @@ import { useAppStore } from '../stores/appStore'
 import {
   conversationContextUsage,
   historyBudget,
+  historyFloor,
+  HISTORY_LOW_WATER,
+  noteHistoryFloor,
   planHistory,
   planHistoryFallback,
   requestEstimate,
@@ -11,15 +14,17 @@ import { foldLocalDigest } from '../lib/contextCompressor'
 import { budgetContextLength } from '../lib/modelInfo'
 import { projectInstructionsBlock } from '../lib/projectContext'
 import {
+  fallbackTurnTools,
   schemasAvailableTo,
   selectTurnTools,
   holdTurnTools,
   rankingMayMove,
+  stickyTools,
   TURN_TOOL_CAP,
   withForcedTools
 } from '../lib/toolSelection'
 import { attachmentInlineNote } from '../lib/attachmentRecall'
-import type { ApiContentPart } from '../lib/agentLoop'
+import type { ApiContentPart, ApiMessage } from '../lib/agentLoop'
 import type { AuditEntryInput, RecordableAuditKind } from '../../../shared/audit'
 import type { RequestEstimate } from '../../../shared/failure'
 import type { ChatMessage, Conversation, ModelConfig, ToolSchema } from '../types'
@@ -141,6 +146,52 @@ export function toApiContent(m: ChatMessage, withImages: boolean): string | ApiC
   return parts
 }
 
+/**
+ * The messages a chat turn sends, from its parts: the system prompt (with the
+ * summary, when compaction has made one), the planned history, and the turn's
+ * notes on its own user message. Null when the history holds no user message.
+ *
+ * v4.1 (S7): moved out of chatTurn.ts verbatim, so the prompt-cache test
+ * (test/promptCache.test.ts) builds consecutive turns exactly as a turn does.
+ */
+export function assembleTurnMessages(input: {
+  systemPrompt: string
+  summaryText: string | null
+  history: ChatMessage[]
+  turnContextBlock: string | null | undefined
+}): ApiMessage[] | null {
+  const { summaryText, history, turnContextBlock } = input
+  let systemPrompt = input.systemPrompt
+  if (summaryText) {
+    // The summary stays in the system prompt rather than joining the per-turn
+    // context: it changes only when compaction fires, and compaction has
+    // already dropped messages by then, so the prefix was invalidated either
+    // way. Between compactions this keeps it stable and in its natural place,
+    // ahead of the history it stands in for.
+    systemPrompt +=
+      `\n\nEarlier in this conversation (summarized, because it no longer fits the context window):\n${summaryText}`
+  }
+  const currentTurn = history.map((m) => m.role).lastIndexOf('user')
+  if (currentTurn === -1) return null
+  const apiMessages: ApiMessage[] = [
+    { role: 'system', content: systemPrompt },
+    ...history.map((m, i) => ({ role: m.role, content: toApiContent(m, i === currentTurn) }))
+  ]
+  // The app's per-turn additions ride the turn's own user message, so that
+  // everything before it is byte-identical to last turn's prompt and the
+  // server can reuse its KV cache for all of it (lib/grounding.ts).
+  if (turnContextBlock) {
+    // +1 for the system message that history is offset by.
+    const target = apiMessages[currentTurn + 1]
+    // A multimodal turn takes the notes as one more text part, so the images
+    // it carries are untouched.
+    target.content = Array.isArray(target.content)
+      ? [...target.content, { type: 'text', text: turnContextBlock }]
+      : `${target.content ?? ''}${turnContextBlock}`
+  }
+  return apiMessages
+}
+
 /** Flatten a dropped span into the text handed to the summarizer. */
 export function toSummaryText(messages: ChatMessage[]): string {
   return messages
@@ -181,8 +232,15 @@ export async function planAndCompact(
     maxTokens: slot.sampling.maxTokens
   })
 
+  // v4.1 (S1): over budget, trim to the low-water mark rather than to the
+  // brim, and keep what an earlier turn folded away folded while the rest
+  // still fits — so the summary, and the history head after it, change once
+  // every several turns instead of on every one.
   const plan =
-    budget === undefined ? planHistoryFallback(convo.messages) : planHistory(convo.messages, budget)
+    budget === undefined
+      ? planHistoryFallback(convo.messages)
+      : planHistory(convo.messages, budget, { lowWater: HISTORY_LOW_WATER, foldedThrough: historyFloor(convo) })
+  noteHistoryFloor(convo.id, plan)
 
   const existing = convo.summary
   if (plan.drop.length === 0) {
@@ -276,6 +334,11 @@ const turnToolMemo = new Map<string, string[]>()
  * ranking failure — no embedding model, an endpoint error — falls back to
  * the full per-role allowlist: an optimization, never a gate.
  *
+ * v4.1 (S5): in a conversation, a failure falls back to the previous turn's
+ * subset instead (`fallbackTurnTools`), and the web tools stay once they have
+ * been sent (`STICKY_TOOLS`) — both so the tool list, which templates render
+ * ahead of the history, stops moving under a conversation's prompt cache.
+ *
  * v1.5: `stabilityKey` (a conversation id) holds the chosen subset steady
  * across turns that do not need a different one. Omitted by the one-shot
  * callers — a consultation and a plan step each get a fresh selection, because
@@ -289,15 +352,20 @@ export async function subsetForTurn(
   force: readonly string[] = []
 ): Promise<ToolSchema[]> {
   if (!query?.trim() || tools.length <= TURN_TOOL_CAP) return tools
+  const previous = stabilityKey ? turnToolMemo.get(stabilityKey) : undefined
+  const unranked = (): ToolSchema[] => {
+    const held = fallbackTurnTools(tools, previous, force)
+    if (stabilityKey && previous) turnToolMemo.set(stabilityKey, held.map((t) => t.function.name))
+    return held
+  }
   try {
     const res = await window.api.rankTools(
       query,
       tools.map((t) => ({ name: t.function.name, description: t.function.description }))
     )
-    if (!res.ok || !res.scores) return tools
+    if (!res.ok || !res.scores) return unranked()
     const selected = selectTurnTools(tools, res.scores)
     if (!stabilityKey) return withForcedTools(tools, selected, force)
-    const previous = turnToolMemo.get(stabilityKey)
     // v1.4.5: an indecisive ranking must not be allowed to move anything. On
     // "1" or "yes" the scores are separated by less than a rounding error, so
     // whichever tool wins is arbitrary — and swapping the toolbox on a coin
@@ -307,13 +375,13 @@ export async function subsetForTurn(
     // see holdTurnTools — and small talk never counts as decisive:
     // rankingMayMove.)
     const stable = holdTurnTools(tools, selected, previous, rankingMayMove(res.scores, query))
-    const withForced = withForcedTools(tools, stable, force)
+    const withForced = withForcedTools(tools, stable, [...force, ...stickyTools(previous)])
     turnToolMemo.set(
       stabilityKey,
       withForced.map((t) => t.function.name)
     )
     return withForced
   } catch {
-    return tools
+    return unranked()
   }
 }

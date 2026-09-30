@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  AUTO_SEARCH_SOFT_DEADLINE_MS,
   TURN_CONTEXT_PROVIDERS,
   gatherTurnContext,
   type ContextProvider,
@@ -39,7 +40,8 @@ describe('turn-context provider registry', () => {
         // v2.6: the fact ledger rides ahead of the search it can suppress.
         'factLedger:serial',
         'autoSearch:serial',
-        'libraryPassages:serial',
+        // v4.1 (S2): beside the ledger → search chain, not after it.
+        'libraryPassages:prefetch',
         // v2.7: a user's skill takes the method slot and stands the playbook down.
         'skill:serial',
         'playbook:serial',
@@ -51,6 +53,64 @@ describe('turn-context provider registry', () => {
         'tabularProfile:serial'
       ]
     )
+  })
+
+  test('v4.1: the app-run search carries the soft deadline, and nothing else does', () => {
+    assert.equal(AUTO_SEARCH_SOFT_DEADLINE_MS, 3500)
+    assert.deepEqual(
+      TURN_CONTEXT_PROVIDERS.filter((p) => p.softDeadlineMs !== undefined).map((p) => [p.id, p.softDeadlineMs]),
+      [['autoSearch', AUTO_SEARCH_SOFT_DEADLINE_MS]]
+    )
+  })
+
+  test('v4.1: the library lookup starts before the ledger lookup has answered', async () => {
+    const order: string[] = []
+    let releaseLedger!: () => void
+    const ledgerHeld = new Promise<void>((r) => (releaseLedger = r))
+    const slotTools = ['web_search', 'reference_lookup'].map((name) => ({
+      type: 'function' as const,
+      function: { name, description: '', parameters: {} }
+    }))
+    const shippedIO = {
+      runTool: async () => {
+        order.push('search')
+        return { ok: true, output: 'results' }
+      },
+      recordSyntheticCall: () => {},
+      patch: () => {},
+      settings: () => null,
+      api: {
+        ledgerLookup: async () => {
+          order.push('ledger:start')
+          await ledgerHeld
+          order.push('ledger:end')
+          return { ok: true, hits: [] }
+        },
+        libraryLookup: async () => {
+          order.push('library')
+          return { ok: true, passages: [], formatted: '' }
+        },
+        memorySearch: async () => ({ ok: true, results: [] })
+      }
+    } as unknown as ProviderIO
+    setTimeout(releaseLedger, 20)
+    await gatherTurnContext(
+      TURN_CONTEXT_PROVIDERS,
+      input({
+        convo: { id: 'c', messages: [] },
+        conversations: [],
+        slot: { modelId: 'm', roleName: 'r' },
+        slotTools,
+        lastUserContent: 'what is the standard deduction for a single filer?',
+        factualTurn: true,
+        referenceTurn: true,
+        offline: false,
+        project: null
+      } as unknown as Partial<TurnInput>),
+      shippedIO
+    )
+    assert.ok(order.indexOf('library') < order.indexOf('ledger:end'), order.join(' → '))
+    assert.ok(order.indexOf('ledger:end') < order.indexOf('search'), order.join(' → '))
   })
 })
 
@@ -183,6 +243,68 @@ describe('gatherTurnContext', () => {
     )
     assert.equal(result.aborted, true)
     assert.deepEqual(seen, ['Checking prices', null])
+  })
+
+  test('v4.1: a provider past its soft deadline is left behind, and what it does later is discarded', async () => {
+    let releaseLate!: () => void
+    const lateDone = new Promise<void>((r) => (releaseLate = r))
+    const seen: (string | null)[] = []
+    const runs: { name: string; discarded: boolean | undefined }[] = []
+    const patches: unknown[] = []
+    const lateIO = {
+      runTool: async (name: string, _args: unknown, options?: { discardAfter?: AbortSignal }) => {
+        await lateDone
+        runs.push({ name, discarded: options?.discardAfter?.aborted })
+        return { ok: true, output: 'late results' }
+      },
+      recordSyntheticCall: () => patches.push('record'),
+      patch: (p: unknown) => patches.push(p)
+    } as unknown as ProviderIO
+    const providers: ContextProvider[] = [
+      {
+        ...provider('slow', 'serial', async (_input, pio) => {
+          const r = await pio.runTool('web_search', { query: 'q' })
+          pio.patch({ content: 'late' })
+          pio.recordSyntheticCall('web_search', {}, 'x')
+          return { blocks: [r.output ?? ''] }
+        }),
+        wait: { label: 'Searching the web', detail: 'd' },
+        softDeadlineMs: 20
+      },
+      provider('after', 'serial', async () => ({ blocks: ['after'] }))
+    ]
+    const startedAt = Date.now()
+    const result = await gatherTurnContext(providers, input(), lateIO, (w) => seen.push(w ? w.label : null))
+    assert.ok(Date.now() - startedAt < 1000, 'the walk did not wait for the slow provider')
+    assert.deepEqual(result.blocks, ['after'])
+    // The wait on the reader's screen ended with the walk.
+    assert.equal(seen[seen.length - 1], null)
+    releaseLate()
+    await new Promise((r) => setTimeout(r, 10))
+    // The call came back flagged as discarded, and nothing it did landed.
+    assert.deepEqual(runs, [{ name: 'web_search', discarded: true }])
+    assert.deepEqual(patches, [])
+    assert.deepEqual(result.blocks, ['after'])
+  })
+
+  test('v4.1: a provider inside its soft deadline is folded as before', async () => {
+    const providers: ContextProvider[] = [
+      { ...provider('quick', 'serial', async () => ({ blocks: ['quick'] })), softDeadlineMs: 1000 },
+      provider('after', 'serial', async () => ({ blocks: ['after'] }))
+    ]
+    const result = await gatherTurnContext(providers, input(), io)
+    assert.deepEqual(result.blocks, ['quick', 'after'])
+  })
+
+  test('v4.1: a prefetch that declares a wait is named while the walk waits on it', async () => {
+    const seen: (string | null)[] = []
+    const providers: ContextProvider[] = [
+      { ...provider('lib', 'prefetch', async () => ({ blocks: ['L'] })), wait: { label: 'Reading the reference library', detail: 'd' } },
+      provider('after', 'serial', async () => ({ blocks: ['after'] }))
+    ]
+    const result = await gatherTurnContext(providers, input(), io, (w) => seen.push(w ? w.label : null))
+    assert.deepEqual(result.blocks, ['L', 'after'])
+    assert.deepEqual(seen, ['Reading the reference library', null, null])
   })
 
   test('projectTokens accumulate across providers', async () => {

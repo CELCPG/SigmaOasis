@@ -13,7 +13,18 @@ import { projectRecallProvider } from './projectRecall'
 import { attachmentPassagesProvider } from './attachmentPassages'
 import { tabularProfileProvider } from './tabularProfile'
 
-export type { ContextProvider, ProviderApi, ProviderIO, ProviderResult, ToolExecuteContext, TurnInput } from './types'
+export type { ContextProvider, ProviderApi, ProviderIO, ProviderResult, RunToolOptions, ToolExecuteContext, TurnInput } from './types'
+
+/**
+ * v4.1 (S2): the app-run search stops holding the turn after this long.
+ *
+ * Measured: auto search spent 8.8 s before the model was asked anything on the
+ * recorded TTU1 runs (lib/turnCost.ts). Past the deadline the model is asked
+ * without the results and can still call web_search itself: a factual turn
+ * carries the web tools whatever the ranking says, unless the library covers
+ * its domain (lib/grounding.ts `webToolsForTurn`).
+ */
+export const AUTO_SEARCH_SOFT_DEADLINE_MS = 3500
 
 /**
  * Registry order IS block order in the turn notes — pinned by test, because
@@ -22,11 +33,16 @@ export type { ContextProvider, ProviderApi, ProviderIO, ProviderResult, ToolExec
  * work starts first: material blocks (search, library) come before method
  * blocks (playbook), and recall lands last, exactly as the inline blocks
  * ordered themselves through v1.12.
+ *
+ * v4.1 (S2): the library lookup is a prefetch too. It is local and never
+ * depends on the ledger or the search, so it runs beside the ledger → search
+ * chain instead of after it; its block still lands in its registry slot.
  */
 export const TURN_CONTEXT_PROVIDERS: readonly ContextProvider[] = [
   // v2.6: ahead of the search it can suppress.
   factLedgerProvider,
-  autoSearchProvider,
+  // v4.1 (S2): given its deadline here, so the provider module stays as it was.
+  { ...autoSearchProvider, softDeadlineMs: AUTO_SEARCH_SOFT_DEADLINE_MS },
   libraryPassagesProvider,
   // v2.7: a user's skill takes the method slot and stands the playbook down.
   skillProvider,
@@ -46,6 +62,47 @@ export interface GatheredContext {
   attachments: AttachmentFileRef[]
   /** True when the turn was aborted mid-sequence; the caller returns. */
   aborted: boolean
+}
+
+/**
+ * A provider's effects once the turn has stopped waiting on it: tool results
+ * are discarded (RunToolOptions), and a late record or patch never lands.
+ */
+function deadlineIO(io: ProviderIO, late: AbortSignal): ProviderIO {
+  return {
+    ...io,
+    runTool: (name, args, options) => io.runTool(name, args, { ...options, discardAfter: late }),
+    recordSyntheticCall: (name, args, output) => {
+      if (!late.aborted) io.recordSyntheticCall(name, args, output)
+    },
+    patch: (p) => {
+      if (!late.aborted) io.patch(p)
+    }
+  }
+}
+
+/**
+ * Await a provider's result for at most `ms`. On the deadline `late` fires and
+ * the result is null, as if the provider had contributed nothing; the gather
+ * itself runs on, and deadlineIO keeps what it does from reaching the turn.
+ */
+async function withinSoftDeadline(
+  pending: Promise<ProviderResult | null>,
+  ms: number,
+  late: AbortController
+): Promise<ProviderResult | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      late.abort()
+      resolve(null)
+    }, ms)
+  })
+  try {
+    return await Promise.race([pending, expired])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
@@ -95,14 +152,24 @@ export async function gatherTurnContext(
     for (const p of providers) {
       if (p.phase === 'prefetch') {
         const pending = held.get(p.id)
-        if (pending) fold(await pending)
+        if (pending) {
+          // v4.1: a prefetch that declares a wait (the library lookup) can
+          // still be running when the walk reaches it; name it for as long.
+          if (p.wait) onWait(p.wait)
+          fold(await pending)
+        }
         continue
       }
       if (suppressed.has(p.id) || !p.enabled(input, io)) continue
       // Announced before the await, cleared by the next provider — a name
       // that outlived its work would be worse than none.
       onWait(p.wait ?? null)
-      fold(await p.gather(input, io).catch(() => null))
+      if (p.softDeadlineMs !== undefined) {
+        const late = new AbortController()
+        fold(await withinSoftDeadline(p.gather(input, deadlineIO(io, late.signal)).catch(() => null), p.softDeadlineMs, late))
+      } else {
+        fold(await p.gather(input, io).catch(() => null))
+      }
       if (input.signal.aborted) return { blocks, projectTokens, attachments, aborted: true }
     }
     return { blocks, projectTokens, attachments, aborted: false }

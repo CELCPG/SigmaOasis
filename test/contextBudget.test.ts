@@ -7,6 +7,9 @@ import {
   estimateMessageTokens,
   estimateTokens,
   historyBudget,
+  historyFloor,
+  HISTORY_LOW_WATER,
+  noteHistoryFloor,
   planHistory,
   planHistoryFallback
 } from '../src/renderer/src/lib/contextBudget'
@@ -137,6 +140,71 @@ describe('planHistory', () => {
     const plan = planHistory(messages, 0)
     assert.equal(plan.keep.length, 1)
     assert.equal(plan.keep[0].content, 'new')
+  })
+})
+
+describe('planHistory low-water mark (v4.1 S1)', () => {
+  // 1004 tokens a message (1000 of text, 4 of wire overhead).
+  const k = (): ChatMessage => msg('k'.repeat(4000))
+
+  test('over budget, it trims to the low-water mark, not to the brim', () => {
+    const messages = Array.from({ length: 10 }, k)
+    const plan = planHistory(messages, 8000, { lowWater: HISTORY_LOW_WATER })
+    // 7 would fit 8000; 65% of it (5200) holds 5.
+    assert.equal(plan.keep.length, 5)
+    assert.ok(plan.usedTokens <= 8000 * HISTORY_LOW_WATER)
+    assert.deepEqual([...plan.drop, ...plan.keep], messages)
+  })
+
+  test('under budget, nothing is trimmed whatever the low-water mark', () => {
+    const messages = Array.from({ length: 5 }, k)
+    assert.equal(planHistory(messages, 8000, { lowWater: HISTORY_LOW_WATER }).keep.length, 5)
+  })
+
+  test('what an earlier turn folded away stays folded while the rest fits', () => {
+    const messages = Array.from({ length: 8 }, k)
+    // The whole conversation would fit; the floor still holds the first three out.
+    const plan = planHistory(messages, 100_000, { lowWater: HISTORY_LOW_WATER, foldedThrough: messages[2].id })
+    assert.deepEqual(plan.keep, messages.slice(3))
+    assert.deepEqual(plan.drop, messages.slice(0, 3))
+  })
+
+  test('an unknown floor is ignored, and the newest message survives a floor on it', () => {
+    const messages = [k(), k()]
+    assert.equal(planHistory(messages, 100_000, { foldedThrough: 'gone' }).keep.length, 2)
+    assert.equal(planHistory(messages, 100_000, { foldedThrough: messages[1].id }).keep.length, 1)
+  })
+
+  test('consecutive over-budget turns keep the same history head until the next trim', () => {
+    // A conversation growing one message a turn against an 8000-token budget,
+    // planned the way planAndCompact plans it: the floor is the last drop.
+    const convo: Pick<Conversation, 'id' | 'messages' | 'summary'> = { id: 'lw', messages: Array.from({ length: 9 }, k) }
+    const heads: string[] = []
+    const drops: number[] = []
+    for (let turn = 0; turn < 6; turn++) {
+      const plan = planHistory(convo.messages, 8000, { lowWater: HISTORY_LOW_WATER, foldedThrough: historyFloor(convo) })
+      noteHistoryFloor(convo.id, plan)
+      heads.push(plan.keep[0].id)
+      drops.push(plan.drop.length)
+      convo.messages = [...convo.messages, k()]
+    }
+    // Turn 0 trims to five; turns 1 and 2 fit under the budget and leave the head alone.
+    assert.equal(heads[0], heads[1])
+    assert.equal(heads[1], heads[2])
+    // The pre-4.1 rule moved the head on every one of those turns.
+    const brim = (n: number): string => planHistory(convo.messages.slice(0, n), 8000).keep[0].id
+    assert.notEqual(brim(9), brim(10))
+    // And a trim, when it comes, drops a batch rather than one message.
+    const trims = drops.map((d, i) => d - (drops[i - 1] ?? 0)).filter((d) => d > 0)
+    assert.ok(trims.length >= 2 && trims.every((d) => d >= 3), `trims ${trims.join(',')}`)
+  })
+
+  test('the summary boundary counts as a floor, and the later of it and the last trim wins', () => {
+    const messages = Array.from({ length: 6 }, k)
+    const summary = { text: 's', throughMessageId: messages[1].id, updatedAt: 0 }
+    assert.equal(historyFloor({ id: 'nf', messages, summary }), messages[1].id)
+    noteHistoryFloor('nf', { keep: messages.slice(4), drop: messages.slice(0, 4), usedTokens: 0 })
+    assert.equal(historyFloor({ id: 'nf', messages, summary }), messages[3].id)
   })
 })
 

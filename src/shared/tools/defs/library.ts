@@ -16,8 +16,7 @@ export const libraryToolDefs = [
       'Do not use when: the question needs current events, prices, live availability or news ' +
       '(web_search); or something the user told you in conversation (memory_search).\n' +
       'Quote steps, figures and dosages from the passages rather than paraphrasing; if the ' +
-      'passages do not answer it, say so — never invent a reference.\n' +
-      'Example: {"query": "how long to cool a burn under running water"}',
+      'passages do not answer it, say so — never invent a reference.',
     parameters: {
       type: 'object',
       properties: {

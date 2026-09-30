@@ -54,6 +54,8 @@ export interface ModelConfig {
   rules?: string
   /** v4.0: pin this slot's model for a month idle rather than an hour, so nothing evicts it between sessions. */
   keepLoaded?: boolean
+  /** v4.1: when this role thinks (shared/thinking.ts). Absent = auto. */
+  thinking?: ThinkingMode
 }
 
 /**
@@ -71,6 +73,10 @@ export type { MemoryOrigin } from '../../shared/memoryOrigin'
 export type { Job, JobArgs, JobInterval, JobKind, JobOutcome } from '../../shared/jobs'
 /** v2.7: skills — the installed-skill shape, shared with main. */
 export type { InstalledSkill } from '../../shared/skills'
+
+/** v4.1: a role's thinking setting — one declaration, shared with main. */
+import type { ThinkingMode } from '../../shared/thinking'
+export type { ThinkingMode } from '../../shared/thinking'
 
 /** v1.17.3: how a turn ended, so an empty bubble can name who fell silent. */
 import type { TurnEnding } from '../../shared/failure'

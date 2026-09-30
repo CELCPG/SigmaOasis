@@ -214,7 +214,10 @@ export function conversationContextUsage(
   const plan =
     budget === undefined
       ? planHistoryFallback(conversation.messages)
-      : planHistory(conversation.messages, budget)
+      : planHistory(conversation.messages, budget, {
+          lowWater: HISTORY_LOW_WATER,
+          foldedThrough: historyFloor(conversation)
+        })
   const planned = promptTokens + toolTokens + reserve + summaryTokens + plan.usedTokens
 
   return {
@@ -278,26 +281,107 @@ export interface HistoryPlan {
 }
 
 /**
+ * v4.1 (S1): once a conversation is over its budget, trim it to this fraction.
+ *
+ * Trimming to exactly the budget drops one old message per turn from then on,
+ * and every drop re-summarizes and rewrites the summary in the system prompt —
+ * the head of the request — so a full conversation re-read its whole context
+ * every turn: ~100 s of prefill per turn at 30k tokens on the 9B. Trimming to
+ * 65% leaves room for several more turns before the next drop, and between
+ * drops the prefix is byte-identical and the server's KV cache holds.
+ */
+export const HISTORY_LOW_WATER = 0.65
+
+export interface HistoryPlanOptions {
+  /**
+   * v4.1: the fraction of the budget to trim down to once the history is over
+   * it. 1 (the default) is the pre-4.1 rule: keep whatever fits.
+   */
+  lowWater?: number
+  /**
+   * v4.1: the last message already folded away on an earlier turn — the
+   * summary's `throughMessageId`, or where the last trim stopped. Messages up
+   * to it stay dropped while the rest fits, so a turn that drops nothing sends
+   * the same history head as the turn before it. Unknown ids are ignored.
+   */
+  foldedThrough?: string
+}
+
+/**
  * Choose the newest slice of a conversation that fits `budgetTokens`.
  *
  * The newest message is always kept, however large it is: dropping the thing
  * the user just sent to make room for older context is never the right answer,
  * and an oversized message is the server's error to report, not ours to hide.
+ *
+ * v4.1: with `lowWater` below 1, a history over budget is trimmed well below
+ * it, and with `foldedThrough` a history that still fits is left alone — see
+ * HISTORY_LOW_WATER.
  */
-export function planHistory(messages: ChatMessage[], budgetTokens: number): HistoryPlan {
+export function planHistory(
+  messages: ChatMessage[],
+  budgetTokens: number,
+  options: HistoryPlanOptions = {}
+): HistoryPlan {
   if (messages.length === 0) return { keep: [], drop: [], usedTokens: 0 }
 
+  // Never past the newest message: it is kept whatever the floor says.
+  const floor = Math.min(
+    options.foldedThrough ? messages.findIndex((m) => m.id === options.foldedThrough) + 1 : 0,
+    messages.length - 1
+  )
+  const live = messages.slice(floor)
+  const liveTokens = live.reduce((n, m) => n + estimateMessageTokens(m), 0)
+  if (liveTokens <= budgetTokens) {
+    return { keep: live, drop: messages.slice(0, floor), usedTokens: liveTokens }
+  }
+
+  const target = budgetTokens * Math.min(1, Math.max(0, options.lowWater ?? 1))
   const keep: ChatMessage[] = []
   let usedTokens = 0
 
-  for (let i = messages.length - 1; i >= 0; i--) {
+  for (let i = messages.length - 1; i >= floor; i--) {
     const cost = estimateMessageTokens(messages[i])
-    if (keep.length > 0 && usedTokens + cost > budgetTokens) break
+    if (keep.length > 0 && usedTokens + cost > target) break
     keep.unshift(messages[i])
     usedTokens += cost
   }
 
   return { keep, drop: messages.slice(0, messages.length - keep.length), usedTokens }
+}
+
+/**
+ * v4.1: where a conversation's history was last cut, when no summary records
+ * it — the 'trim' setting makes none, and a failed summarizer can leave the
+ * old one in place. RAM only, like the tool memo in hooks/turnHelpers.ts: a
+ * restart forgets it, and the first turn after re-plans from the summary.
+ */
+const trimFloors = new Map<string, string>()
+
+/** Remember the last message a turn's plan dropped (hooks/turnHelpers.ts). */
+export function noteHistoryFloor(conversationId: string, plan: HistoryPlan): void {
+  const last = plan.drop[plan.drop.length - 1]
+  if (last) trimFloors.set(conversationId, last.id)
+}
+
+/**
+ * The newest message already folded out of this conversation's history: the
+ * later, by position, of the summary's boundary and the last trim.
+ */
+export function historyFloor(
+  conversation: Pick<Conversation, 'id' | 'messages' | 'summary'>
+): string | undefined {
+  let best: string | undefined
+  let bestIndex = -1
+  for (const id of [conversation.summary?.throughMessageId, trimFloors.get(conversation.id)]) {
+    if (!id) continue
+    const index = conversation.messages.findIndex((m) => m.id === id)
+    if (index > bestIndex) {
+      best = id
+      bestIndex = index
+    }
+  }
+  return best
 }
 
 /**

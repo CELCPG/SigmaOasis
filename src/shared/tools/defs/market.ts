@@ -17,8 +17,7 @@ export const marketToolDefs = [
       'Do not use when: the question is conceptual (what IS a moving average — answer or use ' +
       'reference_lookup); or for intraday data, order books or live quotes — this is daily history ' +
       'and may lag by a day. State the as-of date with any figure. Historical data is not a ' +
-      'forecast; never extrapolate it into a prediction or a recommendation.\n' +
-      'Example: {"symbol": "NVDA", "range": "6mo"}',
+      'forecast; never extrapolate it into a prediction or a recommendation.',
     parameters: {
       type: 'object',
       properties: {

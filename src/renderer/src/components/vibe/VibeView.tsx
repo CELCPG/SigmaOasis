@@ -6,7 +6,7 @@ import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { modalSurfaceOpen } from '../../hooks/useModalSurface'
 import { setVibeMode } from '../../hooks/vibeMode'
 import { stopAgent } from '../../hooks/agentTasks'
-import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, splitStreamingMarkdown } from '../../lib/markdown'
+import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, renderStreamingMarkdown, splitStreamingMarkdown } from '../../lib/markdown'
 import { stripCitationMarkers, vibeLines, vibePhase, type VibeLine, type VibePhase } from '../../lib/vibe'
 import type { PendingPatch } from '../../types'
 import { DiffView } from '../PatchBlock'
@@ -304,7 +304,7 @@ const VibeReply = memo(function VibeReply({ line, live }: { line: VibeLine; live
   }
   // Both halves are DOMPurify-sanitized in renderMarkdown; fadeStreamEdge only
   // wraps already-sanitized text in a span of our own.
-  const html = rest ? stableHtml + fadeStreamEdge(renderMarkdown(rest)) : stableHtml
+  const html = rest ? stableHtml + fadeStreamEdge(renderStreamingMarkdown(rest)) : stableHtml
   return (
     <div
       className="markdown-body vibe-prose vibe-line-enter"

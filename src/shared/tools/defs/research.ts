@@ -14,8 +14,7 @@ export const researchToolDefs = [
       'conversation and returns only the findings.\n' +
       'Do not use when: a single quick lookup suffices (web_search), or you already hold the ' +
       'one URL that matters (fetch_webpage).\n' +
-      'Pass the full question in one self-contained sentence; no personal data.\n' +
-      'Example: {"question": "What are the pros and cons of heat pumps versus gas furnaces in cold climates?"}',
+      'Pass the full question in one self-contained sentence; no personal data.',
     parameters: {
       type: 'object',
       properties: {

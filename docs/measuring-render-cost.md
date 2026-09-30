@@ -29,7 +29,11 @@ work.
 
 Knobs: `BENCH_TOK_PER_SEC` (default 60; try 150 for a fast model),
 `BENCH_BLOCKS` (default 8, ≈ 25 KB / 516 lines), `BENCH_PAIRS` (prior
-exchanges already in the conversation, default 12).
+exchanges already in the conversation, default 12), `BENCH_REASONING` (v4.1:
+characters of chain-of-thought streamed as `reasoning_content` before the
+reply, default 0 so earlier results stay comparable; try 6000). The report
+voids a comparison whose runs streamed different reasoning, as it does for
+different reply text.
 
 It opens a real window and takes a few minutes. CI does not run it.
 

@@ -30,7 +30,9 @@ import {
 
 /** The wire hash at the point the table was extracted from toolSchemas.ts (v1.12.1). */
 // v2.7: run_code joined the table (Code Mode); v2.8: propose_patch. The hash moves with each.
-const PINNED_SCHEMA_HASH = '1026add88761'
+// v4.1 (S5): the Example lines left every description (−10% of description
+// text); eval:tools re-runs against this hash before the change ships.
+const PINNED_SCHEMA_HASH = '8f651f5e6e7d'
 
 const PINNED_NAMES = [
   'read_file',

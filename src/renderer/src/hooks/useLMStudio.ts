@@ -9,7 +9,7 @@ import { slotRulesBlock } from '../lib/projectContext'
 import { looksLikeDocumentAsk } from '../lib/playbooks'
 import { routeTargets, ESCALATION_REASON_TEXT } from '../lib/routing'
 import type { Attachment, ChatMessage, Conversation, ModelConfig, ToolSchema } from '../types'
-import { streamChat } from './chatTransport'
+import { frameCoalesced, streamChat } from './chatTransport'
 import { audit, turnRequestEstimate, uid, visionCapable } from './turnHelpers'
 import { runDeliberation } from './verification'
 import { planApprovals, runPlanTurn } from './planMode'
@@ -500,9 +500,11 @@ export function useLMStudio(): {
       useAppStore.getState().patchMessage(convo.id, messageId, { secondOpinion: { ...record } })
     }
 
+    // v4.1 (S3): a patch a frame, not a patch a chunk (chatTransport.ts frameCoalesced).
+    let text = ''
+    const paced = frameCoalesced(() => patch(text))
     try {
       await window.api.pinModel(critic.modelId).catch(() => false)
-      let text = ''
       await streamChat(
         settings.baseUrl,
         critic.modelId,
@@ -511,13 +513,15 @@ export function useLMStudio(): {
         controller.signal,
         (chunk) => {
           text += chunk
-          patch(text)
+          paced.schedule()
         },
         undefined,
         critic.sampling
       )
+      paced.flush()
       if (!controller.signal.aborted && !text.trim()) patch(NO_REVIEW_TEXT)
     } catch (err) {
+      paced.flush()
       if (!controller.signal.aborted) {
         patch(`⚠️ ${composeFailure(explainFailure(err, { subject: 'The second opinion' }))}`)
       }

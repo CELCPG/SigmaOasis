@@ -19,7 +19,9 @@ import {
  */
 export const libraryPassagesProvider: ContextProvider = {
   id: 'libraryPassages',
-  phase: 'serial',
+  // v4.1 (S2): prefetch — local, and independent of the ledger and the search,
+  // so it runs beside them rather than after them (contextProviders/index.ts).
+  phase: 'prefetch',
   wait: {
     label: 'Reading the reference library',
     detail: 'local passages, with their citations, before the model is asked'

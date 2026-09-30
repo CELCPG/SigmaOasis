@@ -161,9 +161,15 @@ interface AppState {
    * this text in place of its message's committed content; the accumulated
    * content is committed through patchMessage at round and stream boundaries,
    * and the tail is cleared when the turn ends.
+   *
+   * v4.1 (S3): the chain-of-thought streams here too. It was patched onto the
+   * message per chunk, which rebuilt the conversations array, bumped
+   * updatedAt, re-sorted the Sidebar and re-counted the context meter for
+   * every reasoning token — often the longer half of a reply. Committed to the
+   * message at round and stream boundaries, like the text.
    */
-  streamingTail: { messageId: string; text: string } | null
-  setStreamingTail: (tail: { messageId: string; text: string } | null) => void
+  streamingTail: StreamingTail | null
+  setStreamingTail: (tail: StreamingTail | null) => void
 
   /**
    * v1.17.4: what the transport has seen of the request currently in flight.
@@ -195,6 +201,15 @@ interface AppState {
     messageId: string,
     patch: Partial<ChatMessage>
   ) => void
+}
+
+/** The live half of the streaming message (see `streamingTail`). */
+export interface StreamingTail {
+  messageId: string
+  text: string
+  /** v4.1: the reasoning streamed so far this turn, and how long it has run. */
+  reasoning?: string
+  reasoningMs?: number
 }
 
 export const useAppStore = create<AppState>((set, get) => ({

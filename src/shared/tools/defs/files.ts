@@ -8,8 +8,7 @@ export const fileToolDefs = [
       'Read the contents of a local file.\n' +
       'Use when: the user names a file path or asks what a file says.\n' +
       'Do not use when: they ask what is inside a directory (list_directory), want the file ' +
-      'created or changed (write_file), or the content is on the web (fetch_webpage).\n' +
-      'Example: {"path": "notes/todo.md"}',
+      'created or changed (write_file), or the content is on the web (fetch_webpage).',
     parameters: {
       type: 'object',
       properties: { path: { type: 'string', description: 'File path (absolute, or relative to the working directory)' } },
@@ -26,8 +25,7 @@ export const fileToolDefs = [
       'confirmation dialog first.\n' +
       'Use when: the user asks to save text to a file, create a file, or export something to disk.\n' +
       'Do not use when: they want a note in the notes store (create_note) or a fact remembered ' +
-      'across conversations (memory_save).\n' +
-      'Example: {"path": "groceries.txt", "content": "milk\neggs\ncoffee"}',
+      'across conversations (memory_save).',
     parameters: {
       type: 'object',
       properties: {
@@ -51,8 +49,7 @@ export const fileToolDefs = [
       'Use when: changing an existing file, or creating one the user should see before it lands — code, ' +
       'config, prose. Prefer small, exact edits over rewriting the file.\n' +
       'Do not use when: reading a file (read_file), or the user asked for a raw overwrite of a scratch file ' +
-      'and write_file is enabled.\n' +
-      'Example: {"path": "src/app.ts", "edits": [{"search": "const limit = 5", "replace": "const limit = 10"}]}',
+      'and write_file is enabled.',
     parameters: {
       type: 'object',
       properties: {
@@ -83,8 +80,7 @@ export const fileToolDefs = [
       'List the entries in a directory.\n' +
       'Use when: the user asks what is in a folder, or whether a file exists somewhere.\n' +
       'Do not use when: you need a file\'s contents (read_file). Never use run_terminal_command ' +
-      'just to list files — this tool already does it.\n' +
-      'Example: {"path": "~/Downloads"}',
+      'just to list files — this tool already does it.',
     parameters: {
       type: 'object',
       properties: { path: { type: 'string', description: 'Directory path (absolute, or relative to the working directory)' } },
@@ -101,8 +97,7 @@ export const fileToolDefs = [
       'Use when: the task genuinely needs a shell — building, running scripts or tests, git, ' +
       'package managers.\n' +
       'Do not use when: a typed tool does the job — reading a file (read_file), listing a ' +
-      'directory (list_directory), searching the web (web_search), fetching a page (fetch_webpage).\n' +
-      'Example: {"command": "npm test"}',
+      'directory (list_directory), searching the web (web_search), fetching a page (fetch_webpage).',
     parameters: {
       type: 'object',
       properties: { command: { type: 'string', description: 'The shell command to run' } },

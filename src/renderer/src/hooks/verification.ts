@@ -17,6 +17,7 @@ import {
 } from '../lib/workbenchChecks'
 import { parseRanCode } from '../lib/ranCode'
 import { composeFailure, explainFailure } from '../../../shared/failure'
+import { withUtilityThinking } from '../../../shared/thinking'
 import type { OutputComparison, WorkbenchCheck } from '../lib/workbenchChecks'
 import {
   buildReviewMessages,
@@ -46,7 +47,7 @@ import type {
   ToolCallRecord,
   ToolSchema
 } from '../types'
-import { streamChat } from './chatTransport'
+import { frameCoalesced, streamChat } from './chatTransport'
 import { audit, subsetForTurn, uid } from './turnHelpers'
 import { MAX_PLAN_STEP_ITERATIONS } from './planMode'
 
@@ -180,23 +181,28 @@ export async function runAutoCritic(
     useAppStore.getState().patchMessage(convo.id, messageId, { secondOpinion: { ...record } })
   }
 
+  // v4.1 (S3): a patch a frame, not a patch a chunk (chatTransport.ts frameCoalesced).
+  let text = ''
+  const paced = frameCoalesced(() => patchRecord(text))
   try {
-    let text = ''
     await streamChat(
       baseUrl,
       critic.modelId,
-      buildCriticMessages(critic, question, answer, answerer.roleName ?? 'The model'),
+      // v4.1 (S4): the critic's verdict is its text; its thinking was never read.
+      withUtilityThinking(buildCriticMessages(critic, question, answer, answerer.roleName ?? 'The model'), critic.modelId, critic.thinking),
       [], // No tools: the critic names the check, it does not run it.
       signal,
       (chunk) => {
         text += chunk
-        patchRecord(text)
+        paced.schedule()
       },
       undefined,
       critic.sampling
     )
+    paced.flush()
     if (!signal.aborted && !text.trim()) patchRecord(NO_REVIEW_TEXT)
   } catch (err) {
+    paced.flush()
     if (signal.aborted) return false
     // The reader gets a reading; the runtime's own words ride underneath it,
     // attributed, instead of standing in for a sentence.
@@ -298,7 +304,8 @@ export async function runClaimCheck(
     await streamChat(
       baseUrl,
       critic.modelId,
-      messages,
+      // v4.1 (S4): extraction and judgment read the reply's text alone.
+      withUtilityThinking(messages, critic.modelId, critic.thinking),
       [], // Extraction and judgment get no tools; the app runs the tools.
       signal,
       (chunk) => {
@@ -706,7 +713,8 @@ export async function runRecompute(
     await streamChat(
       baseUrl,
       slot.modelId,
-      buildRecomputeMessages(slot, question, answer),
+      // v4.1 (S4): the program is read off the reply's text.
+      withUtilityThinking(buildRecomputeMessages(slot, question, answer), slot.modelId, slot.thinking),
       [],
       signal,
       (chunk) => {

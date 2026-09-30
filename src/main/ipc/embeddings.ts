@@ -116,15 +116,69 @@ export class NoEmbeddingModelError extends Error {
  */
 const inFlight = new Map<string, Promise<{ model: string; vectors: number[][] }>>()
 
+/**
+ * v4.1 (S6): a query's vector, kept for a minute.
+ *
+ * Coalescing (above) only merges calls that overlap. A turn embeds the user's
+ * message four times over a few seconds that do not: the fact ledger, the
+ * library lookup, memory recall and tool ranking each ask in turn, and every
+ * ask is a loopback round trip that can also JIT-load the embedding model.
+ * The text is the same and so is the model, so the vector is the same.
+ *
+ * Queries only: a text longer than QUERY_CACHE_MAX_CHARS is a document chunk,
+ * embedded once by the index that owns it, and keeping those would hold a
+ * research crawl's vectors in RAM for nothing. Keyed by model as well as text,
+ * so a changed embedding model never answers with the old one's vector.
+ */
+export const QUERY_CACHE_TTL_MS = 60_000
+const QUERY_CACHE_MAX_CHARS = 2000
+const QUERY_CACHE_MAX_ENTRIES = 256
+const queryVectors = new Map<string, { vector: number[]; at: number }>()
+
+function cachedQuery(model: string, text: string, now: number): number[] | null {
+  const key = JSON.stringify([model, text])
+  const hit = queryVectors.get(key)
+  if (!hit) return null
+  if (now - hit.at > QUERY_CACHE_TTL_MS) {
+    queryVectors.delete(key)
+    return null
+  }
+  return hit.vector
+}
+
+function rememberQuery(model: string, text: string, vector: number[], now: number): void {
+  if (text.length > QUERY_CACHE_MAX_CHARS) return
+  // Oldest first: a Map iterates in insertion order.
+  while (queryVectors.size >= QUERY_CACHE_MAX_ENTRIES) queryVectors.delete(queryVectors.keys().next().value!)
+  queryVectors.set(JSON.stringify([model, text]), { vector, at: now })
+}
+
+/** Forget every cached query vector (tests; a changed embedding model needs nothing — the key has it). */
+export function clearQueryEmbeddingCache(): void {
+  queryVectors.clear()
+}
+
 export async function embedTexts(texts: string[]): Promise<{ model: string; vectors: number[][] }> {
   if (texts.length === 0) return { model: '', vectors: [] }
+  // v4.1 (S6): a batch of queries the cache holds costs no round trip.
+  if (texts.every((t) => t.length <= QUERY_CACHE_MAX_CHARS)) {
+    const model = await resolveEmbeddingModel()
+    if (model) {
+      const now = Date.now()
+      const hits = texts.map((t) => cachedQuery(model, t, now))
+      if (hits.every((v): v is number[] => v !== null)) return { model, vectors: hits }
+    }
+  }
   const key = JSON.stringify(texts)
   const existing = inFlight.get(key)
   if (existing) return existing
   const started = embedTextsUncoalesced(texts)
   inFlight.set(key, started)
   try {
-    return await started
+    const result = await started
+    const now = Date.now()
+    result.vectors.forEach((v, i) => rememberQuery(result.model, texts[i], v, now))
+    return result
   } finally {
     inFlight.delete(key)
   }
