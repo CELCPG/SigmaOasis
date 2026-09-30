@@ -14,7 +14,7 @@ settings it finds under their tabs — click one to land on it. Arrow keys move 
 | Group | Tab | What it governs |
 | --- | --- | --- |
 | Setup | **LM Studio** | The server address, whether it answers, what it has loaded and which role uses each model. |
-| | **Roles** | Each role: its model, persona, standing rules, capability and specialty, colour, thinking (v4.1: auto / on / off), Code Mode, its own tool list and sampling. The pipeline order. The tool-choice eval. |
+| | **Roles** | Each role: its model, persona, standing rules, capability and specialty, colour, thinking (v4.1: auto / on / off), a draft model (v4.2: none by default), Code Mode, its own tool list and sampling. The pipeline order. The tool-choice eval. |
 | | **Appearance & chat** | Theme, font size, what a reply shows, reasoning display, what happens when a conversation outgrows the window, plan mode, updates. |
 | Intelligence | **Grounding & checks** | What the app does before a reply (playbooks, outlines), after it (auto-correct, workbench checks, the source check — v4.1, off by default — self-review, second opinion, claim checking) and across replies (the conversation ledger, the fact ledger). |
 | | **Memory** | Whether memories are recalled automatically, how many, the embedding model, and the knowledge base. |

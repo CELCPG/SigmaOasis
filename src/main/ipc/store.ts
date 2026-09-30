@@ -8,6 +8,7 @@ import { writeFileAtomic } from './fsAtomic'
 import { isLoopbackBaseUrl } from './loopback'
 import { DEFAULT_TOOL_TOGGLES, type ToolToggles } from '../../shared/tools'
 import { EXPERIMENT_KEYS } from '../agent/types'
+import { normalizeDraftModel } from '../../shared/draftModel'
 
 /**
  * Default settings shape. The renderer keeps a mirror of this shape in its
@@ -88,6 +89,8 @@ export interface ModelConfig {
   rules?: string
   /** v4.1: `on` or `off`; absent = auto (shared/thinking.ts). */
   thinking?: 'on' | 'off'
+  /** v4.2 (S8): draft model for speculative decoding (shared/draftModel.ts). Absent = none. */
+  draftModel?: string
 }
 
 /**
@@ -735,7 +738,11 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
           ...(typeof m?.rules === 'string' && m.rules.trim() ? { rules: m.rules.trim().slice(0, 8000) } : {}),
           // v4.1: absent = auto; only the two other words are stored, and a
           // stray value spread in from `m` above is cleared.
-          thinking: m?.thinking === 'on' || m?.thinking === 'off' ? m.thinking : undefined
+          thinking: m?.thinking === 'on' || m?.thinking === 'off' ? m.thinking : undefined,
+          // v4.2 (S8): absent = none. Set to undefined, not left out, so a
+          // stray value spread in from `m` is cleared and a 4.1 file writes back
+          // byte for byte (JSON drops the key).
+          draftModel: normalizeDraftModel(m?.draftModel, str(m?.modelId, ''))
         }
       })
     : defaults.models

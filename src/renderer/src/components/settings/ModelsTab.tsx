@@ -11,7 +11,7 @@ import { TOOL_LABELS } from '../../../../shared/tools'
 import { LENGTH_PRESETS, TEMPERATURE_PRESETS, activeLengthPreset, activePreset, recommendedSampling } from '../../lib/sampling'
 import { EvalScoreLine, ProfileLine } from './helpers'
 import { useAppStore } from '../../stores/appStore'
-import { latestSlowReading, slowReadingAdvice, slowReadingFact } from '../../lib/modelFit'
+import { fitSentence, fitVerdict, latestSlowReading, paramsFromId, slowReadingAdvice, slowReadingFact } from '../../lib/modelFit'
 import type { ApplySettings } from '../../hooks/settingsApply'
 import { defineRows, parseTyped, registerRows, type RowMeta } from '../../lib/settingsKit'
 import { runToolChoiceEval, parseCompletionMessage } from '../../lib/evalRunner'
@@ -32,6 +32,7 @@ export const ROWS = defineRows('models', {
   specialty: { label: 'Specialty', help: 'What the router matches on — code to Coding, finance questions to Finance, factual questions to Research. General opts out of auto-routing.', keywords: ['routing', 'specialty', 'coding', 'research', 'finance', 'data'] },
   color: { label: 'Accent', help: 'The colour this role’s replies carry.', keywords: ['colour', 'color'] },
   keepLoaded: { label: 'Keep loaded', help: 'Pin this model for a month idle rather than an hour, so the app’s own embedding calls and another client’s requests do not evict it between sessions. LM Studio still unloads it when memory runs short.', keywords: ['pin', 'evict', 'resident', 'ttl'] },
+  draftModel: { label: 'Draft model', help: 'Speculative decoding (v4.2): a much smaller model of the same family proposes tokens and this one checks them in a single pass — the same reply, sooner, when most proposals are kept. It helps dense models; a model that already drafts through its own MTP heads in LM Studio (the Qwen3.8 9B distill does) gains nothing. The pair must share a vocabulary, and the draft takes memory of its own. None is the default: measure it first with npm run bench:latency -- --draft. The stats line under a reply shows how many drafted tokens were kept.', keywords: ['draft', 'speculative', 'speculative decoding', 'mtp', 'speed'] },
   thinking: { label: 'Thinking', help: 'For reasoning models that think in <think> tags (Qwen3, DeepSeek-R1, Magistral). Auto: the answer thinks, a greeting does not, and the app’s own checks (claim check, critic, recompute) answer without thinking. On: everything this role runs thinks. Off: nothing it runs thinks — fastest, weakest on hard questions. Other models are not affected.', keywords: ['reasoning', 'think', 'chain of thought', 'no_think', 'speed'] },
   codeMode: { label: 'Code Mode', help: 'native: tools as calls (default). code: one tool, run_code, whose Python program calls the others through a generated tools module, with the same allowlist, budgets and audit. both: both. Measured in docs/evals.md before any default was chosen.', keywords: ['code mode', 'run_code'] },
   tools: { label: 'Tools', help: 'Which of the enabled tools this role holds. A shorter, focused list helps a small model choose — and keeps a powerful tool out of the wrong hands.', keywords: ['allowlist', 'restrict'] },
@@ -56,8 +57,11 @@ export interface ModelsTabProps {
 
 export function ModelsTab({ settings, apply, availableModels }: ModelsTabProps): JSX.Element {
   const [evalScores, setEvalScores] = useState<EvalScoreSummary[]>([])
+  const [gpuBytes, setGpuBytes] = useState(0)
   useEffect(() => {
     void window.api.evalScores().then(setEvalScores).catch(() => {})
+    // v4.2 (S8): for the draft row's fit line — the main model and its draft on one card.
+    void window.api.gpuInfo().then((g) => setGpuBytes(g?.memoryBytes ?? 0)).catch(() => {})
   }, [])
 
   const updateModel = (id: string, meta: RowMeta, partial: Partial<ModelConfig>, shown?: string): void =>
@@ -166,6 +170,14 @@ export function ModelsTab({ settings, apply, availableModels }: ModelsTabProps):
                   </Row>
                   <Row meta={ROWS.keepLoaded}>
                     <Switch checked={Boolean(m.keepLoaded)} onChange={(keepLoaded) => updateModel(m.id, ROWS.keepLoaded, { keepLoaded: keepLoaded || undefined })} />
+                  </Row>
+                  <Row meta={ROWS.draftModel} layout="stack" foot={<DraftNote slot={m} availableModels={availableModels} gpuBytes={gpuBytes} />}>
+                    <Select
+                      label={`${m.roleName} draft model`}
+                      value={m.draftModel ?? ''}
+                      onChange={(v) => updateModel(m.id, ROWS.draftModel, { draftModel: v || undefined }, v || 'none')}
+                      options={draftOptions(m, availableModels)}
+                    />
                   </Row>
                   <Row meta={ROWS.thinking}>
                     <Segmented
@@ -305,6 +317,39 @@ export function ModelsTab({ settings, apply, availableModels }: ModelsTabProps):
       <EvalSection settings={settings} availableModels={availableModels} onScores={setEvalScores} />
     </div>
   )
+}
+
+/**
+ * v4.2 (S8): the draft picker — none first, then the server's chat models
+ * other than the role's own, a same-family one marked, since only a shared
+ * vocabulary lets LM Studio draft at all.
+ */
+function draftOptions(slot: ModelConfig, availableModels: ModelInfo[]): { value: string; label: string }[] {
+  const main = availableModels.find((am) => am.id === slot.modelId)
+  const candidates = availableModels.filter((am) => am.id !== slot.modelId && am.type !== 'embeddings')
+  const listed = candidates.some((am) => am.id === slot.draftModel)
+  return [
+    { value: '', label: 'None' },
+    ...candidates.map((am) => ({ value: am.id, label: `${modelLabel(am)}${main?.arch && am.arch === main.arch ? ' · same family' : ''}` })),
+    ...(slot.draftModel && !listed ? [{ value: slot.draftModel, label: `${slot.draftModel} (not listed)` }] : [])
+  ]
+}
+
+/** What the chosen draft means here: its size against the main model's, its family, and the card with both on it. */
+function DraftNote({ slot, availableModels, gpuBytes }: { slot: ModelConfig; availableModels: ModelInfo[]; gpuBytes: number }): JSX.Element | null {
+  if (!slot.draftModel) return null
+  const main = availableModels.find((am) => am.id === slot.modelId)
+  const draft = availableModels.find((am) => am.id === slot.draftModel)
+  const notes: string[] = []
+  const mainB = paramsFromId(slot.modelId)
+  const draftB = paramsFromId(slot.draftModel)
+  // Below about a quarter of the main model's size is where drafting has paid elsewhere; nearer, the draft's own time eats the gain.
+  if (mainB && draftB && draftB * 4 > mainB) notes.push(`A ${draftB}B draft for a ${mainB}B model is not much smaller; expect little gain, or a loss.`)
+  if (main?.arch && draft?.arch && main.arch !== draft.arch) notes.push(`Different families (${draft.arch}, ${main.arch}): LM Studio will likely refuse the pair, and the reply goes without it.`)
+  const verdict = main && gpuBytes > 0 ? fitVerdict(main, gpuBytes, draft ?? { id: slot.draftModel }) : null
+  if (verdict) notes.push(fitSentence(verdict, main!.id))
+  if (notes.length === 0) return null
+  return <p className={`mt-1.5 text-xs ${verdict && verdict.kind !== 'fits' ? 'text-ink-warn' : 'text-ink-tertiary'}`}>{notes.join(' ')}</p>
 }
 
 /** The role palette's swatches, for the Chips picker. Hues from lib/colors.ts, as colours. */

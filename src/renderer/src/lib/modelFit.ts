@@ -113,6 +113,8 @@ export interface FitVerdict {
   gpuGb: number
   /** A context window that would fit, when the loaded one does not; null when the weights alone do not fit. */
   windowThatFits: number | null
+  /** v4.2 (S8): the draft model's weights and cache, already inside the two figures above; absent without one. */
+  draftGb?: number
 }
 
 /**
@@ -121,13 +123,24 @@ export interface FitVerdict {
  * billion parameters. It errs towards "tight" on purpose — the bench's own
  * slow replies (test/modelFit.test.ts) are the fixture it must call right.
  */
-export function fitVerdict(model: { id: string; quantization?: string; loadedContextLength?: number; maxContextLength?: number }, gpuBytes: number): FitVerdict | null {
+export function fitVerdict(
+  model: { id: string; quantization?: string; loadedContextLength?: number; maxContextLength?: number },
+  gpuBytes: number,
+  /**
+   * v4.2 (S8): a draft model loaded beside it. Its weights sit on the same
+   * card and it keeps its own cache at the same window, so both are added; a
+   * draft whose size the id does not say is left out rather than guessed.
+   */
+  draft?: { id: string; quantization?: string }
+): FitVerdict | null {
   const params = paramsFromId(model.id)
   if (!params || gpuBytes <= 0) return null
   const gpuGb = gpuBytes / 1024 ** 3
-  const weightsGb = params * bytesPerWeight(model.quantization)
+  const draftParams = draft ? paramsFromId(draft.id) : null
+  const draftWeightsGb = draftParams ? draftParams * bytesPerWeight(draft?.quantization) : 0
+  const weightsGb = params * bytesPerWeight(model.quantization) + draftWeightsGb
   const ctx = model.loadedContextLength ?? model.maxContextLength ?? 8192
-  const cachePerK = 0.05 * (params / 10)
+  const cachePerK = 0.05 * ((params + (draftParams ?? 0)) / 10)
   const cacheGb = (ctx / 1024) * cachePerK
   const total = weightsGb + cacheGb
   const room = gpuGb * 0.9
@@ -137,12 +150,16 @@ export function fitVerdict(model: { id: string; quantization?: string; loadedCon
     windowThatFits = Math.max(2048, Math.min(ctx, Math.pow(2, Math.floor(Math.log2(Math.max(1, kTokens)))) * 1024))
   }
   const kind = total <= room * 0.85 ? 'fits' : total <= room ? 'tight' : 'no'
-  return { kind, weightsGb, cacheGb, gpuGb, windowThatFits }
+  const draftGb = draftParams ? draftWeightsGb + (ctx / 1024) * 0.05 * (draftParams / 10) : undefined
+  return { kind, weightsGb, cacheGb, gpuGb, windowThatFits, ...(draftGb !== undefined ? { draftGb } : {}) }
 }
 
 /** The verdict as a sentence for the row under LM Studio, with the `lms` line that would fix it. */
 export function fitSentence(v: FitVerdict, id: string): string {
   const gb = (n: number): string => `${n.toFixed(1)} GB`
+  // v4.2 (S8): the draft's share named first, so a verdict that changed with it says why
+  // and an `lms load` line stays last, where it can be copied.
+  if (v.draftGb !== undefined) return `With its draft model (${gb(v.draftGb)} of the total) — ${fitSentence({ ...v, draftGb: undefined }, id)}`
   if (v.kind === 'fits') return `Fits: about ${gb(v.weightsGb)} of weights and ${gb(v.cacheGb)} of cache on a ${gb(v.gpuGb)} card.`
   if (v.kind === 'tight') return `Tight: about ${gb(v.weightsGb + v.cacheGb)} on a ${gb(v.gpuGb)} card — expect the first word to wait.`
   if (v.windowThatFits === null) return `Does not fit: about ${gb(v.weightsGb)} of weights on a ${gb(v.gpuGb)} card — a smaller model or quant.`
