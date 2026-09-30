@@ -172,6 +172,10 @@ export const state: HarnessState = {
 }
 
 export function resetState(): void {
+  // v4.1 (S6): query vectors are cached for a minute; a test that scripts the
+  // embedder (failEmbeddings, embedCalls) must start from an empty cache.
+  const embeddings = require.cache[join(COMPILED_DIR, 'embeddings.js')]
+  ;(embeddings?.exports as { clearQueryEmbeddingCache?: () => void } | undefined)?.clearQueryEmbeddingCache?.()
   state.settings = defaultSettings()
   state.searchHtml = ''
   state.searchRoutes = []
