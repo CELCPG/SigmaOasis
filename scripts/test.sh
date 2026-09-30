@@ -106,6 +106,7 @@ rm -rf "$OUT"
   src/main/ipc/traceExport.ts \
   src/main/ipc/projects.ts \
   src/main/ipc/projectRecall.ts \
+  src/main/agent/latency.ts \
   src/renderer/src/lib/oasisRipple.ts \
   src/renderer/src/lib/reasoning.ts \
   src/renderer/src/lib/nativeToolCall.ts \

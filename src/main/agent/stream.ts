@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { createSseFrameReader, createToolCallAssembler, frameError, frameText, parseChatFrame } from '../../shared/sse'
+import { createSseFrameReader, createToolCallAssembler, frameError, frameText, parseChatFrame, type SseUsage } from '../../shared/sse'
 import { createReasoningSplitter } from '../../renderer/src/lib/reasoning'
 import { createNativeToolExtractor, type NativeToolCall } from '../../renderer/src/lib/nativeToolCall'
 import type { ApiMessage, ApiToolCall } from '../../renderer/src/lib/agentLoop'
@@ -38,7 +38,8 @@ export interface StreamRoundResult {
   content: string
   reasoning: string
   toolCalls: ApiToolCall[]
-  usage: { prompt_tokens?: number; completion_tokens?: number } | null
+  /** v4.1 (M3): the frame's usage kept whole, the prompt-cache figure included when the server sends it. */
+  usage: SseUsage | null
   /** The reply hit its token budget. */
   truncated: boolean
 }

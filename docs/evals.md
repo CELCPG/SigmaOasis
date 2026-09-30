@@ -7823,3 +7823,27 @@ temperature 0 — they chose the candidate, the full suite judged it. The suite 
 (none of its 24 prompts is, by S3's classifier), so S3's greeting fast path cannot move it, and did
 not. The standing tool-choice numbers above (v2.5) were qwen3.8-9b at an 8,192-token window; that
 model is gone from the bench, so this section's control arm is its own, on the distill.
+
+## Track M: what every run now records (v4.1)
+
+ROADMAP-v4.1.md puts measurement first: nothing turns on by default until a run shows it holds.
+This section is the instrument's side of that — what the runners record and how two runs are
+compared. The numbers themselves go in the sections above as they are measured.
+
+### Per-round latency in `eval:agent` (M3)
+
+A1 and A3 claim prefill wins and nothing recorded prefill. Every request a case sends is now timed
+at the transport (`src/main/agent/latency.ts`, a passive second reader of the same SSE frames the
+engine reads, so the engine is measured as it ships):
+
+- **TTFT** — request to the first content, reasoning or tool-call byte;
+- **prefill** — the server's own figure when it sends one (llama.cpp's `timings.prompt_ms`);
+  LM Studio's OpenAI endpoint sends none, so TTFT stands in and the report says so;
+- **prompt tokens**, and **cached tokens** when the server reports
+  `usage.prompt_tokens_details.cached_tokens` (absent, never zero, when it does not);
+- **decode tok/s** — completion tokens after the first, over first token to last.
+
+Each run keeps its rounds (`latency`) and their median and max (`latencySummary`); the table gains
+*TTFT median · max* and *decode tok/s*, and a line per model gives prefill, the largest prompt and
+the cached share. Helper rounds are timed too — they are requests the task waited on. A run the
+GPU's error counter moved in keeps its score and loses its time, here as for wall time.
