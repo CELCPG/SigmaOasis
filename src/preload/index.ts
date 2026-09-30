@@ -207,8 +207,8 @@ const api = {
   // v1.5 Reference library (main/ipc/library.ts) — offline; disk + loopback only.
   libraryList: (): Promise<LibraryPackSummary[]> => ipcRenderer.invoke('library:list'),
   libraryStats: (): Promise<LibraryStats> => ipcRenderer.invoke('library:stats'),
-  libraryLookup: (query: string, packId?: string | null, topK?: number): Promise<LibraryLookupResult> =>
-    ipcRenderer.invoke('library:lookup', query, packId ?? null, topK),
+  libraryLookup: (query: string, packId?: string | null, topK?: number, opts?: { modelId?: string }): Promise<LibraryLookupResult> =>
+    ipcRenderer.invoke('library:lookup', query, packId ?? null, topK, opts),
   libraryInstallFromDirectory: (path?: string): Promise<LibraryPackResult> =>
     ipcRenderer.invoke('library:installFromDirectory', path),
   libraryAddFolder: (path?: string, name?: string): Promise<LibraryPackResult> =>

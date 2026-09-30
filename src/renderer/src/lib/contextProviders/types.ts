@@ -93,7 +93,8 @@ export interface ProviderApi {
     sources?: string[] | null,
     origins?: readonly MemoryOrigin[] | null
   ): Promise<{ ok: boolean; results: MemorySearchResult[]; error?: string }>
-  libraryLookup(query: string, packId?: string | null, topK?: number): Promise<LibraryLookupResult>
+  /** v4.2 (L2): `opts.modelId` names the answering model, which a library re-rank asks. */
+  libraryLookup(query: string, packId?: string | null, topK?: number, opts?: { modelId?: string }): Promise<LibraryLookupResult>
   /** v2.6: the fact ledger. Absent where no ledger is wired (the bare eval arm). */
   ledgerLookup?(query: string): Promise<{ ok: boolean; hits: LedgerHit[]; error?: string }>
   /** v2.7: the user's installed skills, and a skill's helper files for the Workbench. */

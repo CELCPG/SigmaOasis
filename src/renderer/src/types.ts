@@ -746,7 +746,7 @@ export interface AppSettings {
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
   /** v1.4.6: revise an answer whose specifics the tools did not support. */
-  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean; factLedger: boolean; outline: boolean; sourceCheck: boolean }
+  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean; factLedger: boolean; outline: boolean; sourceCheck: boolean; libraryRerank: boolean; libraryHyde: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -825,6 +825,10 @@ export interface LibraryLookupResult {
   mode: 'hybrid' | 'keyword'
   notes: string[]
   error?: string
+  /** v4.2 (L2): whether the answering model re-ranked the passages (main/ipc/library/lookup.ts). */
+  rerank?: 'applied' | 'fallback'
+  /** v4.2 (L3): the semantic leg was ranked with a hypothetical-answer expansion. */
+  expanded?: boolean
   /** The model-facing rendering (same text the reference_lookup tool returns). */
   formatted?: string
 }

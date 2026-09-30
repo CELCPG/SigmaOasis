@@ -11,13 +11,14 @@ import type { ToolHandler } from './types'
  */
 const MAX_LIBRARY_OUTPUT_CHARS = 10_000
 
-const referenceLookup: ToolHandler = async (args) => {
+const referenceLookup: ToolHandler = async (args, context) => {
   const query = String(args.query ?? '').trim()
   if (!query) return { ok: false, error: 'A query is required.' }
   const requested = Number(args.max_passages)
   const topK = Number.isFinite(requested) ? Math.min(MAX_LOOKUP_PASSAGES, Math.max(1, Math.round(requested))) : 6
   const packId = typeof args.pack === 'string' && args.pack.trim() ? args.pack.trim() : null
-  const outcome = await lookupLibrary({ query, packId, topK })
+  // v4.2 (L2): the calling slot's model is the one a re-rank asks.
+  const outcome = await lookupLibrary({ query, packId, topK, modelId: context?.modelId })
   if (!outcome.ok) return { ok: false, error: outcome.error ?? 'Lookup failed.' }
   return { ok: true, output: truncate(formatLookup(outcome, query), MAX_LIBRARY_OUTPUT_CHARS) }
 }

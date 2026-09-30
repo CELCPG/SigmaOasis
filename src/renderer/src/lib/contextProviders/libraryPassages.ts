@@ -37,7 +37,9 @@ export const libraryPassagesProvider: ContextProvider = {
     }),
   async gather(input, io) {
     const query = buildSearchQuery(input.lastUserContent!, input.previousUserContent)
-    const looked = await io.api.libraryLookup(query, null, LIBRARY_PASSAGES_PER_TURN).catch(() => null)
+    // v4.2 (L2): the slot's model is the one a re-rank (Settings → Grounding)
+    // asks. Optional-chained: a test or eval arm may build a turn with no slot.
+    const looked = await io.api.libraryLookup(query, null, LIBRARY_PASSAGES_PER_TURN, { modelId: input.slot?.modelId }).catch(() => null)
     if (!(looked?.ok && looked.passages.length > 0 && looked.formatted)) return null
     // Recorded like the auto-search: a tool-call record the user can open,
     // an audit line, and a source for the grounding check.
