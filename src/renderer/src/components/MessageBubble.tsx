@@ -683,6 +683,16 @@ export const MessageBubble = memo(function MessageBubble({
     s.streamingTail && s.streamingTail.messageId === message.id ? s.streamingTail.text : null
   )
   const displayContent = tailText ?? message.content
+  // v4.1 (S3): and its reasoning, on the same terms — committed to the message
+  // only at round and stream boundaries (hooks/chatTransport.ts makeTailStream).
+  const tailReasoning = useAppStore((s) =>
+    s.streamingTail && s.streamingTail.messageId === message.id ? (s.streamingTail.reasoning ?? null) : null
+  )
+  const tailReasoningMs = useAppStore((s) =>
+    s.streamingTail && s.streamingTail.messageId === message.id ? s.streamingTail.reasoningMs : undefined
+  )
+  const displayReasoning = tailReasoning ?? message.reasoning
+  const displayReasoningMs = tailReasoning !== null ? tailReasoningMs : message.reasoningMs
 
   // Finished messages parse once, memoized on their content. The streaming
   // one parses its stable prefix only when a block completes, and re-parses
@@ -875,7 +885,7 @@ export const MessageBubble = memo(function MessageBubble({
   // Everything that would count as output arriving. While any of it moves the
   // ripple's silence clock keeps resetting; when it stops, the clock runs and
   // the disc starts saying how long it has been and what it is waiting on.
-  const streamActivity = `${displayContent.length}:${(message.reasoning ?? '').length}:${toolCalls
+  const streamActivity = `${displayContent.length}:${(displayReasoning ?? '').length}:${toolCalls
     .map((t) => `${t.id}${t.status}`)
     .join(',')}`
   /**
@@ -900,7 +910,7 @@ export const MessageBubble = memo(function MessageBubble({
   // ended with nothing at all (lib/replyRecovery.ts). Only the buttons that
   // would START a turn wait, and they say so.
   const phaseHere = turnPhase?.messageId === message.id ? turnPhase : null
-  const affordances = replyAffordances(message, isLast, isStreaming, phaseHere)
+  const affordances = replyAffordances({ ...message, reasoning: displayReasoning }, isLast, isStreaming, phaseHere)
   const busyTitle = streaming ? '\n\nAvailable once this turn’s checks finish.' : ''
   /**
    * v1.17.3: would asking again send a request the app has already measured as
@@ -1061,10 +1071,10 @@ export const MessageBubble = memo(function MessageBubble({
           <PlanBlock messageId={message.id} plan={message.plan} records={toolCalls} />
         )}
 
-        {message.reasoning && reasoningDisplay !== 'hidden' && (
+        {displayReasoning && reasoningDisplay !== 'hidden' && (
           <ReasoningBlock
-            reasoning={message.reasoning}
-            reasoningMs={message.reasoningMs}
+            reasoning={displayReasoning}
+            reasoningMs={displayReasoningMs}
             isStreaming={isStreaming && displayContent === ''}
             defaultOpen={reasoningDisplay === 'expanded'}
           />

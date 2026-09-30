@@ -432,12 +432,15 @@ export async function runTurn(
   // Chain-of-thought accumulates on its own field across the whole turn, so it
   // never reaches `content` — which is what the bubble renders, what voice mode
   // reads, and what toApiContent replays next turn.
+  //
+  // v4.1 (S3): through the paced tail, not a patch per chunk — the tail lands
+  // it on the message at each round boundary and at the end (makeTailStream).
   let reasoning = assistantMsg.reasoning ?? ''
   let reasoningStartedAt = 0
   const onReasoning = (chunk: string): void => {
     if (!reasoningStartedAt) reasoningStartedAt = Date.now()
     reasoning += chunk
-    patch({ reasoning, reasoningMs: Date.now() - reasoningStartedAt })
+    tail.reasoning(reasoning, Date.now() - reasoningStartedAt)
   }
 
   // Stats span the whole turn, not one round: a turn with three tool calls is

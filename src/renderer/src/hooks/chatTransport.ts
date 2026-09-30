@@ -312,11 +312,20 @@ export function makeTailStream(
   patch: (p: Partial<ChatMessage>) => void
 ): {
   schedule: () => void
+  /**
+   * v4.1 (S3): the turn's reasoning so far. Published on the same frame clock
+   * as the text — unpaced, since nobody reads thinking a character at a time —
+   * and committed to the message with it by `commit()` and `finish()`.
+   */
+  reasoning: (text: string, ms: number) => void
   commit: () => void
   /** Resolves when the last character has been published — see above. */
   finish: (immediate?: boolean) => Promise<void>
 } {
   let shown = 0
+  /** v4.1: reasoning buffered for the next publish, and whether it has moved since the last. */
+  let thought: { text: string; ms: number } | null = null
+  let thoughtDirty = false
   let lastPublish = 0
   let lastFrame = Date.now()
   let raf = 0
@@ -338,14 +347,23 @@ export function makeTailStream(
     typeof window !== 'undefined' &&
     (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
 
-  const publish = (): void =>
+  const publish = (): void => {
+    thoughtDirty = false
     useAppStore.getState().setStreamingTail({
       messageId: assistantMsg.id,
       text:
         shown >= assistantMsg.content.length
           ? assistantMsg.content
-          : assistantMsg.content.slice(0, shown)
+          : assistantMsg.content.slice(0, shown),
+      ...(thought ? { reasoning: thought.text, reasoningMs: thought.ms } : {})
     })
+  }
+
+  /** What `commit()` and `finish()` land on the message. */
+  const committed = (): Partial<ChatMessage> =>
+    thought
+      ? { content: assistantMsg.content, reasoning: thought.text, reasoningMs: thought.ms }
+      : { content: assistantMsg.content }
 
   /** A newer message's stream owns the slice now; this one must go quiet. */
   const usurped = (): boolean => {
@@ -400,14 +418,16 @@ export function makeTailStream(
       return
     }
     const total = assistantMsg.content.length
-    if (shown < total && now - lastPublish >= TAIL_FLUSH_MS) {
-      const remaining = total - shown
-      shown += advance(remaining, now)
-      if (shown > total) shown = total
-      // Never end the slice on a high surrogate — half an emoji renders as �.
+    if ((shown < total || thoughtDirty) && now - lastPublish >= TAIL_FLUSH_MS) {
       if (shown < total) {
-        const edge = assistantMsg.content.charCodeAt(shown - 1)
-        if (edge >= 0xd800 && edge <= 0xdbff) shown += 1
+        const remaining = total - shown
+        shown += advance(remaining, now)
+        if (shown > total) shown = total
+        // Never end the slice on a high surrogate — half an emoji renders as �.
+        if (shown < total) {
+          const edge = assistantMsg.content.charCodeAt(shown - 1)
+          if (edge >= 0xd800 && edge <= 0xdbff) shown += 1
+        }
       }
       lastPublish = now
       publish()
@@ -435,16 +455,23 @@ export function makeTailStream(
 
   const paced = (): boolean => !reduceMotion && Date.now() - lastFrame <= OCCLUDED_AFTER_MS
 
+  const schedule = (): void => {
+    if (paced()) {
+      if (!raf) raf = requestAnimationFrame(step)
+    } else if (Date.now() - lastPublish >= TAIL_FLUSH_MS) {
+      snap()
+    }
+  }
+
   return {
-    schedule(): void {
-      if (paced()) {
-        if (!raf) raf = requestAnimationFrame(step)
-      } else if (Date.now() - lastPublish >= TAIL_FLUSH_MS) {
-        snap()
-      }
+    schedule,
+    reasoning(text: string, ms: number): void {
+      thought = { text, ms }
+      thoughtDirty = true
+      schedule()
     },
     commit(): void {
-      patch({ content: assistantMsg.content })
+      patch(committed())
       if (paced()) {
         if (!raf) raf = requestAnimationFrame(step)
       } else {
@@ -452,7 +479,7 @@ export function makeTailStream(
       }
     },
     finish(immediate = false): Promise<void> {
-      patch({ content: assistantMsg.content })
+      patch(committed())
       ended = true
       drainBy = Date.now() + TAIL_DRAIN_MS
       if (paced() && !immediate) {
@@ -467,6 +494,41 @@ export function makeTailStream(
       }
       return settled
     }
+  }
+}
+
+/**
+ * v4.1 (S3): a store patch that runs at most once a frame.
+ *
+ * For the streams that still write through `patchMessage` — the second-opinion
+ * critic's text lives on its own record, not in `streamingTail` — and used to
+ * rebuild the conversations array per chunk: the Sidebar re-sorted and the
+ * context meter re-counted for every token of a critique. Chunks between two
+ * frames now cost one patch. A timer backs the frame up, because frames stop
+ * in an occluded window while the stream does not; `flush()` lands whatever
+ * is pending, and every stream ends with it.
+ */
+export function frameCoalesced(publish: () => void): { schedule: () => void; flush: () => void } {
+  let pending = false
+  let raf = 0
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const run = (): void => {
+    if (!pending) return
+    pending = false
+    if (raf) cancelAnimationFrame(raf)
+    if (timer) clearTimeout(timer)
+    raf = 0
+    timer = null
+    publish()
+  }
+  return {
+    schedule(): void {
+      if (pending) return
+      pending = true
+      if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(run)
+      timer = setTimeout(run, OCCLUDED_AFTER_MS)
+    },
+    flush: run
   }
 }
 

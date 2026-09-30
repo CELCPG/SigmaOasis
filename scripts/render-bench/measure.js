@@ -135,8 +135,11 @@ async function main() {
 
   const after = await metrics()
   let streamEnd = null
+  let reasoningChars = 0
   try {
-    streamEnd = (await (await fetch(`http://127.0.0.1:${STUB_PORT}/stats`)).json()).lastStreamEnd || null
+    const stubStats = await (await fetch(`http://127.0.0.1:${STUB_PORT}/stats`)).json()
+    streamEnd = stubStats.lastStreamEnd || null
+    reasoningChars = stubStats.reasoningChars || 0
   } catch {
     // stub already gone; renderLag is simply unavailable
   }
@@ -146,6 +149,8 @@ async function main() {
     label: LABEL,
     priorBubbles,
     finalChars: lastLen,
+    /** v4.1: chain-of-thought the stub streamed ahead of the answer (BENCH_REASONING). */
+    reasoningChars,
     /** Cumulative renderer main-thread processor time over the turn. */
     taskMs: ms('TaskDuration'),
     scriptMs: ms('ScriptDuration'),

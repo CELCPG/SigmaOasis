@@ -23,6 +23,7 @@
 #   BENCH_TOK_PER_SEC  tokens/sec to stream (default 60; try 150 for a fast model)
 #   BENCH_BLOCKS       code blocks in the reply (default 8, ≈ 25 KB / 516 lines)
 #   BENCH_PAIRS        prior exchanges already in the conversation (default 12)
+#   BENCH_REASONING    chars of reasoning streamed before the reply (default 0; try 6000)
 #
 # Why a stand-in model: a real one writes a different answer every run, so an
 # A/B against it compares two different workloads. See
@@ -82,6 +83,7 @@ export BENCH_STUB_PORT="${BENCH_STUB_PORT:-1235}"
 export BENCH_CDP_PORT="${BENCH_CDP_PORT:-9223}"
 export BENCH_TOK_PER_SEC="${BENCH_TOK_PER_SEC:-60}"
 export BENCH_BLOCKS="${BENCH_BLOCKS:-8}"
+export BENCH_REASONING="${BENCH_REASONING:-0}"
 
 # The profile lives under $TMPDIR, not in the repository. On macOS 26 the
 # re-signed Electron binary (a new identity to the folder-privacy system every

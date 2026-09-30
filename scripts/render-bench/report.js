@@ -59,7 +59,7 @@ for (const label of labels) {
   console.log(line([label, ...COLS.map(([, f]) => f(rs))]))
 }
 
-const chars = [...new Set(rows.map((r) => r.finalChars))]
+const chars = [...new Set(rows.map((r) => `${r.finalChars}${r.reasoningChars ? `+${r.reasoningChars} reasoning` : ''}`))]
 const bubbles = [...new Set(rows.map((r) => r.priorBubbles))]
 console.log(
   `\nrendered ${chars.join('/')} chars into ${bubbles.join('/')} prior bubbles` +

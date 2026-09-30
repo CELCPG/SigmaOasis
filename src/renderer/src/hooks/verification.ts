@@ -46,7 +46,7 @@ import type {
   ToolCallRecord,
   ToolSchema
 } from '../types'
-import { streamChat } from './chatTransport'
+import { frameCoalesced, streamChat } from './chatTransport'
 import { audit, subsetForTurn, uid } from './turnHelpers'
 import { MAX_PLAN_STEP_ITERATIONS } from './planMode'
 
@@ -180,8 +180,10 @@ export async function runAutoCritic(
     useAppStore.getState().patchMessage(convo.id, messageId, { secondOpinion: { ...record } })
   }
 
+  // v4.1 (S3): a patch a frame, not a patch a chunk (chatTransport.ts frameCoalesced).
+  let text = ''
+  const paced = frameCoalesced(() => patchRecord(text))
   try {
-    let text = ''
     await streamChat(
       baseUrl,
       critic.modelId,
@@ -190,13 +192,15 @@ export async function runAutoCritic(
       signal,
       (chunk) => {
         text += chunk
-        patchRecord(text)
+        paced.schedule()
       },
       undefined,
       critic.sampling
     )
+    paced.flush()
     if (!signal.aborted && !text.trim()) patchRecord(NO_REVIEW_TEXT)
   } catch (err) {
+    paced.flush()
     if (signal.aborted) return false
     // The reader gets a reading; the runtime's own words ride underneath it,
     // attributed, instead of standing in for a sentence.
