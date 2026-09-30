@@ -2,6 +2,9 @@ import { useAppStore } from '../stores/appStore'
 import {
   conversationContextUsage,
   historyBudget,
+  historyFloor,
+  HISTORY_LOW_WATER,
+  noteHistoryFloor,
   planHistory,
   planHistoryFallback,
   requestEstimate,
@@ -181,8 +184,15 @@ export async function planAndCompact(
     maxTokens: slot.sampling.maxTokens
   })
 
+  // v4.1 (S1): over budget, trim to the low-water mark rather than to the
+  // brim, and keep what an earlier turn folded away folded while the rest
+  // still fits — so the summary, and the history head after it, change once
+  // every several turns instead of on every one.
   const plan =
-    budget === undefined ? planHistoryFallback(convo.messages) : planHistory(convo.messages, budget)
+    budget === undefined
+      ? planHistoryFallback(convo.messages)
+      : planHistory(convo.messages, budget, { lowWater: HISTORY_LOW_WATER, foldedThrough: historyFloor(convo) })
+  noteHistoryFloor(convo.id, plan)
 
   const existing = convo.summary
   if (plan.drop.length === 0) {
