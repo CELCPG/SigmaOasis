@@ -14,7 +14,8 @@ import { ActionRow, Button, Card, Field, Notice, RoleDot, Row, Section, StatusDo
 export const ROWS = defineRows('connection', {
   baseUrl: { label: 'Server address', help: 'LM Studio’s OpenAI-compatible endpoint on this machine. Applies when you press Enter or leave the field.', keywords: ['url', 'base url', 'endpoint', 'port', '1234'] },
   machine: { label: 'This machine', help: 'The GPU as its own tool reports it, and whether it has been reporting errors. A model is judged against it before its first slow reply.', keywords: ['gpu', 'vram', 'card', 'memory', 'nvidia', 'errors'] },
-  models: { label: 'Detected models', help: 'What the server lists right now, which role uses each, whether it fits the card, and Load or Unload on your click.', keywords: ['loaded', 'quantization', 'context', 'load', 'unload'] }
+  models: { label: 'Detected models', help: 'What the server lists right now, which role uses each, whether it fits the card, and Load or Unload on your click.', keywords: ['loaded', 'quantization', 'context', 'load', 'unload'] },
+  drafts: { label: 'Draft models refused', help: 'A role’s draft model LM Studio would not take this session. Those replies went without it — nothing failed — and it is not sent again until the app restarts. Usually the two models’ vocabularies differ; pick a smaller model of the same family under Roles.', keywords: ['draft', 'speculative', 'refused'] }
 })
 registerRows(ROWS)
 
@@ -45,9 +46,16 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
   const [gpu, setGpu] = useState<Gpu | undefined>(undefined)
   const [acting, setActing] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<{ id: string; result: ActionResult } | null>(null)
+  const [drafts, setDrafts] = useState<Awaited<ReturnType<typeof window.api.draftNotices>>>([])
   useEffect(() => {
     void window.api.gpuInfo().then(setGpu).catch(() => setGpu(null))
+    void window.api.draftNotices().then(setDrafts).catch(() => setDrafts([]))
   }, [])
+  // v4.2 (S8): a model some role drafts with is judged with its draft on the card too.
+  const draftOf = (id: string): ModelInfo | { id: string } | undefined => {
+    const name = settings.models.find((r) => r.enabled && r.modelId === id && r.draftModel)?.draftModel
+    return name ? (availableModels.find((am) => am.id === name) ?? { id: name }) : undefined
+  }
   const act = (id: string, verb: 'load' | 'unload'): void => {
     setActing(id)
     void (verb === 'load' ? window.api.modelsLoad(id) : window.api.modelsUnload(id))
@@ -103,7 +111,7 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
             <ul className="divide-y divide-black/10 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/10">
               {availableModels.map((m) => {
                 const roles = usedBy(m.id)
-                const verdict = gpu && m.type !== 'embeddings' ? fitVerdict(m, gpu.memoryBytes) : null
+                const verdict = gpu && m.type !== 'embeddings' ? fitVerdict(m, gpu.memoryBytes, draftOf(m.id)) : null
                 return (
                   <li key={m.id} data-list-row className="flex items-center gap-3 px-3 py-2">
                     <StatusDot tone={m.loaded ? 'ok' : 'muted'} />
@@ -138,6 +146,17 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
             </ul>
           )}
         </Row>
+        {drafts.length > 0 && (
+          <Row meta={ROWS.drafts} layout="stack">
+            <Notice tone="muted">
+              {drafts.map((d) => (
+                <div key={`${d.model}::${d.draft}`} className="text-xs">
+                  <code>{d.draft}</code> for <code>{d.model}</code>: {d.detail || 'refused'}
+                </div>
+              ))}
+            </Notice>
+          </Row>
+        )}
       </Section>
     </div>
   )

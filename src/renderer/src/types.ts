@@ -56,6 +56,8 @@ export interface ModelConfig {
   keepLoaded?: boolean
   /** v4.1: when this role thinks (shared/thinking.ts). Absent = auto. */
   thinking?: ThinkingMode
+  /** v4.2 (S8): a smaller same-family model LM Studio drafts with (`draft_model`). Absent = none, the default. */
+  draftModel?: string
 }
 
 /**
@@ -1379,6 +1381,8 @@ export interface ResponseStats {
    * before v1.12.5, and on turns that ended before the tail ran.
    */
   turnMs?: number
+  /** v4.2 (S8): draft tokens accepted over drafted, summed over the turn's rounds, when the server reported them. */
+  draft?: { accepted: number; drafted: number }
 }
 
 export interface Conversation {

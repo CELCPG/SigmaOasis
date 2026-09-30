@@ -1,5 +1,6 @@
 import { cachedTokens, createSseFrameReader, parseChatFrame, type ChatFrame } from '../../shared/sse'
 import type { ChunkTransport } from './types'
+import { draftAcceptance, type DraftAcceptance } from '../../shared/draftModel'
 
 /**
  * v4.1 (M3): what one round cost in time, read off the wire.
@@ -33,6 +34,8 @@ export interface RoundLatency {
   decodeTokPerSec?: number
   /** Request to the end of the body. */
   totalMs: number
+  /** v4.2 (S8): draft tokens kept and proposed, when a draft model ran and the server said so. */
+  draft?: DraftAcceptance
 }
 
 /** llama.cpp's server appends this to its last frame; LM Studio's OpenAI endpoint does not. */
@@ -55,10 +58,12 @@ export function timedTransport(inner: ChunkTransport, onRound: (r: RoundLatency)
     let last: number | null = null
     let usage: ChatFrame['usage'] | undefined
     let serverPrefill: number | undefined
+    let draft: DraftAcceptance | null = null
     const read = (payload: string, at: number): void => {
       const f = parseChatFrame(payload) as TimedFrame | null
       if (!f) return
       if (f.usage) usage = f.usage
+      draft = draftAcceptance(f) ?? draft
       if (typeof f.timings?.prompt_ms === 'number') serverPrefill = f.timings.prompt_ms
       const c = f.choices?.[0]
       const produced = Boolean(c?.delta?.content || c?.delta?.reasoning_content || c?.delta?.tool_calls?.length || c?.message?.content || c?.message?.reasoning_content)
@@ -82,7 +87,8 @@ export function timedTransport(inner: ChunkTransport, onRound: (r: RoundLatency)
         ...(cached !== undefined ? { cachedTokens: cached } : {}),
         ...(completionTokens !== undefined ? { completionTokens } : {}),
         ...(decodeTokPerSec !== undefined ? { decodeTokPerSec } : {}),
-        totalMs: round1(end - started)
+        totalMs: round1(end - started),
+        ...(draft ? { draft } : {})
       })
     }
     try {

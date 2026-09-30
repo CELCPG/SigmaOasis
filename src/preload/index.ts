@@ -64,6 +64,9 @@ const api = {
   /** v4.0 (E2): load or unload a model in LM Studio on the user's click. */
   modelsLoad: (model: string): Promise<{ ok: boolean; detail: string }> => ipcRenderer.invoke('models:load', model),
   modelsUnload: (model: string): Promise<{ ok: boolean; detail: string }> => ipcRenderer.invoke('models:unload', model),
+  /** v4.2 (S8): a draft model the server refused, reported by the chat; the refusals, for Settings → LM Studio. */
+  reportDraftRejected: (model: string, draft: string, detail: string): Promise<boolean> => ipcRenderer.invoke('models:draftRejected', model, draft, detail),
+  draftNotices: (): Promise<{ model: string; draft: string; detail: string; at: number }[]> => ipcRenderer.invoke('models:draftNotices'),
 
   // Native dialogs
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory'),

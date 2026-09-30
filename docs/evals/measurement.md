@@ -112,3 +112,13 @@ to `.latency-bench/results.jsonl`, marked when the GPU's error counter moved dur
 Not measured here: the app's own split of a turn across gather, pin, compaction and verify. Those
 happen before and after the request, in the renderer; this bench times the request. Record a line
 per release (and a 4.0.1 line for the 4.1 gate) with the app closed and nothing else on the server.
+
+**Draft models (v4.2, S8).** `npm run bench:latency -- <model-id> [label] --draft <draft-id>` runs
+the same workload twice in every repeat — without `draft_model`, then with it — after warming both,
+and appends two lines, `label` and `label+draft`. The report names the draft beside the model and
+the share of drafted tokens the model kept, when the server reports it (LM Studio's
+`accepted_draft_tokens_count` / `total_draft_tokens_count`, or OpenAI's
+`accepted_prediction_tokens`); a server that reports none gets a line saying it may have ignored
+the field. The comparison that matters is decode tok/s and TTFT between the two lines. A role's
+*Draft model* (Settings → Roles) stays none by default until a line here shows a gain; the 9B
+distill already drafts through MTP in LM Studio's own config and is not expected to gain.

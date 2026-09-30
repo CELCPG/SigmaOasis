@@ -12,7 +12,9 @@ import { AGENT_APP_TOOLS } from '../../shared/agentAppTools'
 import { writeFileAtomic } from './fsAtomic'
 import { hostWindow } from './hostWindow'
 import { fetchModelCatalog } from './modelCatalog'
-import { pinChatModel } from './modelPin'
+import { draftRejected, noteDraftRejected, pinChatModel } from './modelPin'
+import { withDraftFallback } from '../agent/draftFallback'
+import { draftModelFor } from '../../shared/draftModel'
 import { extractPdfText } from './pdf'
 import { listSkills } from './skills'
 import { recipeFromSkill, selectRecipe } from '../agent/recipes'
@@ -273,6 +275,11 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
     await pinChatModel(req.model).catch(() => undefined)
     const catalog = await fetchModelCatalog().catch(() => null)
     const entry = catalog?.models.find((m) => m.id === req.model)
+    // v4.2 (S8): the role's draft model rides the request body through the
+    // sampling fields the engine already spreads into it; a refusal is retried
+    // once without it at the transport (../agent/draftFallback.ts).
+    const named = draftModelFor(req.model, settings.models)
+    const draft = named && !draftRejected(req.model, named) ? named : undefined
     result = await runAgentTask(
       {
         baseUrl: settings.baseUrl,
@@ -281,7 +288,7 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
         permission: req.permission,
         prompt: req.prompt,
         history: histories.get(req.conversationId) ?? req.history,
-        sampling: req.sampling,
+        sampling: draft ? { ...req.sampling, draft_model: draft } : req.sampling,
         rules: req.rules,
         contextTokens: entry?.loadedContextLength ?? entry?.maxContextLength ?? undefined,
         maxRounds: settings.agent.maxRounds,
@@ -294,7 +301,7 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
         takeSteers: () => task.steers.splice(0)
       },
       {
-        transport: auditedTransport,
+        transport: draft ? withDraftFallback(auditedTransport, (detail) => noteDraftRejected(req.model, draft, detail)) : auditedTransport,
         shell: defaultShell(),
         // C1 (v4.0): the app's own PDF extractor for read_document; C2: the system trash for delete_file.
         readPdf: async (bytes) => {
