@@ -232,6 +232,13 @@ export interface GroundingSettings {
    */
   sourceCheck: boolean
   /**
+   * v4.2 (L2): in health, first-aid, finance and building questions, the
+   * answering model re-ranks the library's top passages before they are
+   * handed over. Ships off: one extra capped call per such lookup
+   * (docs/library-ranking.md has the cost).
+   */
+  libraryRerank: boolean
+  /**
    * v1.9: the conversation ledger — a mechanical record of computed facts,
    * attached files, session state and the user's stated constraints, built
    * from tool results and the user's own words (never earlier replies) and
@@ -569,7 +576,7 @@ export function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false, sourceCheck: false },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false, sourceCheck: false, libraryRerank: false },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -844,7 +851,9 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       // Off until the longform suite says it should be on (docs/evals.md).
       outline: settings.grounding?.outline === true,
       // v4.1 (G4): off until measured, like outline.
-      sourceCheck: settings.grounding?.sourceCheck === true
+      sourceCheck: settings.grounding?.sourceCheck === true,
+      // v4.2 (L2): off — a model call per high-stakes lookup.
+      libraryRerank: settings.grounding?.libraryRerank === true
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

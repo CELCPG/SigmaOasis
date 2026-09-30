@@ -127,6 +127,12 @@ export interface LookupOutcome {
   mode: 'hybrid' | 'keyword'
   notes: string[]
   error?: string
+  /**
+   * v4.2 (L2): 'applied' = the answering model re-ranked the candidates;
+   * 'fallback' = it was asked and the fused order stood (failure, timeout,
+   * nothing usable). Absent when no re-rank was attempted.
+   */
+  rerank?: 'applied' | 'fallback'
 }
 
 export interface PackSummary {

@@ -5,6 +5,8 @@ import { contentNamespace } from '../zim'
 import { chunkDocumentSections, ensureLoaded, headingsOf, sectionAt } from './loading'
 import { bm25, packs } from './state'
 import { MAX_LOOKUP_PASSAGES } from './types'
+import { RERANK_POOL, assistSettings, rerankPassages, stakesDomain } from './modelAssist'
+import type { RerankCandidate } from './modelAssist'
 import type { LibChunk, LibraryPassage, LoadedDoc, LoadedPack, LookupOutcome } from './types'
 
 // v4.2 (L1): retrieval — the ZIM leg, keyword + semantic ranking fused by
@@ -34,6 +36,8 @@ const WEAK_TERMS = new Set([
 const MIN_TERM_OVERLAP = 2
 /** Cosine at which a semantic-only match is trusted without term overlap. */
 const MIN_COSINE = 0.55
+/** v4.2 (L2): passages a re-ranked lookup returns at least, when topK allows. */
+const RERANK_MIN_KEEP = 3
 
 /** How many articles one ZIM contributes to a lookup, and how many title prefixes are tried. */
 const ZIM_MAX_ARTICLES = 16
@@ -111,6 +115,11 @@ export async function lookupLibrary(input: {
   query: string
   packId?: string | null
   topK?: number
+  /**
+   * v4.2 (L2): the model the user is talking to — the one the re-rank asks.
+   * Absent, the first chat model LM Studio lists is used.
+   */
+  modelId?: string
 }): Promise<LookupOutcome> {
   const notes: string[] = []
   const query = input.query.trim()
@@ -215,13 +224,57 @@ export async function lookupLibrary(input: {
     return Boolean(queryVector && c.vector && unitDot(queryVector, c.vector) >= MIN_COSINE)
   }
 
-  const candidates = [...relevance]
+  let candidates = [...relevance]
     .filter(([id]) => passesFloor(id))
     .map(([id, score]) => ({ id, relevance: score }))
     .sort((a, b) => b.relevance - a.relevance)
     .slice(0, topK * CANDIDATE_MULTIPLIER)
   if (candidates.length === 0) {
     return { ok: true, passages: [], mode: queryVector ? 'hybrid' : 'keyword', notes: [...notes, 'No passage matched the query closely enough.'] }
+  }
+
+  const sectionKeyOf = (id: string): string => {
+    const c = byId.get(id)!
+    const doc = packs.get(c.packId)!.docs.get(c.docId)!
+    return `${c.packId}/${c.docId}#${sectionAt(doc, c.offset, c.offset + c.text.length)}`
+  }
+
+  // v4.2 (L2): in the high-stakes domains, and only when the user turned it
+  // on, the answering model reads the top candidates — one per section, the
+  // way the lookup will return them — and says which answer the question.
+  // Its picks lead in its order and the rest are dropped, topped up from the
+  // fused order to RERANK_MIN_KEEP so a model that under-picks cannot leave
+  // the answer with one passage. Relevance becomes rank-derived (1.0 down to
+  // 0.5) so MMR and the final sort keep the model's order. The app's own
+  // ledger pack is never re-ranked: its lookups are internal, not a reply's.
+  let rerank: LookupOutcome['rerank']
+  const ledgerOnly = packId !== null && packs.get(packId)?.manifest.kind === 'app'
+  if (!ledgerOnly && assistSettings().rerank && stakesDomain(query)) {
+    const seen = new Set<string>()
+    const pool: RerankCandidate[] = []
+    for (const { id } of candidates) {
+      if (pool.length >= RERANK_POOL) break
+      const key = sectionKeyOf(id)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const c = byId.get(id)!
+      const doc = packs.get(c.packId)!.docs.get(c.docId)!
+      const section = sectionAt(doc, c.offset, c.offset + c.text.length)
+      pool.push({ id, label: section ? `${doc.meta.title} › ${section}` : doc.meta.title, text: c.text })
+    }
+    const picks = pool.length >= 2 ? await rerankPassages(query, pool, input.modelId) : null
+    if (picks) {
+      const ordered = [...picks]
+      for (const { id } of pool) {
+        if (ordered.length >= Math.min(RERANK_MIN_KEEP, topK)) break
+        if (!ordered.includes(id)) ordered.push(id)
+      }
+      candidates = ordered.map((id, i) => ({ id, relevance: 1 - (0.5 * i) / Math.max(1, ordered.length - 1) }))
+      relevance = new Map(candidates.map((c) => [c.id, c.relevance]))
+      rerank = 'applied'
+    } else if (pool.length >= 2) {
+      rerank = 'fallback'
+    }
   }
 
   const similarity = (a: string, b: string): number => {
@@ -240,11 +293,6 @@ export async function lookupLibrary(input: {
   // wants the five most relevant *sections*, so extra same-section picks are
   // swapped for the best remaining candidates from unseen sections; if the
   // corpus genuinely has too few sections, the extras return.
-  const sectionKeyOf = (id: string): string => {
-    const c = byId.get(id)!
-    const doc = packs.get(c.packId)!.docs.get(c.docId)!
-    return `${c.packId}/${c.docId}#${sectionAt(doc, c.offset, c.offset + c.text.length)}`
-  }
   const seenSections = new Set<string>()
   const selected: string[] = []
   const displaced: string[] = []
@@ -296,5 +344,5 @@ export async function lookupLibrary(input: {
     // reading order is recoverable per document by the reader.
     .sort((a, b) => b.score - a.score)
 
-  return { ok: true, passages, mode: queryVector ? 'hybrid' : 'keyword', notes }
+  return { ok: true, passages, mode: queryVector ? 'hybrid' : 'keyword', notes, ...(rerank ? { rerank } : {}) }
 }

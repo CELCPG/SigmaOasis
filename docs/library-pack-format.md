@@ -16,7 +16,8 @@ what each document is and where it came from. Sigma Oasis installs a pack by **c
 into `userData/library/<id>/` and, from then on, retrieves passages from it by relevance
 before the model answers (the `reference_lookup` tool, and app-initiated lookups on health /
 finance / legal / preparedness questions or when offline). Nothing about a pack touches the
-network. Reader: `src/main/ipc/library.ts`.
+network. Reader: `src/main/ipc/library.ts`, a facade over `src/main/ipc/library/` (v4.2); how a
+lookup ranks passages is `docs/library-ranking.md`.
 
 ```
 my-pack/

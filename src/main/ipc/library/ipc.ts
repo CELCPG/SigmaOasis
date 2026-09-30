@@ -25,9 +25,11 @@ export function registerLibraryHandlers(): void {
   ipcMain.handle('library:list', () => listPacks())
   ipcMain.handle('library:stats', () => libraryStats())
   ipcMain.handle('library:remove', (_e, id: string) => removePack(String(id ?? '')))
-  ipcMain.handle('library:lookup', async (_e, query: string, packId?: string | null, topK?: number) => {
+  ipcMain.handle('library:lookup', async (_e, query: string, packId?: string | null, topK?: number, opts?: { modelId?: unknown }) => {
     const q = String(query ?? '')
-    const outcome = await lookupLibrary({ query: q, packId: packId ?? null, topK })
+    // v4.2 (L2): the renderer names the answering slot's model for a re-rank.
+    const modelId = typeof opts?.modelId === 'string' && opts.modelId.trim() ? opts.modelId : undefined
+    const outcome = await lookupLibrary({ query: q, packId: packId ?? null, topK, modelId })
     // `formatted` is the model-facing text — the same the tool returns — so
     // the renderer's app-initiated lookup injects exactly what a tool call would.
     return { ...outcome, formatted: outcome.ok ? formatLookup(outcome, q) : '' }
