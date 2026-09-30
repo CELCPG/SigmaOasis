@@ -32,6 +32,7 @@
  */
 
 import type { ResponseStats } from '../types'
+import { formatAcceptance } from '../../../shared/draftModel'
 
 /**
  * Under this, a span is bookkeeping rather than a wait — the mechanical
@@ -67,6 +68,9 @@ export function formatTurnCost(stats: ResponseStats): string {
   const parts: string[] = []
   if (stats.completionTokens) parts.push(`${stats.completionTokens.toLocaleString()} tok`)
   if (stats.tokensPerSecond) parts.push(`${stats.tokensPerSecond.toFixed(1)} tok/s`)
+  // v4.2 (S8): only when the server reported it; a draft it said nothing about shows nothing.
+  const accepted = formatAcceptance(stats.draft)
+  if (accepted) parts.push(accepted)
   if (stats.ttftMs) parts.push(`${secs(stats.ttftMs, 2)} to first token`)
   const gather = gatherMs(stats)
   const tail = tailMs(stats)

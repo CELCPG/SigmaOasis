@@ -42,6 +42,7 @@ import type {
   ToolSchema
 } from '../types'
 import { makeTailStream, newWitness, streamChat } from './chatTransport'
+import { addAcceptance, type DraftAcceptance } from '../../../shared/draftModel'
 import { assembleTurnMessages, audit, planAndCompact, subsetForTurn, uid } from './turnHelpers'
 import { runConsultation } from './verification'
 import { vibeSystemBlock } from '../lib/vibe'
@@ -437,6 +438,7 @@ export async function runTurn(
   let completionTokens = 0
   let sawUsage = false
   let generationMs = 0
+  let draftTotals: DraftAcceptance | undefined
   /**
    * The last figures the stream produced, kept so the tail can re-stamp them
    * with the turn's true length once it is over (lib/turnCost.ts).
@@ -454,10 +456,13 @@ export async function runTurn(
   const recordStats = (
     usage: ApiUsage | null,
     ttftMs: number | null,
-    roundMs: number
+    roundMs: number,
+    draft?: DraftAcceptance
   ): void => {
     if (firstTtftMs === null && ttftMs !== null) firstTtftMs = ttftMs
     generationMs += roundMs
+    // v4.2 (S8): summed over the turn's rounds, as completion tokens are.
+    draftTotals = addAcceptance(draftTotals, draft)
     if (usage) {
       sawUsage = true
       // The first round's prompt is the one the user's turn actually cost;
@@ -480,7 +485,8 @@ export async function runTurn(
             tokensPerSecond:
               generationMs > 0 ? (completionTokens / generationMs) * 1000 : undefined
           }
-        : {})
+        : {}),
+      ...(draftTotals ? { draft: draftTotals } : {})
     }
     lastStats = stats
     patch({ stats })
@@ -538,7 +544,7 @@ export async function runTurn(
           // answer the wrong question.
           const reasoningBefore = reasoning.length
           const roundStartedAt = Date.now()
-          const { toolCalls, usage, ttftMs, truncated } = await streamChat(
+          const { toolCalls, usage, ttftMs, truncated, draft } = await streamChat(
             baseUrl,
             slot.modelId,
             messages,
@@ -558,7 +564,7 @@ export async function runTurn(
             cacheable,
             witness
           )
-          recordStats(usage, ttftMs, Date.now() - roundStartedAt)
+          recordStats(usage, ttftMs, Date.now() - roundStartedAt, draft)
           // A reply cut off at max_tokens stops mid-thought. Saying so is the
           // difference between a cap the user set and a model that trailed off.
           if (truncated) patch({ truncated: true })
