@@ -78,8 +78,7 @@ export function makeProviderIO(opts: {
         record.status = 'error'
         record.result = LATE_RESULT_NOTE
         patch({ toolCalls: [...allRecords] })
-        auditCall(name, args, result.ok, `${outcome}
-(${LATE_RESULT_NOTE})`)
+        auditCall(name, args, result.ok, `${outcome}\n(${LATE_RESULT_NOTE})`)
         return result
       }
       record.status = result.ok ? 'done' : 'error'

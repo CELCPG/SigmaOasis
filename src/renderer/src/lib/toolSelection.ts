@@ -285,3 +285,41 @@ export function withForcedTools(
   while (names.size > cap && optional.length > 0) names.delete(optional.pop()!)
   return available.filter((t) => names.has(t.function.name))
 }
+
+/**
+ * v4.1 (S5): tools that stay on a conversation's wire once they have ridden it.
+ *
+ * The web pair is forced onto a factual turn (lib/grounding.ts
+ * `webToolsForTurn`) and not onto the chatty turn after it, so a conversation
+ * that alternates swapped its toolbox turn by turn — and chat templates render
+ * the tools ahead of the history, so every swap re-read the whole prompt. Kept
+ * once used, a factual → chatty → factual run sends one tool list throughout.
+ */
+export const STICKY_TOOLS: readonly string[] = ['web_search', 'fetch_webpage']
+
+/** The sticky tools the conversation's previous turn carried, by name. */
+export function stickyTools(previousNames: readonly string[] | undefined): string[] {
+  return (previousNames ?? []).filter((n) => STICKY_TOOLS.includes(n))
+}
+
+/**
+ * v4.1 (S5): the subset when the ranking is unavailable — no embedding model,
+ * an endpoint error.
+ *
+ * Through 4.0 that was the whole allowlist: up to ~8k tokens of schemas, ~25 s
+ * of cold prefill on the 9B, on a turn that had carried six tools the turn
+ * before — and back to six on the next, so the prefix moved twice. With a
+ * previous turn to go on, its tools stand, plus the always-on ones and this
+ * turn's forced ones. With none, the whole list as before: there is nothing
+ * better to send, and no prefix to keep.
+ */
+export function fallbackTurnTools(
+  available: ToolSchema[],
+  previousNames: readonly string[] | undefined,
+  forced: readonly string[] = []
+): ToolSchema[] {
+  if (!previousNames || previousNames.length === 0) return available
+  const names = new Set([...previousNames, ...ALWAYS_ON_TOOLS, ...forced])
+  const kept = available.filter((t) => names.has(t.function.name))
+  return kept.length > 0 ? kept : available
+}

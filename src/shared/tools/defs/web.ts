@@ -17,8 +17,7 @@ export const webToolDefs = [
       'Do not use when: the answer is in a local file (read_file), a saved note (read_note), or ' +
       'long-term memory (memory_search); you already have the URL to read (fetch_webpage); or ' +
       'the question needs a multi-source cited report (deep_research).\n' +
-      'Send only the search terms — never personal data, file contents, or secrets.\n' +
-      'Example: {"query": "Phish Hampton 1997 setlist"}',
+      'Send only the search terms — never personal data, file contents, or secrets.',
     parameters: {
       type: 'object',
       properties: { query: { type: 'string', description: 'Search query — terms only, no personal data' } },
@@ -45,8 +44,7 @@ export const webToolDefs = [
       'shop_compare), or you already have the page URL (fetch_webpage). Never use it to verify a ' +
       'fact — images illustrate, they do not prove.\n' +
       'Send only the visual subject as search terms, built from the conversation — resolve "it", ' +
-      '"these", "that one" first. No personal data.\n' +
-      'Example: {"query": "all-terrain pet stroller large wheels"}',
+      '"these", "that one" first. No personal data.',
     parameters: {
       type: 'object',
       properties: {
@@ -75,8 +73,7 @@ export const webToolDefs = [
       'Strongly prefer passing `query`: the page is then split into passages and only those ' +
       'relevant to the query are returned, so a long page stays readable instead of being cut ' +
       'off at the start. Re-fetching a URL you already read makes no new network request, so ' +
-      'ask several different queries against one page rather than re-reading it whole.\n' +
-      'Example: {"url": "https://example.com", "query": "pricing"}',
+      'ask several different queries against one page rather than re-reading it whole.',
     parameters: {
       type: 'object',
       properties: {

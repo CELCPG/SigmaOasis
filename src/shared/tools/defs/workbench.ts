@@ -15,8 +15,7 @@ export const workbenchToolDefs = [
       'page, then compute over what it says — and one program states the whole method.\n' +
       'Do not use when: one tool call answers the question (call it directly), or the work is pure computation on ' +
       'attached data (run_python).\n' +
-      'The sandbox has no network of its own; everything reaches the outside world through `tools`, or not at all.\n' +
-      'Example: {"code": "r = await tools.web_search(query=\\"Nordvik Trekker 40 price\\")\\nprint(r[:800])"}',
+      'The sandbox has no network of its own; everything reaches the outside world through `tools`, or not at all.',
     parameters: {
       type: 'object',
       properties: {
@@ -48,8 +47,7 @@ export const workbenchToolDefs = [
       'Do not use when: finance_calculator or date_calculator already does the exact job; or the ' +
       'user needs a shell on their machine (run_terminal_command). Do not use it to reach the ' +
       'network — it cannot; for market prices call market_data, which stages the series at /work/<SYMBOL>.csv.\n' +
-      'Print what you need to see, or end with an expression. Keep runs short (default limit 60 s).\n' +
-      'Example: {"code": "prices=[2.40/3]*17\\nprint(round(20-sum(prices),2))"}',
+      'Print what you need to see, or end with an expression. Keep runs short (default limit 60 s).',
     parameters: {
       type: 'object',
       properties: {
@@ -74,8 +72,7 @@ export const workbenchToolDefs = [
       'The file is available afterwards to run_python at /work/<name>.\n' +
       'Use when: the user attached a data file and asks anything about it — start here, before ' +
       'any analysis, so you know its shape and types.\n' +
-      'Do not use when: no file is attached, or the file is prose (read it instead).\n' +
-      'Example: {"file": "sales.csv"}',
+      'Do not use when: no file is attached, or the file is prose (read it instead).',
     parameters: {
       type: 'object',
       properties: {

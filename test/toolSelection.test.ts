@@ -8,8 +8,13 @@ import {
   rankingIsDecisive,
   rankingMayMove,
   withBudgetNotes,
-  TURN_TOOL_CAP
+  TURN_TOOL_CAP,
+  ALWAYS_ON_TOOLS,
+  fallbackTurnTools,
+  stickyTools,
+  STICKY_TOOLS
 } from '../src/renderer/src/lib/toolSelection'
+import { TOOL_SCHEMAS } from '../src/shared/tools'
 import type { ToolSchema } from '../src/renderer/src/types'
 
 /**
@@ -382,5 +387,40 @@ describe('a live turn reaches the web (v4.0.1)', () => {
     const local = available.filter((t) => !['web_search', 'fetch_webpage'].includes(t.function.name))
     const out = withForcedTools(local, selectTurnTools(local, scores), webToolsForTurn('what is the weather today')).map((t) => t.function.name)
     assert.ok(!out.includes('web_search') && !out.includes('fetch_webpage'))
+  })
+})
+
+describe('stable tool payloads (v4.1 S5)', () => {
+  const tool = (name: string): ToolSchema => ({ type: 'function', function: { name, description: `${name} tool`, parameters: {} } })
+  const names = (ts: ToolSchema[]): string[] => ts.map((t) => t.function.name)
+  const FULL = [...ALWAYS_ON_TOOLS, 'web_search', 'fetch_webpage', 'read_file', 'reference_lookup', 'memory_search', 'deep_research', 'run_python'].map(tool)
+
+  test('a ranking failure with a previous turn keeps that turn’s tools, plus always-on and forced', () => {
+    const held = fallbackTurnTools(FULL, ['read_file', 'web_search'], ['run_python'])
+    assert.deepEqual(new Set(names(held)), new Set([...ALWAYS_ON_TOOLS, 'read_file', 'web_search', 'run_python']))
+    // Wire order, not memo order.
+    assert.deepEqual(names(held), names(FULL).filter((n) => names(held).includes(n)))
+  })
+
+  test('with no previous turn, a failure sends the whole list as before', () => {
+    assert.equal(fallbackTurnTools(FULL, undefined), FULL)
+    assert.equal(fallbackTurnTools(FULL, []), FULL)
+  })
+
+  test('a previous set that no longer resolves falls back to the whole list', () => {
+    assert.deepEqual(names(fallbackTurnTools([tool('a'), tool('b')], ['gone'])), ['a', 'b'])
+  })
+
+  test('only the web pair is sticky', () => {
+    assert.deepEqual(STICKY_TOOLS, ['web_search', 'fetch_webpage'])
+    assert.deepEqual(stickyTools(['read_file', 'web_search', 'fetch_webpage', 'memory_search']), ['web_search', 'fetch_webpage'])
+    assert.deepEqual(stickyTools(undefined), [])
+  })
+
+  test('the shipped descriptions carry no Example lines, and keep their decision rules', () => {
+    for (const t of TOOL_SCHEMAS) assert.ok(!/\nExample:/.test(t.function.description), `${t.function.name} still has an example`)
+    const search = TOOL_SCHEMAS.find((t) => t.function.name === 'web_search')!
+    assert.match(search.function.description, /Use when:/)
+    assert.match(search.function.description, /Do not use when:/)
   })
 })

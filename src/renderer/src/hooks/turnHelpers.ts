@@ -14,10 +14,12 @@ import { foldLocalDigest } from '../lib/contextCompressor'
 import { budgetContextLength } from '../lib/modelInfo'
 import { projectInstructionsBlock } from '../lib/projectContext'
 import {
+  fallbackTurnTools,
   schemasAvailableTo,
   selectTurnTools,
   holdTurnTools,
   rankingMayMove,
+  stickyTools,
   TURN_TOOL_CAP,
   withForcedTools
 } from '../lib/toolSelection'
@@ -286,6 +288,11 @@ const turnToolMemo = new Map<string, string[]>()
  * ranking failure — no embedding model, an endpoint error — falls back to
  * the full per-role allowlist: an optimization, never a gate.
  *
+ * v4.1 (S5): in a conversation, a failure falls back to the previous turn's
+ * subset instead (`fallbackTurnTools`), and the web tools stay once they have
+ * been sent (`STICKY_TOOLS`) — both so the tool list, which templates render
+ * ahead of the history, stops moving under a conversation's prompt cache.
+ *
  * v1.5: `stabilityKey` (a conversation id) holds the chosen subset steady
  * across turns that do not need a different one. Omitted by the one-shot
  * callers — a consultation and a plan step each get a fresh selection, because
@@ -299,15 +306,20 @@ export async function subsetForTurn(
   force: readonly string[] = []
 ): Promise<ToolSchema[]> {
   if (!query?.trim() || tools.length <= TURN_TOOL_CAP) return tools
+  const previous = stabilityKey ? turnToolMemo.get(stabilityKey) : undefined
+  const unranked = (): ToolSchema[] => {
+    const held = fallbackTurnTools(tools, previous, force)
+    if (stabilityKey && previous) turnToolMemo.set(stabilityKey, held.map((t) => t.function.name))
+    return held
+  }
   try {
     const res = await window.api.rankTools(
       query,
       tools.map((t) => ({ name: t.function.name, description: t.function.description }))
     )
-    if (!res.ok || !res.scores) return tools
+    if (!res.ok || !res.scores) return unranked()
     const selected = selectTurnTools(tools, res.scores)
     if (!stabilityKey) return withForcedTools(tools, selected, force)
-    const previous = turnToolMemo.get(stabilityKey)
     // v1.4.5: an indecisive ranking must not be allowed to move anything. On
     // "1" or "yes" the scores are separated by less than a rounding error, so
     // whichever tool wins is arbitrary — and swapping the toolbox on a coin
@@ -317,13 +329,13 @@ export async function subsetForTurn(
     // see holdTurnTools — and small talk never counts as decisive:
     // rankingMayMove.)
     const stable = holdTurnTools(tools, selected, previous, rankingMayMove(res.scores, query))
-    const withForced = withForcedTools(tools, stable, force)
+    const withForced = withForcedTools(tools, stable, [...force, ...stickyTools(previous)])
     turnToolMemo.set(
       stabilityKey,
       withForced.map((t) => t.function.name)
     )
     return withForced
   } catch {
-    return tools
+    return unranked()
   }
 }

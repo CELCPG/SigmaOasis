@@ -21,8 +21,7 @@ export const calculatorToolDefs = [
       'margin. Margin is on the selling price, markup is on the cost, and a 20% margin is a ' +
       '25% markup: do not compute either in your head.\n' +
       'Report the figures this tool returns verbatim. Never recompute, adjust, or round them ' +
-      'into different numbers; if the arguments were wrong, call it again with the right ones.\n' +
-      'Example: {"operation": "compound_interest", "principal": 0, "monthly_contribution": 500, "annual_rate": 7, "years": 20}',
+      'into different numbers; if the arguments were wrong, call it again with the right ones.',
     parameters: {
       type: 'object',
       properties: {
@@ -108,8 +107,7 @@ export const calculatorToolDefs = [
       'Distances come back straight-line, with an approximate walking time. Drive and ' +
       'ride-hail times are NOT available from this tool and must not be stated at all — ' +
       'traffic decides them, and a number invented for one is worse than no number.\n' +
-      'Contacts OpenStreetMap with the place name. No personal addresses.\n' +
-      'Example: {"operation": "distance", "from": "Penn Station, New York", "to": "Le Bernardin, New York"}',
+      'Contacts OpenStreetMap with the place name. No personal addresses.',
     parameters: {
       type: 'object',
       properties: {
@@ -148,8 +146,7 @@ export const calculatorToolDefs = [
       'Understood: today, tomorrow, yesterday, "next Saturday", "this weekend", "in 3 weeks", ' +
       '"2 days ago", 2026-10-01, "1 October 2026", "October 1 2026".\n' +
       'Ambiguous phrases come back with both readings — pass the note on rather than choosing ' +
-      'silently.\n' +
-      'Example: {"operation": "resolve", "expression": "next saturday"}',
+      'silently.',
     parameters: {
       type: 'object',
       properties: {
@@ -187,8 +184,7 @@ export const calculatorToolDefs = [
     description:
       'Get the current local date and time.\n' +
       'Use when: the user asks what time, day, or date it is, or an answer depends on today\'s date.\n' +
-      'Do not use when: the current date is already visible in the conversation — check first.\n' +
-      'Example: {}',
+      'Do not use when: the current date is already visible in the conversation — check first.',
     parameters: { type: 'object', properties: {} },
     toggleDefault: true
   }
