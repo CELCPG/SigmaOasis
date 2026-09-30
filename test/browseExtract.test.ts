@@ -39,6 +39,17 @@ describe('browse extraction', () => {
     assert.match(none, /Welcome to Acme\./)
   })
 
+  test('a word matches at a word’s start: "rain" finds "raining", never "training" (4.0.2)', () => {
+    const wx = {
+      title: 'Richmond forecast',
+      text: ['Staff training schedule for the week.', '', 'Tuesday: raining until 3 pm, then clearing.'].join('\n'),
+      links: []
+    }
+    const out = extractByInstruction(wx, 'rain today')
+    assert.match(out.split('\n\n')[1] ?? '', /^Tuesday: raining/)
+    assert.doesNotMatch(out, /Staff training/)
+  })
+
   test('passages: paragraphs, and long blocks cut by line', () => {
     assert.deepEqual(passages('a\n\nb\nc\n\n\nd'), ['a', 'b\nc', 'd'])
     const long = Array.from({ length: 40 }, (_, i) => `line ${i} ${'x'.repeat(40)}`).join('\n')

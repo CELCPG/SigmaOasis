@@ -52,10 +52,26 @@ export function passages(text: string, maxChars = 700): string[] {
   return out
 }
 
+/**
+ * v4.0.2: how often a word starts a word of the passage. A plain substring
+ * count read "rain" in "training" and "art" in "start"; a word start still
+ * finds "rains" and "raining".
+ */
+function wordStarts(hay: string, w: string): number {
+  let n = 0
+  for (let i = hay.indexOf(w); i !== -1; i = hay.indexOf(w, i + w.length)) {
+    if (i === 0 || !/[a-z0-9]/.test(hay[i - 1]!)) n++
+  }
+  return n
+}
+
 function score(passage: string, words: string[]): number {
   const hay = passage.toLowerCase()
   let s = 0
-  for (const w of words) if (hay.includes(w)) s += 1 + Math.min(3, (hay.split(w).length - 1) * 0.25)
+  for (const w of words) {
+    const n = wordStarts(hay, w)
+    if (n > 0) s += 1 + Math.min(3, n * 0.25)
+  }
   return s
 }
 
