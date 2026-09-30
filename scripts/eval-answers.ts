@@ -1787,7 +1787,7 @@ async function main(): Promise<void> {
       'The answer-quality evals run live completions against a local LM Studio server,\n' +
         'so they are gated: set LMSTUDIO_EVAL=1 (and start LM Studio) first.\n\n' +
         '  LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>\n' +
-        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,orchestrate,synthesis,research,reasoning,claims,longform   EVAL_CASES=1-5   EVAL_PASSES=3   EVAL_CLAIMS_ARMS=bare,ledger   EVAL_LONGFORM_ARMS=bare,outline'
+        '  EVAL_SUITES=library,quant,deliberate,multiturn,ledger,projects,market,orchestrate,synthesis,research,reasoning,claims,longform,live   EVAL_CASES=1-5   EVAL_PASSES=3   EVAL_CLAIMS_ARMS=bare,ledger   EVAL_LONGFORM_ARMS=bare,outline'
     )
     app.exit(0)
     return
@@ -2246,6 +2246,34 @@ async function main(): Promise<void> {
       report.claims = { passes: clPasses, stability, summary: s }
     } else {
       report.claims = { summary: s, runs: clPasses[0].runs }
+    }
+  }
+
+  if (want.includes('live')) {
+    // v4.1 (M5): the live world — weather, scores, futures — from dated
+    // loopback pages. The 4.1 gate: answered from a fetched page on >= 90%,
+    // zero ledger answers.
+    console.log('live: questions about today, answered from dated fixture pages')
+    const { runLiveSuite } = require('./evalSuites/live') as typeof import('./evalSuites/live')
+    const { summarizeLive } = require('../src/renderer/src/lib/liveEval') as typeof import('../src/renderer/src/lib/liveEval')
+    const { stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    const lvPasses: { runs: Awaited<ReturnType<typeof runLiveSuite>> }[] = []
+    for (let pass = 0; pass < passesWanted; pass++) {
+      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
+      lvPasses.push({ runs: await runLiveSuite(model, { repoRoot: REPO_ROOT, persona: PERSONA, slice, loadJson, complete }) })
+    }
+    const s = summarizeLive(lvPasses.flatMap((p) => p.runs))
+    console.log(
+      `\n  ran ${s.ran.hit}/${s.ran.of} · web tools on the wire ${s.webToolsOnWire.hit}/${s.webToolsOnWire.of} · searched ${s.searched.hit}/${s.searched.of} · read a page ${s.fetched.hit}/${s.fetched.of}\n` +
+        `  answered with the day asked ${s.answered.hit}/${s.answered.of} · the wrong day ${s.wrongDay.hit}/${s.wrongDay.of} · date right ${s.dateCorrect.hit}/${s.dateCorrect.of} · LEDGER ANSWERS ${s.ledgerAnswers.hit}/${s.ledgerAnswers.of}\n` +
+        `  passed every line ${s.pass.hit}/${s.pass.of} (${pct(s.pass)}; the 4.1 gate is 90% and no ledger answer) · ${s.seconds.toFixed(0)} s/case\n`
+    )
+    if (passesWanted > 1) {
+      const st = stabilityAcrossPasses(lvPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.error ? null : Boolean(r.score?.pass) }))))
+      console.log(`  passed across ${passesWanted} passes: [${st.perPass.join(', ')}] · stable-pass ${st.stablePass} · flaky ${st.flaky.length}${st.flaky.length ? ` (${st.flaky.join(', ')})` : ''}`)
+      report.live = { passes: lvPasses, stability: st, summary: s }
+    } else {
+      report.live = { summary: s, runs: lvPasses[0]!.runs }
     }
   }
 

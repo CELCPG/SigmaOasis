@@ -39,6 +39,14 @@ export interface SseUsage {
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
+  /** v4.1 (M3): the prompt-cache hit, where the server reports one (OpenAI's shape). */
+  prompt_tokens_details?: { cached_tokens?: number }
+}
+
+/** v4.1 (M3): prompt tokens served from the server's cache; undefined when it does not say. */
+export function cachedTokens(usage: SseUsage | null | undefined): number | undefined {
+  const n = usage?.prompt_tokens_details?.cached_tokens
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined
 }
 
 export interface SseToolCallFragment {

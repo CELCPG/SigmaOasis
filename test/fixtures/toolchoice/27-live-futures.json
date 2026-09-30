@@ -1,0 +1,1 @@
+{ "prompt": "how are s&p futures looking this morning?", "expect": { "tool": "web_search" }, "live": "futures" }

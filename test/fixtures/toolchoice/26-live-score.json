@@ -1,0 +1,1 @@
+{ "prompt": "who won the celtics game last night?", "expect": { "tool": "web_search" }, "live": "score" }

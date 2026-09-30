@@ -5,6 +5,7 @@ import { restoreCheckpoints } from './checkpoints'
 import { defaultShell, runCommand } from './command'
 import { DEFAULT_ROUND_MAX_TOKENS, runAgentTask } from './engine'
 import { fetchTransport } from './stream'
+import { fmtMs, median, summarizeLatency, timedTransport, type LatencySummary, type RoundLatency } from './latency'
 import type { AgentEvent, AgentExperiments, AgentHost, AgentStatus, ChunkTransport, PermissionMode, ShellSpec, ToolCallRecord } from './types'
 
 /**
@@ -26,7 +27,9 @@ import type { AgentEvent, AgentExperiments, AgentHost, AgentStatus, ChunkTranspo
  *   - collateral   files changed outside the ones the case allows;
  *   - undo         the shared Undo (./checkpoints.ts) leaves the folder byte for
  *                  byte as it began;
- *   - cost         rounds, tool calls, wall time, tokens, elisions.
+ *   - cost         rounds, tool calls, wall time, tokens, elisions;
+ *   - latency      v4.1 (M3): per round, TTFT, prefill, prompt and cached
+ *                  tokens, decode tok/s — timed at the transport (./latency.ts).
  *
  * Plain Node, no Electron, like the engine. The runner is scripts/eval-agent.ts;
  * the scoring is pinned by test/agentEval.test.ts, including a whole pass
@@ -340,6 +343,10 @@ export interface CaseRun {
   elisions: number
   elidedResults: number
   finalText: string
+  /** v4.1 (M3): one entry per request the run sent, helpers' included, in order. */
+  latency?: RoundLatency[]
+  /** v4.1 (M3): median and max over this run's completed rounds. */
+  latencySummary?: LatencySummary
 }
 
 export interface RunOptions {
@@ -357,6 +364,8 @@ export interface RunOptions {
   now?: Date
   /** v4.1 (M1): experiments on for every case, over the kind's own — the A/B arm of a run. */
   experiments?: Partial<AgentExperiments>
+  /** v4.1 (M3): the clock rounds are timed by; the tests drive their own. */
+  clock?: () => number
 }
 
 /** One pass of one case, start to finish. Never throws for a failing run; throws only if the harness itself cannot work. */
@@ -377,8 +386,10 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
   let longestRound = 0
   let elisions = 0
   let elidedResults = 0
+  // v4.1 (M3): timed at the transport, so the engine is measured as it ships.
+  const latency: RoundLatency[] = []
   const host: AgentHost = {
-    transport: o.transport ?? fetchTransport,
+    transport: timedTransport(o.transport ?? fetchTransport, (r) => latency.push(r), o.clock),
     shell,
     emit: (e) => {
       if (e.type === 'round') rounds = e.round
@@ -464,6 +475,7 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
 
   if (!o.keep) await fs.rm(scratch, { recursive: true, force: true }).catch(() => undefined)
   const excluded = serverFailure(result.status, result.detail)
+  const latencySummary = summarizeLatency(latency)
   return {
     case: c.id,
     kind: c.kind,
@@ -491,8 +503,30 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
     longestRound,
     elisions,
     elidedResults,
-    finalText: result.finalText.length > 4_000 ? `${result.finalText.slice(0, 4_000)}…` : result.finalText
+    finalText: result.finalText.length > 4_000 ? `${result.finalText.slice(0, 4_000)}…` : result.finalText,
+    latency,
+    ...(latencySummary ? { latencySummary } : {})
   }
+}
+
+// ---- the results file ------------------------------------------------------
+
+/** What `eval:agent` writes to .eval-results/, and what baselines/ and `eval:diff` read. */
+export interface AgentResultsFile {
+  suite: 'agent'
+  model: string
+  experiments: Partial<AgentExperiments>
+  baseUrl: string
+  shell: string
+  startedAt: string
+  passes: number
+  cases: string[]
+  runs: CaseRun[][]
+}
+
+/** v4.1 (M6): built in one place, so the offline replay gate writes the runner's schema, not a copy of it. */
+export function agentResultsFile(o: Omit<AgentResultsFile, 'suite'>): AgentResultsFile {
+  return { suite: 'agent', model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs }
 }
 
 // ---- many passes -----------------------------------------------------------
@@ -525,13 +559,12 @@ export interface ModelSummary {
   roundsMedian: number
   /** The longest single round in any scored run, and its case; null when no run reported usage. */
   longestRound: { tokens: number; case: string } | null
-}
-
-function median(xs: number[]): number {
-  if (xs.length === 0) return 0
-  const s = [...xs].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2
+  /**
+   * v4.1 (M3): over every completed round of the scored runs whose time
+   * counts (a run the GPU's counter moved in is left out, as for wall time);
+   * null when no round was timed — a results file from before 4.1.
+   */
+  latency: LatencySummary | null
 }
 
 /** Fold every pass of one model into the numbers the report prints. Runs carry their pass order by position. */
@@ -568,7 +601,8 @@ export function summarize(model: string, runsByPass: CaseRun[][]): ModelSummary 
     excluded: all.length - runs.length,
     msPerSolvedMedian: solvedMs.length > 0 ? median(solvedMs) : null,
     roundsMedian: median(runs.map((r) => r.rounds)),
-    longestRound: longest ? { tokens: longest.longestRound, case: longest.case } : null
+    longestRound: longest ? { tokens: longest.longestRound, case: longest.case } : null,
+    latency: summarizeLatency(runs.filter((r) => !r.machine).flatMap((r) => r.latency ?? []))
   }
 }
 
@@ -585,17 +619,20 @@ export function describeRun(r: CaseRun): string {
     r.declined.length > 0 ? `${r.declined.length} command${r.declined.length === 1 ? '' : 's'} declined` : '',
     r.elisions > 0 ? `${r.elidedResults} result${r.elidedResults === 1 ? '' : 's'} elided` : ''
   ].filter(Boolean)
-  return `${verdict} · ${r.end} · ${r.rounds} rounds, ${r.toolCalls} calls · ${mmss(r.ms)}${flags.length ? ` · ${flags.join(' · ')}` : ''}`
+  const l = r.latencySummary
+  const timing = l ? ` · TTFT ${fmtMs(l.ttftMedianMs)} median, ${fmtMs(l.ttftMaxMs)} max${l.decodeTokPerSecMedian !== null ? ` · ${l.decodeTokPerSecMedian} tok/s` : ''}` : ''
+  return `${verdict} · ${r.end} · ${r.rounds} rounds, ${r.toolCalls} calls · ${mmss(r.ms)}${timing}${flags.length ? ` · ${flags.join(' · ')}` : ''}`
 }
 
 /** The report's table: one row per model, then the per-case stability. */
 export function formatSummary(summaries: readonly ModelSummary[]): string {
   const lines: string[] = []
-  lines.push('| model | solved (median of passes) | per pass | false claims | collateral | undo left files | median time, solved | median rounds | excluded |')
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+  lines.push('| model | solved (median of passes) | per pass | false claims | collateral | undo left files | median time, solved | median rounds | TTFT median · max | decode tok/s | excluded |')
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
   for (const s of summaries) {
+    const l = s.latency
     lines.push(
-      `| ${s.model} | **${s.solvedMedian}/${s.of}** | [${s.solvedPerPass.join(', ')}] | ${s.falseClaims}/${s.runs} | ${s.collateralRuns}/${s.runs} | ${s.undoDirty}/${s.runs} | ${s.msPerSolvedMedian === null ? '—' : mmss(s.msPerSolvedMedian)} | ${s.roundsMedian} | ${s.excluded} |`
+      `| ${s.model} | **${s.solvedMedian}/${s.of}** | [${s.solvedPerPass.join(', ')}] | ${s.falseClaims}/${s.runs} | ${s.collateralRuns}/${s.runs} | ${s.undoDirty}/${s.runs} | ${s.msPerSolvedMedian === null ? '—' : mmss(s.msPerSolvedMedian)} | ${s.roundsMedian} | ${l ? `${fmtMs(l.ttftMedianMs)} · ${fmtMs(l.ttftMaxMs)}` : '—'} | ${l?.decodeTokPerSecMedian ?? '—'} | ${s.excluded} |`
     )
   }
   for (const s of summaries) {
@@ -611,6 +648,13 @@ export function formatSummary(summaries: readonly ModelSummary[]): string {
     if (s.longestRound) {
       lines.push(
         `  longest round: ${s.longestRound.tokens.toLocaleString('en-US')} completion tokens (${s.longestRound.case}); the cap is ${DEFAULT_ROUND_MAX_TOKENS.toLocaleString('en-US')}`
+      )
+    }
+    if (s.latency) {
+      const l = s.latency
+      lines.push(
+        `  latency over ${l.rounds} rounds: prefill ${fmtMs(l.prefillMedianMs)} median, ${fmtMs(l.prefillMaxMs)} max (${l.prefillFrom === 'server' ? "the server's figure" : 'TTFT; the server reports no prefill of its own'})` +
+          ` · largest prompt ${l.promptTokensMax?.toLocaleString('en-US') ?? '—'} tokens · cached ${l.cachedShare === null ? 'not reported by the server' : `${Math.round(l.cachedShare * 100)}% of prompt tokens`}`
       )
     }
   }

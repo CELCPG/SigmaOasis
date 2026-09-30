@@ -1,0 +1,60 @@
+{
+  "_": "v4.1 (M6): written by test/replayGate.test.ts. If the change is deliberate, re-record with `UPDATE_REPLAY_SNAPSHOTS=1 npm run test:replay` and commit the snapshot with the change — its diff is what review reads.",
+  "agent, acceptEdits": {
+    "sha256": "9a1836994b0c2f079697dffb500e3fb02e984e8331e021f7ed2ab563096ddfc4",
+    "tools": {
+      "list_directory": "a7fc8c47b84f",
+      "glob": "04b6234705e5",
+      "grep": "d06bea984e40",
+      "read_file": "d337f3e9aa99",
+      "edit_file": "5e52e73ea96a",
+      "write_file": "1775095f15fc",
+      "run_command": "5130fb7ff1dc",
+      "todo_write": "a93d5969b1f1",
+      "task": "cff9633e0e1f"
+    }
+  },
+  "agent, readOnly": {
+    "sha256": "81b97c71d6243e1131c99486b8e1579793cc355682bade077a71d90e6da24d3f",
+    "tools": {
+      "list_directory": "a7fc8c47b84f",
+      "glob": "04b6234705e5",
+      "grep": "d06bea984e40",
+      "read_file": "d337f3e9aa99",
+      "todo_write": "a93d5969b1f1",
+      "task": "139b818d5d11"
+    }
+  },
+  "chat, with budget notes": {
+    "sha256": "a82a6e11236c5f7dfa4cda970875b8223c70275fe2be3f57b02a02042c65f733",
+    "tools": {
+      "read_file": "2ad73b92a2a3",
+      "write_file": "7410277771b1",
+      "propose_patch": "81c762490986",
+      "list_directory": "a2dee3ad7b1f",
+      "run_terminal_command": "49deabd83a46",
+      "web_search": "401cd739f7e4",
+      "image_search": "d2a9ea4ea3fd",
+      "fetch_webpage": "7265fc72b446",
+      "deep_research": "f06f4776cf18",
+      "finance_calculator": "9459a377b52f",
+      "geo_locate": "cc0534cbd227",
+      "date_calculator": "47dac8c94b4f",
+      "get_current_datetime": "6d1dc80d870c",
+      "create_note": "d62d79eedbad",
+      "list_notes": "f447ae3ede80",
+      "read_note": "47c45e1677ef",
+      "memory_save": "28d7b0bb4906",
+      "memory_search": "f7cf14fe3280",
+      "memory_forget": "f2d7dae73861",
+      "reference_lookup": "6500769951bd",
+      "run_code": "682de322e1e9",
+      "run_python": "fc609bea4650",
+      "analyze_file": "830b7809e9b1",
+      "shop_requirements": "1aa56f9413d6",
+      "shop_compare": "d75c1c3ff9e0",
+      "price_watch": "e21fe60bde58",
+      "market_data": "1e610a696197"
+    }
+  }
+}

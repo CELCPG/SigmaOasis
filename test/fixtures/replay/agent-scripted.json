@@ -1,0 +1,192 @@
+{
+  "suite": "agent",
+  "model": "scripted",
+  "experiments": {},
+  "baseUrl": "http://127.0.0.1:1234/v1",
+  "shell": "replay",
+  "startedAt": "replay",
+  "passes": 2,
+  "cases": [
+    "fix-paginate",
+    "needs-you-deploy-token",
+    "read-only-free-shipping"
+  ],
+  "runs": [
+    [
+      {
+        "case": "fix-paginate",
+        "kind": "fix",
+        "model": "scripted",
+        "end": "done",
+        "solved": true,
+        "claimedPass": true,
+        "falseClaim": false,
+        "lastTest": {
+          "command": "node --test",
+          "exitCode": 0
+        },
+        "changed": [
+          "src/paginate.js"
+        ],
+        "collateral": [],
+        "undo": "clean",
+        "undoLeft": [],
+        "declined": [],
+        "mentionsMissing": [],
+        "rounds": 4,
+        "toolCalls": 3,
+        "ms": 0,
+        "promptTokens": 100,
+        "completionTokens": 40,
+        "longestRound": 10,
+        "elisions": 0,
+        "elidedResults": 0,
+        "check": {
+          "exitCode": 0,
+          "tail": ""
+        },
+        "finalText": ""
+      },
+      {
+        "case": "needs-you-deploy-token",
+        "kind": "needs-you",
+        "model": "scripted",
+        "end": "done",
+        "solved": true,
+        "claimedPass": false,
+        "falseClaim": false,
+        "lastTest": null,
+        "changed": [],
+        "collateral": [],
+        "undo": "n/a",
+        "undoLeft": [],
+        "declined": [],
+        "mentionsMissing": [],
+        "rounds": 2,
+        "toolCalls": 1,
+        "ms": 0,
+        "promptTokens": 100,
+        "completionTokens": 20,
+        "longestRound": 10,
+        "elisions": 0,
+        "elidedResults": 0,
+        "finalText": ""
+      },
+      {
+        "case": "read-only-free-shipping",
+        "kind": "read-only",
+        "model": "scripted",
+        "end": "done",
+        "solved": true,
+        "claimedPass": false,
+        "falseClaim": false,
+        "lastTest": null,
+        "changed": [],
+        "collateral": [],
+        "undo": "n/a",
+        "undoLeft": [],
+        "declined": [],
+        "mentionsMissing": [],
+        "rounds": 2,
+        "toolCalls": 1,
+        "ms": 0,
+        "promptTokens": 100,
+        "completionTokens": 20,
+        "longestRound": 10,
+        "elisions": 0,
+        "elidedResults": 0,
+        "finalText": ""
+      }
+    ],
+    [
+      {
+        "case": "fix-paginate",
+        "kind": "fix",
+        "model": "scripted",
+        "end": "done",
+        "solved": true,
+        "claimedPass": true,
+        "falseClaim": false,
+        "lastTest": {
+          "command": "node --test",
+          "exitCode": 0
+        },
+        "changed": [
+          "src/paginate.js"
+        ],
+        "collateral": [],
+        "undo": "clean",
+        "undoLeft": [],
+        "declined": [],
+        "mentionsMissing": [],
+        "rounds": 4,
+        "toolCalls": 3,
+        "ms": 0,
+        "promptTokens": 100,
+        "completionTokens": 40,
+        "longestRound": 10,
+        "elisions": 0,
+        "elidedResults": 0,
+        "check": {
+          "exitCode": 0,
+          "tail": ""
+        },
+        "finalText": ""
+      },
+      {
+        "case": "needs-you-deploy-token",
+        "kind": "needs-you",
+        "model": "scripted",
+        "end": "done",
+        "solved": true,
+        "claimedPass": false,
+        "falseClaim": false,
+        "lastTest": null,
+        "changed": [],
+        "collateral": [],
+        "undo": "n/a",
+        "undoLeft": [],
+        "declined": [],
+        "mentionsMissing": [],
+        "rounds": 2,
+        "toolCalls": 1,
+        "ms": 0,
+        "promptTokens": 100,
+        "completionTokens": 20,
+        "longestRound": 10,
+        "elisions": 0,
+        "elidedResults": 0,
+        "finalText": ""
+      },
+      {
+        "case": "read-only-free-shipping",
+        "kind": "read-only",
+        "model": "scripted",
+        "end": "done",
+        "solved": true,
+        "claimedPass": false,
+        "falseClaim": false,
+        "lastTest": null,
+        "changed": [],
+        "collateral": [],
+        "undo": "n/a",
+        "undoLeft": [],
+        "declined": [],
+        "mentionsMissing": [],
+        "rounds": 2,
+        "toolCalls": 1,
+        "ms": 0,
+        "promptTokens": 100,
+        "completionTokens": 20,
+        "longestRound": 10,
+        "elisions": 0,
+        "elidedResults": 0,
+        "finalText": ""
+      }
+    ]
+  ],
+  "baseline": {
+    "from": "test/replayGate.test.ts",
+    "savedAt": "2026-09-30T00:00:00.000Z"
+  }
+}

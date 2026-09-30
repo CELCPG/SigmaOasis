@@ -1,0 +1,1 @@
+{ "prompt": "what's the weather in richmond va today?", "expect": { "tool": "web_search" }, "live": "weather" }

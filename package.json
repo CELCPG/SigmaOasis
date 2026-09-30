@@ -28,10 +28,13 @@
     "sigma": "node out/cli/sigma.js",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "bash scripts/test.sh",
+    "test:replay": "bash scripts/test.sh --only replayGate evalDiff latency",
     "eval:tools": "bash scripts/eval-tools.sh",
     "eval:agent": "bash scripts/eval-agent.sh",
+    "eval:diff": "bash scripts/eval-diff.sh",
     "bench:render": "bash scripts/render-bench.sh",
     "bench:main-loop": "bash scripts/main-loop-bench.sh",
+    "bench:latency": "bash scripts/bench-latency.sh",
     "export:traces": "bash scripts/export-traces.sh",
     "eval:answers": "bash scripts/eval-answers.sh"
   },
