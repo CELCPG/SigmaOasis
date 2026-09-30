@@ -45,7 +45,8 @@ const EXPERIMENTS: { key: keyof AgentExperiments; label: string; help: string }[
   { key: 'agentJobs', label: 'A read-only agent task as a job (C5)', help: 'Jobs gains a kind: a read-only task in a folder on a schedule — no edit, no command, no question — whose report lands in the digest conversation.' },
   { key: 'inbox', label: 'Files into an agent chat (C6)', help: 'Dropping files on an agent chat copies them into the folder’s .sigma/inbox/ and tells the model where they are.' },
   { key: 'commands', label: 'Slash commands (C7)', help: '.sigma/commands/<name>.md in the folder becomes /name in the composer and in sigma; $ARGUMENTS is what follows the name.' },
-  { key: 'mcpTools', label: 'MCP tools for the agent (C8)', help: 'MCP servers that are on join the agent’s tools under the server’s own approval mode, marked untrusted as the chat marks them.' }
+  { key: 'mcpTools', label: 'MCP tools for the agent (C8)', help: 'MCP servers that are on join the agent’s tools under the server’s own approval mode, marked untrusted as the chat marks them.' },
+  { key: 'toolsByPhase', label: 'Tools by phase (4.1, A5)', help: 'A shorter tool list for a small model: the edit tools join once something has been read, and document, chore and MCP tools once the task mentions them or the agent uses one. The list only grows, so the server’s prompt cache is rebuilt a few times a task at most.' }
 ]
 
 export interface AgentTabProps {

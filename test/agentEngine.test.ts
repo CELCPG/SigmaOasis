@@ -12,8 +12,9 @@ import { Toolbox, newTaskState, workspaceToolSchemas } from '../src/main/agent/t
 import { globToRegExp, resolveInside, WorkspaceError } from '../src/main/agent/workspace'
 import { dangerousCommandWarning } from '../src/shared/commandDanger'
 import { restoreCheckpoints } from '../src/main/agent/checkpoints'
+import { ToolPhase } from '../src/main/agent/toolPhase'
 import { sheetsToXlsx, xlsxToSheets } from '../src/main/agent/documents'
-import type { AgentEvent, AgentHost, ChunkTransport, EditReview, ShellSpec } from '../src/main/agent/types'
+import type { AgentEvent, AgentHost, ChunkTransport, EditReview, ShellSpec, ToolSchema } from '../src/main/agent/types'
 import type { ApiMessage } from '../src/renderer/src/lib/agentLoop'
 
 /**
@@ -1388,5 +1389,49 @@ describe('reads side by side (v4.1, A4)', () => {
     assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /a \+ b/, 'a file read in a batch counts as read for the edit')
     assert.match(String(requests[0]!.messages[0]!.content), /ask for them all in the same round: they run together/)
     assert.ok(CONCURRENT_TOOLS.has('read_file') && !CONCURRENT_TOOLS.has('web_search') && !CONCURRENT_TOOLS.has('edit_file'))
+  })
+})
+
+describe('tools by phase (v4.1, A5 — an experiment, off by default)', () => {
+  const schema = (name: string): ToolSchema => ({ type: 'function', function: { name, description: name, parameters: { type: 'object', properties: {} } } })
+  const ALL = ['list_directory', 'read_file', 'edit_file', 'multi_edit', 'write_file', 'run_command', 'read_document', 'write_document', 'move_file', 'todo_write', 'mcp__github__create_issue', 'web_search'].map(schema)
+  const names = (tools: ToolSchema[]) => tools.map((t) => t.function.name)
+
+  test('edit tools wait for a read; documents, chores and MCP tools wait to be named or used; the list only grows', () => {
+    const phase = new ToolPhase('Fix the failing test.')
+    assert.deepEqual(names(phase.offer(ALL)), ['list_directory', 'read_file', 'run_command', 'todo_write', 'web_search'])
+    phase.observe('read_file', { ok: false, error: 'no such file' })
+    assert.ok(!names(phase.offer(ALL)).includes('edit_file'), 'a failed read opens nothing')
+    phase.observe('read_file', { ok: true, output: 'x' })
+    assert.deepEqual(names(phase.offer(ALL)), ['list_directory', 'read_file', 'edit_file', 'multi_edit', 'write_file', 'run_command', 'todo_write', 'web_search'])
+    phase.observe('move_file', { ok: true, output: 'moved' })
+    assert.ok(names(phase.offer(ALL)).includes('move_file'), 'a tool the model used is offered from then on')
+    const docs = new ToolPhase('Summarise report.docx and rename it, then file a github issue.')
+    assert.deepEqual(names(docs.offer(ALL)).filter((n) => ['read_document', 'write_document', 'move_file', 'mcp__github__create_issue'].includes(n)), ['read_document', 'mcp__github__create_issue'], 'writes still wait for a read')
+    docs.observe('read_document', { ok: true, output: 'text' })
+    assert.ok(['write_document', 'move_file'].every((n) => names(docs.offer(ALL)).includes(n)))
+    const later = new ToolPhase('carry on', [{ role: 'assistant', content: null, tool_calls: [{ id: 'c', type: 'function', function: { name: 'grep', arguments: '{}' } }] }])
+    assert.ok(names(later.offer(ALL)).includes('edit_file'), 'an earlier turn’s read counts')
+  })
+
+  test('on, the first request offers no edit tool and the round after a read does; a call to a held-back tool still runs', async () => {
+    const { transport, requests } = scripted([
+      () => [call('w1', 'write_file', { path: 'notes.txt', content: 'hi\n' })],
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { toolsByPhase: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.ok(!requests[0]!.tools.includes('edit_file') && !requests[0]!.tools.includes('write_file'))
+    assert.ok(requests[0]!.tools.includes('read_file') && requests[0]!.tools.includes('run_command'))
+    assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'hi\n', 'held back is not forbidden')
+    assert.ok(requests[1]!.tools.includes('write_file'), 'used, so offered')
+    assert.ok(requests[2]!.tools.includes('edit_file'), 'after a read')
+  })
+
+  test('off, every tool rides every request as before', async () => {
+    const { transport, requests } = scripted([() => [text('ok')]])
+    await runAgentTask(spec(transport), host(transport).host)
+    assert.ok(['edit_file', 'multi_edit', 'write_file', 'read_spill'].every((n) => requests[0]!.tools.includes(n)))
   })
 })

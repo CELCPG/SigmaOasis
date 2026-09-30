@@ -181,6 +181,8 @@ export interface AgentExperiments {
   commands: boolean
   /** C8: MCP servers that are on join the agent's tools under their own approval. */
   mcpTools: boolean
+  /** v4.1 (A5): tools offered by phase — edit tools after a read; documents, chores and MCP tools when the task points at them. */
+  toolsByPhase: boolean
 }
 
 export const EXPERIMENT_KEYS: readonly (keyof AgentExperiments)[] = [
@@ -202,7 +204,8 @@ export const EXPERIMENT_KEYS: readonly (keyof AgentExperiments)[] = [
   'agentJobs',
   'inbox',
   'commands',
-  'mcpTools'
+  'mcpTools',
+  'toolsByPhase'
 ]
 
 export interface AgentTaskResult {

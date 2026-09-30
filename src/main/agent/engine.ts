@@ -8,6 +8,7 @@ import { defaultShell } from './command'
 import { fitContext, historyBudget, LOW_WATER } from './context'
 import { capResult, READ_SPILL_SCHEMA, readSpill, resultCapChars, SpillStore } from './spill'
 import { StuckDetector, type StuckState } from './stuck'
+import { ToolPhase } from './toolPhase'
 import { agentSystemPrompt, gitBranch, loadProjectNotes, subagentSystemPrompt, topLevel, type PromptEnv } from './prompts'
 import { streamRound } from './stream'
 import { skipThinking } from './phase'
@@ -337,6 +338,11 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
   let round = 0
   // v4.1 (A2): failures per tool and target, for this loop.
   const stuck = new StuckDetector()
+  // v4.1 (A5, an experiment): the tools advertised grow with the task — edit
+  // tools after a read, the rest when they are relevant (./toolPhase.ts).
+  // Built from this loop's history, so a verify or review round keeps what
+  // the task has already opened. Helpers get their own short lists already.
+  const phase = !isHelper && spec.experiments?.toolsByPhase ? new ToolPhase(spec.prompt, o.messages) : null
 
   const outcome = await runAgentLoop({
     messages: o.messages,
@@ -364,7 +370,10 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
     // A6: ask_user ends the round; the answer is the next turn.
     // v4.1 (A2): and five failures running at the same target stop the loop.
     pauseRequested: () => (!isHelper && Boolean(spec.experiments?.askUser) && run.question !== null) || stuck.stopped !== null,
-    afterCall: (name, args, result) => stuck.observe(name, args, result, (WRITING_TOOLS.has(name) && name !== 'run_command') || name === 'task'),
+    afterCall: (name, args, result) => {
+      phase?.observe(name, result)
+      return stuck.observe(name, args, result, (WRITING_TOOLS.has(name) && name !== 'run_command') || name === 'task')
+    },
     toolBudgets: AGENT_TOOL_BUDGETS,
     // v4.1 (A4): neighbouring reads in one round run together.
     concurrentTools: CONCURRENT_TOOLS,
@@ -400,7 +409,7 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
           baseUrl: spec.baseUrl,
           model: spec.model,
           messages,
-          tools,
+          tools: phase ? phase.offer(tools) : tools,
           sampling: { max_tokens: DEFAULT_ROUND_MAX_TOKENS, ...spec.sampling },
           signal: spec.signal,
           transport: host.transport,
