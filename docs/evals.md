@@ -7847,3 +7847,15 @@ Each run keeps its rounds (`latency`) and their median and max (`latencySummary`
 *TTFT median · max* and *decode tok/s*, and a line per model gives prefill, the largest prompt and
 the cached share. Helper rounds are timed too — they are requests the task waited on. A run the
 GPU's error counter moved in keeps its score and loses its time, here as for wall time.
+
+### Baselines, committed and diffed (M2)
+
+`baselines/` holds the results files a change is judged against, trimmed by
+`npm run eval:diff -- --save <run.json>` to the same schema minus report text and per-round timing.
+`npm run eval:diff -- <baseline.json> <run.json>` compares the cases both ran, as rates, and exits 1
+when a gated line got worse: for `eval:agent` the stable set's solved rate (the baseline's cases
+that did not flip between passes — its flaky cases are the noise floor, shown and not gated), false
+claims, collateral and a dirty Undo; for `eval:tools` the stable set's clean rate, spurious calls,
+loops and invalid arguments. Timing is printed, never gated. The rules are in
+`src/main/agent/evalDiff.ts` and pinned by `test/evalDiff.test.ts`; `baselines/README.md` has the
+format and when a baseline may be replaced.
