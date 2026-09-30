@@ -7,6 +7,7 @@ import { bm25, packs } from './state'
 import { MAX_LOOKUP_PASSAGES } from './types'
 import { RERANK_POOL, assistSettings, rerankPassages, stakesDomain } from './modelAssist'
 import type { RerankCandidate } from './modelAssist'
+import { hypotheticalAnswer } from './hyde'
 import type { LibChunk, LibraryPassage, LoadedDoc, LoadedPack, LookupOutcome } from './types'
 
 // v4.2 (L1): retrieval — the ZIM leg, keyword + semantic ranking fused by
@@ -184,9 +185,37 @@ export async function lookupLibrary(input: {
     }
   }
 
+  // v4.2 (L3): in the high-stakes domains, when the user turned it on, the
+  // semantic leg ranks by the question averaged with a hypothetical answer
+  // the model wrote (hyde.ts) — the answer's words reach the passage the
+  // question's miss. Only the ranking vector changes: BM25 and the relevance
+  // floor still read the question alone, and the answer text goes nowhere
+  // but the loopback embedder.
+  const ledgerOnly = packId !== null && packs.get(packId)?.manifest.kind === 'app'
+  const assist = ledgerOnly || !stakesDomain(query) ? { rerank: false, hyde: false } : assistSettings()
+  let expanded = false
+  let rankVector = queryVector
+  if (queryVector && assist.hyde) {
+    const hypothesis = await hypotheticalAnswer(query, input.modelId)
+    if (hypothesis) {
+      try {
+        const { vectors } = await embedTexts([hypothesis])
+        const hv = toUnitVector(vectors[0])
+        if (hv.length === queryVector.length) {
+          const sum = new Float32Array(hv.length)
+          for (let i = 0; i < hv.length; i++) sum[i] = queryVector[i] + hv[i]
+          rankVector = toUnitVector(Array.from(sum))
+          expanded = true
+        }
+      } catch {
+        // The question's own vector stands.
+      }
+    }
+  }
+
   let relevance: Map<string, number>
   if (queryVector) {
-    const qv = queryVector
+    const qv = rankVector!
     const semanticRanked = withVectors
       .map((c) => ({ id: c.id, score: unitDot(qv, c.vector!) }))
       .sort((a, b) => b.score - a.score)
@@ -248,8 +277,7 @@ export async function lookupLibrary(input: {
   // 0.5) so MMR and the final sort keep the model's order. The app's own
   // ledger pack is never re-ranked: its lookups are internal, not a reply's.
   let rerank: LookupOutcome['rerank']
-  const ledgerOnly = packId !== null && packs.get(packId)?.manifest.kind === 'app'
-  if (!ledgerOnly && assistSettings().rerank && stakesDomain(query)) {
+  if (assist.rerank) {
     const seen = new Set<string>()
     const pool: RerankCandidate[] = []
     for (const { id } of candidates) {
@@ -344,5 +372,5 @@ export async function lookupLibrary(input: {
     // reading order is recoverable per document by the reader.
     .sort((a, b) => b.score - a.score)
 
-  return { ok: true, passages, mode: queryVector ? 'hybrid' : 'keyword', notes, ...(rerank ? { rerank } : {}) }
+  return { ok: true, passages, mode: queryVector ? 'hybrid' : 'keyword', notes, ...(rerank ? { rerank } : {}), ...(expanded ? { expanded } : {}) }
 }

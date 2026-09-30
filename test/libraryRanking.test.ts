@@ -6,14 +6,15 @@ import { join } from 'path'
 import { load, resetState, state } from './harness'
 
 /**
- * v4.2: library ranking — the model re-rank (L2) for the high-stakes
- * domains. Scripted completions and the harness's fake loopback embedder
+ * v4.2: library ranking — the model re-rank (L2) and the hypothetical-answer
+ * expansion (L3) for the high-stakes domains. Scripted completions and the harness's fake loopback embedder
  * only; nothing here reaches a real model.
  */
 
 const lib = load<typeof import('../src/main/ipc/library')>('library')
 const assist = load<typeof import('../src/main/ipc/library/modelAssist')>('library/modelAssist')
 const handlers = load<typeof import('../src/main/ipc/toolHandlers/library')>('toolHandlers/library')
+const hyde = load<typeof import('../src/main/ipc/library/hyde')>('library/hyde')
 
 const root = mkdtempSync(join(tmpdir(), 'sigma-library-ranking-'))
 let counter = 0
@@ -70,6 +71,7 @@ const rerankOn = (): void => {
 
 beforeEach(() => {
   resetState()
+  hyde.clearHydeCacheForTests()
   rmSync(join(root, 'lib'), { recursive: true, force: true })
   lib.setLibraryDirForTests(join(root, 'lib'))
 })
@@ -205,5 +207,111 @@ describe('the deadline (v4.2 L2)', () => {
   test('a call that throws is a null, not a throw', async () => {
     assert.equal(await assist.withDeadline(async () => { throw new Error('boom') }, 1_000), null)
     assert.equal(await assist.withDeadline(async () => 'ok', 1_000), 'ok')
+  })
+})
+
+/**
+ * The harness embedder folds a fixed vocabulary (car, doctor, salary …) onto
+ * dimensions. "Fever in the car" says *fever* four times — BM25's favourite —
+ * and lives on the car dimension; the answer ("see a doctor") says fever once
+ * and lives on the doctor dimension; the question has neither. Only an
+ * expansion that mentions a doctor can reach it.
+ */
+const FEVER = `# Fevers
+
+## Fever in the car
+
+Never leave a child with a fever in a parked car: a fever climbs fast in a closed vehicle. Treat such a fever
+by opening the windows, and a fever that follows by cooling the child.
+
+## When to get help
+
+If a fever lasts more than three days, see a doctor; a physician or clinician can look for an infection, and a
+doctor can prescribe.
+
+## Clinics
+
+A clinician or doctor at a walk-in clinic sees patients without an appointment.
+
+## Sunburn
+
+Cool sunburnt skin with a damp cloth and keep out of the sun.
+`
+
+const FEVER_Q = 'what should I do about a fever'
+const HYPOTHESIS = 'Rest and drink fluids, and see a doctor or physician if the fever lasts more than three days.'
+
+async function embeddedFeverPack(): Promise<void> {
+  await lib.installPackFromDirectory(writePack('health', [{ id: 'fevers', title: 'Fevers', text: FEVER }]))
+  const job = await lib.embedPack('health')
+  assert.equal(job.ok, true, job.error)
+}
+
+const hydeOn = (): void => {
+  state.settings = { ...state.settings, grounding: { libraryHyde: true } }
+}
+
+describe('the hypothetical-answer expansion (v4.2 L3)', () => {
+  test('without it the wrong section leads; with it the answering section does', async () => {
+    await embeddedFeverPack()
+    const plain = await lib.lookupLibrary({ query: FEVER_Q, topK: 2 })
+    assert.equal(plain.mode, 'hybrid')
+    assert.equal(plain.passages[0].section, 'Fever in the car', 'the fixture must fail without the expansion')
+    assert.equal(state.completionPrompts.length, 0, 'off by default: no model call')
+
+    hydeOn()
+    state.completions = [HYPOTHESIS]
+    const out = await lib.lookupLibrary({ query: FEVER_Q, topK: 2, modelId: 'answer-model' })
+    assert.equal(out.expanded, true)
+    assert.equal(out.passages[0].section, 'When to get help')
+    assert.match(state.completionPrompts[0], /what should I do about a fever/)
+    const body = state.completionBodies[0] as Record<string, unknown>
+    assert.equal(body.model, 'answer-model')
+    assert.equal(body.max_tokens, 120)
+    assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false })
+  })
+
+  test('the expansion is embedding-side only: it reaches no URL, no passage, no note and not the formatted text', async () => {
+    await embeddedFeverPack()
+    hydeOn()
+    state.fetchLog = []
+    state.completions = [HYPOTHESIS]
+    const out = await lib.lookupLibrary({ query: FEVER_Q, topK: 3 })
+    assert.equal(out.expanded, true)
+    const formatted = lib.formatLookup(out, FEVER_Q)
+    for (const text of [formatted, JSON.stringify(out), ...state.fetchLog.map((f) => f.url)]) {
+      assert.ok(!text.includes('fluids'), 'the hypothetical answer leaked')
+    }
+    assert.ok(state.fetchLog.every((f) => f.purpose === 'lmstudio'), 'nothing but the local model server is contacted')
+  })
+
+  test('cached per question: a second lookup of the same question makes no second call', async () => {
+    await embeddedFeverPack()
+    hydeOn()
+    state.completions = [HYPOTHESIS, HYPOTHESIS]
+    await lib.lookupLibrary({ query: FEVER_Q, topK: 2 })
+    const again = await lib.lookupLibrary({ query: '  What should I do about a FEVER ', topK: 2 })
+    assert.equal(again.expanded, true)
+    assert.equal(state.completionPrompts.length, 1)
+  })
+
+  test('no vectors, no expansion: a keyword-only library never pays for one', async () => {
+    await lib.installPackFromDirectory(writePack('health', [{ id: 'fevers', title: 'Fevers', text: FEVER }]))
+    hydeOn()
+    state.completions = [HYPOTHESIS]
+    const out = await lib.lookupLibrary({ query: FEVER_Q, topK: 2 })
+    assert.equal(out.mode, 'keyword')
+    assert.equal(out.expanded, undefined)
+    assert.equal(state.completionPrompts.length, 0)
+  })
+
+  test('a failed expansion leaves the lookup exactly as it would have been', async () => {
+    await embeddedFeverPack()
+    const plain = await lib.lookupLibrary({ query: FEVER_Q, topK: 2 })
+    hydeOn()
+    state.failCompletions = true
+    const out = await lib.lookupLibrary({ query: FEVER_Q, topK: 2 })
+    assert.equal(out.expanded, undefined)
+    assert.deepEqual(out.passages, plain.passages)
   })
 })

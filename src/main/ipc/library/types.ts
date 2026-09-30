@@ -133,6 +133,8 @@ export interface LookupOutcome {
    * nothing usable). Absent when no re-rank was attempted.
    */
   rerank?: 'applied' | 'fallback'
+  /** v4.2 (L3): the semantic leg ranked by the question plus a hypothetical answer. */
+  expanded?: boolean
 }
 
 export interface PackSummary {

@@ -44,3 +44,33 @@ allergic reaction", chlorination for a boiling question — ranks first and is q
 measured on the reference models; the deadline caps the wait at 4 seconds whatever the model
 does. On a server with one slot the call also queues behind anything else the model is doing.
 That wait — on every health, first-aid, finance and building turn — is why it ships off.
+
+## Query expansion with a hypothetical answer (v4.2, L3) — off by default
+
+*Settings → Grounding & checks → Before the reply → Expand library questions with a sample answer.*
+
+"How do I make flood water safe to drink" never says *boil*, so neither BM25 nor the question's
+own embedding reaches the "Boiling" section. A short answer written by the model does say it —
+right or wrong in its details, it is written in the vocabulary of the passage that answers.
+
+- **When:** the same high-stakes domains and the same ledger exclusion as the re-rank, and only
+  when the semantic leg runs (the library has vectors for the loaded embedding model). A
+  keyword-only library never pays for it.
+- **What:** the answering model writes two or three sentences answering the question (thinking
+  closed, temperature 0, `max_tokens` 120, 1,200 characters kept). That text is embedded and
+  averaged with the question's vector, and the semantic leg ranks by the average. The outcome
+  says `expanded: true`.
+- **Where the text goes:** to the loopback embedder, nowhere else. It is not added to the BM25
+  query, the relevance floor still judges the question alone, and it never appears in the
+  passages, notes or citations the model is handed. The library has no network leg, so it
+  cannot reach a search provider; `test/libraryRanking.test.ts` pins all of that.
+- **Cache:** per (model, question), trimmed and case-folded, 64 questions, in-flight calls
+  shared — when the app's prefetch and the model's own `reference_lookup` ask the same question, they pay
+  once. A failed expansion is remembered for a minute, then retried.
+- **Fallback:** failure or the 4-second deadline leaves the question's own vector in place.
+
+**Cost.** One extra call per new high-stakes question: a prompt of a few dozen tokens and at
+most 120 output tokens, plus one extra embedding. Decode-bound, so on the reference models it
+should land well inside the deadline, but it has not been measured; the deadline caps it at
+4 seconds. With both switches on, the expansion runs first and the re-rank after it — up to
+8 seconds before the reply starts in the worst case.

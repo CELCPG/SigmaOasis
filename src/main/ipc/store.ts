@@ -239,6 +239,13 @@ export interface GroundingSettings {
    */
   libraryRerank: boolean
   /**
+   * v4.2 (L3): in those same domains, the semantic leg of a library lookup
+   * ranks by the question plus a short hypothetical answer the model writes
+   * (embedded locally, never sent anywhere else). Ships off: one extra
+   * capped call per new high-stakes question (cached per question).
+   */
+  libraryHyde: boolean
+  /**
    * v1.9: the conversation ledger — a mechanical record of computed facts,
    * attached files, session state and the user's stated constraints, built
    * from tool results and the user's own words (never earlier replies) and
@@ -576,7 +583,7 @@ export function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false, sourceCheck: false, libraryRerank: false },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false, sourceCheck: false, libraryRerank: false, libraryHyde: false },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -853,7 +860,9 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       // v4.1 (G4): off until measured, like outline.
       sourceCheck: settings.grounding?.sourceCheck === true,
       // v4.2 (L2): off — a model call per high-stakes lookup.
-      libraryRerank: settings.grounding?.libraryRerank === true
+      libraryRerank: settings.grounding?.libraryRerank === true,
+      // v4.2 (L3): off — a model call per new high-stakes question.
+      libraryHyde: settings.grounding?.libraryHyde === true
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

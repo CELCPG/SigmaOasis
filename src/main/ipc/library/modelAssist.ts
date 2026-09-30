@@ -4,7 +4,8 @@ import { referenceDomains } from '../../../renderer/src/lib/grounding'
 
 /**
  * v4.2 (L2): a ranking aid that asks the answering model, for the domains
- * where a wrong passage is expensive.
+ * where a wrong passage is expensive. (L3's query expansion, hyde.ts, shares
+ * the domain gate, the settings read and the deadline below.)
  *
  * The library eval's stable failure (STRATEGY-capability-multipliers.md §B2)
  * is a retrieval one: the dedicated "Boiling" section ranked below flood
@@ -35,9 +36,9 @@ export function stakesDomain(query: string): string | null {
  * Settings read defensively: a store written before v4.2 has neither key,
  * and the switches default off.
  */
-export function assistSettings(): { rerank: boolean } {
-  const g = (getSettings() as { grounding?: { libraryRerank?: unknown } }).grounding
-  return { rerank: g?.libraryRerank === true }
+export function assistSettings(): { rerank: boolean; hyde: boolean } {
+  const g = (getSettings() as { grounding?: { libraryRerank?: unknown; libraryHyde?: unknown } }).grounding
+  return { rerank: g?.libraryRerank === true, hyde: g?.libraryHyde === true }
 }
 
 /**
