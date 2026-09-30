@@ -167,11 +167,13 @@ function TextStep({ text, answer }: { text: string; answer: boolean }): JSX.Elem
 function ToolStep({ record, records, pending }: { record: ToolCallRecord; records: ToolCallRecord[]; pending: boolean }): JSX.Element {
   const [open, setOpen] = useState(false)
   const { icon, text } = describeStep(record)
-  const isEdit = record.name === 'edit_file' || record.name === 'write_file'
+  const isEdit = record.name === 'edit_file' || record.name === 'multi_edit' || record.name === 'write_file'
   const children = record.name === 'task' ? records.filter((r) => r.parentCallId === record.id) : []
   const mark = record.status === 'running' ? '…' : record.status === 'done' ? '' : '✗'
-  // A change waiting for the reader is open, whatever the row's own state.
-  if (pending && isEdit) {
+  // A change waiting for the reader is open, whatever the row's own state —
+  // and whatever tool proposed it (v4.1: multi_edit; a document or a chore
+  // waiting in Ask first had no Apply to press).
+  if (pending) {
     return (
       <li className="my-1">
         <PatchBlock record={record} />

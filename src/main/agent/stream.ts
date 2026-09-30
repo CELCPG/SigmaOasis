@@ -18,6 +18,8 @@ import type { ChunkTransport, ToolSchema } from './types'
  *   `<think>` tags by the same splitter the chat uses;
  * - Gemma 4's native tool-call markup lifted out of the text and run as a
  *   real call, as the chat does.
+ * - v4.1 (A1): the Hermes `<tool_call>` form too, and a text-form call that
+ *   could not be parsed reported in `malformedCalls`, so the loop can say so.
  */
 
 export interface StreamRoundOptions {
@@ -42,6 +44,8 @@ export interface StreamRoundResult {
   usage: SseUsage | null
   /** The reply hit its token budget. */
   truncated: boolean
+  /** v4.1 (A1): tool calls written as text that opened and could not be parsed — the start of each. */
+  malformedCalls: string[]
 }
 
 /**
@@ -67,6 +71,7 @@ export async function streamRound(o: StreamRoundOptions): Promise<StreamRoundRes
   const splitter = createReasoningSplitter()
   const nativeTools = createNativeToolExtractor(o.tools.map((t) => t.function.name))
   const nativeCalls: NativeToolCall[] = []
+  const malformedCalls: string[] = []
   const decoder = new TextDecoder()
   let content = ''
   let reasoning = ''
@@ -83,6 +88,7 @@ export async function streamRound(o: StreamRoundOptions): Promise<StreamRoundRes
       o.onContent?.(out.text)
     }
     nativeCalls.push(...out.calls)
+    if (out.dropped) malformedCalls.push(...out.dropped)
   }
   const emit = (delta: { answer: string; reasoning: string }): void => {
     emitText(delta.answer)
@@ -133,6 +139,7 @@ export async function streamRound(o: StreamRoundOptions): Promise<StreamRoundRes
     o.onContent?.(tail.text)
   }
   nativeCalls.push(...tail.calls)
+  if (tail.dropped) malformedCalls.push(...tail.dropped)
 
   const { calls: assembled, droppedAsTruncated } = assembler.finish(finishReason)
   if (droppedAsTruncated > 0) truncated = true
@@ -144,7 +151,7 @@ export async function streamRound(o: StreamRoundOptions): Promise<StreamRoundRes
       function: { name: call.name, arguments: call.arguments }
     })
   }
-  return { content, reasoning, toolCalls, usage, truncated }
+  return { content, reasoning, toolCalls, usage, truncated, malformedCalls }
 }
 
 /**

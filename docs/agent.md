@@ -37,15 +37,20 @@ to propose it again, and to adapt or ask.
 | `list_directory`, `glob`, `grep` | Find: a folder's contents, files by pattern (`*.ts` matches names at any depth, `src/**/*.test.ts` a path), lines by regular expression (`path:line: text`). Dependency trees, build output and `.git` are skipped. |
 | `read_file` | Read with line numbers, 400 lines at a time, with `offset`/`limit` for the rest. Binary files are refused by name. |
 | `edit_file` | Exact search-and-replace; must match once (or `replace_all`). The file must have been read in this task first. |
+| `multi_edit` (4.1) | Several `edit_file` changes to one file in one call, applied in order, each to the text the one before left. All land or none do: one diff to review, one checkpoint, and a failed edit names which one and leaves the file untouched. |
 | `write_file` | A new file, or a whole-file rewrite of one already read. |
 | `run_command` | A shell command in the folder — a login shell on macOS/Linux, Git Bash on Windows when installed (cmd.exe otherwise). Output keeps its start and its end; a time limit (Settings → Agent) stops the whole process tree. |
 | `todo_write` | The checklist you see above the steps. |
+| `read_spill` (4.1) | The middle of a result that was cut to fit (below), a window at a time, by the id the cut named. |
 | `task` | Hand a focused job to a **helper**: *explore* (read-only investigation), *review* (a read-only second look at changes), *general* (a self-contained sub-task that may edit). A helper starts with an empty context and returns one report, so a broad search does not fill the agent's own window. Helpers cannot start helpers. |
 | the app's own tools | Web search and page reading, deep research, the reference library, memory search, dates and the Python sandbox — each only when enabled under Settings → Tools, and only if *Let the agent use the app's own tools* is on under Settings → Agent. |
 
-**Edit matching forgives three things and guesses none.** An exact match is tried first. Then:
+**Edit matching forgives four things and guesses none.** An exact match is tried first. Then:
 LF text against a CRLF file (the edit lands in the file's own line endings), `read_file` line
-numbers pasted into the search, and trailing spaces — each only when it finds exactly one place.
+numbers pasted into the search, trailing spaces, and (4.1) a wrong margin — a block quoted at the
+wrong depth is found with leading whitespace ignored, and the new text is moved by the same shift,
+so a Python block lands at the depth it replaces. Each only when it finds exactly one place; the
+margin only when one shift explains every line (tabs against spaces is not a shift).
 An ambiguous search is an error with the count; a miss names the closest line. Measured as the
 common failure of small models' edits, and pinned in `test/agentEngine.test.ts`.
 
@@ -58,7 +63,7 @@ instead, so a project already set up for another agent works unchanged.
 
 ## Experiments (v4.0) — off until measured
 
-Settings → Agent → *Experiments* lists eleven switches, each off. Every one changes how the
+Settings → Agent → *Experiments* lists twenty switches, each off. Every one changes how the
 agent works in a way that ought to help a small model, and not one has been measured against
 `eval:agent`'s baseline on a sound machine — so none is on by default and none is described
 anywhere as an improvement. They are here so the measurement can happen with the shipped build,
@@ -86,6 +91,7 @@ same settings.
 | Files into an agent chat (C6) | Dropping files on an agent chat copies them into the folder's `.sigma/inbox/` (never overwriting; a numbered suffix on a clash) and puts a line in the composer naming where they landed. |
 | Slash commands (C7) | `.sigma/commands/<name>.md` in the folder, and the app's own `commands/` folder, become `/name` in the composer and in `sigma`; `$ARGUMENTS` is what followed the name. A folder's command wins a name. |
 | MCP tools for the agent (C8) | MCP servers that are on join the agent's tools under the server's own approval mode and per-tool switches, exactly as in a chat. |
+| Tools by phase (4.1, A5) | A shorter list on the wire: the edit tools join once a read has succeeded; document tools when the task names a document, chore tools when it speaks of moving, renaming or deleting, an MCP tool when it names the server or the tool — or once the model uses one. The list only grows (every change re-reads the prompt on a local server), and a call to a tool held back still runs: it is not advertised, not forbidden. |
 
 `.sigma/` is the folder's own: notes and hooks are yours to commit; `worktrees/` and the
 ignore file that hides it never show in `git status`.
@@ -98,6 +104,30 @@ ignore file that hides it never show in `git status`.
   tool output is replaced by a note naming the tool and saying how to fetch it again, the four most
   recent results are never touched, and only if that is not enough are whole early rounds dropped —
   never a call without its result. The turn says when this happened.
+- **No one result fills the window (4.1).** A tool result may take at most 15% of the history's
+  budget. A longer one keeps its head and its tail — what the output is, and how it ended — and the
+  middle goes to a store for the task, with a note in its place naming the `read_spill` call that
+  returns it (and, for a file, the `read_file` offset). The record on the turn keeps the whole.
+  When eliding old output is not enough, the recent results are cut harder the same way before any
+  round is dropped, and if even dropping rounds is not enough, every result but the last is set
+  aside; 4.0 sent the oversized request as it stood.
+- **Stuck (4.1).** Failures are counted per tool and target (the path, the command, the pattern).
+  At three in a row the failing result says so — re-read, change approach — and the next round
+  thinks; at five the task stops, paused, and says which wall it hit. A read between two failed
+  edits of a file does not reset the count; a success at the same target does, and a change that
+  lands resets the count of every command, because running the tests again after a fix is the
+  method.
+- **Reads side by side (4.1).** When one round asks for several reads in a row — `read_file`,
+  `grep`, `glob`, `list_directory`, `read_document`, `read_spill`, page reading, the library,
+  memory search, the date — they run together; results reach the model and the timeline in the
+  order they were asked for, and budgets and repeats are charged before anything is sent. An edit,
+  a command, a helper or a question runs alone, and `web_search` does too: its providers are
+  rate-limited. The prompt asks for independent reads in one round.
+- **Calls written as text (4.1).** A model whose server did not lift its call out of the text —
+  Gemma's markup, the `<call>` and JSON forms, and now the Hermes/Qwen
+  `<tool_call>{"name", "arguments"}</tool_call>` form and Qwen3-Coder's `<function=…>` — still has
+  it run. One that cannot be read is not run, and no longer dropped in silence: the model is told
+  which call did not run, twice a turn at most.
 - One round's generation is capped at 16K tokens when the slot sets no limit, so a model caught in
   a reasoning loop cannot think for an hour; at the cap the thinking-channel recovery takes over.
 - **Steering.** Type while a task works and the note is handed to the model at its next step; the

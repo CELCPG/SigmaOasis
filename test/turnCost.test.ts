@@ -541,8 +541,9 @@ describe('a limit on what starts, said as a limit on what starts', () => {
    */
   test('no further tool call is dispatched once the deadline has landed', () => {
     const loop = readSource(join(__dirname, '..', '..', 'src', 'renderer', 'src', 'lib', 'agentLoop.ts'))
-    const start = loop.indexOf('for (const tc of round.toolCalls)')
-    assert.ok(start > 0, 'the per-call loop not found')
+    // v4.1 (A4): each call is decided in makeReady, before anything is dispatched.
+    const start = loop.indexOf('const makeReady = ')
+    assert.ok(start > 0, 'the per-call decision not found')
     const body = loop.slice(start, loop.indexOf('deps.executeTool', start))
     assert.ok(
       /if \(signal\.aborted\)/.test(body),

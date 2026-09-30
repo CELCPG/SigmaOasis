@@ -675,6 +675,8 @@ export interface AgentExperiments {
   commands: boolean
   /** C8: MCP servers that are on join the agent's tools under their own approval. */
   mcpTools: boolean
+  /** v4.1 (A5): tools offered by phase — edit tools after a read; documents, chores and MCP tools when the task points at them. */
+  toolsByPhase: boolean
 }
 
 /** v3.0: the agent workspace (mirrors main/ipc/store.ts AgentSettings). */

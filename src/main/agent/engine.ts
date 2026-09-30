@@ -6,6 +6,9 @@ import {
 } from '../../renderer/src/lib/agentLoop'
 import { defaultShell } from './command'
 import { fitContext, historyBudget, LOW_WATER } from './context'
+import { capResult, READ_SPILL_SCHEMA, readSpill, resultCapChars, SpillStore } from './spill'
+import { StuckDetector, type StuckState } from './stuck'
+import { ToolPhase } from './toolPhase'
 import { agentSystemPrompt, gitBranch, loadProjectNotes, subagentSystemPrompt, topLevel, type PromptEnv } from './prompts'
 import { streamRound } from './stream'
 import { skipThinking } from './phase'
@@ -74,6 +77,28 @@ const AGENT_TOOL_BUDGETS: Record<string, number> = {
   deep_research: 2
 }
 
+/**
+ * v4.1 (A4): tools that only read, run side by side when one round asks for
+ * several of them — the workspace's finders and readers, and the app's own
+ * lookups. Kept short on purpose. `web_search` is not here: the no-key
+ * providers behind it are rate-limited and ask for low bursts (ipc/search.ts),
+ * so a round of four searches still goes one at a time. `browse` loads a page
+ * in a renderer and `deep_research` is a task of its own; neither is a read
+ * to run four of at once.
+ */
+export const CONCURRENT_TOOLS: ReadonlySet<string> = new Set([
+  'read_file',
+  'list_directory',
+  'glob',
+  'grep',
+  'read_document',
+  'read_spill',
+  'fetch_webpage',
+  'reference_lookup',
+  'memory_search',
+  'get_current_datetime'
+])
+
 function subagentTypes(permission: PermissionMode, hasWorkspace: boolean): SubagentType[] {
   if (!hasWorkspace) return ['general']
   return permission === 'readOnly' ? ['explore', 'review'] : ['explore', 'review', 'general']
@@ -96,6 +121,24 @@ interface RunContext {
   question: { question: string; choices: string[] } | null
   /** A4: a step was just marked completed; its output is set aside before the next round. */
   stepDone: boolean
+  /** v4.1 (A3): the cut middles of this task's results, read back with read_spill; helpers share it. */
+  spill: SpillStore
+  /** v4.1 (A2): set when the task stopped because it failed at the same thing five times running. */
+  stuck: StuckState | null
+}
+
+/**
+ * v4.1 (A3): when eliding old output is not enough, the recent results are
+ * cut to this share of the budget each before a round is dropped
+ * (./context.ts `fitContext`).
+ */
+const SQUEEZE_SHARE = 0.05
+
+/** v4.1 (A3): a result longer than `cap` keeps its head and tail; the middle is spilled, and the record keeps the whole. */
+function capToolResult(result: ToolResult, cap: number, spill: SpillStore): ToolResult {
+  const text = result.ok ? (result.output ?? '') : (result.error ?? '')
+  if (text.length <= cap) return result
+  return { ...result, [result.ok ? 'output' : 'error']: capResult(text, cap, spill), display: result.display ?? text }
 }
 
 /** Run one turn of a task. Never throws: a failure is a status with a reason. */
@@ -138,7 +181,9 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
     hooks,
     hookCount: 0,
     question: null,
-    stepDone: false
+    stepDone: false,
+    spill: new SpillStore(),
+    stuck: null
   }
 
   const toolbox = new Toolbox({
@@ -154,7 +199,7 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
   const types = subagentTypes(spec.permission, Boolean(root))
   // A6 (v4.0, an experiment): the task may ask the user and wait.
   const askUser = spec.experiments?.askUser ? [ASK_USER_SCHEMA] : []
-  const tools: ToolSchema[] = [...toolbox.schemas(), TODO_SCHEMA, taskSchema(types), ...askUser, ...(host.extraTools?.schemas ?? [])]
+  const tools: ToolSchema[] = [...toolbox.schemas(), TODO_SCHEMA, taskSchema(types), ...askUser, READ_SPILL_SCHEMA, ...(host.extraTools?.schemas ?? [])]
   const system = agentSystemPrompt({ ...run.env, tools: tools.map((t) => t.function.name) })
 
   // A later turn of the same conversation continues the same history, with a
@@ -224,6 +269,10 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
   if (stopReason === 'paused' && run.question) {
     const choices = run.question.choices.length > 0 ? ` (${run.question.choices.join(' / ')})` : ''
     detail = `The agent asks: ${run.question.question}${choices}`
+  } else if (stopReason === 'paused' && run.stuck) {
+    // v4.1 (A2): stopped on a wall, not at the round cap — say which wall.
+    const s = run.stuck
+    detail = `Stopped: ${s.count} failures in a row of ${s.name}${s.target ? ` on ${s.target}` : ''}${s.error ? ` — the last: ${s.error}` : ''}. Say how to go on, or “continue” to let it try again.`
   } else if (status === 'paused') {
     detail = `Paused after ${spec.maxRounds ?? DEFAULT_MAX_ROUNDS} rounds. Say “continue” to let it keep going.`
   }
@@ -272,6 +321,8 @@ interface LoopOptions {
   parentCallId: string | null
   onFinalText: (text: string) => void
   subagentTypes: SubagentType[]
+  /** v4.1 (A2): a helper that stopped stuck says so in its report. */
+  onStuck?: (s: StuckState) => void
 }
 
 async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReason> {
@@ -282,7 +333,16 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
   const started = new Set<string>()
   const toolChars = JSON.stringify(o.tools).length
   const budget = historyBudget(spec.contextTokens)
+  // v4.1 (A3): no one result may take more than a share of that budget.
+  const cap = resultCapChars(budget)
   let round = 0
+  // v4.1 (A2): failures per tool and target, for this loop.
+  const stuck = new StuckDetector()
+  // v4.1 (A5, an experiment): the tools advertised grow with the task — edit
+  // tools after a read, the rest when they are relevant (./toolPhase.ts).
+  // Built from this loop's history, so a verify or review round keeps what
+  // the task has already opened. Helpers get their own short lists already.
+  const phase = !isHelper && spec.experiments?.toolsByPhase ? new ToolPhase(spec.prompt, o.messages) : null
 
   const outcome = await runAgentLoop({
     messages: o.messages,
@@ -294,12 +354,29 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
     // read starts with the thinking block closed; the first round and a round
     // after a failed check think (./phase.ts). Helpers keep thinking: their
     // whole job is one investigation.
-    quickReplyFor: !isHelper && spec.experiments?.thinkByPhase && THINK_TAG_MODELS.test(spec.model) ? skipThinking : undefined,
+    // v4.1 (A2): and the round after a stuck warning thinks, whatever came last.
+    quickReplyFor:
+      !isHelper && spec.experiments?.thinkByPhase && THINK_TAG_MODELS.test(spec.model)
+        ? (iteration, messages) => {
+            if (stuck.warned) {
+              stuck.warned = false
+              return false
+            }
+            return skipThinking(iteration, messages)
+          }
+        : undefined,
     // A4 (v4.0, an experiment): the plan in view, one transient message a round.
     preface: !isHelper && spec.experiments?.planFocus ? (iteration) => (iteration > 0 ? planInView(run.state.todos) : null) : undefined,
     // A6: ask_user ends the round; the answer is the next turn.
-    pauseRequested: !isHelper && spec.experiments?.askUser ? () => run.question !== null : undefined,
+    // v4.1 (A2): and five failures running at the same target stop the loop.
+    pauseRequested: () => (!isHelper && Boolean(spec.experiments?.askUser) && run.question !== null) || stuck.stopped !== null,
+    afterCall: (name, args, result) => {
+      phase?.observe(name, result)
+      return stuck.observe(name, args, result, (WRITING_TOOLS.has(name) && name !== 'run_command') || name === 'task')
+    },
     toolBudgets: AGENT_TOOL_BUDGETS,
+    // v4.1 (A4): neighbouring reads in one round run together.
+    concurrentTools: CONCURRENT_TOOLS,
     ledger,
     onRecordChange: (record) => {
       const shown: ToolCallRecord = o.parentCallId ? { ...record, parentCallId: o.parentCallId } : { ...record }
@@ -324,13 +401,15 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
           if (aside > 0) host.emit({ type: 'context_elided', toolResults: aside, chars: 0 })
         }
         // A1 (v4.0): the low-water mark only while the experiment is on; otherwise elide to just under the budget, as 3.0 did.
-        const fit = fitContext(messages, budget, toolChars, spec.experiments?.lowWaterMark ? LOW_WATER : 1)
-        if (fit.elided > 0 || fit.droppedRounds > 0) host.emit({ type: 'context_elided', toolResults: fit.elided, chars: fit.chars })
+        // v4.1 (A3): and where eliding old output is not enough, the recent
+        // results are cut harder before a round is dropped (./context.ts).
+        const fit = fitContext(messages, budget, toolChars, spec.experiments?.lowWaterMark ? LOW_WATER : 1, (t) => capResult(t, resultCapChars(budget, SQUEEZE_SHARE), run.spill))
+        if (fit.elided > 0 || fit.shrunk > 0 || fit.droppedRounds > 0) host.emit({ type: 'context_elided', toolResults: fit.elided + fit.shrunk, chars: fit.chars })
         const result = await streamRound({
           baseUrl: spec.baseUrl,
           model: spec.model,
           messages,
-          tools,
+          tools: phase ? phase.offer(tools) : tools,
           sampling: { max_tokens: DEFAULT_ROUND_MAX_TOKENS, ...spec.sampling },
           signal: spec.signal,
           transport: host.transport,
@@ -345,7 +424,7 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         // A round that ends in calls is narration on the way to them; the
         // reply the user reads is the round that ends without one.
         if (result.toolCalls.length === 0) o.onFinalText(result.content)
-        return { content: result.content, toolCalls: result.toolCalls, reasoning: result.reasoning, truncated: result.truncated }
+        return { content: result.content, toolCalls: result.toolCalls, reasoning: result.reasoning, truncated: result.truncated, malformedCalls: result.malformedCalls }
       },
       executeTool: async (name, args, meta) => {
         const callId = meta?.callId ?? ''
@@ -357,13 +436,16 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
             : await runHelper(run, args, callId, o.subagentTypes)
         } else if (name === 'ask_user') {
           result = isHelper ? { ok: false, error: 'A helper cannot ask the user. Report what you found instead.' } : askUser(run, args)
+        } else if (name === 'read_spill') {
+          // v4.1 (A3): the middle of a cut result, a window at a time — itself never cut.
+          result = readSpill(run.spill, args, cap)
         } else if (o.toolbox.has(name)) {
           // A8: before a command the model asked for, the project's hooks.
           const before = name === 'run_command' && run.hooks && !isHelper ? await runHooks(run, o.toolbox, 'beforeCommand', { command: String(args.command ?? '') }) : []
           result = await o.toolbox.execute(name, args, callId)
           if (before.length > 0) result = { ...result, [result.ok ? 'output' : 'error']: `${before.join('\n\n')}\n\n${result.ok ? (result.output ?? '') : (result.error ?? '')}` }
           // A8: after an edit lands, the project's hooks — a failed one is told to the model.
-          if (result.ok && (name === 'edit_file' || name === 'write_file' || name === 'write_document') && run.hooks && !isHelper) {
+          if (result.ok && (name === 'edit_file' || name === 'multi_edit' || name === 'write_file' || name === 'write_document') && run.hooks && !isHelper) {
             const failed = await runHooks(run, o.toolbox, 'afterEdit', { file: String(args.path ?? '') })
             if (failed.length > 0) result = { ...result, output: `${result.output ?? ''}\n\n${failed.join('\n\n')}` }
           }
@@ -374,13 +456,15 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         } else {
           result = { ok: false, error: `There is no tool named "${name}". Use one of: ${o.tools.map((t) => t.function.name).join(', ')}.` }
         }
+        // v4.1 (A3): whatever produced it, no result takes more than its share of the window.
+        if (name !== 'read_spill') result = capToolResult(result, cap, run.spill)
         // Anything that changed the workspace (or might have) invalidates
         // every result reuse could hand back.
         if (WRITING_TOOLS.has(name) || name === 'task') ledger.previousCalls.clear()
         // A5 (v4.0): what the verify round and the report's honesty rest on —
         // when files last changed, and which commands ran after that.
         if (!isHelper) {
-          if (name === 'edit_file' || name === 'write_file' || name === 'write_document' || name === 'move_file' || name === 'copy_file' || name === 'delete_file') run.lastEditAt = Date.now()
+          if (name === 'edit_file' || name === 'multi_edit' || name === 'write_file' || name === 'write_document' || name === 'move_file' || name === 'copy_file' || name === 'delete_file') run.lastEditAt = Date.now()
           if (name === 'run_command') run.commands.push({ command: String(args.command ?? ''), ok: result.ok, at: Date.now() })
         }
         return result
@@ -389,6 +473,10 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
       onSteerDelivered: isHelper ? undefined : (steer, r) => host.emit({ type: 'steer_delivered', id: steer.id, round: r })
     }
   })
+  if (stuck.stopped) {
+    if (isHelper) o.onStuck?.(stuck.stopped)
+    else run.stuck = stuck.stopped
+  }
   return outcome.stopReason
 }
 
@@ -450,13 +538,14 @@ async function runHelper(run: RunContext, args: Record<string, unknown>, callId:
   // what the parent has, minus todo_write (the checklist is the parent's)
   // and task (helpers do not nest).
   const extra = type === 'general' ? (host.extraTools?.schemas ?? []) : []
-  const tools = [...toolbox.schemas(), ...extra]
+  const tools = [...toolbox.schemas(), READ_SPILL_SCHEMA, ...extra]
   const system = subagentSystemPrompt(type, { ...run.env, permission, tools: tools.map((t) => t.function.name) })
   const messages: ApiMessage[] = [
     { role: 'system', content: system },
     { role: 'user', content: prompt }
   ]
   let report = ''
+  const stuck: { at: StuckState | null } = { at: null }
   const outcome = await loop(run, {
     messages,
     tools,
@@ -464,10 +553,16 @@ async function runHelper(run: RunContext, args: Record<string, unknown>, callId:
     maxRounds: SUBAGENT_MAX_ROUNDS,
     parentCallId: callId,
     onFinalText: (t) => (report = t),
-    subagentTypes: []
+    subagentTypes: [],
+    onStuck: (s) => (stuck.at = s)
   })
   if (outcome === 'aborted') return { ok: false, error: 'The task was stopped while the helper was working.' }
-  const capped = outcome === 'iteration_cap' ? `\n\n(The helper stopped at its ${SUBAGENT_MAX_ROUNDS}-round limit; this report may be incomplete.)` : ''
+  const capped =
+    outcome === 'iteration_cap'
+      ? `\n\n(The helper stopped at its ${SUBAGENT_MAX_ROUNDS}-round limit; this report may be incomplete.)`
+      : stuck.at
+        ? `\n\n(The helper stopped after ${stuck.at.count} failures in a row of ${stuck.at.name}${stuck.at.target ? ` on ${stuck.at.target}` : ''}; this report may be incomplete.)`
+        : ''
   const body = report.trim() || '(The helper finished without writing a report.)'
   const text = body.length > REPORT_MAX_CHARS ? `${body.slice(0, REPORT_MAX_CHARS)}\n… [report cut at ${REPORT_MAX_CHARS} characters]` : body
   return { ok: true, output: `Report from the ${type} helper (${description}):\n\n${text}${capped}` }

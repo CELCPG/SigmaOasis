@@ -2,7 +2,7 @@
  * Search-and-replace for the agent's edit_file (v3.0) — the pure half.
  *
  * An exact match is always tried first, and it is what a well-behaved call
- * gets. Then three recoveries, each for a way a small model's `old_string` is
+ * gets. Then four recoveries, each for a way a small model's `old_string` is
  * right about the code and wrong about the bytes, all measured as the common
  * failures of search/replace editing:
  *
@@ -16,6 +16,14 @@
  *    (from the replacement too, if it has them) and the edit retried.
  * 3. **Trailing whitespace.** Compared line by line with trailing spaces
  *    ignored, and accepted only when that finds exactly one place.
+ * 4. **Indentation (v4.1, A6).** Compared line by line with leading
+ *    whitespace ignored too. A small model re-types a nested block from
+ *    memory at the wrong depth, or with the depth of the snippet it was
+ *    shown; the lines are right and the margin is not. Accepted only when it
+ *    finds exactly one place *and* one shift of the margin explains every
+ *    line — then new_string is moved by the same shift, so a Python block
+ *    lands at the depth it replaces. A shift that differs line by line is
+ *    refused with where the lines are; nothing is re-indented by guesswork.
  *
  * None of them guesses between places: an ambiguous match is an error in
  * every tier, with the count, so the model adds context instead of the app
@@ -23,7 +31,7 @@
  */
 
 export type EditMatch =
-  | { ok: true; text: string; count: number; how: 'exact' | 'line-endings' | 'line-numbers' | 'trailing-space' }
+  | { ok: true; text: string; count: number; how: 'exact' | 'line-endings' | 'line-numbers' | 'trailing-space' | 'indentation' }
   | { ok: false; error: string }
 
 const NUMBERED = /^\s*\d+(?:\t|→|\s\|\s?)/
@@ -97,7 +105,69 @@ export function applyEdit(original: string, oldString: string, newString: string
   const tier3 = trailingSpaceMatch(original, oldString, newString)
   if (tier3) return tier3
 
+  const tier4 = indentationMatch(original, oldString, newString)
+  if (tier4) return tier4
+
   return { ok: false, error: notFound(original, oldString) }
+}
+
+const leadOf = (line: string): string => /^[ \t]*/.exec(line)![0]
+
+/**
+ * v4.1 (A6): line-by-line with leading and trailing whitespace ignored; one
+ * hit, one margin shift for every line, or nothing. Null means "not this
+ * tier" (the caller says where the closest line is); an error means the tier
+ * found the place and will not guess.
+ */
+function indentationMatch(original: string, oldString: string, newString: string): EditMatch | null {
+  const eol = original.includes('\r\n') ? '\r\n' : '\n'
+  const fileLines = original.split(/\r?\n/)
+  const endsAtBreak = /\r?\n$/.test(oldString)
+  const want = oldString.replace(/\r?\n$/, '').split(/\r?\n/)
+  const first = want.findIndex((l) => l.trim() !== '')
+  if (first < 0) return null
+  const hits: number[] = []
+  for (let i = 0; i + want.length <= fileLines.length; i++) {
+    if (want.every((l, j) => fileLines[i + j]!.trim() === l.trim())) hits.push(i)
+  }
+  if (hits.length === 0) return null
+  if (hits.length > 1) {
+    return {
+      ok: false,
+      error: `old_string occurs ${hits.length} times once indentation is ignored (at lines ${hits.slice(0, 5).map((h) => h + 1).join(', ')}). Copy it exactly from read_file output, with more surrounding lines, so it matches one place.`
+    }
+  }
+  const at = hits[0]!
+  const fileIndent = leadOf(fileLines[at + first]!)
+  const modelIndent = leadOf(want[first]!)
+  // One shift for the whole block: add a margin, or take one away. Tabs
+  // against spaces is not a shift, and is not guessed at.
+  let shift: ((line: string) => string | null) | null = null
+  if (fileIndent.startsWith(modelIndent)) {
+    const extra = fileIndent.slice(modelIndent.length)
+    shift = (line) => (line.trim() === '' ? line.trim() : extra + line)
+  } else if (modelIndent.startsWith(fileIndent)) {
+    const cut = modelIndent.length - fileIndent.length
+    shift = (line) => (line.trim() === '' ? line.trim() : leadOf(line).length >= cut ? line.slice(cut) : null)
+  }
+  const refuse: EditMatch = {
+    ok: false,
+    error: `old_string matches lines ${at + 1}–${at + want.length} only with its indentation changed line by line, so the new text's indentation cannot be worked out. Read those lines again and copy them exactly, indentation included.`
+  }
+  if (!shift) return refuse
+  for (let j = 0; j < want.length; j++) {
+    if (want[j]!.trim() === '') continue
+    if (shift(want[j]!)?.trimEnd() !== fileLines[at + j]!.trimEnd()) return refuse
+  }
+  const repl = endsAtBreak ? newString.replace(/\r?\n$/, '') : newString
+  const replacement: string[] = []
+  for (const line of repl === '' ? [] : repl.split(/\r?\n/)) {
+    const moved = shift(line)
+    if (moved === null) return refuse
+    replacement.push(moved)
+  }
+  const next = [...fileLines.slice(0, at), ...replacement, ...fileLines.slice(at + want.length)].join(eol)
+  return { ok: true, text: next, count: 1, how: 'indentation' }
 }
 
 /** Line-by-line comparison with trailing whitespace ignored; exactly one hit or nothing. */

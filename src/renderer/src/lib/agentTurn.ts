@@ -146,12 +146,14 @@ export function describeStep(record: ToolCallRecord): { icon: string; text: stri
     case 'grep':
       return { icon: '🔎', text: `${running ? 'Searching' : 'Searched'} for /${str(a.pattern)}/${a.path ? ` in ${str(a.path)}` : ''}` }
     case 'edit_file':
+    case 'multi_edit':
     case 'write_file': {
-      const verb = record.name === 'edit_file' ? (running ? 'Editing' : 'Edited') : running ? 'Writing' : 'Wrote'
+      const editing = record.name !== 'write_file'
+      const verb = editing ? (running ? 'Editing' : 'Edited') : running ? 'Writing' : 'Wrote'
       const stats = /: ([^.]*(?:\d+ hunks?|new file[^.]*))\./.exec(lead(record))?.[1]
       return {
         icon: '✏️',
-        text: failed ? `${record.name === 'edit_file' ? 'Edit' : 'Write'} to ${str(a.path)} not applied` : `${verb} ${str(a.path)}${stats ? ` (${stats})` : ''}`
+        text: failed ? `${editing ? 'Edit' : 'Write'} to ${str(a.path)} not applied` : `${verb} ${str(a.path)}${stats ? ` (${stats})` : ''}`
       }
     }
     case 'run_command': {

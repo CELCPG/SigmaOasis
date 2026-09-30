@@ -3,16 +3,18 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runAgentTask } from '../src/main/agent/engine'
+import { CONCURRENT_TOOLS, runAgentTask } from '../src/main/agent/engine'
 import { applyEdit } from '../src/main/agent/editMatch'
-import { fitContext, DROPPED_NOTE, estimateTokens, LOW_WATER } from '../src/main/agent/context'
+import { fitContext, DROPPED_NOTE, estimateTokens, historyBudget, LOW_WATER } from '../src/main/agent/context'
+import { capResult, readSpill, resultCapChars, SpillStore } from '../src/main/agent/spill'
 import { agentSystemPrompt, loadProjectNotes } from '../src/main/agent/prompts'
 import { Toolbox, newTaskState, workspaceToolSchemas } from '../src/main/agent/tools'
 import { globToRegExp, resolveInside, WorkspaceError } from '../src/main/agent/workspace'
 import { dangerousCommandWarning } from '../src/shared/commandDanger'
 import { restoreCheckpoints } from '../src/main/agent/checkpoints'
+import { ToolPhase } from '../src/main/agent/toolPhase'
 import { sheetsToXlsx, xlsxToSheets } from '../src/main/agent/documents'
-import type { AgentEvent, AgentHost, ChunkTransport, EditReview, ShellSpec } from '../src/main/agent/types'
+import type { AgentEvent, AgentHost, ChunkTransport, EditReview, ShellSpec, ToolSchema } from '../src/main/agent/types'
 import type { ApiMessage } from '../src/renderer/src/lib/agentLoop'
 
 /**
@@ -402,6 +404,58 @@ describe('the toolbox on a real folder', () => {
     assert.deepEqual(none.schemas(), [])
   })
 
+  test('multi_edit: several changes to one file land as one diff and one checkpoint, in order', async () => {
+    const reviews: EditReview[] = []
+    const state = newTaskState()
+    const b = new Toolbox({
+      root: dir,
+      permission: 'ask',
+      host: host(scripted([]).transport, { reviewEdit: async (r) => (reviews.push(r), true) }).host,
+      shell: NODE_SHELL,
+      commandTimeoutSec: 30,
+      state,
+      signal: new AbortController().signal
+    })
+    await b.execute('read_file', { path: 'src/math.ts' }, 'r')
+    const r = await b.execute(
+      'multi_edit',
+      {
+        path: 'src/math.ts',
+        edits: [
+          { old_string: 'export function add', new_string: 'export function sum' },
+          { old_string: 'return a - b', new_string: 'return a + b' },
+          // Applied to the text the first left: the new name is what it finds.
+          { old_string: 'function sum(a: number', new_string: 'function sum(a: number = 0' }
+        ]
+      },
+      'm1'
+    )
+    assert.ok(r.ok, r.error)
+    assert.equal(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), 'export function sum(a: number = 0, b: number) {\n  return a + b\n}\n')
+    assert.equal(reviews.length, 1, 'one review for the lot')
+    assert.equal(state.checkpoints.size, 1)
+    assert.match(r.output ?? '', /3 edits\./)
+  })
+
+  test('multi_edit: one edit that fails fails them all, the file untouched and nothing to review', async () => {
+    const reviews: EditReview[] = []
+    const b = box('ask', { reviewEdit: async (r) => (reviews.push(r), true) })
+    const blind = await b.execute('multi_edit', { path: 'src/math.ts', edits: [{ old_string: 'a - b', new_string: 'a + b' }] }, 'x')
+    assert.match(blind.error ?? '', /Read src\/math\.ts with read_file before editing/)
+    await b.execute('read_file', { path: 'src/math.ts' }, 'r')
+    const r = await b.execute(
+      'multi_edit',
+      { path: 'src/math.ts', edits: [{ old_string: 'a - b', new_string: 'a + b' }, { old_string: 'not in the file', new_string: 'x' }] },
+      'm1'
+    )
+    assert.equal(r.ok, false)
+    assert.match(r.error ?? '', /^Edit 2 of 2 failed, so none was applied and the file is unchanged\. old_string was not found/)
+    assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /a - b/)
+    assert.equal(reviews.length, 0)
+    const empty = await b.execute('multi_edit', { path: 'src/math.ts', edits: [] }, 'm2')
+    assert.match(empty.error ?? '', /Give edits/)
+  })
+
   test('every tool schema is well-formed for the wire', () => {
     for (const s of workspaceToolSchemas(NODE_SHELL, 120)) {
       assert.equal(s.type, 'function')
@@ -446,6 +500,33 @@ describe('edit matching', () => {
     assert.match((r as { error: string }).error, /closest line is 2: `return a - b`/)
     const first = applyEdit('function add(a, b) {\n  return a - b\n}\n', 'function add(a, b) {\n  return a + b', 'x')
     assert.match((first as { error: string }).error, /first line appears at line 1/)
+  })
+
+  // v4.1 (A6): the margin a small model re-types from memory.
+  const PY = 'class A:\n    def f(self):\n        if x:\n            return 1\n        return 2\n'
+
+  test('a block quoted at the wrong depth is found once, and the new text lands at the depth it replaces', () => {
+    const shallow = applyEdit(PY, 'if x:\n    return 1', 'if x and y:\n    return 1\nelse:\n    pass')
+    assert.deepEqual(shallow, {
+      ok: true,
+      text: 'class A:\n    def f(self):\n        if x and y:\n            return 1\n        else:\n            pass\n        return 2\n',
+      count: 1,
+      how: 'indentation'
+    })
+    const deep = applyEdit(PY, '            if x:\n                return 1', '            if y:\n                return 1')
+    assert.equal(deep.ok && deep.text, PY.replace('if x:', 'if y:'))
+  })
+
+  test('indentation is not forgiven when it finds two places, or when one shift does not explain every line', () => {
+    const twice = applyEdit('def a():\n    pass\ndef b():\n  pass\n', 'pass', 'return')
+    assert.equal(twice.ok, false)
+    const both = applyEdit('if a:\n    go()\nif b:\n  go()\n', '        go()', 'stop()')
+    assert.match((both as { error: string }).error, /occurs 2 times once indentation is ignored \(at lines 2, 4\)/)
+    const skewed = applyEdit(PY, 'if x:\nreturn 1', 'if y:\nreturn 1')
+    assert.equal(skewed.ok, false)
+    assert.match((skewed as { error: string }).error, /indentation changed line by line/)
+    const tabs = applyEdit('\tif x:\n\t\tgo()\n', '    if x:\n        go()', '    if y:\n        go()')
+    assert.equal(tabs.ok, false, 'tabs against spaces is not a shift')
   })
 })
 
@@ -1081,5 +1162,276 @@ describe('a round cut off at the output limit (4.0.2)', () => {
     const r = await runAgentTask(spec(transport, { prompt: 'Say hi.' }), host(transport).host)
     assert.equal(r.status, 'done')
     assert.equal(requests.length, 1)
+  })
+})
+
+describe('tool calls written as text (v4.1, A1)', () => {
+  test('a Hermes <tool_call> in the content runs as a real call', async () => {
+    const { transport, requests } = scripted([
+      () => [text('<tool_call>\n{"name": "read_file", "arguments": {"path": "src/math.ts"}}\n</tool_call>')],
+      () => [text('It subtracts.')]
+    ])
+    const r = await runAgentTask(spec(transport, { prompt: 'What does add do?' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    const result = requests[1]!.messages.find((m) => m.role === 'tool')
+    assert.match(String(result?.content), /return a - b/)
+  })
+
+  test('a text-form call that cannot be read is named to the model, and its retry runs', async () => {
+    const { transport, requests } = scripted([
+      () => [text('<tool_call>{"name": "read_file", "arguments": {"path": }}</tool_call>')],
+      () => [call('c2', 'read_file', { path: 'src/math.ts' })],
+      () => [text('It subtracts.')]
+    ])
+    const r = await runAgentTask(spec(transport, { prompt: 'What does add do?' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(r.finalText, 'It subtracts.')
+    assert.match(String(requests[1]!.messages.at(-1)!.content), /could not be read, so nothing ran/)
+  })
+})
+
+describe('results cut to their share of the window (v4.1, A3)', () => {
+  test('a result that fits is untouched; a longer one keeps head and tail, and the middle is spilled whole', () => {
+    const spill = new SpillStore()
+    assert.equal(capResult('short', 2_000, spill), 'short')
+    const lines = Array.from({ length: 300 }, (_, i) => `${String(i + 1).padStart(5)}\tline ${i + 1} of the file`)
+    const out = capResult(lines.join('\n'), 3_000, spill)
+    assert.ok(out.length <= 3_000, `${out.length} characters`)
+    assert.match(out, /^ {4}1\tline 1 of the file\n/)
+    assert.match(out, /line 300 of the file$/)
+    const note = /\[… (\d+) lines, [\d,]+ characters cut here to keep the context small — read_spill with id "(spill-1)" returns them, or read_file with offset (\d+) …\]/.exec(out)
+    assert.ok(note, out)
+    const back = spill.get(note[2]!)!
+    assert.equal(back.length, Number(note[1]))
+    assert.equal(back[0], lines[Number(note[3]) - 1], 'the offset named is the first line cut')
+    // Nothing lost: head + spilled middle + tail is the whole.
+    const [head, tail] = out.split(/\n\[….*…\]\n/)
+    assert.equal(`${head}\n${back.join('\n')}\n${tail}`, lines.join('\n'))
+  })
+
+  test('one enormous line is cut by characters, and read_spill pages through it with the way on', () => {
+    const spill = new SpillStore()
+    const blob = 'x'.repeat(20_000)
+    const out = capResult(blob, 3_000, spill)
+    assert.ok(out.length <= 3_000)
+    assert.match(out, /read_spill with id "spill-1"/)
+    assert.doesNotMatch(out, /read_file with offset/)
+    const first = readSpill(spill, { id: 'spill-1' }, 3_000)
+    assert.ok(first.ok)
+    assert.match(first.output!, /\(spill-1: lines 1–1 of \d+; read on with offset 2\)$/)
+    const last = readSpill(spill, { id: 'spill-1', offset: spill.get('spill-1')!.length }, 3_000)
+    assert.match(last.output!, /the end\)$/)
+    assert.match(readSpill(spill, { id: 'spill-9' }, 3_000).error!, /No cut output has the id "spill-9"/)
+    assert.match(readSpill(new SpillStore(), { id: 'spill-1' }, 3_000).error!, /Nothing has been cut/)
+  })
+
+  test('a long read reaches the model cut, the record keeps it whole, and read_spill brings the middle back', async () => {
+    writeFileSync(join(dir, 'src', 'long.ts'), Array.from({ length: 600 }, (_, i) => `export const v${i + 1} = ${i + 1}`).join('\n'))
+    const { transport, requests } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/long.ts', limit: 600 })],
+      (body) => {
+        const cut = String(body.messages.find((m) => m.tool_call_id === 'c1')?.content)
+        const id = /read_spill with id "([^"]+)"/.exec(cut)![1]!
+        return [call('c2', 'read_spill', { id })]
+      },
+      () => [text('Read it all.')]
+    ])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { prompt: 'Read src/long.ts.', contextTokens: 16_000 }), h.host)
+    assert.equal(r.status, 'done')
+    const cap = resultCapChars(historyBudget(16_000))
+    const first = String(requests[1]!.messages.find((m) => m.tool_call_id === 'c1')?.content)
+    assert.ok(first.length <= cap, `${first.length} > ${cap}`)
+    assert.match(first, /export const v1 = 1\n/)
+    assert.match(first, /export const v600 = 600$/)
+    assert.ok(requests[0]!.tools.includes('read_spill'))
+    const end = h.events.find((e) => e.type === 'tool_end' && e.record.id === 'c1')
+    assert.ok(end && end.type === 'tool_end' && /v300 = 300/.test(end.record.result ?? ''), 'the record shows the whole read')
+    const middle = String(requests[2]!.messages.find((m) => m.tool_call_id === 'c2')?.content)
+    assert.match(middle, /export const v300 = 300/)
+  })
+
+  test('where eliding is not enough, the recent results are cut harder before any round is dropped, then all but the last set aside', () => {
+    const spill = new SpillStore()
+    const big = Array.from({ length: 200 }, (_, i) => `row ${i} ${'y'.repeat(40)}`).join('\n')
+    const history = (): ApiMessage[] => [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'task' },
+      ...[1, 2, 3, 4].flatMap((n): ApiMessage[] => [
+        { role: 'assistant', content: null, tool_calls: [{ id: `c${n}`, type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: `c${n}`, content: big }
+      ])
+    ]
+    // 4.0: the four most recent are never touched, so rounds go, and it is still over.
+    const old = history()
+    const before = fitContext(old, 2_500, 0)
+    assert.equal(before.droppedRounds, 3)
+    assert.equal(before.stillOver, true)
+    // v4.1: cut harder first — every round stays, and it fits.
+    const messages = history()
+    const fit = fitContext(messages, 2_500, 0, 1, (t) => capResult(t, 1_500, spill))
+    assert.equal(fit.stillOver, false)
+    assert.equal(fit.droppedRounds, 0)
+    assert.equal(fit.shrunk, 4)
+    assert.equal(messages.filter((m) => m.role === 'tool').length, 4)
+    assert.match(String(messages.at(-1)!.content), /read_spill with id/)
+    // Tighter still, one round with two results: all but the last is set aside.
+    const last: ApiMessage[] = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'task' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'x1', type: 'function', function: { name: 'grep', arguments: '{}' } }, { id: 'x2', type: 'function', function: { name: 'glob', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'x1', content: big },
+      { role: 'tool', tool_call_id: 'x2', content: big }
+    ]
+    const squeezed = fitContext(last, 700, 0, 1, (t) => capResult(t, 2_000, spill))
+    assert.equal(squeezed.elided, 1)
+    assert.match(String(last[3]!.content), /^\[Earlier output of grep removed/)
+    assert.doesNotMatch(String(last[4]!.content), /^\[Earlier output/)
+  })
+})
+
+describe('a stuck detector (v4.1, A2)', () => {
+  const callAt = (index: number, id: string, name: string, args: Record<string, unknown>): Frame => ({
+    choices: [{ delta: { tool_calls: [{ index, id, function: { name, arguments: JSON.stringify(args) } }] } }]
+  })
+  const miss = (id: string, n: number): Reply => () => [call(id, 'edit_file', { path: 'src/math.ts', old_string: `not there ${n}`, new_string: 'x' })]
+
+  test('three failures in a row at one file get the note, a read between them does not reset it, and a success does', async () => {
+    const { transport, requests } = scripted([
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      miss('e1', 1),
+      miss('e2', 2),
+      () => [call('r2', 'read_file', { path: 'src/math.ts' })],
+      miss('e3', 3),
+      () => [call('ok', 'edit_file', { path: 'src/math.ts', old_string: 'a - b', new_string: 'a + b' })],
+      miss('e4', 4),
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    const result = (i: number, id: string) => String(requests[i]!.messages.find((m) => m.tool_call_id === id)?.content)
+    assert.doesNotMatch(result(3, 'e2'), /You are stuck/)
+    assert.match(result(5, 'e3'), /You are stuck: this is failure 3 in a row of edit_file on src\/math\.ts\. Do not repeat it\. Re-read src\/math\.ts with read_file/)
+    assert.match(result(5, 'e3'), /After 2 more the task stops to ask the user/)
+    assert.doesNotMatch(result(7, 'e4'), /stuck/, 'the edit that landed reset the count')
+  })
+
+  test('five in a row stop the task as paused, and the reason names the wall', async () => {
+    const { transport, requests } = scripted([() => [call('r1', 'read_file', { path: 'src/math.ts' })], miss('e1', 1), miss('e2', 2), miss('e3', 3), miss('e4', 4), miss('e5', 5)])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'paused')
+    assert.equal(requests.length, 6, 'no round is asked for after the fifth')
+    assert.match(r.detail ?? '', /^Stopped: 5 failures in a row of edit_file on src\/math\.ts — the last: old_string was not found/)
+    assert.match(r.detail ?? '', /“continue”/)
+    assert.match(String(r.history.at(-1)!.content), /the task stops here to ask the user/)
+  })
+
+  test('a check that fails again after a change is the method, not a circle', async () => {
+    const failing = 'node -e "process.exit(1)"'
+    const run = (id: string): Reply => () => [call(id, 'run_command', { command: failing })]
+    const { transport, requests } = scripted([
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      run('t1'),
+      run('t2'),
+      () => [call('w1', 'edit_file', { path: 'src/math.ts', old_string: 'a - b', new_string: 'a * b' })],
+      run('t3'),
+      run('t4'),
+      () => [text('Still failing.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.ok(requests.every((q) => q.messages.every((m) => !/You are stuck/.test(String(m.content)))), 'two, a change, two: never three in a row')
+  })
+
+  test('on a <think> family with thinkByPhase, the round after a warning thinks even when a read came last', async () => {
+    const { transport, requests } = scripted([
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      miss('e1', 1),
+      miss('e2', 2),
+      () => [callAt(0, 'e3', 'edit_file', { path: 'src/math.ts', old_string: 'not there 3', new_string: 'x' }), callAt(1, 'r2', 'read_file', { path: 'README.md' })],
+      () => [text('Done.')]
+    ])
+    await runAgentTask(spec(transport, { model: 'qwen3-9b', experiments: { thinkByPhase: true } }), host(transport).host)
+    const last = requests[4]!.messages.at(-1)!
+    assert.equal(last.role, 'tool', 'no closed-think prefill: the round thinks')
+    assert.match(String(requests[4]!.messages.find((m) => m.tool_call_id === 'e3')?.content), /You are stuck/)
+  })
+
+  test('a helper that gets stuck stops, and its report says so', async () => {
+    // Five reads of one missing file, each a different window, so the ledger has no identical call to answer.
+    const { transport, requests } = scripted([
+      () => [call('t1', 'task', { subagent_type: 'explore', description: 'look', prompt: 'Find the config.' })],
+      ...[1, 2, 3, 4, 5].map((n): Reply => () => [call(`h${n}`, 'read_file', { path: 'config.json', offset: n })]),
+      () => [text('No config.')]
+    ])
+    const r = await runAgentTask(spec(transport), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(requests.length, 7)
+    const report = String(r.history.find((m) => m.tool_call_id === 't1')?.content)
+    assert.match(report, /The helper stopped after 5 failures in a row of read_file on config.json/)
+  })
+})
+
+describe('reads side by side (v4.1, A4)', () => {
+  test('a round of reads runs through the real toolbox, answered in call order, and the prompt asks for such rounds', async () => {
+    const at = (index: number, id: string, name: string, args: Record<string, unknown>): Frame => ({
+      choices: [{ delta: { tool_calls: [{ index, id, function: { name, arguments: JSON.stringify(args) } }] } }]
+    })
+    const { transport, requests } = scripted([
+      () => [at(0, 'r1', 'read_file', { path: 'src/math.ts' }), at(1, 'r2', 'read_file', { path: 'README.md' }), at(2, 'g1', 'grep', { pattern: 'add' })],
+      () => [call('e1', 'edit_file', { path: 'src/math.ts', old_string: 'a - b', new_string: 'a + b' })],
+      () => [text('Fixed.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.deepEqual(requests[1]!.messages.filter((m) => m.role === 'tool').map((m) => m.tool_call_id), ['r1', 'r2', 'g1'])
+    assert.match(String(requests[1]!.messages.find((m) => m.tool_call_id === 'r2')?.content), /# demo/)
+    assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /a \+ b/, 'a file read in a batch counts as read for the edit')
+    assert.match(String(requests[0]!.messages[0]!.content), /ask for them all in the same round: they run together/)
+    assert.ok(CONCURRENT_TOOLS.has('read_file') && !CONCURRENT_TOOLS.has('web_search') && !CONCURRENT_TOOLS.has('edit_file'))
+  })
+})
+
+describe('tools by phase (v4.1, A5 — an experiment, off by default)', () => {
+  const schema = (name: string): ToolSchema => ({ type: 'function', function: { name, description: name, parameters: { type: 'object', properties: {} } } })
+  const ALL = ['list_directory', 'read_file', 'edit_file', 'multi_edit', 'write_file', 'run_command', 'read_document', 'write_document', 'move_file', 'todo_write', 'mcp__github__create_issue', 'web_search'].map(schema)
+  const names = (tools: ToolSchema[]) => tools.map((t) => t.function.name)
+
+  test('edit tools wait for a read; documents, chores and MCP tools wait to be named or used; the list only grows', () => {
+    const phase = new ToolPhase('Fix the failing test.')
+    assert.deepEqual(names(phase.offer(ALL)), ['list_directory', 'read_file', 'run_command', 'todo_write', 'web_search'])
+    phase.observe('read_file', { ok: false, error: 'no such file' })
+    assert.ok(!names(phase.offer(ALL)).includes('edit_file'), 'a failed read opens nothing')
+    phase.observe('read_file', { ok: true, output: 'x' })
+    assert.deepEqual(names(phase.offer(ALL)), ['list_directory', 'read_file', 'edit_file', 'multi_edit', 'write_file', 'run_command', 'todo_write', 'web_search'])
+    phase.observe('move_file', { ok: true, output: 'moved' })
+    assert.ok(names(phase.offer(ALL)).includes('move_file'), 'a tool the model used is offered from then on')
+    const docs = new ToolPhase('Summarise report.docx and rename it, then file a github issue.')
+    assert.deepEqual(names(docs.offer(ALL)).filter((n) => ['read_document', 'write_document', 'move_file', 'mcp__github__create_issue'].includes(n)), ['read_document', 'mcp__github__create_issue'], 'writes still wait for a read')
+    docs.observe('read_document', { ok: true, output: 'text' })
+    assert.ok(['write_document', 'move_file'].every((n) => names(docs.offer(ALL)).includes(n)))
+    const later = new ToolPhase('carry on', [{ role: 'assistant', content: null, tool_calls: [{ id: 'c', type: 'function', function: { name: 'grep', arguments: '{}' } }] }])
+    assert.ok(names(later.offer(ALL)).includes('edit_file'), 'an earlier turn’s read counts')
+  })
+
+  test('on, the first request offers no edit tool and the round after a read does; a call to a held-back tool still runs', async () => {
+    const { transport, requests } = scripted([
+      () => [call('w1', 'write_file', { path: 'notes.txt', content: 'hi\n' })],
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { toolsByPhase: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.ok(!requests[0]!.tools.includes('edit_file') && !requests[0]!.tools.includes('write_file'))
+    assert.ok(requests[0]!.tools.includes('read_file') && requests[0]!.tools.includes('run_command'))
+    assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'hi\n', 'held back is not forbidden')
+    assert.ok(requests[1]!.tools.includes('write_file'), 'used, so offered')
+    assert.ok(requests[2]!.tools.includes('edit_file'), 'after a read')
+  })
+
+  test('off, every tool rides every request as before', async () => {
+    const { transport, requests } = scripted([() => [text('ok')]])
+    await runAgentTask(spec(transport), host(transport).host)
+    assert.ok(['edit_file', 'multi_edit', 'write_file', 'read_spill'].every((n) => requests[0]!.tools.includes(n)))
   })
 })

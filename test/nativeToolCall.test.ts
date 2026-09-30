@@ -95,7 +95,7 @@ describe('createNativeToolExtractor — stream behavior', () => {
     assert.equal(out.calls.length, 0)
   })
 
-  test('a malformed call is dropped silently', () => {
+  test('a malformed call is dropped, never run or shown', () => {
     const out = run(['<|tool_call>call:{broken}<tool_call|>visible'])
     assert.equal(out.text, 'visible')
     assert.equal(out.calls.length, 0)
@@ -455,5 +455,63 @@ describe('detectProseParenCall (v1.7.1) — the fifth surface form', () => {
     assert.equal(detectProseParenCall('write_file("notes.txt")', TOOLS), null)
     assert.equal(detectProseParenCall('web_search()', TOOLS), null)
     assert.equal(detectProseParenCall('print("hello world")', TOOLS), null)
+  })
+})
+
+describe('the Hermes <tool_call> form, and calls that could not be read (v4.1, A1)', () => {
+  /** Feed a reply through the extractor, collecting what it dropped too. */
+  function runAll(chunks: string[]): { text: string; calls: { name: string; arguments: string }[]; dropped: string[] } {
+    const extractor = createNativeToolExtractor()
+    let text = ''
+    const calls: { name: string; arguments: string }[] = []
+    const dropped: string[] = []
+    for (const out of [...chunks.map((c) => extractor.push(c)), extractor.flush()]) {
+      text += out.text
+      calls.push(...out.calls)
+      dropped.push(...(out.dropped ?? []))
+    }
+    return { text, calls, dropped }
+  }
+
+  test('the Qwen/Hermes body parses, prose around it kept', () => {
+    const out = runAll(['I will read it.\n<tool_call>\n{"name": "read_file", "arguments": {"path": "src/a.ts", "offset": 3}}\n</tool_call>'])
+    assert.equal(out.text, 'I will read it.\n')
+    assert.deepEqual(out.calls, [{ name: 'read_file', arguments: '{"path":"src/a.ts","offset":3}' }])
+    assert.deepEqual(out.dropped, [])
+  })
+
+  test('arguments as a JSON string, `parameters` for `arguments`, and a split across chunks all parse', () => {
+    assert.deepEqual(JSON.parse(parseNativeToolCall('{"name":"grep","arguments":"{\\"pattern\\":\\"add\\"}"}')!.arguments), { pattern: 'add' })
+    assert.deepEqual(JSON.parse(parseNativeToolCall('{"name":"glob","parameters":{"pattern":"*.ts"}}')!.arguments), { pattern: '*.ts' })
+    const out = runAll(['<tool_', 'call>{"name":"glob",', '"arguments":{"pattern":"*.md"}}</tool', '_call> after'])
+    assert.equal(out.calls[0]!.name, 'glob')
+    assert.equal(out.text, ' after')
+  })
+
+  test('the Qwen3-Coder XML body parses; a plainly-JSON value is taken as JSON, the rest as text', () => {
+    const out = runAll(['<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/a.ts\n</parameter>\n<parameter=limit>\n40\n</parameter>\n</function>\n</tool_call>'])
+    assert.deepEqual(out.calls.map((c) => [c.name, JSON.parse(c.arguments)]), [['read_file', { path: 'src/a.ts', limit: 40 }]])
+    assert.equal(parseNativeToolCall('<function=x><parameter=a>open</function>'), null)
+  })
+
+  test('a whole JSON body whose closing tag never came is still a call — the server swallowed the tag', () => {
+    const out = runAll(['<tool_call>{"name":"glob","arguments":{"pattern":"*.ts"}}'])
+    assert.equal(out.calls.length, 1)
+    assert.deepEqual(out.dropped, [])
+  })
+
+  test('a call that opened and could not be read is dropped, never run, and reported', () => {
+    const broken = runAll(['<tool_call>{"name":"read_file","arguments":{"path":}}</tool_call>visible'])
+    assert.equal(broken.calls.length, 0)
+    assert.equal(broken.text, 'visible')
+    assert.equal(broken.dropped.length, 1)
+    assert.match(broken.dropped[0]!, /^\{"name":"read_file"/)
+    const cut = runAll(['<tool_call>{"name":"write_file","arguments":{"content":"half'])
+    assert.equal(cut.calls.length, 0)
+    assert.equal(cut.dropped.length, 1)
+    const gemma = runAll(['<|tool_call>call:{broken}<tool_call|>'])
+    assert.equal(gemma.dropped.length, 1, 'the Gemma form is reported too')
+    const clean = runAll(['no calls here'])
+    assert.deepEqual(clean.dropped, [])
   })
 })
