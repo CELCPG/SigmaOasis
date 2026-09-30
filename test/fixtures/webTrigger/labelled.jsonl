@@ -1,0 +1,858 @@
+{"id":"wt-001","text":"can you check the weather for righmond va today","label":"live","split":"train"}
+{"id":"wt-002","text":"how are s&p futures looking  for today","label":"live","split":"train"}
+{"id":"wt-003","text":"when is the next miami heat basketball game?","label":"live","split":"test"}
+{"id":"wt-004","text":"can you check the weather channel?","label":"live","split":"train"}
+{"id":"wt-005","text":"what's the weather in richmond va today?","label":"live","split":"train"}
+{"id":"wt-006","text":"whats the weather like in chicago rn","label":"live","split":"train"}
+{"id":"wt-007","text":"is it gonna rain in seattle tomorrow","label":"live","split":"test"}
+{"id":"wt-008","text":"do i need an umbrella in boston tmrw","label":"live","split":"train"}
+{"id":"wt-009","text":"hows it looking in denver this weekend, sunny or cold?","label":"live","split":"train"}
+{"id":"wt-010","text":"temp in phoenix right now","label":"live","split":"test"}
+{"id":"wt-011","text":"will it snow in minneapolis tonight","label":"live","split":"train"}
+{"id":"wt-012","text":"whats the high today in austin tx","label":"live","split":"train"}
+{"id":"wt-013","text":"any storms coming to tampa this week","label":"live","split":"train"}
+{"id":"wt-014","text":"is there a hurricane headed for the carolinas","label":"live","split":"test"}
+{"id":"wt-015","text":"air quality in los angeles today","label":"live","split":"train"}
+{"id":"wt-016","text":"pollen count atlanta today","label":"live","split":"train"}
+{"id":"wt-017","text":"wind speed at the outer banks right now","label":"live","split":"train"}
+{"id":"wt-018","text":"surf report for huntington beach this morning","label":"live","split":"test"}
+{"id":"wt-019","text":"hows the snow at vail right now, worth going up saturday?","label":"live","split":"train"}
+{"id":"wt-020","text":"what time is sunset tonight in nyc","label":"live","split":"train"}
+{"id":"wt-021","text":"tide times for cape cod today","label":"live","split":"test"}
+{"id":"wt-022","text":"is it humid in miami today","label":"live","split":"train"}
+{"id":"wt-023","text":"weather in londn tomorow","label":"live","split":"train"}
+{"id":"wt-024","text":"whats it gonna be like for the eagles game sunday in philly, cold?","label":"live","split":"train"}
+{"id":"wt-025","text":"how did the yankees do last night","label":"live","split":"test"}
+{"id":"wt-026","text":"who won the lakers game","label":"live","split":"train"}
+{"id":"wt-027","text":"score of the chiefs game rn","label":"live","split":"train"}
+{"id":"wt-028","text":"did arsenal win today","label":"live","split":"train"}
+{"id":"wt-029","text":"when do the heat play next","label":"live","split":"test"}
+{"id":"wt-030","text":"whats the celtics schedule this week","label":"live","split":"train"}
+{"id":"wt-031","text":"is the ohio state game on tv tonight what channel","label":"live","split":"train"}
+{"id":"wt-032","text":"who's pitching for the mets tonight","label":"live","split":"test"}
+{"id":"wt-033","text":"nba standings right now","label":"live","split":"train"}
+{"id":"wt-034","text":"premier league table today","label":"live","split":"train"}
+{"id":"wt-035","text":"is mahomes playing sunday? injury update","label":"live","split":"train"}
+{"id":"wt-036","text":"what time is the f1 race this weekend","label":"live","split":"test"}
+{"id":"wt-037","text":"ufc tonight what time does the main card start","label":"live","split":"train"}
+{"id":"wt-038","text":"world cup qualifier results today","label":"live","split":"train"}
+{"id":"wt-039","text":"how many points did wemby score last night","label":"live","split":"train"}
+{"id":"wt-040","text":"is the orioles game tonight postponed because of rain","label":"live","split":"train"}
+{"id":"wt-041","text":"what are the odds for the super bowl right now","label":"live","split":"train"}
+{"id":"wt-042","text":"how is the dow doing today","label":"live","split":"train"}
+{"id":"wt-043","text":"nasdaq today?","label":"live","split":"test"}
+{"id":"wt-044","text":"btc price now","label":"live","split":"train"}
+{"id":"wt-045","text":"how much is ethereum right now","label":"live","split":"train"}
+{"id":"wt-046","text":"whats nvda trading at","label":"live","split":"train"}
+{"id":"wt-047","text":"tsla stock price today","label":"live","split":"test"}
+{"id":"wt-048","text":"did the market close up or down today","label":"live","split":"train"}
+{"id":"wt-049","text":"10 year treasury yield today","label":"live","split":"train"}
+{"id":"wt-050","text":"euro to dollar exchange rate right now","label":"live","split":"test"}
+{"id":"wt-051","text":"how much is 100 usd in yen today","label":"live","split":"train"}
+{"id":"wt-052","text":"gold price per ounce today","label":"live","split":"train"}
+{"id":"wt-053","text":"whats crude at this morning","label":"live","split":"train"}
+{"id":"wt-054","text":"gas prices near richmond va today","label":"live","split":"test"}
+{"id":"wt-055","text":"current 30 year mortgage rates","label":"live","split":"train"}
+{"id":"wt-056","text":"is apple reporting earnings tonight","label":"live","split":"train"}
+{"id":"wt-057","text":"why is the stock market down today","label":"live","split":"train"}
+{"id":"wt-058","text":"did the fed cut rates today","label":"live","split":"test"}
+{"id":"wt-059","text":"what's moving in premarket","label":"live","split":"train"}
+{"id":"wt-060","text":"how are asian markets doing overnight","label":"live","split":"train"}
+{"id":"wt-061","text":"is the vix up today","label":"live","split":"test"}
+{"id":"wt-062","text":"latest news on the government shutdown","label":"live","split":"train"}
+{"id":"wt-063","text":"whats going on in the news today","label":"live","split":"train"}
+{"id":"wt-064","text":"any updates on the hurricane in florida","label":"live","split":"train"}
+{"id":"wt-065","text":"what happened with the openai lawsuit this week","label":"live","split":"test"}
+{"id":"wt-066","text":"breaking news right now","label":"live","split":"train"}
+{"id":"wt-067","text":"election results in virginia","label":"live","split":"train"}
+{"id":"wt-068","text":"who's leading the polls today","label":"live","split":"train"}
+{"id":"wt-069","text":"is the port strike still going on","label":"live","split":"test"}
+{"id":"wt-070","text":"whats the latest on the israel ceasefire","label":"live","split":"train"}
+{"id":"wt-071","text":"did the senate pass the spending bill yet","label":"live","split":"train"}
+{"id":"wt-072","text":"top headlines this morning","label":"live","split":"test"}
+{"id":"wt-073","text":"whats trending on twitter today","label":"live","split":"train"}
+{"id":"wt-074","text":"is chatgpt down right now","label":"live","split":"train"}
+{"id":"wt-075","text":"is aws having an outage","label":"live","split":"train"}
+{"id":"wt-076","text":"is gmail down for anyone else","label":"live","split":"test"}
+{"id":"wt-077","text":"is discord down","label":"live","split":"train"}
+{"id":"wt-078","text":"what's the latest version of node.js?","label":"live","split":"train"}
+{"id":"wt-079","text":"newest ios version","label":"live","split":"train"}
+{"id":"wt-080","text":"whats the current version of python","label":"live","split":"train"}
+{"id":"wt-081","text":"latest release of godot","label":"live","split":"train"}
+{"id":"wt-082","text":"is there a new ps5 update today","label":"live","split":"train"}
+{"id":"wt-083","text":"latest stable rust version","label":"live","split":"test"}
+{"id":"wt-084","text":"what is the most recent version of electron","label":"live","split":"train"}
+{"id":"wt-085","text":"current version of lm studio","label":"live","split":"train"}
+{"id":"wt-086","text":"is costco open today","label":"live","split":"train"}
+{"id":"wt-087","text":"what time does trader joes close tonight","label":"live","split":"test"}
+{"id":"wt-088","text":"is the post office open today","label":"live","split":"train"}
+{"id":"wt-089","text":"are banks open on columbus day","label":"live","split":"train"}
+{"id":"wt-090","text":"whats the wait at the dmv on broad st right now","label":"live","split":"test"}
+{"id":"wt-091","text":"how long is the line at space mountain right now","label":"live","split":"train"}
+{"id":"wt-092","text":"flight status aa 1234","label":"live","split":"train"}
+{"id":"wt-093","text":"is my flight to dallas delayed, ua 523","label":"live","split":"train"}
+{"id":"wt-094","text":"traffic on i-95 north right now","label":"live","split":"test"}
+{"id":"wt-095","text":"is the bay bridge closed today","label":"live","split":"train"}
+{"id":"wt-096","text":"are there delays on the red line this morning","label":"live","split":"train"}
+{"id":"wt-097","text":"whats playing at the regal tonight","label":"live","split":"train"}
+{"id":"wt-098","text":"any concerts in richmond this weekend","label":"live","split":"test"}
+{"id":"wt-099","text":"what's happening in austin this weekend","label":"live","split":"train"}
+{"id":"wt-100","text":"when is the next spacex launch","label":"live","split":"train"}
+{"id":"wt-101","text":"will the northern lights be visible tonight in michigan","label":"live","split":"train"}
+{"id":"wt-102","text":"power outage map dominion energy right now","label":"live","split":"test"}
+{"id":"wt-103","text":"is there a boil water notice in richmond today","label":"live","split":"train"}
+{"id":"wt-104","text":"are schools closed tomorrow in fairfax county","label":"live","split":"train"}
+{"id":"wt-105","text":"whats the uv index today in san diego","label":"live","split":"train"}
+{"id":"wt-106","text":"wildfire smoke map california now","label":"live","split":"test"}
+{"id":"wt-107","text":"hows traffic to the airport now","label":"live","split":"train"}
+{"id":"wt-108","text":"is the new zelda game out yet","label":"live","split":"train"}
+{"id":"wt-109","text":"did taylor swift announce anything today","label":"live","split":"train"}
+{"id":"wt-110","text":"who's winning the ryder cup","label":"live","split":"train"}
+{"id":"wt-111","text":"live score india vs australia","label":"live","split":"test"}
+{"id":"wt-112","text":"how are markets reacting to the jobs report","label":"live","split":"train"}
+{"id":"wt-113","text":"bitcoin just dropped what happened","label":"live","split":"train"}
+{"id":"wt-114","text":"price of eggs at walmart right now","label":"live","split":"train"}
+{"id":"wt-115","text":"is the weather ok for flying out of jfk tonight","label":"live","split":"test"}
+{"id":"wt-116","text":"how cold will it get tonight in richmond","label":"live","split":"train"}
+{"id":"wt-117","text":"will it be sunny for the packers game tomorrow","label":"live","split":"train"}
+{"id":"wt-118","text":"do the braves play today","label":"live","split":"train"}
+{"id":"wt-119","text":"tonight's nba games","label":"live","split":"test"}
+{"id":"wt-120","text":"what time do the steelers play sunday","label":"live","split":"test"}
+{"id":"wt-121","text":"hows the heat doing this season","label":"live","split":"train"}
+{"id":"wt-122","text":"is lebron playing tonight","label":"live","split":"train"}
+{"id":"wt-123","text":"did the us win the soccer game yesterday","label":"live","split":"train"}
+{"id":"wt-124","text":"cardinals score","label":"live","split":"test"}
+{"id":"wt-125","text":"what did the s&p close at yesterday","label":"live","split":"train"}
+{"id":"wt-126","text":"how are futures doing this morning","label":"live","split":"train"}
+{"id":"wt-127","text":"whats silver at right now","label":"live","split":"train"}
+{"id":"wt-128","text":"any news on the chrome zero day, is there a patch yet","label":"live","split":"test"}
+{"id":"wt-129","text":"is the fed meeting today or tomorrow","label":"live","split":"train"}
+{"id":"wt-130","text":"what's the current inflation rate","label":"live","split":"train"}
+{"id":"wt-131","text":"current unemployment rate us","label":"live","split":"train"}
+{"id":"wt-132","text":"whats the weather gonna be like for my run at 6am","label":"live","split":"train"}
+{"id":"wt-133","text":"rain radar richmond","label":"live","split":"test"}
+{"id":"wt-134","text":"hows the weather in paris next week, packing for a trip","label":"live","split":"train"}
+{"id":"wt-135","text":"what's apple's market cap today","label":"live","split":"train"}
+{"id":"wt-136","text":"is it snowing in buffalo","label":"live","split":"train"}
+{"id":"wt-137","text":"hows the dollar doing against the pound today","label":"live","split":"test"}
+{"id":"wt-138","text":"what's the latest firmware for the sony a7 iv","label":"live","split":"train"}
+{"id":"wt-139","text":"any delays at o'hare right now","label":"live","split":"train"}
+{"id":"wt-140","text":"is the beach closed today because of rip currents","label":"live","split":"train"}
+{"id":"wt-141","text":"how's the us open going, who's still in","label":"live","split":"train"}
+{"id":"wt-142","text":"who won the heat game last night","label":"live","split":"test"}
+{"id":"wt-143","text":"is it going to storm this afternoon in dc","label":"live","split":"train"}
+{"id":"wt-144","text":"how windy is it in chicago today","label":"live","split":"train"}
+{"id":"wt-145","text":"what's the chance of rain for saturday in charlottesville","label":"live","split":"train"}
+{"id":"wt-146","text":"dow futures","label":"live","split":"test"}
+{"id":"wt-147","text":"oil prices today","label":"live","split":"train"}
+{"id":"wt-148","text":"what is the newest chrome version","label":"live","split":"train"}
+{"id":"wt-149","text":"is claude down","label":"live","split":"train"}
+{"id":"wt-150","text":"when does the market open today","label":"live","split":"train"}
+{"id":"wt-151","text":"how much is a bitcoin worth rn","label":"live","split":"test"}
+{"id":"wt-152","text":"whats the score of the duke unc game","label":"live","split":"train"}
+{"id":"wt-153","text":"who's on the mound for the dodgers tonight","label":"live","split":"train"}
+{"id":"wt-154","text":"is the concert at the national tonight sold out","label":"live","split":"train"}
+{"id":"wt-155","text":"whats the line for the georgia game this weekend","label":"live","split":"test"}
+{"id":"wt-156","text":"who is the ceo of tesla","label":"web","split":"train"}
+{"id":"wt-157","text":"when was the first iphone released","label":"web","split":"train"}
+{"id":"wt-158","text":"tell me about ada lovelace","label":"web","split":"train"}
+{"id":"wt-159","text":"who founded patagonia","label":"web","split":"test"}
+{"id":"wt-160","text":"how much does a rivian r1s cost","label":"web","split":"test"}
+{"id":"wt-161","text":"whats the msrp of the rtx 5080","label":"web","split":"train"}
+{"id":"wt-162","text":"how much vram does the rtx 5090 have","label":"web","split":"train"}
+{"id":"wt-163","text":"whats the battery size on the pixel 9 pro","label":"web","split":"train"}
+{"id":"wt-164","text":"how tall is the eiffel tower","label":"web","split":"test"}
+{"id":"wt-165","text":"population of richmond va","label":"web","split":"train"}
+{"id":"wt-166","text":"what year did the berlin wall fall","label":"web","split":"train"}
+{"id":"wt-167","text":"who directed dune part two","label":"web","split":"train"}
+{"id":"wt-168","text":"when did radiohead release ok computer","label":"web","split":"test"}
+{"id":"wt-169","text":"how many albums has phish put out","label":"web","split":"train"}
+{"id":"wt-170","text":"tell me about the band phish and their key albums","label":"web","split":"train"}
+{"id":"wt-171","text":"who owns whole foods","label":"web","split":"train"}
+{"id":"wt-172","text":"where is seggiano headquartered","label":"web","split":"train"}
+{"id":"wt-173","text":"did dean & deluca go out of business","label":"web","split":"test"}
+{"id":"wt-174","text":"what's the capital of australia","label":"web","split":"train"}
+{"id":"wt-175","text":"who won the world series last year","label":"web","split":"train"}
+{"id":"wt-176","text":"who won best picture at the 2024 oscars","label":"web","split":"train"}
+{"id":"wt-177","text":"how old is taylor swift","label":"web","split":"test"}
+{"id":"wt-178","text":"is joe rogan married","label":"web","split":"train"}
+{"id":"wt-179","text":"what's the 401k contribution limit for 2026","label":"web","split":"train"}
+{"id":"wt-180","text":"what is the federal minimum wage","label":"web","split":"train"}
+{"id":"wt-181","text":"minimum wage in virginia 2026","label":"web","split":"train"}
+{"id":"wt-182","text":"how much is a us passport renewal","label":"web","split":"test"}
+{"id":"wt-183","text":"what does a tesla model 3 weigh","label":"web","split":"train"}
+{"id":"wt-184","text":"how fast is the m4 macbook air compared to the m3","label":"web","split":"train"}
+{"id":"wt-185","text":"what chip is in the iphone 16","label":"web","split":"train"}
+{"id":"wt-186","text":"how many seats does a dodge durango have","label":"web","split":"test"}
+{"id":"wt-187","text":"what's the range of a chevy equinox ev","label":"web","split":"train"}
+{"id":"wt-188","text":"best rated pizza places in brooklyn","label":"web","split":"train"}
+{"id":"wt-189","text":"whats a good sushi place in richmond va","label":"web","split":"train"}
+{"id":"wt-190","text":"what time zone is arizona in","label":"web","split":"train"}
+{"id":"wt-191","text":"how far is richmond from virginia beach","label":"web","split":"test"}
+{"id":"wt-192","text":"when was the golden gate bridge built","label":"web","split":"train"}
+{"id":"wt-193","text":"who wrote project hail mary","label":"web","split":"train"}
+{"id":"wt-194","text":"did the grateful dead ever play in richmond","label":"web","split":"train"}
+{"id":"wt-195","text":"what label is phoebe bridgers on","label":"web","split":"test"}
+{"id":"wt-196","text":"whos the drummer for foo fighters now","label":"web","split":"train"}
+{"id":"wt-197","text":"when did the nintendo switch 2 come out","label":"web","split":"train"}
+{"id":"wt-198","text":"how much did the switch 2 cost at launch","label":"web","split":"train"}
+{"id":"wt-199","text":"what are the specs of the steam deck oled","label":"web","split":"test"}
+{"id":"wt-200","text":"is the sony a7 iv weather sealed","label":"web","split":"train"}
+{"id":"wt-201","text":"does the 2024 honda crv have wireless carplay","label":"web","split":"test"}
+{"id":"wt-202","text":"what's the towing capacity of a 2025 f-150","label":"web","split":"train"}
+{"id":"wt-203","text":"who is the governor of virginia","label":"web","split":"train"}
+{"id":"wt-204","text":"who's the mayor of new york","label":"web","split":"train"}
+{"id":"wt-205","text":"how many people live in tokyo","label":"web","split":"test"}
+{"id":"wt-206","text":"what's the tallest building in the world","label":"web","split":"train"}
+{"id":"wt-207","text":"when does daylight saving time end in the us","label":"web","split":"train"}
+{"id":"wt-208","text":"what are the income tax brackets for 2026","label":"web","split":"train"}
+{"id":"wt-209","text":"whats the speed limit on the autobahn","label":"web","split":"test"}
+{"id":"wt-210","text":"is it legal to pump your own gas in new jersey","label":"web","split":"train"}
+{"id":"wt-211","text":"do i need a visa to go to japan as a us citizen","label":"web","split":"train"}
+{"id":"wt-212","text":"what's the drinking age in italy","label":"web","split":"test"}
+{"id":"wt-213","text":"how long is the flight from nyc to rome","label":"web","split":"train"}
+{"id":"wt-214","text":"what airlines fly direct from richmond to denver","label":"web","split":"train"}
+{"id":"wt-215","text":"how much is a ticket to the louvre","label":"web","split":"train"}
+{"id":"wt-216","text":"what are the hours for the air and space museum in dc","label":"web","split":"test"}
+{"id":"wt-217","text":"who makes kirkland olive oil","label":"web","split":"train"}
+{"id":"wt-218","text":"difference between the kindle paperwhite and the colorsoft","label":"web","split":"train"}
+{"id":"wt-219","text":"is the dyson v15 worth it over the v12","label":"web","split":"train"}
+{"id":"wt-220","text":"whats the best budget 4k monitor","label":"web","split":"train"}
+{"id":"wt-221","text":"which has more vram, 4070 ti super or 7800 xt","label":"web","split":"train"}
+{"id":"wt-222","text":"what's the newest album by boygenius","label":"web","split":"train"}
+{"id":"wt-223","text":"how many grammys does beyonce have","label":"web","split":"test"}
+{"id":"wt-224","text":"who played the joker in the dark knight","label":"web","split":"train"}
+{"id":"wt-225","text":"how many episodes are in season 3 of the bear","label":"web","split":"train"}
+{"id":"wt-226","text":"who wrote the wheel of time","label":"web","split":"train"}
+{"id":"wt-227","text":"how much caffeine is in a celsius","label":"web","split":"test"}
+{"id":"wt-228","text":"what are the side effects of ozempic","label":"web","split":"train"}
+{"id":"wt-229","text":"is aspirin contraindicated after a black widow bite","label":"web","split":"train"}
+{"id":"wt-230","text":"what dosage of ibuprofen is safe","label":"web","split":"test"}
+{"id":"wt-231","text":"he says he feels dizzy, what do i do","label":"web","split":"train"}
+{"id":"wt-232","text":"my brother was bit by a spider","label":"web","split":"train"}
+{"id":"wt-233","text":"how many moons does saturn have","label":"web","split":"train"}
+{"id":"wt-234","text":"who discovered penicillin","label":"web","split":"test"}
+{"id":"wt-235","text":"when is the next total solar eclipse in the us","label":"web","split":"train"}
+{"id":"wt-236","text":"how much does it cost to register a car in virginia","label":"web","split":"train"}
+{"id":"wt-237","text":"what's the sales tax in richmond va","label":"web","split":"train"}
+{"id":"wt-238","text":"who is the president of france","label":"web","split":"test"}
+{"id":"wt-239","text":"what's the gdp of germany","label":"web","split":"train"}
+{"id":"wt-240","text":"what companies does berkshire hathaway own","label":"web","split":"train"}
+{"id":"wt-241","text":"who bought twitter and for how much","label":"web","split":"test"}
+{"id":"wt-242","text":"when did amazon buy whole foods","label":"web","split":"train"}
+{"id":"wt-243","text":"is bitcoin legal in china","label":"web","split":"train"}
+{"id":"wt-244","text":"which country has the most islands","label":"web","split":"train"}
+{"id":"wt-245","text":"what's the elevation of denver","label":"web","split":"test"}
+{"id":"wt-246","text":"how deep is lake tahoe","label":"web","split":"train"}
+{"id":"wt-247","text":"longest river in the us","label":"web","split":"train"}
+{"id":"wt-248","text":"who has the most career home runs","label":"web","split":"train"}
+{"id":"wt-249","text":"fastest 40 yard dash ever at the combine","label":"web","split":"test"}
+{"id":"wt-250","text":"how many super bowls have the patriots won","label":"web","split":"train"}
+{"id":"wt-251","text":"who was finals mvp in 2023","label":"web","split":"train"}
+{"id":"wt-252","text":"what was taylor swift's first album","label":"web","split":"test"}
+{"id":"wt-253","text":"when is gta 6 coming out","label":"web","split":"train"}
+{"id":"wt-254","text":"how much is a disney world ticket","label":"web","split":"train"}
+{"id":"wt-255","text":"how much is netflix a month now","label":"web","split":"train"}
+{"id":"wt-256","text":"does spotify have lossless yet","label":"web","split":"test"}
+{"id":"wt-257","text":"what's the context length of llama 3.1","label":"web","split":"train"}
+{"id":"wt-258","text":"how many active params does qwen3 235b have","label":"web","split":"train"}
+{"id":"wt-259","text":"what license is lm studio under","label":"web","split":"train"}
+{"id":"wt-260","text":"is the m4 max macbook pro good for local llms","label":"web","split":"train"}
+{"id":"wt-261","text":"who is the ceo of anthropic","label":"web","split":"train"}
+{"id":"wt-262","text":"when was openai founded","label":"web","split":"train"}
+{"id":"wt-263","text":"where is nvidia headquartered","label":"web","split":"test"}
+{"id":"wt-264","text":"how many employees does costco have","label":"web","split":"train"}
+{"id":"wt-265","text":"what does costco pay new hires","label":"web","split":"train"}
+{"id":"wt-266","text":"whats the phone number for the richmond dmv","label":"web","split":"train"}
+{"id":"wt-267","text":"address of the whole foods on west broad st","label":"web","split":"test"}
+{"id":"wt-268","text":"is citarella still open in manhattan","label":"web","split":"train"}
+{"id":"wt-269","text":"what are the store locations for whole foods in brooklyn","label":"web","split":"train"}
+{"id":"wt-270","text":"store hours for the chelsea location","label":"web","split":"test"}
+{"id":"wt-271","text":"give me addresses for morton williams","label":"web","split":"train"}
+{"id":"wt-272","text":"tomorrow i need to plan a route in nyc for sales and merchendising of seggiano products","label":"web","split":"train"}
+{"id":"wt-273","text":"who invented the telephone","label":"web","split":"train"}
+{"id":"wt-274","text":"average salary for a software engineer in austin","label":"web","split":"test"}
+{"id":"wt-275","text":"how much is a pound of parmigiano reggiano","label":"web","split":"train"}
+{"id":"wt-276","text":"what grapes are in chianti classico","label":"web","split":"train"}
+{"id":"wt-277","text":"is la croix owned by pepsi","label":"web","split":"train"}
+{"id":"wt-278","text":"how many calories in a big mac","label":"web","split":"test"}
+{"id":"wt-279","text":"can you try with duck duck go now?","label":"web","split":"train"}
+{"id":"wt-280","text":"look up the population of lisbon","label":"web","split":"train"}
+{"id":"wt-281","text":"search the web for reviews of the framework laptop 13","label":"web","split":"test"}
+{"id":"wt-282","text":"what does https://example.com/pricing say","label":"web","split":"train"}
+{"id":"wt-283","text":"when did the first harry potter book come out","label":"web","split":"train"}
+{"id":"wt-284","text":"who sings the song espresso","label":"web","split":"train"}
+{"id":"wt-285","text":"what year did the ps2 come out","label":"web","split":"test"}
+{"id":"wt-286","text":"how much horsepower does a 2020 miata have","label":"web","split":"train"}
+{"id":"wt-287","text":"what is the population of canada","label":"web","split":"train"}
+{"id":"wt-288","text":"who is the lead singer of the national","label":"web","split":"train"}
+{"id":"wt-289","text":"where was abraham lincoln born","label":"web","split":"test"}
+{"id":"wt-290","text":"what's the best rated air fryer","label":"web","split":"train"}
+{"id":"wt-291","text":"how many calories does a peloton ride burn","label":"web","split":"train"}
+{"id":"wt-292","text":"is trader joes owned by aldi","label":"web","split":"test"}
+{"id":"wt-293","text":"who founded seggiano","label":"web","split":"train"}
+{"id":"wt-294","text":"when did the titanic sink","label":"web","split":"train"}
+{"id":"wt-295","text":"how big is the ssd in the base macbook air","label":"web","split":"train"}
+{"id":"wt-296","text":"what's the price of a new vw id buzz","label":"web","split":"test"}
+{"id":"wt-297","text":"what's the net worth of jeff bezos","label":"web","split":"train"}
+{"id":"wt-298","text":"where is the nearest ikea to richmond","label":"web","split":"train"}
+{"id":"wt-299","text":"what's rick rubin's real name","label":"web","split":"train"}
+{"id":"wt-300","text":"how much protein is in greek yogurt","label":"web","split":"test"}
+{"id":"wt-301","text":"who was the first woman in space","label":"web","split":"train"}
+{"id":"wt-302","text":"is the new york times owned by anyone","label":"web","split":"train"}
+{"id":"wt-303","text":"what did the supreme court decide in dobbs","label":"web","split":"train"}
+{"id":"wt-304","text":"how many states have legal weed","label":"web","split":"test"}
+{"id":"wt-305","text":"what's the height of mount everest","label":"web","split":"train"}
+{"id":"wt-306","text":"who is the ceo of whole foods now","label":"web","split":"train"}
+{"id":"wt-307","text":"whats the refund policy at costco","label":"web","split":"train"}
+{"id":"wt-308","text":"when was the last time the cubs won the world series","label":"web","split":"test"}
+{"id":"wt-309","text":"what is the most expensive painting ever sold","label":"web","split":"train"}
+{"id":"wt-310","text":"is ozempic covered by medicare","label":"web","split":"train"}
+{"id":"wt-311","text":"how do i get to the blue ridge parkway from richmond","label":"web","split":"train"}
+{"id":"wt-312","text":"hello","label":"none","split":"train"}
+{"id":"wt-313","text":"thanks, that helps a lot","label":"none","split":"test"}
+{"id":"wt-314","text":"ok how are yo udoing  today?","label":"none","split":"train"}
+{"id":"wt-315","text":"how do i center a div","label":"none","split":"train"}
+{"id":"wt-316","text":"how do I center a div in css grid","label":"none","split":"train"}
+{"id":"wt-317","text":"write a poem about the weather","label":"none","split":"test"}
+{"id":"wt-318","text":"write a poem about rain","label":"none","split":"train"}
+{"id":"wt-319","text":"how do futures work in rust","label":"none","split":"train"}
+{"id":"wt-320","text":"what should i add to my next game","label":"none","split":"train"}
+{"id":"wt-321","text":"build a revenue forecast in a spreadsheet","label":"none","split":"train"}
+{"id":"wt-322","text":"how does a stock market work","label":"none","split":"test"}
+{"id":"wt-323","text":"explain what a futures contract is like im 5","label":"none","split":"train"}
+{"id":"wt-324","text":"we need to weather the storm at work, any tips for keeping morale up","label":"none","split":"train"}
+{"id":"wt-325","text":"i'm feeling under the weather, what should i eat","label":"none","split":"train"}
+{"id":"wt-326","text":"write a short story about a band on tour","label":"none","split":"test"}
+{"id":"wt-327","text":"fix this bug in my parse function","label":"none","split":"train"}
+{"id":"wt-328","text":"refactor this code to use async await","label":"none","split":"train"}
+{"id":"wt-329","text":"my weather app crashes when the api returns null, heres the code","label":"none","split":"train"}
+{"id":"wt-330","text":"my stock ticker component doesnt rerender in react","label":"none","split":"train"}
+{"id":"wt-331","text":"in my game the score doesnt reset after game over","label":"none","split":"test"}
+{"id":"wt-332","text":"plan a birthday party for twelve people","label":"none","split":"train"}
+{"id":"wt-333","text":"open the config file and change the port","label":"none","split":"train"}
+{"id":"wt-334","text":"the issue is closed, what should i do next","label":"none","split":"train"}
+{"id":"wt-335","text":"write me a poem about the open road","label":"none","split":"test"}
+{"id":"wt-336","text":"whats 15% of 84","label":"none","split":"train"}
+{"id":"wt-337","text":"solve 3x + 7 = 22","label":"none","split":"train"}
+{"id":"wt-338","text":"what's the derivative of x^2 sin x","label":"none","split":"train"}
+{"id":"wt-339","text":"convert 5 miles to km","label":"none","split":"test"}
+{"id":"wt-340","text":"how many days between march 3 and june 10","label":"none","split":"test"}
+{"id":"wt-341","text":"can you make that shorter","label":"none","split":"train"}
+{"id":"wt-342","text":"what did you mean by the second point","label":"none","split":"train"}
+{"id":"wt-343","text":"summarize our conversation so far","label":"none","split":"train"}
+{"id":"wt-344","text":"rewrite this email so it sounds less angry: i told you three times already","label":"none","split":"test"}
+{"id":"wt-345","text":"translate \"where is the train station\" into italian","label":"none","split":"train"}
+{"id":"wt-346","text":"is this grammatically correct: me and him went to the store","label":"none","split":"train"}
+{"id":"wt-347","text":"give me 10 name ideas for an olive oil brand","label":"none","split":"train"}
+{"id":"wt-348","text":"help me write a toast for my brothers wedding","label":"none","split":"test"}
+{"id":"wt-349","text":"how do i ask my boss for a raise","label":"none","split":"train"}
+{"id":"wt-350","text":"what should i cook tonight with chicken thighs and rice","label":"none","split":"train"}
+{"id":"wt-351","text":"tonight i need to study for 3 hours, how should i break it up","label":"none","split":"train"}
+{"id":"wt-352","text":"i have some news, i got the job!","label":"none","split":"train"}
+{"id":"wt-353","text":"what's the score on this essay out of 10 if you were grading it","label":"none","split":"test"}
+{"id":"wt-354","text":"rate my resume summary, be harsh","label":"none","split":"train"}
+{"id":"wt-355","text":"who won in the story you just wrote, the knight or the dragon","label":"none","split":"train"}
+{"id":"wt-356","text":"make a shorter version of this paragraph","label":"none","split":"train"}
+{"id":"wt-357","text":"use the latest version of my draft, not the first one","label":"none","split":"test"}
+{"id":"wt-358","text":"how should i price my handmade candles","label":"none","split":"train"}
+{"id":"wt-359","text":"help me make a study schedule for finals","label":"none","split":"train"}
+{"id":"wt-360","text":"what's the difference between let and const in js","label":"none","split":"train"}
+{"id":"wt-361","text":"explain recursion with an example in python","label":"none","split":"train"}
+{"id":"wt-362","text":"how do i reverse a linked list","label":"none","split":"test"}
+{"id":"wt-363","text":"why does my python script say list index out of range","label":"none","split":"train"}
+{"id":"wt-364","text":"write a sql query to get the top 5 customers by revenue","label":"none","split":"train"}
+{"id":"wt-365","text":"whats a good regex for email validation","label":"none","split":"train"}
+{"id":"wt-366","text":"git says detached head, how do i fix it","label":"none","split":"test"}
+{"id":"wt-367","text":"whats the big o of quicksort","label":"none","split":"train"}
+{"id":"wt-368","text":"explain ohm's law and how current works in a circuit","label":"none","split":"train"}
+{"id":"wt-369","text":"how do vaccines work in general","label":"none","split":"train"}
+{"id":"wt-370","text":"why is the sky blue","label":"none","split":"train"}
+{"id":"wt-371","text":"what is photosynthesis","label":"none","split":"test"}
+{"id":"wt-372","text":"explain the difference between weather and climate","label":"none","split":"train"}
+{"id":"wt-373","text":"tell me a joke","label":"none","split":"train"}
+{"id":"wt-374","text":"i'm bored, lets play 20 questions","label":"none","split":"train"}
+{"id":"wt-375","text":"you're pretty good at this","label":"none","split":"test"}
+{"id":"wt-376","text":"good morning!","label":"none","split":"train"}
+{"id":"wt-377","text":"lol that's hilarious","label":"none","split":"train"}
+{"id":"wt-378","text":"help me brainstorm a side project, maybe a small game","label":"none","split":"train"}
+{"id":"wt-379","text":"i want my next game jam entry to be a roguelike, ideas?","label":"none","split":"test"}
+{"id":"wt-380","text":"write a haiku about the miami heat","label":"none","split":"test"}
+{"id":"wt-381","text":"write a song about the stock market crash","label":"none","split":"train"}
+{"id":"wt-382","text":"give me a workout plan for 3 days a week","label":"none","split":"train"}
+{"id":"wt-383","text":"how do i stop procrastinating","label":"none","split":"train"}
+{"id":"wt-384","text":"how can i be a better listener","label":"none","split":"test"}
+{"id":"wt-385","text":"my friend is sad, what can i say to cheer her up","label":"none","split":"train"}
+{"id":"wt-386","text":"draft an email to my landlord about the broken dishwasher","label":"none","split":"train"}
+{"id":"wt-387","text":"whats a good name for a golden retriever puppy","label":"none","split":"train"}
+{"id":"wt-388","text":"describe a sunset in the style of hemingway","label":"none","split":"test"}
+{"id":"wt-389","text":"continue the story from where you left off","label":"none","split":"train"}
+{"id":"wt-390","text":"can you put that in a table","label":"none","split":"train"}
+{"id":"wt-391","text":"turn this list into bullet points","label":"none","split":"train"}
+{"id":"wt-392","text":"explain it again but simpler","label":"none","split":"train"}
+{"id":"wt-393","text":"what's the meaning of life","label":"none","split":"test"}
+{"id":"wt-394","text":"do you think ai will take everyone's jobs","label":"none","split":"train"}
+{"id":"wt-395","text":"pros and cons of renting vs buying","label":"none","split":"train"}
+{"id":"wt-396","text":"how does compound interest work","label":"none","split":"train"}
+{"id":"wt-397","text":"how do index funds work","label":"none","split":"test"}
+{"id":"wt-398","text":"explain how a futures market works","label":"none","split":"train"}
+{"id":"wt-399","text":"what is a bear market vs a bull market","label":"none","split":"train"}
+{"id":"wt-400","text":"how do weather forecasts actually get made","label":"none","split":"train"}
+{"id":"wt-401","text":"what makes a good weather app ui","label":"none","split":"train"}
+{"id":"wt-402","text":"i need a forecast function in python that does exponential smoothing","label":"none","split":"train"}
+{"id":"wt-403","text":"how do i make a scoreboard in unity","label":"none","split":"test"}
+{"id":"wt-404","text":"what's the next step after i install node","label":"none","split":"train"}
+{"id":"wt-405","text":"whats the next thing i should learn after javascript","label":"none","split":"train"}
+{"id":"wt-406","text":"write a story about the next big game between two rival schools","label":"none","split":"train"}
+{"id":"wt-407","text":"help me plan my next d&d game session","label":"none","split":"test"}
+{"id":"wt-408","text":"our next match in the rec league is thursday, what drills should we run","label":"none","split":"train"}
+{"id":"wt-409","text":"the rain today ruined my plans, suggest some indoor activities","label":"none","split":"train"}
+{"id":"wt-410","text":"write a poem about snow falling tonight","label":"none","split":"test"}
+{"id":"wt-411","text":"whats the best way to learn guitar as an adult","label":"none","split":"train"}
+{"id":"wt-412","text":"how many cups in a gallon","label":"none","split":"train"}
+{"id":"wt-413","text":"how long should i boil an egg","label":"none","split":"train"}
+{"id":"wt-414","text":"what's a substitute for buttermilk","label":"none","split":"test"}
+{"id":"wt-415","text":"how do i get red wine out of carpet","label":"none","split":"train"}
+{"id":"wt-416","text":"whats the difference between affect and effect","label":"none","split":"train"}
+{"id":"wt-417","text":"how do i write a cover letter for a marketing job","label":"none","split":"train"}
+{"id":"wt-418","text":"can you proofread this: their going to the park tomorow","label":"none","split":"test"}
+{"id":"wt-419","text":"explain the plot of hamlet","label":"none","split":"train"}
+{"id":"wt-420","text":"who is the main character in your story again","label":"none","split":"train"}
+{"id":"wt-421","text":"remind me what we decided about the logo colors","label":"none","split":"test"}
+{"id":"wt-422","text":"what was the first thing i asked you today","label":"none","split":"train"}
+{"id":"wt-423","text":"thanks! can you also add a conclusion","label":"none","split":"train"}
+{"id":"wt-424","text":"no, i meant the other function","label":"none","split":"train"}
+{"id":"wt-425","text":"how are you doing today","label":"none","split":"test"}
+{"id":"wt-426","text":"what can you do","label":"none","split":"train"}
+{"id":"wt-427","text":"are you running locally on my machine","label":"none","split":"train"}
+{"id":"wt-428","text":"which model are you","label":"none","split":"train"}
+{"id":"wt-429","text":"how do i switch you to dark mode","label":"none","split":"test"}
+{"id":"wt-430","text":"write a python function that fetches the weather from an api","label":"none","split":"train"}
+{"id":"wt-431","text":"write a scraper for stock prices in python","label":"none","split":"train"}
+{"id":"wt-432","text":"i'm training for a marathon, how should i taper","label":"none","split":"test"}
+{"id":"wt-433","text":"give me a mnemonic for the planets","label":"none","split":"train"}
+{"id":"wt-434","text":"what rhymes with orange","label":"none","split":"train"}
+{"id":"wt-435","text":"is it better to study in the morning or at night","label":"none","split":"train"}
+{"id":"wt-436","text":"how do i tell my roommate to clean up without being rude","label":"none","split":"test"}
+{"id":"wt-437","text":"whats a good caption for a beach pic","label":"none","split":"train"}
+{"id":"wt-438","text":"generate some test data for a users table","label":"none","split":"train"}
+{"id":"wt-439","text":"my next.js build fails with module not found","label":"none","split":"train"}
+{"id":"wt-440","text":"convert this json to yaml","label":"none","split":"train"}
+{"id":"wt-441","text":"whats wrong with this sql: select * form users","label":"none","split":"train"}
+{"id":"wt-442","text":"how can i make my code faster, it loops over a million rows","label":"none","split":"train"}
+{"id":"wt-443","text":"do you remember my name","label":"none","split":"test"}
+{"id":"wt-444","text":"lets go with the first one","label":"none","split":"train"}
+{"id":"wt-445","text":"ok sounds good","label":"none","split":"train"}
+{"id":"wt-446","text":"yes please","label":"none","split":"train"}
+{"id":"wt-447","text":"why did you say that","label":"none","split":"test"}
+{"id":"wt-448","text":"that's not what i asked","label":"none","split":"train"}
+{"id":"wt-449","text":"i disagree with your last answer about the budget","label":"none","split":"train"}
+{"id":"wt-450","text":"what's the square root of 144","label":"none","split":"test"}
+{"id":"wt-451","text":"if i save $200 a month for 5 years at 5% how much will i have","label":"none","split":"train"}
+{"id":"wt-452","text":"split an $86 bill between 3 people with a 20% tip","label":"none","split":"train"}
+{"id":"wt-453","text":"how many weeks until christmas","label":"none","split":"train"}
+{"id":"wt-454","text":"what day of the week was july 4 1976","label":"none","split":"test"}
+{"id":"wt-455","text":"roleplay as a pirate and tell me about your ship","label":"none","split":"train"}
+{"id":"wt-456","text":"pretend you're interviewing me for a product manager job","label":"none","split":"train"}
+{"id":"wt-457","text":"give me feedback on my pitch deck outline","label":"none","split":"train"}
+{"id":"wt-458","text":"whats a good strategy for monopoly","label":"none","split":"test"}
+{"id":"wt-459","text":"how do i get better at chess openings","label":"none","split":"train"}
+{"id":"wt-460","text":"i'm nervous about my presentation tomorrow","label":"none","split":"train"}
+{"id":"wt-461","text":"write a limerick about a cat named futures","label":"none","split":"test"}
+{"id":"wt-462","text":"describe the market square in my novel, it's a fantasy city","label":"none","split":"train"}
+{"id":"wt-463","text":"how would you structure a weekly team meeting","label":"none","split":"train"}
+{"id":"wt-464","text":"explain the rules of cricket simply","label":"none","split":"train"}
+{"id":"wt-465","text":"summarize the history of the roman empire in 3 sentences","label":"none","split":"test"}
+{"id":"wt-466","text":"can you check my math: 17*23 = 391","label":"none","split":"train"}
+{"id":"wt-467","text":"is 97 a prime number","label":"none","split":"train"}
+{"id":"wt-468","text":"how do i make fresh pasta dough","label":"none","split":"train"}
+{"id":"wt-469","text":"what wine goes with mushroom risotto","label":"none","split":"test"}
+{"id":"wt-470","text":"suggest a name for my fantasy football team","label":"none","split":"train"}
+{"id":"wt-471","text":"help me write a product description for seggiano pesto","label":"none","split":"train"}
+{"id":"wt-472","text":"fun things to do on a rainy day with kids","label":"none","split":"test"}
+{"id":"wt-473","text":"how does the stock market affect the economy","label":"none","split":"train"}
+{"id":"wt-474","text":"teach me how to read a candlestick chart","label":"none","split":"train"}
+{"id":"wt-475","text":"explain what pre-market trading is","label":"none","split":"train"}
+{"id":"wt-476","text":"what does it mean when a game goes to overtime","label":"none","split":"test"}
+{"id":"wt-477","text":"remind me how scoring works in tennis","label":"none","split":"train"}
+{"id":"wt-478","text":"how do i stop a leaking faucet","label":"none","split":"train"}
+{"id":"wt-479","text":"how long do leftovers last in the fridge","label":"none","split":"train"}
+{"id":"wt-480","text":"what internal temperature should chicken be cooked to","label":"none","split":"train"}
+{"id":"wt-481","text":"how much water per person for a hurricane kit","label":"none","split":"train"}
+{"id":"wt-482","text":"what is the standard deduction","label":"web","split":"train"}
+{"id":"wt-483","text":"write a cover letter using the latest news about my company as a hook","label":"none","split":"test"}
+{"id":"wt-484","text":"my script's schedule function runs twice, why?","label":"none","split":"train"}
+{"id":"wt-485","text":"how do i schedule a cron job every 5 minutes","label":"none","split":"train"}
+{"id":"wt-486","text":"what's the best way to store prices in a database, decimal or float?","label":"none","split":"train"}
+{"id":"wt-487","text":"i keep losing at chess, what am i doing wrong","label":"none","split":"test"}
+{"id":"wt-488","text":"name some good board games for 2 players","label":"none","split":"train"}
+{"id":"wt-489","text":"what do you think of my idea for an app that shows the weather as music","label":"none","split":"train"}
+{"id":"wt-490","text":"how do i add a dark theme to my weather dashboard","label":"none","split":"test"}
+{"id":"wt-491","text":"explain the difference between stocks and bonds","label":"none","split":"train"}
+{"id":"wt-492","text":"my kid asked why it rains, how do i explain it","label":"none","split":"train"}
+{"id":"wt-493","text":"whats a good closing line for a sales email","label":"none","split":"train"}
+{"id":"wt-494","text":"create a function that returns the latest file in a folder","label":"none","split":"test"}
+{"id":"wt-495","text":"why is my unit test for the score calculator failing","label":"none","split":"train"}
+{"id":"wt-496","text":"how do i handle time zones in javascript dates","label":"none","split":"train"}
+{"id":"wt-497","text":"draft a linkedin post about our new product launch","label":"none","split":"train"}
+{"id":"wt-498","text":"can you shorten this to one paragraph","label":"none","split":"test"}
+{"id":"wt-499","text":"what's 2 to the power of 20","label":"none","split":"train"}
+{"id":"wt-500","text":"give me a random number between 1 and 100","label":"none","split":"train"}
+{"id":"wt-501","text":"how do i politely decline a meeting","label":"none","split":"train"}
+{"id":"wt-502","text":"what does \"break a leg\" mean","label":"none","split":"test"}
+{"id":"wt-503","text":"what are some good icebreakers for a team call","label":"none","split":"train"}
+{"id":"wt-504","text":"make this more formal: hey can we move the call","label":"none","split":"train"}
+{"id":"wt-505","text":"how do i keep sourdough starter alive","label":"none","split":"train"}
+{"id":"wt-506","text":"what's the plural of octopus","label":"none","split":"test"}
+{"id":"wt-507","text":"can you explain what an api is","label":"none","split":"train"}
+{"id":"wt-508","text":"what's a good way to learn spanish fast","label":"none","split":"train"}
+{"id":"wt-509","text":"write a bedtime story about a dragon who is scared of the dark","label":"none","split":"train"}
+{"id":"wt-510","text":"help me outline a blog post about olive oil tasting","label":"none","split":"train"}
+{"id":"wt-511","text":"whats the time complexity of a hash map lookup","label":"none","split":"test"}
+{"id":"wt-512","text":"in my spreadsheet how do i make a column show the next date","label":"none","split":"train"}
+{"id":"wt-513","text":"my next paycheck is $2400, help me budget it","label":"none","split":"train"}
+{"id":"wt-514","text":"explain like im 5 how the internet works","label":"none","split":"train"}
+{"id":"wt-515","text":"what should i name my variable that stores the last score","label":"none","split":"test"}
+{"id":"wt-516","text":"i watched the game last night with my dad and it was fun","label":"none","split":"train"}
+{"id":"wt-517","text":"write a sports article about a made up team winning the final","label":"none","split":"train"}
+{"id":"wt-518","text":"what's the past tense of lead","label":"none","split":"train"}
+{"id":"wt-519","text":"what's a synonym for happy","label":"none","split":"test"}
+{"id":"wt-520","text":"whats the opposite of generous","label":"none","split":"test"}
+{"id":"wt-521","text":"what's the formula for the area of a circle","label":"none","split":"train"}
+{"id":"wt-522","text":"what's the point of unit tests","label":"none","split":"train"}
+{"id":"wt-523","text":"what's the best way to learn to code","label":"none","split":"train"}
+{"id":"wt-524","text":"whats the difference between a list and a tuple in python","label":"none","split":"test"}
+{"id":"wt-525","text":"what's the difference between baking soda and baking powder","label":"none","split":"train"}
+{"id":"wt-526","text":"what's a good gift for my dad who likes fishing","label":"none","split":"train"}
+{"id":"wt-527","text":"what's the best order to read these three books i listed","label":"none","split":"train"}
+{"id":"wt-528","text":"whats the capital letter rule for titles in apa","label":"none","split":"test"}
+{"id":"wt-529","text":"what's an easy dinner i can make in 20 minutes","label":"none","split":"train"}
+{"id":"wt-530","text":"what's a closure in javascript","label":"none","split":"train"}
+{"id":"wt-531","text":"whats the probability of rolling two sixes","label":"none","split":"train"}
+{"id":"wt-532","text":"what's 18 times 7","label":"none","split":"train"}
+{"id":"wt-533","text":"what's the integral of 1/x","label":"none","split":"test"}
+{"id":"wt-534","text":"whats the difference between a virus and bacteria","label":"none","split":"train"}
+{"id":"wt-535","text":"how many ounces in a pound","label":"none","split":"train"}
+{"id":"wt-536","text":"how many sides does a hexagon have","label":"none","split":"train"}
+{"id":"wt-537","text":"how many tablespoons in a cup","label":"none","split":"test"}
+{"id":"wt-538","text":"how many hours is 450 minutes","label":"none","split":"train"}
+{"id":"wt-539","text":"how many words should a cover letter be","label":"none","split":"train"}
+{"id":"wt-540","text":"how many sets and reps should i do for strength","label":"none","split":"train"}
+{"id":"wt-541","text":"how many times should i water a cactus","label":"none","split":"train"}
+{"id":"wt-542","text":"who is the villain in the story we wrote","label":"none","split":"test"}
+{"id":"wt-543","text":"who is a good character to add to my novel","label":"none","split":"train"}
+{"id":"wt-544","text":"who should i invite to a small dinner party, i have 8 friends","label":"none","split":"train"}
+{"id":"wt-545","text":"is it rude to text instead of call","label":"none","split":"train"}
+{"id":"wt-546","text":"is it bad to drink coffee on an empty stomach","label":"none","split":"test"}
+{"id":"wt-547","text":"is it weird to ask for feedback after a rejection","label":"none","split":"train"}
+{"id":"wt-548","text":"is python or javascript better for a beginner","label":"none","split":"train"}
+{"id":"wt-549","text":"is my logic right here: if a then b, not b so not a","label":"none","split":"train"}
+{"id":"wt-550","text":"is this function pure?","label":"none","split":"train"}
+{"id":"wt-551","text":"does this code have a memory leak","label":"none","split":"test"}
+{"id":"wt-552","text":"does my essay flow well","label":"none","split":"train"}
+{"id":"wt-553","text":"does this sound professional: pls send asap","label":"none","split":"train"}
+{"id":"wt-554","text":"when should i use a semicolon","label":"none","split":"train"}
+{"id":"wt-555","text":"when is it ok to use passive voice","label":"none","split":"test"}
+{"id":"wt-556","text":"when do you use whom vs who","label":"none","split":"train"}
+{"id":"wt-557","text":"where should i put the api key in my app","label":"none","split":"train"}
+{"id":"wt-558","text":"where do i start with learning music theory","label":"none","split":"train"}
+{"id":"wt-559","text":"why does my cat knock things off tables","label":"none","split":"test"}
+{"id":"wt-560","text":"why is my bread dense","label":"none","split":"test"}
+{"id":"wt-561","text":"why is my recursive function so slow","label":"none","split":"train"}
+{"id":"wt-562","text":"why do we dream","label":"none","split":"train"}
+{"id":"wt-563","text":"how are rainbows formed","label":"none","split":"train"}
+{"id":"wt-564","text":"how does gps work","label":"none","split":"test"}
+{"id":"wt-565","text":"how does a car engine work","label":"none","split":"train"}
+{"id":"wt-566","text":"how does encryption work","label":"none","split":"train"}
+{"id":"wt-567","text":"how does the heart pump blood","label":"none","split":"train"}
+{"id":"wt-568","text":"how do airplanes stay in the air","label":"none","split":"test"}
+{"id":"wt-569","text":"how do i make my own weather station with a raspberry pi","label":"none","split":"train"}
+{"id":"wt-570","text":"explain how the fed sets interest rates in general","label":"none","split":"train"}
+{"id":"wt-571","text":"what is inflation and why does it happen","label":"none","split":"train"}
+{"id":"wt-572","text":"what is a stock split","label":"none","split":"train"}
+{"id":"wt-573","text":"what are options in trading, explain simply","label":"none","split":"test"}
+{"id":"wt-574","text":"how do i read a weather map, like the symbols","label":"none","split":"train"}
+{"id":"wt-575","text":"what does a meteorologist actually do","label":"none","split":"train"}
+{"id":"wt-576","text":"today i want to be productive, give me a plan","label":"none","split":"train"}
+{"id":"wt-577","text":"today was rough, can we just talk","label":"none","split":"test"}
+{"id":"wt-578","text":"tonight i'm making tacos, what sides go with them","label":"none","split":"train"}
+{"id":"wt-579","text":"tomorrow is my first day at a new job, any advice","label":"none","split":"train"}
+{"id":"wt-580","text":"i have an interview tomorrow morning, help me prep","label":"none","split":"train"}
+{"id":"wt-581","text":"right now i'm stuck on this proof, can you help","label":"none","split":"train"}
+{"id":"wt-582","text":"now make it rhyme","label":"none","split":"test"}
+{"id":"wt-583","text":"now translate it to french","label":"none","split":"train"}
+{"id":"wt-584","text":"ok now do the same for the second list","label":"none","split":"train"}
+{"id":"wt-585","text":"can you do it again but funnier","label":"none","split":"train"}
+{"id":"wt-586","text":"how are you feeling today","label":"none","split":"test"}
+{"id":"wt-587","text":"how's it going","label":"none","split":"train"}
+{"id":"wt-588","text":"what are you up to today","label":"none","split":"train"}
+{"id":"wt-589","text":"good night, talk tomorrow","label":"none","split":"train"}
+{"id":"wt-590","text":"happy friday!","label":"none","split":"train"}
+{"id":"wt-591","text":"how was your weekend lol","label":"none","split":"test"}
+{"id":"wt-592","text":"hey whats up","label":"none","split":"train"}
+{"id":"wt-593","text":"this is so cool, thanks for today","label":"none","split":"train"}
+{"id":"wt-594","text":"i feel like the weather is making me tired today","label":"none","split":"train"}
+{"id":"wt-595","text":"my sister is getting married next week, help me write a card","label":"none","split":"test"}
+{"id":"wt-596","text":"my team lost again tonight, i need a pep talk","label":"none","split":"train"}
+{"id":"wt-597","text":"i'm going to the game tonight, what should i bring to a football tailgate","label":"none","split":"train"}
+{"id":"wt-598","text":"what should i wear to a job interview tomorrow","label":"none","split":"train"}
+{"id":"wt-599","text":"help me write a text telling my friend i can't make it tonight","label":"none","split":"test"}
+{"id":"wt-600","text":"is it ok to go running in the rain","label":"none","split":"train"}
+{"id":"wt-601","text":"i'm watching the heat game with friends, give me some snack ideas","label":"none","split":"test"}
+{"id":"wt-602","text":"write a tweet about the weather being perfect today","label":"none","split":"train"}
+{"id":"wt-603","text":"compose a short poem about tomorrow's sunrise","label":"none","split":"train"}
+{"id":"wt-604","text":"create a story about a stock trader who time travels","label":"none","split":"train"}
+{"id":"wt-605","text":"draft a speech for our team's championship dinner","label":"none","split":"test"}
+{"id":"wt-606","text":"generate a crossword clue for the word forecast","label":"none","split":"train"}
+{"id":"wt-607","text":"explain this error: typeerror cannot read properties of undefined","label":"none","split":"train"}
+{"id":"wt-608","text":"my react app shows the wrong date today, heres the code","label":"none","split":"train"}
+{"id":"wt-609","text":"write a function that checks if a store is open right now given its hours","label":"none","split":"test"}
+{"id":"wt-610","text":"how do i get the current date in python","label":"none","split":"train"}
+{"id":"wt-611","text":"how do i get today's date in excel","label":"none","split":"train"}
+{"id":"wt-612","text":"in sql how do i select rows from today","label":"none","split":"test"}
+{"id":"wt-613","text":"how do i convert utc to local time in js","label":"none","split":"train"}
+{"id":"wt-614","text":"my cron job didnt run last night, what could be wrong","label":"none","split":"train"}
+{"id":"wt-615","text":"what version of python should i use for my project, i need numpy","label":"none","split":"train"}
+{"id":"wt-616","text":"how do i check which version of node i have installed","label":"none","split":"test"}
+{"id":"wt-617","text":"how do i update npm packages in my project","label":"none","split":"train"}
+{"id":"wt-618","text":"how do i upgrade my project to the latest react version","label":"none","split":"train"}
+{"id":"wt-619","text":"what does this error mean: version mismatch between client and server","label":"none","split":"train"}
+{"id":"wt-620","text":"how do i price my freelance design work","label":"none","split":"train"}
+{"id":"wt-621","text":"is 30k too much to spend on a car when i make 70k","label":"none","split":"train"}
+{"id":"wt-622","text":"help me compare these two job offers i pasted","label":"none","split":"train"}
+{"id":"wt-623","text":"should i pay off debt or invest first","label":"none","split":"test"}
+{"id":"wt-624","text":"how much should i save for an emergency fund","label":"none","split":"train"}
+{"id":"wt-625","text":"what's a good budget split for rent food and savings","label":"none","split":"train"}
+{"id":"wt-626","text":"summarize this article i pasted about the economy","label":"none","split":"train"}
+{"id":"wt-627","text":"translate this text from spanish: hoy hace mucho calor","label":"none","split":"test"}
+{"id":"wt-628","text":"fix the grammar in my last message","label":"none","split":"train"}
+{"id":"wt-629","text":"can you explain your last answer step by step","label":"none","split":"train"}
+{"id":"wt-630","text":"which of the options you gave is cheapest","label":"none","split":"test"}
+{"id":"wt-631","text":"go back to what you said about the second recipe","label":"none","split":"train"}
+{"id":"wt-632","text":"what did i say my budget was earlier","label":"none","split":"train"}
+{"id":"wt-633","text":"combine the two lists we made","label":"none","split":"train"}
+{"id":"wt-634","text":"you said something different before, which is right","label":"none","split":"test"}
+{"id":"wt-635","text":"stop using bullet points please","label":"none","split":"train"}
+{"id":"wt-636","text":"keep it under 100 words","label":"none","split":"train"}
+{"id":"wt-637","text":"write it like a pirate","label":"none","split":"train"}
+{"id":"wt-638","text":"give me three more like that","label":"none","split":"test"}
+{"id":"wt-639","text":"what's the moral of the tortoise and the hare","label":"none","split":"train"}
+{"id":"wt-640","text":"tell me a fun fact","label":"none","split":"train"}
+{"id":"wt-641","text":"tell me something interesting about octopuses","label":"none","split":"test"}
+{"id":"wt-642","text":"tell me about yourself","label":"none","split":"train"}
+{"id":"wt-643","text":"who are you","label":"none","split":"train"}
+{"id":"wt-644","text":"what is love","label":"none","split":"train"}
+{"id":"wt-645","text":"what is the speed of light","label":"none","split":"test"}
+{"id":"wt-646","text":"what's the boiling point of water","label":"none","split":"train"}
+{"id":"wt-647","text":"how many continents are there","label":"none","split":"train"}
+{"id":"wt-648","text":"who wrote romeo and juliet","label":"none","split":"train"}
+{"id":"wt-649","text":"what is the chemical symbol for gold","label":"none","split":"test"}
+{"id":"wt-650","text":"what planet is closest to the sun","label":"none","split":"train"}
+{"id":"wt-651","text":"how many bones are in the human body","label":"none","split":"train"}
+{"id":"wt-652","text":"what's the square footage of a 12 by 15 room","label":"none","split":"test"}
+{"id":"wt-653","text":"how do i factor x^2 - 5x + 6","label":"none","split":"train"}
+{"id":"wt-654","text":"what time is it in london if it's 3pm in new york","label":"none","split":"train"}
+{"id":"wt-655","text":"what's 30 celsius in fahrenheit","label":"none","split":"train"}
+{"id":"wt-656","text":"is a tomato a fruit","label":"none","split":"test"}
+{"id":"wt-657","text":"can dogs eat grapes","label":"none","split":"train"}
+{"id":"wt-658","text":"who is the ceo of starbucks","label":"web","split":"train"}
+{"id":"wt-659","text":"who is the drummer of radiohead","label":"web","split":"train"}
+{"id":"wt-660","text":"who is the owner of the miami heat","label":"web","split":"train"}
+{"id":"wt-661","text":"who is the ceo of seggiano's us distributor","label":"web","split":"train"}
+{"id":"wt-662","text":"who is running for governor of virginia","label":"web","split":"train"}
+{"id":"wt-663","text":"who is the head coach of the dallas cowboys","label":"web","split":"test"}
+{"id":"wt-664","text":"who is the lead actor in the new superman movie","label":"web","split":"train"}
+{"id":"wt-665","text":"who's the author of the three body problem","label":"web","split":"train"}
+{"id":"wt-666","text":"who founded trader joes","label":"web","split":"train"}
+{"id":"wt-667","text":"who owns the washington post","label":"web","split":"test"}
+{"id":"wt-668","text":"what's the population of richmond metro area","label":"web","split":"train"}
+{"id":"wt-669","text":"what's the max payload of a toyota tacoma","label":"web","split":"train"}
+{"id":"wt-670","text":"what's the resolution of the meta quest 3","label":"web","split":"test"}
+{"id":"wt-671","text":"what's the screen size of the ipad mini","label":"web","split":"train"}
+{"id":"wt-672","text":"whats the release date of the new mario kart","label":"web","split":"train"}
+{"id":"wt-673","text":"what's the price of a peloton bike","label":"web","split":"train"}
+{"id":"wt-674","text":"what's the name of the ceo of costco","label":"web","split":"test"}
+{"id":"wt-675","text":"what's the minimum age to rent a car in the us","label":"web","split":"train"}
+{"id":"wt-676","text":"what's the address of the virginia museum of fine arts","label":"web","split":"train"}
+{"id":"wt-677","text":"what's the phone number for dominion energy","label":"web","split":"train"}
+{"id":"wt-678","text":"what's the tax rate on long term capital gains for 2026","label":"web","split":"test"}
+{"id":"wt-679","text":"how many employees does nvidia have","label":"web","split":"train"}
+{"id":"wt-680","text":"how many stores does trader joes have","label":"web","split":"train"}
+{"id":"wt-681","text":"how many locations does wegmans have in virginia","label":"web","split":"test"}
+{"id":"wt-682","text":"how many teams are in the nfl","label":"web","split":"train"}
+{"id":"wt-683","text":"how many people went to the super bowl last year","label":"web","split":"train"}
+{"id":"wt-684","text":"how many copies has the switch sold","label":"web","split":"train"}
+{"id":"wt-685","text":"how many seasons of the office are there","label":"web","split":"test"}
+{"id":"wt-686","text":"how many albums did the beatles release","label":"web","split":"train"}
+{"id":"wt-687","text":"how much does a steam deck cost","label":"web","split":"train"}
+{"id":"wt-688","text":"how much is an iphone 16 pro max","label":"web","split":"train"}
+{"id":"wt-689","text":"how much does a tesla cybertruck cost","label":"web","split":"test"}
+{"id":"wt-690","text":"how much is costco membership","label":"web","split":"train"}
+{"id":"wt-691","text":"how much does it cost to fly to italy in october","label":"web","split":"train"}
+{"id":"wt-692","text":"how much do nurses make in virginia","label":"web","split":"test"}
+{"id":"wt-693","text":"how long is the new dune movie","label":"web","split":"train"}
+{"id":"wt-694","text":"how long does a passport take to process","label":"web","split":"train"}
+{"id":"wt-695","text":"how long is the appalachian trail","label":"web","split":"train"}
+{"id":"wt-696","text":"how old is the pope","label":"web","split":"test"}
+{"id":"wt-697","text":"how old is lebron james","label":"web","split":"train"}
+{"id":"wt-698","text":"where is the next olympics","label":"web","split":"train"}
+{"id":"wt-699","text":"where is the headquarters of whole foods","label":"web","split":"train"}
+{"id":"wt-700","text":"where was taylor swift born","label":"web","split":"test"}
+{"id":"wt-701","text":"where can i buy seggiano pesto in richmond","label":"web","split":"train"}
+{"id":"wt-702","text":"where do the washington commanders play","label":"web","split":"train"}
+{"id":"wt-703","text":"when did the iphone 15 come out","label":"web","split":"train"}
+{"id":"wt-704","text":"when did the beatles break up","label":"web","split":"test"}
+{"id":"wt-705","text":"when was the declaration of independence signed","label":"web","split":"train"}
+{"id":"wt-706","text":"when was costco founded","label":"web","split":"train"}
+{"id":"wt-707","text":"when did the last season of succession air","label":"web","split":"train"}
+{"id":"wt-708","text":"is whole foods owned by amazon","label":"web","split":"test"}
+{"id":"wt-709","text":"is the new macbook air fanless","label":"web","split":"train"}
+{"id":"wt-710","text":"is the pixel 9 waterproof","label":"web","split":"train"}
+{"id":"wt-711","text":"is ikea open on sundays","label":"web","split":"train"}
+{"id":"wt-712","text":"is chipotle gluten free","label":"web","split":"train"}
+{"id":"wt-713","text":"does the kindle support epub","label":"web","split":"test"}
+{"id":"wt-714","text":"does costco sell gas to non members","label":"web","split":"train"}
+{"id":"wt-715","text":"does the model y have a third row","label":"web","split":"train"}
+{"id":"wt-716","text":"did the eagles win the super bowl in 2025","label":"web","split":"train"}
+{"id":"wt-717","text":"did radiohead release a new album","label":"web","split":"test"}
+{"id":"wt-718","text":"which is bigger, texas or alaska","label":"web","split":"train"}
+{"id":"wt-719","text":"which airlines fly to lisbon from dc","label":"web","split":"train"}
+{"id":"wt-720","text":"which states have no income tax","label":"web","split":"train"}
+{"id":"wt-721","text":"which company makes the most popular olive oil in italy","label":"web","split":"train"}
+{"id":"wt-722","text":"what's the best selling car in america","label":"web","split":"test"}
+{"id":"wt-723","text":"what are the reviews like for the framework 16","label":"web","split":"train"}
+{"id":"wt-724","text":"what are the side effects of melatonin","label":"web","split":"train"}
+{"id":"wt-725","text":"what are the ingredients in coca cola","label":"web","split":"train"}
+{"id":"wt-726","text":"what does the rtx 5070 cost","label":"web","split":"test"}
+{"id":"wt-727","text":"what processor does the ps5 pro use","label":"web","split":"train"}
+{"id":"wt-728","text":"what year did the first harry potter movie come out","label":"web","split":"train"}
+{"id":"wt-729","text":"tell me about the history of seggiano the company","label":"web","split":"train"}
+{"id":"wt-730","text":"tell me about the founder of patagonia","label":"web","split":"train"}
+{"id":"wt-731","text":"what do you know about the band khruangbin","label":"web","split":"test"}
+{"id":"wt-732","text":"who plays drums for the national","label":"web","split":"train"}
+{"id":"wt-733","text":"what time does the louvre open","label":"web","split":"train"}
+{"id":"wt-734","text":"what are the visiting hours at the vmfa","label":"web","split":"train"}
+{"id":"wt-735","text":"what's the menu at the pizza place on cary street","label":"web","split":"test"}
+{"id":"wt-736","text":"is there a whole foods in short pump","label":"web","split":"train"}
+{"id":"wt-737","text":"best coffee shops in richmond","label":"web","split":"train"}
+{"id":"wt-738","text":"top rated dentist near carytown","label":"web","split":"train"}
+{"id":"wt-739","text":"good hiking trails near charlottesville","label":"web","split":"test"}
+{"id":"wt-740","text":"what's the cheapest flight from richmond to miami","label":"web","split":"test"}
+{"id":"wt-741","text":"what are the requirements for a real id in virginia","label":"web","split":"train"}
+{"id":"wt-742","text":"what's the speed limit on i-64","label":"web","split":"train"}
+{"id":"wt-743","text":"what's the legal bac limit in virginia","label":"web","split":"train"}
+{"id":"wt-744","text":"what's the current federal funds rate","label":"web","split":"test"}
+{"id":"wt-745","text":"who is the richest person in the world","label":"web","split":"train"}
+{"id":"wt-746","text":"who won the nobel prize in physics this year","label":"web","split":"train"}
+{"id":"wt-747","text":"who won the super bowl in 2024","label":"web","split":"train"}
+{"id":"wt-748","text":"who holds the marathon world record","label":"web","split":"test"}
+{"id":"wt-749","text":"what's the record for most points in an nba game","label":"web","split":"train"}
+{"id":"wt-750","text":"what's the rotten tomatoes score for the new alien movie","label":"web","split":"train"}
+{"id":"wt-751","text":"what's the imdb rating of severance","label":"web","split":"train"}
+{"id":"wt-752","text":"what's the latest album by radiohead","label":"web","split":"train"}
+{"id":"wt-753","text":"what's the newest pixel phone","label":"web","split":"test"}
+{"id":"wt-754","text":"what's the latest macbook pro chip","label":"web","split":"train"}
+{"id":"wt-755","text":"is there a new version of the kindle scribe","label":"web","split":"train"}
+{"id":"wt-756","text":"how much ram does the iphone 16 have","label":"web","split":"train"}
+{"id":"wt-757","text":"how many cores does the m4 pro have","label":"web","split":"test"}
+{"id":"wt-758","text":"what gpu is in the ps5","label":"web","split":"train"}
+{"id":"wt-759","text":"what's the battery life of airpods pro 2","label":"web","split":"train"}
+{"id":"wt-760","text":"what are the dimensions of a ford maverick bed","label":"web","split":"train"}
+{"id":"wt-761","text":"what's the mpg of a 2025 rav4 hybrid","label":"web","split":"train"}
+{"id":"wt-762","text":"who won the game last night","label":"live","split":"test"}
+{"id":"wt-763","text":"who won the election in new york","label":"live","split":"train"}
+{"id":"wt-764","text":"who won the match today","label":"live","split":"train"}
+{"id":"wt-765","text":"who's playing on monday night football","label":"live","split":"train"}
+{"id":"wt-766","text":"what channel is the georgia game on","label":"live","split":"test"}
+{"id":"wt-767","text":"what's the score of the yankees game","label":"live","split":"train"}
+{"id":"wt-768","text":"hows the weather looking for the weekend","label":"live","split":"train"}
+{"id":"wt-769","text":"weather tomorrow","label":"live","split":"train"}
+{"id":"wt-770","text":"what's the temperature outside","label":"live","split":"train"}
+{"id":"wt-771","text":"will it rain during my commute this evening","label":"live","split":"test"}
+{"id":"wt-772","text":"is it icy on the roads this morning in richmond","label":"live","split":"train"}
+{"id":"wt-773","text":"how hot is it going to get today","label":"live","split":"train"}
+{"id":"wt-774","text":"is there a frost warning tonight","label":"live","split":"train"}
+{"id":"wt-775","text":"what's the snow forecast for the mountains this weekend","label":"live","split":"test"}
+{"id":"wt-776","text":"are the roads bad in northern virginia right now","label":"live","split":"train"}
+{"id":"wt-777","text":"is the metro running on time","label":"live","split":"train"}
+{"id":"wt-778","text":"any accidents on 288 right now","label":"live","split":"train"}
+{"id":"wt-779","text":"is my amtrak train on time","label":"live","split":"test"}
+{"id":"wt-780","text":"is there a ground stop at reagan airport","label":"live","split":"test"}
+{"id":"wt-781","text":"how much is bitcoin","label":"live","split":"train"}
+{"id":"wt-782","text":"what's the price of eth","label":"live","split":"train"}
+{"id":"wt-783","text":"how's the stock market today","label":"live","split":"train"}
+{"id":"wt-784","text":"what's the s&p at","label":"live","split":"test"}
+{"id":"wt-785","text":"how did the nasdaq close","label":"live","split":"train"}
+{"id":"wt-786","text":"why is nvidia stock up today","label":"live","split":"train"}
+{"id":"wt-787","text":"what did the fed say today","label":"live","split":"train"}
+{"id":"wt-788","text":"how much is a dollar in euros right now","label":"live","split":"test"}
+{"id":"wt-789","text":"what's the yen at","label":"live","split":"train"}
+{"id":"wt-790","text":"where's oil trading this morning","label":"live","split":"train"}
+{"id":"wt-791","text":"what's the latest on the tariffs","label":"live","split":"train"}
+{"id":"wt-792","text":"what happened in the news today","label":"live","split":"train"}
+{"id":"wt-793","text":"any news about the storm","label":"live","split":"test"}
+{"id":"wt-794","text":"what's the latest with the strike at boeing","label":"live","split":"train"}
+{"id":"wt-795","text":"did the government shut down","label":"live","split":"train"}
+{"id":"wt-796","text":"who's winning the election right now","label":"live","split":"train"}
+{"id":"wt-797","text":"what did the president say today","label":"live","split":"test"}
+{"id":"wt-798","text":"is youtube down","label":"live","split":"train"}
+{"id":"wt-799","text":"is openai having an outage right now","label":"live","split":"train"}
+{"id":"wt-800","text":"is netflix down right now","label":"live","split":"train"}
+{"id":"wt-801","text":"is the playstation network down","label":"live","split":"train"}
+{"id":"wt-802","text":"what is the latest version of typescript","label":"live","split":"train"}
+{"id":"wt-803","text":"latest version of react","label":"live","split":"test"}
+{"id":"wt-804","text":"what's the newest version of macos","label":"live","split":"train"}
+{"id":"wt-805","text":"what's the most recent release of lm studio","label":"live","split":"train"}
+{"id":"wt-806","text":"is there a newer version of vs code","label":"live","split":"train"}
+{"id":"wt-807","text":"latest ollama version","label":"live","split":"test"}
+{"id":"wt-808","text":"what version of windows 11 is the latest","label":"live","split":"train"}
+{"id":"wt-809","text":"is home depot open right now","label":"live","split":"train"}
+{"id":"wt-810","text":"what time does the pharmacy at cvs close today","label":"live","split":"test"}
+{"id":"wt-811","text":"is the dmv open tomorrow","label":"live","split":"train"}
+{"id":"wt-812","text":"are the museums open today in dc","label":"live","split":"train"}
+{"id":"wt-813","text":"is the library open on sunday this week","label":"live","split":"train"}
+{"id":"wt-814","text":"is the zoo open today with the rain","label":"live","split":"test"}
+{"id":"wt-815","text":"what movies are out this weekend","label":"live","split":"train"}
+{"id":"wt-816","text":"what's on tv tonight","label":"live","split":"train"}
+{"id":"wt-817","text":"anything fun happening in richmond tonight","label":"live","split":"train"}
+{"id":"wt-818","text":"is there a game at the stadium tonight, traffic?","label":"live","split":"test"}
+{"id":"wt-819","text":"when's the next rocket launch from wallops","label":"live","split":"train"}
+{"id":"wt-820","text":"how long is the wait at the er right now","label":"live","split":"train"}
+{"id":"wt-821","text":"is the ferry running today","label":"live","split":"test"}
+{"id":"wt-822","text":"are flights delayed out of atlanta right now","label":"live","split":"train"}
+{"id":"wt-823","text":"current gas price average in virginia","label":"live","split":"train"}
+{"id":"wt-824","text":"how much are mortgage rates today","label":"live","split":"train"}
+{"id":"wt-825","text":"what's the current prime rate","label":"live","split":"test"}
+{"id":"wt-826","text":"what are cd rates right now","label":"live","split":"train"}
+{"id":"wt-827","text":"how many cases of covid this week","label":"live","split":"train"}
+{"id":"wt-828","text":"is there a burn ban today","label":"live","split":"train"}
+{"id":"wt-829","text":"is the air quality bad right now","label":"live","split":"test"}
+{"id":"wt-830","text":"when is sunrise tomorrow","label":"live","split":"train"}
+{"id":"wt-831","text":"what phase is the moon tonight","label":"live","split":"train"}
+{"id":"wt-832","text":"is the aurora visible this week","label":"live","split":"test"}
+{"id":"wt-833","text":"are the leaves changing yet in the blue ridge","label":"live","split":"train"}
+{"id":"wt-834","text":"hi there, how are you today?","label":"none","split":"train"}
+{"id":"wt-835","text":"how are things with you this morning","label":"none","split":"train"}
+{"id":"wt-836","text":"how's your day going so far","label":"none","split":"test"}
+{"id":"wt-837","text":"good afternoon! how are you","label":"none","split":"train"}
+{"id":"wt-838","text":"how are you holding up","label":"none","split":"train"}
+{"id":"wt-839","text":"morning! ready to help me with some writing today?","label":"none","split":"train"}
+{"id":"wt-840","text":"how do you feel about helping me with homework tonight","label":"none","split":"train"}
+{"id":"wt-841","text":"i'm doing great today, thanks for asking","label":"none","split":"train"}
+{"id":"wt-842","text":"are you busy right now","label":"none","split":"train"}
+{"id":"wt-843","text":"can we talk for a bit right now","label":"none","split":"test"}
+{"id":"wt-844","text":"i'm tired today, cheer me up","label":"none","split":"train"}
+{"id":"wt-845","text":"how was today for you","label":"none","split":"train"}
+{"id":"wt-846","text":"sorry for the late message tonight","label":"none","split":"train"}
+{"id":"wt-847","text":"what should we work on today","label":"none","split":"test"}
+{"id":"wt-848","text":"today's goal is to finish my essay, keep me on track","label":"none","split":"train"}
+{"id":"wt-849","text":"let's pick up where we left off yesterday","label":"none","split":"train"}
+{"id":"wt-850","text":"can you help me now with the next section","label":"none","split":"test"}
+{"id":"wt-851","text":"how are my chances if i apply to 20 jobs this week","label":"none","split":"train"}
+{"id":"wt-852","text":"how are the characters in my story developing so far","label":"none","split":"train"}
+{"id":"wt-853","text":"how is my code looking now after the changes","label":"none","split":"train"}
+{"id":"wt-854","text":"how are these two paragraphs different","label":"none","split":"test"}
+{"id":"wt-855","text":"is this still correct now that i changed the loop","label":"none","split":"train"}
+{"id":"wt-856","text":"what's up with my css, the button is off center now","label":"none","split":"train"}
+{"id":"wt-857","text":"any tips for staying focused this afternoon","label":"none","split":"train"}
+{"id":"wt-858","text":"i can't sleep tonight, tell me something calming","label":"none","split":"test"}
