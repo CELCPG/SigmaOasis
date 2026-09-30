@@ -65,6 +65,13 @@ export interface PackDocMeta {
   license?: string
   /** Publication or retrieval date, ISO or free text. */
   date?: string
+  /**
+   * v4.1 (G5): the year the document's figures are for — a tax year, a limit
+   * year. The finance pack states 2025 figures; asked about "this year" in
+   * 2026 they answered without the web. Tagged, a lookup names the year beside
+   * every passage and warns when it is older than the reader's.
+   */
+  appliesToYear?: number
   /** File name under docs/. */
   file: string
   /** Characters of normalized text. Filled at install. */
@@ -155,6 +162,8 @@ export interface LibraryPassage {
   source?: string
   license?: string
   date?: string
+  /** v4.1 (G5): the year the document's figures are for, when its pack says. */
+  appliesToYear?: number
   /** v2.6: an app-written document's check date, machine-readable. */
   checkedAt?: number
   expiresAt?: number | null
@@ -318,6 +327,11 @@ function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
 }
 
+/** v4.1 (G5): a document's year — a whole number a calendar could hold, or nothing. */
+function yearOf(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1900 && v <= 2200 ? v : undefined
+}
+
 /** Validate a manifest read from disk or supplied by an installer. Throws with a reason. */
 export function validateManifest(raw: unknown): PackManifest {
   const m = (raw ?? {}) as Record<string, unknown>
@@ -350,6 +364,7 @@ export function validateManifest(raw: unknown): PackManifest {
       source: str(doc.source) || undefined,
       license: str(doc.license) || undefined,
       date: str(doc.date) || undefined,
+      ...(yearOf(doc.appliesToYear) !== undefined ? { appliesToYear: yearOf(doc.appliesToYear) } : {}),
       file,
       chars: typeof doc.chars === 'number' && Number.isFinite(doc.chars) ? doc.chars : 0,
       sourceMtime: num(doc.sourceMtime),
@@ -830,6 +845,7 @@ export async function lookupLibrary(input: {
         source: doc.meta.source,
         license: doc.meta.license,
         date: doc.meta.date,
+        ...(doc.meta.appliesToYear !== undefined ? { appliesToYear: doc.meta.appliesToYear } : {}),
         ...(typeof doc.meta.checkedAt === 'number' ? { checkedAt: doc.meta.checkedAt } : {}),
         ...(doc.meta.expiresAt !== undefined ? { expiresAt: doc.meta.expiresAt } : {})
       }
@@ -849,7 +865,28 @@ export function citationOf(p: LibraryPassage): string {
 }
 
 /** Passages formatted for the model, with provenance the model must carry into its answer. */
-export function formatLookup(outcome: LookupOutcome, query: string): string {
+/**
+ * v4.1 (G5): the note a lookup ends with when a passage's figures are for an
+ * earlier year than the reader's. Names the passages and the year and says
+ * what to do; such a turn carries the web tools (lib/grounding.ts).
+ */
+export function staleYearNote(passages: LibraryPassage[], year: number): string | null {
+  // By document, not by [n]: the renderer renumbers a turn's lookups
+  // (renumberPassages), and a note is not a header it would move.
+  const stale = new Map<string, number>()
+  for (const p of passages) {
+    if (p.appliesToYear !== undefined && p.appliesToYear < year) stale.set(p.docTitle, p.appliesToYear)
+  }
+  if (stale.size === 0) return null
+  const named = [...stale].map(([title, y]) => `"${title}" (${y})`).join(', ')
+  return (
+    `${named} ${stale.size === 1 ? 'states figures for its year' : 'state figures for their years'}; ` +
+    `it is now ${year}. Check the ${year} figures with web_search before quoting these as current, and name ` +
+    'the year of any figure you quote.'
+  )
+}
+
+export function formatLookup(outcome: LookupOutcome, query: string, year: number = new Date().getFullYear()): string {
   if (outcome.passages.length === 0) {
     // The lead is the tool table's, not this function's: the badge check reads
     // it back off the record to tell "worked" from "supplied something".
@@ -864,6 +901,7 @@ export function formatLookup(outcome: LookupOutcome, query: string): string {
       `[${i + 1}] ${citationOf(p)}` +
       (p.source ? `\n    source: ${p.source}` : '') +
       (p.date ? `\n    date: ${p.date}` : '') +
+      (p.appliesToYear !== undefined ? `\n    applies to: ${p.appliesToYear}` : '') +
       (typeof p.checkedAt === 'number' ? `\n    checked: ${new Date(p.checkedAt).toISOString().slice(0, 10)}` : '') +
       (p.license ? `\n    license: ${p.license}` : '') +
       `\n    relevance ${p.score}\n${p.text}`
@@ -871,7 +909,9 @@ export function formatLookup(outcome: LookupOutcome, query: string): string {
   const head =
     `Reference passages for "${query}" from the local library (${outcome.mode === 'hybrid' ? 'semantic + keyword' : 'keyword'} ranking), most relevant first. ` +
     'These are the user\'s own installed reference documents, not the live web: cite the bracketed number and the document when you use one, quote figures, dosages and steps rather than paraphrasing them, and if the passages do not answer the question say so instead of filling the gap.'
-  return [head, '', ...blocks, ...(outcome.notes.length ? ['', ...outcome.notes.map((n) => `Note: ${n}`)] : [])].join('\n')
+  const stale = staleYearNote(outcome.passages, year)
+  const notes = stale ? [...outcome.notes, stale] : outcome.notes
+  return [head, '', ...blocks, ...(notes.length ? ['', ...notes.map((n) => `Note: ${n}`)] : [])].join('\n')
 }
 
 // ---- pack management ------------------------------------------------------------

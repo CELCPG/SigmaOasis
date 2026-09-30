@@ -48,12 +48,16 @@ export interface TurnPhase extends TurnWait {
 }
 
 /** The post-answer passes, named where useLMStudio enters them. */
-export type VerifyStep = 'claims' | 'grounding' | 'revising'
+export type VerifyStep = 'claims' | 'sources' | 'grounding' | 'revising'
 
 export const VERIFY_WAITS: Record<VerifyStep, TurnWait> = {
   claims: {
     label: 'Checking claims',
     detail: 'another role is naming what this answer cannot support'
+  },
+  sources: {
+    label: 'Checking claims against sources',
+    detail: 'each specific, one at a time, against what this turn read'
   },
   grounding: {
     label: 'Checking figures and links',
@@ -110,11 +114,12 @@ export const VERIFY_BUDGET_MS = 60_000
 export const VERIFY_OVERRUN_FLOOR_MS = 1_000
 
 /** The post-answer passes that cost real time, in the order the turn runs them. */
-export type VerifyPass = 'claims' | 'code' | 'recompute' | 'revising'
+export type VerifyPass = 'claims' | 'sources' | 'code' | 'recompute' | 'revising'
 
 /** What each pass is called in the reader's terms, for the notice below. */
 const PASS_NAME: Record<VerifyPass, string> = {
   claims: 'the claim check',
+  sources: 'the source check',
   code: 'the code check',
   recompute: 'the recomputation',
   revising: 'the revision'

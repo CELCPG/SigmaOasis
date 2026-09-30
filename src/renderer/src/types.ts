@@ -746,7 +746,7 @@ export interface AppSettings {
   /** v1.2: mechanical per-claim verification of unverified answers. */
   claimCheck: ClaimCheckSettings
   /** v1.4.6: revise an answer whose specifics the tools did not support. */
-  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean; factLedger: boolean; outline: boolean }
+  grounding: { autoCorrect: boolean; playbooks: boolean; selfReview: boolean; workbenchChecks: boolean; ledger: boolean; factLedger: boolean; outline: boolean; sourceCheck: boolean }
   /** v1.4: private shopping research. Tools ship off; this governs behavior. */
   shopping: ShoppingSettings
   /** v0.9: append-only encrypted session transcript (Settings → Privacy). */
@@ -815,6 +815,8 @@ export interface LibraryPassage {
   source?: string
   license?: string
   date?: string
+  /** v4.1 (G5): the year the document's figures are for, when its pack says. */
+  appliesToYear?: number
 }
 
 export interface LibraryLookupResult {
@@ -1055,6 +1057,8 @@ export interface GroundingReport {
   quotes?: string[]
   /** v1.14: `[n] (Document)` attributions naming a document that is not passage n's. */
   attributions?: string[]
+  /** v4.1 (G4): sentences this turn's sources contradict, or that cite a source not stating them. */
+  sourceMismatches?: string[]
   /**
    * v2.1: how much of what the reply measured this pass actually reached.
    *
@@ -1201,7 +1205,7 @@ export interface ChatMessage {
   /** v1.6: Workbench verification passes that ran on this reply (recompute / code check). */
   checks?: {
     /** v1.12.5: 'deadline' — the post-answer budget ran out, and this says what was lost. */
-    kind: 'recompute' | 'code' | 'echo' | 'conflict' | 'deadline'
+    kind: 'recompute' | 'code' | 'echo' | 'conflict' | 'deadline' | 'sources'
     ok: boolean
     summary: string
     /**

@@ -44,7 +44,8 @@ export function groundingFindingCount(report: GroundingReport | null): number {
     (report.code?.length ?? 0) +
     (report.citations?.length ?? 0) +
     (report.quotes?.length ?? 0) +
-    (report.attributions?.length ?? 0)
+    (report.attributions?.length ?? 0) +
+    (report.sourceMismatches?.length ?? 0)
   )
 }
 
@@ -124,6 +125,7 @@ export function groundingFindingLabels(report: GroundingReport | null): string[]
     // the sort of debris that makes a reader distrust the whole line.
     ...(report.quotes ?? []).map((q) => `“${elideLabel(q, MAX_LABEL - 2)}”`),
     ...(report.attributions ?? []),
+    ...(report.sourceMismatches ?? []),
     ...(report.addresses ?? []),
     ...(report.contacts ?? []),
     ...report.links,
@@ -472,6 +474,12 @@ export function describeGroundingFindings(report: GroundingReport): string {
         'Name the document the numbered passage actually came from.'
     )
   }
+  if (report.sourceMismatches?.length) {
+    lines.push(
+      `- Checked one by one against this turn's sources: ${report.sourceMismatches.join('; ')}. ` +
+        'State what the source says, with its [n], or drop the sentence and say what you could not confirm.'
+    )
+  }
   if (report.addresses?.length) {
     lines.push(`- Addresses that appear in no result: ${report.addresses.join('; ')}`)
   }
@@ -484,7 +492,7 @@ export function describeGroundingFindings(report: GroundingReport): string {
   if (report.citations?.length) {
     lines.push(
       `- Citation markers naming a passage that was never retrieved: ${report.citations.join(', ')}. ` +
-        'Cite only the numbered passages you were handed, or drop the marker and say what is uncited.'
+        'Cite only the numbered passages and web sources you were handed, or drop the marker and say what is uncited.'
     )
   }
   if (report.figures.length) {

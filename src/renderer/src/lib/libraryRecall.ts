@@ -4,6 +4,7 @@ import {
   citedIndices,
   danglingCitations,
   retrievedCitations,
+  turnCitations,
   turnLookups,
   webSource,
   type Citation
@@ -62,14 +63,16 @@ export function citationOf(p: LibraryPassage): string {
  * These stay 1..N: this lookup is the turn's first, so `renumberPassages`
  * leaves its numbering alone and a later lookup continues past it.
  */
-export function toLibraryContextItems(passages: LibraryPassage[]): MemoryContextItem[] {
+export function toLibraryContextItems(passages: LibraryPassage[], first = 1): MemoryContextItem[] {
+  // v4.1 (G3): `first` is where the turn's numbering stood — past the app's
+  // own web results when its search ran before this lookup.
   return passages.map((p, i) => {
     const url = webSource(p.source)
     return {
       source: citationOf(p),
       score: p.score,
       text: p.text,
-      index: i + 1,
+      index: i + first,
       ...(url ? { url } : {})
     }
   })
@@ -309,7 +312,9 @@ export function libraryStrip(input: {
     input.answer
   )
   const cited = items.filter((i) => i.cited).map((i) => `[${i.index}]`)
-  const unresolved = danglingCitations(input.answer, retrievedCitations(input.records))
+  // v4.1 (G3): a web source's marker resolves too — it is not the strip's
+  // business, and it is not a sign the strip lost a passage.
+  const unresolved = danglingCitations(input.answer, turnCitations(input.records))
   const many = lookups.length > 1
 
   const label = !input.miss
@@ -374,4 +379,36 @@ export function buildLibraryContext(formatted: string, offline: boolean): string
     'do not fill the gap from memory.\n' +
     formatted
   )
+}
+
+/**
+ * v4.1 (G5): what a year-tagged answer from the library needs from the web.
+ *
+ * A pack is a snapshot, and the finance pack's figures are 2025's: asked "what
+ * is the standard deduction this year" in 2026, the app handed over the 2025
+ * passage and the model quoted it as this year's, with no web tool on the
+ * wire to check. So once the library answers with a tagged document, either
+ * of two things turns the web tools on: a document older than this year, or a
+ * question about the figures in force now. `note` is the sentence the turn
+ * notes add when the lookup's own stale-year note (library.ts formatLookup)
+ * does not already say it — the year is named either way.
+ */
+export function libraryYearCheck(
+  passages: Pick<LibraryPassage, 'docTitle' | 'appliesToYear'>[],
+  asksCurrent: boolean,
+  year: number
+): { forceWeb: boolean; note: string | null } {
+  const tagged = passages.filter((p): p is typeof p & { appliesToYear: number } => p.appliesToYear !== undefined)
+  if (tagged.length === 0) return { forceWeb: false, note: null }
+  const stale = tagged.some((p) => p.appliesToYear < year)
+  if (!stale && !asksCurrent) return { forceWeb: false, note: null }
+  if (stale) return { forceWeb: true, note: null }
+  const years = [...new Set(tagged.map((p) => p.appliesToYear))].sort((a, b) => a - b)
+  return {
+    forceWeb: true,
+    note:
+      `The library passages are tagged with the year their figures are for (${years.join(', ')}). ` +
+      'The question asks about the figures in force now: if a figure you need is not stated for ' +
+      `${year}, check it with web_search, and name the year of any figure you quote.`
+  }
 }

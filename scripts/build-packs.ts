@@ -26,6 +26,8 @@ interface SourceDoc {
   url: string
   license?: string
   date?: string
+  /** v4.1 (G5): the year the page's figures are for; carried into the manifest. */
+  appliesToYear?: number
 }
 interface SourceSpec {
   id: string
@@ -242,7 +244,7 @@ async function buildPack(spec: SourceSpec, today: string): Promise<{ ok: number;
   await fs.rm(outDir, { recursive: true, force: true })
   await fs.mkdir(join(outDir, 'docs'), { recursive: true })
   const failed: string[] = []
-  const built: { id: string; title: string; source: string; license?: string; date?: string; file: string; chars: number }[] = []
+  const built: { id: string; title: string; source: string; license?: string; date?: string; appliesToYear?: number; file: string; chars: number }[] = []
 
   let cursor = 0
   const worker = async (): Promise<void> => {
@@ -283,6 +285,7 @@ async function buildPack(spec: SourceSpec, today: string): Promise<{ ok: number;
           source: doc.url,
           license: doc.license ?? spec.docLicense,
           date: doc.date ?? (reviewed ? `page reviewed ${reviewed}; retrieved ${today}` : `retrieved ${today}`),
+          ...(doc.appliesToYear !== undefined ? { appliesToYear: doc.appliesToYear } : {}),
           file,
           chars: text.length
         })

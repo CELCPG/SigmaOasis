@@ -2,7 +2,9 @@ import { useAppStore } from '../stores/appStore'
 import { enqueueSpeech, extractCompleteSentences } from '../lib/voice'
 import { estimateTokens } from '../lib/contextBudget'
 import { budgetContextLength, formatContextLength } from '../lib/modelInfo'
-import { bridgeToolsForSlot, toolsForSlot, withBudgetNotes } from '../lib/toolSelection'
+import { bridgeToolsForSlot, toolsForSlot, withBudgetNotes, withForcedTools } from '../lib/toolSelection'
+import { passagesHandedOver } from '../lib/citations'
+import { numberWebSources } from '../lib/webSources'
 import {
   buildTurnContext,
   looksFactual,
@@ -224,6 +226,8 @@ export async function runTurn(
   // One tool ledger for the whole turn: provider pre-flight calls and loop
   // calls share budgets and repeat detection (the old bypass asymmetry).
   const turnLedger = createTurnToolLedger()
+  // v4.1 (G5): tools a provider's result forces on (a stale year-tagged document).
+  const lateForced: string[] = []
 
   // v2.7 Code Mode: a program in the sandbox asks for a tool through the
   // bridge and the decision is made here, on this turn's own list and
@@ -308,7 +312,8 @@ export async function runTurn(
       allRecords,
       ledger: turnLedger,
       patch,
-      settings: () => useAppStore.getState().settings ?? null
+      settings: () => useAppStore.getState().settings ?? null,
+      forceTools: (names) => lateForced.push(...names)
     }),
     // The count on that line is of the whole pre-model wait, not of whichever
     // provider is holding it — the walk changes label, the reader's wait does
@@ -339,7 +344,7 @@ export async function runTurn(
   // v1.3: subset the slot's tools to this turn by embedding rank (Layer 1b).
   // The auto-search above deliberately checks the full allowlist, not this
   // subset — an app-run search must not depend on the embedder's opinion.
-  const turnTools = await turnToolsPending
+  const turnTools = withForcedTools(slotTools, await turnToolsPending, lateForced)
   const turnContextBlock = buildTurnContext(turnContext)
   const { history, summaryText } = await planAndCompact(
     { ...convo, messages: convo.messages.filter((m) => !m.marker) },
@@ -580,7 +585,10 @@ export async function runTurn(
           // v2.6: the turn is tainted from the first foreign result on; the
           // flag rides toolContext to every later call (lib/taint.ts).
           noteToolResult(toolContext, name, result)
-          return result
+          // v4.1 (G3): web sources numbered for the turn (lib/webSources.ts).
+          return result.ok && result.output
+            ? { ...result, output: numberWebSources(name, args, result.output, allRecords, passagesHandedOver(allRecords)) }
+            : result
         },
         consult: delegation
           ? async (role, task): Promise<ToolResult> => {

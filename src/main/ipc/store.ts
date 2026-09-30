@@ -226,6 +226,12 @@ export interface GroundingSettings {
   /** v2.6: outline-then-fill for document-shaped requests. Ships off; measured in docs/evals.md. */
   outline: boolean
   /**
+   * v4.1 (G4): check a sourced reply's specifics against this turn's sources,
+   * one claim at a time, with the answering model. Ships off: up to six short
+   * calls per sourced turn (lib/sourceCheck.ts has the cost).
+   */
+  sourceCheck: boolean
+  /**
    * v1.9: the conversation ledger — a mechanical record of computed facts,
    * attached files, session state and the user's stated constraints, built
    * from tool results and the user's own words (never earlier replies) and
@@ -563,7 +569,7 @@ export function defaultSettings(): AppSettings {
       enabled: false,
       criticSlotId: null
     },
-    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false },
+    grounding: { autoCorrect: true, playbooks: true, selfReview: true, workbenchChecks: true, ledger: true, factLedger: true, outline: false, sourceCheck: false },
     claimCheck: {
       // On by default, but only fires when second opinions are also enabled —
       // the critic slot does the extraction and judging.
@@ -836,7 +842,9 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       ledger: settings.grounding?.ledger !== false,
       factLedger: settings.grounding?.factLedger !== false,
       // Off until the longform suite says it should be on (docs/evals.md).
-      outline: settings.grounding?.outline === true
+      outline: settings.grounding?.outline === true,
+      // v4.1 (G4): off until measured, like outline.
+      sourceCheck: settings.grounding?.sourceCheck === true
     },
     shopping: {
       // Defaults to on: an absent or malformed value must not silently disable

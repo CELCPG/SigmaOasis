@@ -138,12 +138,29 @@ export interface ProviderIO {
    * Record a call the app performed through a non-tool IPC path (the library
    * lookup): same record, patch and audit bookkeeping, no dispatch.
    */
-  recordSyntheticCall(name: string, args: Record<string, unknown>, output: string): void
+  recordSyntheticCall(name: string, args: Record<string, unknown>, output: string): string | void
   api: ProviderApi
   /** Disclosure fields on the assistant message (memoryContext, playbook, ledger…). */
   patch(p: Partial<ChatMessage>): void
   /** Live settings read, matching the old per-block useAppStore.getState() reads. */
   settings(): AppSettings | null
+  /**
+   * v4.1 (G5): tools this turn must carry that only a provider's result could
+   * name — web_search and fetch_webpage once the library has answered with a
+   * year-tagged document older than this year. Joined to the turn's forced
+   * tools after the providers return. Optional: the eval arms wire none.
+   */
+  forceTools?(names: readonly string[]): void
+}
+
+/** v4.1: how an app-initiated call is booked. */
+export interface RunToolOptions {
+  /**
+   * false: the call seeds repeat detection but leaves the model's per-turn
+   * budget alone. The live page reads (G2d) use it — the app reading the top
+   * result for the model must not spend the reads the model has for itself.
+   */
+  charge?: boolean
 }
 
 export interface ProviderResult {
