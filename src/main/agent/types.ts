@@ -192,6 +192,8 @@ export interface AgentExperiments {
   mcpTools: boolean
   /** v4.1 (A5): tools offered by phase — edit tools after a read; documents, chores and MCP tools when the task points at them. */
   toolsByPhase: boolean
+  /** v4.2 (A4): a structured plan round first; steps closed only with evidence; one replan after a failed check or a stuck note. */
+  planRound: boolean
 }
 
 export const EXPERIMENT_KEYS: readonly (keyof AgentExperiments)[] = [
@@ -214,7 +216,8 @@ export const EXPERIMENT_KEYS: readonly (keyof AgentExperiments)[] = [
   'inbox',
   'commands',
   'mcpTools',
-  'toolsByPhase'
+  'toolsByPhase',
+  'planRound'
 ]
 
 /**

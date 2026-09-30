@@ -1,7 +1,20 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { fillHook, parseHooks } from '../src/main/agent/hooks'
-import { planInView, setAsideFinishedStep, stepCompleted } from '../src/main/agent/plan'
+import {
+  parsePlanSteps,
+  PLAN_MAX_STEPS,
+  planInView,
+  planTodos,
+  replanAsk,
+  revisedTodos,
+  setAsideFinishedStep,
+  stepCompleted,
+  stepEvidence,
+  withholdCompletion
+} from '../src/main/agent/plan'
+import { CHANGE_TOOLS, READ_TOOLS } from '../src/main/agent/tools'
+import type { TodoItem } from '../src/main/agent/types'
 import { slugFor } from '../src/main/agent/worktree'
 import { setAsideBefore } from '../src/main/agent/context'
 import type { ApiMessage } from '../src/renderer/src/lib/agentLoop'
@@ -60,6 +73,63 @@ describe('the plan in view', () => {
     assert.equal(messages[6]!.content, long, 'the round that completed the step keeps its result')
     assert.equal(setAsideFinishedStep(messages), 0, 'done once')
     assert.equal(setAsideBefore([{ role: 'user', content: 'go' }], 5), 0)
+  })
+})
+
+describe('the plan round, pure parts (v4.2, A4)', () => {
+  test('a plan reads from the grammar’s shape, a bare array, objects, a fence in prose, or a numbered list; trimmed, deduplicated, capped', () => {
+    assert.deepEqual(parsePlanSteps('{"steps": ["Read a", " Fix  b ", "read A"]}'), ['Read a', 'Fix b'])
+    assert.deepEqual(parsePlanSteps('["x", "y"]'), ['x', 'y'])
+    assert.deepEqual(parsePlanSteps('{"steps": [{"title": "t"}, {"step": "s"}, {"content": "c"}]}'), ['t', 's', 'c'])
+    assert.deepEqual(parsePlanSteps('Sure — here it is:\n```json\n{"steps": ["a {b}", "c \\"d\\""]}\n```\nGood luck.'), ['a {b}', 'c "d"'])
+    assert.deepEqual(parsePlanSteps('Plan:\n1. Read the test\n2) Fix it\n- Run it'), ['Read the test', 'Fix it', 'Run it'])
+    assert.equal(parsePlanSteps(JSON.stringify({ steps: Array.from({ length: 12 }, (_, i) => `s${i}`) })).length, PLAN_MAX_STEPS)
+    assert.deepEqual(parsePlanSteps('I will just fix it.'), [])
+    assert.deepEqual(parsePlanSteps(''), [])
+  })
+
+  test('the steps become a checklist with the first in progress; a replan keeps what is done and follows it with the new steps', () => {
+    assert.deepEqual(planTodos(['a', 'b']), [{ content: 'a', status: 'in_progress' }, { content: 'b', status: 'pending' }])
+    const now: TodoItem[] = [{ content: 'read', status: 'completed' }, { content: 'fix', status: 'in_progress' }, { content: 'test', status: 'pending' }]
+    assert.deepEqual(revisedTodos(now, ['Read', 'fix the other branch', 'test']), [
+      { content: 'read', status: 'completed' },
+      { content: 'fix the other branch', status: 'in_progress' },
+      { content: 'test', status: 'pending' }
+    ])
+    assert.equal(revisedTodos(now, ['read']), null, 'nothing new: the plan stands')
+    assert.equal(revisedTodos(now, []), null)
+    assert.match(replanAsk(now, 'A check failed after a change'), /^A check failed after a change\. Revise the plan before going on\. The plan so far:\n☑ read\n▶ fix\n☐ test\n/)
+  })
+
+  test('evidence: after a change only a passing check or a read that follows it; with no change, any success', () => {
+    const ev = (...log: [string, boolean][]) => stepEvidence(log.map(([name, ok]) => ({ name, ok })), CHANGE_TOOLS, READ_TOOLS)
+    assert.equal(ev(), false)
+    assert.equal(ev(['read_file', true]), true)
+    assert.equal(ev(['web_search', true]), true)
+    assert.equal(ev(['read_file', false]), false)
+    assert.equal(ev(['read_file', true], ['edit_file', true]), false, 'the edit’s own line is the claim, not the check')
+    assert.equal(ev(['edit_file', true], ['run_command', false]), false, 'a failing check is not evidence')
+    assert.equal(ev(['edit_file', true], ['run_command', true]), true)
+    assert.equal(ev(['edit_file', true], ['grep', true]), true)
+    assert.equal(ev(['edit_file', true], ['run_command', true], ['write_file', true]), false, 'a change after the check needs its own')
+    assert.equal(ev(['edit_file', false], ['read_file', true]), true, 'a failed edit changed nothing')
+  })
+
+  test('a tick without evidence goes back to in progress and what came after it to pending — once per step', () => {
+    const before: TodoItem[] = [{ content: 'a', status: 'completed' }, { content: 'b', status: 'in_progress' }, { content: 'c', status: 'pending' }]
+    const after: TodoItem[] = [{ content: 'a', status: 'completed' }, { content: 'b', status: 'completed' }, { content: 'c', status: 'in_progress' }]
+    const r = withholdCompletion(before, after, false, new Set())
+    assert.equal(r?.withheld, 'b')
+    assert.deepEqual(r?.todos.map((t) => t.status), ['completed', 'in_progress', 'pending'])
+    assert.equal(withholdCompletion(before, after, true, new Set()), null, 'evidence: it stands')
+    assert.equal(withholdCompletion(before, after, false, new Set(['b'])), null, 'refused already: it stands')
+    assert.equal(withholdCompletion(before, before, false, new Set()), null, 'nothing newly ticked')
+  })
+
+  test('the plan in view names the evidence rule only when asked', () => {
+    const todos: TodoItem[] = [{ content: 'fix', status: 'in_progress' }]
+    assert.doesNotMatch(planInView(todos)!, /tool result shows it done/)
+    assert.match(planInView(todos, true)!, /Mark it completed only once a tool result shows it done/)
   })
 })
 

@@ -340,9 +340,10 @@ export interface AgentLoopOptions {
   /**
    * v4.0 (A4): a transient message appended before a round is asked for —
    * the plan in view. Scaffolding for one request, popped after it, never
-   * history.
+   * history. v4.2: may be async — the agent's replan round runs here, at the
+   * round boundary, where the history is whole (no call without its result).
    */
-  preface?: (iteration: number, messages: ApiMessage[]) => string | null
+  preface?: (iteration: number, messages: ApiMessage[]) => string | null | Promise<string | null>
   /**
    * v4.2 (A3): how a round that answered only into the thinking channel is
    * asked again. `prefill` (the default): with the block already closed — the
@@ -667,7 +668,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         deps.onSteerDelivered?.(steer, iteration)
       }
     }
-    const preface = options.preface?.(iteration, messages) ?? null
+    // Awaited only when it is a promise, so a synchronous caller's round starts in the same tick as before.
+    const pending = options.preface?.(iteration, messages)
+    const preface = (pending instanceof Promise ? await pending : pending) ?? null
+    if (pending instanceof Promise && signal.aborted) return { stopReason: 'aborted' }
     if (preface) messages.push({ role: 'user', content: preface })
     const quick = (options.quickReply === true && iteration === 0) || options.quickReplyFor?.(iteration, messages) === true
     if (quick) messages.push({ role: 'assistant', content: CLOSED_THINK_PREFILL } as never)

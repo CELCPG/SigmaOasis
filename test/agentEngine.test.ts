@@ -1444,6 +1444,160 @@ describe('tools by phase (v4.1, A5 — an experiment, off by default)', () => {
   })
 })
 
+describe('a plan round (v4.2, A4 — planRound, off by default)', () => {
+  const plan3 = (): Frame[] => [text('{"steps": ["Read src/math.ts", "Fix add()", "Run the tests"]}')]
+  const echo = 'echo ok'
+  const fail = 'node -e "process.exit(1)"'
+  const todos = (...statuses: ('pending' | 'in_progress' | 'completed')[]) => ({
+    todos: ['Read src/math.ts', 'Fix add()', 'Run the tests'].map((content, i) => ({ content, status: statuses[i] }))
+  })
+
+  test('three steps or more: one grammar-constrained request with no tools, then the steps are the checklist, in the history as the model’s own todo_write', async () => {
+    const { transport, requests } = scripted([plan3, () => [call('r1', 'read_file', { path: 'src/math.ts' })], () => [text('Done.')]])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { model: 'qwen3-9b', experiments: { planRound: true } }), h.host)
+    assert.equal(r.status, 'done')
+    const planReq = requests[0]!
+    assert.deepEqual(planReq.tools, [], 'no tools beside a grammar')
+    assert.equal(planReq.response_format?.type, 'json_schema')
+    assert.equal(planReq.response_format?.json_schema?.name, 'task_plan')
+    assert.equal(planReq.max_tokens, 4_096)
+    assert.match(String(planReq.messages.at(-1)!.content), /^<think>\n\n<\/think>/, 'a plan is JSON, not a deliberation')
+    assert.match(String(planReq.messages.at(-2)!.content), /^Fix add\(\) so the tests pass\.\n\nBefore you call any tool, plan this task/, 'the ask rides the task message: no two user messages in a row')
+    const first = requests[1]!
+    assert.equal(first.response_format, undefined)
+    assert.equal(first.messages.filter((m) => m.role === 'user').length, 1)
+    assert.equal(first.messages.find((m) => m.role === 'user')!.content, 'Fix add() so the tests pass.', 'the ask never joins the history')
+    const planned = first.messages.find((m) => m.tool_calls?.[0]?.id === 'plan-round')
+    assert.equal(planned?.tool_calls?.[0]?.function.name, 'todo_write')
+    assert.ok(first.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'plan-round'))
+    assert.match(String(requests[2]!.messages.at(-1)!.content), /▶ Read src\/math\.ts\n☐ Fix add\(\)\n☐ Run the tests\n[\s\S]*only once a tool result shows it done/)
+    assert.deepEqual(r.todos.map((t) => t.status), ['in_progress', 'pending', 'pending'])
+    assert.ok(h.events.some((e) => e.type === 'tool_start' && e.record.id === 'plan-round'), 'the plan is a line on the timeline')
+    assert.deepEqual(h.events.filter((e) => e.type === 'round').map((e) => (e as { round: number }).round), [1, 2, 3], 'the plan round is a round')
+  })
+
+  test('fewer than three steps: no checklist, and the task runs as it would have; a follow-up turn is never planned', async () => {
+    const { transport, requests } = scripted([() => [text('{"steps": ["Fix add()"]}')], () => [text('Done.')]])
+    const r = await runAgentTask(spec(transport, { experiments: { planRound: true } }), host(transport).host)
+    assert.equal(requests.length, 2)
+    assert.ok(!requests[1]!.messages.some((m) => m.tool_calls?.length), 'nothing added to the history')
+    assert.deepEqual(r.todos, [])
+    const next = scripted([() => [text('Still done.')]])
+    await runAgentTask(spec(next.transport, { experiments: { planRound: true }, history: r.history, prompt: 'continue' }), host(next.transport).host)
+    assert.equal(next.requests.length, 1)
+    assert.equal(next.requests[0]!.response_format, undefined)
+  })
+
+  test('a server that refuses the grammar is asked again without it, and a plan in prose around a fence still reads', async () => {
+    const inner = scripted([() => [text('Here is the plan:\n```json\n{"steps": ["a", "b", "c"]}\n```')], () => [text('Done.')]])
+    const refused: unknown[] = []
+    const transport: ChunkTransport = async (url, init) => {
+      if (refused.length === 0) {
+        refused.push(JSON.parse(init.body).response_format)
+        return { ok: false, status: 400, errorText: "'response_format' is not supported" }
+      }
+      return inner.transport(url, init)
+    }
+    const r = await runAgentTask(spec(transport, { experiments: { planRound: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.ok(refused[0], 'the first ask carried the grammar')
+    assert.equal(inner.requests[0]!.response_format, undefined)
+    assert.deepEqual(r.todos.map((t) => t.content), ['a', 'b', 'c'])
+  })
+
+  test('a step closes only with evidence: an edit then a tick is taken back once, a check after it closes it', async () => {
+    const { transport, requests } = scripted([
+      plan3,
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('t1', 'todo_write', todos('completed', 'in_progress', 'pending'))],
+      () => [call('e1', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [call('t2', 'todo_write', todos('completed', 'completed', 'in_progress'))],
+      () => [call('c1', 'run_command', { command: echo })],
+      () => [call('t3', 'todo_write', todos('completed', 'completed', 'in_progress'))],
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { planRound: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    const result = (i: number, id: string) => String(requests[i]!.messages.find((m) => m.tool_call_id === id)?.content)
+    assert.doesNotMatch(result(3, 't1'), /Not marked completed/, 'a read was the evidence for a step that changed nothing')
+    assert.match(result(5, 't2'), /Not marked completed: "Fix add\(\)" — no tool result since it began shows it done/)
+    assert.match(String(requests[5]!.messages.at(-1)!.content), /☑ Read src\/math\.ts\n▶ Fix add\(\)\n☐ Run the tests/)
+    assert.doesNotMatch(result(7, 't3'), /Not marked completed/, 'the check ran after the edit')
+    assert.deepEqual(r.todos.map((t) => t.status), ['completed', 'completed', 'in_progress'])
+  })
+
+  test('refused once per step: a second tick without evidence stands, so a small model is not looped on its own checklist', async () => {
+    const { transport, requests } = scripted([
+      plan3,
+      () => [call('t1', 'todo_write', todos('completed', 'in_progress', 'pending'))],
+      () => [call('t2', 'todo_write', todos('completed', 'in_progress', 'pending'))],
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { experiments: { planRound: true } }), host(transport).host)
+    assert.match(String(requests[2]!.messages.find((m) => m.tool_call_id === 't1')?.content), /Not marked completed/)
+    assert.doesNotMatch(String(requests[3]!.messages.find((m) => m.tool_call_id === 't2')?.content), /Not marked completed/)
+    assert.equal(r.todos[0]!.status, 'completed')
+  })
+
+  test('a check that fails after a change revises the plan before the next round — once a task', async () => {
+    const { transport, requests } = scripted([
+      plan3,
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('e1', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a * b' })],
+      () => [call('c1', 'run_command', { command: fail })],
+      // The replan round:
+      () => [text('{"steps": ["Read the failure", "Fix add() properly"]}')],
+      () => [call('c2', 'run_command', { command: fail })],
+      () => [text('Still failing.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { planRound: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    const replan = requests[4]!
+    assert.equal(replan.response_format?.type, 'json_schema')
+    assert.deepEqual(replan.tools, [])
+    assert.match(String(replan.messages.at(-1)!.content), /^A check failed after a change\. Revise the plan before going on\. The plan so far:\n▶ Read src\/math\.ts/)
+    const after = requests[5]!
+    assert.match(String(after.messages.find((m) => m.tool_call_id === 'c1')?.content), /\(The plan was revised after this — a check failed after a change:\n▶ Read the failure\n☐ Fix add\(\) properly\)/)
+    assert.match(String(after.messages.at(-1)!.content), /Plan in view[\s\S]*▶ Read the failure/)
+    assert.equal(requests.length, 7, 'the second failure is not planned again')
+    assert.ok(requests.slice(5).every((q) => q.response_format === undefined))
+    assert.deepEqual(r.todos.map((t) => t.content), ['Read the failure', 'Fix add() properly'])
+  })
+
+  test('a failing command before anything changed is the bug being seen, not a failed check: no replan', async () => {
+    const { transport, requests } = scripted([plan3, () => [call('c1', 'run_command', { command: fail })], () => [text('It fails.')]])
+    await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { planRound: true } }), host(transport).host)
+    assert.equal(requests.length, 3)
+  })
+
+  test('P3: a stuck warning under planRound revises the plan too, beside the note', async () => {
+    const miss = (id: string, n: number): Reply => () => [call(id, 'edit_file', { path: 'src/math.ts', old_string: `not there ${n}`, new_string: 'x' })]
+    const { transport, requests } = scripted([
+      plan3,
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      miss('e1', 1),
+      miss('e2', 2),
+      miss('e3', 3),
+      () => [text('{"steps": ["Re-read src/math.ts", "Fix add() with the exact line", "Run the tests"]}')],
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { planRound: true } }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(requests[5]!.response_format?.type, 'json_schema')
+    assert.match(String(requests[5]!.messages.at(-1)!.content), /^You are stuck: the same call failed three times in a row\. Revise the plan/)
+    assert.match(String(requests[6]!.messages.find((m) => m.tool_call_id === 'e3')?.content), /You are stuck[\s\S]*The plan was revised after this/)
+    assert.equal(r.todos[0]!.content, 'Re-read src/math.ts')
+  })
+
+  test('off: no plan round, as before', async () => {
+    const { transport, requests } = scripted([() => [text('ok')]])
+    await runAgentTask(spec(transport), host(transport).host)
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0]!.response_format, undefined)
+  })
+})
+
 describe('thinking by the family’s prior, and the round cap (v4.2, A3)', () => {
   const echo = 'echo ok'
   const reasoningOnly = (): Frame[] => [{ choices: [{ delta: { reasoning_content: 'Let me think about this some more…' } }] }]

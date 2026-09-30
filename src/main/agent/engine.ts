@@ -13,12 +13,30 @@ import { agentSystemPrompt, gitBranch, loadProjectNotes, subagentSystemPrompt, t
 import { streamRound } from './stream'
 import { roundPhase } from './phase'
 import { claimsTestsPass } from './evalHarness'
+import { CLOSED_THINK_PREFILL, THINK_TAG_MODELS } from '../../shared/thinking'
 import { agentThinkingProfile } from '../../renderer/src/lib/modelProfiles'
 import { unifiedDiff } from '../../shared/patch'
 import { fillHook, loadHooks, type HookMoment, type Hooks } from './hooks'
 import { ensureWorktree, type Worktree } from './worktree'
-import { planInView, setAsideFinishedStep, stepCompleted } from './plan'
-import { ASK_USER_SCHEMA, newTaskState, taskSchema, TODO_SCHEMA, Toolbox, WRITING_TOOLS, type TaskState } from './tools'
+import {
+  checklist,
+  parsePlanSteps,
+  PLAN_MIN_STEPS,
+  PLAN_ROUND_ASK,
+  PLAN_ROUND_MAX_TOKENS,
+  PLAN_SCHEMA,
+  planInView,
+  planTodos,
+  replanAsk,
+  revisedTodos,
+  setAsideFinishedStep,
+  stepCompleted,
+  stepEvidence,
+  withheldNote,
+  withholdCompletion,
+  type StepEvent
+} from './plan'
+import { ASK_USER_SCHEMA, CHANGE_TOOLS, newTaskState, READ_TOOLS, taskSchema, TODO_SCHEMA, Toolbox, WRITING_TOOLS, type TaskState } from './tools'
 import type {
   AgentHost,
   AgentTaskResult,
@@ -125,6 +143,18 @@ interface RunContext {
   spill: SpillStore
   /** v4.1 (A2): set when the task stopped because it failed at the same thing five times running. */
   stuck: StuckState | null
+  /** v4.2: rounds asked of the model this turn, the plan round included, across the verify and review loops. */
+  rounds: number
+  /** v4.2 (planRound): the checklist came from the plan round, so its steps close only with evidence. */
+  planned: boolean
+  /** v4.2 (planRound): the calls since the current step began — what a completion is checked against. */
+  stepLog: StepEvent[]
+  /** v4.2 (planRound): steps whose completion was already refused once. */
+  refused: Set<string>
+  /** v4.2 (planRound): why the plan should be revised before the next round; null when it should not. */
+  replanWanted: string | null
+  /** v4.2 (planRound): the one revision a task gets has happened. */
+  replanned: boolean
 }
 
 /**
@@ -183,7 +213,13 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
     question: null,
     stepDone: false,
     spill: new SpillStore(),
-    stuck: null
+    stuck: null,
+    rounds: 0,
+    planned: false,
+    stepLog: [],
+    refused: new Set(),
+    replanWanted: null,
+    replanned: false
   }
 
   const toolbox = new Toolbox({
@@ -216,6 +252,9 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
   let stopReason: AgentLoopStopReason | 'error' = 'error'
   let detail: string | undefined
   try {
+    // v4.2 (A4): the plan round, on a task's first turn — a follow-up is
+    // usually a correction, and "continue" must not be planned as a task.
+    if (spec.experiments?.planRound && !(spec.history && spec.history.length > 0) && !spec.signal.aborted) await openingPlan(run, messages, toolbox)
     const outcome = await loop(run, {
       messages,
       tools,
@@ -312,6 +351,95 @@ async function runHooks(run: RunContext, toolbox: Toolbox, moment: HookMoment, v
   return failures
 }
 
+/**
+ * v4.2 (A4): one structured-output request for a plan's steps — the
+ * response_format grammar where the server takes it, the same request without
+ * it where it answers HTTP 400 (the ladder of ipc/llm.ts `chatCompleteJson`),
+ * and a tolerant parse either way. Empty when no plan came back; never throws.
+ */
+async function planRequest(run: RunContext, messages: ApiMessage[], ask: string): Promise<string[]> {
+  const { spec, host } = run
+  // A copy: the ask rides this one request, and fitting it must not rewrite the real history.
+  const wire = JSON.parse(JSON.stringify(messages)) as ApiMessage[]
+  fitContext(wire, historyBudget(spec.contextTokens), 0, 1)
+  // On the user's own message when it is last: two user messages in a row is a history some templates (Gemma's) refuse.
+  const last = wire.at(-1)
+  if (last?.role === 'user' && typeof last.content === 'string') last.content = `${last.content}\n\n${ask}`
+  else wire.push({ role: 'user', content: ask })
+  // A plan is a short JSON list, not a deliberation: on a <think> family the
+  // block starts closed, as the chat's plan mode has done since v1.9.2.
+  if (THINK_TAG_MODELS.test(spec.model)) wire.push({ role: 'assistant', content: CLOSED_THINK_PREFILL })
+  const maxTokens = Math.min(spec.roundMaxTokens ?? DEFAULT_ROUND_MAX_TOKENS, PLAN_ROUND_MAX_TOKENS)
+  const request = (grammar: boolean): ReturnType<typeof streamRound> =>
+    streamRound({
+      baseUrl: spec.baseUrl,
+      model: spec.model,
+      messages: wire,
+      tools: [],
+      sampling: {
+        ...spec.sampling,
+        max_tokens: maxTokens,
+        ...(grammar ? { response_format: { type: 'json_schema', json_schema: { name: PLAN_SCHEMA.name, strict: true, schema: PLAN_SCHEMA.schema } } } : {})
+      },
+      signal: spec.signal,
+      transport: host.transport
+    })
+  host.emit({ type: 'round', round: ++run.rounds })
+  let result: Awaited<ReturnType<typeof streamRound>> | null
+  try {
+    result = await request(true)
+  } catch (err) {
+    const refused = err instanceof Error && err.message.includes('HTTP 400')
+    result = refused && !spec.signal.aborted ? await request(false).catch(() => null) : null
+  }
+  if (!result) return []
+  run.completionTokens += result.usage?.completion_tokens ?? 0
+  if (run.promptTokens === undefined && result.usage?.prompt_tokens !== undefined) run.promptTokens = result.usage.prompt_tokens
+  host.emit({ type: 'usage', promptTokens: run.promptTokens, completionTokens: run.completionTokens })
+  // A model that wrote its answer into the thinking channel still wrote the plan.
+  const steps = parsePlanSteps(result.content)
+  return steps.length > 0 ? steps : parsePlanSteps(result.reasoning)
+}
+
+/**
+ * v4.2 (A4): the plan round, before the first call. Three steps or more
+ * become the checklist — joined to the history as the model's own todo_write,
+ * so every later round reads it as its checklist; fewer, and the task runs as
+ * it would have.
+ */
+async function openingPlan(run: RunContext, messages: ApiMessage[], toolbox: Toolbox): Promise<void> {
+  const steps = await planRequest(run, messages, PLAN_ROUND_ASK)
+  if (steps.length < PLAN_MIN_STEPS || run.spec.signal.aborted) return
+  const id = 'plan-round'
+  const args = { todos: planTodos(steps) }
+  messages.push({ role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name: 'todo_write', arguments: JSON.stringify(args) } }] })
+  const record: ToolCallRecord = { id, name: 'todo_write', args, status: 'running', preamble: 'The plan, before the first step.' }
+  run.host.emit({ type: 'tool_start', record })
+  const r = await toolbox.execute('todo_write', args, id)
+  run.host.emit({ type: 'tool_end', record: { ...record, status: r.ok ? 'done' : 'error', result: r.ok ? (r.output ?? '') : (r.error ?? '') } })
+  messages.push({ role: 'tool', tool_call_id: id, content: r.ok ? (r.output ?? '') : `Error: ${r.error ?? 'unknown error'}` })
+  run.planned = r.ok
+}
+
+/**
+ * v4.2 (A4): the one revision a plan gets — after a check failed following a
+ * change, or (P3) a stuck warning. What is done stays done; the rest is the
+ * model's new list. The revision joins the history on the newest result,
+ * which no request has carried yet, so the prompt cache loses nothing.
+ */
+async function revisePlan(run: RunContext, messages: ApiMessage[], reason: string): Promise<void> {
+  run.replanWanted = null
+  run.replanned = true
+  const steps = await planRequest(run, messages, replanAsk(run.state.todos, reason))
+  const todos = revisedTodos(run.state.todos, steps)
+  if (!todos || run.spec.signal.aborted) return
+  run.state.todos = todos
+  run.stepLog = []
+  run.host.emit({ type: 'todos', todos })
+  const newest = [...messages].reverse().find((m) => m.role === 'tool')
+  if (newest && typeof newest.content === 'string') newest.content += `\n\n(The plan was revised after this — ${reason.charAt(0).toLowerCase()}${reason.slice(1)}:\n${checklist(todos)})`
+}
+
 interface LoopOptions {
   messages: ApiMessage[]
   tools: ToolSchema[]
@@ -335,7 +463,6 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
   const budget = historyBudget(spec.contextTokens)
   // v4.1 (A3): no one result may take more than a share of that budget.
   const cap = resultCapChars(budget)
-  let round = 0
   // v4.1 (A2): failures per tool and target, for this loop.
   const stuck = new StuckDetector()
   // v4.1 (A5, an experiment): the tools advertised grow with the task — edit
@@ -348,6 +475,8 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
   const thinking = !isHelper && spec.experiments?.thinkByPhase ? agentThinkingProfile(spec.model) : null
   const roundCap = spec.roundMaxTokens ?? DEFAULT_ROUND_MAX_TOKENS
   let quiet = false
+  // v4.2 (A4): the plan round's half inside the loop — evidence, set-aside, replan.
+  const planning = !isHelper && Boolean(spec.experiments?.planRound)
 
   const outcome = await runAgentLoop({
     messages: o.messages,
@@ -373,13 +502,26 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         : undefined,
     thinkingRecovery: thinking?.control === 'cap' ? 'note' : undefined,
     // A4 (v4.0, an experiment): the plan in view, one transient message a round.
-    preface: !isHelper && spec.experiments?.planFocus ? (iteration) => (iteration > 0 ? planInView(run.state.todos) : null) : undefined,
+    // v4.2 (planRound): the same, with the evidence rule, and the replan run
+    // here — at the round boundary, where every call has its result.
+    preface: planning
+      ? async (iteration, messages) => {
+          if (run.replanWanted && iteration > 0) await revisePlan(run, messages, run.replanWanted)
+          return iteration > 0 ? planInView(run.state.todos, run.planned) : null
+        }
+      : !isHelper && spec.experiments?.planFocus
+        ? (iteration) => (iteration > 0 ? planInView(run.state.todos) : null)
+        : undefined,
     // A6: ask_user ends the round; the answer is the next turn.
     // v4.1 (A2): and five failures running at the same target stop the loop.
     pauseRequested: () => (!isHelper && Boolean(spec.experiments?.askUser) && run.question !== null) || stuck.stopped !== null,
     afterCall: (name, args, result) => {
       phase?.observe(name, result)
-      return stuck.observe(name, args, result, (WRITING_TOOLS.has(name) && name !== 'run_command') || name === 'task')
+      const warnings = stuck.warnings
+      const shown = stuck.observe(name, args, result, CHANGE_TOOLS.has(name) || name === 'task')
+      // v4.2 (A4, P3): under planRound a stuck warning also revises the plan — once a task.
+      if (planning && run.planned && !run.replanned && stuck.warnings > warnings) run.replanWanted = 'You are stuck: the same call failed three times in a row'
+      return shown
     },
     toolBudgets: AGENT_TOOL_BUDGETS,
     // v4.1 (A4): neighbouring reads in one round run together.
@@ -396,11 +538,11 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
     },
     deps: {
       streamRound: async (messages, tools) => {
-        round++
-        if (!isHelper) host.emit({ type: 'round', round })
+        if (!isHelper) host.emit({ type: 'round', round: ++run.rounds })
         // A command's result is never reused across rounds — the world it
         // reports on may have moved (./engine.ts header).
-        for (const key of [...ledger.previousCalls.keys()]) if (key.startsWith('run_command ')) ledger.previousCalls.delete(key)
+        // v4.2 (planRound): nor is a checklist's — a tick taken back leaves the list unlike its call, so the same call again must run.
+        for (const key of [...ledger.previousCalls.keys()]) if (key.startsWith('run_command ') || (planning && key.startsWith('todo_write '))) ledger.previousCalls.delete(key)
         // A4: a step was finished last round; its output goes before the budget asks.
         if (run.stepDone) {
           run.stepDone = false
@@ -457,8 +599,22 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
             const failed = await runHooks(run, o.toolbox, 'afterEdit', { file: String(args.path ?? '') })
             if (failed.length > 0) result = { ...result, output: `${result.output ?? ''}\n\n${failed.join('\n\n')}` }
           }
+          // v4.2 (planRound): a step of the plan closes only with evidence — a
+          // completion nothing since the step began backs is taken back, once.
+          if (planning && run.planned && name === 'todo_write' && result.ok) {
+            const gate = withholdCompletion(todosBefore, run.state.todos, stepEvidence(run.stepLog, CHANGE_TOOLS, READ_TOOLS), run.refused)
+            if (gate) {
+              run.refused.add(gate.withheld)
+              run.state.todos = gate.todos
+              host.emit({ type: 'todos', todos: gate.todos })
+              result = { ...result, output: `${result.output ?? ''}${withheldNote(gate.withheld)}` }
+            }
+          }
           // A4: a step marked completed — set its output aside before the next round.
-          if (!isHelper && name === 'todo_write' && spec.experiments?.planFocus && stepCompleted(todosBefore, run.state.todos)) run.stepDone = true
+          if (!isHelper && name === 'todo_write' && (spec.experiments?.planFocus || planning) && stepCompleted(todosBefore, run.state.todos)) {
+            run.stepDone = true
+            run.stepLog = []
+          }
         } else if (run.host.extraTools?.schemas.some((s) => s.function.name === name)) {
           result = await run.host.extraTools.execute(name, args, callId)
         } else {
@@ -474,6 +630,11 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         if (!isHelper) {
           if (name === 'edit_file' || name === 'multi_edit' || name === 'write_file' || name === 'write_document' || name === 'move_file' || name === 'copy_file' || name === 'delete_file') run.lastEditAt = Date.now()
           if (name === 'run_command') run.commands.push({ command: String(args.command ?? ''), ok: result.ok, at: Date.now() })
+          if (planning && name !== 'todo_write') run.stepLog.push({ name, ok: result.ok })
+          // v4.2 (A4): a check that ran and failed after the task changed something — the plan is revised before the next round, once.
+          if (planning && run.planned && !run.replanned && name === 'run_command' && !result.ok && run.lastEditAt > 0 && /\(exit code [1-9]\d*|stopped at the \d+ s time limit/.test(result.error ?? '')) {
+            run.replanWanted = 'A check failed after a change'
+          }
         }
         return result
       },

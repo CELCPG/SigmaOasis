@@ -39,7 +39,7 @@ const EXPERIMENTS: { key: keyof AgentExperiments; label: string; help: string }[
   { key: 'multiRead', label: 'read_file takes several files (A1)', help: 'Up to three more paths in one call, each windowed as a single read, for a first look at a project in one round instead of four.' },
   { key: 'digests', label: 'Tool results shaped for a small reader (A2)', help: 'A test run says “3 failed, 41 passed” and the failures first; grep groups hits by file; a directory listing shows sizes; an edit returns the lines around it so no re-read is needed.' },
   { key: 'thinkByPhase', label: 'Think when it matters (A3)', help: 'Per model family (4.2): thought on the first round, after a failed check and before the likely report; after a successful read or edit a <think> model starts with the block closed, and a model that thinks in its own tokens gets a shorter step.' },
-  { key: 'planFocus', label: 'Plan, then one step at a time (A4)', help: 'A task judged to be three steps or more starts with a plan that becomes the checklist; each step then runs with the plan in view and earlier steps’ output set aside first.' },
+  { key: 'planFocus', label: 'Plan, then one step at a time (A4)', help: 'The checklist the agent writes stays in view: each step runs with the plan named, and a finished step’s output is set aside first. The plan round itself is the 4.2 switch below.' },
   { key: 'verifyRound', label: 'A verify round that cannot be skipped (A5)', help: 'When files changed and a test command is known, one more round offering only run_command before the report; a report that claims a check the timeline does not show is rewritten to say so.' },
   { key: 'askUser', label: 'ask_user as a tool (A6)', help: 'A question with optional choices pauses the task; the answer is the next message. Helpers cannot ask.' },
   { key: 'reviewer', label: 'A reviewer before the report (A7)', help: 'A review helper reads the diff of everything changed and returns “no problems” or a list, which becomes one more round.' },
@@ -54,7 +54,8 @@ const EXPERIMENTS: { key: keyof AgentExperiments; label: string; help: string }[
   { key: 'inbox', label: 'Files into an agent chat (C6)', help: 'Dropping files on an agent chat copies them into the folder’s .sigma/inbox/ and tells the model where they are.' },
   { key: 'commands', label: 'Slash commands (C7)', help: '.sigma/commands/<name>.md in the folder becomes /name in the composer and in sigma; $ARGUMENTS is what follows the name.' },
   { key: 'mcpTools', label: 'MCP tools for the agent (C8)', help: 'MCP servers that are on join the agent’s tools under the server’s own approval mode, marked untrusted as the chat marks them.' },
-  { key: 'toolsByPhase', label: 'Tools by phase (4.1, A5)', help: 'A shorter tool list for a small model: the edit tools join once something has been read, and document, chore and MCP tools once the task mentions them or the agent uses one. The list only grows, so the server’s prompt cache is rebuilt a few times a task at most.' }
+  { key: 'toolsByPhase', label: 'Tools by phase (4.1, A5)', help: 'A shorter tool list for a small model: the edit tools join once something has been read, and document, chore and MCP tools once the task mentions them or the agent uses one. The list only grows, so the server’s prompt cache is rebuilt a few times a task at most.' },
+  { key: 'planRound', label: 'A plan round, evidence per step (4.2, A4)', help: 'Before the first call, one structured request for the steps; three or more become the checklist. A step is ticked only after a tool result shows it done, earlier steps’ output is set aside first, and after a failed check (or a stuck warning) the plan is revised once.' }
 ]
 
 export interface AgentTabProps {
