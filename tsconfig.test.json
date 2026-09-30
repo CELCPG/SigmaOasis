@@ -3,6 +3,8 @@
 // path at run time, which no import names, so every module under src/main is
 // built whether or not a test imports it. The output keeps the layout
 // harness.ts expects: .test-build/{src,test}.
+// v4.2 (C2): resolveJsonModule, as the app's own tsconfigs have it, because
+// lib/webTrigger.ts imports its trained weights as JSON.
 {
   "compilerOptions": {
     "outDir": ".test-build",
@@ -14,7 +16,8 @@
     "skipLibCheck": true,
     "strict": true,
     "types": ["node"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "resolveJsonModule": true
   },
   "include": [
     "src/main/**/*.ts",
