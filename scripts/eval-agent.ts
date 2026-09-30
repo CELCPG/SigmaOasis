@@ -16,6 +16,7 @@
  *   EVAL_CASES=1-5       a 1-based inclusive slice, or case ids: fix-paginate,chain-stats
  *   EVAL_KEEP=1          keep each run's scratch folder
  *   EVAL_EXPERIMENTS=a,b turn those experiments on for every case (one arm of an A/B)
+ *   EVAL_ROUND_MAX_TOKENS=8192  one round's output cap (16384, 8192 or 4096; default 16384)
  *   LMSTUDIO_BASE_URL=…  default http://127.0.0.1:1234/v1 (loopback only, as in the CLI)
  *
  * Needs Node on the PATH: the cases' tests run with `node --test`, in the shell
@@ -48,7 +49,7 @@ import {
   type ModelSummary
 } from '../src/main/agent/evalHarness'
 import { isLoopback } from '../src/cli/sigma'
-import { EXPERIMENT_KEYS, type AgentExperiments } from '../src/main/agent/types'
+import { EXPERIMENT_KEYS, ROUND_MAX_TOKENS_OPTIONS, type AgentExperiments } from '../src/main/agent/types'
 
 // Compiled by scripts/eval-agent.sh to .eval-build/scripts/eval-agent.js — the
 // repo root is two levels up from there.
@@ -116,6 +117,11 @@ async function main(): Promise<void> {
   const shell = defaultShell()
   // v4.1 (M1): EVAL_EXPERIMENTS=resultDigests,verifyRound turns those on for every case — one arm of an A/B.
   const experiments = experimentsFrom(process.env.EVAL_EXPERIMENTS)
+  // v4.2 (A3): the round cap under test, one of the caps Settings offers.
+  const roundMaxTokens = process.env.EVAL_ROUND_MAX_TOKENS ? Number(process.env.EVAL_ROUND_MAX_TOKENS) : undefined
+  if (roundMaxTokens !== undefined && !ROUND_MAX_TOKENS_OPTIONS.includes(roundMaxTokens)) {
+    throw new Error(`EVAL_ROUND_MAX_TOKENS must be one of ${ROUND_MAX_TOKENS_OPTIONS.join(', ')}`)
+  }
   mkdirSync(RESULTS_DIR, { recursive: true })
 
   const controller = new AbortController()
@@ -143,7 +149,7 @@ async function main(): Promise<void> {
     }
     console.log(`answering after ${(warm.ms / 1000).toFixed(1)} s`)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const arm = Object.keys(experiments).length > 0 ? `-x-${Object.keys(experiments).sort().join('+')}` : ''
+    const arm = (Object.keys(experiments).length > 0 ? `-x-${Object.keys(experiments).sort().join('+')}` : '') + (roundMaxTokens ? `-cap${roundMaxTokens}` : '')
     const outFile = join(RESULTS_DIR, `agent-${model.replace(/[^a-z0-9._-]+/gi, '_')}${arm}-${stamp}.json`)
     const byPass: CaseRun[][] = []
     const save = (): void =>
@@ -165,7 +171,8 @@ async function main(): Promise<void> {
           shell,
           signal: controller.signal,
           keep: Boolean(process.env.EVAL_KEEP),
-          experiments
+          experiments,
+          roundMaxTokens
         })
         // A case during which the GPU's error counter moved measured the
         // machine: excluded and named, like a run the server ended.

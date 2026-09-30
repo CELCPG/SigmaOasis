@@ -140,6 +140,11 @@ export interface AgentTaskSpec {
   /** The loaded context window, in tokens, when the host knows it. */
   contextTokens?: number
   maxRounds?: number
+  /**
+   * v4.2 (A3): one round's output limit, thinking included, when the slot's
+   * sampling sets none (Settings → Agent; engine.ts DEFAULT_ROUND_MAX_TOKENS).
+   */
+  roundMaxTokens?: number
   /** Command time limit, seconds. */
   commandTimeoutSec?: number
   signal: AbortSignal
@@ -211,6 +216,14 @@ export const EXPERIMENT_KEYS: readonly (keyof AgentExperiments)[] = [
   'mcpTools',
   'toolsByPhase'
 ]
+
+/**
+ * v4.2 (A3): the round output caps Settings → Agent offers. 16K is 4.0's
+ * measured ceiling; the roadmap asks whether 8K or 4K costs any solved task
+ * (a call cut at the cap is repaired since 4.0.2, so a smaller cap trades a
+ * repair round for a shorter runaway).
+ */
+export const ROUND_MAX_TOKENS_OPTIONS: readonly number[] = [16_384, 8_192, 4_096]
 
 export interface AgentTaskResult {
   status: Exclude<AgentStatus, 'running'>

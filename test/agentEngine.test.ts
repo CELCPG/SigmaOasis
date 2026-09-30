@@ -36,12 +36,20 @@ const call = (id: string, name: string, args: Record<string, unknown>): Frame =>
 })
 const usage = (completion: number): Frame => ({ choices: [], usage: { prompt_tokens: 100, completion_tokens: completion } })
 
-function scripted(replies: Reply[]): { transport: ChunkTransport; requests: { messages: ApiMessage[]; tools: string[] }[] } {
-  const requests: { messages: ApiMessage[]; tools: string[] }[] = []
+/** One request as the scripted server saw it; v4.2 keeps the output cap and the grammar too. */
+interface SeenRequest {
+  messages: ApiMessage[]
+  tools: string[]
+  max_tokens?: number
+  response_format?: { type: string; json_schema?: { name: string } }
+}
+
+function scripted(replies: Reply[]): { transport: ChunkTransport; requests: SeenRequest[] } {
+  const requests: SeenRequest[] = []
   let i = 0
   const transport: ChunkTransport = async (_url, init) => {
-    const body = JSON.parse(init.body) as { messages: ApiMessage[]; tools?: { function: { name: string } }[] }
-    requests.push({ messages: JSON.parse(JSON.stringify(body.messages)), tools: (body.tools ?? []).map((t) => t.function.name) })
+    const body = JSON.parse(init.body) as { messages: ApiMessage[]; tools?: { function: { name: string } }[]; max_tokens?: number; response_format?: SeenRequest['response_format'] }
+    requests.push({ messages: JSON.parse(JSON.stringify(body.messages)), tools: (body.tools ?? []).map((t) => t.function.name), max_tokens: body.max_tokens, response_format: body.response_format })
     const reply = replies[i++]
     if (!reply) throw new Error(`the script ran out at request ${i}`)
     const enc = new TextEncoder()
@@ -1433,5 +1441,63 @@ describe('tools by phase (v4.1, A5 — an experiment, off by default)', () => {
     const { transport, requests } = scripted([() => [text('ok')]])
     await runAgentTask(spec(transport), host(transport).host)
     assert.ok(['edit_file', 'multi_edit', 'write_file', 'read_spill'].every((n) => requests[0]!.tools.includes(n)))
+  })
+})
+
+describe('thinking by the family’s prior, and the round cap (v4.2, A3)', () => {
+  const echo = 'echo ok'
+  const reasoningOnly = (): Frame[] => [{ choices: [{ delta: { reasoning_content: 'Let me think about this some more…' } }] }]
+
+  test('Qwen3: closed after a read and an edit; a passing check after a change is the likely report, so that round thinks', async () => {
+    const { transport, requests } = scripted([
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('e1', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [call('c1', 'run_command', { command: echo })],
+      () => [text('Fixed; the check passed.')]
+    ])
+    await runAgentTask(spec(transport, { model: 'qwen3-9b', permission: 'acceptEdits', experiments: { thinkByPhase: true } }), host(transport).host)
+    const closed = (i: number) => requests[i]!.messages.at(-1)!.role === 'assistant' && /^<think>\n\n<\/think>/.test(String(requests[i]!.messages.at(-1)!.content))
+    assert.deepEqual([0, 1, 2, 3].map(closed), [false, true, true, false])
+  })
+
+  test('with the plan in view, the transient plan message no longer makes every round think', async () => {
+    const { transport, requests } = scripted([
+      () => [call('t1', 'todo_write', { todos: [{ content: 'read', status: 'in_progress' }, { content: 'fix', status: 'pending' }] })],
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      () => [text('Done.')]
+    ])
+    await runAgentTask(spec(transport, { model: 'qwen3-9b', experiments: { thinkByPhase: true, planFocus: true } }), host(transport).host)
+    const tail = requests[2]!.messages.slice(-2)
+    assert.match(String(tail[0]!.content), /^Plan in view/)
+    assert.equal(tail[1]!.role, 'assistant', 'after a read the round starts closed, plan message or not')
+  })
+
+  test('a family that thinks in its own tokens: a quiet round gets the smaller cap, and a round that stays in its thinking is told in words, not with another family’s tags', async () => {
+    const { transport, requests } = scripted([() => [call('r1', 'read_file', { path: 'src/math.ts' })], reasoningOnly, () => [text('Done.')]])
+    const r = await runAgentTask(spec(transport, { model: 'gpt-oss-20b', experiments: { thinkByPhase: true } }), host(transport).host)
+    assert.equal(r.finalText, 'Done.')
+    assert.equal(requests[0]!.max_tokens, 16_384, 'the first round thinks, at the full cap')
+    assert.equal(requests[1]!.max_tokens, 8_192, 'after a read: quiet')
+    assert.ok(requests.every((q) => q.messages.every((m) => !/<think>/.test(String(m.content)))), 'never the closed block')
+    const retry = requests[2]!.messages.at(-1)!
+    assert.equal(retry.role, 'user')
+    assert.match(String(retry.content), /Your last reply stayed in your thinking/)
+    assert.ok(!r.history.some((m) => /stayed in your thinking/.test(String(m.content))), 'the note is scaffolding, not history')
+  })
+
+  test('the round cap is the task’s setting; the slot’s own limit still wins; off, a quiet round keeps the full cap', async () => {
+    const cases: [Record<string, unknown>, number][] = [
+      [{}, 16_384],
+      [{ roundMaxTokens: 4_096 }, 4_096],
+      [{ roundMaxTokens: 8_192, sampling: { max_tokens: 1_000 } }, 1_000]
+    ]
+    for (const [over, want] of cases) {
+      const { transport, requests } = scripted([() => [text('ok')]])
+      await runAgentTask(spec(transport, over), host(transport).host)
+      assert.equal(requests[0]!.max_tokens, want)
+    }
+    const off = scripted([() => [call('r1', 'read_file', { path: 'src/math.ts' })], () => [text('Done.')]])
+    await runAgentTask(spec(off.transport, { model: 'gpt-oss-20b' }), host(off.transport).host)
+    assert.equal(off.requests[1]!.max_tokens, 16_384)
   })
 })

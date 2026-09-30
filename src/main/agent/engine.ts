@@ -11,9 +11,9 @@ import { StuckDetector, type StuckState } from './stuck'
 import { ToolPhase } from './toolPhase'
 import { agentSystemPrompt, gitBranch, loadProjectNotes, subagentSystemPrompt, topLevel, type PromptEnv } from './prompts'
 import { streamRound } from './stream'
-import { skipThinking } from './phase'
+import { roundPhase } from './phase'
 import { claimsTestsPass } from './evalHarness'
-import { THINK_TAG_MODELS } from '../../shared/thinking'
+import { agentThinkingProfile } from '../../renderer/src/lib/modelProfiles'
 import { unifiedDiff } from '../../shared/patch'
 import { fillHook, loadHooks, type HookMoment, type Hooks } from './hooks'
 import { ensureWorktree, type Worktree } from './worktree'
@@ -343,6 +343,11 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
   // Built from this loop's history, so a verify or review round keeps what
   // the task has already opened. Helpers get their own short lists already.
   const phase = !isHelper && spec.experiments?.toolsByPhase ? new ToolPhase(spec.prompt, o.messages) : null
+  // v4.2 (A3): with thinkByPhase, the model family's prior says which rounds
+  // think (lib/modelProfiles.ts); `quiet` is this round's answer, for the cap.
+  const thinking = !isHelper && spec.experiments?.thinkByPhase ? agentThinkingProfile(spec.model) : null
+  const roundCap = spec.roundMaxTokens ?? DEFAULT_ROUND_MAX_TOKENS
+  let quiet = false
 
   const outcome = await runAgentLoop({
     messages: o.messages,
@@ -350,21 +355,23 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
     records,
     signal: spec.signal,
     maxIterations: o.maxRounds,
-    // A3 (v4.0, an experiment): on a <think> family, a round after a successful
-    // read starts with the thinking block closed; the first round and a round
-    // after a failed check think (./phase.ts). Helpers keep thinking: their
-    // whole job is one investigation.
+    // A3 (v4.0, an experiment): a round the phase says need not think starts
+    // with the thinking block closed on a <think> family (./phase.ts). Helpers
+    // keep thinking: their whole job is one investigation.
     // v4.1 (A2): and the round after a stuck warning thinks, whatever came last.
+    // v4.2: which phases think is the family's prior, not one fixed rule; a
+    // family that thinks in its own tokens gets a smaller cap on a quiet
+    // round instead, and a note when a round ends still thinking.
     quickReplyFor:
-      !isHelper && spec.experiments?.thinkByPhase && THINK_TAG_MODELS.test(spec.model)
+      thinking && thinking.control !== 'none'
         ? (iteration, messages) => {
-            if (stuck.warned) {
-              stuck.warned = false
-              return false
-            }
-            return skipThinking(iteration, messages)
+            const at = stuck.warned ? 'failure' : roundPhase(iteration, messages)
+            stuck.warned = false
+            quiet = !thinking.think[at]
+            return thinking.control === 'closed-think' && quiet
           }
         : undefined,
+    thinkingRecovery: thinking?.control === 'cap' ? 'note' : undefined,
     // A4 (v4.0, an experiment): the plan in view, one transient message a round.
     preface: !isHelper && spec.experiments?.planFocus ? (iteration) => (iteration > 0 ? planInView(run.state.todos) : null) : undefined,
     // A6: ask_user ends the round; the answer is the next turn.
@@ -410,7 +417,8 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
           model: spec.model,
           messages,
           tools: phase ? phase.offer(tools) : tools,
-          sampling: { max_tokens: DEFAULT_ROUND_MAX_TOKENS, ...spec.sampling },
+          // v4.2: the task's cap (Settings → Agent), smaller on a quiet round of a family the closed block cannot reach; the slot's own limit still wins.
+          sampling: { max_tokens: quiet && thinking?.quietMaxTokens ? Math.min(roundCap, thinking.quietMaxTokens) : roundCap, ...spec.sampling },
           signal: spec.signal,
           transport: host.transport,
           // A helper's words are its report, delivered as the task call's

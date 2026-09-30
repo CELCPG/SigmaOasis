@@ -688,6 +688,8 @@ export interface AgentExperiments {
 /** v3.0: the agent workspace (mirrors main/ipc/store.ts AgentSettings). */
 export interface AgentSettings {
   maxRounds: number
+  /** v4.2 (A3): one round's output limit when the slot sets none — 16K, 8K or 4K. */
+  roundMaxTokens: number
   commandTimeoutSec: number
   defaultPermission: AgentPermission
   appTools: boolean

@@ -1,6 +1,7 @@
 import type { EvalScoreSummary } from '../types'
 import { isLikelyReasoningModel } from './reasoning'
 import { recommendedSampling } from './sampling'
+import { THINK_TAG_MODELS } from '../../../shared/thinking'
 
 /**
  * v1.5.1 Model profiles: what the app knows about a model family, in one place
@@ -143,6 +144,62 @@ export function profileFor(modelId: string, evalScore?: EvalScoreSummary | null)
     deliberationWorthwhile: !(reasoning && sizeB !== null && sizeB >= 20),
     notes
   }
+}
+
+/**
+ * v4.2 (A3): what an agent round is about to do, read off the history
+ * (main/agent/phase.ts `roundPhase`). `report` is a guess — the round after a
+ * passing check that followed an edit, or after the last step was ticked —
+ * since nothing says in advance which round will be the one without a call.
+ */
+export type AgentRoundPhase = 'first' | 'user' | 'failure' | 'report' | 'read' | 'edit' | 'other'
+
+/**
+ * v4.2 (A3): an agent's thinking, per family — a prior, not a measurement;
+ * `eval:agent` says whether it holds (solved held, wall time down).
+ */
+export interface AgentThinkingProfile {
+  family: string | null
+  /**
+   * The lever this family offers: `closed-think` = the round starts with the
+   * block already closed (THINK_TAG_MODELS, measured since 3.1); `cap` = a
+   * family that thinks in its own tokens, where the only lever is a smaller
+   * `max_tokens` and a note if the round ends still thinking; `none` = no
+   * thinking to manage.
+   */
+  control: 'closed-think' | 'cap' | 'none'
+  /** Per phase, whether the round should think. */
+  think: Record<AgentRoundPhase, boolean>
+  /** For `cap`: the round's output limit where `think` says no (never above the task's own cap). */
+  quietMaxTokens: number | null
+}
+
+/** Think where the decisions are — the plan, a failure, the report — and act without it after a read or an edit. */
+const THINK_AT_DECISIONS: Record<AgentRoundPhase, boolean> = { first: true, user: true, failure: true, report: true, read: false, edit: false, other: false }
+
+/**
+ * The R1 distills are trained to think before every token they emit, so the
+ * prior closes the block only after a read — the round least often a decision.
+ */
+const THINK_UNLESS_READ: Record<AgentRoundPhase, boolean> = { first: true, user: true, failure: true, report: true, read: false, edit: true, other: true }
+
+/**
+ * Half the default round cap: a quiet round of a `cap` family still has room
+ * for an edit's new text, and a round that spends it all thinking is cut and
+ * told to act (agentLoop's thinking-channel note).
+ */
+export const QUIET_ROUND_MAX_TOKENS = 8_192
+
+export function agentThinkingProfile(modelId: string): AgentThinkingProfile {
+  const family = FAMILY_LABELS.find((f) => f.pattern.test(modelId))?.label ?? null
+  if (THINK_TAG_MODELS.test(modelId)) {
+    // By id, not label: "deepseek-r1-distill-qwen-14b" is labelled Qwen.
+    return { family, control: 'closed-think', think: /deepseek[-_]?r1|r1[-_]?distill/i.test(modelId) ? THINK_UNLESS_READ : THINK_AT_DECISIONS, quietMaxTokens: null }
+  }
+  if (NATIVE_THINK_FAMILIES.test(modelId) || isLikelyReasoningModel(modelId)) {
+    return { family, control: 'cap', think: THINK_AT_DECISIONS, quietMaxTokens: QUIET_ROUND_MAX_TOKENS }
+  }
+  return { family, control: 'none', think: { ...THINK_AT_DECISIONS, read: true, edit: true, other: true }, quietMaxTokens: null }
 }
 
 /** One line for the model picker: `Qwen3 · 9B · reasoning · tools: reliable (measured)`. */

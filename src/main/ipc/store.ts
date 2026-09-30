@@ -7,7 +7,7 @@ import { join } from 'path'
 import { writeFileAtomic } from './fsAtomic'
 import { isLoopbackBaseUrl } from './loopback'
 import { DEFAULT_TOOL_TOGGLES, type ToolToggles } from '../../shared/tools'
-import { EXPERIMENT_KEYS } from '../agent/types'
+import { EXPERIMENT_KEYS, ROUND_MAX_TOKENS_OPTIONS } from '../agent/types'
 
 /**
  * Default settings shape. The renderer keeps a mirror of this shape in its
@@ -329,6 +329,8 @@ export interface McpSettings {
 export interface AgentSettings {
   /** Rounds before a task pauses and asks to continue. */
   maxRounds: number
+  /** v4.2 (A3): one round's output limit when the slot sets none — 16K, 8K or 4K (ROUND_MAX_TOKENS_OPTIONS). */
+  roundMaxTokens: number
   /** Default time limit for one command, in seconds. */
   commandTimeoutSec: number
   /** The permission a new agent chat starts with. */
@@ -592,6 +594,7 @@ export function defaultSettings(): AppSettings {
     },
     agent: {
       maxRounds: 40,
+      roundMaxTokens: 16_384,
       commandTimeoutSec: 120,
       defaultPermission: 'ask',
       appTools: true,
@@ -864,6 +867,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     mcp: { servers: normalizeMcpServers(settings.mcp?.servers) },
     agent: {
       maxRounds: clamp(settings.agent?.maxRounds, 5, 200, defaults.agent.maxRounds),
+      // v4.2: one of the offered caps; anything else is the default, never an uncapped round.
+      roundMaxTokens: ROUND_MAX_TOKENS_OPTIONS.includes(Number(settings.agent?.roundMaxTokens)) ? Number(settings.agent!.roundMaxTokens) : defaults.agent.roundMaxTokens,
       commandTimeoutSec: clamp(settings.agent?.commandTimeoutSec, 10, 600, defaults.agent.commandTimeoutSec),
       // Anything but a known mode falls back to asking: a malformed value must
       // never widen what an agent may do unasked.

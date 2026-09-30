@@ -137,6 +137,7 @@ describe('privacy audit', () => {
 describe('the agent (v3.0)', () => {
   const agent = (over: Partial<AppSettings['agent']>): AppSettings['agent'] => ({
     maxRounds: 40,
+    roundMaxTokens: 16_384,
     commandTimeoutSec: 120,
     defaultPermission: 'ask',
     appTools: true,

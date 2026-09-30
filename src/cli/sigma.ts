@@ -79,7 +79,7 @@ function fail(s: string): void {
 interface AppSettingsLike {
   baseUrl?: string
   models?: { id?: string; modelId?: string; enabled?: boolean; specialty?: string; rules?: string }[]
-  agent?: { maxRounds?: number; commandTimeoutSec?: number; defaultPermission?: PermissionMode; experiments?: Record<string, boolean> }
+  agent?: { maxRounds?: number; roundMaxTokens?: number; commandTimeoutSec?: number; defaultPermission?: PermissionMode; experiments?: Record<string, boolean> }
 }
 
 /** Where electron-store keeps the app's settings on this platform (SIGMA_CONFIG overrides it). */
@@ -497,6 +497,8 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
         history,
         rules: slot?.rules,
         maxRounds,
+        // v4.2: the app's round cap; the engine clamps nothing, so only a positive number passes.
+        ...(Number(app.agent?.roundMaxTokens) > 0 ? { roundMaxTokens: Number(app.agent!.roundMaxTokens) } : {}),
         commandTimeoutSec,
         experiments: app.agent?.experiments,
         worktree: lastWorktree,

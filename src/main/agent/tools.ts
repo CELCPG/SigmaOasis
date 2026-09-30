@@ -46,6 +46,10 @@ export const MULTI_EDIT_MAX = 20
 
 /** Tools that change the workspace or run something; not offered read-only. */
 export const WRITING_TOOLS = new Set(['edit_file', 'multi_edit', 'write_file', 'run_command', 'write_document', 'move_file', 'copy_file', 'make_directory', 'delete_file'])
+/** v4.2: the writing tools that change files (all but run_command) — what a check or a read must follow. */
+export const CHANGE_TOOLS: ReadonlySet<string> = new Set([...WRITING_TOOLS].filter((n) => n !== 'run_command'))
+/** v4.2: the workspace's readers — a read after a change is evidence of it. */
+export const READ_TOOLS: ReadonlySet<string> = new Set(['read_file', 'list_directory', 'glob', 'grep', 'read_document', 'read_spill'])
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
   type: 'function',
