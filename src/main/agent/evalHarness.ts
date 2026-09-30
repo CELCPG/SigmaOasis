@@ -366,6 +366,8 @@ export interface RunOptions {
   experiments?: Partial<AgentExperiments>
   /** v4.1 (M3): the clock rounds are timed by; the tests drive their own. */
   clock?: () => number
+  /** v4.2 (A3): the round output cap for every case — the 8K and 4K arms the roadmap asks for. */
+  roundMaxTokens?: number
 }
 
 /** One pass of one case, start to finish. Never throws for a failing run; throws only if the harness itself cannot work. */
@@ -428,6 +430,7 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
       sampling: { temperature: 0, ...o.sampling },
       contextTokens: c.contextTokens,
       maxRounds: c.maxRounds,
+      ...(o.roundMaxTokens ? { roundMaxTokens: o.roundMaxTokens } : {}),
       commandTimeoutSec: o.commandTimeoutSec,
       experiments: { ...KIND_EXPERIMENTS[c.kind], ...o.experiments },
       signal,

@@ -228,6 +228,11 @@ export const TRUNCATED_AFTER_CALLS_NOTE =
   'Your last reply was cut off at the output limit. The calls above ran; anything after them was cut off and did not. ' +
   'If you still need it, make it smaller: edit_file on one section at a time, or a shorter write_file.'
 
+/** v4.2 (A3): the thinking-channel recovery in words, for a family the closed block does not reach. */
+export const THINKING_ONLY_NOTE =
+  'Your last reply stayed in your thinking: no answer and no tool call came out of it. ' +
+  'Do not think it through again — make the next tool call now, or write the answer as plain text.'
+
 /**
  * v4.1 (A1): rounds per turn that may be answered "your call could not be
  * read". A text-form call with broken arguments used to vanish without a
@@ -335,9 +340,18 @@ export interface AgentLoopOptions {
   /**
    * v4.0 (A4): a transient message appended before a round is asked for —
    * the plan in view. Scaffolding for one request, popped after it, never
-   * history.
+   * history. v4.2: may be async — the agent's replan round runs here, at the
+   * round boundary, where the history is whole (no call without its result).
    */
-  preface?: (iteration: number, messages: ApiMessage[]) => string | null
+  preface?: (iteration: number, messages: ApiMessage[]) => string | null | Promise<string | null>
+  /**
+   * v4.2 (A3): how a round that answered only into the thinking channel is
+   * asked again. `prefill` (the default): with the block already closed — the
+   * measured fix, on the `<think>` families. `note`: with a transient user
+   * message saying so, for a family that thinks in its own tokens, where
+   * another family's delimiters are noise (shared/thinking.ts).
+   */
+  thinkingRecovery?: 'prefill' | 'note'
   /**
    * v4.0 (A6): asked after a round's tool calls have run. True ends the loop
    * with 'paused' — a tool asked the user something, and the answer is the
@@ -654,7 +668,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         deps.onSteerDelivered?.(steer, iteration)
       }
     }
-    const preface = options.preface?.(iteration, messages) ?? null
+    // Awaited only when it is a promise, so a synchronous caller's round starts in the same tick as before.
+    const pending = options.preface?.(iteration, messages)
+    const preface = (pending instanceof Promise ? await pending : pending) ?? null
+    if (pending instanceof Promise && signal.aborted) return { stopReason: 'aborted' }
     if (preface) messages.push({ role: 'user', content: preface })
     const quick = (options.quickReply === true && iteration === 0) || options.quickReplyFor?.(iteration, messages) === true
     if (quick) messages.push({ role: 'assistant', content: CLOSED_THINK_PREFILL } as never)
@@ -678,9 +695,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
     if (answeredIntoThinking(round)) {
       thinkChannelRecoveryUsed = true
-      messages.push({ role: 'assistant', content: CLOSED_THINK_PREFILL } as never)
+      if (options.thinkingRecovery === 'note') messages.push({ role: 'user', content: THINKING_ONLY_NOTE })
+      else messages.push({ role: 'assistant', content: CLOSED_THINK_PREFILL } as never)
       round = await deps.streamRound(messages, tools)
-      // The prefill is scaffolding for one request, not conversation history.
+      // The prefill (or the note) is scaffolding for one request, not conversation history.
       messages.pop()
       if (signal.aborted) return { stopReason: 'aborted' }
     }

@@ -46,6 +46,8 @@ export class StuckDetector {
   stopped: StuckState | null = null
   /** Set when a warning was just given; the engine lets the next round think. */
   warned = false
+  /** v4.2: warnings given so far — the engine's replan reads a change in it, since `warned` is the thinking rule's to reset. */
+  warnings = 0
 
   /**
    * Count one call's outcome and return the result the model should see —
@@ -67,6 +69,7 @@ export class StuckDetector {
     }
     if (count < STUCK_WARN_AT) return result
     this.warned = true
+    this.warnings++
     const reread = typeof args.path === 'string' && args.path.trim() ? `Re-read ${args.path.trim()} with read_file as it is now` : 'Look again at what you are working from'
     const note =
       `You are stuck: this is failure ${count} in a row of ${name}${target ? ` on ${target}` : ''}. Do not repeat it. ` +

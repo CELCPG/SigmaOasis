@@ -63,7 +63,7 @@ instead, so a project already set up for another agent works unchanged.
 
 ## Experiments (v4.0) — off until measured
 
-Settings → Agent → *Experiments* lists twenty switches, each off. Every one changes how the
+Settings → Agent → *Experiments* lists twenty-one switches, each off. Every one changes how the
 agent works in a way that ought to help a small model, and not one has been measured against
 `eval:agent`'s baseline on a sound machine — so none is on by default and none is described
 anywhere as an improvement. They are here so the measurement can happen with the shipped build,
@@ -75,8 +75,9 @@ same settings.
 | Context fitting keeps the cache (A1) | Once the history is over budget, old tool output is set aside down to 70% of the window rather than to just under it, so the start of the history moves once every several rounds and the server's prompt cache survives between. |
 | `read_file` takes several files (A1) | `more_paths`: up to three more files in one call, each windowed as a single read. |
 | Tool results shaped for a small reader (A2) | A test runner's output leads with its totals and failures; `grep` groups hits by file; a listing shows sizes; an edit returns the lines around it. |
-| Think when it matters (A3) | On a model that thinks in `<think>` tags, the first round thinks and so does a round after a failed check; a round whose last result was a successful read, listing, search or edit starts with the thinking block already closed. Helpers keep thinking. |
+| Think when it matters (A3) | Which rounds think is the model family's prior (4.2, `agentThinkingProfile` in `lib/modelProfiles.ts`), read off what the last round did: the first round, a round after a failure or a stuck note, and the likely report (after a passing check that followed an edit, or once every step is ticked) think; a round after a successful read, edit or other call does not. On a `<think>`-tag family (Qwen3, Magistral) "does not" means the round starts with the block already closed; the R1 distills close it only after a read. A family that thinks in its own tokens (Gemma 4, gpt-oss) cannot be closed, so a quiet round gets half the round cap (8K) instead, and a round that ends with nothing but thinking is told so in words rather than handed another family's tags. The plan-in-view message no longer counts as the user speaking (4.0 read it so, and with A4 on every round thought). Helpers keep thinking. |
 | Plan, then one step at a time (A4) | The checklist is the plan: each round after the first ends with a transient message naming the steps and the one in progress, and when a step is marked completed the tool output before that round is set aside before the budget asks. |
+| A plan round, evidence per step (4.2, A4) | Before the first call of a task's first turn, one request with no tools asks for the steps as JSON — grammar-constrained (`response_format` with a schema) where the server takes it, asked again without it where the server answers HTTP 400, and read tolerantly either way (a fence, prose around it, a numbered list). On a `<think>` family that request starts with the block closed. Three steps or more become the checklist, in the history as the model's own `todo_write`; fewer, and the task runs as it would have. Then: the plan rides each round as A4's transient message, never in the system prompt, so the prompt's start and the server's cache stay put; a step's output is set aside when it is ticked; a tick is taken back — once per step — unless a tool result since the step began shows it done (after a change, a passing command or a read that followed it); and after a check fails following a change, or a stuck warning, one more structured request revises the steps still to do. Once a task: a plan revised twice is a plan the model is not following. |
 | A verify round that cannot be skipped (A5) | When a file changed after the last successful command and a command is known, one more round offers `run_command` alone before the report; a report that still claims a passing check the timeline does not show gets a sentence saying so, in the text you read. |
 | `ask_user` as a tool (A6) | The agent may ask you one question, with up to six choices; the task pauses, the question and its choices show on the turn (and in the terminal), and your next message is the answer. Helpers cannot ask. |
 | A reviewer before the report (A7) | Before the report, a *review* helper reads the diff of everything the task changed; its findings become one more round, or "no problems" ends it. |
@@ -128,8 +129,11 @@ ignore file that hides it never show in `git status`.
   `<tool_call>{"name", "arguments"}</tool_call>` form and Qwen3-Coder's `<function=…>` — still has
   it run. One that cannot be read is not run, and no longer dropped in silence: the model is told
   which call did not run, twice a turn at most.
-- One round's generation is capped at 16K tokens when the slot sets no limit, so a model caught in
-  a reasoning loop cannot think for an hour; at the cap the thinking-channel recovery takes over.
+- One round's generation is capped when the slot sets no limit, so a model caught in a reasoning
+  loop cannot think for an hour: 16K tokens by default, 8K or 4K under Settings → Agent → *Longest
+  single step* (4.2; `EVAL_ROUND_MAX_TOKENS` for `eval:agent`, to measure whether the smaller caps
+  cost a solved task). At the cap the thinking-channel recovery takes over, and a call cut off is
+  told so and asked for in smaller parts (4.0.2).
 - **Steering.** Type while a task works and the note is handed to the model at its next step; the
   chat shows where it landed.
 

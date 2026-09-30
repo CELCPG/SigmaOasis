@@ -10,6 +10,7 @@ import { ActionRow, Card, DangerRow, Notice, Row, Section, Segmented, Stepper, S
 export const ROWS = defineRows('agent', {
   defaultPermission: { label: 'A new agent chat starts as', help: 'Each chat can change it in its header; a change applies from its next task.', keywords: ['permission', 'ask first', 'accept edits', 'read-only', 'mode'] },
   maxRounds: { label: 'Steps before a task pauses', help: 'A paused task says so and carries on when you press Continue.', keywords: ['rounds', 'limit'] },
+  roundMaxTokens: { label: 'Longest single step', help: 'The most one step may write, thinking included, when the model’s slot sets no limit. A step cut off here is told so and asked to go smaller; a lower cap stops a model caught thinking in circles sooner.', keywords: ['max tokens', 'output', 'thinking', 'cap'] },
   commandTimeoutSec: { label: 'Command time limit', help: 'A command past it is stopped, with its whole process tree.', keywords: ['timeout', 'seconds'] },
   appTools: { label: 'Let the agent use the app’s own tools', help: 'Web search and page reading, deep research, the reference library, memory search, dates and the Python sandbox — each only if it is enabled under Tools, and under the same privacy rules as in a chat.', keywords: ['web', 'research', 'library', 'python'] },
   notify: { label: 'Notify me when a task finishes in the background', help: 'A desktop notification, only when this window is not in front. Nothing leaves the machine.', keywords: ['notification'] },
@@ -25,13 +26,20 @@ const PERMISSIONS: { value: AgentPermission; label: string; hint: string }[] = [
   { value: 'readOnly', label: 'Read-only', hint: 'No edits and no commands: for questions and plans.' }
 ]
 
+/** v4.2 (A3): the round caps offered (main/agent/types.ts ROUND_MAX_TOKENS_OPTIONS). */
+const ROUND_CAPS: { value: string; label: string; hint: string }[] = [
+  { value: '16384', label: '16K tokens', hint: 'The default since 4.0.' },
+  { value: '8192', label: '8K', hint: 'Under test: a runaway round ends sooner.' },
+  { value: '4096', label: '4K', hint: 'Under test: the shortest; big file writes are split into parts.' }
+]
+
 /** The experiments, in the roadmap's order, each one line of what it changes. */
 const EXPERIMENTS: { key: keyof AgentExperiments; label: string; help: string }[] = [
   { key: 'lowWaterMark', label: 'Context fitting keeps the cache (A1)', help: 'Once over budget, old tool output is set aside down to 70% of the window, so the history’s start moves once every several rounds instead of every round and the server’s prompt cache survives between.' },
   { key: 'multiRead', label: 'read_file takes several files (A1)', help: 'Up to three more paths in one call, each windowed as a single read, for a first look at a project in one round instead of four.' },
   { key: 'digests', label: 'Tool results shaped for a small reader (A2)', help: 'A test run says “3 failed, 41 passed” and the failures first; grep groups hits by file; a directory listing shows sizes; an edit returns the lines around it so no re-read is needed.' },
-  { key: 'thinkByPhase', label: 'Think when it matters (A3)', help: 'On a model that thinks in <think> tags: thought on the first round and after a failed check; a round whose last result was a successful read starts with the thinking block closed.' },
-  { key: 'planFocus', label: 'Plan, then one step at a time (A4)', help: 'A task judged to be three steps or more starts with a plan that becomes the checklist; each step then runs with the plan in view and earlier steps’ output set aside first.' },
+  { key: 'thinkByPhase', label: 'Think when it matters (A3)', help: 'Per model family (4.2): thought on the first round, after a failed check and before the likely report; after a successful read or edit a <think> model starts with the block closed, and a model that thinks in its own tokens gets a shorter step.' },
+  { key: 'planFocus', label: 'Plan, then one step at a time (A4)', help: 'The checklist the agent writes stays in view: each step runs with the plan named, and a finished step’s output is set aside first. The plan round itself is the 4.2 switch below.' },
   { key: 'verifyRound', label: 'A verify round that cannot be skipped (A5)', help: 'When files changed and a test command is known, one more round offering only run_command before the report; a report that claims a check the timeline does not show is rewritten to say so.' },
   { key: 'askUser', label: 'ask_user as a tool (A6)', help: 'A question with optional choices pauses the task; the answer is the next message. Helpers cannot ask.' },
   { key: 'reviewer', label: 'A reviewer before the report (A7)', help: 'A review helper reads the diff of everything changed and returns “no problems” or a list, which becomes one more round.' },
@@ -46,7 +54,8 @@ const EXPERIMENTS: { key: keyof AgentExperiments; label: string; help: string }[
   { key: 'inbox', label: 'Files into an agent chat (C6)', help: 'Dropping files on an agent chat copies them into the folder’s .sigma/inbox/ and tells the model where they are.' },
   { key: 'commands', label: 'Slash commands (C7)', help: '.sigma/commands/<name>.md in the folder becomes /name in the composer and in sigma; $ARGUMENTS is what follows the name.' },
   { key: 'mcpTools', label: 'MCP tools for the agent (C8)', help: 'MCP servers that are on join the agent’s tools under the server’s own approval mode, marked untrusted as the chat marks them.' },
-  { key: 'toolsByPhase', label: 'Tools by phase (4.1, A5)', help: 'A shorter tool list for a small model: the edit tools join once something has been read, and document, chore and MCP tools once the task mentions them or the agent uses one. The list only grows, so the server’s prompt cache is rebuilt a few times a task at most.' }
+  { key: 'toolsByPhase', label: 'Tools by phase (4.1, A5)', help: 'A shorter tool list for a small model: the edit tools join once something has been read, and document, chore and MCP tools once the task mentions them or the agent uses one. The list only grows, so the server’s prompt cache is rebuilt a few times a task at most.' },
+  { key: 'planRound', label: 'A plan round, evidence per step (4.2, A4)', help: 'Before the first call, one structured request for the steps; three or more become the checklist. A step is ticked only after a tool result shows it done, earlier steps’ output is set aside first, and after a failed check (or a stuck warning) the plan is revised once.' }
 ]
 
 export interface AgentTabProps {
@@ -74,6 +83,9 @@ export function AgentTab({ settings, apply, defaults }: AgentTabProps): JSX.Elem
         </Row>
         <Row meta={ROWS.maxRounds}>
           <Stepper value={agent.maxRounds} min={5} max={200} step={5} onChange={(maxRounds) => set(ROWS.maxRounds, { maxRounds })} />
+        </Row>
+        <Row meta={ROWS.roundMaxTokens}>
+          <Segmented value={String(agent.roundMaxTokens ?? 16_384)} onChange={(v) => set(ROWS.roundMaxTokens, { roundMaxTokens: Number(v) }, ROUND_CAPS.find((c) => c.value === v)?.label)} options={ROUND_CAPS} label={ROWS.roundMaxTokens.label} />
         </Row>
         <Row meta={ROWS.commandTimeoutSec}>
           <Stepper value={agent.commandTimeoutSec} min={10} max={600} step={10} unit="s" onChange={(commandTimeoutSec) => set(ROWS.commandTimeoutSec, { commandTimeoutSec })} />

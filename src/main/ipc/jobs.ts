@@ -466,6 +466,7 @@ async function runAgentJob(job: Job): Promise<JobRunResult> {
         permission: 'readOnly',
         prompt,
         maxRounds: Math.min(settings.agent.maxRounds, 20),
+        roundMaxTokens: settings.agent.roundMaxTokens,
         commandTimeoutSec: settings.agent.commandTimeoutSec,
         experiments: settings.agent.experiments,
         signal: controller.signal

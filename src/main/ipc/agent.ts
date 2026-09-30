@@ -285,6 +285,7 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
         rules: req.rules,
         contextTokens: entry?.loadedContextLength ?? entry?.maxContextLength ?? undefined,
         maxRounds: settings.agent.maxRounds,
+        roundMaxTokens: settings.agent.roundMaxTokens,
         commandTimeoutSec: settings.agent.commandTimeoutSec,
         experiments: settings.agent.experiments,
         worktree: worktrees.get(req.conversationId),

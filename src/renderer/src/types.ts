@@ -683,11 +683,15 @@ export interface AgentExperiments {
   mcpTools: boolean
   /** v4.1 (A5): tools offered by phase — edit tools after a read; documents, chores and MCP tools when the task points at them. */
   toolsByPhase: boolean
+  /** v4.2 (A4): a structured plan round first; steps closed only with evidence; one replan after a failed check or a stuck note. */
+  planRound: boolean
 }
 
 /** v3.0: the agent workspace (mirrors main/ipc/store.ts AgentSettings). */
 export interface AgentSettings {
   maxRounds: number
+  /** v4.2 (A3): one round's output limit when the slot sets none — 16K, 8K or 4K. */
+  roundMaxTokens: number
   commandTimeoutSec: number
   defaultPermission: AgentPermission
   appTools: boolean
