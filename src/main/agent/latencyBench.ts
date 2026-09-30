@@ -119,6 +119,8 @@ export interface ScenarioResult {
   decodeTokPerSec: number | null
   /** Completed rounds the medians are over. */
   n: number
+  /** v4.2 (S8): draft tokens kept over proposed, pooled over the rounds that reported it; absent when none did. */
+  draftAcceptance?: number
 }
 
 /** Median per scenario over the repeats; failed rounds are left out. */
@@ -139,8 +141,29 @@ export function summarizeBench(rounds: { scenario: string; latency: RoundLatency
       decodeTokPerSec: med(ls.map((l) => l.decodeTokPerSec)),
       n: ls.length
     }
+    const drafted = ls.reduce((t, l) => t + (l.draft?.drafted ?? 0), 0)
+    if (drafted > 0) out[s]!.draftAcceptance = Math.round((ls.reduce((t, l) => t + (l.draft?.accepted ?? 0), 0) / drafted) * 1000) / 1000
   }
   return out
+}
+
+/**
+ * v4.2 (S8): the runner's arguments — `<model> [label] [--draft <id>]`, the
+ * flag anywhere. Null for a missing model or a `--draft` with no id after it.
+ */
+export function parseBenchArgs(args: readonly string[]): { model: string; label: string; draft?: string } | null {
+  const at = args.indexOf('--draft')
+  const draft = at >= 0 ? args[at + 1] : undefined
+  if (at >= 0 && (!draft || draft.startsWith('--'))) return null
+  const [model, label = 'unlabelled'] = at >= 0 ? [...args.slice(0, at), ...args.slice(at + 2)] : args
+  if (!model) return null
+  return { model, label, ...(draft ? { draft } : {}) }
+}
+
+/** v4.2 (S8): a line's acceptance, the median of its scenarios'; null when the server reported none. */
+export function lineAcceptance(line: BenchLine): number | null {
+  const rates = Object.values(line.scenarios).map((x) => x.draftAcceptance).filter((x): x is number => typeof x === 'number')
+  return rates.length ? median(rates) : null
 }
 
 export interface BenchLine {
@@ -151,6 +174,8 @@ export interface BenchLine {
   repeats: number
   /** Set when the GPU's error counter moved during the run: its times describe the machine (v4.1, decision 1). */
   machine?: string
+  /** v4.2 (S8): the draft model this line ran with (`--draft`); absent on the plain arm and on 4.1 lines. */
+  draft?: string
   scenarios: Record<string, ScenarioResult>
 }
 
@@ -164,7 +189,7 @@ export function formatBenchReport(lines: BenchLine[]): string {
     const s = l.scenarios
     const decode = median(Object.values(s).map((x) => x.decodeTokPerSec).filter((x): x is number => x !== null))
     out.push(
-      `| ${l.label}${l.machine ? ' (machine)' : ''} | ${l.model} | ${REPORTED.map((k) => fmtMs(s[k]?.ttftMs)).join(' | ')} | ${decode ? decode.toFixed(1) : '—'} | ${s['window-next']?.promptTokens?.toLocaleString('en-US') ?? '—'} tok |`
+      `| ${l.label}${l.machine ? ' (machine)' : ''} | ${l.model}${l.draft ? ` + draft ${l.draft}${lineAcceptance(l) !== null ? ` (${Math.round(lineAcceptance(l)! * 100)}% kept)` : ''}` : ''} | ${REPORTED.map((k) => fmtMs(s[k]?.ttftMs)).join(' | ')} | ${decode ? decode.toFixed(1) : '—'} | ${s['window-next']?.promptTokens?.toLocaleString('en-US') ?? '—'} tok |`
     )
   }
   return out.join('\n')
