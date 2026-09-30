@@ -552,6 +552,30 @@ export function wireSampling(sampling: SamplingSettings, modelId: string): Recor
 }
 
 /**
+ * The body of one streamed completion request.
+ *
+ * v4.1 (S7): out of streamChat, so the prompt-cache test serializes the same
+ * object a turn sends.
+ */
+export function chatRequestBody(
+  modelId: string,
+  messages: ApiMessage[],
+  tools: ToolSchema[],
+  sampling?: SamplingSettings
+): Record<string, unknown> {
+  return {
+    model: modelId,
+    messages,
+    stream: true,
+    // Ask for token counts. Servers that do not know the option ignore it,
+    // and the stats readout falls back to timing alone.
+    stream_options: { include_usage: true },
+    ...(sampling ? wireSampling(sampling, modelId) : {}),
+    ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
+  }
+}
+
+/**
  * Stream one chat completion. Calls `onContent` for each answer delta,
  * `onReasoning` for each chain-of-thought delta, and returns any accumulated
  * tool calls once the stream ends.
@@ -625,16 +649,7 @@ export async function streamChat(
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: modelId,
-        messages,
-        stream: true,
-        // Ask for token counts. Servers that do not know the option ignore it,
-        // and the stats readout falls back to timing alone.
-        stream_options: { include_usage: true },
-        ...(sampling ? wireSampling(sampling, modelId) : {}),
-        ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
-      }),
+      body: JSON.stringify(chatRequestBody(modelId, messages, tools, sampling)),
       signal: watchdog.signal
     }).catch((err) => {
       // A watchdog abort looks exactly like a user abort from here; only the

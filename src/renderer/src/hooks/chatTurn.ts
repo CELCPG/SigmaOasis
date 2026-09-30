@@ -28,7 +28,6 @@ import {
   toolCallPreamble,
   MAX_TOOL_ITERATIONS,
   TOOL_TURN_BUDGETS,
-  type ApiMessage,
   type ApiUsage,
   type SpecialistProfile
 } from '../lib/agentLoop'
@@ -41,7 +40,7 @@ import type {
   ToolSchema
 } from '../types'
 import { makeTailStream, newWitness, streamChat } from './chatTransport'
-import { audit, planAndCompact, subsetForTurn, toApiContent, uid } from './turnHelpers'
+import { assembleTurnMessages, audit, planAndCompact, subsetForTurn, uid } from './turnHelpers'
 import { runConsultation } from './verification'
 import { vibeSystemBlock } from '../lib/vibe'
 import { turnThinking } from '../lib/quickReply'
@@ -185,7 +184,7 @@ export async function runTurn(
   // layers, all stable from turn to turn.
   // v3.0: VIBE's one line rides here, after the project's instructions — the
   // system prompt, not the turn's notes; lib/vibe.ts has the measurement.
-  let systemPrompt = withToolCallPreamble(
+  const systemPrompt = withToolCallPreamble(
     withGrounding(
       slot.systemPrompt + slotRulesBlock(slot) + projectBlock + vibeSystemBlock(useAppStore.getState().settings?.vibeMode),
       new Date(),
@@ -351,17 +350,10 @@ export async function runTurn(
     estimateTokens(JSON.stringify(turnTools))
   )
   if (signal.aborted) return stoppedBeforeSending(patch, turnOpenedAt)
-  if (summaryText) {
-    // The summary stays in the system prompt rather than joining the per-turn
-    // context: it changes only when compaction fires, and compaction has
-    // already dropped messages by then, so the prefix was invalidated either
-    // way. Between compactions this keeps it stable and in its natural place,
-    // ahead of the history it stands in for.
-    systemPrompt +=
-      `\n\nEarlier in this conversation (summarized, because it no longer fits the context window):\n${summaryText}`
-  }
-  const currentTurn = history.map((m) => m.role).lastIndexOf('user')
-  if (currentTurn === -1) {
+  // v4.1 (S7): the assembly lives in turnHelpers.ts, where the prompt-cache
+  // test builds consecutive turns with it.
+  const apiMessages = assembleTurnMessages({ systemPrompt, summaryText, history, turnContextBlock })
+  if (!apiMessages) {
     // Refuse a system-prompt-only request: with no user turn the model just
     // free-associates off the system prompt, which is exactly how the
     // first-turn message wipe presented (a "random" reply to nothing).
@@ -370,22 +362,6 @@ export async function runTurn(
         '⚠️ There is no message in this conversation to answer — its history may have been lost. Please send your message again.'
     })
     return
-  }
-  const apiMessages: ApiMessage[] = [
-    { role: 'system', content: systemPrompt },
-    ...history.map((m, i) => ({ role: m.role, content: toApiContent(m, i === currentTurn) }))
-  ]
-  // The app's per-turn additions ride the turn's own user message, so that
-  // everything before it is byte-identical to last turn's prompt and the
-  // server can reuse its KV cache for all of it (lib/grounding.ts).
-  if (turnContextBlock) {
-    // +1 for the system message that history is offset by.
-    const target = apiMessages[currentTurn + 1]
-    // A multimodal turn takes the notes as one more text part, so the images
-    // it carries are untouched.
-    target.content = Array.isArray(target.content)
-      ? [...target.content, { type: 'text', text: turnContextBlock }]
-      : `${target.content ?? ''}${turnContextBlock}`
   }
 
   // Orchestrated mode: expose the specialists as a pseudo-tool. consult_model

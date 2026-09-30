@@ -24,7 +24,7 @@ import {
   withForcedTools
 } from '../lib/toolSelection'
 import { attachmentInlineNote } from '../lib/attachmentRecall'
-import type { ApiContentPart } from '../lib/agentLoop'
+import type { ApiContentPart, ApiMessage } from '../lib/agentLoop'
 import type { AuditEntryInput, RecordableAuditKind } from '../../../shared/audit'
 import type { RequestEstimate } from '../../../shared/failure'
 import type { ChatMessage, Conversation, ModelConfig, ToolSchema } from '../types'
@@ -144,6 +144,52 @@ export function toApiContent(m: ChatMessage, withImages: boolean): string | ApiC
     parts.push({ type: 'image_url', image_url: { url: img.dataUrl! } })
   }
   return parts
+}
+
+/**
+ * The messages a chat turn sends, from its parts: the system prompt (with the
+ * summary, when compaction has made one), the planned history, and the turn's
+ * notes on its own user message. Null when the history holds no user message.
+ *
+ * v4.1 (S7): moved out of chatTurn.ts verbatim, so the prompt-cache test
+ * (test/promptCache.test.ts) builds consecutive turns exactly as a turn does.
+ */
+export function assembleTurnMessages(input: {
+  systemPrompt: string
+  summaryText: string | null
+  history: ChatMessage[]
+  turnContextBlock: string | null | undefined
+}): ApiMessage[] | null {
+  const { summaryText, history, turnContextBlock } = input
+  let systemPrompt = input.systemPrompt
+  if (summaryText) {
+    // The summary stays in the system prompt rather than joining the per-turn
+    // context: it changes only when compaction fires, and compaction has
+    // already dropped messages by then, so the prefix was invalidated either
+    // way. Between compactions this keeps it stable and in its natural place,
+    // ahead of the history it stands in for.
+    systemPrompt +=
+      `\n\nEarlier in this conversation (summarized, because it no longer fits the context window):\n${summaryText}`
+  }
+  const currentTurn = history.map((m) => m.role).lastIndexOf('user')
+  if (currentTurn === -1) return null
+  const apiMessages: ApiMessage[] = [
+    { role: 'system', content: systemPrompt },
+    ...history.map((m, i) => ({ role: m.role, content: toApiContent(m, i === currentTurn) }))
+  ]
+  // The app's per-turn additions ride the turn's own user message, so that
+  // everything before it is byte-identical to last turn's prompt and the
+  // server can reuse its KV cache for all of it (lib/grounding.ts).
+  if (turnContextBlock) {
+    // +1 for the system message that history is offset by.
+    const target = apiMessages[currentTurn + 1]
+    // A multimodal turn takes the notes as one more text part, so the images
+    // it carries are untouched.
+    target.content = Array.isArray(target.content)
+      ? [...target.content, { type: 'text', text: turnContextBlock }]
+      : `${target.content ?? ''}${turnContextBlock}`
+  }
+  return apiMessages
 }
 
 /** Flatten a dropped span into the text handed to the summarizer. */
