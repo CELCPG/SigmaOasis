@@ -191,3 +191,23 @@ covered by the round cap); the fix is the MCP default.
 3. **A search snippet is a lead, never a verified claim.** Done in 4.0.2 for the ledger.
 4. **Scope:** Tracks M, S, A1–A5, G1–G5 and F's security items in 4.1; the plan round, classifier,
    reranker and draft decoding in 4.2.
+
+## Status (2026-09-30, 4.1.0 on `rel/4.1`, 4.2.0 on `rel/4.2`)
+
+- **4.0.2** (`fix/4.0.2`): items 1–5 and the end-of-sentence amount; 6 was not a bug.
+- **Track M:** M1–M7 done. The 9B baseline is committed (4.0.2 engine 16/26; 4.1 engine 19.5/26,
+  the baseline now). Every experiment arm measured tonight is in `RELEASE-NOTES-v4.1.0.md`; none
+  holds on the 4.1 engine, so all stay off.
+- **Track S:** S1–S7 done and pinned by tests (S7 is the prompt-cache test); none timed on a model
+  yet — `bench:latency` has no 4.0.1 line. S8 (draft models) shipped in 4.2, off.
+- **Track A:** A1–A3, A5 (as `toolsByPhase`, off), A7 done in 4.1; parallel reads added. A4 (the
+  plan round, `planRound`) and A3's family profiles in 4.2, off pending their arms.
+- **Track G:** G1–G5 done in 4.1 (G4 off by default); G6 (the measured trigger) and G7 (re-rank,
+  sample-answer expansion, the section guard) in 4.2.
+- **Track F:** SECURITY.md, network-command marking and logging, trace redaction (a real leak:
+  tool arguments were exported unredacted), the tsconfig test build, the dependency audit. Upgrades
+  themselves not done. God-file splits in 4.2 (search, library, MessageBubble, deepResearch, the
+  eval docs).
+- **Open:** `eval:tools` and `eval:answers` (incl. the new `live` suite) not re-run on a model;
+  `bench:latency` not run; dependency upgrades; the worktree `post-checkout` hook and
+  `.sigma/.gitignore` gaps; signed Windows installer (E7).
