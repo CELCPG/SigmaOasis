@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runAgentTask } from '../src/main/agent/engine'
 import { applyEdit } from '../src/main/agent/editMatch'
-import { fitContext, DROPPED_NOTE, estimateTokens, LOW_WATER } from '../src/main/agent/context'
+import { fitContext, DROPPED_NOTE, estimateTokens, historyBudget, LOW_WATER } from '../src/main/agent/context'
+import { capResult, readSpill, resultCapChars, SpillStore } from '../src/main/agent/spill'
 import { agentSystemPrompt, loadProjectNotes } from '../src/main/agent/prompts'
 import { Toolbox, newTaskState, workspaceToolSchemas } from '../src/main/agent/tools'
 import { globToRegExp, resolveInside, WorkspaceError } from '../src/main/agent/workspace'
@@ -1185,5 +1186,105 @@ describe('tool calls written as text (v4.1, A1)', () => {
     assert.equal(r.status, 'done')
     assert.equal(r.finalText, 'It subtracts.')
     assert.match(String(requests[1]!.messages.at(-1)!.content), /could not be read, so nothing ran/)
+  })
+})
+
+describe('results cut to their share of the window (v4.1, A3)', () => {
+  test('a result that fits is untouched; a longer one keeps head and tail, and the middle is spilled whole', () => {
+    const spill = new SpillStore()
+    assert.equal(capResult('short', 2_000, spill), 'short')
+    const lines = Array.from({ length: 300 }, (_, i) => `${String(i + 1).padStart(5)}\tline ${i + 1} of the file`)
+    const out = capResult(lines.join('\n'), 3_000, spill)
+    assert.ok(out.length <= 3_000, `${out.length} characters`)
+    assert.match(out, /^ {4}1\tline 1 of the file\n/)
+    assert.match(out, /line 300 of the file$/)
+    const note = /\[… (\d+) lines, [\d,]+ characters cut here to keep the context small — read_spill with id "(spill-1)" returns them, or read_file with offset (\d+) …\]/.exec(out)
+    assert.ok(note, out)
+    const back = spill.get(note[2]!)!
+    assert.equal(back.length, Number(note[1]))
+    assert.equal(back[0], lines[Number(note[3]) - 1], 'the offset named is the first line cut')
+    // Nothing lost: head + spilled middle + tail is the whole.
+    const [head, tail] = out.split(/\n\[….*…\]\n/)
+    assert.equal(`${head}\n${back.join('\n')}\n${tail}`, lines.join('\n'))
+  })
+
+  test('one enormous line is cut by characters, and read_spill pages through it with the way on', () => {
+    const spill = new SpillStore()
+    const blob = 'x'.repeat(20_000)
+    const out = capResult(blob, 3_000, spill)
+    assert.ok(out.length <= 3_000)
+    assert.match(out, /read_spill with id "spill-1"/)
+    assert.doesNotMatch(out, /read_file with offset/)
+    const first = readSpill(spill, { id: 'spill-1' }, 3_000)
+    assert.ok(first.ok)
+    assert.match(first.output!, /\(spill-1: lines 1–1 of \d+; read on with offset 2\)$/)
+    const last = readSpill(spill, { id: 'spill-1', offset: spill.get('spill-1')!.length }, 3_000)
+    assert.match(last.output!, /the end\)$/)
+    assert.match(readSpill(spill, { id: 'spill-9' }, 3_000).error!, /No cut output has the id "spill-9"/)
+    assert.match(readSpill(new SpillStore(), { id: 'spill-1' }, 3_000).error!, /Nothing has been cut/)
+  })
+
+  test('a long read reaches the model cut, the record keeps it whole, and read_spill brings the middle back', async () => {
+    writeFileSync(join(dir, 'src', 'long.ts'), Array.from({ length: 600 }, (_, i) => `export const v${i + 1} = ${i + 1}`).join('\n'))
+    const { transport, requests } = scripted([
+      () => [call('c1', 'read_file', { path: 'src/long.ts', limit: 600 })],
+      (body) => {
+        const cut = String(body.messages.find((m) => m.tool_call_id === 'c1')?.content)
+        const id = /read_spill with id "([^"]+)"/.exec(cut)![1]!
+        return [call('c2', 'read_spill', { id })]
+      },
+      () => [text('Read it all.')]
+    ])
+    const h = host(transport)
+    const r = await runAgentTask(spec(transport, { prompt: 'Read src/long.ts.', contextTokens: 16_000 }), h.host)
+    assert.equal(r.status, 'done')
+    const cap = resultCapChars(historyBudget(16_000))
+    const first = String(requests[1]!.messages.find((m) => m.tool_call_id === 'c1')?.content)
+    assert.ok(first.length <= cap, `${first.length} > ${cap}`)
+    assert.match(first, /export const v1 = 1\n/)
+    assert.match(first, /export const v600 = 600$/)
+    assert.ok(requests[0]!.tools.includes('read_spill'))
+    const end = h.events.find((e) => e.type === 'tool_end' && e.record.id === 'c1')
+    assert.ok(end && end.type === 'tool_end' && /v300 = 300/.test(end.record.result ?? ''), 'the record shows the whole read')
+    const middle = String(requests[2]!.messages.find((m) => m.tool_call_id === 'c2')?.content)
+    assert.match(middle, /export const v300 = 300/)
+  })
+
+  test('where eliding is not enough, the recent results are cut harder before any round is dropped, then all but the last set aside', () => {
+    const spill = new SpillStore()
+    const big = Array.from({ length: 200 }, (_, i) => `row ${i} ${'y'.repeat(40)}`).join('\n')
+    const history = (): ApiMessage[] => [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'task' },
+      ...[1, 2, 3, 4].flatMap((n): ApiMessage[] => [
+        { role: 'assistant', content: null, tool_calls: [{ id: `c${n}`, type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: `c${n}`, content: big }
+      ])
+    ]
+    // 4.0: the four most recent are never touched, so rounds go, and it is still over.
+    const old = history()
+    const before = fitContext(old, 2_500, 0)
+    assert.equal(before.droppedRounds, 3)
+    assert.equal(before.stillOver, true)
+    // v4.1: cut harder first — every round stays, and it fits.
+    const messages = history()
+    const fit = fitContext(messages, 2_500, 0, 1, (t) => capResult(t, 1_500, spill))
+    assert.equal(fit.stillOver, false)
+    assert.equal(fit.droppedRounds, 0)
+    assert.equal(fit.shrunk, 4)
+    assert.equal(messages.filter((m) => m.role === 'tool').length, 4)
+    assert.match(String(messages.at(-1)!.content), /read_spill with id/)
+    // Tighter still, one round with two results: all but the last is set aside.
+    const last: ApiMessage[] = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'task' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'x1', type: 'function', function: { name: 'grep', arguments: '{}' } }, { id: 'x2', type: 'function', function: { name: 'glob', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'x1', content: big },
+      { role: 'tool', tool_call_id: 'x2', content: big }
+    ]
+    const squeezed = fitContext(last, 700, 0, 1, (t) => capResult(t, 2_000, spill))
+    assert.equal(squeezed.elided, 1)
+    assert.match(String(last[3]!.content), /^\[Earlier output of grep removed/)
+    assert.doesNotMatch(String(last[4]!.content), /^\[Earlier output/)
   })
 })

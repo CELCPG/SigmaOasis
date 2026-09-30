@@ -6,6 +6,7 @@ import {
 } from '../../renderer/src/lib/agentLoop'
 import { defaultShell } from './command'
 import { fitContext, historyBudget, LOW_WATER } from './context'
+import { capResult, READ_SPILL_SCHEMA, readSpill, resultCapChars, SpillStore } from './spill'
 import { agentSystemPrompt, gitBranch, loadProjectNotes, subagentSystemPrompt, topLevel, type PromptEnv } from './prompts'
 import { streamRound } from './stream'
 import { skipThinking } from './phase'
@@ -96,6 +97,22 @@ interface RunContext {
   question: { question: string; choices: string[] } | null
   /** A4: a step was just marked completed; its output is set aside before the next round. */
   stepDone: boolean
+  /** v4.1 (A3): the cut middles of this task's results, read back with read_spill; helpers share it. */
+  spill: SpillStore
+}
+
+/**
+ * v4.1 (A3): when eliding old output is not enough, the recent results are
+ * cut to this share of the budget each before a round is dropped
+ * (./context.ts `fitContext`).
+ */
+const SQUEEZE_SHARE = 0.05
+
+/** v4.1 (A3): a result longer than `cap` keeps its head and tail; the middle is spilled, and the record keeps the whole. */
+function capToolResult(result: ToolResult, cap: number, spill: SpillStore): ToolResult {
+  const text = result.ok ? (result.output ?? '') : (result.error ?? '')
+  if (text.length <= cap) return result
+  return { ...result, [result.ok ? 'output' : 'error']: capResult(text, cap, spill), display: result.display ?? text }
 }
 
 /** Run one turn of a task. Never throws: a failure is a status with a reason. */
@@ -138,7 +155,8 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
     hooks,
     hookCount: 0,
     question: null,
-    stepDone: false
+    stepDone: false,
+    spill: new SpillStore()
   }
 
   const toolbox = new Toolbox({
@@ -154,7 +172,7 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
   const types = subagentTypes(spec.permission, Boolean(root))
   // A6 (v4.0, an experiment): the task may ask the user and wait.
   const askUser = spec.experiments?.askUser ? [ASK_USER_SCHEMA] : []
-  const tools: ToolSchema[] = [...toolbox.schemas(), TODO_SCHEMA, taskSchema(types), ...askUser, ...(host.extraTools?.schemas ?? [])]
+  const tools: ToolSchema[] = [...toolbox.schemas(), TODO_SCHEMA, taskSchema(types), ...askUser, READ_SPILL_SCHEMA, ...(host.extraTools?.schemas ?? [])]
   const system = agentSystemPrompt({ ...run.env, tools: tools.map((t) => t.function.name) })
 
   // A later turn of the same conversation continues the same history, with a
@@ -282,6 +300,8 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
   const started = new Set<string>()
   const toolChars = JSON.stringify(o.tools).length
   const budget = historyBudget(spec.contextTokens)
+  // v4.1 (A3): no one result may take more than a share of that budget.
+  const cap = resultCapChars(budget)
   let round = 0
 
   const outcome = await runAgentLoop({
@@ -324,8 +344,10 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
           if (aside > 0) host.emit({ type: 'context_elided', toolResults: aside, chars: 0 })
         }
         // A1 (v4.0): the low-water mark only while the experiment is on; otherwise elide to just under the budget, as 3.0 did.
-        const fit = fitContext(messages, budget, toolChars, spec.experiments?.lowWaterMark ? LOW_WATER : 1)
-        if (fit.elided > 0 || fit.droppedRounds > 0) host.emit({ type: 'context_elided', toolResults: fit.elided, chars: fit.chars })
+        // v4.1 (A3): and where eliding old output is not enough, the recent
+        // results are cut harder before a round is dropped (./context.ts).
+        const fit = fitContext(messages, budget, toolChars, spec.experiments?.lowWaterMark ? LOW_WATER : 1, (t) => capResult(t, resultCapChars(budget, SQUEEZE_SHARE), run.spill))
+        if (fit.elided > 0 || fit.shrunk > 0 || fit.droppedRounds > 0) host.emit({ type: 'context_elided', toolResults: fit.elided + fit.shrunk, chars: fit.chars })
         const result = await streamRound({
           baseUrl: spec.baseUrl,
           model: spec.model,
@@ -357,6 +379,9 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
             : await runHelper(run, args, callId, o.subagentTypes)
         } else if (name === 'ask_user') {
           result = isHelper ? { ok: false, error: 'A helper cannot ask the user. Report what you found instead.' } : askUser(run, args)
+        } else if (name === 'read_spill') {
+          // v4.1 (A3): the middle of a cut result, a window at a time — itself never cut.
+          result = readSpill(run.spill, args, cap)
         } else if (o.toolbox.has(name)) {
           // A8: before a command the model asked for, the project's hooks.
           const before = name === 'run_command' && run.hooks && !isHelper ? await runHooks(run, o.toolbox, 'beforeCommand', { command: String(args.command ?? '') }) : []
@@ -374,6 +399,8 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         } else {
           result = { ok: false, error: `There is no tool named "${name}". Use one of: ${o.tools.map((t) => t.function.name).join(', ')}.` }
         }
+        // v4.1 (A3): whatever produced it, no result takes more than its share of the window.
+        if (name !== 'read_spill') result = capToolResult(result, cap, run.spill)
         // Anything that changed the workspace (or might have) invalidates
         // every result reuse could hand back.
         if (WRITING_TOOLS.has(name) || name === 'task') ledger.previousCalls.clear()
@@ -450,7 +477,7 @@ async function runHelper(run: RunContext, args: Record<string, unknown>, callId:
   // what the parent has, minus todo_write (the checklist is the parent's)
   // and task (helpers do not nest).
   const extra = type === 'general' ? (host.extraTools?.schemas ?? []) : []
-  const tools = [...toolbox.schemas(), ...extra]
+  const tools = [...toolbox.schemas(), READ_SPILL_SCHEMA, ...extra]
   const system = subagentSystemPrompt(type, { ...run.env, permission, tools: tools.map((t) => t.function.name) })
   const messages: ApiMessage[] = [
     { role: 'system', content: system },

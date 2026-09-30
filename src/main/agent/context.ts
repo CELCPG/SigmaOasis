@@ -71,6 +71,8 @@ export interface FitResult {
   chars: number
   /** Whole rounds dropped this call. */
   droppedRounds: number
+  /** v4.1 (A3): recent results cut harder by the caller's `shrink`, their middles spilled. */
+  shrunk: number
   /** Still over budget after everything — the next request may be refused. */
   stillOver: boolean
 }
@@ -78,9 +80,18 @@ export interface FitResult {
 /**
  * Fit `messages` (mutated in place) under `budgetTokens`, given `fixedChars`
  * of tool schemas that ride every request.
+ *
+ * v4.1 (A3): with `shrink`, two more measures, so that "still over" is no
+ * longer sent as it stands (4.0 reported it and the engine sent the request
+ * anyway, for the server to refuse or cut from the front on its own terms).
+ * Before any round is dropped, the recent results — the four elision never
+ * touches — are cut harder, oldest first: a cut middle is spilled and can be
+ * read back (./spill.ts), where a dropped round is gone. And if dropping
+ * rounds is still not enough, every result but the last is set aside. What
+ * is over after that is the system prompt, the task and the calls themselves.
  */
-export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedChars = 0, lowWaterShare = LOW_WATER): FitResult {
-  const result: FitResult = { elided: 0, chars: 0, droppedRounds: 0, stillOver: false }
+export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedChars = 0, lowWaterShare = LOW_WATER, shrink?: (text: string) => string): FitResult {
+  const result: FitResult = { elided: 0, chars: 0, droppedRounds: 0, shrunk: 0, stillOver: false }
   const over = (limit = budgetTokens): boolean => estimateTokens(messages, fixedChars) > limit
   if (!over()) return result
   // v4.0: the low-water mark is the A1 experiment; the engine passes 1 (elide to just under the budget, as 3.0 did) while it is off.
@@ -100,6 +111,19 @@ export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedCh
     result.chars += m.content.length
     result.elided++
     m.content = `${ELIDED_PREFIX}${name} removed to fit the context window (${m.content.length.toLocaleString('en-US')} characters). Call it again if you still need it.]`
+  }
+
+  if (shrink) {
+    for (const i of toolIdx) {
+      if (!over()) break
+      const m = messages[i]!
+      if (typeof m.content !== 'string' || m.content.startsWith(ELIDED_PREFIX)) continue
+      const cut = shrink(m.content)
+      if (cut.length >= m.content.length) continue
+      result.chars += m.content.length - cut.length
+      result.shrunk++
+      m.content = cut
+    }
   }
 
   // Last resort: drop whole early rounds after the task statement.
@@ -123,6 +147,17 @@ export function fitContext(messages: ApiMessage[], budgetTokens: number, fixedCh
     if (typeof task.content === 'string' && !task.content.includes(DROPPED_NOTE)) task.content += `\n\n${DROPPED_NOTE}`
     else if (Array.isArray(task.content) && !task.content.some((p) => p.type === 'text' && p.text.includes(DROPPED_NOTE))) {
       task.content = [...task.content, { type: 'text', text: DROPPED_NOTE }]
+    }
+  }
+  if (shrink && over()) {
+    const live = messages.filter((m) => m.role === 'tool' && typeof m.content === 'string' && !m.content.startsWith(ELIDED_PREFIX))
+    for (const m of live.slice(0, -1)) {
+      if (!over()) break
+      const text = m.content as string
+      if (text.length < 400) continue
+      result.chars += text.length
+      result.elided++
+      m.content = `${ELIDED_PREFIX}${nameOf.get(m.tool_call_id ?? '') ?? 'a tool'} removed to fit the context window (${text.length.toLocaleString('en-US')} characters). Call it again if you still need it.]`
     }
   }
   result.stillOver = over()
