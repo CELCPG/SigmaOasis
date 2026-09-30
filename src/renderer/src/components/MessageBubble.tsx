@@ -5,7 +5,7 @@ import { attributionLabel, composeFailure, readingLine } from '../../../shared/f
 import { ACCENT } from '../lib/colors'
 import { retrievedCitations, webSource } from '../lib/citations'
 import { UNCITED_MARK, UNSETTLED_MARK, contextItemLabel, libraryStrip } from '../lib/libraryRecall'
-import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, splitStreamingMarkdown } from '../lib/markdown'
+import { fadeStreamEdge, handleCodeBlockClick, renderMarkdown, renderStreamingMarkdown, splitStreamingMarkdown } from '../lib/markdown'
 import { speak, stopSpeaking } from '../lib/voice'
 import { describeOasisState, startWaitClock } from '../lib/oasisRipple'
 import { FIRST_BYTE_TIMEOUT_MS, STREAM_STALL_MS } from '../hooks/chatTransport'
@@ -737,7 +737,7 @@ export const MessageBubble = memo(function MessageBubble({
   // only wraps already-sanitized text in a span of our own.
   const html =
     livePart && message.role === 'assistant'
-      ? stableHtml + fadeStreamEdge(renderMarkdown(livePart, citations))
+      ? stableHtml + fadeStreamEdge(renderStreamingMarkdown(livePart, citations))
       : stableHtml
   // Declared before the marker/user branches below: hooks must run in the same
   // order on every render, and an early return would skip them. That includes

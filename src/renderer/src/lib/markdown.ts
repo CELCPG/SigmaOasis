@@ -143,6 +143,63 @@ export function foldsAnywhere(code: string): boolean {
   return lines.some(isUnbreakable) && !lines.some(isLongProse)
 }
 
+function highlight(code: string, language: string): string {
+  try {
+    return hljs.highlight(code, { language }).value
+  } catch {
+    return escapeHtml(code)
+  }
+}
+
+/**
+ * v4.1 (S6): the open code block of a streaming reply, highlighted in pieces.
+ *
+ * splitStreamingMarkdown keeps an open fence whole in the live half, so every
+ * paced flush of a long code answer re-highlighted the entire block — O(n²)
+ * in the block's length, and highlight.js is the heaviest thing a flush does.
+ * Here a block's complete runs of OPEN_BLOCK_CHUNK_LINES lines are highlighted
+ * once and reused, and only the run still growing is highlighted per flush.
+ *
+ * Highlighting runs separately can differ from highlighting the whole at a
+ * seam a construct spans (a docstring across the boundary). That is the same
+ * transient imperfection the split already accepts: the finished message is
+ * rendered by renderMarkdown, which never comes here, so what stays on screen
+ * is byte-for-byte what it was.
+ */
+const OPEN_BLOCK_CHUNK_LINES = 40
+const OPEN_BLOCK_CACHE_ENTRIES = 64
+const settledRuns = new Map<string, string>()
+let streamingParse = false
+/** Characters handed to highlight.js by the streaming path — the suite's measure of its cost. */
+let streamingHighlightChars = 0
+
+function highlightInChunks(code: string, language: string): string {
+  const lines = code.split('\n')
+  // The last line may still be growing; only whole runs before it are settled.
+  const settled = Math.floor((lines.length - 1) / OPEN_BLOCK_CHUNK_LINES) * OPEN_BLOCK_CHUNK_LINES
+  let html = ''
+  for (let i = 0; i < settled; i += OPEN_BLOCK_CHUNK_LINES) {
+    const run = lines.slice(i, i + OPEN_BLOCK_CHUNK_LINES).join('\n') + '\n'
+    const key = `${language}:${run}`
+    let hit = settledRuns.get(key)
+    if (hit === undefined) {
+      streamingHighlightChars += run.length
+      hit = highlight(run, language)
+      while (settledRuns.size >= OPEN_BLOCK_CACHE_ENTRIES) settledRuns.delete(settledRuns.keys().next().value!)
+      settledRuns.set(key, hit)
+    }
+    html += hit
+  }
+  const growing = lines.slice(settled).join('\n')
+  streamingHighlightChars += growing.length
+  return html + highlight(growing, language)
+}
+
+/** How many characters the streaming path has highlighted so far (test/markdownSplit.test.ts). */
+export function streamingHighlightWork(): number {
+  return streamingHighlightChars
+}
+
 marked.use({
   breaks: true,
   gfm: true,
@@ -180,12 +237,7 @@ marked.use({
     code(code: string, infostring: string | undefined): string {
       const requested = (infostring ?? '').trim().split(/\s+/)[0]
       const language = requested && hljs.getLanguage(requested) ? requested : 'plaintext'
-      let highlighted: string
-      try {
-        highlighted = hljs.highlight(code, { language }).value
-      } catch {
-        highlighted = escapeHtml(code)
-      }
+      const highlighted = streamingParse ? highlightInChunks(code, language) : highlight(code, language)
       // Scrolling is the default and stays the default; startsWrapped names the
       // one shape of line that wrapping cannot misrepresent. The class and the
       // button's state are set together — MessageBubble's toggle reads the
@@ -250,6 +302,21 @@ export function renderMarkdown(markdown: string, citations: Citation[] = []): st
   // renderer has no math engine, so rewrite it to plain text first.
   const html = marked.parse(latexToPlainText(markdown), { async: false }) as string
   return DOMPurify.sanitize(linkCitations(stripSandboxImages(html), citations), SANITIZE_OPTIONS)
+}
+
+/**
+ * v4.1 (S6): the live half of a streaming reply (splitStreamingMarkdown).
+ * Rendered as renderMarkdown renders it, except that an open code block is
+ * highlighted in settled runs — see highlightInChunks. Never for a finished
+ * message.
+ */
+export function renderStreamingMarkdown(markdown: string, citations: Citation[] = []): string {
+  streamingParse = true
+  try {
+    return renderMarkdown(markdown, citations)
+  } finally {
+    streamingParse = false
+  }
 }
 
 /**
