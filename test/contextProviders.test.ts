@@ -13,7 +13,8 @@ import { memoryRecallProvider } from '../src/renderer/src/lib/contextProviders/m
 import { projectRecallProvider } from '../src/renderer/src/lib/contextProviders/projectRecall'
 import { attachmentPassagesProvider } from '../src/renderer/src/lib/contextProviders/attachmentPassages'
 import { tabularProfileProvider } from '../src/renderer/src/lib/contextProviders/tabularProfile'
-import { buildSearchContext, buildSearchQuery } from '../src/renderer/src/lib/grounding'
+import { buildSearchContext } from '../src/renderer/src/lib/grounding'
+import { planAppSearch } from '../src/renderer/src/lib/appSearch'
 import { buildLibraryContext } from '../src/renderer/src/lib/libraryRecall'
 import type { ToolSchema } from '../src/renderer/src/types'
 
@@ -98,10 +99,12 @@ describe('autoSearch provider', () => {
     )
   })
 
-  test('runs web_search with the anchored query and wraps the result verbatim', async () => {
+  test('runs web_search with the rewritten query and wraps the result verbatim', async () => {
     const { io, calls } = makeIO({ runResult: { ok: true, output: 'results here' } })
     const result = await autoSearchProvider.gather(enabledInput, io)
-    const query = buildSearchQuery(enabledInput.lastUserContent!, undefined)
+    // v4.1 (G2b): the question rewritten (lib/appSearch.ts), anchored as before.
+    const [query] = planAppSearch(enabledInput.lastUserContent!, undefined).queries
+    assert.equal(query, 'what is the capital of France')
     assert.deepEqual(calls.runs, [{ name: 'web_search', args: { query } }])
     assert.deepEqual(result?.blocks, [buildSearchContext(query, 'results here')])
   })
