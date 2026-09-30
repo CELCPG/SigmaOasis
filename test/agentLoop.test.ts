@@ -891,6 +891,37 @@ describe('runAgentLoop · per-tool budgets (Layer 3c)', () => {
     assert.match(records[1].result ?? '', /budget reached \(1 of 1 this turn\)/)
   })
 
+  test('an MCP tool keeps the default budget under a caller-provided map; an empty map still disables budgets (4.0.2)', async () => {
+    const mcp = 'mcp__notes__search'
+    const run = async (toolBudgets: Record<string, number>) => {
+      const rounds: StreamRoundResult[] = Array.from({ length: 5 }, (_, i) => ({
+        content: '',
+        toolCalls: [call(`m${i}`, mcp, { query: `q${i}` })]
+      }))
+      const { streamRound } = scripted(rounds)
+      let executed = 0
+      await runAgentLoop({
+        messages: baseMessages(),
+        tools: TOOLS,
+        records: [],
+        signal: new AbortController().signal,
+        toolBudgets,
+        deps: {
+          streamRound,
+          executeTool: async () => {
+            executed += 1
+            return { ok: true, output: 'ok' }
+          }
+        }
+      })
+      return executed
+    }
+    // The agent's own table names no MCP tool; the egress default still holds.
+    assert.equal(await run({ task: 8, web_search: 8 }), 3)
+    assert.equal(await run({ [mcp]: 1 }), 1, 'a table that names the tool wins')
+    assert.equal(await run({}), 5, 'an empty map disables budgets, as before')
+  })
+
   test('deduped calls do not consume budget — budgets count work, not requests', async () => {
     const { streamRound } = scripted([
       { content: '', toolCalls: [call('c1', 'web_search', { query: 'same' })] },

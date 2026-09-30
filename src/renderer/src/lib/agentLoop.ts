@@ -351,11 +351,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   const configuredBudgets = options.toolBudgets ?? TOOL_TURN_BUDGETS
   // v2.5: a tool from an MCP server has no row in the static table; it gets
   // the egress-tool default unless the caller budgeted it by name. An empty
-  // map still disables budgets for the built-ins, as before.
+  // map still disables budgets altogether, as before. v4.0.2: a caller's own
+  // table no longer drops the default — the agent passes one, and MCP tools
+  // offered to it (C8) ran without any budget.
+  const budgetsDisabled = options.toolBudgets !== undefined && Object.keys(options.toolBudgets).length === 0
   const toolBudgets: Record<string, number> = new Proxy(configuredBudgets, {
     get(target, name: string) {
       if (name in target) return target[name]
-      return options.toolBudgets === undefined && isMcpWireName(String(name)) ? MCP_DEFAULT_TURN_BUDGET : undefined
+      return !budgetsDisabled && isMcpWireName(String(name)) ? MCP_DEFAULT_TURN_BUDGET : undefined
     }
   })
   let repairAllowance = options.repairIterations ?? 1
