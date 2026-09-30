@@ -304,7 +304,12 @@ export interface CaseRun {
   detail?: string
   /** Set when the run ended on a server failure; the run is excluded from every rate. */
   excluded?: string
-  /** v4.0 (E9): set when the GPU's error counter moved during the run — excluded, and named as the machine's. */
+  /**
+   * v4.0 (E9): set when the GPU's error counter moved during the run. v4.1
+   * (decision 1): the replays are *corrected* — the link resent the packet — so
+   * they cost time and change no token. The run is scored; only its time is
+   * left out of the medians.
+   */
   machine?: string
   solved: boolean
   /** Why it did not count as solved, in a few words; absent when solved. */
@@ -350,6 +355,8 @@ export interface RunOptions {
   keep?: boolean
   onEvent?: (e: AgentEvent) => void
   now?: Date
+  /** v4.1 (M1): experiments on for every case, over the kind's own — the A/B arm of a run. */
+  experiments?: Partial<AgentExperiments>
 }
 
 /** One pass of one case, start to finish. Never throws for a failing run; throws only if the harness itself cannot work. */
@@ -411,7 +418,7 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
       contextTokens: c.contextTokens,
       maxRounds: c.maxRounds,
       commandTimeoutSec: o.commandTimeoutSec,
-      experiments: KIND_EXPERIMENTS[c.kind],
+      experiments: { ...KIND_EXPERIMENTS[c.kind], ...o.experiments },
       signal,
       now: o.now
     },
@@ -545,7 +552,7 @@ export function summarize(model: string, runsByPass: CaseRun[][]): ModelSummary 
   const all = runsByPass.flat()
   const runs = all.filter((r) => !r.excluded)
   const solvedPerPass = runsByPass.map((p) => p.filter((r) => !r.excluded && r.solved).length)
-  const solvedMs = runs.filter((r) => r.solved).map((r) => r.ms)
+  const solvedMs = runs.filter((r) => r.solved && !r.machine).map((r) => r.ms)
   const longest = runs.reduce<CaseRun | null>((a, r) => (r.longestRound > (a?.longestRound ?? 0) ? r : a), null)
   return {
     model,

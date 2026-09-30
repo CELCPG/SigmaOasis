@@ -15,6 +15,7 @@
  *   EVAL_PASSES=3        repeat the suite; the report names stable and flaky cases
  *   EVAL_CASES=1-5       a 1-based inclusive slice, or case ids: fix-paginate,chain-stats
  *   EVAL_KEEP=1          keep each run's scratch folder
+ *   EVAL_EXPERIMENTS=a,b turn those experiments on for every case (one arm of an A/B)
  *   LMSTUDIO_BASE_URL=…  default http://127.0.0.1:1234/v1 (loopback only, as in the CLI)
  *
  * Needs Node on the PATH: the cases' tests run with `node --test`, in the shell
@@ -46,6 +47,7 @@ import {
   type ModelSummary
 } from '../src/main/agent/evalHarness'
 import { isLoopback } from '../src/cli/sigma'
+import { EXPERIMENT_KEYS, type AgentExperiments } from '../src/main/agent/types'
 
 // Compiled by scripts/eval-agent.sh to .eval-build/scripts/eval-agent.js — the
 // repo root is two levels up from there.
@@ -54,6 +56,14 @@ const CASES_DIR = join(REPO_ROOT, 'test', 'fixtures', 'agent')
 const RESULTS_DIR = join(REPO_ROOT, '.eval-results')
 const BASE_URL = process.env.LMSTUDIO_BASE_URL ?? 'http://127.0.0.1:1234/v1'
 const USAGE = 'usage: LMSTUDIO_EVAL=1 npm run eval:agent -- <model-id> [model-id ...]'
+
+/** v4.1 (M1): a comma list of experiment keys, each checked against the engine's own list. */
+function experimentsFrom(spec: string | undefined): Partial<AgentExperiments> {
+  const keys = (spec ?? '').split(',').map((k) => k.trim()).filter(Boolean)
+  const unknown = keys.filter((k) => !(EXPERIMENT_KEYS as readonly string[]).includes(k))
+  if (unknown.length) throw new Error(`EVAL_EXPERIMENTS names no such experiment: ${unknown.join(', ')} (known: ${EXPERIMENT_KEYS.join(', ')})`)
+  return Object.fromEntries(keys.map((k) => [k, true])) as Partial<AgentExperiments>
+}
 
 function selectCases(all: AgentCase[], spec: string | undefined): AgentCase[] {
   if (!spec) return all
@@ -103,6 +113,8 @@ async function main(): Promise<void> {
   const cases = selectCases(await loadCases(CASES_DIR), process.env.EVAL_CASES)
   const passes = Math.max(1, Math.min(9, Math.round(Number(process.env.EVAL_PASSES ?? '1')) || 1))
   const shell = defaultShell()
+  // v4.1 (M1): EVAL_EXPERIMENTS=resultDigests,verifyRound turns those on for every case — one arm of an A/B.
+  const experiments = experimentsFrom(process.env.EVAL_EXPERIMENTS)
   mkdirSync(RESULTS_DIR, { recursive: true })
 
   const controller = new AbortController()
@@ -130,12 +142,13 @@ async function main(): Promise<void> {
     }
     console.log(`answering after ${(warm.ms / 1000).toFixed(1)} s`)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const outFile = join(RESULTS_DIR, `agent-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
+    const arm = Object.keys(experiments).length > 0 ? `-x-${Object.keys(experiments).sort().join('+')}` : ''
+    const outFile = join(RESULTS_DIR, `agent-${model.replace(/[^a-z0-9._-]+/gi, '_')}${arm}-${stamp}.json`)
     const byPass: CaseRun[][] = []
     const save = (): void =>
       writeFileSync(
         outFile,
-        JSON.stringify({ suite: 'agent', model, baseUrl: BASE_URL, shell: shell.name, startedAt: stamp, passes, cases: cases.map((c) => c.id), runs: byPass }, null, 2)
+        JSON.stringify({ suite: 'agent', model, experiments, baseUrl: BASE_URL, shell: shell.name, startedAt: stamp, passes, cases: cases.map((c) => c.id), runs: byPass }, null, 2)
       )
     let serverFailures = 0
     let lost = false
@@ -150,17 +163,16 @@ async function main(): Promise<void> {
           model,
           shell,
           signal: controller.signal,
-          keep: Boolean(process.env.EVAL_KEEP)
+          keep: Boolean(process.env.EVAL_KEEP),
+          experiments
         })
         // A case during which the GPU's error counter moved measured the
         // machine: excluded and named, like a run the server ended.
         const after = readGpuSync()
         const moved = machineMoved(gpu, after)
         gpu = after
-        if (moved.moved) {
-          run.machine = `PCIe replay counter rose by ${moved.delta} during this case`
-          run.excluded = `the machine: ${run.machine}`
-        }
+        // v4.1 (decision 1): corrected replays taint the time, not the score.
+        if (moved.moved) run.machine = `PCIe replay counter rose by ${moved.delta} during this case (time not counted)`
         runs.push(run)
         console.log(describeRun(run) + (moved.moved ? `  [machine: ${run.machine}]` : ''))
         save()
