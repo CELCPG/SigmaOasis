@@ -22,12 +22,14 @@ import { createServer } from 'http'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import type { AddressInfo } from 'net'
+import { messageBubbleSource } from './messageBubbleSource'
 
 const ROOT = join(__dirname, '..', '..')
 const COMPONENTS = join(ROOT, 'src', 'renderer', 'src', 'components')
 const CSS_ENTRY = join(ROOT, 'src', 'renderer', 'src', 'assets', 'index.css')
 
-const bubbleSrc = readFileSync(join(COMPONENTS, 'MessageBubble.tsx'), 'utf-8')
+// v4.2 (R3): MessageBubble.tsx and the sibling files it was split into, in its old order.
+const bubbleSrc = messageBubbleSource((path) => readFileSync(path, 'utf-8'))
 const markdownSrc = readFileSync(join(ROOT, 'src', 'renderer', 'src', 'lib', 'markdown.ts'), 'utf-8')
 const cssSrc = readFileSync(CSS_ENTRY, 'utf-8')
 

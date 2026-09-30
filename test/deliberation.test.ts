@@ -1,7 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { join } from 'path'
-import { readSource } from './harness'
+import { messageBubbleSource } from './messageBubbleSource'
 import {
   classifyReview,
   thinkHarderNote,
@@ -239,9 +238,8 @@ describe('a review that never came back', () => {
    * contrast that distinction runs on.
    */
   describe('a review that did not happen says so in its own words, and first', () => {
-    const bubble = readSource(
-      join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', 'MessageBubble.tsx')
-    )
+    // v4.2 (R3): MessageBubble.tsx and the sibling files it was split into, in its old order.
+    const bubble = messageBubbleSource()
     const at = (needle: string): number => {
       const i = bubble.indexOf(needle)
       assert.ok(i > 0, `MessageBubble no longer contains ${needle}`)

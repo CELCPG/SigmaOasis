@@ -21,6 +21,7 @@ import { app, BrowserWindow } from 'electron'
 import { readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { readSource } from './harness'
+import { messageBubbleSource } from './messageBubbleSource'
 import { ACCENT } from '../src/renderer/src/lib/colors'
 import { toolVisualForName } from '../src/renderer/src/lib/oasisRipple'
 
@@ -44,7 +45,8 @@ interface Measured {
   ratio: number
 }
 
-const bubble = readSource(join(COMPONENTS, 'MessageBubble.tsx'))
+// v4.2 (R3): MessageBubble.tsx and the sibling files it was split into, in its old order.
+const bubble = messageBubbleSource()
 const reasoning = readSource(join(COMPONENTS, 'ReasoningBlock.tsx'))
 const sidebar = readSource(join(COMPONENTS, 'Sidebar.tsx'))
 const appRoot = readSource(join(RENDERER, 'App.tsx'))

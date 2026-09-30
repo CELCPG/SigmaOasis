@@ -1,7 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { join } from 'path'
-import { readSource } from './harness'
+import { messageBubbleSource } from './messageBubbleSource'
 import {
   VERIFY_WAITS,
   actionsReady,
@@ -30,17 +29,6 @@ import { useAppStore } from '../src/renderer/src/stores/appStore'
  * Regenerate, Think harder, Branch and the timestamp were hidden on an answer
  * that was complete and on screen.
  */
-
-const MESSAGE_BUBBLE = join(
-  __dirname,
-  '..',
-  '..',
-  'src',
-  'renderer',
-  'src',
-  'components',
-  'MessageBubble.tsx'
-)
 
 describe('actionsReady — the answer, not the turn', () => {
   const args = (over: Partial<Parameters<typeof actionsReady>[0]> = {}): Parameters<typeof actionsReady>[0] => ({
@@ -81,7 +69,7 @@ describe('actionsReady — the answer, not the turn', () => {
 })
 
 describe('the action row is wired to the answer', () => {
-  const source = readSource(MESSAGE_BUBBLE)
+  const source = messageBubbleSource()
 
   test('the row is gated by the answer-settled rule, not by the streaming flag', () => {
     // v1.12.2: the gate moved from `canAct` to `affordances`, which asks the
@@ -258,7 +246,7 @@ describe('the reader is shown the pre-model wait while it is happening', () => {
   })
 
   test('the line the reader sees renders that count, and keeps it running', () => {
-    const source = readSource(MESSAGE_BUBBLE)
+    const source = messageBubbleSource()
     const start = source.indexOf('function TurnPhaseLine')
     assert.ok(start > 0, 'TurnPhaseLine not found')
     const line = source.slice(start, start + 2_600)
