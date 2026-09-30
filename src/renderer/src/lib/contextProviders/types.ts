@@ -111,6 +111,18 @@ export interface ProviderApi {
   ): Promise<ProjectRecallOutcome>
 }
 
+/**
+ * v4.1 (S2): how an app-initiated call ends when the turn stopped waiting for it.
+ *
+ * Once `discardAfter` has fired, a result that arrives is not the model's: it
+ * never reached the prompt, so it charges no budget, seeds no repeat, taints
+ * nothing, and its record says it was not used rather than counting as a
+ * source the reply consulted.
+ */
+export interface RunToolOptions {
+  discardAfter?: AbortSignal
+}
+
 /** Injected effects — every side channel the old inline blocks used, and nothing else. */
 export interface ProviderIO {
   /**
@@ -121,7 +133,7 @@ export interface ProviderIO {
    * back as `{ok:false}`. Refuses names outside the slot allowlist, making
    * the per-slot boundary structural instead of a per-provider convention.
    */
-  runTool(name: string, args: Record<string, unknown>): Promise<ToolResult>
+  runTool(name: string, args: Record<string, unknown>, options?: RunToolOptions): Promise<ToolResult>
   /**
    * Record a call the app performed through a non-tool IPC path (the library
    * lookup): same record, patch and audit bookkeeping, no dispatch.
@@ -163,10 +175,16 @@ export interface ContextProvider {
    * What to call this wait while it runs. Every serial provider that can hold
    * the turn open on network or disk declares one — the reader watches an
    * empty bubble for that whole window, and an unnamed wait is the only kind
-   * that feels like a hang. Prefetch work overlaps the serial waits, so it
-   * has nothing to name.
+   * that feels like a hang. Prefetch work overlaps the serial waits; v4.1:
+   * one that declares a wait is named if the walk reaches it still running.
    */
   wait?: TurnWait
+  /**
+   * v4.1 (S2): a serial provider the turn will not wait on past this many
+   * milliseconds. The walk moves on without its blocks; whatever it produces
+   * afterwards is discarded (see RunToolOptions).
+   */
+  softDeadlineMs?: number
   enabled(input: TurnInput, io: ProviderIO): boolean
   gather(input: TurnInput, io: ProviderIO): Promise<ProviderResult | null>
 }
