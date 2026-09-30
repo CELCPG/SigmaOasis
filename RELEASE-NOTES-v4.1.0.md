@@ -60,8 +60,15 @@ by `eval:diff` against the baseline of the engine it ran on:
 - **Latency, now recorded:** 641 rounds, time to first token 247 ms median and 5.6 s at worst,
   106 tok/s decode, the largest prompt 19,668 tokens. LM Studio reports neither its own prefill
   time nor cached tokens, so TTFT stands in for prefill and the cache is inferred, not read.
-- Two passes of 26 cases is a small sample; the flaky set (9 cases on 4.1) is its noise floor, and
-  `eval:diff` gates only the stable set for that reason.
+- **How much of this is noise, measured the same night.** The 4.1 engine was run twice, unchanged:
+  passes of 18, 21, 20 and 19 (19.5 median both times). Yet the second run fails `eval:diff`'s
+  stable-set gate against the first (30/34 → 26/34): with two passes, which cases count as
+  "stable" is itself a coin toss. 4.2's engine, which sends byte-identical requests with its
+  experiments off (checked by capturing both), scored passes of 14 and 16, then 17 and 21. One
+  pass of the same code on the same idle machine ranges from 14 to 21. So: 4.1's rise over 4.0.2
+  (16 and 16) holds across four passes, but its size is uncertain; single arms of two passes are
+  suggestive, not proof; and the gate needs more passes and a noise band before it can decide a
+  switch on its own — the first item for 4.3.
 
 ## A faster turn
 
