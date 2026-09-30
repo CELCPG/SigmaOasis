@@ -34,6 +34,7 @@
     "eval:diff": "bash scripts/eval-diff.sh",
     "bench:render": "bash scripts/render-bench.sh",
     "bench:main-loop": "bash scripts/main-loop-bench.sh",
+    "bench:latency": "bash scripts/bench-latency.sh",
     "export:traces": "bash scripts/export-traces.sh",
     "eval:answers": "bash scripts/eval-answers.sh"
   },

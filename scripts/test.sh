@@ -108,6 +108,7 @@ rm -rf "$OUT"
   src/main/ipc/projectRecall.ts \
   src/main/agent/latency.ts \
   src/main/agent/evalDiff.ts \
+  src/main/agent/latencyBench.ts \
   src/renderer/src/lib/oasisRipple.ts \
   src/renderer/src/lib/reasoning.ts \
   src/renderer/src/lib/nativeToolCall.ts \

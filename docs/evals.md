@@ -7911,3 +7911,26 @@ that path, one of them with no model at all:
   tools on the wire, the search ran, a page was read, the day asked's figure in the reply and no
   other day's in its place, any date the reply names the right one, no ledger answer — and *pass*
   when every line holds. The 4.1 gate: pass on ≥ 90%, zero ledger answers. Not yet run.
+
+### The latency bench (M7)
+
+`npm run bench:latency -- <model-id> [label]` sends a fixed workload to a loaded model, one request
+at a time, streamed, temperature 0, 64-token replies, and times each request as `eval:agent` does
+(TTFT, prefill, prompt and cached tokens, decode tok/s):
+
+| scenario | what it is |
+| --- | --- |
+| cold | a prompt whose first bytes the server has not seen (each run's system prompt opens on a nonce) |
+| warm | the same request again, its prefix cached |
+| turn-1 … turn-10 | one chat growing a turn at a time, each request extending the last; the report shows 1 and 10 |
+| window-first, window-next | a chat past `BENCH_WINDOW` (default 16,384 — set it to the loaded context), trimmed by the app's own `planHistory`, then its next turn: the oldest turns drop, the prefix changes just after the system prompt, and the window is prefilled again — Track S1's cost |
+
+The assistant turns are canned, not the model's, so every run sends the same bytes.
+`BENCH_REPEATS` (default 3) repeats the workload; the line keeps medians. Each run appends one line
+to `.latency-bench/results.jsonl`, marked when the GPU's error counter moved during it, and
+`npm run bench:latency -- --report` tables them. The pure half (workload, summary, report) is
+`src/main/agent/latencyBench.ts`, pinned by `test/latencyBench.test.ts`.
+
+Not measured here: the app's own split of a turn across gather, pin, compaction and verify. Those
+happen before and after the request, in the renderer; this bench times the request. Record a line
+per release (and a 4.0.1 line for the 4.1 gate) with the app closed and nothing else on the server.
