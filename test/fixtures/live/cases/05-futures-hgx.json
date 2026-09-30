@@ -1,0 +1,14 @@
+{
+  "question": "how are harrowgate index futures trading today?",
+  "kind": "futures",
+  "title": "HGX index futures — Harrowgate Exchange market data",
+  "page": "hgx-futures.html",
+  "rows": [
+    { "day": -2, "text": "HGX futures settled at 4,760.50, down 31.25 (−0.65%)." },
+    { "day": -1, "text": "HGX futures settled at 4,793.75, up 33.25 (+0.70%)." },
+    { "day": 0, "text": "HGX futures at 4,812.25, up 18.50 (+0.39%) as of 7:45 AM." }
+  ],
+  "answerDay": 0,
+  "mustInclude": ["4,?812"],
+  "otherDays": ["4,?793", "4,?760"]
+}

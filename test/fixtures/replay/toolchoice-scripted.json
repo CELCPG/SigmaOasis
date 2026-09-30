@@ -8,20 +8,20 @@
   ],
   "scores": {
     "correctTool": {
-      "hit": 21,
-      "of": 21
+      "hit": 25,
+      "of": 25
     },
     "spuriousCall": {
       "hit": 0,
       "of": 3
     },
     "argValidity": {
-      "hit": 21,
-      "of": 21
+      "hit": 25,
+      "of": 25
     },
     "loop": {
       "hit": 0,
-      "of": 24
+      "of": 28
     }
   },
   "runs": [
@@ -490,6 +490,90 @@
       "allCalls": [
         {
           "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "25-live-weather.json",
+      "prompt": "what's the weather in richmond va today?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "26-live-score.json",
+      "prompt": "who won the celtics game last night?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "27-live-futures.json",
+      "prompt": "how are s&p futures looking this morning?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "28-live-latest-version.json",
+      "prompt": "what's the latest version of node.js?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }

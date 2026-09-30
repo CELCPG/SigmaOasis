@@ -7884,3 +7884,30 @@ network:
 
 Both snapshots change only on purpose: `UPDATE_REPLAY_SNAPSHOTS=1 npm run test:replay`, and the
 re-recorded files are committed with the change that moved them.
+
+### The live world (M5)
+
+4.0.1's measured session asked for today's weather, this morning's futures and the next game, and
+got a list of websites each time; 4.0.2 kept the ledger off such turns. Three pieces now measure
+that path, one of them with no model at all:
+
+- **Tool choice.** Four fixtures ask the live world — `25-live-weather`, `26-live-score`,
+  `27-live-futures`, `28-live-latest-version` — each expecting `web_search`, each tagged `"live"`.
+  The suite is 28 fixtures from here on: compare clean counts with earlier rows by fixture, not by
+  total.
+- **Offline, in `npm test`** (`test/liveWorld.test.ts`). For every live question in either suite,
+  with a ranking that puts both web tools last, `web_search` and `fetch_webpage` are on the wire
+  after `webToolsForTurn`, within the cap; the ledger provider is off and the app-run search on.
+  **Known gap, pinned:** "the latest version of node.js" is not in `LIVE_DOMAINS`, so the web tools
+  ride it (via `FACT_DOMAINS`) and so may the ledger, whose `date`/`measurement` classes keep for
+  730 days. Track G1 owns the repair; the test that pins it flips when it lands.
+- **`EVAL_SUITES=live npm run eval:answers -- <model>`** (`scripts/evalSuites/live.ts`, scored in
+  `src/renderer/src/lib/liveEval.ts`). Six questions about fictional places and markets — weather
+  today and tomorrow, last night's score, the next game, two futures quotes — each answered only by
+  a loopback page: a small table, one row per day, dated from the clock when the run starts, a
+  distinct figure per row. The turn is the chat's minus the window: no ranking (the worst case, so
+  only the forced tools put the web on the wire), budget notes, the ledger provider ahead of the
+  app-run search, and a planted ledger entry carrying the wrong day's figure. Scored per case: web
+  tools on the wire, the search ran, a page was read, the day asked's figure in the reply and no
+  other day's in its place, any date the reply names the right one, no ledger answer — and *pass*
+  when every line holds. The 4.1 gate: pass on ≥ 90%, zero ledger answers. Not yet run.

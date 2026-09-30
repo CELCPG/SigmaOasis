@@ -1,0 +1,13 @@
+{
+  "question": "where are pellam crude futures this morning in pre-market?",
+  "kind": "futures",
+  "title": "Pellam crude futures — Pellam Commodities Board",
+  "page": "pellam-crude.html",
+  "rows": [
+    { "day": -1, "text": "Pellam crude settled at $71.18 a barrel, down $0.94." },
+    { "day": 0, "text": "Pellam crude at $72.06 a barrel in pre-market trading, up $0.88." }
+  ],
+  "answerDay": 0,
+  "mustInclude": ["72\\.06"],
+  "otherDays": ["71\\.18"]
+}

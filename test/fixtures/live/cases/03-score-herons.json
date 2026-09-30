@@ -1,0 +1,14 @@
+{
+  "question": "who won the harrowgate herons game last night?",
+  "kind": "score",
+  "title": "Harrowgate Herons results — Northern Basketball League",
+  "page": "herons-results.html",
+  "rows": [
+    { "day": -8, "text": "Final: Tulley Rams 101, Harrowgate Herons 95." },
+    { "day": -4, "text": "Final: Harrowgate Herons 88, Pellam Owls 90 (OT)." },
+    { "day": -1, "text": "Final: Harrowgate Herons 112, Dunmore Foxes 104." }
+  ],
+  "answerDay": -1,
+  "mustInclude": ["\\b112\\b", "\\b104\\b"],
+  "otherDays": ["\\b101\\b", "\\b95\\b", "\\b88\\b", "\\b90\\b"]
+}

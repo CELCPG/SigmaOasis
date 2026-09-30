@@ -1,0 +1,1 @@
+{ "prompt": "what's the latest version of node.js?", "expect": { "tool": "web_search" }, "live": "version" }

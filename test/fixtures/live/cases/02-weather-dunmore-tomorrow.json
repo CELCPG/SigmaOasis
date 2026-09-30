@@ -1,0 +1,14 @@
+{
+  "question": "is it going to rain in dunmore tomorrow?",
+  "kind": "weather",
+  "title": "Dunmore forecast — Dunmore Valley Weather",
+  "page": "dunmore-forecast.html",
+  "rows": [
+    { "day": 0, "text": "Dry. High 61°F. Chance of rain 5%." },
+    { "day": 1, "text": "Rain likely, mainly after noon. High 54°F. Chance of rain 80%." },
+    { "day": 2, "text": "Clearing. High 59°F. Chance of rain 20%." }
+  ],
+  "answerDay": 1,
+  "mustInclude": ["\\b80\\s*(%|percent)"],
+  "otherDays": ["\\b5\\s*(%|percent)", "\\b20\\s*(%|percent)"]
+}

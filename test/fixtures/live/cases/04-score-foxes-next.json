@@ -1,0 +1,14 @@
+{
+  "question": "when is the next dunmore foxes game?",
+  "kind": "score",
+  "title": "Dunmore Foxes schedule — Northern Basketball League",
+  "page": "foxes-schedule.html",
+  "rows": [
+    { "day": -1, "text": "Final: Harrowgate Herons 112, Dunmore Foxes 104." },
+    { "day": 2, "text": "Dunmore Foxes vs Pellam Owls, tip-off 7:30 PM, Dunmore Arena." },
+    { "day": 6, "text": "Dunmore Foxes at Tulley Rams, tip-off 8:00 PM, Tulley Hall." }
+  ],
+  "answerDay": 2,
+  "mustInclude": ["Pellam|Owls", "7:30"],
+  "otherDays": ["Tulley|Rams", "8:00"]
+}

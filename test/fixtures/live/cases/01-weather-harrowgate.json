@@ -1,0 +1,14 @@
+{
+  "question": "what's the weather in harrowgate today?",
+  "kind": "weather",
+  "title": "Harrowgate three-day forecast — Harrowgate Weather Service",
+  "page": "harrowgate-forecast.html",
+  "rows": [
+    { "day": -1, "text": "High 58°F, low 44°F. Heavy rain, 1.2 inches." },
+    { "day": 0, "text": "High 67°F, low 49°F. Sunny, wind northwest at 8 mph." },
+    { "day": 1, "text": "High 73°F, low 55°F. Thunderstorms after 3 PM." }
+  ],
+  "answerDay": 0,
+  "mustInclude": ["\\b67\\b"],
+  "otherDays": ["\\b58\\b", "\\b73\\b"]
+}

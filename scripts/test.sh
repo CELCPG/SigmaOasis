@@ -136,6 +136,7 @@ rm -rf "$OUT"
   src/renderer/src/lib/ranCode.ts \
   src/renderer/src/lib/workbenchChecks.ts \
   src/renderer/src/lib/answerEval.ts \
+  src/renderer/src/lib/liveEval.ts \
   src/renderer/src/lib/projects.ts \
   src/renderer/src/lib/projectContext.ts \
   src/renderer/src/lib/conversationStats.ts \
