@@ -1440,3 +1440,144 @@ describe('afterCall (v4.1, A2)', () => {
     assert.match(String(seen[1]!.at(-1)!.content), /\[noted\]$/)
   })
 })
+
+describe('read-only calls side by side (v4.1, A4)', () => {
+  const READS: ToolSchema[] = ['read_file', 'grep', 'edit_file', 'reference_lookup'].map((name) => ({ type: 'function', function: { name, description: name, parameters: {} } }))
+  const CONCURRENT = new Set(['read_file', 'grep', 'reference_lookup'])
+
+  /** An executor whose calls finish in the order `finishOrder` names, logging starts and ends. */
+  function staged(finishOrder: string[]): { executeTool: AgentLoopDeps['executeTool']; log: string[]; maxInFlight: () => number } {
+    const log: string[] = []
+    const waiting = new Map<string, () => void>()
+    let inFlight = 0
+    let max = 0
+    const release = (): void => {
+      // Finish the next named call once it has started; the rest wait their turn.
+      while (finishOrder.length > 0 && waiting.has(finishOrder[0]!)) {
+        const id = finishOrder.shift()!
+        waiting.get(id)!()
+        waiting.delete(id)
+      }
+    }
+    return {
+      log,
+      maxInFlight: () => max,
+      executeTool: (name, args) =>
+        new Promise((resolve) => {
+          const id = String(args.id)
+          log.push(`start ${id}`)
+          inFlight++
+          max = Math.max(max, inFlight)
+          waiting.set(id, () => {
+            inFlight--
+            log.push(`end ${id}`)
+            resolve({ ok: true, output: name === 'reference_lookup' ? `Reference passages.\n\n[1] Passage from ${id}\nText.` : `result ${id}` })
+          })
+          // Let every call of the batch start before any is released.
+          setTimeout(release, 0)
+        })
+    }
+  }
+
+  test('neighbouring reads run together, finish in any order, and land on the record and the wire in call order', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [call('a', 'read_file', { id: 'a' }), call('b', 'grep', { id: 'b' }), call('c', 'read_file', { id: 'c' })] },
+      { content: 'done', toolCalls: [] }
+    ])
+    const ex = staged(['c', 'b', 'a'])
+    const records: ToolCallRecord[] = []
+    const finished: string[] = []
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: READS,
+      records,
+      signal: new AbortController().signal,
+      concurrentTools: CONCURRENT,
+      onRecordChange: (r) => r.status !== 'running' && finished.push(r.id),
+      deps: { streamRound, executeTool: ex.executeTool }
+    })
+    assert.equal(ex.maxInFlight(), 3, 'all three in flight at once')
+    assert.deepEqual(ex.log.slice(0, 3), ['start a', 'start b', 'start c'])
+    assert.deepEqual(ex.log.slice(3), ['end c', 'end b', 'end a'])
+    assert.deepEqual(finished, ['a', 'b', 'c'], 'records finish in call order')
+    assert.deepEqual(seen[1]!.slice(-3).map((m) => [m.tool_call_id, m.content]), [['a', 'result a'], ['b', 'result b'], ['c', 'result c']])
+  })
+
+  test('a write between reads is a wall: the reads before it finish first, the read after it waits', async () => {
+    const { streamRound } = scripted([
+      { content: '', toolCalls: [call('a', 'read_file', { id: 'a' }), call('b', 'grep', { id: 'b' }), call('w', 'edit_file', { id: 'w' }), call('c', 'read_file', { id: 'c' })] },
+      { content: 'done', toolCalls: [] }
+    ])
+    const ex = staged(['b', 'a', 'w', 'c'])
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: READS,
+      records: [],
+      signal: new AbortController().signal,
+      concurrentTools: CONCURRENT,
+      deps: { streamRound, executeTool: ex.executeTool }
+    })
+    assert.deepEqual(ex.log, ['start a', 'start b', 'end b', 'end a', 'start w', 'end w', 'start c', 'end c'])
+  })
+
+  test('without the option every call runs alone, as before', async () => {
+    const { streamRound } = scripted([
+      { content: '', toolCalls: [call('a', 'read_file', { id: 'a' }), call('b', 'read_file', { id: 'b' })] },
+      { content: 'done', toolCalls: [] }
+    ])
+    const ex = staged(['a', 'b'])
+    await runAgentLoop({ messages: baseMessages(), tools: READS, records: [], signal: new AbortController().signal, deps: { streamRound, executeTool: ex.executeTool } })
+    assert.equal(ex.maxInFlight(), 1)
+  })
+
+  test('budgets and repeats are charged before dispatch, exactly as one by one', async () => {
+    const { streamRound, seen } = scripted([
+      {
+        content: '',
+        toolCalls: [call('a', 'read_file', { id: 'a' }), call('twin', 'read_file', { id: 'a' }), call('b', 'read_file', { id: 'b' }), call('c', 'read_file', { id: 'c' })]
+      },
+      { content: 'done', toolCalls: [] }
+    ])
+    let executed = 0
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: READS,
+      records: [],
+      signal: new AbortController().signal,
+      concurrentTools: CONCURRENT,
+      toolBudgets: { read_file: 2 },
+      deps: {
+        streamRound,
+        executeTool: async (_n, args) => {
+          executed++
+          return { ok: true, output: `result ${String(args.id)}` }
+        }
+      }
+    })
+    assert.equal(executed, 2, 'a and b ran; the twin was reused, c was over budget')
+    const wire = seen[1]!.slice(-4).map((m) => String(m.content))
+    assert.equal(wire[0], 'result a')
+    assert.match(wire[1]!, /^result a\n\n\(Identical call already ran this turn — result reused/)
+    assert.equal(wire[2], 'result b')
+    assert.match(wire[3]!, /read_file budget reached \(2 of 2/)
+  })
+
+  test('two library lookups side by side are numbered in call order, not in the order they came back', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [call('a', 'reference_lookup', { id: 'a' }), call('b', 'reference_lookup', { id: 'b' })] },
+      { content: 'done', toolCalls: [] }
+    ])
+    const ex = staged(['b', 'a'])
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: READS,
+      records: [],
+      signal: new AbortController().signal,
+      concurrentTools: CONCURRENT,
+      deps: { streamRound, executeTool: ex.executeTool }
+    })
+    const [a, b] = seen[1]!.slice(-2).map((m) => String(m.content))
+    assert.match(a!, /\[1\] Passage from a/)
+    assert.match(b!, /\[2\] Passage from b/)
+  })
+})

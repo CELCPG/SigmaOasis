@@ -148,6 +148,8 @@ export function agentSystemPrompt(env: PromptEnv): string {
   if (has('run_command')) rules.push('Verify: run the project’s tests, build or linter with run_command when it has them; read failures, fix, and run again.')
   if (has('task')) rules.push('For a broad search or an independent review, use task: the helper starts fresh and returns a summary, which keeps your context small.')
   if (has('read_file')) rules.push('Keep tool output small: grep before reading big files, read only the lines you need (offset/limit), and do not re-read a file you already have.')
+  // v4.1 (A4): reads in one round run side by side, so asking for them together is a round saved.
+  if (has('read_file')) rules.push('When you need several things that do not depend on each other — files to read, searches, listings — ask for them all in the same round: they run together.')
   rules.push('Finish with a short report: what you changed (files), how you checked it, and anything left undone. Never claim a check you did not run.')
   // A10 (v4.0, an experiment): notes the agent keeps about a folder.
   if (env.experiments?.notes && env.workspace && has('write_file')) {

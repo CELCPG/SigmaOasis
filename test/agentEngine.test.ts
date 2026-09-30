@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runAgentTask } from '../src/main/agent/engine'
+import { CONCURRENT_TOOLS, runAgentTask } from '../src/main/agent/engine'
 import { applyEdit } from '../src/main/agent/editMatch'
 import { fitContext, DROPPED_NOTE, estimateTokens, historyBudget, LOW_WATER } from '../src/main/agent/context'
 import { capResult, readSpill, resultCapChars, SpillStore } from '../src/main/agent/spill'
@@ -1368,5 +1368,25 @@ describe('a stuck detector (v4.1, A2)', () => {
     assert.equal(requests.length, 7)
     const report = String(r.history.find((m) => m.tool_call_id === 't1')?.content)
     assert.match(report, /The helper stopped after 5 failures in a row of read_file on config.json/)
+  })
+})
+
+describe('reads side by side (v4.1, A4)', () => {
+  test('a round of reads runs through the real toolbox, answered in call order, and the prompt asks for such rounds', async () => {
+    const at = (index: number, id: string, name: string, args: Record<string, unknown>): Frame => ({
+      choices: [{ delta: { tool_calls: [{ index, id, function: { name, arguments: JSON.stringify(args) } }] } }]
+    })
+    const { transport, requests } = scripted([
+      () => [at(0, 'r1', 'read_file', { path: 'src/math.ts' }), at(1, 'r2', 'read_file', { path: 'README.md' }), at(2, 'g1', 'grep', { pattern: 'add' })],
+      () => [call('e1', 'edit_file', { path: 'src/math.ts', old_string: 'a - b', new_string: 'a + b' })],
+      () => [text('Fixed.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.deepEqual(requests[1]!.messages.filter((m) => m.role === 'tool').map((m) => m.tool_call_id), ['r1', 'r2', 'g1'])
+    assert.match(String(requests[1]!.messages.find((m) => m.tool_call_id === 'r2')?.content), /# demo/)
+    assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /a \+ b/, 'a file read in a batch counts as read for the edit')
+    assert.match(String(requests[0]!.messages[0]!.content), /ask for them all in the same round: they run together/)
+    assert.ok(CONCURRENT_TOOLS.has('read_file') && !CONCURRENT_TOOLS.has('web_search') && !CONCURRENT_TOOLS.has('edit_file'))
   })
 })

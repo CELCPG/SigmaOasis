@@ -76,6 +76,28 @@ const AGENT_TOOL_BUDGETS: Record<string, number> = {
   deep_research: 2
 }
 
+/**
+ * v4.1 (A4): tools that only read, run side by side when one round asks for
+ * several of them — the workspace's finders and readers, and the app's own
+ * lookups. Kept short on purpose. `web_search` is not here: the no-key
+ * providers behind it are rate-limited and ask for low bursts (ipc/search.ts),
+ * so a round of four searches still goes one at a time. `browse` loads a page
+ * in a renderer and `deep_research` is a task of its own; neither is a read
+ * to run four of at once.
+ */
+export const CONCURRENT_TOOLS: ReadonlySet<string> = new Set([
+  'read_file',
+  'list_directory',
+  'glob',
+  'grep',
+  'read_document',
+  'read_spill',
+  'fetch_webpage',
+  'reference_lookup',
+  'memory_search',
+  'get_current_datetime'
+])
+
 function subagentTypes(permission: PermissionMode, hasWorkspace: boolean): SubagentType[] {
   if (!hasWorkspace) return ['general']
   return permission === 'readOnly' ? ['explore', 'review'] : ['explore', 'review', 'general']
@@ -344,6 +366,8 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
     pauseRequested: () => (!isHelper && Boolean(spec.experiments?.askUser) && run.question !== null) || stuck.stopped !== null,
     afterCall: (name, args, result) => stuck.observe(name, args, result, (WRITING_TOOLS.has(name) && name !== 'run_command') || name === 'task'),
     toolBudgets: AGENT_TOOL_BUDGETS,
+    // v4.1 (A4): neighbouring reads in one round run together.
+    concurrentTools: CONCURRENT_TOOLS,
     ledger,
     onRecordChange: (record) => {
       const shown: ToolCallRecord = o.parentCallId ? { ...record, parentCallId: o.parentCallId } : { ...record }

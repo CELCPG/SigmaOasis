@@ -351,6 +351,14 @@ export interface AgentLoopOptions {
    * counts failures and appends its note here. Called in call order.
    */
   afterCall?: (name: string, args: Record<string, unknown>, result: ToolResult) => ToolResult
+  /**
+   * v4.1 (A4): tools that only read and may run side by side. A run of
+   * neighbouring calls all named here is dispatched together; any other call
+   * — and consult_model always — runs alone, in order. Absent: every call in
+   * order, as before. The caller names the set: only it knows which of its
+   * tools touch nothing and which services mind a burst.
+   */
+  concurrentTools?: ReadonlySet<string>
   deps: AgentLoopDeps
 }
 
@@ -366,6 +374,28 @@ export type AgentLoopStopReason =
 
 export interface AgentLoopOutcome {
   stopReason: AgentLoopStopReason
+}
+
+/** v4.1 (A4): what the calls of one batch have claimed so far — budget, and repeat keys. */
+interface Batch {
+  charged: Map<string, number>
+  keys: Map<string, number>
+}
+
+/** v4.1 (A4): one call of a round, parsed, recorded and decided (see `makeReady`). */
+interface Ready {
+  tc: ApiToolCall
+  args: Record<string, unknown>
+  record: ToolCallRecord
+  /** Decided without dispatch: declined, refused, malformed or reused. */
+  result?: ToolResult
+  /** A repeat of the call at this index in the same batch; its result is reused. */
+  sameAs?: number
+  argFailure?: boolean
+  /** The work to dispatch. */
+  run?: () => Promise<ToolResult>
+  /** What becomes of the work's result, in call order. */
+  after?: (raw: ToolResult) => ToolResult
 }
 
 /**
@@ -446,6 +476,174 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     return messages.some((m) => (m as { role?: string }).role === 'tool')
   }
 
+  const isConcurrent = (name: string): boolean => name !== 'consult_model' && options.concurrentTools?.has(name) === true
+
+  /** Layer 3b's answer to a repeat: the earlier result, and a note that nothing ran again. */
+  const reuse = (prev: ToolResult): ToolResult =>
+    prev.ok
+      ? { ok: true, output: `${prev.output ?? ''}\n\n(Identical call already ran this turn — result reused, not re-executed.)` }
+      : { ok: false, error: `${prev.error ?? 'unknown error'} (identical call already failed this turn — not retried)` }
+
+  /**
+   * One call made ready: parsed, recorded, and decided — a result already
+   * (declined, refused, malformed, reused), or the work to dispatch and what
+   * to do with its result once it is back. v4.1 (A4): budgets and repeats are
+   * decided here, before dispatch, against the other calls of the same batch
+   * as well as the ledger, so a batch charges exactly what the same calls one
+   * by one would have. A call on its own is a batch of one.
+   */
+  const makeReady = (tc: ApiToolCall, preamble: string | null, batch: Batch, index: number): Ready => {
+    let args: Record<string, unknown> = {}
+    let argsMalformed = false
+    try {
+      args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
+    } catch {
+      argsMalformed = true
+    }
+    const record: ToolCallRecord = { id: tc.id, name: tc.function.name, args, status: 'running' }
+    if (preamble) record.preamble = preamble
+    records.push(record)
+    options.onRecordChange?.(record)
+    const ready: Ready = { tc, args, record }
+    const name = tc.function.name
+    const key = `${name} ${stableStringify(args)}`
+
+    if (signal.aborted) {
+      /**
+       * v2.4: the signal landed between two calls of the same round, and
+       * nothing new may start.
+       *
+       * The loop checked `signal.aborted` before each round and after it,
+       * never between the calls a single round asked for — so a round that
+       * requested three tools dispatched all three however long ago the
+       * abort was. For the verification tail that is the whole difference
+       * between a limit and a suggestion: `VERIFY_BUDGET_MS` bounds what the
+       * turn STARTS, and a call already in flight cannot be recalled
+       * (`executeTool` is an IPC round trip), but a call not yet sent is
+       * exactly the work a spent deadline is entitled to refuse. Measured on
+       * `.h2h-runs/judge-r12/TTU1`: the revision's `deep_research` ran 93 s
+       * past the minute; a sibling call behind it would have been dispatched
+       * on top of that.
+       *
+       * `declinedCall`, so the row wears `↩` and the footer says "declined":
+       * nothing was contacted, and nothing broke.
+       */
+      ready.result = {
+        ok: false,
+        error: declinedCall('the turn stopped before this call was sent, so nothing was contacted.', 'Do not retry it — the turn is over.')
+      }
+      return ready
+    }
+    if (name === 'consult_model' && deps.consult) {
+      // Pseudo-tool: the caller runs a nested specialist turn instead of an
+      // IPC tool. The cap counts attempts, including failed ones — a model
+      // that cannot name a real specialist must not get unlimited retries.
+      delegationCount += 1
+      if (delegationCount > maxDelegations) {
+        ready.result = {
+          ok: false,
+          error: `Delegation limit reached (${maxDelegations} consultations per turn) — synthesize an answer from what you have.`
+        }
+      } else {
+        const consult = deps.consult
+        ready.run = () => consult(String(args.role ?? ''), String(args.task ?? ''))
+      }
+      return ready
+    }
+    if (argsMalformed) {
+      // Layer 3a: malformed JSON never dispatches. The repair message tells
+      // the model exactly what happened so its next round can fix the call.
+      ready.argFailure = true
+      ready.result = {
+        ok: false,
+        error: `Malformed arguments for ${name}: not valid JSON (${tc.function.arguments.slice(0, 140)}). Correct the call and try again.`
+      }
+      return ready
+    }
+    if (previousCalls.has(key)) {
+      // Layer 3b: same tool, same arguments — reuse, don't re-run. Checked
+      // before the budget on purpose: a repeat is not new work, so it must
+      // not spend budget. The note tells the model (and the user, via the
+      // record) that nothing executed.
+      ready.result = reuse(previousCalls.get(key)!)
+      return ready
+    }
+    if (batch.keys.has(key)) {
+      // v4.1 (A4): the same, for a twin earlier in the same batch.
+      ready.sameAs = batch.keys.get(key)!
+      return ready
+    }
+    const budget = toolBudgets[name]
+    if (budget !== undefined && (executedCounts.get(name) ?? 0) + (batch.charged.get(name) ?? 0) >= budget) {
+      // Layer 3c: the budget is checked before work and stated when hit.
+      ready.result = {
+        ok: false,
+        error:
+          `${name} budget reached (${budget} of ${budget} this turn) ` +
+          '— answer from the results you already have, and name plainly what you could not check. ' +
+          'Never invent the missing data.'
+      }
+      return ready
+    }
+    // Layer 3a: validate against the tool's own schema before dispatch —
+    // but only for tools on this turn's wire list. Unknown names fall
+    // through to the executor's own error, as before.
+    const schema = tools.find((t) => t.function.name === name)
+    const validation = schema ? validateToolArgs(schema.function.parameters, args) : null
+    if (validation && !validation.ok) {
+      ready.argFailure = true
+      ready.result = {
+        ok: false,
+        error: `Invalid arguments for ${name}: ${validation.errors.join('; ')}. You sent ${JSON.stringify(args).slice(0, 140)}. Correct the call and try again.`
+      }
+      return ready
+    }
+    batch.charged.set(name, (batch.charged.get(name) ?? 0) + 1)
+    batch.keys.set(key, index)
+    ready.run = () => deps.executeTool(name, args, { callId: record.id })
+    ready.after = (raw) => {
+      let result = raw
+      // A library lookup numbers its own passages from [1]; a turn's
+      // second one would hand the model a number it has already used for
+      // a different passage, and the reply's marker would then name two.
+      // Continued here — before the record, the wire history or the
+      // ledger sees the text — so the collision is never created. (v4.1:
+      // in call order, after the calls before it are finished, even when
+      // it ran alongside them.)
+      if (name === 'reference_lookup' && result.ok && result.output) {
+        const output = renumberPassages(result.output, passagesHandedOver(records))
+        if (output !== result.output) result = { ...result, output }
+      }
+      ledger.note(name, args, result)
+      return result
+    }
+    return ready
+  }
+
+  /** A decided call's result onto its record, the audit hook and the wire history. */
+  const finish = (ready: Ready, decided: ToolResult): void => {
+    const { record, tc } = ready
+    const result = options.afterCall ? options.afterCall(tc.function.name, ready.args, decided) : decided
+    if (result.ok) {
+      record.status = 'done'
+      // v3.0: a result can show the reader more than it hands the model.
+      record.result = result.display ?? result.output ?? ''
+      // Display payloads (image_search thumbnails) ride the record, not the
+      // wire history — the model gets the text list, the user gets pictures.
+      if (result.images && result.images.length > 0) record.images = result.images
+    } else {
+      record.status = 'error'
+      record.result = result.display ?? result.error ?? 'Unknown tool error'
+    }
+    options.onRecordChange?.(record)
+    deps.onToolExecuted?.(record, result)
+    messages.push({
+      role: 'tool',
+      tool_call_id: tc.id,
+      content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
+    })
+  }
+
   for (let iteration = 0; iteration < iterationCap; iteration++) {
     // v2.7: a steer lands after the previous round's tool results and before
     // the model reads them — the round boundary, and only there. The first
@@ -524,142 +722,27 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     // beyond the cap — the model gets its chance to correct the call.
     let roundHadArgFailure = false
 
-    for (const tc of round.toolCalls) {
-      let args: Record<string, unknown> = {}
-      let argsMalformed = false
-      try {
-        args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
-      } catch {
-        argsMalformed = true
-      }
-      const record: ToolCallRecord = { id: tc.id, name: tc.function.name, args, status: 'running' }
-      if (preamble) record.preamble = preamble
-      records.push(record)
-      options.onRecordChange?.(record)
-
-      let result: ToolResult
-
-      if (signal.aborted) {
-        /**
-         * v2.4: the signal landed between two calls of the same round, and
-         * nothing new may start.
-         *
-         * The loop checked `signal.aborted` before each round and after it,
-         * never between the calls a single round asked for — so a round that
-         * requested three tools dispatched all three however long ago the
-         * abort was. For the verification tail that is the whole difference
-         * between a limit and a suggestion: `VERIFY_BUDGET_MS` bounds what the
-         * turn STARTS, and a call already in flight cannot be recalled
-         * (`executeTool` is an IPC round trip), but a call not yet sent is
-         * exactly the work a spent deadline is entitled to refuse. Measured on
-         * `.h2h-runs/judge-r12/TTU1`: the revision's `deep_research` ran 93 s
-         * past the minute; a sibling call behind it would have been dispatched
-         * on top of that.
-         *
-         * `declinedCall`, so the row wears `↩` and the footer says "declined":
-         * nothing was contacted, and nothing broke.
-         */
-        result = {
-          ok: false,
-          error: declinedCall(
-            'the turn stopped before this call was sent, so nothing was contacted.',
-            'Do not retry it — the turn is over.'
-          )
-        }
-      } else if (tc.function.name === 'consult_model' && deps.consult) {
-        // Pseudo-tool: the caller runs a nested specialist turn instead of an
-        // IPC tool. The cap counts attempts, including failed ones — a model
-        // that cannot name a real specialist must not get unlimited retries.
-        delegationCount += 1
-        if (delegationCount > maxDelegations) {
-          result = {
-            ok: false,
-            error: `Delegation limit reached (${maxDelegations} consultations per turn) — synthesize an answer from what you have.`
-          }
-        } else {
-          result = await deps.consult(String(args.role ?? ''), String(args.task ?? ''))
-        }
-      } else if (argsMalformed) {
-        // Layer 3a: malformed JSON never dispatches. The repair message tells
-        // the model exactly what happened so its next round can fix the call.
-        roundHadArgFailure = true
-        result = {
-          ok: false,
-          error:
-            `Malformed arguments for ${tc.function.name}: not valid JSON ` +
-            `(${tc.function.arguments.slice(0, 140)}). Correct the call and try again.`
-        }
-      } else if (previousCalls.has(`${tc.function.name} ${stableStringify(args)}`)) {
-        // Layer 3b: same tool, same arguments — reuse, don't re-run. Checked
-        // before the budget on purpose: a repeat is not new work, so it must
-        // not spend budget. The note tells the model (and the user, via the
-        // record) that nothing executed.
-        const prev = previousCalls.get(`${tc.function.name} ${stableStringify(args)}`)!
-        result = prev.ok
-          ? { ok: true, output: `${prev.output ?? ''}\n\n(Identical call already ran this turn — result reused, not re-executed.)` }
-          : { ok: false, error: `${prev.error ?? 'unknown error'} (identical call already failed this turn — not retried)` }
-      } else if (
-        toolBudgets[tc.function.name] !== undefined &&
-        (executedCounts.get(tc.function.name) ?? 0) >= toolBudgets[tc.function.name]
-      ) {
-        // Layer 3c: the budget is checked before work and stated when hit.
-        result = {
-          ok: false,
-          error:
-            `${tc.function.name} budget reached (${toolBudgets[tc.function.name]} of ${toolBudgets[tc.function.name]} this turn) ` +
-            '— answer from the results you already have, and name plainly what you could not check. ' +
-            'Never invent the missing data.'
-        }
-      } else {
-        // Layer 3a: validate against the tool's own schema before dispatch —
-        // but only for tools on this turn's wire list. Unknown names fall
-        // through to the executor's own error, as before.
-        const schema = tools.find((t) => t.function.name === tc.function.name)
-        const validation = schema ? validateToolArgs(schema.function.parameters, args) : null
-        if (validation && !validation.ok) {
-          roundHadArgFailure = true
-          result = {
-            ok: false,
-            error:
-              `Invalid arguments for ${tc.function.name}: ${validation.errors.join('; ')}. ` +
-              `You sent ${JSON.stringify(args).slice(0, 140)}. Correct the call and try again.`
-          }
-        } else {
-          result = await deps.executeTool(tc.function.name, args, { callId: record.id })
-          // A library lookup numbers its own passages from [1]; a turn's
-          // second one would hand the model a number it has already used for
-          // a different passage, and the reply's marker would then name two.
-          // Continued here — before the record, the wire history or the
-          // ledger sees the text — so the collision is never created.
-          if (tc.function.name === 'reference_lookup' && result.ok && result.output) {
-            const output = renumberPassages(result.output, passagesHandedOver(records))
-            if (output !== result.output) result = { ...result, output }
-          }
-          ledger.note(tc.function.name, args, result)
-        }
-      }
-
-      if (options.afterCall) result = options.afterCall(tc.function.name, args, result)
-
-      if (result.ok) {
-        record.status = 'done'
-        // v3.0: a result can show the reader more than it hands the model.
-        record.result = result.display ?? result.output ?? ''
-        // Display payloads (image_search thumbnails) ride the record, not the
-        // wire history — the model gets the text list, the user gets pictures.
-        if (result.images && result.images.length > 0) record.images = result.images
-      } else {
-        record.status = 'error'
-        record.result = result.display ?? result.error ?? 'Unknown tool error'
-      }
-      options.onRecordChange?.(record)
-      deps.onToolExecuted?.(record, result)
-
-      messages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
+    // v4.1 (A4): calls run in order — except that a run of neighbouring calls
+    // the caller named read-only (`concurrentTools`) is dispatched together
+    // and awaited as one. Everything the model and the user see stays in call
+    // order: each record is finished, each result checked and put on the wire
+    // in the order the calls were written, whichever came back first.
+    const calls = round.toolCalls
+    for (let i = 0; i < calls.length; ) {
+      let j = i + 1
+      if (isConcurrent(calls[i]!.function.name)) while (j < calls.length && isConcurrent(calls[j]!.function.name)) j++
+      const batch: Batch = { charged: new Map(), keys: new Map() }
+      const readies = calls.slice(i, j).map((tc, k) => makeReady(tc, preamble, batch, k))
+      const raws = await Promise.all(readies.map((r) => (r.run ? r.run() : Promise.resolve(null))))
+      // The results as the ledger keeps them, for a repeat later in the same batch.
+      const settled: ToolResult[] = []
+      readies.forEach((r, k) => {
+        const result = r.result ?? (r.sameAs !== undefined ? reuse(settled[r.sameAs]!) : r.after ? r.after(raws[k]!) : raws[k]!)
+        settled.push(result)
+        if (r.argFailure) roundHadArgFailure = true
+        finish(r, result)
       })
+      i = j
     }
 
     // v4.0.2: the calls that arrived whole have run; the one the limit cut was
