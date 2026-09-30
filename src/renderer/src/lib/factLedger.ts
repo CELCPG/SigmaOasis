@@ -2,6 +2,7 @@ import { claimKey, isClockClaim, LEDGER_PACK_NAME } from '../../../shared/factLe
 import type { ClaimClass, LedgerEntryDraft } from '../../../shared/factLedger'
 import { measurementsIn } from '../../../shared/measurements'
 import { parseCitations, webSource } from './citations'
+import { looksLive } from './grounding'
 import type { ToolCallRecord } from '../types'
 
 /**
@@ -29,13 +30,11 @@ export function sourcesIn(records: ToolCallRecord[]): Source[] {
   const out: Source[] = []
   for (const r of records) {
     if (r.status !== 'done' || !r.result) continue
-    if (r.name === 'web_search') {
-      // `n. title\n   url\n   [mark]\n   snippet` blocks, separated by blank lines.
-      for (const block of r.result.split(/\n\n+/)) {
-        const m = /^\d+\.\s+[^\n]*\n\s+(https?:\/\/\S+)/.exec(block)
-        if (m) out.push({ url: m[1], text: block })
-      }
-    } else if (r.name === 'fetch_webpage') {
+    // v4.0.2: a search snippet is a lead, not a source. It is a sentence the
+    // search engine cut from a page, often from another day; 4.0.1's futures
+    // answer filed a figure, and "17 hours", on a snippet's word alone. What
+    // the ledger keeps, a page the turn actually read has to state.
+    if (r.name === 'fetch_webpage') {
       const m = /^URL:\s+(\S+)/m.exec(r.result)
       if (m) out.push({ url: m[1], text: r.result })
     } else if (r.name === 'reference_lookup') {
@@ -52,7 +51,9 @@ export function sourcesIn(records: ToolCallRecord[]): Source[] {
 }
 
 const MONTHS = 'January|February|March|April|May|June|July|August|September|October|November|December'
-const MONEY = /(?<![\w.])[$€£]\s?\d[\d,]*(?:\.\d{1,2})?(?![\w.])/g
+// v4.0.2: a full stop may end the sentence after an amount — "costs $18.50."
+// read as no amount at all, in a reply or a page. Only a decimal point is refused.
+const MONEY = /(?<![\w.])[$€£]\s?\d[\d,]*(?:\.\d{1,2})?(?!\w|\.\d)/g
 const STREET = /\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Drive|Dr|Quay|Way|Boulevard|Blvd|Place|Pl|Square|Court|Ct)\b\.?/g
 const PHONE = /(?<!\d)(?:\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g
 const EMAIL = /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/g
@@ -147,6 +148,9 @@ export function extractLedgerEntries(
 ): LedgerEntryDraft[] {
   const sources = sourcesIn(records)
   if (sources.length === 0 || !question.trim()) return []
+  // v4.0.2: the live world is not filed. A temperature a page stated at noon
+  // would otherwise answer tomorrow's weather question for two years.
+  if (looksLive(question)) return []
   const asked = normalizeSpan(question)
   const drafts = new Map<string, LedgerEntryDraft>()
   for (const sentence of sentencesOf(reply)) {

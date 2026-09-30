@@ -210,6 +210,16 @@ const LIVE_DOMAINS =
   /\b(?:weather|forecast (?:for )?(?:today|tonight|tomorrow|(?:this|the) (?:week|weekend))|(?:rain|snow|storm)(?:ing|s)? (?:today|tonight|tomorrow|this (?:week|weekend))|going to (?:rain|snow)|(?:s ?& ?p|nasdaq|dow|index|stock|equity|oil|crude|gold|treasury|e-?mini) futures|futures (?:markets?|prices?|contracts?|trading|today)|pre-?market|after[- ]hours trading|markets? today|(?<!\b(?:my|our|your|his|her|their) )(?:next|last|tonight'?s|today'?s|tomorrow'?s|yesterday'?s|this (?:week|weekend)'?s?) (?:[\w&'.-]+ ){0,4}(?:game|match|race|fight|fixture|kickoff|tip-?off)s?|who (?:won|is winning|'s winning)|final score|box score)\b/i
 
 /**
+ * v4.0.2: is this a question about the live world? Its answer changes by the
+ * hour, so the fact ledger neither files it nor answers it (lib/factLedger.ts,
+ * contextProviders/factLedger.ts): yesterday's verified temperature is not
+ * today's.
+ */
+export function looksLive(text: string | undefined): boolean {
+  return LIVE_DOMAINS.test(text ?? '')
+}
+
+/**
  * v4.0.1: the user asked for the web by name — "can you try with duck duck go
  * now?", "look it up", a URL. Not a fact to check, so it never triggers a
  * search of its own (the words are about the search, not its subject); it

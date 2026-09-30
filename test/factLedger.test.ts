@@ -80,11 +80,23 @@ describe('fact ledger — the capture', () => {
     )
   ]
 
-  test('sources are the search hits and the fetched page, each with its URL', () => {
+  test('sources are the pages the turn read, each with its URL — a search snippet is a lead, not a source (4.0.2)', () => {
     const s = sourcesIn(records)
-    assert.equal(s.length, 2)
-    assert.ok(s.every((x) => x.url === 'http://127.0.0.1:1/harrowgate-museum.html'))
-    assert.match(s[1]!.text, /Quay Street/)
+    assert.equal(s.length, 1)
+    assert.equal(s[0]!.url, 'http://127.0.0.1:1/harrowgate-museum.html')
+    assert.match(s[0]!.text, /Quay Street/)
+  })
+
+  test('a claim only a snippet states is not captured (4.0.2)', () => {
+    const snippetOnly = [records[0]!]
+    assert.deepEqual(sourcesIn(snippetOnly), [])
+    assert.deepEqual(extractLedgerEntries('An adult ticket costs $18.50.', snippetOnly, question), [])
+  })
+
+  test('a question about the live world files nothing, whatever the page says (4.0.2)', () => {
+    const page = pageRecord('http://127.0.0.1:1/wx.html', 'Weather', 'Richmond, VA: 72°F, light rain until 3 pm.')
+    assert.deepEqual(extractLedgerEntries('It is 72°F in Richmond with light rain.', [page], 'what is the weather in richmond va today?'), [])
+    assert.equal(extractLedgerEntries('It is 72°F in Richmond with light rain.', [page], 'how warm does Richmond get in a typical June?').length, 1)
   })
 
   test('sentences drop markdown furniture and code', () => {
@@ -134,10 +146,10 @@ describe('fact ledger — the capture', () => {
 describe('fact ledger — the clock is not a claim (v4.0.1)', () => {
   const NOW = new Date(2026, 8, 29, 6, 40).getTime()
   const market = 'https://markets.example/sp-500-futures-price-on-september-29-2026/'
-  const results = searchRecord([
-    { title: 'S&P 500 futures price on September 29, 2026', url: market, snippet: 'What will the Dec-26 S&P 500 index futures settle at on September 29, 2026?' },
-    { title: 'Tidewater', url: 'https://tidewater.example/', snippet: 'Tidewater opens on 14 March 2027.' }
-  ])
+  const results = [
+    pageRecord(market, 'S&P 500 futures price on September 29, 2026', 'What will the Dec-26 S&P 500 index futures settle at on September 29, 2026?'),
+    pageRecord('https://tidewater.example/', 'Tidewater', 'Tidewater opens on 14 March 2027.')
+  ]
 
   test('a written date reads as the same day in each of its three shapes', () => {
     assert.equal(isoDateOf('September 29, 2026'), '2026-09-29')
@@ -155,11 +167,11 @@ describe('fact ledger — the clock is not a claim (v4.0.1)', () => {
 
   test('a reply that states today’s date captures nothing for it, and still captures a real date', () => {
     const measured = '## S&P 500 E-Mini Futures (ES=F) — September 29, 2026\n\n**Yahoo Finance quote:** **7,744.75**, down **0.03%** (delayed).'
-    assert.deepEqual(extractLedgerEntries(measured, [results], 'can you try with duck duck go now?', NOW), [])
-    const drafts = extractLedgerEntries(`${measured}\n\nTidewater opens on 14 March 2027.`, [results], 'when does Tidewater open?', NOW)
+    assert.deepEqual(extractLedgerEntries(measured, results, 'can you try with duck duck go now?', NOW), [])
+    const drafts = extractLedgerEntries(`${measured}\n\nTidewater opens on 14 March 2027.`, results, 'when does Tidewater open?', NOW)
     assert.deepEqual(drafts.map((d) => d.value), ['14 march 2027'])
     // The same reply a year on: the date is no longer the clock, and a source states it.
-    const later = extractLedgerEntries(measured, [results], 'what did the futures do?', NOW + 365 * DAY)
+    const later = extractLedgerEntries(measured, results, 'what did the futures do?', NOW + 365 * DAY)
     assert.deepEqual(later.map((d) => d.value), ['september 29, 2026'])
   })
 
@@ -368,6 +380,11 @@ describe('fact ledger — the provider', () => {
     assert.equal(factLedgerProvider.enabled({ ...input(), factualTurn: false }, io([]).io), false)
   })
 
+  test('never on a live-world turn: an entry would answer today with the day it was checked (4.0.2)', () => {
+    const live = { ...input(), lastUserContent: 'what is the weather in richmond va today?' } as TurnInput
+    assert.equal(factLedgerProvider.enabled(live, io([hit()]).io), false)
+  })
+
   test('a fresh entry is handed over with its date and the app-run search is suppressed', async () => {
     const { io: o, runs, patches } = io([hit()])
     const gathered = await gatherTurnContext([factLedgerProvider, autoSearchProvider], input(), o)
@@ -403,5 +420,15 @@ describe('fact ledger — the provider', () => {
     assert.equal(gathered.blocks.length, 1)
     assert.deepEqual(runs, ['web_search'])
     assert.deepEqual(patches, [])
+  })
+})
+
+describe('fact ledger — an amount at the end of a sentence (4.0.2)', () => {
+  test('"costs $18.50." is an amount, in the reply and in the page; a longer decimal is not', () => {
+    const page = pageRecord('http://127.0.0.1:1/m.html', 'Museum', 'Adult tickets cost $18.50.')
+    const drafts = extractLedgerEntries('An adult ticket costs $18.50.', [page], 'How much is an adult ticket?')
+    assert.deepEqual(drafts.map((d) => [d.claimClass, d.value]), [['money', '$18.50']])
+    const odd = pageRecord('http://127.0.0.1:1/o.html', 'Odd', 'The rate is $1.234 per unit.')
+    assert.deepEqual(extractLedgerEntries('The rate is $1.23 per unit.', [odd], 'What is the rate per unit?'), [])
   })
 })

@@ -1,5 +1,6 @@
 import type { ContextProvider } from './types'
 import type { LedgerHit } from '../../../../shared/factLedger'
+import { looksLive } from '../grounding'
 
 /**
  * v2.6: the fact ledger rides the turn ahead of the app-run search.
@@ -33,9 +34,12 @@ export const factLedgerProvider: ContextProvider = {
   id: 'factLedger',
   phase: 'serial',
   wait: { label: 'Checking verified claims', detail: 'what the app confirmed earlier, with its date' },
+  // v4.0.2: never on a live-world turn — an entry would answer today's weather
+  // with the day it was checked, and suppress the search that would not.
   enabled: (input, io) =>
     input.factualTurn &&
     !!input.lastUserContent &&
+    !looksLive(input.lastUserContent) &&
     typeof io.api.ledgerLookup === 'function' &&
     io.settings()?.grounding?.factLedger !== false,
   async gather(input, io) {
