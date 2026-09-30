@@ -158,7 +158,9 @@ describe('every wait has a name', () => {
     assert.deepEqual(named, ['factLedger', 'autoSearch', 'libraryPassages', 'shoppingPrice'])
     for (const p of TURN_CONTEXT_PROVIDERS) {
       if (!p.wait) continue
-      assert.equal(p.phase, 'serial', `${p.id}: only a serial wait is worth naming`)
+      // v4.1 (S2): the library lookup became a prefetch that runs beside the
+      // search, and the walk can still be waiting on it when it gets there.
+      if (p.id !== 'libraryPassages') assert.equal(p.phase, 'serial', `${p.id}: only a serial wait is worth naming`)
       assert.ok(p.wait.label.length > 3 && p.wait.detail.length > 10, `${p.id}: name the wait`)
     }
   })

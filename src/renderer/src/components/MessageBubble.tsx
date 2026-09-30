@@ -910,7 +910,7 @@ export const MessageBubble = memo(function MessageBubble({
   // ended with nothing at all (lib/replyRecovery.ts). Only the buttons that
   // would START a turn wait, and they say so.
   const phaseHere = turnPhase?.messageId === message.id ? turnPhase : null
-  const affordances = replyAffordances({ ...message, reasoning: displayReasoning }, isLast, isStreaming, phaseHere)
+  const affordances = replyAffordances(message, isLast, isStreaming, phaseHere)
   const busyTitle = streaming ? '\n\nAvailable once this turn’s checks finish.' : ''
   /**
    * v1.17.3: would asking again send a request the app has already measured as
