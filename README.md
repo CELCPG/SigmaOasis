@@ -538,9 +538,13 @@ is enforced structurally, not just by policy:
   your settings: your loopback LM Studio server, plus the one search provider you chose. Anything
   else is blocked before it is sent and recorded as blocked.
 - **Privacy audit (2.6).** The top of Settings → **Privacy** is a named list of every setting that widens what leaves this machine or what a model may do, as it stands now: where the model server is, which tools reach the web, whether the terminal or an unscoped file-write tool is on, each enabled MCP server with its command and approval mode, standing grants, the search provider, update checks, the proxy, the audit log, memory saved from web content, verified claims kept, and the exact hosts each purpose may reach. Each row is a sentence and the place its switch is; the audit contacts nothing and changes nothing. It is the check OpenClaw wrote after its incidents, here before any.
-- **Network activity log.** Settings → **Privacy** shows every request (newest first): purpose,
-  origin, status, time. Only origins are recorded, never full URLs, so your queries stay private
-  even in the log. With search disabled, this list should show nothing but LM Studio.
+- **Network activity log.** Settings → **Activity** shows every request the app makes (newest
+  first): purpose, origin, status, time. Only origins are recorded, never full URLs, so your queries
+  stay private even in the log. With search disabled, this list should show nothing but LM Studio.
+  A program the app starts for you — an agent command, a hook, the terminal tool, an MCP server —
+  has sockets of its own: the log records that it ran (a command that obviously reaches the network
+  is marked in its approval and listed with its command line, v4.1), not what it sent. SECURITY.md,
+  *What is logged, and what is not*.
 - **Optional proxying.** Search, page reads and rendering can all be routed through a proxy you run
   (Tor, a VPN). It is the only control here that hides *who is asking*.
 - **Update checks are opt-in.** The app can check GitHub Releases for updates, but only if you

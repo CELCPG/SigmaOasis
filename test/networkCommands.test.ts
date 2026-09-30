@@ -203,4 +203,23 @@ describe('the app: the dialog says so, and an allowed command leaves a row', () 
     assert.ok(latest!.note!.endsWith('…'))
     assert.deepEqual(net.allowedHosts('command'), [], 'the app opens no connection for a command')
   })
+
+  test("v4.1 (F1): the updater's own transport leaves rows too — a check, a download, a failure, origin only", () => {
+    const net = load<typeof import('../src/main/ipc/net')>('net')
+    net.clearNetworkActivity()
+    net.recordUpdaterEvent('check')
+    net.recordUpdaterEvent('download')
+    net.recordUpdaterEvent('error', 'net::ERR_INTERNET_DISCONNECTED')
+    const [failed, download, check] = net.getNetworkActivity()
+    assert.deepEqual(
+      [check, download, failed].map((e) => [e!.purpose, e!.origin, e!.method, e!.ok]),
+      [
+        ['update', 'https://github.com', 'GET', true],
+        ['update', 'https://github.com', 'DOWNLOAD', true],
+        ['update', 'https://github.com', 'GET', false]
+      ]
+    )
+    assert.equal(failed!.error, 'net::ERR_INTERNET_DISCONNECTED')
+    assert.match(check!.note ?? '', /its own transport/)
+  })
 })

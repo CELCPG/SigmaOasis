@@ -8,8 +8,11 @@ Include reproduction steps and the Sigma Oasis version. Expect an initial respon
 
 ## Security model
 
-Sigma Oasis runs local models with **agentic tools**: file access, a shell, and a local memory store.
-That capability is the point of the app, and it is also its main risk surface. The design rules:
+Sigma Oasis runs local models with tools that act on this machine: a chat's tools (the web, the
+library, memory, a Python sandbox, and — off by default — a file writer and a terminal), MCP
+servers you add, and **the agent**: a task in a folder that reads, edits, runs commands and
+carries on until the task is done or it needs you (`docs/agent.md`). That capability is the point
+of the app, and it is also its main risk surface. The design rules:
 
 - **Tools execute only in the Electron main process.** The renderer can request a tool through the
   `window.api` context bridge; it never touches the filesystem or spawns processes itself.
@@ -17,22 +20,169 @@ That capability is the point of the app, and it is also its main risk surface. T
   links open in the system browser. This matters because the preload (and with it `window.api`) is
   re-injected on every navigation, so a remote page loading in the app window would inherit tool access.
 - **Only the microphone permission is granted**, and only to the app's own page.
+- **Nothing runs a command without asking** — in a chat or an agent task, in any mode — unless you
+  granted that exact command in that exact folder. The dialog names a destructive shape (a
+  recursive delete, a force-push, `curl … | sh`) and, since v4.1, a command that reaches the
+  network (below).
+- **Model output is sanitized** with DOMPurify before rendering, under a restrictive CSP.
+
+### A chat's own tools
+
 - **`write_file` and `run_terminal_command` ship disabled.** Enable them under Settings → Tools.
-- **`run_terminal_command` always asks for confirmation** before executing.
+- **`run_terminal_command` always asks** before executing, or runs under a standing grant.
 - **The working directory is a boundary.** When set under Settings → Tools, the file tools refuse any
   path resolving outside it. When it is not set, every `write_file` call is confirmed individually.
-- **Model output is sanitized** with DOMPurify before rendering, under a restrictive CSP.
+  `propose_patch` shows its change as a diff and writes nothing until you apply it.
+
+### The agent (v3.0 on)
+
+A task runs in the main process — or in the `sigma` CLI, the same engine in a terminal. The engine
+is plain Node and never imports Electron (`test/agentEngine.test.ts` fails the build if it does).
+
+- **The folder is a boundary.** Every path resolves inside it: `..`, an absolute path elsewhere, and
+  a write through a symlink that points out of it are refused. A task with no folder has no file
+  tools and no commands.
+- **How freely is per chat, and fixed while a task runs:**
+
+  | Mode | Edits | Commands |
+  | --- | --- | --- |
+  | **Ask first** (default) | A diff with Apply and Discard; nothing is written until Apply | Each one confirmed |
+  | **Accept edits** | Land without asking; checkpointed first, the diff on the record | Each one confirmed |
+  | **Read-only** | Not offered | Not offered |
+
+  A declined edit or command is final for that step; the model is told not to propose it again.
+  Helpers (`task`): *explore* and *review* are read-only whatever the mode; *general* works under
+  the task's mode and is not offered in *Read-only*. No helper can start another.
+- **Standing grants.** *Always allow* mints a grant bound to that exact command in that exact folder
+  (a chat's terminal: the command and the working directory; a file write: the resolved path; an MCP
+  call: the server, the tool and the exact arguments). A call that differs by a byte asks again.
+  Grants live in `grants.json` in the app's data folder, are listed with use counts and revoked under
+  Settings → Tools, and are consulted only where a dialog could have been raised: with no window,
+  the answer is no, grant or not. In the CLI, `a` lasts for that session only.
+- **Checkpoints and Undo.** Before a task first changes a file, its contents are written to disk under
+  the app's data folder (`agent-checkpoints/`) — **in plaintext**, a copy of what the file said (the
+  bytes, for a document, a move or a delete). **↶ Undo changes** puts each file back, except one
+  changed since the task last wrote it, which is somebody's work and is left alone and named.
+  Deleting the chat deletes its checkpoints.
+- **The app's own tools** (web, library, memory, Python) reach an agent only when each is enabled
+  under Settings → Tools *and* *Let the agent use the app's own tools* is on; they keep their own
+  rules and go out through the same audited transport as a chat's.
+- **Experiments** (Settings → Agent → Experiments) each ship off. The ones that change what the agent
+  can reach or run:
+  - **Hooks (A8)** — `.sigma/hooks.json` names commands to run after an edit, before a command and at
+    the end. They come from the folder, so a repository you cloned can ship them. Each runs through
+    `run_command`: the same dialog, the same grants, the same network notice. Read the dialog: a hook
+    is a command the repository chose.
+  - **Worktrees (A9)** — the app itself runs `git rev-parse` and `git worktree add`, without a dialog.
+    Neither contacts a remote, but git runs the repository's own `post-checkout` hook on
+    `worktree add` if one is installed, and honours its config: code the repository ships, run
+    without asking. Turn this on in repositories you trust.
+  - **Notes (A10), recipes (C3), slash commands (C7)** — `.sigma/notes.md` and
+    `.sigma/commands/*.md` are text from the folder that rides the prompt, as `SIGMA.md` does. They
+    run nothing, but they are instructions: see prompt injection, below.
+  - **Documents (C1)** — `.docx`, `.xlsx`, `.pptx` are read and written directly (ZIP and XML, the
+    app's own code, no library); nothing in a document is executed, macros included. PDFs go through
+    the app's extractor (see *Parsing untrusted input*).
+  - **Chores (C2)** — move, copy, make a folder, delete: inside the folder, the destination never
+    overwritten, each approved in *Ask first* and checkpointed. Delete sends to the system trash
+    (the app) or to `.sigma/trash/` (the CLI); nothing is removed outright.
+  - **`browse` (C4)** — the headless renderer, read-only: no form submitted, no cookie kept, no login,
+    every request filtered and logged as for the JavaScript renderer below.
+  - **Agent jobs (C5)** — a task on a schedule in *Read-only*: no edit, no command (declined without
+    asking), no question.
+  - **Inbox (C6)** — files dropped on an agent chat are *copied* into `.sigma/inbox/`.
+  - **MCP tools for the agent (C8)** — servers that are on join under their own approval mode and
+    per-tool switches, exactly as in a chat.
+
+### `.sigma/` — what the app keeps in a folder
+
+| Path | What it is | Whose |
+| --- | --- | --- |
+| `notes.md` | What the agent verified about the folder (A10), edited as a reviewed change | Yours to commit |
+| `hooks.json` | Commands for three moments (A8) — they run, under approval | Yours; read it in a repo you did not write |
+| `commands/*.md` | Slash commands (C7) | Yours |
+| `inbox/` | Copies of files dropped on the chat (C6) | Your files |
+| `trash/` | Files the CLI's `delete_file` moved aside (C2) | Your files |
+| `worktrees/` | One git worktree per task, on a `sigma/<slug>` branch (A9) | Plumbing |
+
+`.sigma/.gitignore`, written with the first worktree, ignores `worktrees/` and itself — **not**
+`inbox/` or `trash/`. In a repository you push, a `git add -A` commits a dropped file or a deleted
+one; add them to your own ignore file.
 
 ## What this does not protect against
 
 **Prompt injection is a real and unsolved risk.** A model can be steered by anything it reads: web
-search results, an attached document, a file on disk. If you enable `write_file` or
-`run_terminal_command`, treat a model that has read untrusted content as capable of acting on that
-content's instructions. The confirmation dialogs and the working-directory boundary are what stand
-between that and your filesystem. The composer shows an amber warning whenever these tools are armed.
+search results, a page `browse` loaded, an attached or read document, a file in the folder, an MCP
+server's output — and, for the agent, the folder's own `SIGMA.md`, `.sigma/notes.md` and slash
+commands, which ride its instructions by design. Treat a model that has read untrusted content as
+capable of acting on that content's instructions. The confirmation dialogs, the folder boundary and
+the permission mode are what stand between that and your files. The composer shows an amber warning
+whenever a chat's write or terminal tool is armed.
 
-Set a scoped working directory before enabling write access, and read the terminal confirmation
-dialog rather than clicking through it.
+**A command runs with your privileges.** There is no sandbox around `run_command`, a hook, the
+chat's terminal or an MCP server: the dialog is the control. Scope the folder before arming
+anything, keep *Ask first* for a folder you do not know, and read the command rather than clicking
+through it.
+
+## What is logged, and what is not
+
+Two records, answering two questions: *what did the app send*, and *what was said*.
+
+**The network activity log** (Settings → Activity) — what the app itself sent. In RAM only, the
+newest 300 rows, gone when the app quits or when you press Clear. Origins only, never full URLs.
+It holds:
+
+- every request through `auditedFetch`, allowed or blocked: LM Studio from the main process (agent
+  rounds, embeddings, the model catalog), search, pages, images, shopping, places, market data, the
+  proxy test;
+- every request the headless renderer's session attempts, allowed or blocked (`render`) — pages
+  rendered for reading and `browse`;
+- each MCP server starting, stopping or failing (`mcp`) — the process, not its traffic;
+- **(v4.1)** each approved command that obviously reaches the network (`command`), with its command
+  line — that it ran, not what it sent;
+- **(v4.1)** the updater's checks, downloads and failures (`update`). electron-updater has its own
+  HTTP stack, so these are its events rather than its requests; through v4.0 they were not listed.
+
+It does **not** hold, because the app cannot see it:
+
+- **the chat stream** from the window to LM Studio — loopback only, enforced by the CSP;
+- **anything a command sends**: the agent's `run_command`, the hooks that run through it, a chat's
+  terminal. The app detects the obvious shapes (`curl`, `wget`, `Invoke-WebRequest`, `git
+  clone/fetch/pull/push`, package installs, `ssh`/`scp`/`rsync`, a literal non-loopback URL —
+  `src/shared/commandDanger.ts`), says so in the dialog and logs that the command ran. A command that
+  matches none of them is not marked and may still reach the network (`npm test` can). The proxy
+  does not apply to commands;
+- **anything an MCP server sends** — it is its own process; nor does the proxy cover it
+  (`docs/mcp.md`);
+- **what the repository's own git hooks do** when a worktree is made (above);
+- **the `sigma` CLI**, which keeps no log at all. It talks only to LM Studio on loopback and refuses
+  any other server address; its `run_command` reaches whatever the command reaches, and says so.
+
+The Python sandbox has nothing to log: its network is blocked outright (below).
+
+So the claim, stated exactly: **every request the app itself makes is in the log; a program it starts
+for you — a command, a hook, an MCP server — has sockets of its own, and the log says that it ran, not
+what it sent.**
+
+**The session audit log** (Settings → Privacy, opt-in, off by default) — what was said. One file per
+launch, each line encrypted with the OS keychain (`safeStorage`) and hash-chained to the one before,
+so an edit or a deletion shows on export; if no keychain is available it does not run rather than
+write plaintext. It holds what you typed (and messages typed while a turn ran), each reply, every
+tool call with its arguments and result — the agent's marked `[agent]`, Code Mode's `[code mode]` —
+and a plan's checklist, steps and outcome; a line is capped at 20,000 characters. It never holds
+system prompts, recalled memory or compaction notes, and never anything from an ephemeral chat.
+Kept to the newest 40 launches and 200 MB. The key is machine-bound, so logs do not survive an OS
+reinstall; *Export latest* writes a **plaintext** copy where you choose.
+
+**Trace export** (Settings → Activity → *Export traces*) reads that log and writes fine-tuning files
+to a place you choose; it never uploads. Before a byte is written it replaces URLs, paths (any
+drive, UNC, `~`, the home and working folders by exact match), names under `.sigma/inbox`, `trash`
+and `worktrees`, emails, phone numbers, IP addresses and key-shaped tokens; redacts a call's
+arguments value by value; and withholds what a document said (`docs/trace-export.md`).
+
+**Also on disk, unencrypted**, in the app's data folder: conversations, agent checkpoints (file
+contents, above), `grants.json`, settings. MCP environment values and the Brave key are in the OS
+keychain.
 
 ## Network
 
@@ -41,10 +191,10 @@ for the chat stream, and since v1.4.8 by settings normalization for everything e
 that is not a loopback address is not saved, so the deliberately un-proxied LM Studio path can
 never point off-machine). There is no telemetry, no analytics, and no cloud sync.
 
-Every request the main process makes passes through an egress allowlist derived from your settings,
-and is recorded (origin only, never the full URL) in the activity log under Settings → Privacy.
-The one path not in that log is the chat stream itself, which the chat window sends directly to
-the loopback LM Studio server; the Privacy tab says so. Everything that leaves the machine is logged.
+Every request the app's main process makes itself passes through an egress allowlist derived from
+your settings and is recorded (origin only, never the full URL) in the activity log under
+Settings → Activity. What that log cannot contain — the chat stream, and the traffic of the programs
+the app starts for you — is set out above; the Activity tab says the same.
 
 Transport is **Electron's network stack**, not Node's `fetch`. That is deliberate: undici does not
 consult Electron sessions, so proxy configuration cannot reach it, and its SOCKS support needs a
@@ -104,7 +254,12 @@ The outbound paths are:
 - **The JavaScript page renderer**: opt-in and off by default (Settings → Search). See below.
 - **`api.ipify.org`**: contacted only when you press "Test proxy", and allowlisted by name so it
   cannot become a general escape hatch. It is the one third party the app contacts on its own behalf.
-- **Update checks**: GitHub Releases, opt-in and off by default.
+- **Update checks**: GitHub Releases, opt-in and off by default ("Check now" always works). They go
+  through electron-updater's own transport, not `auditedFetch`; since v4.1 each check, download and
+  failure is a row in the activity log under `update`.
+
+Outside the app's own transport, by construction, and so not in the list above: what a command, a
+hook or an MCP server sends (see *What is logged, and what is not*).
 
 Requests carry a common browser User-Agent rather than an app-specific one, so an install does not
 identify itself (or its version) to the hosts it contacts.
@@ -119,7 +274,8 @@ demand.
 
 Off by default. When configured, search, page reads and rendering are all routed through the proxy;
 **LM Studio is pinned to a direct connection explicitly**, so model traffic can never be captured by a
-proxy setting (or by a system-wide one).
+proxy setting (or by a system-wide one). A command, a hook or an MCP server is not proxied: it is a
+program with its own sockets, and goes out however the system sends it.
 
 SOCKS5 is preferred over an HTTP proxy because Chromium resolves hostnames *at the proxy*, so the local
 resolver never learns which sites are being read.
@@ -199,6 +355,29 @@ input, which is worth naming explicitly:
 Text from either parser is still untrusted external content and is passed to models behind the same
 `⚠️ UNTRUSTED EXTERNAL CONTENT` marker as everything else from the web. Prompt injection remains the
 unsolved risk described above; extraction quality does not change that.
+
+## The Python sandbox (Workbench)
+
+`run_python`, `run_code` and `analyze_file` run Pyodide (CPython compiled to WebAssembly) in a hidden
+Electron window with `sandbox: true`, context isolation and no Node integration, on a session of its
+own that refuses every request not on the app's `sigma-workbench://` scheme, under a CSP of
+`connect-src 'self'`. It has no network — not even loopback — and no disk: inputs are copied into a
+virtual `/work`, and what the code writes there comes back bounded. A job over its time budget has
+its window destroyed. Code Mode's calls to the app's tools leave the sandbox as messages the
+renderer decides under the same allowlists, budgets and audit as any tool call; the sandbox's own
+network stays blocked. `test/workbenchCheck.ts` proves each of these in Electron proper
+(`docs/workbench.md`).
+
+## MCP servers
+
+An MCP server is a local program the app launches over stdio — no HTTP transport, no remote servers
+— and it runs with your privileges, outside the egress allowlist, the proxy and the activity log.
+So a server is saved **switched off**, and turning it on is a second step. Its environment values
+are kept in the OS keychain, never in the settings file. Each server has an approval mode (`ask`,
+the default; `allowlist`; `full`), each tool its own switch, and every result reaches a model behind
+an untrusted-content marker naming the server. The client declares no capability a server could use
+to drive the model (no sampling, elicitation or roots). Since v4.0 (C8, an experiment) the same
+servers, under the same modes, can be the agent's tools. Details: `docs/mcp.md`.
 
 ## Distribution
 

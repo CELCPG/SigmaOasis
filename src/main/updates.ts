@@ -1,6 +1,7 @@
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { getSettings } from './ipc/store'
+import { recordUpdaterEvent } from './ipc/net'
 
 /**
  * Auto-update via electron-updater + GitHub Releases (the publish provider
@@ -54,10 +55,17 @@ export function registerUpdateHandlers(): void {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
-  autoUpdater.on('checking-for-update', () => setStatus({ state: 'checking', error: undefined }))
-  autoUpdater.on('update-available', (info) =>
+  // v4.1 (F1): the updater has its own transport, so its events are written to
+  // the network log here — a check, a download (autoDownload starts one on
+  // every available update), a failure — or it would be the unlisted request.
+  autoUpdater.on('checking-for-update', () => {
+    recordUpdaterEvent('check')
+    setStatus({ state: 'checking', error: undefined })
+  })
+  autoUpdater.on('update-available', (info) => {
+    recordUpdaterEvent('download')
     setStatus({ state: 'available', version: info.version, percent: 0 })
-  )
+  })
   autoUpdater.on('update-not-available', () => setStatus({ state: 'unavailable' }))
   autoUpdater.on('download-progress', (p) =>
     setStatus({ state: 'downloading', percent: Math.round(p.percent) })
@@ -80,9 +88,10 @@ export function registerUpdateHandlers(): void {
     })
     if (response === 0) autoUpdater.quitAndInstall()
   })
-  autoUpdater.on('error', (err) =>
+  autoUpdater.on('error', (err) => {
+    recordUpdaterEvent('error', err.message ?? String(err))
     setStatus({ state: 'error', error: err.message ?? String(err) })
-  )
+  })
 
   ipcMain.handle('updates:check', async () => {
     try {

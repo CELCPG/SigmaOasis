@@ -133,6 +133,27 @@ export function recordUnauditedCommand(command: string, source: 'agent' | 'termi
   })
 }
 
+/**
+ * v4.1 (F1): record what the updater did. electron-updater talks to GitHub
+ * Releases through its own HTTP stack, not `auditedFetch`, so through v4.0 an
+ * update check — the one request the app makes on a timer — never appeared
+ * in this log, beside a SECURITY.md that said everything did. Its events are
+ * the nearest thing to its requests the app can see: a check, a download that
+ * began, a failure. Origin only, as for every other row.
+ */
+export function recordUpdaterEvent(event: 'check' | 'download' | 'error', detail?: string): void {
+  record({
+    at: Date.now(),
+    purpose: 'update',
+    origin: 'https://github.com',
+    method: event === 'download' ? 'DOWNLOAD' : 'GET',
+    status: null,
+    ok: event !== 'error',
+    ...(event === 'error' && detail ? { error: detail.slice(0, 200) } : {}),
+    note: event === 'check' ? 'update check (electron-updater, its own transport)' : event === 'download' ? 'update download began' : 'update check or download failed'
+  })
+}
+
 /** Origin of a URL, for callers outside this module. */
 export function originOfUrl(url: string): string {
   return originOf(url)
