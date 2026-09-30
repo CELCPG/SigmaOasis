@@ -53,6 +53,8 @@ export interface WebSearchOutcome {
   sentQuery: string
   /** True when results came from the local cache — nothing left the machine. */
   cached?: boolean
+  /** v4.1 (G2c): the recency filter the results were fetched under, when one held. */
+  recency?: SearchRecency
   error?: string
   /**
    * Set when the app declined the call and nothing was contacted. Carries the
@@ -198,6 +200,82 @@ const PREAMBLES: RegExp[] = [
 const TRAILING_CONTEXT =
   /\s+(?:for\s+(?:my|our|me|us)\b|because\b|since\b|so\s+(?:i|we)\b|as\s+(?:i|we)\b|before\s+(?:i|we)\b|while\s+(?:i|we)\b|when\s+(?:i|we)\b).*$/i
 
+/**
+ * v4.1 (G2a): subjects whose answer depends on where — and, for the live ones,
+ * when. Only after one of these does a place or a day inside the cut personal
+ * clause belong to the subject rather than to the asker.
+ *
+ * Measured on the 4.0.1 session: "what's the weather like for my run in
+ * Richmond today" went out as "what's the weather like" — the trailing clause
+ * took the city and the day with the run. The design doc's own example is the
+ * other side of the same line: "headphones for my flight to Lagos" must not
+ * send Lagos, because headphones are the same everywhere. So a place is kept
+ * only when the subject is bound to one.
+ */
+const PLACE_BOUND_SUBJECT =
+  /\b(?:weather|forecast|temperature|rain(?:ing)?|snow(?:ing)?|storms?|humidity|wind|air quality|pollen|sunrise|sunset|tides?|traffic|road conditions|events?|things to do|restaurants?|cafes?|bars?|hotels?|stores?|shops?|opening hours|hours|open|time zone|local time|news|games?|schedule|concerts?|shows?|gas prices?)\b/i
+
+/** v4.1 (G2a): the live subjects among them — for these a day is part of the subject too. */
+const TIME_BOUND_SUBJECT =
+  /\b(?:weather|forecast|temperature|rain(?:ing)?|snow(?:ing)?|storms?|humidity|wind|air quality|pollen|sunrise|sunset|tides?|traffic|road conditions|events?|news|games?|schedule|open|hours)\b/i
+
+/** A place phrase in the cut clause: a preposition and up to four words after it. */
+const PLACE_PHRASE = /\b(in|near|around|at|to)\s+([A-Za-z][\w.'-]*(?:\s+[A-Za-z][\w.'-]*){0,3})/gi
+
+/** The day words a live subject keeps. Months stay out: a trip's dates are the asker's. */
+const DAY_PHRASE =
+  /\b(?:today|tonight|tomorrow(?: (?:morning|afternoon|evening|night))?|this (?:morning|afternoon|evening|week|weekend)|right now)\b/i
+
+/**
+ * Words that end a place phrase: the asker ("my"), a day, a clause joint, or a
+ * place that is only the asker's ("at home", "at work"). A place is proper
+ * words, so a digit or any of these stops it.
+ */
+const PLACE_STOP = new Set(
+  (
+    'i me my mine we us our ours you your he she they them his her their ' +
+    'today tonight tomorrow this next last right now morning afternoon evening night week weekend ' +
+    'and or but so because since when while before after if then for with on by from of to in at ' +
+    'near around is are was were will would can could should be am ' +
+    'home work school office house gym job place run runs walk ride trip flight drive commute ' +
+    'january february march april may june july august september october november december ' +
+    'monday tuesday wednesday thursday friday saturday sunday'
+  ).split(' ')
+)
+
+/**
+ * v4.1 (G2a): what of a cut personal clause is the subject's, not the asker's.
+ * The clause is dropped as before; its place and day come back only when the
+ * subject left standing is bound to a place (and, for a day, to a time).
+ */
+export function subjectFromContext(head: string, clause: string): string[] {
+  if (!PLACE_BOUND_SUBJECT.test(head)) return []
+  const kept: string[] = []
+  const phrases = new RegExp(PLACE_PHRASE.source, PLACE_PHRASE.flags)
+  for (let m = phrases.exec(clause); m; m = phrases.exec(clause)) {
+    // Resume just past the preposition: "in May to Rome" stops at "May", and
+    // the "to Rome" inside the same match is a phrase of its own.
+    phrases.lastIndex = m.index + m[1].length
+    const words: string[] = []
+    for (const w of m[2].split(/\s+/)) {
+      const bare = w.replace(/[^\w'-]/g, '').toLowerCase()
+      if (!bare || PLACE_STOP.has(bare) || /^\d/.test(bare)) break
+      words.push(w.replace(/[.,;:!?]+$/, ''))
+    }
+    // "at the office" stops at "office" and leaves only the article.
+    while (words.length > 0 && /^(?:the|a|an)$/i.test(words[words.length - 1])) words.pop()
+    if (words.length === 0) continue
+    // "to Tokyo" is a destination; the provider wants the place, not the trip.
+    const phrase = m[1].toLowerCase() === 'to' ? words.join(' ') : `${m[1].toLowerCase()} ${words.join(' ')}`
+    if (!head.toLowerCase().includes(words.join(' ').toLowerCase()) && !kept.includes(phrase)) kept.push(phrase)
+  }
+  if (TIME_BOUND_SUBJECT.test(head)) {
+    const day = DAY_PHRASE.exec(clause)?.[0]
+    if (day && !head.toLowerCase().includes(day.toLowerCase())) kept.push(day.toLowerCase())
+  }
+  return kept
+}
+
 /** Above this, a query has stopped being search terms and become a paragraph. */
 const MAX_QUERY_WORDS = 16
 
@@ -296,7 +374,13 @@ export function minimizeQuery(query: string): MinimizedQuery {
       working = working.replace(/^[\s,.;:—-]+/, '')
       if (working === before) break
     }
-    working = working.replace(TRAILING_CONTEXT, '').trim()
+    // v4.1 (G2a): the cut clause may hold the subject's place and day; see
+    // `subjectFromContext`.
+    const cut = TRAILING_CONTEXT.exec(working)
+    if (cut) {
+      const head = working.slice(0, cut.index).trim()
+      working = [head, ...subjectFromContext(head, cut[0])].join(' ').trim()
+    }
   }
 
   // Stripping must never produce an empty or gutted query; fall back whole.
@@ -368,10 +452,46 @@ async function fetchWithTimeout(
 
 // ---- Providers ---------------------------------------------------------------
 
-async function searchSearXNG(query: string, maxResults: number): Promise<SearchResult[]> {
+/**
+ * v4.1 (G2c): how recent the results must be — each provider's own filter, by
+ * its own name: SearXNG `time_range`, Brave `freshness`, DuckDuckGo `df`. Set
+ * by the app on live questions ("today", "this week", "latest"); the model's
+ * own calls never carry it — it is not in the tool's schema.
+ */
+export type SearchRecency = 'day' | 'week' | 'month' | 'year'
+
+export const SEARCH_RECENCIES: readonly SearchRecency[] = ['day', 'week', 'month', 'year']
+
+const SEARXNG_TIME_RANGE: Record<SearchRecency, string> = { day: 'day', week: 'week', month: 'month', year: 'year' }
+const BRAVE_FRESHNESS: Record<SearchRecency, string> = { day: 'pd', week: 'pw', month: 'pm', year: 'py' }
+const DUCKDUCKGO_DF: Record<SearchRecency, string> = { day: 'd', week: 'w', month: 'm', year: 'y' }
+
+/** The provider request URL, recency included. Exported so the parameters are pinned by test. */
+export function providerSearchUrl(
+  provider: SearchProviderId,
+  query: string,
+  maxResults: number,
+  recency?: SearchRecency,
+  searxngBase = ''
+): string {
+  const q = encodeURIComponent(query)
+  switch (provider) {
+    case 'searxng':
+      return `${searxngBase}/search?q=${q}&format=json${recency ? `&time_range=${SEARXNG_TIME_RANGE[recency]}` : ''}`
+    case 'brave':
+      return (
+        `https://api.search.brave.com/res/v1/web/search?q=${q}&count=${maxResults}` +
+        (recency ? `&freshness=${BRAVE_FRESHNESS[recency]}` : '')
+      )
+    case 'duckduckgo':
+      return `https://html.duckduckgo.com/html/?q=${q}${recency ? `&df=${DUCKDUCKGO_DF[recency]}` : ''}`
+  }
+}
+
+async function searchSearXNG(query: string, maxResults: number, recency?: SearchRecency): Promise<SearchResult[]> {
   const base = getSettings().search.searxngUrl.trim().replace(/\/+$/, '')
   if (!base) throw new Error('No SearXNG URL configured — set it under Settings → Search & research.')
-  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json`
+  const url = providerSearchUrl('searxng', query, maxResults, recency, base)
   const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } }, 'search', 15_000)
   if (!res.ok) {
     throw new Error(
@@ -393,12 +513,12 @@ async function searchSearXNG(query: string, maxResults: number): Promise<SearchR
     }))
 }
 
-async function searchBrave(query: string, maxResults: number): Promise<SearchResult[]> {
+async function searchBrave(query: string, maxResults: number, recency?: SearchRecency): Promise<SearchResult[]> {
   const apiKey = getBraveApiKey()
   if (!apiKey) {
     throw new Error('No Brave Search API key set — add one under Settings → Search & research.')
   }
-  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${maxResults}`
+  const url = providerSearchUrl('brave', query, maxResults, recency)
   const res = await fetchWithTimeout(
     url,
     {
@@ -443,8 +563,8 @@ function unwrapDuckDuckGoLink(href: string): string {
  * the instant-answer API (which mostly returns Wikipedia abstracts). No key,
  * no tracking cookies accepted or sent; rate-limited, so keep bursts low.
  */
-async function searchDuckDuckGo(query: string, maxResults: number): Promise<SearchResult[]> {
-  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+async function searchDuckDuckGo(query: string, maxResults: number, recency?: SearchRecency): Promise<SearchResult[]> {
+  const url = providerSearchUrl('duckduckgo', query, maxResults, recency)
   const res = await fetchWithTimeout(
     url,
     { headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' } },
@@ -860,8 +980,8 @@ interface CachedSearch {
 
 const searchCache = new Map<string, CachedSearch>()
 
-function searchCacheKey(provider: SearchProviderId, query: string, maxResults: number): string {
-  return `${provider}\u001f${maxResults}\u001f${query.toLowerCase()}`
+function searchCacheKey(provider: SearchProviderId, query: string, maxResults: number, recency?: SearchRecency): string {
+  return `${provider}\u001f${maxResults}\u001f${recency ?? ''}\u001f${query.toLowerCase()}`
 }
 
 function readSearchCache(key: string): SearchResult[] | null {
@@ -898,11 +1018,14 @@ export function searchCacheSize(): number {
 
 export async function runWebSearch(
   rawQuery: string,
-  beforeSend?: (sanitizedQuery: string) => Promise<boolean>
+  beforeSend?: (sanitizedQuery: string) => Promise<boolean>,
+  /** v4.1 (G2c): ask the provider for recent results only. See `SearchRecency`. */
+  options: { recency?: SearchRecency } = {}
 ): Promise<WebSearchOutcome> {
   const settings = getSettings().search
   const { query, redactions, refusal, refusalReason } = sanitizeQuery(String(rawQuery ?? ''))
   const provider = settings.provider
+  const recency = options.recency && SEARCH_RECENCIES.includes(options.recency) ? options.recency : undefined
 
   // Every `declined` below is a path on which nothing was contacted. They are
   // errors to the model — it has to do something else — but they are not
@@ -935,10 +1058,10 @@ export async function runWebSearch(
 
   // A cache hit sends nothing, so it is checked before the confirmation prompt —
   // there is no outgoing query for the user to approve.
-  const key = searchCacheKey(provider, query, settings.maxResults)
+  const key = searchCacheKey(provider, query, settings.maxResults, recency)
   const cached = readSearchCache(key)
   if (cached) {
-    return { ok: true, provider, results: cached, redactions, sentQuery: query, cached: true }
+    return { ok: true, provider, results: cached, redactions, sentQuery: query, cached: true, ...(recency ? { recency } : {}) }
   }
 
   // The user opted to approve every outgoing query — and sees the exact
@@ -955,23 +1078,30 @@ export async function runWebSearch(
     }
   }
 
-  try {
-    let results: SearchResult[]
+  const ask = (within?: SearchRecency): Promise<SearchResult[]> => {
     switch (provider) {
       case 'searxng':
-        results = await searchSearXNG(query, settings.maxResults)
-        break
+        return searchSearXNG(query, settings.maxResults, within)
       case 'brave':
-        results = await searchBrave(query, settings.maxResults)
-        break
+        return searchBrave(query, settings.maxResults, within)
       case 'duckduckgo':
-        results = await searchDuckDuckGo(query, settings.maxResults)
-        break
+        return searchDuckDuckGo(query, settings.maxResults, within)
+    }
+  }
+  try {
+    let results = await ask(recency)
+    let applied = recency
+    // v4.1 (G2c): a filter that emptied the page is worse than no filter. Asked
+    // once more without it — the same query, already disclosed and approved, so
+    // nothing new leaves the machine but the request itself.
+    if (recency && results.length === 0) {
+      results = await ask(undefined)
+      applied = undefined
     }
     // Only successful, non-empty responses are cached: caching a transient empty
     // result would hide a working query for the whole TTL.
     if (results.length > 0) writeSearchCache(key, results)
-    return { ok: true, provider, results, redactions, sentQuery: query, cached: false }
+    return { ok: true, provider, results, redactions, sentQuery: query, cached: false, ...(applied ? { recency: applied } : {}) }
   } catch (err) {
     return {
       ok: false,
@@ -1217,8 +1347,18 @@ function isResearchFixtureOrigin(url: URL): boolean {
 
 export async function fetchWebpage(
   rawUrl: string,
-  purpose: 'webpage' | 'shop' = 'webpage'
+  purpose: 'webpage' | 'shop' = 'webpage',
+  /**
+   * v4.1 (G2d): a whole-fetch deadline, redirects included, for the app's own
+   * page reads before the model is asked — a reader waits on those. Clamped
+   * to the ordinary per-request timeout; absent, nothing changes.
+   */
+  options: { timeoutMs?: number } = {}
 ): Promise<WebpageOutcome> {
+  const limitMs =
+    options.timeoutMs !== undefined ? Math.min(FETCH_TIMEOUT_MS, Math.max(1_000, options.timeoutMs)) : FETCH_TIMEOUT_MS
+  const deadline = options.timeoutMs !== undefined ? Date.now() + limitMs : null
+  const hopTimeout = (): number => (deadline === null ? FETCH_TIMEOUT_MS : Math.max(1, deadline - Date.now()))
   let url: URL
   try {
     url = new URL(String(rawUrl ?? ''))
@@ -1248,7 +1388,7 @@ export async function fetchWebpage(
           maxBytes: MAX_PAGE_BYTES
         },
         purpose,
-        FETCH_TIMEOUT_MS
+        hopTimeout()
       )
 
       if (res.status >= 300 && res.status < 400) {
@@ -1321,7 +1461,7 @@ export async function fetchWebpage(
   } catch (err) {
     const message =
       err instanceof Error && err.name === 'AbortError'
-        ? `Timed out after ${FETCH_TIMEOUT_MS / 1000}s.`
+        ? `Timed out after ${limitMs / 1000}s.`
         : err instanceof Error
           ? err.message
           : String(err)
@@ -1423,14 +1563,20 @@ export interface WebpageReadOutcome {
 export async function readWebpage(
   rawUrl: string,
   query: string,
-  maxPassages: number
+  maxPassages: number,
+  /**
+   * v4.1 (G2d): the app's own bounded read. The deadline covers the fetch;
+   * the headless renderer is not tried, because it has no share of a deadline
+   * to spend — a page that needs it is left to the model's own fetch.
+   */
+  options: { timeoutMs?: number } = {}
 ): Promise<WebpageReadOutcome> {
   const key = pageCacheKey(String(rawUrl ?? ''))
   let page = getIndexedPage(key)
   const cached = page !== null
 
   if (!page) {
-    const fetched = await fetchWebpage(rawUrl)
+    const fetched = await fetchWebpage(rawUrl, 'webpage', options)
     if (!fetched.ok) {
       return {
         ok: false,
@@ -1460,7 +1606,7 @@ export async function readWebpage(
 
     // Escalate to the headless renderer only when the cheap path came back
     // visibly inadequate, and only if the user enabled it.
-    if (getSettings().search.useHeadlessRenderer) {
+    if (getSettings().search.useHeadlessRenderer && options.timeoutMs === undefined) {
       const decision = shouldRender(fetched.kind, fetched.text, fetched.rawHtml ?? '')
       if (decision.render) {
         const rendered = await renderPage(fetched.url)

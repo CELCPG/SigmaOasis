@@ -1,7 +1,7 @@
 import { dialog } from 'electron'
 import { hostWindow } from '../hostWindow'
-import { readWebpage, runImageSearch, runWebSearch, fetchImageDataUrl, MAX_IMAGE_RESULTS } from '../search'
-import type { ThumbnailOutcome } from '../search'
+import { readWebpage, runImageSearch, runWebSearch, fetchImageDataUrl, MAX_IMAGE_RESULTS, SEARCH_RECENCIES } from '../search'
+import type { SearchRecency, ThumbnailOutcome } from '../search'
 import {
   DEFAULT_PASSAGES,
   EMPTY_RESULT_LEADS,
@@ -117,7 +117,10 @@ const webSearch: ToolHandler = async (args, { sender }) => {
   // Confirmation (when enabled) happens inside runWebSearch, after
   // sanitization but before anything is sent — the user approves the
   // exact query that leaves the machine.
-  const outcome = await runWebSearch(String(args.query ?? ''), (q) => confirmSearch(sender, q))
+  // v4.1 (G2c): `recency` is the app's argument, not the model's — it is in
+  // no schema. An unknown value is ignored rather than refused.
+  const recency = SEARCH_RECENCIES.find((r) => r === args.recency) as SearchRecency | undefined
+  const outcome = await runWebSearch(String(args.query ?? ''), (q) => confirmSearch(sender, q), { recency })
   const redactionNote = redactionNoteFor(outcome.redactions)
   if (!outcome.ok) {
     // A provider that answered badly and a call that never went out are both
@@ -150,9 +153,10 @@ const webSearch: ToolHandler = async (args, { sender }) => {
     const mark = kind === 'unknown' ? '' : `\n   [${kind}: ${why}]`
     return `${i + 1}. ${r.title}\n   ${r.url}${mark}\n   ${r.snippet}${r.published ? `\n   (${r.published})` : ''}`
   })
-  const source = outcome.cached
-    ? `from this session's cache — the query was not re-sent`
-    : `via ${outcome.provider}`
+  const source =
+    (outcome.cached
+      ? `from this session's cache — the query was not re-sent`
+      : `via ${outcome.provider}`) + (outcome.recency ? ` (results from the past ${outcome.recency} only)` : '')
   const shape = provenanceNote(outcome.results.map((r) => r.url))
   return {
     ok: true,
@@ -247,7 +251,10 @@ const fetchWebpage: ToolHandler = async (args) => {
     ? Math.min(MAX_PASSAGES, Math.max(1, Math.round(requested)))
     : DEFAULT_PASSAGES
 
-  const outcome = await readWebpage(String(args.url ?? ''), query, maxPassages)
+  // v4.1 (G2d): `timeout_ms` is the app's argument for its own bounded page
+  // reads before the model is asked; in no schema, clamped in the reader.
+  const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms) ? args.timeout_ms : undefined
+  const outcome = await readWebpage(String(args.url ?? ''), query, maxPassages, timeoutMs === undefined ? {} : { timeoutMs })
   if (!outcome.ok) {
     return { ok: false, error: outcome.error ?? 'Could not fetch that page.' }
   }

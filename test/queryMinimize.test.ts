@@ -149,3 +149,44 @@ describe('runWebSearch refuses framing before anything leaves', () => {
     assert.equal(out.sentQuery, '', 'a refused query must never be reported as sent')
   })
 })
+
+/**
+ * v4.1 (G2a), from the 4.0.1 session: the trailing-context rule took the city
+ * and the day along with "my run", and the weather question went out as
+ * "what's the weather like". The place and the day belong to a place-bound
+ * subject; the run, the flight and the trip still stay home.
+ */
+describe('minimizeQuery · the subject keeps its place', () => {
+  const cases: [string, string][] = [
+    ["what's the weather like for my run in Richmond today", "what's the weather like in Richmond today"],
+    ['weather forecast for my run tomorrow in rva', 'weather forecast in rva tomorrow'],
+    ['is it going to rain for our picnic at Maymont Park this weekend', 'is it going to rain at Maymont Park this weekend'],
+    ['best restaurants for our anniversary in the Fan District', 'best restaurants in the Fan District'],
+    ['hotels for our trip to Tokyo', 'hotels Tokyo'],
+    ['traffic for my commute near Short Pump right now', 'traffic near Short Pump right now']
+  ]
+  for (const [input, expected] of cases) {
+    test(`"${input.slice(0, 44)}…"`, () => {
+      const out = minimizeQuery(input)
+      assert.equal(out.query, expected)
+      assert.equal(out.refusal, undefined)
+      assert.doesNotMatch(out.query, /\b(?:my|our|run|picnic|anniversary|trip|commute)\b/i)
+    })
+  }
+
+  test('a place that is only the asker\'s is not kept', () => {
+    assert.equal(minimizeQuery('weather for my run at home today').query, 'weather today')
+    assert.equal(minimizeQuery('weather for my walk at the office').query, 'weather')
+  })
+
+  test('a subject bound to no place keeps none — the design doc\'s example', () => {
+    assert.equal(minimizeQuery('best noise cancelling headphones for my flight to Lagos').query, 'best noise cancelling headphones')
+    assert.equal(minimizeQuery('tallest mountains in Japan for my trip to Osaka').query, 'tallest mountains in Japan')
+  })
+
+  test('a day is kept only for a live subject; months never', () => {
+    assert.equal(minimizeQuery('hotels for our trip to Rome in May').query, 'hotels Rome')
+    assert.equal(minimizeQuery('hotels for our trip in May to Rome').query, 'hotels Rome')
+    assert.equal(minimizeQuery('best hiking boots for my trip tomorrow').query, 'best hiking boots')
+  })
+})
