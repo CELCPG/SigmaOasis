@@ -1414,3 +1414,29 @@ describe('a call that could not be read (v4.1, A1)', () => {
     assert.match(String(seen[1]!.at(-1)!.content), /^The calls above ran, but one more was written as text/)
   })
 })
+
+describe('afterCall (v4.1, A2)', () => {
+  test('sees every call in order — executed, reused and refused — and what it returns is what the record and the wire carry', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [call('c1', 'web_search', { query: 'a' }), call('c2', 'web_search', { query: 'a' }), call('c3', 'web_search', { query: 'b' })] },
+      { content: 'ok', toolCalls: [] }
+    ])
+    const saw: string[] = []
+    const records: ToolCallRecord[] = []
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records,
+      signal: new AbortController().signal,
+      toolBudgets: { web_search: 1 },
+      afterCall: (name, args, result) => {
+        saw.push(`${name} ${String(args.query)} ${result.ok ? 'ok' : 'error'}`)
+        return result.ok ? result : { ...result, error: `${result.error} [noted]` }
+      },
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: 'r' }) }
+    })
+    assert.deepEqual(saw, ['web_search a ok', 'web_search a ok', 'web_search b error'])
+    assert.match(records[2]!.result ?? '', /budget reached.*\[noted\]$/)
+    assert.match(String(seen[1]!.at(-1)!.content), /\[noted\]$/)
+  })
+})

@@ -1288,3 +1288,85 @@ describe('results cut to their share of the window (v4.1, A3)', () => {
     assert.doesNotMatch(String(last[4]!.content), /^\[Earlier output/)
   })
 })
+
+describe('a stuck detector (v4.1, A2)', () => {
+  const callAt = (index: number, id: string, name: string, args: Record<string, unknown>): Frame => ({
+    choices: [{ delta: { tool_calls: [{ index, id, function: { name, arguments: JSON.stringify(args) } }] } }]
+  })
+  const miss = (id: string, n: number): Reply => () => [call(id, 'edit_file', { path: 'src/math.ts', old_string: `not there ${n}`, new_string: 'x' })]
+
+  test('three failures in a row at one file get the note, a read between them does not reset it, and a success does', async () => {
+    const { transport, requests } = scripted([
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      miss('e1', 1),
+      miss('e2', 2),
+      () => [call('r2', 'read_file', { path: 'src/math.ts' })],
+      miss('e3', 3),
+      () => [call('ok', 'edit_file', { path: 'src/math.ts', old_string: 'a - b', new_string: 'a + b' })],
+      miss('e4', 4),
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    const result = (i: number, id: string) => String(requests[i]!.messages.find((m) => m.tool_call_id === id)?.content)
+    assert.doesNotMatch(result(3, 'e2'), /You are stuck/)
+    assert.match(result(5, 'e3'), /You are stuck: this is failure 3 in a row of edit_file on src\/math\.ts\. Do not repeat it\. Re-read src\/math\.ts with read_file/)
+    assert.match(result(5, 'e3'), /After 2 more the task stops to ask the user/)
+    assert.doesNotMatch(result(7, 'e4'), /stuck/, 'the edit that landed reset the count')
+  })
+
+  test('five in a row stop the task as paused, and the reason names the wall', async () => {
+    const { transport, requests } = scripted([() => [call('r1', 'read_file', { path: 'src/math.ts' })], miss('e1', 1), miss('e2', 2), miss('e3', 3), miss('e4', 4), miss('e5', 5)])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'paused')
+    assert.equal(requests.length, 6, 'no round is asked for after the fifth')
+    assert.match(r.detail ?? '', /^Stopped: 5 failures in a row of edit_file on src\/math\.ts — the last: old_string was not found/)
+    assert.match(r.detail ?? '', /“continue”/)
+    assert.match(String(r.history.at(-1)!.content), /the task stops here to ask the user/)
+  })
+
+  test('a check that fails again after a change is the method, not a circle', async () => {
+    const failing = 'node -e "process.exit(1)"'
+    const run = (id: string): Reply => () => [call(id, 'run_command', { command: failing })]
+    const { transport, requests } = scripted([
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      run('t1'),
+      run('t2'),
+      () => [call('w1', 'edit_file', { path: 'src/math.ts', old_string: 'a - b', new_string: 'a * b' })],
+      run('t3'),
+      run('t4'),
+      () => [text('Still failing.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.ok(requests.every((q) => q.messages.every((m) => !/You are stuck/.test(String(m.content)))), 'two, a change, two: never three in a row')
+  })
+
+  test('on a <think> family with thinkByPhase, the round after a warning thinks even when a read came last', async () => {
+    const { transport, requests } = scripted([
+      () => [call('r1', 'read_file', { path: 'src/math.ts' })],
+      miss('e1', 1),
+      miss('e2', 2),
+      () => [callAt(0, 'e3', 'edit_file', { path: 'src/math.ts', old_string: 'not there 3', new_string: 'x' }), callAt(1, 'r2', 'read_file', { path: 'README.md' })],
+      () => [text('Done.')]
+    ])
+    await runAgentTask(spec(transport, { model: 'qwen3-9b', experiments: { thinkByPhase: true } }), host(transport).host)
+    const last = requests[4]!.messages.at(-1)!
+    assert.equal(last.role, 'tool', 'no closed-think prefill: the round thinks')
+    assert.match(String(requests[4]!.messages.find((m) => m.tool_call_id === 'e3')?.content), /You are stuck/)
+  })
+
+  test('a helper that gets stuck stops, and its report says so', async () => {
+    // Five reads of one missing file, each a different window, so the ledger has no identical call to answer.
+    const { transport, requests } = scripted([
+      () => [call('t1', 'task', { subagent_type: 'explore', description: 'look', prompt: 'Find the config.' })],
+      ...[1, 2, 3, 4, 5].map((n): Reply => () => [call(`h${n}`, 'read_file', { path: 'config.json', offset: n })]),
+      () => [text('No config.')]
+    ])
+    const r = await runAgentTask(spec(transport), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(requests.length, 7)
+    const report = String(r.history.find((m) => m.tool_call_id === 't1')?.content)
+    assert.match(report, /The helper stopped after 5 failures in a row of read_file on config.json/)
+  })
+})

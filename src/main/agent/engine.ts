@@ -7,6 +7,7 @@ import {
 import { defaultShell } from './command'
 import { fitContext, historyBudget, LOW_WATER } from './context'
 import { capResult, READ_SPILL_SCHEMA, readSpill, resultCapChars, SpillStore } from './spill'
+import { StuckDetector, type StuckState } from './stuck'
 import { agentSystemPrompt, gitBranch, loadProjectNotes, subagentSystemPrompt, topLevel, type PromptEnv } from './prompts'
 import { streamRound } from './stream'
 import { skipThinking } from './phase'
@@ -99,6 +100,8 @@ interface RunContext {
   stepDone: boolean
   /** v4.1 (A3): the cut middles of this task's results, read back with read_spill; helpers share it. */
   spill: SpillStore
+  /** v4.1 (A2): set when the task stopped because it failed at the same thing five times running. */
+  stuck: StuckState | null
 }
 
 /**
@@ -156,7 +159,8 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
     hookCount: 0,
     question: null,
     stepDone: false,
-    spill: new SpillStore()
+    spill: new SpillStore(),
+    stuck: null
   }
 
   const toolbox = new Toolbox({
@@ -242,6 +246,10 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
   if (stopReason === 'paused' && run.question) {
     const choices = run.question.choices.length > 0 ? ` (${run.question.choices.join(' / ')})` : ''
     detail = `The agent asks: ${run.question.question}${choices}`
+  } else if (stopReason === 'paused' && run.stuck) {
+    // v4.1 (A2): stopped on a wall, not at the round cap — say which wall.
+    const s = run.stuck
+    detail = `Stopped: ${s.count} failures in a row of ${s.name}${s.target ? ` on ${s.target}` : ''}${s.error ? ` — the last: ${s.error}` : ''}. Say how to go on, or “continue” to let it try again.`
   } else if (status === 'paused') {
     detail = `Paused after ${spec.maxRounds ?? DEFAULT_MAX_ROUNDS} rounds. Say “continue” to let it keep going.`
   }
@@ -290,6 +298,8 @@ interface LoopOptions {
   parentCallId: string | null
   onFinalText: (text: string) => void
   subagentTypes: SubagentType[]
+  /** v4.1 (A2): a helper that stopped stuck says so in its report. */
+  onStuck?: (s: StuckState) => void
 }
 
 async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReason> {
@@ -303,6 +313,8 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
   // v4.1 (A3): no one result may take more than a share of that budget.
   const cap = resultCapChars(budget)
   let round = 0
+  // v4.1 (A2): failures per tool and target, for this loop.
+  const stuck = new StuckDetector()
 
   const outcome = await runAgentLoop({
     messages: o.messages,
@@ -314,11 +326,23 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
     // read starts with the thinking block closed; the first round and a round
     // after a failed check think (./phase.ts). Helpers keep thinking: their
     // whole job is one investigation.
-    quickReplyFor: !isHelper && spec.experiments?.thinkByPhase && THINK_TAG_MODELS.test(spec.model) ? skipThinking : undefined,
+    // v4.1 (A2): and the round after a stuck warning thinks, whatever came last.
+    quickReplyFor:
+      !isHelper && spec.experiments?.thinkByPhase && THINK_TAG_MODELS.test(spec.model)
+        ? (iteration, messages) => {
+            if (stuck.warned) {
+              stuck.warned = false
+              return false
+            }
+            return skipThinking(iteration, messages)
+          }
+        : undefined,
     // A4 (v4.0, an experiment): the plan in view, one transient message a round.
     preface: !isHelper && spec.experiments?.planFocus ? (iteration) => (iteration > 0 ? planInView(run.state.todos) : null) : undefined,
     // A6: ask_user ends the round; the answer is the next turn.
-    pauseRequested: !isHelper && spec.experiments?.askUser ? () => run.question !== null : undefined,
+    // v4.1 (A2): and five failures running at the same target stop the loop.
+    pauseRequested: () => (!isHelper && Boolean(spec.experiments?.askUser) && run.question !== null) || stuck.stopped !== null,
+    afterCall: (name, args, result) => stuck.observe(name, args, result, (WRITING_TOOLS.has(name) && name !== 'run_command') || name === 'task'),
     toolBudgets: AGENT_TOOL_BUDGETS,
     ledger,
     onRecordChange: (record) => {
@@ -416,6 +440,10 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
       onSteerDelivered: isHelper ? undefined : (steer, r) => host.emit({ type: 'steer_delivered', id: steer.id, round: r })
     }
   })
+  if (stuck.stopped) {
+    if (isHelper) o.onStuck?.(stuck.stopped)
+    else run.stuck = stuck.stopped
+  }
   return outcome.stopReason
 }
 
@@ -484,6 +512,7 @@ async function runHelper(run: RunContext, args: Record<string, unknown>, callId:
     { role: 'user', content: prompt }
   ]
   let report = ''
+  const stuck: { at: StuckState | null } = { at: null }
   const outcome = await loop(run, {
     messages,
     tools,
@@ -491,10 +520,16 @@ async function runHelper(run: RunContext, args: Record<string, unknown>, callId:
     maxRounds: SUBAGENT_MAX_ROUNDS,
     parentCallId: callId,
     onFinalText: (t) => (report = t),
-    subagentTypes: []
+    subagentTypes: [],
+    onStuck: (s) => (stuck.at = s)
   })
   if (outcome === 'aborted') return { ok: false, error: 'The task was stopped while the helper was working.' }
-  const capped = outcome === 'iteration_cap' ? `\n\n(The helper stopped at its ${SUBAGENT_MAX_ROUNDS}-round limit; this report may be incomplete.)` : ''
+  const capped =
+    outcome === 'iteration_cap'
+      ? `\n\n(The helper stopped at its ${SUBAGENT_MAX_ROUNDS}-round limit; this report may be incomplete.)`
+      : stuck.at
+        ? `\n\n(The helper stopped after ${stuck.at.count} failures in a row of ${stuck.at.name}${stuck.at.target ? ` on ${stuck.at.target}` : ''}; this report may be incomplete.)`
+        : ''
   const body = report.trim() || '(The helper finished without writing a report.)'
   const text = body.length > REPORT_MAX_CHARS ? `${body.slice(0, REPORT_MAX_CHARS)}\n… [report cut at ${REPORT_MAX_CHARS} characters]` : body
   return { ok: true, output: `Report from the ${type} helper (${description}):\n\n${text}${capped}` }

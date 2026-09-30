@@ -344,6 +344,13 @@ export interface AgentLoopOptions {
    * next turn.
    */
   pauseRequested?: () => boolean
+  /**
+   * v4.1 (A2): the caller's last word on every call's result — executed,
+   * reused, refused by a budget or by validation — before the record, the
+   * wire history and `onToolExecuted` see it. The agent's stuck detector
+   * counts failures and appends its note here. Called in call order.
+   */
+  afterCall?: (name: string, args: Record<string, unknown>, result: ToolResult) => ToolResult
   deps: AgentLoopDeps
 }
 
@@ -631,6 +638,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
           ledger.note(tc.function.name, args, result)
         }
       }
+
+      if (options.afterCall) result = options.afterCall(tc.function.name, args, result)
 
       if (result.ok) {
         record.status = 'done'
