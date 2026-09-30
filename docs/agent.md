@@ -146,7 +146,12 @@ commands and says so; `--accept-edits` lets edits land. In a session, `/mode`, `
 - **Talk to anything but LM Studio on this machine — from the CLI.** The CLI has no web tools and
   refuses a server address that is not loopback. In the app, the agent's requests go through the
   same audited transport as a chat's (the egress allowlist, the network activity log), and the
-  app's own tools keep their own rules.
+  app's own tools keep their own rules. **A command is the exception, in both** (v4.1): it is a
+  program with sockets of its own, so what `run_command` or a hook sends is outside the allowlist,
+  the proxy and the log. One that obviously reaches the network — `curl`, `git fetch`, `npm
+  install`, `ssh`, a URL — says *reaches the network — not in the network log* in its approval, and
+  in the app a row under `command` records that it ran, with its command line. SECURITY.md, *What is
+  logged, and what is not*.
 - **Run a command without asking**, in any mode, unless you granted that exact command in that
   exact folder.
 - **Pretend.** The closing report is asked to name what was changed and how it was checked, and

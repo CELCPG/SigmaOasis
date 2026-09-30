@@ -26,7 +26,7 @@ import { extractByInstruction } from '../../shared/browseExtract'
 import { auditedFetch } from './net'
 import { requestPatchReview } from './patchReview'
 import { getSettings } from './store'
-import { approve } from './toolHandlers/files'
+import { approveCommand } from './toolHandlers/files'
 import { executeTool } from './toolHandlers/registry'
 
 /**
@@ -304,15 +304,9 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
         trash: (p) => shell.trashItem(p),
         emit: (e) => out.push(e),
         reviewEdit: (r) => requestPatchReview(sender, { callId: r.callId, path: r.path, isNew: r.isNew, diff: r.diff, stats: r.stats }),
-        approveCommand: ({ command, cwd, warning }) =>
-          approve(sender, { tool: 'agent_command', args: { command }, cwd }, command, {
-            type: warning ? 'error' : 'warning',
-            title: warning ? 'DANGEROUS command — confirm' : 'Confirm agent command',
-            message: warning ?? 'The agent wants to run this command:',
-            detail:
-              `${command}\n\nIn: ${cwd}\n\n` +
-              '"Always allow" lets this exact command run in this folder without asking, until you revoke it under Settings → Tools.'
-          }),
+        // v4.1 (F2): a command that reaches the network says so, and leaves a row in the network log.
+        approveCommand: ({ command, cwd, warning, network }) =>
+          approveCommand(sender, { tool: 'agent_command', command, cwd, where: cwd, notices: { warning, network } }),
         extraTools: appTools(sender, req.conversationId, req.model)
       }
     )

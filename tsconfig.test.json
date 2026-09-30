@@ -1,0 +1,30 @@
+// v4.1 (F4): the node:test build (scripts/test.sh). Folders, not a hand-kept
+// file list: harness.ts's load() requires compiled main-process modules by
+// path at run time, which no import names, so every module under src/main is
+// built whether or not a test imports it. The output keeps the layout
+// harness.ts expects: .test-build/{src,test}.
+{
+  "compilerOptions": {
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "module": "commonjs",
+    "target": "es2022",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "types": ["node"],
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "src/main/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/cli/**/*.ts",
+    "src/preload/index.d.ts",
+    "src/renderer/src/lib/**/*.ts",
+    "src/renderer/src/hooks/**/*.ts",
+    "src/renderer/src/stores/**/*.ts",
+    "src/renderer/src/components/**/*.tsx",
+    "test/*.ts"
+  ]
+}

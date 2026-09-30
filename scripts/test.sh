@@ -54,104 +54,15 @@ rm -rf "$OUT"
 
 # Compile main-process modules + tests together, preserving the directory layout
 # that test/harness.ts expects (.test-build/{src/main/ipc,test}).
-# src/preload/index.d.ts rides along because hooks/planMode.ts reaches
-# window.api, and that declaration is what types it.
-"${RUN[@]}" node_modules/typescript/bin/tsc \
-  --outDir "$OUT" \
-  --rootDir . \
-  --module commonjs \
-  --target es2022 \
-  --moduleResolution node \
-  --esModuleInterop \
-  --skipLibCheck \
-  --strict \
-  --types node \
-  --jsx react-jsx \
-  src/main/ipc/embeddings.ts \
-  src/main/ipc/retrieval.ts \
-  src/main/ipc/researchIndex.ts \
-  src/main/ipc/extract.ts \
-  src/main/ipc/pdf.ts \
-  src/main/ipc/userAgent.ts \
-  src/main/ipc/pageScript.ts \
-  src/main/ipc/render.ts \
-  src/main/ipc/httpClient.ts \
-  src/main/ipc/proxy.ts \
-  src/main/ipc/search.ts \
-  src/main/ipc/llm.ts \
-  src/main/ipc/audit.ts \
-  src/main/ipc/plan.ts \
-  src/main/ipc/modelPin.ts \
-  src/main/ipc/modelCatalog.ts \
-  src/main/ipc/attachments.ts \
-  src/main/ipc/attachmentIndex.ts \
-  src/main/ipc/library.ts \
-  src/main/ipc/workbenchProfile.ts \
-  src/main/ipc/workbenchFormat.ts \
-  src/main/ipc/deepResearch.ts \
-  src/main/ipc/finance.ts \
-  src/main/ipc/dates.ts \
-  src/main/ipc/geo.ts \
-  src/main/ipc/urlHygiene.ts \
-  src/main/ipc/loopback.ts \
-  src/main/ipc/sourceTiers.ts \
-  src/main/ipc/productExtract.ts \
-  src/main/ipc/rubrics.ts \
-  src/main/ipc/shopping.ts \
-  src/main/ipc/watchlist.ts \
-  src/shared/tools/index.ts \
-  src/main/ipc/toolHandlers/registry.ts \
-  src/main/ipc/toolRank.ts \
-  src/main/ipc/evalResults.ts \
-  src/main/ipc/traceExport.ts \
-  src/main/ipc/projects.ts \
-  src/main/ipc/projectRecall.ts \
-  src/renderer/src/lib/oasisRipple.ts \
-  src/renderer/src/lib/reasoning.ts \
-  src/renderer/src/lib/nativeToolCall.ts \
-  src/renderer/src/lib/mathPlaintext.ts \
-  src/renderer/src/lib/contextBudget.ts \
-  src/renderer/src/lib/contextCompressor.ts \
-  src/renderer/src/lib/responseCache.ts \
-  src/renderer/src/lib/modelInfo.ts \
-  src/renderer/src/lib/secondOpinion.ts \
-  src/renderer/src/lib/grounding.ts \
-  src/renderer/src/lib/toolGrounding.ts \
-  src/renderer/src/lib/shopping.ts \
-  src/renderer/src/lib/exportMarkdown.ts \
-  src/renderer/src/lib/claimCheck.ts \
-  src/renderer/src/lib/agentLoop.ts \
-  src/renderer/src/lib/evalRunner.ts \
-  src/renderer/src/lib/toolArgs.ts \
-  src/renderer/src/lib/toolSelection.ts \
-  src/renderer/src/lib/routing.ts \
-  src/renderer/src/lib/sampling.ts \
-  src/renderer/src/lib/attachmentRecall.ts \
-  src/renderer/src/lib/libraryRecall.ts \
-  src/renderer/src/lib/playbooks.ts \
-  src/renderer/src/lib/modelProfiles.ts \
-  src/renderer/src/lib/deliberation.ts \
-  src/renderer/src/lib/ranCode.ts \
-  src/renderer/src/lib/workbenchChecks.ts \
-  src/renderer/src/lib/answerEval.ts \
-  src/renderer/src/lib/projects.ts \
-  src/renderer/src/lib/projectContext.ts \
-  src/renderer/src/lib/conversationStats.ts \
-  src/renderer/src/lib/conversationLoad.ts \
-  src/renderer/src/lib/replyRecovery.ts \
-  src/renderer/src/hooks/chatTransport.ts \
-  src/preload/index.d.ts \
-  src/renderer/src/stores/appStore.ts \
-  src/renderer/src/hooks/planMode.ts \
-  src/renderer/src/lib/planState.ts \
-  src/renderer/src/components/PlanBlockView.tsx \
-  src/renderer/src/components/OasisRipple.tsx \
-  src/renderer/src/components/RanCodeHeader.tsx \
-  src/renderer/src/components/ToolCallBlock.tsx \
-  src/preload/index.d.ts \
-  src/renderer/src/hooks/verification.ts \
-  test/harness.ts \
-  test/*.test.ts
+#
+# v4.1 (F4): from tsconfig.test.json, which names folders, not files. Through
+# 4.0.2 this was a hand-kept list of ninety-odd paths, and a list is the
+# enumeration the note above warns about: harness.ts's load() requires compiled
+# modules by path at run time, which no import names, so a module a test loads
+# that way was built only if someone remembered to add it. The folders build a
+# superset of what the list did (every file it produced, and the rest of
+# src/main and the renderer's lib, hooks, stores and components beside it).
+"${RUN[@]}" node_modules/typescript/bin/tsc -p tsconfig.test.json --outDir "$OUT"
 
 # node:test discovers by filename; point it at the compiled tests.
 "${RUN[@]}" --test "$OUT"/test/*.test.js

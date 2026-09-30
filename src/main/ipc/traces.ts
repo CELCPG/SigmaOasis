@@ -2,6 +2,8 @@ import { app, dialog, ipcMain } from 'electron'
 import { hostWindow } from './hostWindow'
 import { promises as fs } from 'fs'
 import { join } from 'path'
+import { homedir } from 'os'
+import { getSettings } from './store'
 import { readSessionPlaintext, currentAuditSessionId } from './audit'
 import { TOOL_SCHEMAS } from '../../shared/tools'
 import {
@@ -81,7 +83,9 @@ export function registerTraceHandlers(): void {
     const outcomes = await loadOutcomes(conversationIds)
     const exported = exportTraces(result.entries, {
       outcomes,
-      tools: TOOL_SCHEMAS as unknown[]
+      tools: TOOL_SCHEMAS as unknown[],
+      // v4.1: this machine's own folders, redacted by exact match — a home with a space in it included.
+      privatePaths: [homedir(), getSettings().workingDirectory]
     })
 
     const paths = {

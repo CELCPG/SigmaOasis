@@ -135,6 +135,7 @@ export interface NetworkActivityEntry {
     | 'update'
     | 'market'
     | 'mcp'
+    | 'command'
   /** Origin only — full URLs (and queries) are never logged. */
   origin: string
   method: string
@@ -142,6 +143,8 @@ export interface NetworkActivityEntry {
   ok: boolean
   blocked?: boolean
   error?: string
+  /** v4.1: a `command` row's command line, an `mcp` row's process event. */
+  note?: string
 }
 
 export interface VoiceSettings {

@@ -10,7 +10,8 @@ import { requestPatchReview } from '../patchReview'
 import { applyEdits, describeStats, unifiedDiff } from '../../../shared/patch'
 import type { PatchEdit } from '../../../shared/patch'
 import { declinedCall } from '../../../shared/tools/outcomes'
-import { dangerousCommandWarning } from '../../../shared/commandDanger'
+import { commandNotices } from '../../../shared/commandDanger'
+import { recordUnauditedCommand } from '../net'
 import { truncate } from './types'
 import type { ToolHandler, ToolResult } from './types'
 
@@ -61,6 +62,41 @@ export async function approve(
     return 'once'
   }
   return response === ALLOW_ONCE ? 'once' : 'declined'
+}
+
+/**
+ * v4.1 (F2): the dialog for a shell command — the agent's run_command (and the
+ * hooks that run through it) or the chat's terminal tool — with its destructive
+ * warning and its network notice; and, once allowed, a `command` row in the
+ * network log when it reaches the network. That row is the only trace of its
+ * traffic the app can keep: the command's sockets are its own.
+ */
+export async function approveCommand(
+  sender: Electron.WebContents,
+  req: {
+    tool: 'agent_command' | 'run_terminal_command'
+    command: string
+    cwd?: string
+    /** What the dialog says after "In:". */
+    where: string
+    notices: { warning: string | null; network?: string | null }
+  }
+): Promise<Approval> {
+  const { command, notices } = req
+  const agent = req.tool === 'agent_command'
+  const title = notices.warning ? 'DANGEROUS command — confirm' : agent ? 'Confirm agent command' : 'Confirm terminal command'
+  const ask = agent ? 'The agent wants to run this command:' : 'A model wants to run this terminal command:'
+  const approval = await approve(sender, { tool: req.tool, args: { command }, cwd: req.cwd }, command, {
+    type: notices.warning ? 'error' : 'warning',
+    title: notices.network && !notices.warning ? `${title} — reaches the network` : title,
+    message: [notices.warning, notices.network].filter(Boolean).join('\n') || ask,
+    detail:
+      `${command}\n\nIn: ${req.where}\n\n` +
+      (notices.network ? 'Its traffic does not pass through the egress allowlist or the proxy; the network log records only that it ran.\n\n' : '') +
+      `"Always allow" lets this exact command run ${agent ? 'in this folder' : 'here'} without asking, until you revoke it under Settings → Tools.`
+  })
+  if (approval !== 'declined' && notices.network) recordUnauditedCommand(command, agent ? 'agent' : 'terminal')
+  return approval
 }
 
 /** The configured working directory, resolved — or null when none is set. */
@@ -175,18 +211,16 @@ const listDirectory: ToolHandler = async (args) => {
 
 const runTerminalCommand: ToolHandler = async (args, { sender }) => {
   const command = String(args.command ?? '')
-  const warning = dangerousCommandWarning(command)
   // The directory is part of what is approved, so it is read before the
   // dialog and the run uses the same value — a settings change in between
   // cannot move an approved command somewhere else.
   const cwd = getSettings().workingDirectory || undefined
-  const approval = await approve(sender, { tool: 'run_terminal_command', args: { command }, cwd }, command, {
-    type: warning ? 'error' : 'warning',
-    title: warning ? 'DANGEROUS command — confirm' : 'Confirm terminal command',
-    message: warning ?? 'A model wants to run this terminal command:',
-    detail:
-      `${command}\n\nIn: ${cwd ?? '(your home directory)'}\n\n` +
-      '"Always allow" lets this exact command run here without asking, until you revoke it under Settings → Tools.'
+  const approval = await approveCommand(sender, {
+    tool: 'run_terminal_command',
+    command,
+    cwd,
+    where: cwd ?? '(your home directory)',
+    notices: commandNotices(command)
   })
   if (approval === 'declined') {
     return { ok: false, error: declinedCall('the user declined to run this command') }

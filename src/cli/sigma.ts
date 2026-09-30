@@ -453,13 +453,14 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
           }
         }
       },
-      approveCommand: async ({ command, cwd, warning }): Promise<CommandApproval> => {
+      approveCommand: async ({ command, cwd, warning, network }): Promise<CommandApproval> => {
         if (alwaysCommands.has(`${cwd}\n${command}`)) return 'granted'
         if (o.json || !interactive) {
           fail(`Declined a command (no one to ask in a one-shot run): ${command}\n`)
           return 'declined'
         }
-        write(`\n${warning ? red(warning) : bold('Run this command?')}\n  ${cyan(command)}\n  ${dim(`in ${cwd}`)}\n`)
+        // v4.1 (F2): the CLI keeps no network log, but a command that reaches the network still says so.
+        write(`\n${warning ? red(warning) : bold('Run this command?')}\n${network ? `${yellow(network)}\n` : ''}  ${cyan(command)}\n  ${dim(`in ${cwd}`)}\n`)
         for (;;) {
           const a = (await term.ask(`[y]es / [n]o / [a]lways this command this session: `)).trim().toLowerCase()
           if (a === 'y' || a === 'yes') return 'once'

@@ -436,6 +436,10 @@ const netStub = {
   recordExternalRequest: (entry: Record<string, unknown>) => {
     state.externalRequests.push(entry)
   },
+  // v4.1 (F2): an approved command that reaches the network, as the row net.ts would write.
+  recordUnauditedCommand: (command: string, source: string) => {
+    state.externalRequests.push({ purpose: 'command', command, source })
+  },
   originOfUrl: (url: string) => {
     try {
       return new URL(url).origin

@@ -53,7 +53,8 @@ export const NETWORK_PURPOSES = [
   'proxytest', // user-initiated "Test proxy" check only
   'update', // opt-in update checks
   'market', // market_data tool: daily price series (single pinned host)
-  'mcp' // an MCP server process started or stopped — its own network activity is NOT visible here
+  'mcp', // an MCP server process started or stopped — its own network activity is NOT visible here
+  'command' // v4.1: an approved shell command that reaches the network itself — its traffic is NOT visible here
 ] as const
 
 export type NetworkPurpose = (typeof NETWORK_PURPOSES)[number]
@@ -71,6 +72,11 @@ export interface NetworkActivityEntry {
   /** Set when the request was blocked by the allowlist before sending. */
   blocked?: boolean
   error?: string
+  /**
+   * v4.1: words about a row that is not a request — the command line of a
+   * `command` row, what an `mcp` row's process did — shown beside the origin.
+   */
+  note?: string
 }
 
 const MAX_ACTIVITY_ENTRIES = 300
@@ -96,6 +102,56 @@ function record(entry: NetworkActivityEntry): void {
  */
 export function recordExternalRequest(entry: Omit<NetworkActivityEntry, 'at'>): void {
   record({ ...entry, at: Date.now() })
+}
+
+/** A command line is kept to this many characters in the log. */
+const COMMAND_NOTE_MAX = 300
+
+/**
+ * v4.1 (F2): record that an approved command which obviously reaches the
+ * network ran — the agent's run_command (and with it every hook), or the
+ * chat's terminal tool.
+ *
+ * Such a command is a child process with sockets of its own: none of its
+ * requests pass through `auditedFetch`, the allowlist or the proxy, so this
+ * log cannot list them. What it can do is keep the claim honest — a row that
+ * says the command ran, and that its traffic is unseen, rather than a log
+ * that silently reads as complete. The command line is kept (capped) where a
+ * request keeps only its origin: it is what the user approved, word for word,
+ * the log lives in RAM only, and without it the row says nothing.
+ */
+export function recordUnauditedCommand(command: string, source: 'agent' | 'terminal'): void {
+  const line = command.trim()
+  record({
+    at: Date.now(),
+    purpose: 'command',
+    origin: `${source} command (unaudited egress)`,
+    method: 'EXEC',
+    status: null,
+    ok: true,
+    note: line.length > COMMAND_NOTE_MAX ? `${line.slice(0, COMMAND_NOTE_MAX)}…` : line
+  })
+}
+
+/**
+ * v4.1 (F1): record what the updater did. electron-updater talks to GitHub
+ * Releases through its own HTTP stack, not `auditedFetch`, so through v4.0 an
+ * update check — the one request the app makes on a timer — never appeared
+ * in this log, beside a SECURITY.md that said everything did. Its events are
+ * the nearest thing to its requests the app can see: a check, a download that
+ * began, a failure. Origin only, as for every other row.
+ */
+export function recordUpdaterEvent(event: 'check' | 'download' | 'error', detail?: string): void {
+  record({
+    at: Date.now(),
+    purpose: 'update',
+    origin: 'https://github.com',
+    method: event === 'download' ? 'DOWNLOAD' : 'GET',
+    status: null,
+    ok: event !== 'error',
+    ...(event === 'error' && detail ? { error: detail.slice(0, 200) } : {}),
+    note: event === 'check' ? 'update check (electron-updater, its own transport)' : event === 'download' ? 'update download began' : 'update check or download failed'
+  })
 }
 
 /** Origin of a URL, for callers outside this module. */
@@ -132,6 +188,9 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
     // app opens no connection for it, so it is allowed no host — the row it
     // writes in the log is about the process, and says its traffic is unseen.
     case 'mcp':
+      return []
+    // v4.1: likewise for a command — the app opens no connection for it.
+    case 'command':
       return []
     case 'lmstudio': {
       try {
