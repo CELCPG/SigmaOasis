@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { auditedFetch } from './net'
 import { getSettings } from './store'
+import { draftModelFor } from '../../shared/draftModel'
 
 /**
  * Keep the chat model resident in LM Studio while the app is using it.
@@ -117,7 +118,16 @@ async function postLoad(url: string, body: Record<string, unknown>): Promise<'ok
 export function pinChatModel(model: string): Promise<void> {
   const trimmed = model.trim()
   if (!trimmed) return Promise.resolve()
+  // v4.2 (S8): a role's draft model is pinned beside its main model, so the
+  // embedding calls that evict one do not evict the other. After the main
+  // model, whose load is the one the turn is waiting on. Not for a pair the
+  // server has already refused this session.
+  const draft = draftModelFor(trimmed, getSettings().models)
+  if (draft && !draftRejected(trimmed, draft)) return pinOne(trimmed).then(() => pinOne(draft))
+  return pinOne(trimmed)
+}
 
+function pinOne(trimmed: string): Promise<void> {
   const settings = getSettings()
   const root = restApiRoot(settings.baseUrl)
   const key = `${root}::${trimmed}`
@@ -178,9 +188,34 @@ export function pinChatModel(model: string): Promise<void> {
 /** An hour idle by default; a month for a slot the user asked to keep loaded. */
 export const PIN_TTL_S = 3600
 export const KEEP_LOADED_TTL_S = 30 * 24 * 3600
-export function keepLoadedTtl(model: string, slots: readonly { modelId: string; keepLoaded?: boolean; enabled: boolean }[] | undefined): number {
+export function keepLoadedTtl(model: string, slots: readonly { modelId: string; keepLoaded?: boolean; enabled: boolean; draftModel?: string }[] | undefined): number {
   // A settings object with no slots (a test's stub, a cold store) keeps the hour.
-  return (slots ?? []).some((s) => s.enabled && s.modelId === model && s.keepLoaded) ? KEEP_LOADED_TTL_S : PIN_TTL_S
+  // v4.2 (S8): a kept-loaded role's draft model is kept as long as the model it drafts for.
+  return (slots ?? []).some((s) => s.enabled && s.keepLoaded && (s.modelId === model || s.draftModel === model)) ? KEEP_LOADED_TTL_S : PIN_TTL_S
+}
+
+/**
+ * v4.2 (S8): draft pairs the server refused this session, and what it said —
+ * for the quiet notice on Settings → LM Studio. A refused pair is not sent
+ * again until the app restarts, so one refusal costs one retried request, not
+ * one per turn. Both the chat (renderer, over IPC) and the agent report here.
+ */
+export interface DraftNotice {
+  model: string
+  draft: string
+  detail: string
+  at: number
+}
+const draftRefusals = new Map<string, DraftNotice>()
+
+export function noteDraftRejected(model: string, draft: string, detail: string): void {
+  draftRefusals.set(`${model}::${draft}`, { model, draft, detail: detail.slice(0, 300), at: Date.now() })
+}
+export function draftRejected(model: string, draft: string): boolean {
+  return draftRefusals.has(`${model}::${draft}`)
+}
+export function draftNotices(): DraftNotice[] {
+  return [...draftRefusals.values()]
 }
 
 /**
@@ -281,4 +316,10 @@ export function registerModelPinHandlers(): void {
   // v4.0 (E2): the user's own Load and Unload, from Settings → LM Studio.
   ipcMain.handle('models:load', (_e, model: unknown) => loadModel(String(model ?? '')))
   ipcMain.handle('models:unload', (_e, model: unknown) => unloadModel(String(model ?? '')))
+  // v4.2 (S8): the chat's draft refusals land here; Settings → LM Studio reads them back.
+  ipcMain.handle('models:draftRejected', (_e, model: unknown, draft: unknown, detail: unknown) => {
+    if (typeof model === 'string' && typeof draft === 'string' && model && draft) noteDraftRejected(model, draft, String(detail ?? ''))
+    return true
+  })
+  ipcMain.handle('models:draftNotices', () => draftNotices())
 }

@@ -7,6 +7,7 @@ import { resolveSampling } from '../lib/sampling'
 import type { ApiMessage, ApiToolCall, ApiUsage } from '../lib/agentLoop'
 import type { ChatMessage, SamplingSettings, ToolSchema } from '../types'
 import { ExplainedError, explainFailure } from '../../../shared/failure'
+import { draftAcceptance, draftModelFor, isDraftRejection, type DraftAcceptance } from '../../../shared/draftModel'
 import { uid } from './turnHelpers'
 
 /**
@@ -561,7 +562,9 @@ export function chatRequestBody(
   modelId: string,
   messages: ApiMessage[],
   tools: ToolSchema[],
-  sampling?: SamplingSettings
+  sampling?: SamplingSettings,
+  /** v4.2 (S8): the role's draft model; absent sends no field, as through 4.1. */
+  draftModel?: string
 ): Record<string, unknown> {
   return {
     model: modelId,
@@ -571,8 +574,35 @@ export function chatRequestBody(
     // and the stats readout falls back to timing alone.
     stream_options: { include_usage: true },
     ...(sampling ? wireSampling(sampling, modelId) : {}),
-    ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
+    ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
+    // Last, so every byte before it is what 4.1 sent: the prompt cache keys on the prefix.
+    ...(draftModel ? { draft_model: draftModel } : {})
   }
+}
+
+/** v4.2 (S8): draft pairs the server refused this session; not sent again until restart. */
+const refusedDrafts = new Set<string>()
+
+/** The draft model to send with a request to `modelId`, from the roles; undefined for none. */
+export function draftFor(modelId: string): string | undefined {
+  const draft = draftModelFor(modelId, useAppStore.getState().settings?.models)
+  return draft && !refusedDrafts.has(`${modelId}::${draft}`) ? draft : undefined
+}
+
+/** The words a failed request carried: LM Studio's raw text when the error kept it. */
+function failureText(err: unknown): string {
+  if (err instanceof ExplainedError) return `${err.origin?.raw ?? ''} ${err.message}`
+  return err instanceof Error ? err.message : String(err)
+}
+
+type StreamChatResult = {
+  toolCalls: ApiToolCall[]
+  usage: ApiUsage | null
+  ttftMs: number | null
+  /** The reply hit max_tokens; it stops mid-thought. */
+  truncated: boolean
+  /** v4.2 (S8): draft acceptance, when a draft was sent and the server reported it. */
+  draft?: DraftAcceptance
 }
 
 /**
@@ -604,13 +634,58 @@ export async function streamChat(
   cacheable = false,
   /** Filled in as the stream progresses; survives an abort, unlike the return. */
   witness: StreamWitness = newWitness()
-): Promise<{
-  toolCalls: ApiToolCall[]
-  usage: ApiUsage | null
-  ttftMs: number | null
-  /** The reply hit max_tokens; it stops mid-thought. */
-  truncated: boolean
-}> {
+): Promise<StreamChatResult> {
+  // v4.2 (S8): with a draft model, a refusal that mentions it — before a
+  // single token reached the screen — is retried once without it, reported
+  // for the notice on Settings → LM Studio, and never fails the turn.
+  const draft = draftFor(modelId)
+  if (!draft) return streamChatOnce(baseUrl, modelId, messages, tools, signal, onContent, onReasoning, sampling, cacheable, witness)
+  let produced = false
+  try {
+    return await streamChatOnce(
+      baseUrl,
+      modelId,
+      messages,
+      tools,
+      signal,
+      (chunk) => {
+        produced = true
+        onContent(chunk)
+      },
+      onReasoning
+        ? (chunk) => {
+            produced = true
+            onReasoning(chunk)
+          }
+        : undefined,
+      sampling,
+      cacheable,
+      witness,
+      draft
+    )
+  } catch (err) {
+    const text = failureText(err)
+    if (produced || signal.aborted || !isDraftRejection(text)) throw err
+    refusedDrafts.add(`${modelId}::${draft}`)
+    // Guarded: the node tests drive this transport without a preload.
+    if (typeof window !== 'undefined') void window.api?.reportDraftRejected(modelId, draft, text.trim()).catch(() => false)
+    return streamChatOnce(baseUrl, modelId, messages, tools, signal, onContent, onReasoning, sampling, cacheable, witness)
+  }
+}
+
+async function streamChatOnce(
+  baseUrl: string,
+  modelId: string,
+  messages: ApiMessage[],
+  tools: ToolSchema[],
+  signal: AbortSignal,
+  onContent: (chunk: string) => void,
+  onReasoning: ((chunk: string) => void) | undefined,
+  sampling: SamplingSettings | undefined,
+  cacheable: boolean,
+  witness: StreamWitness,
+  draftModel?: string
+): Promise<StreamChatResult> {
   const startedAt = Date.now()
 
   // Tool rounds are never cached in either direction: tool output is
@@ -649,7 +724,7 @@ export async function streamChat(
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(chatRequestBody(modelId, messages, tools, sampling)),
+      body: JSON.stringify(chatRequestBody(modelId, messages, tools, sampling, draftModel)),
       signal: watchdog.signal
     }).catch((err) => {
       // A watchdog abort looks exactly like a user abort from here; only the
@@ -686,6 +761,8 @@ export async function streamChat(
     const nativeCalls: NativeToolCall[] = []
     let usage: ApiUsage | null = null
     let ttftMs: number | null = null
+    // v4.2 (S8): the latest figure wins — servers report it per request, not per frame.
+    let draft: DraftAcceptance | undefined
     /**
      * v1.4.6: did the reply stop because it ran out of budget?
      *
@@ -768,6 +845,7 @@ export async function streamChat(
         }
         // The usage block rides a final chunk whose `choices` is empty.
         if (json.usage) usage = json.usage
+        if (draftModel) draft = draftAcceptance(json) ?? draft
         const choice = json.choices?.[0]
         if (choice?.finish_reason) finishReason = choice.finish_reason
         if (choice?.finish_reason === 'length') truncated = true
@@ -784,6 +862,7 @@ export async function streamChat(
       const json = parseChatFrame(payload)
       if (!json) continue
       if (json.usage) usage = json.usage
+      if (draftModel) draft = draftAcceptance(json) ?? draft
       const text = frameText(json)
       if (text.reasoning) emit({ answer: '', reasoning: text.reasoning })
       if (text.content) emit(splitter.push(text.content))
@@ -821,7 +900,7 @@ export async function streamChat(
       setInCache(messages, modelId, cachedAnswer, cachedReasoning)
     }
 
-    return { toolCalls, usage, ttftMs, truncated }
+    return { toolCalls, usage, ttftMs, truncated, ...(draft ? { draft } : {}) }
   } finally {
     watchdog.stop()
   }
