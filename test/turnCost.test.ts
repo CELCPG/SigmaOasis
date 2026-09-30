@@ -2,6 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'path'
 import { readSource } from './harness'
+import { messageBubbleSource } from './messageBubbleSource'
 import { formatTurnCost, gatherMs, tailMs } from '../src/renderer/src/lib/turnCost'
 import { VERIFY_BUDGET_MS, createVerifyBudget } from '../src/renderer/src/lib/turnPhase'
 import { describeRecompute } from '../src/renderer/src/lib/workbenchChecks'
@@ -105,7 +106,8 @@ describe('the stat line reports the turn, not just the stream', () => {
   })
 
   test('the live line says the checking is bounded, while it is still running', () => {
-    const source = readSource(MESSAGE_BUBBLE)
+    // v4.2 (R3): TurnPhaseLine moved to its own file beside MessageBubble.tsx.
+    const source = messageBubbleSource()
     const start = source.indexOf('function TurnPhaseLine')
     assert.ok(start > 0, 'TurnPhaseLine not found')
     const line = source.slice(start, start + 2000)
