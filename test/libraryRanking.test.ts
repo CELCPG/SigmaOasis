@@ -7,7 +7,8 @@ import { load, resetState, state } from './harness'
 
 /**
  * v4.2: library ranking — the model re-rank (L2) and the hypothetical-answer
- * expansion (L3) for the high-stakes domains. Scripted completions and the harness's fake loopback embedder
+ * expansion (L3) for the high-stakes domains, and the wrong-section guard (L4)
+ * for every lookup. Scripted completions and the harness's fake loopback embedder
  * only; nothing here reaches a real model.
  */
 
@@ -15,6 +16,7 @@ const lib = load<typeof import('../src/main/ipc/library')>('library')
 const assist = load<typeof import('../src/main/ipc/library/modelAssist')>('library/modelAssist')
 const handlers = load<typeof import('../src/main/ipc/toolHandlers/library')>('toolHandlers/library')
 const hyde = load<typeof import('../src/main/ipc/library/hyde')>('library/hyde')
+const guard = load<typeof import('../src/main/ipc/library/sectionGuard')>('library/sectionGuard')
 
 const root = mkdtempSync(join(tmpdir(), 'sigma-library-ranking-'))
 let counter = 0
@@ -313,5 +315,87 @@ describe('the hypothetical-answer expansion (v4.2 L3)', () => {
     const out = await lib.lookupLibrary({ query: FEVER_Q, topK: 2 })
     assert.equal(out.expanded, undefined)
     assert.deepEqual(out.passages, plain.passages)
+  })
+})
+
+/**
+ * The chlorination section says *boil* and *water* in passing and says water
+ * twice; the boiling section is a little longer. BM25 puts chlorination a
+ * hair ahead — the eval's wrong-section shape, and the reply then quotes its
+ * "30 minutes" for a boiling question.
+ */
+const waterDoc = (first: string, second: string): string => `# Water
+
+## ${first}
+
+If you cannot boil water, disinfect the water with household bleach: add eight drops per gallon, stir, and let it stand for 30 minutes.
+
+## ${second}
+
+Bring water to a rolling boil for one full minute, then let it cool in a covered pot and pour it into clean bottles with lids.
+
+## Storage
+
+Store drinking water in clean containers.
+
+## Wells
+
+Have a flooded well tested before using its water. ${'Wells need care over the years, and a well cap, a casing and a pump all wear out; look after them. '.repeat(4)}
+`
+
+const BOIL_Q = 'how long should I boil water'
+
+describe('the wrong-section guard (v4.2 L4)', () => {
+  test('the failure: with headings that say nothing, the chlorination passage edges out the boiling one', async () => {
+    await lib.installPackFromDirectory(writePack('prep', [{ id: 'water', title: 'Water', text: waterDoc('Method A', 'Method B') }]))
+    const out = await lib.lookupLibrary({ query: BOIL_Q, topK: 2 })
+    assert.equal(out.passages[0].section, 'Method A')
+    assert.match(out.passages[0].text, /30 minutes/)
+    assert.ok(out.passages[0].score - out.passages[1].score <= guard.SECTION_TIE, 'a near-tie, which is what the guard breaks')
+  })
+
+  test('the fix: the section whose heading names the question leads, on the same scores', async () => {
+    await lib.installPackFromDirectory(writePack('prep', [{ id: 'water', title: 'Water', text: waterDoc('Chlorination', 'Boiling') }]))
+    const out = await lib.lookupLibrary({ query: BOIL_Q, topK: 2 })
+    assert.equal(out.passages[0].section, 'Boiling')
+    assert.match(out.passages[0].text, /rolling boil for one full minute/)
+    assert.equal(out.passages[1].section, 'Chlorination')
+    assert.equal(out.passages[0].score, 1, 'scores stay with positions')
+    assert.equal(state.completionPrompts.length, 0, 'no model involved')
+  })
+
+  test('only a near-tie is broken, comparing original scores, and the order is otherwise stable', () => {
+    const ranked = [
+      { id: 'a', relevance: 1 },
+      { id: 'b', relevance: 0.97 },
+      { id: 'c', relevance: 0.96 },
+      { id: 'd', relevance: 0.5 },
+      { id: 'e', relevance: 0.49 }
+    ]
+    const match = (ids: string[]) => (id: string): boolean => ids.includes(id)
+    // c is within the tie of b and of a: it climbs to the top.
+    assert.deepEqual(guard.preferMatchingSections(ranked, match(['c'])).map((r) => r.id), ['c', 'a', 'b', 'd', 'e'])
+    // Positions keep their scores.
+    assert.deepEqual(guard.preferMatchingSections(ranked, match(['c'])).map((r) => r.relevance), [1, 0.97, 0.96, 0.5, 0.49])
+    // d is nowhere near c: a clearly better passage keeps its place.
+    assert.deepEqual(guard.preferMatchingSections(ranked, match(['d'])).map((r) => r.id), ['a', 'b', 'c', 'd', 'e'])
+    // e ties d only.
+    assert.deepEqual(guard.preferMatchingSections(ranked, match(['e'])).map((r) => r.id), ['a', 'b', 'c', 'e', 'd'])
+    // Two matches keep their own order.
+    assert.deepEqual(guard.preferMatchingSections(ranked, match(['b', 'c'])).map((r) => r.id), ['b', 'c', 'a', 'd', 'e'])
+    // Nothing matches, or everything does: unchanged.
+    assert.deepEqual(guard.preferMatchingSections(ranked, match([])).map((r) => r.id), ['a', 'b', 'c', 'd', 'e'])
+    assert.deepEqual(guard.preferMatchingSections(ranked, match(['a', 'b', 'c', 'd', 'e'])).map((r) => r.id), ['a', 'b', 'c', 'd', 'e'])
+  })
+
+  test('headings match by stem, and an empty heading never matches', () => {
+    const q = new Set(['boil', 'water'].map(guard.stem))
+    assert.ok(guard.headingMatches('Boiling', q))
+    assert.ok(guard.headingMatches('Storing Water', q))
+    assert.ok(!guard.headingMatches('Chlorination', q))
+    assert.ok(!guard.headingMatches('', q))
+    assert.equal(guard.stem('burns'), 'burn')
+    assert.equal(guard.stem('gas'), 'gas')
+    assert.equal(guard.stem('bleeding'), 'bleed')
   })
 })

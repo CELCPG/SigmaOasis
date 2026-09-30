@@ -8,6 +8,7 @@ import { MAX_LOOKUP_PASSAGES } from './types'
 import { RERANK_POOL, assistSettings, rerankPassages, stakesDomain } from './modelAssist'
 import type { RerankCandidate } from './modelAssist'
 import { hypotheticalAnswer } from './hyde'
+import { headingMatches, preferMatchingSections, stem } from './sectionGuard'
 import type { LibChunk, LibraryPassage, LoadedDoc, LoadedPack, LookupOutcome } from './types'
 
 // v4.2 (L1): retrieval — the ZIM leg, keyword + semantic ranking fused by
@@ -260,6 +261,24 @@ export async function lookupLibrary(input: {
     .slice(0, topK * CANDIDATE_MULTIPLIER)
   if (candidates.length === 0) {
     return { ok: true, passages: [], mode: queryVector ? 'hybrid' : 'keyword', notes: [...notes, 'No passage matched the query closely enough.'] }
+  }
+
+  // v4.2 (L4): within a near-tie, a passage whose section heading shares a
+  // word with the question leads one whose heading does not
+  // (sectionGuard.ts). The scores stay with the positions, and are written
+  // back so MMR and the final sort see the same order. Skipped when the
+  // expansion (L3) ran: a heading can share the question's word and still
+  // not hold its answer ("Fever in the car" for "what do I do about a
+  // fever"), and the expanded ranking has already read the answer's words —
+  // better evidence than the heading, which would otherwise undo it.
+  if (!expanded) {
+    const sectionOf = (id: string): string => {
+      const c = byId.get(id)!
+      return sectionAt(packs.get(c.packId)!.docs.get(c.docId)!, c.offset, c.offset + c.text.length)
+    }
+    const questionStems = new Set([...queryTerms].map(stem))
+    candidates = preferMatchingSections(candidates, (id) => headingMatches(sectionOf(id), questionStems))
+    for (const c of candidates) relevance.set(c.id, c.relevance)
   }
 
   const sectionKeyOf = (id: string): string => {

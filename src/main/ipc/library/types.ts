@@ -108,7 +108,11 @@ export interface LibraryPassage {
   /** 0 (start) .. 1 (end) of the document. */
   position: number
   text: string
-  /** Fused relevance, 0..1 within this result set. */
+  /**
+   * Fused relevance, 0..1 within this result set. v4.2: after the wrong-section
+   * guard swaps a near-tie the scores stay with the positions; after a model
+   * re-rank they are rank-derived (1.0 down to 0.5).
+   */
   score: number
   source?: string
   license?: string

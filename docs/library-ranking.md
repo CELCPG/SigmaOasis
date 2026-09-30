@@ -12,7 +12,16 @@ The pack format is `docs/library-pack-format.md`; this page is what happens to a
 3. **Fusion.** Reciprocal-rank fusion of the lists, min-max scaled to 0..1.
 4. **Relevance floor.** A passage must share two strong question words (or clear a cosine of
    0.55) — a lone weak hit otherwise reads as 1.00.
-5. **Selection.** MMR against near-duplicates, then at most one passage per (document, section),
+5. **Wrong-section guard (v4.2, L4, on).** Among candidates whose relevance is within 0.05 of
+   each other, one whose section heading shares a (lightly stemmed) content word with the
+   question moves ahead of one whose heading does not — "Boiling" ahead of "Chlorination" for
+   "how long should I boil water", where chlorination mentions boiling in passing and BM25 put
+   it a hair in front. Only a near-tie is broken, measured on the original scores, and the
+   scores stay with the positions. No model, no I/O. Skipped when the expansion below ran: a
+   heading can share the question's word without holding its answer ("Fever in the car"), and
+   the expanded ranking has already read the answer's words. `sectionGuard.ts`; the failing and
+   fixed cases are in `test/libraryRanking.test.ts`.
+6. **Selection.** MMR against near-duplicates, then at most one passage per (document, section),
    topped up from unseen sections, then from the displaced twins.
 
 ## Re-rank by the answering model (v4.2, L2) — off by default
@@ -65,8 +74,8 @@ right or wrong in its details, it is written in the vocabulary of the passage th
   passages, notes or citations the model is handed. The library has no network leg, so it
   cannot reach a search provider; `test/libraryRanking.test.ts` pins all of that.
 - **Cache:** per (model, question), trimmed and case-folded, 64 questions, in-flight calls
-  shared — when the app's prefetch and the model's own `reference_lookup` ask the same question, they pay
-  once. A failed expansion is remembered for a minute, then retried.
+  shared — when the app's prefetch and the model's own `reference_lookup` ask the same
+  question, they pay once. A failed expansion is remembered for a minute, then retried.
 - **Fallback:** failure or the 4-second deadline leaves the question's own vector in place.
 
 **Cost.** One extra call per new high-stakes question: a prompt of a few dozen tokens and at
