@@ -140,7 +140,11 @@ export function agentSystemPrompt(env: PromptEnv): string {
   const rules: string[] = []
   if (has('todo_write')) rules.push('For anything with three or more steps, start with todo_write; keep one item in_progress and tick items off as you finish them.')
   if (has('read_file')) rules.push('Look before you change anything: glob and grep to find, read_file to read. Only edit a file you have read in this task.')
-  if (has('edit_file')) rules.push('Make small, exact edits with edit_file — copy old_string from read_file output without the line numbers. Use write_file for new files.')
+  if (has('edit_file')) {
+    // v4.1 (A6): multi_edit named where the edits are, so several changes to one file are one step.
+    const several = has('multi_edit') ? ' For several changes to one file, use multi_edit once rather than edit_file several times.' : ''
+    rules.push(`Make small, exact edits with edit_file — copy old_string from read_file output without the line numbers. Use write_file for new files.${several}`)
+  }
   if (has('run_command')) rules.push('Verify: run the project’s tests, build or linter with run_command when it has them; read failures, fix, and run again.')
   if (has('task')) rules.push('For a broad search or an independent review, use task: the helper starts fresh and returns a summary, which keeps your context small.')
   if (has('read_file')) rules.push('Keep tool output small: grep before reading big files, read only the lines you need (offset/limit), and do not re-read a file you already have.')

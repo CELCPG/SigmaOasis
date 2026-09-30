@@ -402,6 +402,58 @@ describe('the toolbox on a real folder', () => {
     assert.deepEqual(none.schemas(), [])
   })
 
+  test('multi_edit: several changes to one file land as one diff and one checkpoint, in order', async () => {
+    const reviews: EditReview[] = []
+    const state = newTaskState()
+    const b = new Toolbox({
+      root: dir,
+      permission: 'ask',
+      host: host(scripted([]).transport, { reviewEdit: async (r) => (reviews.push(r), true) }).host,
+      shell: NODE_SHELL,
+      commandTimeoutSec: 30,
+      state,
+      signal: new AbortController().signal
+    })
+    await b.execute('read_file', { path: 'src/math.ts' }, 'r')
+    const r = await b.execute(
+      'multi_edit',
+      {
+        path: 'src/math.ts',
+        edits: [
+          { old_string: 'export function add', new_string: 'export function sum' },
+          { old_string: 'return a - b', new_string: 'return a + b' },
+          // Applied to the text the first left: the new name is what it finds.
+          { old_string: 'function sum(a: number', new_string: 'function sum(a: number = 0' }
+        ]
+      },
+      'm1'
+    )
+    assert.ok(r.ok, r.error)
+    assert.equal(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), 'export function sum(a: number = 0, b: number) {\n  return a + b\n}\n')
+    assert.equal(reviews.length, 1, 'one review for the lot')
+    assert.equal(state.checkpoints.size, 1)
+    assert.match(r.output ?? '', /3 edits\./)
+  })
+
+  test('multi_edit: one edit that fails fails them all, the file untouched and nothing to review', async () => {
+    const reviews: EditReview[] = []
+    const b = box('ask', { reviewEdit: async (r) => (reviews.push(r), true) })
+    const blind = await b.execute('multi_edit', { path: 'src/math.ts', edits: [{ old_string: 'a - b', new_string: 'a + b' }] }, 'x')
+    assert.match(blind.error ?? '', /Read src\/math\.ts with read_file before editing/)
+    await b.execute('read_file', { path: 'src/math.ts' }, 'r')
+    const r = await b.execute(
+      'multi_edit',
+      { path: 'src/math.ts', edits: [{ old_string: 'a - b', new_string: 'a + b' }, { old_string: 'not in the file', new_string: 'x' }] },
+      'm1'
+    )
+    assert.equal(r.ok, false)
+    assert.match(r.error ?? '', /^Edit 2 of 2 failed, so none was applied and the file is unchanged\. old_string was not found/)
+    assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /a - b/)
+    assert.equal(reviews.length, 0)
+    const empty = await b.execute('multi_edit', { path: 'src/math.ts', edits: [] }, 'm2')
+    assert.match(empty.error ?? '', /Give edits/)
+  })
+
   test('every tool schema is well-formed for the wire', () => {
     for (const s of workspaceToolSchemas(NODE_SHELL, 120)) {
       assert.equal(s.type, 'function')
@@ -446,6 +498,33 @@ describe('edit matching', () => {
     assert.match((r as { error: string }).error, /closest line is 2: `return a - b`/)
     const first = applyEdit('function add(a, b) {\n  return a - b\n}\n', 'function add(a, b) {\n  return a + b', 'x')
     assert.match((first as { error: string }).error, /first line appears at line 1/)
+  })
+
+  // v4.1 (A6): the margin a small model re-types from memory.
+  const PY = 'class A:\n    def f(self):\n        if x:\n            return 1\n        return 2\n'
+
+  test('a block quoted at the wrong depth is found once, and the new text lands at the depth it replaces', () => {
+    const shallow = applyEdit(PY, 'if x:\n    return 1', 'if x and y:\n    return 1\nelse:\n    pass')
+    assert.deepEqual(shallow, {
+      ok: true,
+      text: 'class A:\n    def f(self):\n        if x and y:\n            return 1\n        else:\n            pass\n        return 2\n',
+      count: 1,
+      how: 'indentation'
+    })
+    const deep = applyEdit(PY, '            if x:\n                return 1', '            if y:\n                return 1')
+    assert.equal(deep.ok && deep.text, PY.replace('if x:', 'if y:'))
+  })
+
+  test('indentation is not forgiven when it finds two places, or when one shift does not explain every line', () => {
+    const twice = applyEdit('def a():\n    pass\ndef b():\n  pass\n', 'pass', 'return')
+    assert.equal(twice.ok, false)
+    const both = applyEdit('if a:\n    go()\nif b:\n  go()\n', '        go()', 'stop()')
+    assert.match((both as { error: string }).error, /occurs 2 times once indentation is ignored \(at lines 2, 4\)/)
+    const skewed = applyEdit(PY, 'if x:\nreturn 1', 'if y:\nreturn 1')
+    assert.equal(skewed.ok, false)
+    assert.match((skewed as { error: string }).error, /indentation changed line by line/)
+    const tabs = applyEdit('\tif x:\n\t\tgo()\n', '    if x:\n        go()', '    if y:\n        go()')
+    assert.equal(tabs.ok, false, 'tabs against spaces is not a shift')
   })
 })
 

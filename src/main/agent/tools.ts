@@ -41,9 +41,11 @@ const GLOB_MAX = 200
 const GREP_MAX_MATCHES = 120
 const GREP_MAX_FILE_BYTES = 2 * 1024 * 1024
 const LIST_MAX = 300
+/** v4.1 (A6): edits one multi_edit call may carry. */
+export const MULTI_EDIT_MAX = 20
 
 /** Tools that change the workspace or run something; not offered read-only. */
-export const WRITING_TOOLS = new Set(['edit_file', 'write_file', 'run_command', 'write_document', 'move_file', 'copy_file', 'make_directory', 'delete_file'])
+export const WRITING_TOOLS = new Set(['edit_file', 'multi_edit', 'write_file', 'run_command', 'write_document', 'move_file', 'copy_file', 'make_directory', 'delete_file'])
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
   type: 'function',
@@ -109,6 +111,30 @@ export function workspaceToolSchemas(shell: ShellSpec, commandTimeoutSec: number
         replace_all: { type: 'boolean', description: 'Replace every occurrence instead of exactly one.' }
       },
       ['path', 'old_string', 'new_string']
+    ),
+    // v4.1 (A6): several changes to one file as one step — one review, one
+    // checkpoint, and none lands unless all do, so a half-applied rename
+    // never leaves a file that does not build.
+    fn(
+      'multi_edit',
+      'Make several changes to one file in one step. Each edit is an exact old_string → new_string, as in edit_file, applied in order to the result of the one before. All land or none do; the user sees one diff. Read the file first.',
+      {
+        path: { type: 'string', description: 'File path relative to the workspace.' },
+        edits: {
+          type: 'array',
+          description: `The changes, in order (at most ${MULTI_EDIT_MAX}).`,
+          items: {
+            type: 'object',
+            properties: {
+              old_string: { type: 'string', description: 'The exact text to replace.' },
+              new_string: { type: 'string', description: 'The text to put in its place.' },
+              replace_all: { type: 'boolean', description: 'Replace every occurrence instead of exactly one.' }
+            },
+            required: ['old_string', 'new_string']
+          }
+        }
+      },
+      ['path', 'edits']
     ),
     fn(
       'write_file',
@@ -292,6 +318,8 @@ export class Toolbox {
           return await this.readFile(args)
         case 'edit_file':
           return await this.editFile(args, callId)
+        case 'multi_edit':
+          return await this.multiEdit(args, callId)
         case 'write_file':
           return await this.writeFile(args, callId)
         case 'read_document':
@@ -558,10 +586,50 @@ export class Toolbox {
     if (!match.ok) return { ok: false, error: match.error }
     const result = await this.commit(abs, original, match.text, callId, 'Edited')
     if (result.ok && match.how !== 'exact') {
-      const how = { 'line-endings': "the file's line endings", 'line-numbers': 'read_file line numbers removed', 'trailing-space': 'trailing spaces ignored' }[match.how]
-      result.output = `${result.output} (matched with ${how} — quote the file exactly next time.)`
+      result.output = `${result.output} (matched with ${FORGIVEN[match.how]} — quote the file exactly next time.)`
     }
     if (result.ok && match.count > 1) result.output = `${result.output} ${match.count} occurrences replaced.`
+    return result
+  }
+
+  /**
+   * v4.1 (A6): multi_edit — each edit through the same matching as edit_file,
+   * in order, on the text the one before left; the first that fails fails
+   * the call with the file untouched, and the whole lands as one commit.
+   */
+  private async multiEdit(args: Record<string, unknown>, callId: string): Promise<ToolboxResult> {
+    const root = this.root()
+    const abs = resolveInside(root, args.path)
+    const edits = Array.isArray(args.edits) ? (args.edits as Record<string, unknown>[]) : []
+    if (edits.length === 0) return { ok: false, error: 'Give edits: an array of { old_string, new_string }.' }
+    if (edits.length > MULTI_EDIT_MAX) return { ok: false, error: `${edits.length} edits in one call; at most ${MULTI_EDIT_MAX}. Split them over two calls.` }
+    let original: string
+    try {
+      original = await fs.readFile(abs, 'utf8')
+    } catch {
+      return { ok: false, error: `${relPath(root, abs)} does not exist. To create it, use write_file.` }
+    }
+    if (!this.readPaths.has(abs)) {
+      return { ok: false, error: `Read ${relPath(root, abs)} with read_file before editing it, so the change is made against what the file actually says.` }
+    }
+    let text = original
+    const forgiven = new Set<string>()
+    let replaced = 0
+    for (const [i, e] of edits.entries()) {
+      const match = applyEdit(text, String(e?.old_string ?? ''), String(e?.new_string ?? ''), e?.replace_all === true)
+      if (!match.ok) {
+        return { ok: false, error: `Edit ${i + 1} of ${edits.length} failed, so none was applied and the file is unchanged. ${match.error}` }
+      }
+      text = match.text
+      replaced += match.count
+      if (match.how !== 'exact') forgiven.add(FORGIVEN[match.how])
+    }
+    if (text === original) return { ok: true, output: `No change: the edits leave ${relPath(root, abs)} as it was.` }
+    const result = await this.commit(abs, original, text, callId, 'Edited')
+    if (result.ok) {
+      result.output = `${result.output} ${edits.length} edit${edits.length === 1 ? '' : 's'}${replaced > edits.length ? ` (${replaced} occurrences)` : ''}.`
+      if (forgiven.size > 0) result.output = `${result.output} (matched with ${[...forgiven].join('; ')} — quote the file exactly next time.)`
+    }
     return result
   }
 
@@ -818,6 +886,14 @@ export class Toolbox {
       output: `Checklist updated: ${done} of ${todos.length} done${active[0] ? `; now: ${active[0].content}` : ''}.${nudge}`
     }
   }
+}
+
+/** How a forgiving match is named back to the model, so it quotes exactly next time. */
+const FORGIVEN: Record<'line-endings' | 'line-numbers' | 'trailing-space' | 'indentation', string> = {
+  'line-endings': "the file's line endings",
+  'line-numbers': 'read_file line numbers removed',
+  'trailing-space': 'trailing spaces ignored',
+  indentation: "indentation moved to the file's"
 }
 
 /** What read_document hands the model at most; a longer document says how much more there is. */

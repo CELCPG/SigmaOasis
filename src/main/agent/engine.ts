@@ -363,7 +363,7 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
           result = await o.toolbox.execute(name, args, callId)
           if (before.length > 0) result = { ...result, [result.ok ? 'output' : 'error']: `${before.join('\n\n')}\n\n${result.ok ? (result.output ?? '') : (result.error ?? '')}` }
           // A8: after an edit lands, the project's hooks — a failed one is told to the model.
-          if (result.ok && (name === 'edit_file' || name === 'write_file' || name === 'write_document') && run.hooks && !isHelper) {
+          if (result.ok && (name === 'edit_file' || name === 'multi_edit' || name === 'write_file' || name === 'write_document') && run.hooks && !isHelper) {
             const failed = await runHooks(run, o.toolbox, 'afterEdit', { file: String(args.path ?? '') })
             if (failed.length > 0) result = { ...result, output: `${result.output ?? ''}\n\n${failed.join('\n\n')}` }
           }
@@ -380,7 +380,7 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         // A5 (v4.0): what the verify round and the report's honesty rest on —
         // when files last changed, and which commands ran after that.
         if (!isHelper) {
-          if (name === 'edit_file' || name === 'write_file' || name === 'write_document' || name === 'move_file' || name === 'copy_file' || name === 'delete_file') run.lastEditAt = Date.now()
+          if (name === 'edit_file' || name === 'multi_edit' || name === 'write_file' || name === 'write_document' || name === 'move_file' || name === 'copy_file' || name === 'delete_file') run.lastEditAt = Date.now()
           if (name === 'run_command') run.commands.push({ command: String(args.command ?? ''), ok: result.ok, at: Date.now() })
         }
         return result
