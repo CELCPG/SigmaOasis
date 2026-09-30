@@ -110,7 +110,8 @@ if (convDir && existsSync(convDir)) {
 }
 
 // ---- Export ---------------------------------------------------------------------
-const result = exportTraces(entries, { outcomes, tools: TOOL_SCHEMAS as unknown[] })
+// v4.1: this machine's home folder, redacted by exact match before the patterns.
+const result = exportTraces(entries, { outcomes, tools: TOOL_SCHEMAS as unknown[], privatePaths: [homedir()] })
 
 const dir = outDir ?? dirname(input)
 mkdirSync(dir, { recursive: true })

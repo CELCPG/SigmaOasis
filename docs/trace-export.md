@@ -35,10 +35,29 @@ The manifest's per-trace `reasons` say exactly why each trace landed where it
 did.
 
 **Redaction runs before anything is written (4a).** URLs, absolute paths,
-email addresses, IPs/localhost, and key-shaped tokens are replaced with
-placeholders in every field. Ephemeral chats never reach the audit log, so
-they can never reach a trace. The export writes to local disk and never
-uploads.
+email addresses, phone numbers, IPs/localhost, and key-shaped tokens are
+replaced with placeholders in every field. Ephemeral chats never reach the
+audit log, so they can never reach a trace. The export writes to local disk
+and never uploads.
+
+What v4.1 added, for what an agent task records (`test/traceRedaction.test.ts`):
+
+- **A call's arguments are redacted value by value.** Through v4.0 a parsed
+  argument object was written as it was — a `read_file` path, a `run_command`
+  line, an MCP tool's arguments went out whole.
+- **Paths from anywhere:** any Windows drive in either slash, UNC shares,
+  `~/`, `$HOME/`, `%USERPROFILE%\`, macOS volumes, `/tmp`, `/root` — and the
+  home folder and working directory by exact match, so a home with a space in
+  its name goes whole.
+- **`.sigma/`:** a file name under `inbox/` or `trash/` and a worktree's name
+  under `worktrees/` (and its `sigma/<slug>` branch) become `[name]` and
+  `[branch]` — they are the user's words. `notes.md`, `hooks.json` and
+  `commands/` are kept.
+- **Documents (C1):** what `read_document` returned is withheld whole, its
+  size kept; `write_document` keeps its path and one-line result, not the text
+  or rows it wrote. A document is the user's own prose — names, figures,
+  addresses — which no pattern finds. The final reply that summarizes it is
+  redacted like any other text, not withheld; read it before training.
 
 ## 2. Check the schema stamp before training (4c)
 

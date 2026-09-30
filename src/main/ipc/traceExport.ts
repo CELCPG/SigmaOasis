@@ -21,8 +21,10 @@ import { createHash } from 'crypto'
  * - **Ephemeral-blind by construction.** Ephemeral conversations never reach
  *   the audit log, so they can never reach a trace.
  * - **Redaction before bytes leave the app.** Every string written to a trace
- *   passes through redactText(): URLs, absolute paths, emails, IPs/localhost,
- *   and key-shaped tokens are replaced with placeholders.
+ *   passes through redactText(): URLs, absolute paths, emails, phone numbers,
+ *   IPs/localhost, and key-shaped tokens are replaced with placeholders; a
+ *   call's arguments are redacted value by value, and what a document says is
+ *   withheld (v4.1).
  * - **Labels come from outcomes, not vibes (4b).** A trace is `positive` only
  *   when the turn *mechanically* ended well: no errored tool calls, a final
  *   assistant answer exists, and the reply was either never flagged unverified
@@ -302,9 +304,23 @@ export function outcomeKey(conversationId: string, turnIndex: number): string {
 const REDACTION_RULES: [RegExp, string][] = [
   // URLs first — they contain hostnames, paths, and sometimes keys.
   [/https?:\/\/[^\s)"'<>]+/g, '[url]'],
-  // Absolute filesystem paths (POSIX home dirs, Windows profiles).
-  [/\/(?:Users|home)\/[^\s"'`]+/g, '[path]'],
-  [/\b[A-Za-z]:\\Users\\[^\s"'`]+/g, '[path]'],
+  // v4.1: what lands in a folder's .sigma/ from outside — a dropped file's
+  // name (inbox), a deleted one's (trash), a worktree named from the task's
+  // own words — is the user's, not the product's. The folder stays, so a
+  // trace still reads as the agent working in .sigma/; notes.md, hooks.json
+  // and commands/ are the product's vocabulary and are kept.
+  [/(\.sigma[\\/]+(?:inbox|trash|worktrees)[\\/]+)[^\s"'`\\/]+/g, '$1[name]'],
+  // v4.1: the branch a worktree task works on is `sigma/<the task's words>`.
+  [/(?<![.\w])sigma\/[a-z0-9][\w.-]*/g, 'sigma/[branch]'],
+  // Absolute filesystem paths: home and volume roots on macOS and Linux, and
+  // (v4.1) any drive on Windows, either slash — through v4.0 only
+  // C:\Users\… was caught, so D:\work\client\… and C:/Users/… went out whole.
+  // The drive first, so the POSIX rule cannot take `/Users/…` out of `C:/Users/…`.
+  [/\b[A-Za-z]:[\\/][^\s"'`<>|]*/g, '[path]'],
+  [/\/(?:Users|home|root|Volumes|mnt|media|private|tmp|var\/folders)\/[^\s"'`]+/g, '[path]'],
+  // v4.1: UNC shares, and paths written from home (~/, $HOME/, %USERPROFILE%\).
+  [/\\\\[\w.$-]+\\[^\s"'`<>|]+/g, '[path]'],
+  [/(?:~|\$HOME|%USERPROFILE%)[\\/][^\s"'`]*/g, '[path]'],
   // Email addresses.
   [/\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/g, '[email]'],
   // Key-shaped tokens: prefixed secrets, long hex, long base64-ish runs.
@@ -313,7 +329,13 @@ const REDACTION_RULES: [RegExp, string][] = [
   [/\b[A-Za-z0-9+/_-]{40,}={0,2}\b/g, '[token]'],
   // Loopback hosts and IPv4 addresses.
   [/\blocalhost\b/g, '[host]'],
-  [/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[ip]']
+  [/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[ip]'],
+  // v4.1: phone numbers — international with a leading +, and the North
+  // American 3-3-4 shape with separators. After the IP rule, so an address is
+  // an [ip]; a date (4-2-2) or a version (1.2.3) is neither shape.
+  [/\+\d{1,3}(?:[\s.-]\d{2,4}){2,5}\b/g, '[phone]'],
+  [/\+\d{8,15}\b/g, '[phone]'],
+  [/(?:\(\d{3}\)\s?|\b\d{3}[\s.-])\d{3}[\s.-]\d{4}\b/g, '[phone]']
 ]
 
 /**
@@ -327,6 +349,72 @@ export function redactText(text: string): string {
   let out = text
   for (const [re, placeholder] of REDACTION_RULES) out = out.replace(re, placeholder)
   return out
+}
+
+export type Redactor = (text: string) => string
+
+/**
+ * v4.1: redactText, after the paths this machine is known to have — the home
+ * folder, the working directory — are replaced by exact match, in either
+ * slash and any case, as web_search's sanitizer does — with the rest of the
+ * path after them, to the next space. The patterns stop at a
+ * space, so `C:\Users\Ada Lovelace\notes` would otherwise leave
+ * `Lovelace\notes` behind; the literal does not. Built from escaped text, so
+ * each is a plain string search.
+ */
+export function redactorFor(privatePaths: readonly string[] = []): Redactor {
+  const literals = [...new Set(privatePaths.map((p) => p.trim().replace(/[\\/]+$/, '')).filter((p) => p.length >= 3))]
+    .flatMap((p) => [p, p.replace(/\\/g, '/'), p.replace(/\//g, '\\')])
+    .sort((a, b) => b.length - a.length)
+    .map((p) => new RegExp(`${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[\\\\/][^\\s"'\`<>|]*)?`, 'gi'))
+  if (literals.length === 0) return redactText
+  return (text) => redactText(literals.reduce((out, re) => out.replace(re, '[path]'), text))
+}
+
+/**
+ * v4.1: redact a parsed argument object value by value, then serialize.
+ *
+ * Through v4.0 a call's arguments, once parsed, were written with
+ * JSON.stringify and never redacted — a `read_file` path, a `run_command`
+ * line, an MCP tool's arguments went out whole. Redacting the serialized text
+ * instead would be wrong twice: JSON doubles every backslash, so a Windows
+ * path no longer looks like one, and a rule that stops before a quote can eat
+ * the backslash escaping it and leave broken JSON. So every string is
+ * redacted as itself, and the keys (the schema's names) are kept.
+ */
+export function redactArgs(value: unknown, redact: Redactor = redactText): unknown {
+  if (typeof value === 'string') return redact(value)
+  if (Array.isArray(value)) return value.map((v) => redactArgs(v, redact))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, redactArgs(v, redact)]))
+  }
+  return value
+}
+
+/**
+ * v4.1 (C1): what a document says stays out of a trace. A `.docx` or `.xlsx`
+ * the agent read is the user's own text — names, figures, addresses — which
+ * no pattern can find, so read_document's output is withheld whole (its size
+ * kept, so the trace still shows a read that returned something), and
+ * write_document keeps its path and its one-line result but not the text or
+ * rows it wrote, nor the diff of what the document says.
+ */
+const DOCUMENT_WITHHELD = (chars: number): string => `[document text withheld from traces: ${chars} characters]`
+
+function traceArgs(call: TraceToolCall, redact: Redactor): string {
+  if (typeof call.args === 'string') return redact(call.args)
+  if (call.name === 'write_document' && call.args && typeof call.args === 'object' && !Array.isArray(call.args)) {
+    const a = { ...(call.args as Record<string, unknown>) }
+    for (const k of ['content', 'sheets']) if (k in a) a[k] = DOCUMENT_WITHHELD(JSON.stringify(a[k] ?? '').length)
+    return JSON.stringify(redactArgs(a, redact))
+  }
+  return JSON.stringify(redactArgs(call.args, redact))
+}
+
+function traceOutput(call: TraceToolCall, redact: Redactor): string {
+  if (call.ok && call.name === 'read_document') return DOCUMENT_WITHHELD(call.output.length)
+  if (call.ok && call.name === 'write_document') return redact(call.output.split('\n')[0] ?? '')
+  return redact(call.ok ? call.output : `Error: ${call.output}`)
 }
 
 // ---- Schema version (4c) --------------------------------------------------------
@@ -367,8 +455,8 @@ export interface OpenAIMessage {
  * result, then the final assistant answer. Redaction is applied here, at the
  * boundary, so no caller can forget it.
  */
-export function toOpenAIMessages(turn: TraceTurn): OpenAIMessage[] {
-  const messages: OpenAIMessage[] = [{ role: 'user', content: redactText(turn.user) }]
+export function toOpenAIMessages(turn: TraceTurn, redact: Redactor = redactText): OpenAIMessage[] {
+  const messages: OpenAIMessage[] = [{ role: 'user', content: redact(turn.user) }]
   turn.toolCalls.forEach((call, i) => {
     const id = `call_${i}`
     messages.push({
@@ -378,22 +466,18 @@ export function toOpenAIMessages(turn: TraceTurn): OpenAIMessage[] {
         {
           id,
           type: 'function',
-          function: {
-            name: call.name,
-            arguments:
-              typeof call.args === 'string' ? redactText(call.args) : JSON.stringify(call.args)
-          }
+          function: { name: call.name, arguments: traceArgs(call, redact) }
         }
       ]
     })
     messages.push({
       role: 'tool',
       tool_call_id: id,
-      content: redactText(call.ok ? call.output : `Error: ${call.output}`)
+      content: traceOutput(call, redact)
     })
   })
   if (turn.assistant !== undefined) {
-    messages.push({ role: 'assistant', content: redactText(turn.assistant) })
+    messages.push({ role: 'assistant', content: redact(turn.assistant) })
   }
   return messages
 }
@@ -403,6 +487,8 @@ export interface TraceExportOptions {
   outcomes?: Map<string, TurnOutcome>
   /** The tool schemas these turns ran against, for the 4c version stamp. */
   tools?: unknown[]
+  /** v4.1: this machine's own paths (home, working directory), redacted by exact match before the patterns. */
+  privatePaths?: string[]
 }
 
 export interface TraceExportResult {
@@ -434,6 +520,7 @@ export interface TraceExportResult {
  */
 export function exportTraces(entries: AuditEntryLike[], opts: TraceExportOptions = {}): TraceExportResult {
   const { turns, skipped } = buildTurns(entries)
+  const redact = redactorFor(opts.privatePaths)
   const positive: string[] = []
   const rejected: string[] = []
   const manifestTraces: TraceExportResult['manifest']['traces'] = []
@@ -441,7 +528,7 @@ export function exportTraces(entries: AuditEntryLike[], opts: TraceExportOptions
 
   for (const turn of turns) {
     const { label, reasons } = labelTurn(turn, opts.outcomes?.get(outcomeKey(turn.conversationId, turn.turnIndex)))
-    const line = JSON.stringify({ messages: toOpenAIMessages(turn) })
+    const line = JSON.stringify({ messages: toOpenAIMessages(turn, redact) })
     if (label === 'positive') {
       positive.push(line)
       manifestTraces.push({
