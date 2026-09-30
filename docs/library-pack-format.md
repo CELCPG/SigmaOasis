@@ -63,6 +63,7 @@ my-pack/
 | `docs[].id` | `[a-z0-9][a-z0-9-]{0,79}`, unique within the pack. Part of every citation. |
 | `docs[].title` | What the model cites. |
 | `docs[].source`, `license`, `date` | Optional provenance, carried into every passage the model sees. Give them. |
+| `docs[].appliesToYear` | v4.1, optional: the year the document's figures are for (a tax year, a limit year), a whole number. Every passage from it says `applies to: 2025`; a lookup that returns a document older than the current year ends with a note naming it and its year, and the turn carries `web_search`/`fetch_webpage`. A question about "this year", "current" or "today" does the same for any tagged document. Tag only documents whose figures change by year; anything but a whole year is ignored. |
 | `docs[].file` | A bare file name under `docs/` ending `.md`, `.markdown` or `.txt`. No subdirectories. |
 | `docs[].chars` | Filled in at install; ignored on input. |
 | `docs[].sourceMtime`, `sourceSize` | v1.7, written by the app on `user` packs: stat of the original file at build/update, compared by the staleness check so it never reads contents. |

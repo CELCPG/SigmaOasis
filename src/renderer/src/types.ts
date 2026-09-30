@@ -804,6 +804,8 @@ export interface LibraryPassage {
   source?: string
   license?: string
   date?: string
+  /** v4.1 (G5): the year the document's figures are for, when its pack says. */
+  appliesToYear?: number
 }
 
 export interface LibraryLookupResult {

@@ -15,11 +15,11 @@
     { "id": "save-and-invest", "title": "Save and invest", "url": "https://www.investor.gov/introduction-investing/investing-basics/save-and-invest" },
     { "id": "how-stock-markets-work", "title": "How stock markets work", "url": "https://www.investor.gov/introduction-investing/investing-basics/how-stock-markets-work" },
     { "id": "compound-interest", "title": "Compound interest", "url": "https://www.investor.gov/introduction-investing/investing-basics/glossary/compound-interest" },
-    { "id": "who-should-file", "title": "Who should file a tax return", "url": "https://www.irs.gov/filing/individuals/who-should-file" },
-    { "id": "standard-deduction", "title": "Tax Topic 551 — Standard deduction", "url": "https://www.irs.gov/taxtopics/tc551" },
+    { "id": "who-should-file", "title": "Who should file a tax return", "url": "https://www.irs.gov/filing/individuals/who-should-file", "appliesToYear": 2025 },
+    { "id": "standard-deduction", "title": "Tax Topic 551 — Standard deduction", "url": "https://www.irs.gov/taxtopics/tc551", "appliesToYear": 2025 },
     { "id": "should-i-itemize", "title": "Tax Topic 501 — Should I itemize?", "url": "https://www.irs.gov/taxtopics/tc501" },
-    { "id": "capital-gains", "title": "Tax Topic 409 — Capital gains and losses", "url": "https://www.irs.gov/taxtopics/tc409" },
-    { "id": "ira-contribution-limits", "title": "IRA contribution limits", "url": "https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-ira-contribution-limits" },
-    { "id": "inflation-adjustments-2025", "title": "Tax inflation adjustments for tax year 2025", "url": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025" }
+    { "id": "capital-gains", "title": "Tax Topic 409 — Capital gains and losses", "url": "https://www.irs.gov/taxtopics/tc409", "appliesToYear": 2025 },
+    { "id": "ira-contribution-limits", "title": "IRA contribution limits", "url": "https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-ira-contribution-limits", "appliesToYear": 2026 },
+    { "id": "inflation-adjustments-2025", "title": "Tax inflation adjustments for tax year 2025", "url": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025", "appliesToYear": 2025 }
   ]
 }

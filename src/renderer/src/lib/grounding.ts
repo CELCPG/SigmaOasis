@@ -377,10 +377,18 @@ export function webToolsForTurn(text: string | undefined): readonly string[] {
   if (t.length < 8 || CREATIVE_INTENT.test(t)) return []
   if (LIVE_DOMAINS.test(t) || ASKS_FOR_WEB.test(t)) return WEB_TOOLS
   if (looksFactual(t) && !looksReference(t)) return WEB_TOOLS
+  // v4.1 (G5): a reference question about the figures in force now. The packs
+  // are snapshots — the finance pack states 2025 limits — so "this year" needs
+  // the web beside the library, not instead of it.
+  if (looksReference(t) && ASKS_CURRENT_FIGURES.test(t)) return WEB_TOOLS
   return []
 }
 
 const WEB_TOOLS: readonly string[] = ['web_search', 'fetch_webpage']
+
+/** v4.1 (G5): "this year", "current", "today" — a question about the figures in force now. */
+export const ASKS_CURRENT_FIGURES =
+  /\b(?:this year(?:'s)?|current(?:ly)?|today|right now|as of now|latest|up[- ]to[- ]date|nowadays)\b/i
 
 /**
  * Does this turn make claims the app should have checked before it spoke?

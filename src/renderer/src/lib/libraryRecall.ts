@@ -380,3 +380,35 @@ export function buildLibraryContext(formatted: string, offline: boolean): string
     formatted
   )
 }
+
+/**
+ * v4.1 (G5): what a year-tagged answer from the library needs from the web.
+ *
+ * A pack is a snapshot, and the finance pack's figures are 2025's: asked "what
+ * is the standard deduction this year" in 2026, the app handed over the 2025
+ * passage and the model quoted it as this year's, with no web tool on the
+ * wire to check. So once the library answers with a tagged document, either
+ * of two things turns the web tools on: a document older than this year, or a
+ * question about the figures in force now. `note` is the sentence the turn
+ * notes add when the lookup's own stale-year note (library.ts formatLookup)
+ * does not already say it — the year is named either way.
+ */
+export function libraryYearCheck(
+  passages: Pick<LibraryPassage, 'docTitle' | 'appliesToYear'>[],
+  asksCurrent: boolean,
+  year: number
+): { forceWeb: boolean; note: string | null } {
+  const tagged = passages.filter((p): p is typeof p & { appliesToYear: number } => p.appliesToYear !== undefined)
+  if (tagged.length === 0) return { forceWeb: false, note: null }
+  const stale = tagged.some((p) => p.appliesToYear < year)
+  if (!stale && !asksCurrent) return { forceWeb: false, note: null }
+  if (stale) return { forceWeb: true, note: null }
+  const years = [...new Set(tagged.map((p) => p.appliesToYear))].sort((a, b) => a - b)
+  return {
+    forceWeb: true,
+    note:
+      `The library passages are tagged with the year their figures are for (${years.join(', ')}). ` +
+      'The question asks about the figures in force now: if a figure you need is not stated for ' +
+      `${year}, check it with web_search, and name the year of any figure you quote.`
+  }
+}

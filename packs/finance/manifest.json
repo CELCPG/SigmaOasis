@@ -86,6 +86,7 @@
       "source": "https://www.irs.gov/filing/individuals/who-should-file",
       "license": "Public domain (US federal work)",
       "date": "retrieved 2026-08-16",
+      "appliesToYear": 2025,
       "file": "who-should-file.md",
       "chars": 4903
     },
@@ -95,6 +96,7 @@
       "source": "https://www.irs.gov/taxtopics/tc551",
       "license": "Public domain (US federal work)",
       "date": "retrieved 2026-08-16",
+      "appliesToYear": 2025,
       "file": "standard-deduction.md",
       "chars": 4575
     },
@@ -113,6 +115,7 @@
       "source": "https://www.irs.gov/taxtopics/tc409",
       "license": "Public domain (US federal work)",
       "date": "retrieved 2026-08-16",
+      "appliesToYear": 2025,
       "file": "capital-gains.md",
       "chars": 5852
     },
@@ -122,6 +125,7 @@
       "source": "https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-ira-contribution-limits",
       "license": "Public domain (US federal work)",
       "date": "retrieved 2026-08-16",
+      "appliesToYear": 2026,
       "file": "ira-contribution-limits.md",
       "chars": 4777
     },
@@ -131,6 +135,7 @@
       "source": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025",
       "license": "Public domain (US federal work)",
       "date": "retrieved 2026-08-16",
+      "appliesToYear": 2025,
       "file": "inflation-adjustments-2025.md",
       "chars": 5639
     }

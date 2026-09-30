@@ -1,9 +1,10 @@
 import type { ContextProvider } from './types'
-import { buildSearchQuery } from '../grounding'
+import { ASKS_CURRENT_FIGURES, buildSearchQuery } from '../grounding'
 import {
   LIBRARY_PASSAGES_PER_TURN,
   buildLibraryContext,
   libraryMissedTheQuestion,
+  libraryYearCheck,
   shouldConsultLibrary,
   toLibraryContextItems
 } from '../libraryRecall'
@@ -49,6 +50,13 @@ export const libraryPassagesProvider: ContextProvider = {
       // them is about the question is a separate fact, and the strip says so.
       libraryMiss: libraryMissedTheQuestion(input.lastUserContent!, looked.passages)
     })
-    return { blocks: [buildLibraryContext(formatted, input.offline)] }
+    // v4.1 (G5): a year-tagged answer older than this year, or a question about
+    // the figures in force now, puts the web tools on the wire beside it.
+    const check = input.offline
+      ? { forceWeb: false, note: null }
+      : libraryYearCheck(looked.passages, ASKS_CURRENT_FIGURES.test(input.lastUserContent!), new Date().getFullYear())
+    if (check.forceWeb) io.forceTools?.(['web_search', 'fetch_webpage'])
+    const block = buildLibraryContext(formatted, input.offline)
+    return { blocks: [check.note ? `${block}\n${check.note}` : block] }
   }
 }
