@@ -2,7 +2,7 @@ import { promises as fs } from 'fs'
 import { basename, dirname, join, relative, sep } from 'path'
 import { describeStats, unifiedDiff } from '../../shared/patch'
 import { declinedCall } from '../../shared/tools/outcomes'
-import { dangerousCommandWarning } from '../../shared/commandDanger'
+import { commandNotices } from '../../shared/commandDanger'
 import { applyEdit } from './editMatch'
 import { changedSpan, digestCommandOutput, editedWindow, groupGrepOutput } from './digests'
 import { runCommand } from './command'
@@ -586,8 +586,8 @@ export class Toolbox {
     const root = this.root()
     const command = String(args.command ?? '').trim()
     if (!command) return { ok: false, error: 'Give the command to run.' }
-    const warning = dangerousCommandWarning(command)
-    const approval = await this.o.host.approveCommand({ command, cwd: root, warning })
+    // v4.1 (F2): the destructive warning and the network notice, from one shared list.
+    const approval = await this.o.host.approveCommand({ command, cwd: root, ...commandNotices(command) })
     if (approval === 'declined') {
       return {
         ok: false,

@@ -44,6 +44,7 @@ export function targetForKey(key: string): string | undefined {
     [/^tools\.egress$/, 'tools.web_search'],
     [/^agent\.accept_edits/, 'agent.defaultPermission'],
     [/^agent\.web_tools$/, 'agent.appTools'],
+    [/^agent\.commands_unaudited$/, 'activity.network'],
     [/^grants\./, 'tools.grants'],
     [/^mcp\./, 'mcp.servers'],
     [/^search\.self_hosted$/, 'search.searxngUrl'],
@@ -149,6 +150,19 @@ export function privacyChecks(input: PrivacyAuditInput): PrivacyCheck[] {
         where: 'Settings → Agent'
       })
     }
+    // v4.1 (F2): the one agent path the network log cannot see into. A fact,
+    // not a widening — every command still asks — so `info`, always shown.
+    const x = s.agent.experiments
+    const alsoVia = [x?.hooks ? 'hooks in .sigma/hooks.json' : '', x?.mcpTools ? 'MCP servers’ tools' : ''].filter(Boolean)
+    out.push({
+      key: 'agent.commands_unaudited',
+      title: 'Agent commands reach the network outside the log',
+      state: 'info',
+      detail:
+        `A command the agent runs${alsoVia.length ? ` (and ${alsoVia.join(' and ')})` : ''} is a program with its own sockets: its traffic skips the egress allowlist, the proxy and the network log. ` +
+        'Each still asks first; one that obviously reaches the network (curl, git fetch, npm install…) says so in the dialog and is listed in the log as having run.',
+      where: 'Settings → Activity'
+    })
   }
 
   // ---- grants ---------------------------------------------------------------

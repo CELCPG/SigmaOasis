@@ -7,7 +7,7 @@ import { defineRows, registerRows } from '../../lib/settingsKit'
 import { ActionRow, Button, DangerRow, Notice, Row, Section, StatusDot, type ActionResult } from './kit'
 
 export const ROWS = defineRows('activity', {
-  network: { label: 'Network activity', help: 'Every request the app makes to the outside, newest first. Only origins are recorded — never full URLs, so your queries stay private even here. Not listed: the chat stream itself, which goes from this window to your LM Studio server on this machine and can only ever go to a loopback address.', keywords: ['requests', 'origins', 'egress', 'log'] },
+  network: { label: 'Network activity', help: 'Every request the app makes to the outside, newest first. Only origins are recorded — never full URLs, so your queries stay private even here. Not listed: the chat stream itself, which goes from this window to your LM Studio server on this machine and can only ever go to a loopback address. Not seen: what a shell command or an MCP server sends on its own — they are programs with sockets of their own. A command that obviously reaches the network is listed as having run, with its command line; a server, when it starts and stops.', keywords: ['requests', 'origins', 'egress', 'log', 'command', 'unaudited'] },
   pages: { label: 'Pages read this session', help: 'When a model reads a web page, the text is held in memory and split into passages so only the relevant parts are shown to it. Never written to disk and discarded when you quit. Keeping it means re-reading a page you already fetched costs no new request.', keywords: ['research index', 'cache', 'ram'] },
   logs: { label: 'Audit logs on disk', help: 'The encrypted session transcripts, if recording is on under Privacy. Export decrypts the latest to a file you choose — plaintext, so anyone with the file can read it. Traces export the latest session as fine-tuning data, redacted.', keywords: ['export', 'purge', 'traces', 'sft'] }
 })
@@ -40,7 +40,7 @@ export function ActivityTab({ settings }: { settings: AppSettings }): JSX.Elemen
           </span>
         }
       >
-        <Row meta={ROWS.network} bare foot={<span className="text-xs text-ink-tertiary">The chat stream goes to {settings.baseUrl}, is never proxied, and does not pass through this log. Everything that leaves the machine does.</span>}>
+        <Row meta={ROWS.network} bare foot={<span className="text-xs text-ink-tertiary">The chat stream goes to {settings.baseUrl}, is never proxied, and does not pass through this log. Every request the app itself makes does; a command's or an MCP server's own traffic does not.</span>}>
           {net.length === 0 ? (
             <Notice tone="muted">No network activity yet this session. With search disabled, this list should show nothing but your local LM Studio server.</Notice>
           ) : (
@@ -49,8 +49,11 @@ export function ActivityTab({ settings }: { settings: AppSettings }): JSX.Elemen
                 <li key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
                   <StatusDot tone={a.blocked ? 'danger' : a.ok ? 'ok' : 'warn'} />
                   <span className="shrink-0 rounded bg-black/5 px-1.5 py-0.5 font-mono dark:bg-white/10">{a.purpose}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono" title={a.origin}>
+                  <span className="min-w-0 flex-1 truncate font-mono" title={a.note ? `${a.origin}
+${a.note}` : a.origin}>
                     {a.origin}
+                    {/* v4.1 (F2): a command row's command line — what ran, since its requests cannot be listed. */}
+                    {a.purpose === 'command' && a.note ? <span className="text-ink-tertiary">: {a.note}</span> : null}
                   </span>
                   <span className="shrink-0 text-ink-tertiary">{a.blocked ? 'blocked' : (a.status ?? a.error?.slice(0, 30) ?? '—')}</span>
                   <span className="shrink-0 text-ink-tertiary">{new Date(a.at).toLocaleTimeString()}</span>

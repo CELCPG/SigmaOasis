@@ -96,8 +96,12 @@ export interface AgentHost {
   transport: ChunkTransport
   /** Show a proposed change and wait for Apply or Discard. */
   reviewEdit: (review: EditReview) => Promise<boolean>
-  /** Ask before a command runs. `warning` is set for a destructive shape. */
-  approveCommand: (req: { command: string; cwd: string; warning: string | null }) => Promise<CommandApproval>
+  /**
+   * Ask before a command runs. `warning` is set for a destructive shape;
+   * `network` (v4.1) for one that obviously reaches the network outside the
+   * audited transport — the host says so, and the app logs that it ran.
+   */
+  approveCommand: (req: { command: string; cwd: string; warning: string | null; network?: string | null }) => Promise<CommandApproval>
   extraTools?: ExtraTools
   emit: (event: AgentEvent) => void
   /** The platform's shell for run_command; resolved once by the host. */
