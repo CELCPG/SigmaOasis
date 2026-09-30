@@ -15,7 +15,7 @@ export const ROWS = defineRows('agent', {
   appTools: { label: 'Let the agent use the app’s own tools', help: 'Web search and page reading, deep research, the reference library, memory search, dates and the Python sandbox — each only if it is enabled under Tools, and under the same privacy rules as in a chat.', keywords: ['web', 'research', 'library', 'python'] },
   notify: { label: 'Notify me when a task finishes in the background', help: 'A desktop notification, only when this window is not in front. Nothing leaves the machine.', keywords: ['notification'] },
   shell: { label: 'Shell for commands', help: 'What run_command uses on this machine, found when the app started.', keywords: ['bash', 'git bash', 'cmd', 'terminal'] },
-  experiments: { label: 'Experiments', help: 'Changes to what the agent does on every task, each built and tested against a scripted model and off until eval:agent’s baseline exists on a sound machine and the change holds or improves it. Turn one on to try it; nothing here is claimed to be better yet.', keywords: ['experimental', 'unmeasured', 'lab'] },
+  experiments: { label: 'Experiments', help: 'Changes to what the agent does on every task, each built and tested against a scripted model and off until it holds or improves eval:agent’s baseline. Turn one on to try it; nothing here is claimed to be better yet.', keywords: ['experimental', 'unmeasured', 'lab'] },
   cli: { label: 'The sigma command', help: 'sigma runs this same agent from any terminal, in the folder you are in — the same server, model and limits as here, approvals as terminal prompts, and nothing but LM Studio on this machine to talk to.', keywords: ['cli', 'terminal', 'install', 'path'] }
 })
 registerRows(ROWS)
@@ -99,7 +99,7 @@ export function AgentTab({ settings, apply, defaults }: AgentTabProps): JSX.Elem
       </Section>
 
       <Section title="Experiments" description={ROWS.experiments.help} onReset={defaults ? () => set({ id: 'agent.experiments', label: 'Experiments' }, { experiments: defaults.agent.experiments }, 'all off') : undefined}>
-        <Notice tone="warn">Unmeasured. `eval:agent`’s baseline has not run on a sound machine; each of these is judged against it before it is on by default.</Notice>
+        <Notice tone="warn">Off until measured. On 4.1’s engine none of these has yet beaten its `eval:agent` baseline (19.5 of 26 solved on qwen3.8-9b-distill); each is judged against it before it is on by default.</Notice>
         {EXPERIMENTS.map((x) => (
           <Row key={x.key} meta={{ id: `agent.experiments.${x.key}`, label: x.label, help: x.help }}>
             <Switch checked={Boolean(agent.experiments?.[x.key])} onChange={(on) => set({ id: `agent.experiments.${x.key}`, label: x.label }, { experiments: { ...agent.experiments, [x.key]: on } })} />
