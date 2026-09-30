@@ -10,7 +10,7 @@ Nothing here is measured yet; the plan's first job is to make it measurable.
   all default-off, because `eval:agent` has never recorded a baseline. Out of the box a user gets
   the bare loop.
 - **The baseline is blocked by the bench, not the code.** Both attempts were voided by PCIe errors
-  on the 5070's slot (`docs/evals.md:7741-7758`). These are *corrected* errors: the link retries
+  on the 5070's slot (`docs/evals/agent.md:79-96`). These are *corrected* errors: the link retries
   the packet. They cost time; they do not change a token.
 - **Speed.** The biggest losses are structural: a full window drops one message per turn and
   re-reads everything; pre-model providers run in series (auto search measured 8.8 s before the
