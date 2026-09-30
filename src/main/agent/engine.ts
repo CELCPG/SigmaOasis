@@ -345,7 +345,7 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         // A round that ends in calls is narration on the way to them; the
         // reply the user reads is the round that ends without one.
         if (result.toolCalls.length === 0) o.onFinalText(result.content)
-        return { content: result.content, toolCalls: result.toolCalls, reasoning: result.reasoning }
+        return { content: result.content, toolCalls: result.toolCalls, reasoning: result.reasoning, truncated: result.truncated }
       },
       executeTool: async (name, args, meta) => {
         const callId = meta?.callId ?? ''

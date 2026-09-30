@@ -200,7 +200,28 @@ export interface StreamRoundResult {
    * Optional: callers that cannot report it fall back to the weaker signal.
    */
   reasoning?: string
+  /**
+   * v4.0.2: the round hit the output limit (`finish_reason: length`), or a
+   * tool call in it was cut off and dropped. Optional: callers that cannot
+   * report it are treated as never truncated.
+   */
+  truncated?: boolean
 }
+
+/**
+ * v4.0.2: rounds per turn that may be answered "you were cut off" rather than
+ * accepted. A `write_file` cut at the round's token cap used to vanish, and
+ * the round — now with no call — ended the task as completed.
+ */
+export const TRUNCATION_RECOVERIES_PER_TURN = 2
+
+export const TRUNCATED_NO_CALL_NOTE =
+  'Your last reply was cut off at the output limit before it finished, so nothing in it ran — if you were writing a tool call, it was lost. ' +
+  'Do the work in smaller parts: edit_file on one section at a time, or write_file with a shorter file and then add to it with edit_file.'
+
+export const TRUNCATED_AFTER_CALLS_NOTE =
+  'Your last reply was cut off at the output limit. The calls above ran; anything after them was cut off and did not. ' +
+  'If you still need it, make it smaller: edit_file on one section at a time, or a shorter write_file.'
 
 export interface AgentLoopDeps {
   /**
@@ -378,6 +399,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
    * this twice is not being recovered, it is being puppeted.
    */
   let thinkChannelRecoveryUsed = false
+  let truncationRecoveries = 0
   const answeredIntoThinking = (round: StreamRoundResult): boolean => {
     if (thinkChannelRecoveryUsed) return false
     if (round.content.trim() || round.toolCalls.length > 0) return false
@@ -419,8 +441,18 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       if (signal.aborted) return { stopReason: 'aborted' }
     }
 
+    // v4.0.2: a round cut off at the output limit is not a finished reply. With
+    // no call left in it, say so and ask again, rather than ending the task on
+    // half a sentence with the lost call's work undone.
+    if (round.toolCalls.length === 0 && round.truncated && truncationRecoveries < TRUNCATION_RECOVERIES_PER_TURN && iteration + 1 < iterationCap) {
+      truncationRecoveries++
+      if (round.content.trim()) messages.push({ role: 'assistant', content: round.content })
+      messages.push({ role: 'user', content: TRUNCATED_NO_CALL_NOTE })
+      continue
+    }
+
     if (round.toolCalls.length === 0) {
-      const prose = !proseRecoveryUsed && iteration + 1 < iterationCap ? detectProseParenCall(round.content, tools) : null
+      const prose =!proseRecoveryUsed && iteration + 1 < iterationCap ? detectProseParenCall(round.content, tools) : null
       if (!prose) return { stopReason: 'completed' }
       proseRecoveryUsed = true
       round.toolCalls = [
@@ -580,6 +612,13 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         tool_call_id: tc.id,
         content: result.ok ? result.output ?? '' : `Error: ${result.error ?? 'unknown error'}`
       })
+    }
+
+    // v4.0.2: the calls that arrived whole have run; the one the limit cut was
+    // dropped by the stream. The model is told, rather than left to assume it ran.
+    if (round.truncated && truncationRecoveries < TRUNCATION_RECOVERIES_PER_TURN) {
+      truncationRecoveries++
+      messages.push({ role: 'user', content: TRUNCATED_AFTER_CALLS_NOTE })
     }
 
     // The repair round is free: spend the allowance by extending the cap once

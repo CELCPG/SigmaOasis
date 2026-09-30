@@ -1036,3 +1036,50 @@ describe('documents and chores (v4.0, C1 and C2, each off by default)', () => {
     assert.ok(!existsSync(join(dir, 'Archive', '2026', 'sub', 'b.pdf')))
   })
 })
+
+describe('a round cut off at the output limit (4.0.2)', () => {
+  const cutOff: Frame = { choices: [{ delta: {}, finish_reason: 'length' }] }
+
+  test('a write_file cut off mid-arguments is not a finished task: the model is told, and its smaller retry lands', async () => {
+    const partial: Frame = {
+      choices: [{ delta: { tool_calls: [{ index: 0, id: 'w1', function: { name: 'write_file', arguments: '{"path":"src/big.ts","content":"export const a = 1\nexport const b' } }] } }]
+    }
+    const { transport, requests } = scripted([
+      () => [partial, cutOff],
+      () => [call('w2', 'write_file', { path: 'src/big.ts', content: 'export const a = 1\n' })],
+      () => [text('Wrote src/big.ts.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', prompt: 'Write src/big.ts.' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(r.finalText, 'Wrote src/big.ts.')
+    const nudge = requests[1]!.messages.at(-1)!
+    assert.equal(nudge.role, 'user')
+    assert.match(String(nudge.content), /cut off at the output limit/)
+    assert.equal(readFileSync(join(dir, 'src', 'big.ts'), 'utf8'), 'export const a = 1\n')
+  })
+
+  test('a reply cut off mid-sentence is asked again, its words kept on the history; the recoveries are bounded', async () => {
+    const { transport, requests } = scripted([
+      () => [text('The fix is to change'), cutOff],
+      () => [text('still going'), cutOff],
+      () => [text('and again'), cutOff],
+      () => [text('Accepted as it stands.')]
+    ])
+    const r = await runAgentTask(spec(transport, { prompt: 'Explain the bug.' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(requests.length, 3, 'two recoveries, then the third cut-off round is accepted as the reply')
+    assert.deepEqual(
+      requests[1]!.messages.slice(-2).map((m) => m.role),
+      ['assistant', 'user']
+    )
+    assert.equal(requests[1]!.messages.at(-2)!.content, 'The fix is to change')
+    assert.equal(r.finalText, 'and again')
+  })
+
+  test('a round that finishes normally is untouched', async () => {
+    const { transport, requests } = scripted([() => [text('All good.')]])
+    const r = await runAgentTask(spec(transport, { prompt: 'Say hi.' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(requests.length, 1)
+  })
+})
