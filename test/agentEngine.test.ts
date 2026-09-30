@@ -859,6 +859,36 @@ describe('experiments, the second four (v4.0, each off by default)', () => {
     assert.equal(next.finalText, 'Still fixed.')
   })
 
+  test('worktrees: a general helper edits the worktree, never the folder the user looks at (4.0.2)', async (t) => {
+    const { execFileSync } = await import('node:child_process')
+    try {
+      execFileSync('git', ['--version'], { stdio: 'ignore' })
+    } catch {
+      t.skip('git is not on this machine')
+      return
+    }
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim()
+    git('init', '-q')
+    git('config', 'user.email', 'test@example.com')
+    git('config', 'user.name', 'Test')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'init')
+    const { transport } = scripted([
+      () => [call('t1', 'task', { subagent_type: 'general', description: 'fix add', prompt: 'Fix add() in src/math.ts and report.' })],
+      // The helper's own rounds:
+      () => [call('h1', 'read_file', { path: 'src/math.ts' })],
+      () => [call('h2', 'edit_file', { path: 'src/math.ts', old_string: 'return a - b', new_string: 'return a + b' })],
+      () => [text('Fixed add() in src/math.ts.')],
+      // Back in the parent:
+      () => [text('Done.')]
+    ])
+    const r = await runAgentTask(spec(transport, { permission: 'acceptEdits', experiments: { worktrees: true }, prompt: 'Fix add() please', now: new Date(2026, 8, 30, 9, 5) }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.ok(r.worktree, 'a worktree was made')
+    assert.match(readFileSync(join(r.worktree!.path, 'src', 'math.ts'), 'utf8'), /return a \+ b/, "the helper's edit landed in the worktree")
+    assert.match(readFileSync(join(dir, 'src', 'math.ts'), 'utf8'), /return a - b/, 'the folder itself is untouched')
+  })
+
   test('worktrees: not a repository, or off — the task runs in the folder itself and no worktree is reported', async () => {
     for (const experiments of [{ worktrees: true }, {}]) {
       const { transport } = scripted([

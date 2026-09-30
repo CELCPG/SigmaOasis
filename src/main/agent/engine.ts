@@ -433,14 +433,18 @@ async function runHelper(run: RunContext, args: Record<string, unknown>, callId:
   const description = String(args.description ?? type).trim().slice(0, 80)
   const { spec, host } = run
   const permission: PermissionMode = type === 'general' ? spec.permission : 'readOnly'
+  // The helper works where the task works: with A9 on that is the task's
+  // worktree, not the folder the user looks at (4.0.2 — a general helper was
+  // editing the user's folder, and the A7 reviewer read the unchanged files).
   const toolbox = new Toolbox({
-    root: spec.workspace,
+    root: run.env.workspace,
     permission,
     host,
     shell: run.env.shell,
     commandTimeoutSec: spec.commandTimeoutSec ?? DEFAULT_COMMAND_TIMEOUT_SEC,
     state: run.state,
-    signal: spec.signal
+    signal: spec.signal,
+    experiments: spec.experiments
   })
   // Read-only helpers get the workspace's read tools; a general helper gets
   // what the parent has, minus todo_write (the checklist is the parent's)
