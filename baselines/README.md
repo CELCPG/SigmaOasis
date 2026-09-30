@@ -46,3 +46,12 @@ report text, the check's output, each round's timing — the per-run timing summ
   the new one. A baseline quietly re-recorded after a regression is how a gate stops gating.
 - The reference models are the 9B distill on the 5070 and the 35B-A3B as the second arm
   (ROADMAP-v4.1.md, decision 2).
+
+## The noise floor (measured 2026-09-30)
+
+The same engine, unchanged, run twice on an idle machine, scores single passes anywhere from 14 to
+21 of 26 on `qwen3.8-9b-distill` (temperature 0; LM Studio's MTP drafting and prompt-cache reuse
+make greedy decoding path-dependent). Two passes are not enough to call a case stable: the 4.1
+engine's second run fails the stable-set gate against its first. Until the gate carries a noise
+band, run at least four passes for any arm that decides a default, and read the medians beside the
+gate's verdict.
