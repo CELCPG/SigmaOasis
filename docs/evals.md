@@ -7859,3 +7859,28 @@ claims, collateral and a dirty Undo; for `eval:tools` the stable set's clean rat
 loops and invalid arguments. Timing is printed, never gated. The rules are in
 `src/main/agent/evalDiff.ts` and pinned by `test/evalDiff.test.ts`; `baselines/README.md` has the
 format and when a baseline may be replaced.
+
+### The offline gate: a scripted model, replayed, and the wire hashed (M6)
+
+`test/replayGate.test.ts` runs in `npm test` on every CI leg, and alone as `npm run test:replay`
+(the same typecheck and compile, then only the replay, diff and latency tests). No model, no
+network:
+
+- **`eval:agent`, replayed.** A scripted model drives the shipping engine through three cases —
+  one per scoring path: hidden checks (`fix-paginate`), needs-you, read-only — two passes, scored
+  by `runCase`, written by the runner's own `agentResultsFile`, then diffed by `eval:diff` against
+  `test/fixtures/replay/agent-scripted.json`. A second replay with a wrong fix reported as passing
+  must fail that diff: the gate is shown to bite, not assumed to.
+- **`eval:tools`, replayed.** Every fixture in `test/fixtures/toolchoice/` through
+  `runToolChoiceEval` with a model that calls the expected tool with the smallest arguments its
+  schema accepts; every fixture must load (the in-app loader drops one naming an unknown tool
+  silently — here it fails), score clean, and match `toolchoice-scripted.json`. A model that
+  answers a search question from memory must fail the diff.
+- **The wire, hashed.** The tools the engine puts on its first request (*Accept edits* and
+  *Read-only*, experiments off, the shell's name fixed — the one platform-dependent word) and the
+  chat's definitions with their budget notes, as a turn sends them, are hashed per tool and per
+  set against `test/fixtures/wire/tool-schemas.json`. A change fails with what was added, removed,
+  changed or reordered — every cached prefix after the tool list moves with it.
+
+Both snapshots change only on purpose: `UPDATE_REPLAY_SNAPSHOTS=1 npm run test:replay`, and the
+re-recorded files are committed with the change that moved them.

@@ -37,6 +37,7 @@ import { join } from 'path'
 import { defaultShell } from '../src/main/agent/command'
 import { describeGpu, machineMoved, readGpuSync } from './gpuHealth'
 import {
+  agentResultsFile,
   describeRun,
   formatSummary,
   loadCases,
@@ -148,7 +149,7 @@ async function main(): Promise<void> {
     const save = (): void =>
       writeFileSync(
         outFile,
-        JSON.stringify({ suite: 'agent', model, experiments, baseUrl: BASE_URL, shell: shell.name, startedAt: stamp, passes, cases: cases.map((c) => c.id), runs: byPass }, null, 2)
+        JSON.stringify(agentResultsFile({ model, experiments, baseUrl: BASE_URL, shell: shell.name, startedAt: stamp, passes, cases: cases.map((c) => c.id), runs: byPass }), null, 2)
       )
     let serverFailures = 0
     let lost = false

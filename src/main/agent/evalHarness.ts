@@ -509,6 +509,26 @@ export async function runCase(c: AgentCase, o: RunOptions): Promise<CaseRun> {
   }
 }
 
+// ---- the results file ------------------------------------------------------
+
+/** What `eval:agent` writes to .eval-results/, and what baselines/ and `eval:diff` read. */
+export interface AgentResultsFile {
+  suite: 'agent'
+  model: string
+  experiments: Partial<AgentExperiments>
+  baseUrl: string
+  shell: string
+  startedAt: string
+  passes: number
+  cases: string[]
+  runs: CaseRun[][]
+}
+
+/** v4.1 (M6): built in one place, so the offline replay gate writes the runner's schema, not a copy of it. */
+export function agentResultsFile(o: Omit<AgentResultsFile, 'suite'>): AgentResultsFile {
+  return { suite: 'agent', model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs }
+}
+
 // ---- many passes -----------------------------------------------------------
 
 export interface CaseSummary {

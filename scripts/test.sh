@@ -156,6 +156,15 @@ rm -rf "$OUT"
   test/*.test.ts
 
 # node:test discovers by filename; point it at the compiled tests.
+# v4.1 (M6): `--only a b` runs just test/a.test.ts and test/b.test.ts, after the
+# same typecheck and compile and without the Electron checks — `npm run
+# test:replay` is the offline replay gate on its own.
+if [ "${1:-}" = "--only" ]; then
+  shift
+  ONLY=()
+  for t in "$@"; do ONLY+=("$OUT/test/$t.test.js"); done
+  exec "${RUN[@]}" --test "${ONLY[@]}"
+fi
 "${RUN[@]}" --test "$OUT"/test/*.test.js
 
 # The page-extraction script runs in a browser, so it is verified against a real
