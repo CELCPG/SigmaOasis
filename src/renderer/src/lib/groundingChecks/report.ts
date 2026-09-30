@@ -122,6 +122,12 @@ export interface GroundingReport {
   /** v1.14: `[n] (Document)` where the named document is not passage n's. */
   attributions?: string[]
   /**
+   * v4.1 (G4): sentences this turn's own sources contradict, or that cite a
+   * source which does not state them — found by the model source check
+   * (lib/sourceCheck.ts), one claim at a time. Off by default.
+   */
+  sourceMismatches?: string[]
+  /**
    * v2.1: what the measurement rung did **not** look at.
    *
    * Every field above this line is a fault found. This one is the opposite kind

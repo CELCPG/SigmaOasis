@@ -10,6 +10,8 @@ import { escalationCandidate, escalationReason } from '../lib/routing'
 import type { ChatMessage, Conversation, GroundingReport, ModelConfig, ResponseStats, ToolCallRecord, ToolSchema } from '../types'
 import { reviseAgainstFindings, runAutoCritic, runClaimCheck, runCodeCheck, runRecompute, settleRevision } from './verification'
 import { describeCodeCheck, looksArithmetic } from '../lib/workbenchChecks'
+import { describeSourceCheck, findingsStanding, withSourceFindings, type SourceFinding } from '../lib/sourceCheck'
+import { runSourceCheck } from './sourceCheck'
 
 /**
  * What a chat turn does after its last token (v3.1: out of useLMStudio.ts).
@@ -117,6 +119,9 @@ export function startTurnTail(t: TurnTailContext): TurnTail {
     useAppStore.getState().settings?.grounding.workbenchChecks !== false &&
     slotTools.some((t) => t.function.name === 'run_python')
   const checks: NonNullable<ChatMessage['checks']> = []
+  // v4.1 (G4): what the source check found in the draft; graded into every
+  // report below by whether the sentence still stands (lib/sourceCheck.ts).
+  let sourceFindings: SourceFinding[] = []
 
   /**
    * v1.12.5: the deadline over everything from here to the composer being
@@ -188,10 +193,14 @@ export function startTurnTail(t: TurnTailContext): TurnTail {
    * since expired.
    */
   const groundingReport = async (content = assistantMsg.content): Promise<GroundingReport | null> => {
-    const base = checkToolGrounding(content, allRecords, allUserText(), {
-      expectPricingTool: shoppingTurn,
-      priorTurns
-    })
+    const base = withSourceFindings(
+      checkToolGrounding(content, allRecords, allUserText(), {
+        expectPricingTool: shoppingTurn,
+        priorTurns
+      }),
+      findingsStanding(sourceFindings, content),
+      allRecords
+    )
     const code = await codeFindingFor(content)
     if (!code.finding) return base
     return { ...(base ?? { figures: [], links: [], checkedAgainst: ['run_python'] }), code: [code.finding] }
@@ -393,6 +402,22 @@ export function startTurnTail(t: TurnTailContext): TurnTail {
                 budget.signal
               )
           if (checked) budget.ran('claims')
+        }
+      } else if (
+        // v4.1 (G4): the sourced turn's half — its specifics against its own
+        // sources, one at a time, same model. Off by default (the setting).
+        useAppStore.getState().settings?.grounding.sourceCheck === true &&
+        consultedSources(allRecords) &&
+        !signal.aborted &&
+        budget.admits('sources')
+      ) {
+        verifying('sources')
+        const out = await runSourceCheck(slot, baseUrl, assistantMsg.content, allRecords, budget.signal)
+        sourceFindings = out.findings
+        if (!out.cut) budget.ran('sources')
+        if (out.ran) {
+          checks.push({ kind: 'sources', ...describeSourceCheck(out.checked, out.findings, out.cut) })
+          patch({ checks: [...checks] })
         }
       }
       verifying('grounding')

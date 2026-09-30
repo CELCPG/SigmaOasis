@@ -143,6 +143,7 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
   const citations = report.citations ?? []
   const quotes = report.quotes ?? []
   const attributions = report.attributions ?? []
+  const sourceMismatches = report.sourceMismatches ?? []
   // v1.17.1 contrast: amber-900 over amber-800 in light, amber-300 over amber-400
   // in dark, and no `opacity` anywhere inside. This banner is the one place the
   // app says its own answer is unsupported, and measured over its own amber wash
@@ -304,6 +305,10 @@ function GroundingWarning({ report }: { report: GroundingReport }): JSX.Element 
           ⚠️ {attributions.join('; ')} — that passage came from a different document than the one
           named here.
         </div>
+      )}
+      {/* v4.1 (G4): the model source check, sentence by sentence (lib/sourceCheck.ts). */}
+      {sourceMismatches.length > 0 && (
+        <div className="mt-1">⚠️ Checked against this turn's sources: {sourceMismatches.join('; ')}.</div>
       )}
       {/*
         Called out separately from figures and links because it is a different

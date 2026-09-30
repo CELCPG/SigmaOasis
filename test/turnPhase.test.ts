@@ -164,7 +164,7 @@ describe('every wait has a name', () => {
   })
 
   test('the post-answer passes are named too, and say the answer is done', () => {
-    assert.deepEqual(Object.keys(VERIFY_WAITS), ['claims', 'grounding', 'revising'])
+    assert.deepEqual(Object.keys(VERIFY_WAITS), ['claims', 'sources', 'grounding', 'revising'])
     for (const wait of Object.values(VERIFY_WAITS)) {
       assert.ok(wait.label.length > 3 && wait.detail.length > 10)
     }

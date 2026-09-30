@@ -118,6 +118,8 @@ rm -rf "$OUT"
   src/renderer/src/lib/grounding.ts \
   src/renderer/src/lib/webSources.ts \
   src/renderer/src/lib/appSearch.ts \
+  src/renderer/src/lib/sourceCheck.ts \
+  src/renderer/src/hooks/sourceCheck.ts \
   src/renderer/src/lib/toolGrounding.ts \
   src/renderer/src/lib/shopping.ts \
   src/renderer/src/lib/exportMarkdown.ts \

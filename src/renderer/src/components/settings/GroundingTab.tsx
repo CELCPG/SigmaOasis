@@ -11,6 +11,7 @@ export const ROWS = defineRows('grounding', {
   playbooks: { label: 'Playbooks', help: 'For first-aid, health, finance, legal, home-repair, data, code, comparison and planning questions, a short numbered method rides along with the turn — “say to call emergency services first”, “compute with the calculator, never in your head”. A few dozen tokens; the reply says which playbook was used. How a small model acts like it has expertise it does not have.', keywords: ['method', 'expertise'] },
   outline: { label: 'Outline long documents first', help: 'A request shaped like a document — an explicit length of 800 words or more, or a named form with its sections listed — is written from a JSON outline, one section at a time, so a small model writes the document it promised instead of drifting. No tools ride the sections. Disclosed under the reply. Off by default: the longform suite in docs/evals.md says what it measured.', keywords: ['longform', 'document', 'outline'] },
   autoCorrect: { label: 'Correct unsupported specifics', help: 'When the grounding check finds an address, price, link or phone number the turn’s own tools never returned, the findings go back to the model for one revision — verify it with a tool, or drop it and say so. One extra round, only on answers already known to contain unsupported specifics; the reply is marked as revised.', keywords: ['revise', 'unsupported', 'grounding'] },
+  sourceCheck: { label: 'Check sourced answers against their sources', help: 'When a reply was written from this turn’s search results, pages or library passages, the answering model re-reads each of its checkable sentences — a number, a score, a time, a date, a name; six at most — against the sources that bear on it, one at a time, thinking off. A sentence the sources contradict, or one citing a source that does not state it, goes back for the one revision. Up to six short extra calls per sourced reply, inside the checking limit; off by default until measured.', keywords: ['sources', 'claims', 'verify', 'citations'] },
   selfReview: { label: 'Think harder may review its own draft', help: '🧠 Think harder is draft → review → revise, once. With two roles the review comes from a different model. With one, this lets the same model read its own draft as a strict reviewer — weaker, always labelled “reviewed its own draft”, still useful for arithmetic slips and skipped steps. Off means think harder needs a second role.', keywords: ['think harder', 'self review'] },
   workbenchChecks: { label: 'Workbench checks', help: 'When a reply states figures that nothing computed, the model is asked for a short Python program that recomputes them and the app runs it in the sandbox; the reply is checked against that output like any calculator result. When a reply contains self-contained Python, the app runs it — a syntax error, an undefined name or a failed assertion is sent back for one revision. Both disclosed under the reply.', keywords: ['recompute', 'python', 'verify'] },
   secondOpinion: { label: 'Second opinions', help: 'Adds a 🔍 2nd opinion action under replies: a different role reviews the answer and names the factual claims it could not verify, plus the check that would settle each. Never a confidence score — a model grading its own answer says “yes” nearly always, so the reviewer is always another role. When on, the review also runs automatically on factual-looking answers that consulted no web source.', keywords: ['critic', 'review', 'reviewer'] },
@@ -48,13 +49,16 @@ export function GroundingTab({ settings, apply, defaults }: GroundingTabProps): 
       <Section
         title="After the reply"
         description="Checks that read the answer and can send it back for one revision."
-        onReset={reset('After the reply', ['autoCorrect', 'selfReview', 'workbenchChecks'], defaults ? { secondOpinion: defaults.secondOpinion, claimCheck: defaults.claimCheck } : {})}
+        onReset={reset('After the reply', ['autoCorrect', 'selfReview', 'workbenchChecks', 'sourceCheck'], defaults ? { secondOpinion: defaults.secondOpinion, claimCheck: defaults.claimCheck } : {})}
       >
         <Row meta={ROWS.autoCorrect}>
           <Switch checked={g.autoCorrect} onChange={(autoCorrect) => setG(ROWS.autoCorrect, { autoCorrect })} />
         </Row>
         <Row meta={ROWS.workbenchChecks}>
           <Switch checked={g.workbenchChecks} onChange={(workbenchChecks) => setG(ROWS.workbenchChecks, { workbenchChecks })} />
+        </Row>
+        <Row meta={ROWS.sourceCheck}>
+          <Switch checked={g.sourceCheck === true} onChange={(sourceCheck) => setG(ROWS.sourceCheck, { sourceCheck })} />
         </Row>
         <Row meta={ROWS.selfReview}>
           <Switch checked={g.selfReview} onChange={(selfReview) => setG(ROWS.selfReview, { selfReview })} />
