@@ -206,6 +206,11 @@ export interface StreamRoundResult {
    * report it are treated as never truncated.
    */
   truncated?: boolean
+  /**
+   * v4.1 (A1): tool calls the round wrote as text that opened and could not
+   * be parsed, so were dropped — the start of each. Optional, as above.
+   */
+  malformedCalls?: string[]
 }
 
 /**
@@ -222,6 +227,24 @@ export const TRUNCATED_NO_CALL_NOTE =
 export const TRUNCATED_AFTER_CALLS_NOTE =
   'Your last reply was cut off at the output limit. The calls above ran; anything after them was cut off and did not. ' +
   'If you still need it, make it smaller: edit_file on one section at a time, or a shorter write_file.'
+
+/**
+ * v4.1 (A1): rounds per turn that may be answered "your call could not be
+ * read". A text-form call with broken arguments used to vanish without a
+ * word, and the model carried on as if it had run.
+ */
+export const MALFORMED_CALL_RECOVERIES_PER_TURN = 2
+
+export function malformedCallNote(spans: readonly string[], afterCalls: boolean): string {
+  const shown = spans
+    .slice(0, 2)
+    .map((s) => '`' + s + '`')
+    .join(', ')
+  const lead = afterCalls
+    ? `The calls above ran, but ${spans.length === 1 ? 'one more was' : `${spans.length} more were`} written as text that could not be read, so ${spans.length === 1 ? 'it' : 'they'} did not run: ${shown}.`
+    : `Your last reply had a tool call written as text that could not be read, so nothing ran: ${shown}.`
+  return `${lead} If you still need it, call the tool again: its name, and its arguments as one valid JSON object.`
+}
 
 export interface AgentLoopDeps {
   /**
@@ -403,6 +426,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
    */
   let thinkChannelRecoveryUsed = false
   let truncationRecoveries = 0
+  let malformedRecoveries = 0
   const answeredIntoThinking = (round: StreamRoundResult): boolean => {
     if (thinkChannelRecoveryUsed) return false
     if (round.content.trim() || round.toolCalls.length > 0) return false
@@ -434,6 +458,18 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     if (quick) messages.pop()
     if (preface) messages.pop()
     if (signal.aborted) return { stopReason: 'aborted' }
+
+    // v4.1 (A1): a round whose only call was written as text that could not
+    // be read is not a finished reply either — before the thinking-channel
+    // check, which would otherwise read the empty round as a lost answer.
+    // A cut-off round is the truncation note's to explain, not this one's.
+    const malformed = round.malformedCalls ?? []
+    if (round.toolCalls.length === 0 && malformed.length > 0 && !round.truncated && malformedRecoveries < MALFORMED_CALL_RECOVERIES_PER_TURN && iteration + 1 < iterationCap) {
+      malformedRecoveries++
+      if (round.content.trim()) messages.push({ role: 'assistant', content: round.content })
+      messages.push({ role: 'user', content: malformedCallNote(malformed, false) })
+      continue
+    }
 
     if (answeredIntoThinking(round)) {
       thinkChannelRecoveryUsed = true
@@ -622,6 +658,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     if (round.truncated && truncationRecoveries < TRUNCATION_RECOVERIES_PER_TURN) {
       truncationRecoveries++
       messages.push({ role: 'user', content: TRUNCATED_AFTER_CALLS_NOTE })
+    } else if (!round.truncated && (round.malformedCalls?.length ?? 0) > 0 && malformedRecoveries < MALFORMED_CALL_RECOVERIES_PER_TURN) {
+      // v4.1 (A1): the same for a sibling call that could not be read.
+      malformedRecoveries++
+      messages.push({ role: 'user', content: malformedCallNote(round.malformedCalls!, true) })
     }
 
     // The repair round is free: spend the allowance by extending the cap once

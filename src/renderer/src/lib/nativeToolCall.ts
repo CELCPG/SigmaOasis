@@ -49,6 +49,17 @@ import { findTag, heldBackSuffixLength } from './reasoning'
  * prose. That gate is what keeps a model *explaining* its syntax ("I would
  * call remember{...}") from executing, in the same spirit as the JSON blobs:
  * only a real, offered tool name can open a bare call.
+ *
+ * v4.1 (A1): the Hermes form Qwen-family models are trained on, when the
+ * server has not lifted it out of the text itself —
+ *
+ *   <tool_call>{"name": "read_file", "arguments": {"path": "a.ts"}}</tool_call>
+ *
+ * and inside the same wrapper the Qwen3-Coder XML form,
+ * `<function=read_file><parameter=path>a.ts</parameter></function>`. And a
+ * call that opened but could not be parsed is no longer silent: the
+ * extraction reports it in `dropped`, so the agent can tell the model its
+ * call did not run instead of letting it believe it did.
  */
 
 export interface NativeToolCall {
@@ -62,6 +73,11 @@ export interface ToolExtraction {
   text: string
   /** Calls completed by this chunk. */
   calls: NativeToolCall[]
+  /**
+   * v4.1 (A1): the start of each call span that opened and could not be
+   * parsed (or never closed), dropped rather than run. Absent when none.
+   */
+  dropped?: string[]
 }
 
 export interface NativeToolExtractor {
@@ -69,8 +85,8 @@ export interface NativeToolExtractor {
   flush(): ToolExtraction
 }
 
-const OPEN_TOKENS = ['<|tool_call>', '<|tool>', '<call>']
-const CLOSE_TOKENS = ['<tool_call|>', '<tool|>', '</call>']
+const OPEN_TOKENS = ['<|tool_call>', '<|tool>', '<call>', '<tool_call>']
+const CLOSE_TOKENS = ['<tool_call|>', '<tool|>', '</call>', '</tool_call>']
 const QUOTE = '<|"|>'
 
 /**
@@ -166,15 +182,75 @@ function parseJsonToolCall(span: string): NativeToolCall | null {
 }
 
 /**
- * Parse the inside of a call span into the OpenAI shape. Returns null on
- * anything malformed — the caller drops malformed calls silently, because
- * half-parsed arguments must never execute.
- *
- * Two accepted grammars: the Gemma control-token form (`call:name{key:
- * <|"|>value<|"|>}`) and the `<call>name{json}</call>` fine-tune variant,
- * whose arguments are a plain JSON object.
+ * v4.1 (A1): the Hermes body — `{"name": …, "arguments": {…}}`, arguments
+ * as an object or as a JSON string (both are seen), `parameters` accepted
+ * for `arguments`. A ```json fence around it is tolerated; anything that is
+ * not exactly one named call is null.
  */
-export function parseNativeToolCall(span: string): NativeToolCall | null {
+function parseHermesToolCall(span: string): NativeToolCall | null {
+  const body = span.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  let value: unknown
+  try {
+    value = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const obj = value as Record<string, unknown>
+  if (typeof obj.name !== 'string' || !obj.name.trim()) return null
+  let args: unknown = obj.arguments ?? obj.parameters ?? obj.args ?? {}
+  if (typeof args === 'string') {
+    try {
+      args = args.trim() ? JSON.parse(args) : {}
+    } catch {
+      return null
+    }
+  }
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return null
+  return { name: obj.name.trim(), arguments: JSON.stringify(args) }
+}
+
+/**
+ * v4.1 (A1): the Qwen3-Coder body — `<function=name>` with one
+ * `<parameter=key>value</parameter>` per argument. Values are text; one that
+ * is plainly JSON (a number, a boolean, a list, an object) is taken as that,
+ * as the server's own parser does with the schema in hand.
+ */
+function parseXmlFunctionCall(span: string): NativeToolCall | null {
+  const head = /^<function=([\w.-]+)>([\s\S]*?)<\/function>$/.exec(span)
+  if (!head) return null
+  const args: Record<string, unknown> = {}
+  const rest = head[2]!.replace(/<parameter=([\w.-]+)>\n?([\s\S]*?)\n?<\/parameter>/g, (_m, key: string, raw: string) => {
+    let v: unknown = raw
+    if (/^\s*(?:-?\d+(?:\.\d+)?|true|false|\[[\s\S]*\]|\{[\s\S]*\})\s*$/.test(raw)) {
+      try {
+        v = JSON.parse(raw)
+      } catch {
+        v = raw
+      }
+    }
+    args[key] = v
+    return ''
+  })
+  // Anything left but whitespace is a parameter that never closed.
+  if (rest.trim()) return null
+  return { name: head[1]!, arguments: JSON.stringify(args) }
+}
+
+/**
+ * Parse the inside of a call span into the OpenAI shape. Returns null on
+ * anything malformed: half-parsed arguments must never execute. (v4.1: the
+ * extractor reports a null here in `dropped`, so the model can be told.)
+ *
+ * Accepted grammars: the Gemma control-token form (`call:name{key:
+ * <|"|>value<|"|>}`), the `<call>name{json}</call>` fine-tune variant whose
+ * arguments are a plain JSON object, and (v4.1) the Hermes JSON body and the
+ * Qwen3-Coder `<function=…>` body of a `<tool_call>` block.
+ */
+export function parseNativeToolCall(raw: string): NativeToolCall | null {
+  const span = raw.trim()
+  if (span.startsWith('{') || span.startsWith('```')) return parseHermesToolCall(span)
+  if (span.startsWith('<function=')) return parseXmlFunctionCall(span)
   if (!span.startsWith('call:')) return parseJsonToolCall(span)
   const head = /^call:\s*([\w.-]+)\s*\{/.exec(span)
   if (!head) return null
@@ -499,10 +575,15 @@ export function createNativeToolExtractor(toolNames: readonly string[] = []): Na
       ? new RegExp(`(?:^|[^\\w.:-])(${toolNames.map(escapeRegExp).join('|')})\\s*\\{`)
       : null
 
+  /** A dropped span as the model will be shown it: its start, on one line. */
+  const clip = (s: string): string => s.replace(/\s+/g, ' ').trim().slice(0, 160)
+
   function consume(text: string, atEnd: boolean): ToolExtraction {
     let out = ''
     const calls: NativeToolCall[] = []
+    const dropped: string[] = []
     let rest = text
+    const done = (): ToolExtraction => (dropped.length > 0 ? { text: out, calls, dropped } : { text: out, calls })
 
     for (;;) {
       if (inCall) {
@@ -511,11 +592,12 @@ export function createNativeToolExtractor(toolNames: readonly string[] = []): Na
           const held = atEnd ? 0 : heldBackSuffixLength(rest, CLOSE_TOKENS)
           span += rest.slice(0, rest.length - held)
           pending = rest.slice(rest.length - held)
-          return { text: out, calls }
+          return done()
         }
         span += rest.slice(0, close.index)
         const call = parseNativeToolCall(span)
         if (call) calls.push(call)
+        else dropped.push(clip(span) || '(an empty call)')
         span = ''
         inCall = false
         rest = rest.slice(close.index + close.tag.length)
@@ -528,12 +610,13 @@ export function createNativeToolExtractor(toolNames: readonly string[] = []): Na
           // A truncated blob at end of stream is dropped like a truncated
           // markup span: half an argument set is not a call.
           if (atEnd) {
+            dropped.push(clip(jsonSpan + rest))
             inJson = false
             jsonSpan = ''
-            return { text: out, calls }
+            return done()
           }
           jsonSpan += rest
-          return { text: out, calls }
+          return done()
         }
         jsonSpan += taken[0]
         const blob = parseJsonCallBlob(jsonSpan)
@@ -560,9 +643,12 @@ export function createNativeToolExtractor(toolNames: readonly string[] = []): Na
         if (!taken) {
           // Unterminated: hold it across chunks, drop it at end of stream —
           // the same discipline as a truncated markup call.
-          if (atEnd) return { text: out, calls }
+          if (atEnd) {
+            dropped.push(clip(rest.slice(bareStart)))
+            return done()
+          }
           pending = rest.slice(bareStart)
-          return { text: out, calls }
+          return done()
         }
         const args = parseBareArgs(taken[0])
         if (args) {
@@ -590,7 +676,7 @@ export function createNativeToolExtractor(toolNames: readonly string[] = []): Na
           // brace until the next delta proves or disproves it.
           out += rest.slice(0, brace)
           pending = rest.slice(brace)
-          return { text: out, calls }
+          return done()
         }
         // An ordinary brace — prose, a code block, a bare argument object.
         // Emit it and keep scanning.
@@ -608,7 +694,7 @@ export function createNativeToolExtractor(toolNames: readonly string[] = []): Na
             )
         out += rest.slice(0, rest.length - held)
         pending = rest.slice(rest.length - held)
-        return { text: out, calls }
+        return done()
       }
 
       out += rest.slice(0, token.index)
@@ -632,10 +718,21 @@ export function createNativeToolExtractor(toolNames: readonly string[] = []): Na
     flush(): ToolExtraction {
       // A stream that ended mid-call drops the partial span: half an argument
       // set is not a call, and showing the markup is the bug being fixed.
+      // v4.1 (A1): dropped, but reported, so the model is told it did not
+      // run. One exception: a Hermes body whose JSON is whole — the server
+      // swallowed the closing `</tool_call>` as a special token, and a JSON
+      // object that parses is its own proof it was not cut off.
+      const open = inCall ? span + pending : inJson ? jsonSpan + pending : null
       span = ''
       inCall = false
       inJson = false
       jsonSpan = ''
+      if (open !== null) {
+        pending = ''
+        const whole = open.trim().startsWith('{') ? parseNativeToolCall(open) : null
+        if (whole) return { text: '', calls: [whole] }
+        return { text: '', calls: [], dropped: [clip(open) || '(an empty call)'] }
+      }
       if (!pending) return { text: '', calls: [] }
       const text = pending
       pending = ''

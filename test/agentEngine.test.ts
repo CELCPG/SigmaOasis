@@ -1083,3 +1083,28 @@ describe('a round cut off at the output limit (4.0.2)', () => {
     assert.equal(requests.length, 1)
   })
 })
+
+describe('tool calls written as text (v4.1, A1)', () => {
+  test('a Hermes <tool_call> in the content runs as a real call', async () => {
+    const { transport, requests } = scripted([
+      () => [text('<tool_call>\n{"name": "read_file", "arguments": {"path": "src/math.ts"}}\n</tool_call>')],
+      () => [text('It subtracts.')]
+    ])
+    const r = await runAgentTask(spec(transport, { prompt: 'What does add do?' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    const result = requests[1]!.messages.find((m) => m.role === 'tool')
+    assert.match(String(result?.content), /return a - b/)
+  })
+
+  test('a text-form call that cannot be read is named to the model, and its retry runs', async () => {
+    const { transport, requests } = scripted([
+      () => [text('<tool_call>{"name": "read_file", "arguments": {"path": }}</tool_call>')],
+      () => [call('c2', 'read_file', { path: 'src/math.ts' })],
+      () => [text('It subtracts.')]
+    ])
+    const r = await runAgentTask(spec(transport, { prompt: 'What does add do?' }), host(transport).host)
+    assert.equal(r.status, 'done')
+    assert.equal(r.finalText, 'It subtracts.')
+    assert.match(String(requests[1]!.messages.at(-1)!.content), /could not be read, so nothing ran/)
+  })
+})

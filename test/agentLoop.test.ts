@@ -1376,3 +1376,41 @@ describe('mid-turn steering (v2.7)', () => {
     )
   })
 })
+
+describe('a call that could not be read (v4.1, A1)', () => {
+  test('a round whose only call was dropped is told so and asked again, not ended; the recoveries are bounded', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [], malformedCalls: ['{"name":"web_search","arguments":{"query":}}'] },
+      { content: '', toolCalls: [], malformedCalls: ['again'] },
+      { content: 'Plain answer.', toolCalls: [], malformedCalls: ['and again'] }
+    ])
+    const outcome = await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: '' }) }
+    })
+    assert.equal(outcome.stopReason, 'completed')
+    assert.equal(seen.length, 3, 'two recoveries, then the round is accepted')
+    const note = seen[1]!.at(-1)!
+    assert.equal(note.role, 'user')
+    assert.match(String(note.content), /could not be read, so nothing ran: `\{"name":"web_search"/)
+  })
+
+  test('a dropped sibling of calls that ran is named after their results', async () => {
+    const { streamRound, seen } = scripted([
+      { content: '', toolCalls: [call('c1', 'web_search', { query: 'a' })], malformedCalls: ['broken'] },
+      { content: 'ok', toolCalls: [] }
+    ])
+    await runAgentLoop({
+      messages: baseMessages(),
+      tools: TOOLS,
+      records: [],
+      signal: new AbortController().signal,
+      deps: { streamRound, executeTool: async () => ({ ok: true, output: 'r' }) }
+    })
+    assert.deepEqual(seen[1]!.slice(-2).map((m) => m.role), ['tool', 'user'])
+    assert.match(String(seen[1]!.at(-1)!.content), /^The calls above ran, but one more was written as text/)
+  })
+})
