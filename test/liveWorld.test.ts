@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { looksFactual, looksLive, webToolsForTurn } from '../src/renderer/src/lib/grounding'
+import { looksFactual, looksLive, looksLiveByRules, webToolsForTurn } from '../src/renderer/src/lib/grounding'
 import { selectTurnTools, TURN_TOOL_CAP, withBudgetNotes, withForcedTools } from '../src/renderer/src/lib/toolSelection'
 import { factLedgerProvider } from '../src/renderer/src/lib/contextProviders/factLedger'
 import { autoSearchProvider } from '../src/renderer/src/lib/contextProviders/autoSearch'
@@ -106,16 +106,18 @@ describe('a live-world turn and the ledger', () => {
     assert.equal(factLedgerProvider.enabled(input('How much is an adult ticket to the Harrowgate Maritime Museum?'), io), true)
   })
 
-  // KNOWN GAP, pinned so its repair is a deliberate change: "the latest version
-  // of X" is live (it moves with every release) but not in LIVE_DOMAINS, so the
-  // web tools ride it (FACT_DOMAINS: "latest", "version") and so may the ledger.
-  // A version is filed as a `date`/`measurement`-class claim at best, 730 days
-  // fresh. Track G1 (freshness keyed to the topic) owns the fix; this test flips
-  // when it lands.
-  test('known gap: a "latest version" question still gets the ledger (Track G1)', () => {
+  // Was the KNOWN GAP pinned here through 4.1: "the latest version of X" is live
+  // (it moves with every release) but not in LIVE_DOMAINS, so the ledger could
+  // answer it from a version filed 730 days fresh. v4.2 (C3): the web-trigger
+  // classifier reads it as live — the labelled set puts "latest version"
+  // questions in `live` — so the ledger stays off it as it does for the
+  // weather. The rule itself is unchanged; the classifier closes the gap.
+  test('a "latest version" question: the rules still miss it, the classifier keeps the ledger off (v4.2)', () => {
     for (const q of LIVE_QUESTIONS.filter((x) => x.kind === 'version')) {
-      assert.equal(looksLive(q.text), false, q.id)
-      assert.equal(factLedgerProvider.enabled(input(q.text), io), true, q.id)
+      assert.equal(looksLiveByRules(q.text), false, q.id)
+      assert.equal(looksLive(q.text), true, q.id)
+      assert.equal(factLedgerProvider.enabled(input(q.text), io), false, q.id)
+      assert.equal(autoSearchProvider.enabled(input(q.text), io), true, q.id)
     }
   })
 })

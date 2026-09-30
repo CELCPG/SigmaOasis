@@ -1,5 +1,6 @@
 import type { ToolCallRecord } from '../types'
 import { isLikelyReasoningModel } from './reasoning'
+import { modelSaysLive, modelSaysWeb } from './webTrigger'
 
 /**
  * v1.1 Grounding: the anti-confabulation layer.
@@ -216,7 +217,36 @@ const LIVE_DOMAINS =
  * today's.
  */
 export function looksLive(text: string | undefined): boolean {
+  if (looksLiveByRules(text)) return true
+  const t = text?.trim() ?? ''
+  return classifierMayJudge(t) && modelSaysLive(t)
+}
+
+/** v4.2 (C4): the rule alone, as 4.1 shipped it — the baseline test/webTrigger.test.ts measures against. */
+export function looksLiveByRules(text: string | undefined): boolean {
   return LIVE_DOMAINS.test(text ?? '')
+}
+
+/**
+ * v4.2 (C3): when the measured classifier (lib/webTrigger.ts) is asked at all.
+ * The rules stay overrides: they are consulted first and a hit decides, and
+ * creative or coding intent vetoes here as it does for the rules — "write a
+ * poem about the rain" is not a question about today's rain however the words
+ * score. Too short a message has too few n-grams to read.
+ */
+function classifierMayJudge(t: string): boolean {
+  return t.length >= 8 && !CREATIVE_INTENT.test(t)
+}
+
+/**
+ * v4.2 (C3): the classifier's half of "this turn needs the web". A live
+ * reading counts whatever the domain — no pack knows today's weather — but a
+ * plain factual reading defers to the reference library where it covers the
+ * domain, as the rules' factual path does (see `webToolsForTurn`).
+ */
+function classifierWantsWeb(t: string): boolean {
+  if (!classifierMayJudge(t)) return false
+  return modelSaysLive(t) || (modelSaysWeb(t) && !looksReference(t))
 }
 
 /**
@@ -335,6 +365,17 @@ const ASKS_ABOUT_ENTITY =
  * leaves the confabulation path open, so ties break toward searching.
  */
 export function looksFactual(text: string): boolean {
+  if (looksFactualByRules(text)) return true
+  // v4.2 (C3): the rules said nothing; the classifier may. Not on an ask for
+  // the web by name ("can you try with duck duck go now?"): its words are
+  // about the search, not a subject, so there is nothing for the app to
+  // search — the web tools ride that turn instead (`webToolsForTurn`).
+  const t = text.trim()
+  return !ASKS_FOR_WEB.test(t) && classifierWantsWeb(t)
+}
+
+/** v4.2 (C4): the rules alone, as 4.1 shipped them. */
+export function looksFactualByRules(text: string): boolean {
   const t = text.trim()
   if (t.length < 8) return false
   if (CREATIVE_INTENT.test(t)) return false
@@ -373,10 +414,18 @@ export function looksFactual(text: string): boolean {
  * keeps its place. Empty for everything else, so the ranking still decides.
  */
 export function webToolsForTurn(text: string | undefined): readonly string[] {
+  const byRules = webToolsForTurnByRules(text)
+  if (byRules.length > 0) return byRules
+  // v4.2 (C3): the rules forced nothing; the measured classifier may.
+  return classifierWantsWeb(text?.trim() ?? '') ? WEB_TOOLS : []
+}
+
+/** v4.2 (C4): the rules alone, as 4.1 shipped them. */
+export function webToolsForTurnByRules(text: string | undefined): readonly string[] {
   const t = text?.trim() ?? ''
   if (t.length < 8 || CREATIVE_INTENT.test(t)) return []
   if (LIVE_DOMAINS.test(t) || ASKS_FOR_WEB.test(t)) return WEB_TOOLS
-  if (looksFactual(t) && !looksReference(t)) return WEB_TOOLS
+  if (looksFactualByRules(t) && !looksReference(t)) return WEB_TOOLS
   // v4.1 (G5): a reference question about the figures in force now. The packs
   // are snapshots — the finance pack states 2025 limits — so "this year" needs
   // the web beside the library, not instead of it.
