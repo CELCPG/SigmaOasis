@@ -11,5 +11,5 @@ cd "$(dirname "$0")/.."
 OUT=.test-build
 node node_modules/typescript/bin/tsc \
   --outDir "$OUT" --rootDir . --module commonjs --target es2022 --moduleResolution node \
-  --esModuleInterop --skipLibCheck --strict --types node scripts/train-web-trigger.ts
+  --esModuleInterop --resolveJsonModule --skipLibCheck --strict --types node scripts/train-web-trigger.ts
 node "$OUT/scripts/train-web-trigger.js" "$@"

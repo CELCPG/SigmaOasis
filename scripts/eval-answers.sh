@@ -20,7 +20,7 @@ if command -v node >/dev/null 2>&1; then TSC=(node); else TSC=(env ELECTRON_RUN_
 
 "${TSC[@]}" node_modules/typescript/bin/tsc \
   --outDir "$OUT" --rootDir . --module commonjs --target es2022 --moduleResolution node \
-  --esModuleInterop --skipLibCheck --strict --types node \
+  --esModuleInterop --resolveJsonModule --skipLibCheck --strict --types node \
   scripts/eval-answers.ts \
   src/main/ipc/projectRecall.ts \
   src/main/ipc/marketData.ts \

@@ -26,7 +26,7 @@ if command -v node >/dev/null 2>&1; then TSC=(node); else TSC=(env ELECTRON_RUN_
 
 "${TSC[@]}" node_modules/typescript/bin/tsc \
   --outDir "$OUT" --rootDir . --module commonjs --target es2022 --moduleResolution node \
-  --esModuleInterop --skipLibCheck --strict --types node \
+  --esModuleInterop --resolveJsonModule --skipLibCheck --strict --types node \
   scripts/h2h-capture.ts
 
 # The driver is a plain Node program (it spawns the app itself), so it runs as

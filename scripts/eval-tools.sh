@@ -35,7 +35,7 @@ rm -rf "$OUT"
   --module commonjs \
   --target es2022 \
   --moduleResolution node \
-  --esModuleInterop \
+  --esModuleInterop --resolveJsonModule \
   --skipLibCheck \
   --strict \
   --types node \

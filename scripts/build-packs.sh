@@ -16,7 +16,7 @@ if command -v node >/dev/null 2>&1; then TSC=(node); else TSC=(env ELECTRON_RUN_
 
 "${TSC[@]}" node_modules/typescript/bin/tsc \
   --outDir "$OUT" --rootDir . --module commonjs --target es2022 --moduleResolution node \
-  --esModuleInterop --skipLibCheck --strict scripts/build-packs.ts
+  --esModuleInterop --resolveJsonModule --skipLibCheck --strict scripts/build-packs.ts
 
 # Electron's default-app launcher does nothing when the script is the only
 # positional argument, so an explicit "all" always follows it.

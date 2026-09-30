@@ -16,7 +16,7 @@ node node_modules/typescript/bin/tsc \
   --module commonjs \
   --target es2022 \
   --moduleResolution node \
-  --esModuleInterop \
+  --esModuleInterop --resolveJsonModule \
   --skipLibCheck \
   --strict \
   --types node \
