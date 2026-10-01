@@ -530,6 +530,38 @@ export function mergeResults(files: unknown[], names: string[] = []): Record<str
   return { ...rest, ...extra, merged: { from: files.map((_f, i) => label(i)), passRuns }, runs }
 }
 
+/**
+ * v4.3: slices of the same pass — one arm, run over disjoint EVAL_CASES ranges
+ * because a whole pass outlasts the time one command may take — joined back
+ * into one file, pass by pass. Not mergeResults: these are parts of one pass,
+ * not more passes. Every slice must have the same number of passes, the same
+ * model and arm, and no case another slice has.
+ */
+export function joinSlices(files: unknown[], names: string[] = []): Record<string, unknown> {
+  if (!files.length) throw new Error('nothing to join')
+  const label = (i: number): string => names[i] ?? `slice ${i + 1}`
+  const first = files[0] as Record<string, unknown>
+  if (detectSuite(first) !== 'agent') throw new Error('only eval:agent results are joined; an eval:tools pass takes minutes and runs whole')
+  const passes = (first.runs as unknown[][]).length
+  const seen = new Map<string, number>()
+  const runs: CaseRun[][] = Array.from({ length: passes }, () => [])
+  files.forEach((file, i) => {
+    const f = file as Record<string, unknown>
+    if (detectSuite(f) !== 'agent') throw new Error(`${label(i)} is not eval:agent results`)
+    if (f.model !== first.model) throw new Error(`cannot join ${label(i)} (${String(f.model)}) with ${label(0)} (${String(first.model)}): another model`)
+    if (armOf(f) !== armOf(first)) throw new Error(`cannot join ${label(i)} (${armOf(f)}) with ${label(0)} (${armOf(first)}): another arm`)
+    const ps = f.runs as CaseRun[][]
+    if (ps.length !== passes) throw new Error(`cannot join ${label(i)} (${ps.length} passes) with ${label(0)} (${passes}): slices of one run have the same passes`)
+    for (const c of new Set(ps.flat().map((r) => r.case))) {
+      if (seen.has(c)) throw new Error(`${c} is in both ${label(seen.get(c)!)} and ${label(i)}: slices must not overlap`)
+      seen.set(c, i)
+    }
+    ps.forEach((p, j) => runs[j]!.push(...p))
+  })
+  const { baseline: _b, noise: _n, merged: _m, ...rest } = first
+  return { ...rest, passes, cases: [...seen.keys()], runs, joined: { from: files.map((_f, i) => label(i)) } }
+}
+
 /** The spread of every gated line over a file's own passes, as `--save` stores it. */
 export function measureNoise(file: unknown, opts: { k?: number; minPasses?: number } = {}): StoredNoise {
   const n = normalize(file)

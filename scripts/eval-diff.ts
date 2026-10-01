@@ -5,9 +5,11 @@
  *   npm run eval:diff -- <baseline.json> <run.json> [<run2.json> …] [--tolerance 0.05] [--min-passes 4]
  *   npm run eval:diff -- --base <a.json> [<b.json> …] --run <c.json> [<d.json> …]
  *   npm run eval:diff -- --save <run.json> [<run2.json> …] [--name agent-qwen3.8-9b]
+ *   npm run eval:diff -- --join <slice1.json> <slice2.json> … --out <pass.json>
  *
  * Several files on one side are one arm: their passes merge, and the runs they
- * came from are counted (passes of one run share the server's state).
+ * came from are counted (passes of one run share the server's state). `--join`
+ * is the other direction: EVAL_CASES slices of the same pass(es), one file.
  *
  * Exit 0: BETTER or SAME-WITHIN-NOISE. 1: WORSE. 2: the files could not be read
  * or compared. 3: TOO-FEW-PASSES — fewer than four passes on a side, so no
@@ -15,7 +17,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { basename, join, resolve } from 'path'
-import { MIN_PASSES, detectSuite, diffResults, formatDiff, measureNoise, mergeResults, trimForBaseline } from '../src/main/agent/evalDiff'
+import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, measureNoise, mergeResults, trimForBaseline } from '../src/main/agent/evalDiff'
 
 // Compiled by scripts/eval-diff.sh to .eval-build/diff/scripts/eval-diff.js —
 // its own folder, so a diff never clobbers an eval's build mid-run.
@@ -26,7 +28,8 @@ const BASELINES = join(REPO_ROOT, 'baselines')
 const USAGE = [
   'usage: npm run eval:diff -- <baseline.json> <run.json> [<run2.json> …] [--tolerance 0.05] [--min-passes 4]',
   '       npm run eval:diff -- --base <a.json> [<b.json> …] --run <c.json> [<d.json> …]',
-  '       npm run eval:diff -- --save <run.json> [<run2.json> …] [--name <baseline-name>]'
+  '       npm run eval:diff -- --save <run.json> [<run2.json> …] [--name <baseline-name>]',
+  '       npm run eval:diff -- --join <slice1.json> <slice2.json> … --out <pass.json>'
 ].join('\n')
 
 function read(path: string): unknown {
@@ -60,6 +63,20 @@ function main(): number {
   const name = flag(args, '--name')
   const tol = flag(args, '--tolerance')
   const min = flag(args, '--min-passes')
+  const out = flag(args, '--out')
+
+  if (args.includes('--join')) {
+    const paths = after(args, '--join')
+    if (paths.length < 2 || !out) {
+      console.error(USAGE)
+      return 2
+    }
+    const joined = joinSlices(paths.map(read), paths.map((p) => basename(p)))
+    writeFileSync(resolve(CWD, out), JSON.stringify(joined, null, 2) + '\n')
+    const runs = joined.runs as { case: string; solved: boolean }[][]
+    console.log(`joined ${paths.length} slices into ${out}: ${runs.length} pass${runs.length === 1 ? '' : 'es'} of ${(joined.cases as string[]).length} cases · solved per pass [${runs.map((p) => p.filter((r) => r.solved).length).join(', ')}]`)
+    return 0
+  }
 
   if (args.includes('--save')) {
     const paths = after(args, '--save')

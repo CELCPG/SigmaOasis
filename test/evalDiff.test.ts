@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { MIN_PASSES, detectSuite, diffResults, formatDiff, measureNoise, mergeResults, noiseBand, passesToResolve, sampleSd, trimForBaseline } from '../src/main/agent/evalDiff'
+import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, measureNoise, mergeResults, noiseBand, passesToResolve, sampleSd, trimForBaseline } from '../src/main/agent/evalDiff'
 import type { CaseRun } from '../src/main/agent/evalHarness'
 import type { EvalFixtureRun } from '../src/renderer/src/lib/evalRunner'
 
@@ -234,6 +234,22 @@ describe('several runs as one arm', () => {
     assert.deepEqual([d.baseline.passes, d.baseline.runs, d.run.passes, d.run.runs], [4, 2, 4, 2])
     assert.equal(d.verdict, 'SAME-WITHIN-NOISE', formatDiff(d))
     assert.ok(!d.caveats.some((c) => /all come from one run/.test(c)))
+  })
+
+  test('slices of one pass (EVAL_CASES ranges) join into one pass, not more passes; overlaps and mismatches are refused', () => {
+    const slice = (ids: string[], solved: boolean[], extra: Record<string, unknown> = {}): Record<string, unknown> => agentFile([ids.map((c, i) => run(c, solved[i]!))], extra)
+    const joined = joinSlices([slice(['a', 'b'], [true, false]), slice(['c'], [true]), slice(['d', 'e'], [false, true])], ['s1.json', 's2.json', 's3.json'])
+    assert.equal((joined.runs as CaseRun[][]).length, 1)
+    assert.deepEqual((joined.runs as CaseRun[][])[0]!.map((r) => r.case), ['a', 'b', 'c', 'd', 'e'])
+    assert.deepEqual([joined.passes, joined.cases, joined.joined], [1, ['a', 'b', 'c', 'd', 'e'], { from: ['s1.json', 's2.json', 's3.json'] }])
+    // Four joined passes are a four-pass arm the gate can call.
+    const pass = (k: number): Record<string, unknown> => joinSlices([slice(['a', 'b'], [true, k % 2 === 0]), slice(['c', 'd'], [true, false])])
+    const arm = mergeResults([pass(0), pass(1), pass(2), pass(3)])
+    assert.deepEqual([diffResults(arm, arm).baseline.passes, diffResults(arm, arm).verdict], [4, 'SAME-WITHIN-NOISE'])
+    assert.throws(() => joinSlices([slice(['a'], [true]), slice(['a'], [false])], ['s1', 's2']), /a is in both s1 and s2/)
+    assert.throws(() => joinSlices([slice(['a'], [true]), slice(['b'], [true], { experiments: { reviewer: true } })]), /another arm/)
+    assert.throws(() => joinSlices([slice(['a'], [true]), agentFile([[run('b', true)], [run('b', true)]])]), /1 passes|2 passes/)
+    assert.throws(() => joinSlices([toolsFile([fx('01', true)])]), /only eval:agent/)
   })
 
   test('runs of another model or another arm do not merge', () => {
