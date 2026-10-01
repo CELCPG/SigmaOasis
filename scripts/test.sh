@@ -9,8 +9,29 @@
 # Node is used when available. Otherwise we fall back to the Node runtime bundled
 # inside the project's Electron — the app already depends on it, and it is the
 # same major version the main process runs on.
+#
+#   bash scripts/test.sh                          everything, then the Electron checks
+#   bash scripts/test.sh --only evalDiff latency  the same typecheck and build, then only
+#                                                 test/<name>.test.ts for each name; no
+#                                                 Electron checks (`npm run test:replay`)
+#
+# v4.3: `--only` existed in package.json's test:replay from 4.1 on, and this
+# script never read it — test:replay quietly ran the whole suite.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+ONLY=()
+if [ "${1:-}" = "--only" ]; then
+  shift
+  ONLY=("$@")
+  if [ ${#ONLY[@]} -eq 0 ]; then
+    echo "error: --only needs at least one test name (test/<name>.test.ts)." >&2
+    exit 1
+  fi
+elif [ $# -gt 0 ]; then
+  echo "error: unknown arguments: $*  (usage: bash scripts/test.sh [--only <name> ...])" >&2
+  exit 1
+fi
 
 OUT=.test-build
 # Absolute, deliberately. Launched by a relative path, macOS resolves the
@@ -63,6 +84,19 @@ rm -rf "$OUT"
 # superset of what the list did (every file it produced, and the rest of
 # src/main and the renderer's lib, hooks, stores and components beside it).
 "${RUN[@]}" node_modules/typescript/bin/tsc -p tsconfig.test.json --outDir "$OUT"
+
+if [ ${#ONLY[@]} -gt 0 ]; then
+  FILES=()
+  for name in "${ONLY[@]}"; do
+    f="$OUT/test/${name%.test.ts}.test.js"
+    if [ ! -f "$f" ]; then
+      echo "error: no test named $name (looked for $f)." >&2
+      exit 1
+    fi
+    FILES+=("$f")
+  done
+  exec "${RUN[@]}" --test "${FILES[@]}"
+fi
 
 # node:test discovers by filename; point it at the compiled tests.
 "${RUN[@]}" --test "$OUT"/test/*.test.js
