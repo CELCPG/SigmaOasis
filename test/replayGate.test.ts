@@ -37,6 +37,13 @@ const WIRE_SNAPSHOT = join(REPO, 'test', 'fixtures', 'wire', 'tool-schemas.json'
 const UPDATE = process.env.UPDATE_REPLAY_SNAPSHOTS === '1'
 const HOW = 'If the change is deliberate, re-record with `UPDATE_REPLAY_SNAPSHOTS=1 npm run test:replay` and commit the snapshot with the change — its diff is what review reads.'
 
+/**
+ * v4.3: the gate asks a real model for four passes a side and reads every line
+ * against a noise band. A scripted model is deterministic — its spread is zero
+ * by construction, so its band is zero — and one pass is the whole measurement.
+ */
+const REPLAY = { minPasses: 1 }
+
 const writeJson = (path: string, data: unknown): void => {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(data, null, 2) + '\n')
@@ -126,9 +133,10 @@ describe('eval:agent, replayed offline', () => {
     assert.equal(s.falseClaims, 0)
     assert.match(formatSummary([s]), /\| scripted \| \*\*3\/3\*\* \| \[3, 3\] \|/)
     if (UPDATE) writeJson(baselinePath, scrubTiming(trimForBaseline(results, 'test/replayGate.test.ts', new Date('2026-09-30T00:00:00Z'))))
-    const d = diffResults(readJson(baselinePath), results)
+    const d = diffResults(readJson(baselinePath), results, REPLAY)
     assert.deepEqual(d.notes, [], `the replay ran other cases than its baseline. ${HOW}`)
     assert.deepEqual(d.regressions, [], `the replay no longer scores as its baseline: ${d.regressions.join('; ')}. ${HOW}`)
+    assert.equal(d.verdict, 'SAME-WITHIN-NOISE')
   })
 
   test('the gate bites: a wrong fix reported as passing fails the diff', async () => {
@@ -144,11 +152,12 @@ describe('eval:agent, replayed offline', () => {
       },
       1
     )
-    const d = diffResults(readJson(baselinePath), worse)
+    const d = diffResults(readJson(baselinePath), worse, REPLAY)
     assert.deepEqual(d.lost, ['fix-paginate'])
+    assert.equal(d.verdict, 'WORSE')
     assert.deepEqual(
       d.regressions.map((r) => r.replace(/ (fell|rose) from.*/, '')),
-      ["the stable set's solved rate", 'false claims']
+      ['solved per pass (3 cases)', 'false claims']
     )
   })
 })
@@ -199,14 +208,14 @@ describe('eval:tools, replayed offline', () => {
       []
     )
     if (UPDATE) writeJson(baselinePath, trimForBaseline(results, 'test/replayGate.test.ts', new Date('2026-09-30T00:00:00Z')))
-    const d = diffResults(readJson(baselinePath), results)
+    const d = diffResults(readJson(baselinePath), results, REPLAY)
     assert.deepEqual(d.notes.filter((n) => n.startsWith('not in the')), [], `the tool-choice fixtures changed since the replay baseline. ${HOW}`)
     assert.deepEqual(d.regressions, [])
   })
 
   test('the gate bites: a model that answers a search question from memory fails the diff', async () => {
     const miss = fixtures.find((f) => f.expect !== 'no_tool' && f.expect.tool === 'web_search')!
-    const d = diffResults(readJson(baselinePath), await replay(new Set([miss.prompt])))
+    const d = diffResults(readJson(baselinePath), await replay(new Set([miss.prompt])), REPLAY)
     assert.deepEqual(d.lost, [miss.file])
     assert.equal(d.regressions.length, 1)
   })

@@ -29,14 +29,23 @@ GPU's error counter moved in keeps its score and loses its time, here as for wal
 ### Baselines, committed and diffed (M2)
 
 `baselines/` holds the results files a change is judged against, trimmed by
-`npm run eval:diff -- --save <run.json>` to the same schema minus report text and per-round timing.
-`npm run eval:diff -- <baseline.json> <run.json>` compares the cases both ran, as rates, and exits 1
-when a gated line got worse: for `eval:agent` the stable set's solved rate (the baseline's cases
-that did not flip between passes — its flaky cases are the noise floor, shown and not gated), false
-claims, collateral and a dirty Undo; for `eval:tools` the stable set's clean rate, spurious calls,
-loops and invalid arguments. Timing is printed, never gated. The rules are in
+`npm run eval:diff -- --save <run.json> [more runs…]` to the same schema minus report text and
+per-round timing, plus the spread of every gated line over its passes (v4.3).
+`npm run eval:diff -- <baseline.json> <run.json> [more runs…]` compares the cases both ran and
+answers BETTER, SAME-WITHIN-NOISE or WORSE (exit 1), or TOO-FEW-PASSES (exit 3) below four passes
+a side. Each gated line is a per-pass rate read against a noise band of two standard errors of the
+difference of the means, from the baseline's stored σ and the run's own (never below the
+baseline's): for `eval:agent` solved, collateral and a dirty Undo, with false claims never banded —
+any rise is WORSE; for `eval:tools` clean, spurious calls, loops and invalid arguments. The stable
+set and the flaky cases are printed, not gated. Timing is printed, never gated. The rules are in
 `src/main/agent/evalDiff.ts` and pinned by `test/evalDiff.test.ts`; `baselines/README.md` has the
-format and when a baseline may be replaced.
+format, the band and when a baseline may be replaced.
+
+**Why the band (v4.3).** The 4.1 gate gated the stable set: the baseline's cases that did not flip
+between its two passes. On 2026-09-30 the same engine scored single passes from 14 to 21 of 26, and
+the gate called the 4.1 engine's second run WORSE than its first. With four passes a side and the
+band, 4.1 against 4.2 with experiments off (byte-identical requests) is SAME-WITHIN-NOISE: solved
+−2.50 per pass against ±3.21.
 
 ### The offline gate: a scripted model, replayed, and the wire hashed (M6)
 

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
-# Compare an eval run with a committed baseline (v4.1, M2). Offline: it reads
-# two results files. See scripts/eval-diff.ts and baselines/README.md.
+# Compare an eval run with a committed baseline (v4.1, M2; the noise band v4.3).
+# Offline: it reads results files. See scripts/eval-diff.ts and baselines/README.md.
 #
-#   npm run eval:diff -- baselines/agent-qwen3.8-9b.json .eval-results/agent-….json
-#   npm run eval:diff -- --save .eval-results/agent-….json
+#   npm run eval:diff -- baselines/agent-qwen3.8-9b-distill.json .eval-results/agent-….json [more runs …]
+#   npm run eval:diff -- --base <a.json> [<b.json> …] --run <c.json> [<d.json> …]
+#   npm run eval:diff -- --save .eval-results/agent-….json [more runs …]
+#
+# Exit 0 BETTER or SAME-WITHIN-NOISE · 1 WORSE · 2 unreadable · 3 TOO-FEW-PASSES.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
