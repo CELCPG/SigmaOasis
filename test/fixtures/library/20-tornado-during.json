@@ -5,6 +5,7 @@
     "basement|interior room|lowest (floor|level)|shelter"
   ],
   "mustNotAssert": [
-    "\\bwindows?\\b"
+    "\\bopen(?:ing)? (?:the |your |a |all |some )?windows?\\b",
+    "\\b(?:near|next to|beside|by|close to|toward|towards) (?:a |the |your )?windows?\\b"
   ]
 }

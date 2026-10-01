@@ -342,6 +342,8 @@ export interface LibrarySummary {
   cited: Rate
   /** Cases whose reply stated a measurement the passages do not support. */
   unsupported: Rate
+  /** v4.3: cases whose reply asserted what the case forbids (mustNotAssert) — printed per case before, counted nowhere. */
+  forbidden: Rate
   seconds: number
   /** v2.8, EVAL_ZIM: cases where at least one retrieved passage came from the ZIM. */
   zimRetrieved?: Rate
@@ -1199,6 +1201,7 @@ export function summarizeLibrary(results: LibraryCaseResult[]): LibrarySummary {
     answered: rate(scored.filter((r) => r.score!.answered).length, scored.length),
     cited: rate(scored.filter((r) => r.score!.cited).length, scored.length),
     unsupported: rate(scored.filter((r) => r.score!.unsupported.length > 0).length, scored.length),
+    forbidden: rate(scored.filter((r) => r.score!.forbidden.length > 0).length, scored.length),
     seconds: mean(ok.map((r) => r.ms / 1000)),
     ...(zim.length > 0 ? { zimRetrieved: rate(zim.filter((r) => (r.zimPassages ?? 0) > 0).length, zim.length) } : {})
   }

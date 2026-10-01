@@ -1848,6 +1848,7 @@ async function main(): Promise<void> {
         `  answered             ${s.answered.hit}/${s.answered.of}  ${pct(s.answered)}\n` +
         `  cited the source     ${s.cited.hit}/${s.cited.of}  ${pct(s.cited)}\n` +
         `  unsupported figures  ${s.unsupported.hit}/${s.unsupported.of}  ${pct(s.unsupported)}  (lower is better)\n` +
+        `  asserted forbidden   ${s.forbidden.hit}/${s.forbidden.of}  ${pct(s.forbidden)}  (lower is better)\n` +
         (s.zimRetrieved ? `  from the ZIM         ${s.zimRetrieved.hit}/${s.zimRetrieved.of}  ${pct(s.zimRetrieved)}  (cases with a ZIM passage among those retrieved)\n` : '') +
         `  ${s.seconds.toFixed(1)} s/case\n`
     )

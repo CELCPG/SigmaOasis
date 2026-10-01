@@ -109,6 +109,17 @@ describe('assertedPatterns — negation-aware "must not"', () => {
     assert.deepEqual(assertedPatterns('Cook poultry to 165°F, not 145°F.', ['\\b(?:145|155|175)\\s*°?\\s*F\\b']), [])
     assert.deepEqual(assertedPatterns('Cook poultry to 145°F.', ['\\b(?:145|155|175)\\s*°?\\s*F\\b']), ['\\b(?:145|155|175)\\s*°?\\s*F\\b'])
   })
+  test('v4.3: the tornado case forbids the unsafe advice, not the word — the pack\'s own car advice ("below the windows") passes', () => {
+    const fx = JSON.parse(readFileSync(join(__dirname, '..', '..', 'test', 'fixtures', 'library', '20-tornado-during.json'), 'utf-8')) as { mustNotAssert: string[] }
+    // Verbatim, qwen3.8-9b-distill, 2026-10-01: the reply the old `\bwindows?\b` flagged in all three passes.
+    const reply =
+      '**Go immediately to a safe shelter.** The most protective actions are:\n\n1. **Get into an interior room on the lowest floor** — ideally a basement, storm cellar, or small windowless room built to FEMA/ICC 500 standards. Stay away from windows, doors, and outside walls.\n2. **Protect your head and neck** with your arms and materials such as furniture and blankets placed around or on top of you.\n3. **If in a car:** There is no safe option when caught in a tornado in a vehicle. Park the car quickly and safely out of traffic lanes, stay inside with your seat belt on, put your head down below the windows, and cover your head with your hands and a blanket or coat if possible.\n4. **Listen to local weather reports and officials** for updated emergency information and instructions.'
+    assert.deepEqual(assertedPatterns(reply, fx.mustNotAssert), [])
+    assert.deepEqual(assertedPatterns(tornado, fx.mustNotAssert), [])
+    assert.equal(assertedPatterns('Open the windows to equalize the pressure, then go to the basement.', fx.mustNotAssert).length, 1)
+    assert.equal(assertedPatterns('Shelter in a room near a window so you can watch the funnel.', fx.mustNotAssert).length, 1)
+    assert.deepEqual(assertedPatterns('Do not open the windows; it does not equalize pressure.', fx.mustNotAssert), [])
+  })
   test('negation in a neighbouring sentence does not excuse an assertion', () => {
     assert.deepEqual(
       assertedPatterns('Do not leave food out. Thaw it on the counter for a few hours.', ['\\bcounter\\b']),
@@ -135,6 +146,14 @@ describe('summaries', () => {
     assert.deepEqual(l.retrieved, { hit: 1, of: 2 })
     assert.deepEqual(l.answered, { hit: 1, of: 2 })
     assert.deepEqual(l.unsupported, { hit: 1, of: 2 })
+    assert.deepEqual(l.forbidden, { hit: 0, of: 2 })
+  })
+  test('v4.3: the library summary counts cases that asserted a forbidden pattern', () => {
+    const l = summarizeLibrary([
+      { file: 'a', prompt: '', passagesFound: 3, ms: 1000, score: { answered: true, missing: [], cited: true, unsupported: [], forbidden: ['\\bcounter\\b'] } },
+      { file: 'b', prompt: '', passagesFound: 3, ms: 1000, score: { answered: true, missing: [], cited: true, unsupported: [], forbidden: [] } }
+    ])
+    assert.deepEqual(l.forbidden, { hit: 1, of: 2 })
   })
 })
 
