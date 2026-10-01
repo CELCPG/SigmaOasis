@@ -78,9 +78,14 @@ their tables say.
 
 ### Baselines
 
-Owed: `qwen3.8-9b` and `qwen3.8-35b-a3b-distill`, `EVAL_PASSES=3`, with no other LM Studio client
-open, the table the runner prints recorded here and in `docs/agent.md` in place of the single 3.0
-run.
+**Since 4.3:** `baselines/agent-qwen3.8-9b-distill.json` — the 4.1 and 4.2 engines with experiments
+off (byte-identical requests), eight passes from four runs, 2026-09-30: solved 18, 21, 20, 19, 14,
+16, 17, 21 of 26, σ 2.49, no false claim in 208 runs. The gate and its noise band are in
+`baselines/README.md`. The 35B-A3B's baseline is still owed. The history:
+
+Owed (3.1): `qwen3.8-9b` and `qwen3.8-35b-a3b-distill`, `EVAL_PASSES=3`, with no other LM Studio
+client open, the table the runner prints recorded here and in `docs/agent.md` in place of the
+single 3.0 run.
 
 The first attempt, `qwen3.8-9b-distill` on 2026-09-28, stopped on the bench machine rather than on
 anything the suite measures. Two minutes in, the GPU's PCIe link began reporting corrected errors —
@@ -94,3 +99,33 @@ The attempt did find a rule missing. LM Studio dying mid-reply reaches the engin
 fetch error `terminated`, which the exclusion rule did not know, so the case it cut short was
 scored — solved, as it happened, since the fix was already on disk — instead of excluded.
 `serverFailure` knows it now (`test/agentEval.test.ts`).
+
+### The experiments, re-decided at four passes (v4.3, 2026-10-01)
+
+Every agent experiment that 4.1 and 4.2 decided — on two passes, with a gate that called an
+unchanged engine worse — re-run at four passes an arm and read by the 4.3 gate against the
+eight-pass baseline. `qwen3.8-9b-distill`, temperature 0, `rel/4.3` at `997c808` (the agent engine
+as 4.2 shipped it). A pass of 26 cases outlasts one command here, so each ran as six `EVAL_CASES`
+slices joined back into one pass (`eval:diff --join`); `long-discount-rules` ran alone, and a
+slice the chunk deadline killed was rerun from the case it stopped on.
+
+| arm | solved a pass | false claims | collateral a pass | verdict |
+| --- | --- | --- | --- | --- |
+| baseline, experiments off (9/30) | 18, 21, 20, 19, 14, 16, 17, 21 | 0/208 | 2.38 | — |
+| digests, low-water mark, multi-read, verify round (9/30's two passes + two) | 17, 16, 16, 17 | 1/104 | 2.25 | **WORSE** — a false claim: `needs-you-tax-rate` reported success on a task that needed the user. Solved −1.75, inside ±3.05 |
+| think by phase (4.2's family profiles), plan focus | 15, 15, 13, 14 | 0/104 | 3.00 | **WORSE** — solved −4.00 against ±3.05 |
+| reviewer, notes | 16, 14, 15, 16 | 5/104 | 2.50 | **WORSE** — false claims in every pass (`chain-slugify`, `read-only-why-failing`, `needs-you-outside-folder`, `feature-top-words`, `refactor-callback-to-promise`). Solved −3.00, inside ±3.05 |
+| `planRound` (9/30's two passes + two) | 14, 16, 15, 19 | 1/104 | 2.50 | **WORSE** — 9/30's false claim stands (the two new passes had none). Solved −2.25, inside ±3.05 |
+
+`toolsByPhase` (4.1, A5) was never decided by a measurement and was not run here; it stays off,
+unmeasured — 4.4.
+
+The rule: a switch turns on only when its arm is BETTER beyond the noise with no false claim. None
+was; every experiment stays off. The arms ran by day, the baseline overnight, with no same-day
+control between them — enough to keep a switch off, not enough to turn one on.
+
+The arms that ran on 10/1 lost `chain-csv-totals` and `chain-slugify` in some passes (stable
+passes in the baseline). Those were the model's — hidden checks failing, or a 40-round pause — not
+timeouts, exclusions or the machine. Three of the four arms' solved lines sat inside the band;
+what decided those three was the rule the band leaves alone, a false claim. The reviewer arm made
+five in 104 runs.
