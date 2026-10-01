@@ -41,6 +41,13 @@ export interface EvalFixtureRun {
   spurious: boolean | null
   looped: boolean
   error?: string
+  /**
+   * v4.3: the tools this fixture put on the wire, by name, when the shell
+   * selects them per fixture (`toolsFor`, eval:tools' EVAL_SUBSET) — so a miss
+   * reads as the ranking's (the expected tool was not offered) or the model's
+   * (it was, and something else was chosen). Absent when the whole list went.
+   */
+  wire?: string[]
 }
 
 export interface EvalRate {
@@ -210,6 +217,7 @@ async function runFixture(
     looped: false
   }
   const wireTools = deps.toolsFor ? await deps.toolsFor(fixture, deps.tools) : deps.tools
+  if (deps.toolsFor) run.wire = wireTools.map((t) => t.function.name)
   const messages: ApiMessage[] = [
     { role: 'system', content: deps.systemPromptFor(model) },
     { role: 'user', content: fixture.prompt }

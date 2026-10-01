@@ -149,4 +149,26 @@ describe('runToolChoiceEval', () => {
     assert.equal(result.runs[0].error, 'connection refused')
     assert.deepEqual(result.rates.correctTool, { hit: 0, of: 0 })
   })
+
+  test('v4.3: with a per-fixture selection, each run records the tools it put on the wire; with the whole list, none', async () => {
+    const pick = (names: string[]) => (_f: EvalFixture, all: ToolSchema[]) => Promise.resolve(all.filter((t) => names.includes(t.function.name)))
+    const seen: string[][] = []
+    const [subset] = await runToolChoiceEval({
+      models: ['m'],
+      fixtures,
+      tools: TOOL_SCHEMAS,
+      systemPromptFor: () => 'sys',
+      toolsFor: pick(['web_search', 'read_note']),
+      complete: (model, messages, tools) => {
+        if (!messages.some((m) => m.role === 'tool')) seen.push(tools.map((t) => t.function.name))
+        return scriptedComplete({ m: ['read_note'] })(model, messages, tools)
+      }
+    })
+    // read_file was not offered, so the miss is the ranking's — and the record says so.
+    assert.deepEqual(subset.runs[0].wire, seen[0])
+    assert.ok(!subset.runs[0].wire!.includes('read_file'))
+    assert.equal(subset.runs[0].correct, false)
+    const [whole] = await runToolChoiceEval({ models: ['m'], fixtures: [fixtures[0]], tools: TOOL_SCHEMAS, systemPromptFor: () => 'sys', complete: scriptedComplete({ m: ['read_file'] }) })
+    assert.equal(whole.runs[0].wire, undefined)
+  })
 })

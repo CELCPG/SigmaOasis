@@ -378,9 +378,10 @@ async function main(): Promise<void> {
       for (const f of failures) {
         if (f.error) console.log(`    ! ${f.file} — ${f.error}`)
         else if (f.correct === false) {
-          console.log(
-            `    ✗ ${f.file} — expected ${(f.expect as { tool: string }).tool}, round 1 called: ${f.round1Calls.join(', ') || '(nothing)'}`
-          )
+          const want = (f.expect as { tool: string }).tool
+          // v4.3: in the subset arm, whether the ranking offered the tool at all.
+          const offered = f.wire ? (f.wire.includes(want) ? ' (it was on the wire)' : ` (not on the wire: ${f.wire.join(', ')})`) : ''
+          console.log(`    ✗ ${f.file} — expected ${want}, round 1 called: ${f.round1Calls.join(', ') || '(nothing)'}${offered}`)
         } else if (f.spurious) {
           console.log(`    ✗ ${f.file} — spurious call: ${f.round1Calls.join(', ')}`)
         } else if (f.looped) {
