@@ -8,6 +8,13 @@
  * day, dated from the clock when the suite runs — and a SearXNG-shaped search
  * over them (the research suite's seam, SIGMA_RESEARCH_FIXTURE_ORIGIN).
  *
+ * v4.3: the model is shown the pages under an ordinary HTTPS address, LIVE_ALIAS,
+ * which the seam maps to the loopback server (SIGMA_RESEARCH_FIXTURE_ALIAS,
+ * src/main/ipc/fixtureSeam.ts). Through 4.2 it was shown http://127.0.0.1:<port>,
+ * and after reading fetch_webpage's own "HTTPS only, private addresses refused"
+ * it declined to fetch: in three passes on 2026-10-01, 7 of the 8 misses said
+ * the results were local pages. The suite measured its fixture, not the model.
+ *
  * The turn is built as the chat builds it, minus the window: the slot's tools
  * ranked (here with no ranking at all — the worst case, where only the forced
  * tools can put the web on the wire), `webToolsForTurn` forcing the web tools,
@@ -27,6 +34,13 @@ import type { ToolCallRecord } from '../../src/renderer/src/types'
 import type { LedgerHit } from '../../src/shared/factLedger'
 
 type Msg = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | null; tool_calls?: unknown; tool_call_id?: string }
+
+/**
+ * The address the model sees. A fictional local paper for the suite's fictional
+ * towns; never resolved and never contacted — the seam sends every request for
+ * it to the loopback server, and the headless renderer refuses it.
+ */
+export const LIVE_ALIAS = 'https://www.harrowgate-dunmore-courier.com'
 
 export interface LiveDeps {
   repoRoot: string
@@ -61,7 +75,7 @@ export async function runLiveSuite(model: string, deps: LiveDeps): Promise<LiveC
         .slice(0, 6)
       // A snippet is the page's header, not its table: the figure is on the page, so the page must be read.
       res.setHeader('Content-Type', 'application/json')
-      res.end(JSON.stringify({ results: scored.map(({ p }) => ({ title: p.title, url: `${origin}/${p.file}`, content: `${p.title}. Updated daily.` })) }))
+      res.end(JSON.stringify({ results: scored.map(({ p }) => ({ title: p.title, url: `${LIVE_ALIAS}/${p.file}`, content: `${p.title}. Updated daily.` })) }))
       return
     }
     const page = pages.find((p) => `/${p.file}` === u.pathname)
@@ -76,6 +90,7 @@ export async function runLiveSuite(model: string, deps: LiveDeps): Promise<LiveC
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   process.env.SIGMA_RESEARCH_FIXTURE_ORIGIN = origin
+  process.env.SIGMA_RESEARCH_FIXTURE_ALIAS = LIVE_ALIAS
 
   const storeMod = require('../../src/main/ipc/store') as typeof import('../../src/main/ipc/store')
   const prev = storeMod.getSettings()
@@ -120,7 +135,7 @@ export async function runLiveSuite(model: string, deps: LiveDeps): Promise<LiveC
         claimClass: 'measurement',
         value: wrong.text,
         sentence: `${wrong.text} (${longDate(dayOf(now, wrong.day))})`,
-        url: `${origin}/${fx.page}`,
+        url: `${LIVE_ALIAS}/${fx.page}`,
         checkedAt: dayOf(now, -1).getTime(),
         expiresAt: dayOf(now, 700).getTime(),
         expired: false,
@@ -210,6 +225,7 @@ export async function runLiveSuite(model: string, deps: LiveDeps): Promise<LiveC
     }
   } finally {
     delete process.env.SIGMA_RESEARCH_FIXTURE_ORIGIN
+    delete process.env.SIGMA_RESEARCH_FIXTURE_ALIAS
     storeMod.writeSettings(prev)
     server.close()
   }

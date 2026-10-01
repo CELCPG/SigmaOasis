@@ -1,6 +1,7 @@
 import { lookup } from 'dns/promises'
 import { isLoopbackHostname } from '../net'
 import { proxyActive } from '../proxy'
+import { isResearchFixtureOrigin } from '../fixtureSeam'
 
 /** IPv4/IPv6 ranges that a fetched page must never resolve to (SSRF guard). */
 function isPrivateAddress(address: string, family: number): boolean {
@@ -116,14 +117,9 @@ export async function assertPublicHost(url: URL): Promise<void> {
 }
 
 /**
- * The one hole in the fetch guards, and it is a test seam: SIGMA_RESEARCH_FIXTURE_ORIGIN
- * names an exact loopback origin (e.g. http://127.0.0.1:41234) that the deep
- * research eval serves a fixed corpus from, so the whole pipeline — search,
- * fetch, read, synthesize, ground — runs for real against known pages instead
- * of the live web. Unset in the shipped app; an unset seam recognizes nothing.
- * Compared as a whole origin, never a prefix, so it cannot widen.
+ * The one hole in the fetch guards, and it is a test seam — now in
+ * ../fixtureSeam.ts (v4.3), which net.ts and render.ts consult too, with the
+ * alias origin the live-world suite shows the model. Re-exported here, where
+ * search.ts and the docs have always found it.
  */
-export function isResearchFixtureOrigin(url: URL): boolean {
-  const seam = process.env.SIGMA_RESEARCH_FIXTURE_ORIGIN
-  return Boolean(seam) && url.origin === seam
-}
+export { isResearchFixtureOrigin }

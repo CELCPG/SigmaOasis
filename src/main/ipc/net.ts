@@ -4,6 +4,7 @@ import { isLoopbackHostname } from './loopback'
 import { httpRequest } from './httpClient'
 import type { HttpResponseLike } from './httpClient'
 import { currentProxyConfig, getEgressSession, getLocalSession } from './proxy'
+import { throughResearchFixture } from './fixtureSeam'
 
 /**
  * Request options accepted by `auditedFetch`. A deliberately small subset of
@@ -339,7 +340,9 @@ export async function auditedFetch(
     const target =
       purpose === 'lmstudio' ? await getLocalSession() : await getEgressSession()
 
-    const res = await httpRequest(url, {
+    // v4.3: a request to the research fixture's alias goes to the fixture
+    // itself (fixtureSeam.ts) — an eval seam, closed in the shipped app.
+    const res = await httpRequest(throughResearchFixture(url), {
       method: init?.method,
       headers: init?.headers,
       body: init?.body,

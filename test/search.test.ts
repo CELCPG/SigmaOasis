@@ -511,6 +511,48 @@ describe('SSRF guard (fetchWebpage)', () => {
     assert.equal(out.ok, false)
     assert.match(out.error!, /too many redirects/i)
   })
+
+  describe('v4.3: the research fixture alias (SIGMA_RESEARCH_FIXTURE_ALIAS)', () => {
+    const ALIAS = 'https://www.alias-fixture.example'
+    const withSeam = async <T>(env: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> => {
+      const keys = ['SIGMA_RESEARCH_FIXTURE_ORIGIN', 'SIGMA_RESEARCH_FIXTURE_ALIAS']
+      const before = keys.map((k) => process.env[k])
+      for (const k of keys) delete process.env[k]
+      Object.assign(process.env, Object.fromEntries(Object.entries(env).filter(([, v]) => v !== undefined)))
+      try {
+        return await fn()
+      } finally {
+        keys.forEach((k, i) => (before[i] === undefined ? delete process.env[k] : (process.env[k] = before[i])))
+      }
+    }
+
+    test('beside the fixture origin, the alias is admitted without being resolved, and the page keeps the alias URL', async () => {
+      state.dnsFailures = ['www.alias-fixture.example']
+      state.responses = [{ match: 'alias-fixture.example', contentType: 'text/html', body: page }]
+      const out = await withSeam({ SIGMA_RESEARCH_FIXTURE_ORIGIN: 'http://127.0.0.1:41234', SIGMA_RESEARCH_FIXTURE_ALIAS: ALIAS }, () => search.readWebpage(`${ALIAS}/forecast.html`, '', 5))
+      assert.equal(out.ok, true, out.error)
+      assert.equal(out.url, `${ALIAS}/forecast.html`)
+    })
+
+    test('without the origin the alias is an ordinary host — resolved, and refused when it does not resolve', async () => {
+      state.dnsFailures = ['www.alias-fixture.example']
+      const out = await withSeam({ SIGMA_RESEARCH_FIXTURE_ALIAS: ALIAS }, () => search.readWebpage(`${ALIAS}/forecast.html`, '', 5))
+      assert.equal(out.ok, false)
+      assert.match(out.error!, /could not resolve/i)
+    })
+
+    test('a non-HTTPS alias is ignored, and the seam never widens past the exact origin', async () => {
+      state.dnsFailures = ['www.alias-fixture.example', 'alias-fixture.example']
+      const plain = await withSeam({ SIGMA_RESEARCH_FIXTURE_ORIGIN: 'http://127.0.0.1:41234', SIGMA_RESEARCH_FIXTURE_ALIAS: 'http://www.alias-fixture.example' }, () =>
+        search.readWebpage('https://www.alias-fixture.example/x', '', 5)
+      )
+      assert.equal(plain.ok, false)
+      const sibling = await withSeam({ SIGMA_RESEARCH_FIXTURE_ORIGIN: 'http://127.0.0.1:41234', SIGMA_RESEARCH_FIXTURE_ALIAS: ALIAS }, () =>
+        search.readWebpage('https://alias-fixture.example/x', '', 5)
+      )
+      assert.equal(sibling.ok, false)
+    })
+  })
 })
 
 describe('runImageSearch', () => {

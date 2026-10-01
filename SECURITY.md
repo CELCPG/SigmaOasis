@@ -245,7 +245,12 @@ The outbound paths are:
   by the allowlist, so it is guarded separately: HTTPS only, private/loopback/link-local addresses
   refused, redirects followed manually with the check re-run on every hop, and hard size and time caps.
   HTML, plain text and PDF are accepted; every other content type is refused. When a proxy is active the
-  address check narrows; see "The DNS-leak / SSRF tradeoff" below.
+  address check narrows; see "The DNS-leak / SSRF tradeoff" below. One exception exists for the evals
+  and is closed unless the process environment opens it: `SIGMA_RESEARCH_FIXTURE_ORIGIN` admits one
+  exact loopback origin a suite serves pages from, and `SIGMA_RESEARCH_FIXTURE_ALIAS` (v4.3), only
+  beside it, one exact HTTPS origin that stands for it — requests to the alias are sent to the loopback
+  origin and the page renderer refuses it, so nothing addressed to it leaves the machine
+  (`src/main/ipc/fixtureSeam.ts`). The app never sets either.
 - **`deep_research`**: several `web_search` queries plus several `fetch_webpage` reads per call, all
   subject to the limits above and to a per-call budget capping searches, pages, **distinct domains** and
   wall clock. The user's question is never sent: only the planner's keyword queries, each redacted like

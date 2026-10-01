@@ -4,6 +4,7 @@ import { GENERIC_USER_AGENT } from './userAgent'
 import { applyProxyToSession } from './proxy'
 import { PAGE_EXTRACTION_SCRIPT } from './pageScript'
 import type { ExtractedLink } from './extract'
+import { isResearchFixtureAlias } from './fixtureSeam'
 
 /**
  * Headless page rendering for JavaScript-dependent sites.
@@ -143,6 +144,11 @@ export async function renderPage(targetUrl: string): Promise<RenderedPage | Rend
   }
   if (target.protocol !== 'https:') {
     return { ok: false, error: 'Refused: the renderer only loads HTTPS URLs.' }
+  }
+  // v4.3: the research fixture's alias stands for a loopback page; Chromium
+  // would load the alias host itself, off the machine (fixtureSeam.ts).
+  if (isResearchFixtureAlias(target)) {
+    return { ok: false, error: 'Refused: the research fixture alias is never rendered.' }
   }
 
   const partition = `sigma-render-${uid()}`
