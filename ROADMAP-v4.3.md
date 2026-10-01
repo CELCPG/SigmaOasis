@@ -116,5 +116,6 @@ the notes give the procedure and it can be proved here.
 | F1–F3 | **done** | — |
 | `npm test` on `rel/4.3` | green | node suite 3,584/3,584; render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 |
 
-Measured on Windows, `qwen3.8-9b-distill` on the RTX 5070 (the installed app sharing it, the Clerk
-task paused). Draft notes: `RELEASE-NOTES-v4.3.0.md`.
+Measured on Windows, `qwen3.8-9b-distill` on the RTX 5070, the Clerk task paused (whether the
+installed app, the model's other client, was open was not checked). Draft notes:
+`RELEASE-NOTES-v4.3.0.md`.

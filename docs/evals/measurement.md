@@ -151,6 +151,6 @@ night:
   costs the 0.7 s. Each repeat agreed within 2.5 s (first) and 30 ms (next).
 - A prompt cache that holds: warm 73 ms against cold 1.0–1.1 s; turn 10 (3,118 prompt tokens)
   costs 30–40 ms more than turn 1.
-- Not quiet: the installed Sigma Oasis app shares the model (two slots) and was running — the
-  bench could not close it; the OpenClaw Clerk task, the model's other client, was paused. LM
-  Studio's MTP drafting kept 41–90% of drafted tokens.
+- The OpenClaw Clerk task, a client of the same model, was paused. The installed Sigma Oasis app
+  also shares the model (two slots); whether it was open during the runs was not checked — at
+  00:55 it was not running. LM Studio's MTP drafting kept 41–90% of drafted tokens.
