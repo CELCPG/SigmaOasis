@@ -58,7 +58,11 @@ the notes give the procedure and it can be proved here.
    autoprefixer; @types/node 24.19; `npm audit fix` without `--force`.
 7. marked 12 → 18 — the notes' first major, on the XSS path, done by their procedure.
 8. electron-builder 26 — nine of the advisories left, `tar` critical among them; needs a Mac and a
-   release-workflow dry run.
+   release-workflow dry run. The Windows half is on the track `4.3/builder26` (`0126690`, not
+   merged): 26 refuses 24's `mac.notarize: { teamId }` for *every* platform's build, so
+   `notarize: true` (the team id from `APPLE_TEAM_ID`); with that, the Windows installer, its
+   blockmap and `latest.yml` come out under the release's names, `latest.yml` field for field as
+   24 wrote it for v4.2.0, and the app.asar packs the same 52 packages at the same versions.
 9. The build chain (vite 7, electron-vite 5, plugin-react 5); then React 19, zustand 5, tailwind
    4, electron-store 11, TypeScript 7.
 
@@ -88,8 +92,9 @@ the notes give the procedure and it can be proved here.
 3. **marked 18 is merged** into `rel/4.3` (`020e839`). Keep it, or `git revert -m 1 020e839`.
 4. **The live fixture** — let the test seam map one public-looking HTTPS origin to the loopback
    server (E4), or re-word the suite; either way the 4.1 gate waits for it.
-5. **electron-builder 26** — when, and how to dry-run a signed release: a `v*` tag runs the real
-   release (and the tap bump), so a dry run wants a `workflow_dispatch` path or a throwaway repo.
+5. **electron-builder 26** — `4.3/builder26` has the config change and the Windows proof; when to
+   merge it, and how to dry-run the signed Mac half: a `v*` tag runs the real release (and the tap
+   bump), so a dry run wants a `workflow_dispatch` path or a throwaway repo.
 6. **No 4.3.0-dev.** Release branches keep the last released version until the release commit
    ("4.1.0: version", "4.2.0: version" bump `package.json`, the lockfile and `CLIENT_INFO`
    together); `rel/4.3` follows that and still says 4.2.0.
@@ -106,7 +111,8 @@ the notes give the procedure and it can be proved here.
 | E4–E8 | open | — |
 | D1–D6 | **done**, each with the full `npm test` | advisories 18 → 11 |
 | D7 marked 18 | **done**, merged from `4.3/marked` | 25 samples: identical HTML but for three rendering-neutral changes |
-| D8–D9 | open — planned in docs/dependencies-4.1.md | the 11 advisories left all need these |
+| D8 electron-builder 26 | track `4.3/builder26`, not merged — Windows proved, Mac needs Colin | advisories 11 → 3 on the track |
+| D9 the build chain and the rest | open — planned in docs/dependencies-4.1.md | the 3 left after D8 |
 | F1–F3 | **done** | — |
 | `npm test` on `rel/4.3` | green | node suite 3,584/3,584; render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 |
 

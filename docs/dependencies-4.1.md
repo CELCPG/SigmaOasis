@@ -151,7 +151,12 @@ a major.
    `set-key-partition-list` password bug) before deleting it; artifact names are hard-coded and
    should not move. The proof needs a Mac and the release workflow: `npm run build:unpack` on each
    platform, a signed and notarized build from a branch, and an update from 4.2.0 to it. That
-   needs Colin — a tag runs the real release — so it was not attempted.
+   needs Colin — a tag runs the real release — so the Mac half was not attempted. **The Windows
+   half is done on `4.3/builder26`** (not merged): 26 refuses `mac.notarize: { teamId }` for every
+   platform's build ("should be a boolean"), so `notarize: true`; then `--win` gives
+   `Sigma-Oasis-<v>-setup.exe`, its blockmap and a `latest.yml` field for field as 24 wrote it
+   for v4.2.0; the app.asar packs the same 52 packages at the same versions (plus dompurify's
+   `@types/trusted-types`, and one ajv where 24 packed two); `npm audit` there: 3.
 2. **The build chain together: vite 7 + electron-vite 5 + @vitejs/plugin-react 5** (the two
    remaining moderates and vite's high: path traversal in the dev server, esbuild answering any
    website — dev-server exposure, `npm run dev` only). vite 8 waits for electron-vite 6.

@@ -74,7 +74,8 @@ upgrades, the reply renderer's markdown library among them. The plan and its sta
 - The live suite's fixture origin (it waits on a decision about the fetch guard's test seam), so
   4.1's live-world gate is still unjudged.
 - Every experiment stays off; none has been re-run at four passes a side against the new baseline.
-- electron-builder 26, the build chain, React 19, zustand 5, tailwind 4, electron-store 11.
+- electron-builder 26 (on its own branch: the Windows build is proved, the signed Mac build is
+  not), the build chain, React 19, zustand 5, tailwind 4, electron-store 11.
 
 ## Upgrade notes
 
