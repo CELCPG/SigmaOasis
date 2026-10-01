@@ -100,10 +100,11 @@ function loadJson<T>(dir: string): (T & { file: string })[] {
 async function complete(
   model: string,
   messages: Msg[],
-  tools?: unknown[]
+  tools?: unknown[],
+  maxTokens = ANSWER_MAX_TOKENS
 ): Promise<{ content: string; toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]; finishReason?: string }> {
   try {
-    return await completeOnce(model, messages, tools)
+    return await completeOnce(model, messages, tools, maxTokens)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (/^HTTP \d/.test(message)) throw err
@@ -112,14 +113,28 @@ async function complete(
     if (/produced no answer/.test(message)) throw err
     process.stdout.write(`    (retrying after transport failure: ${message.slice(0, 60)})\n`)
     await new Promise((r) => setTimeout(r, 3000))
-    return completeOnce(model, messages, tools)
+    return completeOnce(model, messages, tools, maxTokens)
   }
 }
+
+/** The cap on an answer: see completeOnce. */
+const ANSWER_MAX_TOKENS = 2000
+/**
+ * v4.3: think harder's review and revision. The app sends both with the slot's
+ * own cap (-1, none) and thinking on — reasoning about the draft is the pass —
+ * so 2000 truncated what the app does not: on 2026-10-01 the 9B distill's
+ * review of 03-compound-monthly spent 1,999 of 2,000 tokens thinking, twice,
+ * and the case was excluded as an error. 6000 is about a minute on the 9B,
+ * inside the transport window the 2000 was chosen for at ~100 tok/s; a model
+ * slow enough to overrun it fails as a transport error, and says so.
+ */
+const DELIBERATION_MAX_TOKENS = 6000
 
 async function completeOnce(
   model: string,
   messages: Msg[],
-  tools?: unknown[]
+  tools?: unknown[],
+  maxTokens = ANSWER_MAX_TOKENS
 ): Promise<{ content: string; toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]; finishReason?: string }> {
   const res = await fetch(`${BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
@@ -143,7 +158,7 @@ async function completeOnce(
       // very symptom this cap exists to remove. 2000 finishes inside that
       // window on a slow local model, and every real answer in every suite is
       // far shorter (the longest reasoning draft measured was 179 characters).
-      max_tokens: 2000,
+      max_tokens: maxTokens,
       ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
     })
   })
@@ -1751,18 +1766,29 @@ async function runQuantSuite(
           sampling: { temperature: 0, topP: 1, maxTokens: -1, seed: null, topK: -1, minP: -1 },
           contextWindow: null
         }
-        const review = await complete(model, del.buildReviewMessages(slot, fx.prompt, bareDraft, 'Assistant', true) as never)
+        // v4.3: a review that reasons and never answers leaves the draft standing,
+        // as the app does (runDeliberation: status 'unreviewed', draft kept) — it
+        // is what the user is shown, so it is what is scored, and it is counted.
+        let reviewText = ''
+        let unreviewed = false
+        try {
+          reviewText = (await complete(model, del.buildReviewMessages(slot, fx.prompt, bareDraft, 'Assistant', true) as never, undefined, DELIBERATION_MAX_TOKENS)).content
+        } catch (err) {
+          if (!/produced no answer/.test(err instanceof Error ? err.message : String(err))) throw err
+          unreviewed = true
+        }
+        if (!unreviewed && del.classifyReview(reviewText) === 'none') unreviewed = true
         let text = bareDraft
         let revised = false
-        if (del.reviewFoundProblems(review.content)) {
-          const r2 = await complete(model, del.buildRevisionMessages(slot, fx.prompt, bareDraft, review.content) as never)
+        if (!unreviewed && del.reviewFoundProblems(reviewText)) {
+          const r2 = await complete(model, del.buildRevisionMessages(slot, fx.prompt, bareDraft, reviewText) as never, undefined, DELIBERATION_MAX_TOKENS)
           if (r2.content.trim()) {
             text = r2.content
             revised = true
           }
         }
         out.replies!.deliberated = text.slice(0, 1500)
-        out.deliberated = { ...scoreOf(text), ms: Date.now() - t0, revised }
+        out.deliberated = { ...scoreOf(text), ms: Date.now() - t0, revised, ...(unreviewed ? { unreviewed: true } : {}) }
       } catch (err) {
         out.deliberated = { hit: false, missing: [], ms: Date.now() - t0, revised: false, error: err instanceof Error ? err.message : String(err) }
       }
@@ -1927,7 +1953,8 @@ async function main(): Promise<void> {
           ? `  with the Workbench   ${s.workbench.hit}/${s.workbench.of}  ${pct(s.workbench)}   ${s.seconds.workbench.toFixed(1)} s/case\n`
           : '') +
         (want.includes('deliberate')
-          ? `  bare + think harder  ${s.deliberated.hit}/${s.deliberated.of}  ${pct(s.deliberated)}   ${s.seconds.deliberated.toFixed(1)} s/case\n`
+          ? `  bare + think harder  ${s.deliberated.hit}/${s.deliberated.of}  ${pct(s.deliberated)}   ${s.seconds.deliberated.toFixed(1)} s/case\n` +
+            (s.unreviewed.hit ? `  of which unreviewed  ${s.unreviewed.hit}/${s.unreviewed.of}  (the review never answered; the draft stood, as in the app)\n` : '')
           : '')
     )
     if (passesWanted > 1) {

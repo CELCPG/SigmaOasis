@@ -129,6 +129,14 @@ describe('assertedPatterns — negation-aware "must not"', () => {
 })
 
 describe('summaries', () => {
+  test('v4.3: a think-harder pass whose review never answered is scored on the draft that stood, and counted as unreviewed', () => {
+    const q = summarizeQuant([
+      { file: 'a', prompt: '', bare: { hit: false, missing: ['x'], ms: 1000 }, deliberated: { hit: false, missing: ['x'], ms: 20_000, revised: false, unreviewed: true } },
+      { file: 'b', prompt: '', bare: { hit: true, missing: [], ms: 1000 }, deliberated: { hit: true, missing: [], ms: 5000, revised: true } }
+    ])
+    assert.deepEqual(q.deliberated, { hit: 1, of: 2 })
+    assert.deepEqual(q.unreviewed, { hit: 1, of: 2 })
+  })
   test('errored arms are excluded from rates, not counted as failures', () => {
     const q = summarizeQuant([
       { file: 'a', prompt: '', bare: { hit: false, missing: ['x'], ms: 1000 }, workbench: { hit: true, missing: [], ms: 2000, toolCalls: 1 } },

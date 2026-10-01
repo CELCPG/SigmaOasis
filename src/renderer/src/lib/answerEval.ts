@@ -267,8 +267,12 @@ export interface QuantCaseResult {
   workbench?: { hit: boolean; missing: string[]; ms: number; toolCalls: number; error?: string }
   /** What the model actually ran, so a miss can be read rather than re-run. */
   tools?: { name: string; code?: string; result?: string }[]
-  /** The bare draft after one think-harder pass. */
-  deliberated?: { hit: boolean; missing: string[]; ms: number; revised: boolean; error?: string }
+  /**
+   * The bare draft after one think-harder pass. v4.3: `unreviewed` when the
+   * review never answered (it reasoned to its cap, or came back empty) — the
+   * draft stands, as the app keeps it, and is what is scored.
+   */
+  deliberated?: { hit: boolean; missing: string[]; ms: number; revised: boolean; unreviewed?: boolean; error?: string }
   /**
    * v1.9.2: what the grounding ladder said about the Workbench reply.
    *
@@ -284,6 +288,8 @@ export interface QuantSummary {
   bare: Rate
   workbench: Rate
   deliberated: Rate
+  /** v4.3: think-harder passes whose review never answered, so the draft stood unreviewed. */
+  unreviewed: Rate
   /** Mean seconds per case, per arm. */
   seconds: { bare: number; workbench: number; deliberated: number }
 }
@@ -300,6 +306,7 @@ export function summarizeQuant(results: QuantCaseResult[]): QuantSummary {
     bare: rate(bare.filter((r) => r.bare.hit).length, bare.length),
     workbench: rate(wb.filter((r) => r.workbench!.hit).length, wb.length),
     deliberated: rate(del.filter((r) => r.deliberated!.hit).length, del.length),
+    unreviewed: rate(del.filter((r) => r.deliberated!.unreviewed).length, del.length),
     seconds: {
       bare: mean(bare.map((r) => r.bare.ms / 1000)),
       workbench: mean(wb.map((r) => r.workbench!.ms / 1000)),
