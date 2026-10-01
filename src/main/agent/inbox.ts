@@ -11,6 +11,7 @@
  */
 import { promises as fs } from 'fs'
 import { basename, extname, join } from 'path'
+import { ensureSigmaIgnore } from './worktree'
 
 export const INBOX_DIR = join('.sigma', 'inbox')
 const MAX_INBOX_FILES = 20
@@ -26,6 +27,8 @@ export interface InboxResult {
 export async function copyToInbox(workspace: string, paths: readonly string[]): Promise<InboxResult> {
   const inbox = join(workspace, INBOX_DIR)
   await fs.mkdir(inbox, { recursive: true })
+  // v4.3: a dropped file is the app's copy, never something to commit.
+  await ensureSigmaIgnore(workspace)
   const copied: string[] = []
   const skipped: InboxResult['skipped'] = []
   for (const p of paths.slice(0, MAX_INBOX_FILES)) {

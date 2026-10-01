@@ -7,6 +7,7 @@ import { applyEdit } from './editMatch'
 import { changedSpan, digestCommandOutput, editedWindow, groupGrepOutput } from './digests'
 import { runCommand } from './command'
 import { documentKind, readDocument, writeDocument, type Sheet } from './documents'
+import { ensureSigmaIgnore } from './worktree'
 import {
   assertWritableInside,
   globToRegExp,
@@ -857,6 +858,8 @@ export class Toolbox {
     } else {
       const trashDir = join(root, '.sigma', 'trash')
       await fs.mkdir(trashDir, { recursive: true })
+      // v4.3: what the agent deleted is not new work for the user's git status.
+      await ensureSigmaIgnore(root)
       await fs.rename(abs, join(trashDir, `${Date.now()}-${basename(abs)}`))
       where = '.sigma/trash/'
     }

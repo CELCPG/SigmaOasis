@@ -12,9 +12,41 @@
  */
 import { execFile } from 'child_process'
 import { promises as fs } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 export const WORKTREES_DIR = join('.sigma', 'worktrees')
+
+/**
+ * The app's own plumbing under `.sigma/`, which the folder's repository must
+ * never see as untracked: task worktrees, the inbox (C6), the trash chores
+ * delete to (C2), and the ignore file itself. notes.md and hooks.json are not
+ * here — those stay the user's to commit.
+ */
+export const SIGMA_IGNORED = ['worktrees/', 'inbox/', 'trash/', '.gitignore'] as const
+
+/**
+ * v4.3: `.sigma/.gitignore`, written or brought up to date. Through 4.2 it was
+ * written once, by the first worktree, with `worktrees/` alone — so a dropped
+ * file in `.sigma/inbox/` or a deleted one in `.sigma/trash/` showed in the
+ * user's `git status`, and an ignore file an earlier version wrote was never
+ * fixed. Lines are only ever added; a line the user wrote stays.
+ */
+export async function ensureSigmaIgnore(root: string): Promise<void> {
+  const dir = join(root, '.sigma')
+  await fs.mkdir(dir, { recursive: true })
+  const file = join(dir, '.gitignore')
+  let current = ''
+  try {
+    current = await fs.readFile(file, 'utf8')
+  } catch {
+    /* none yet */
+  }
+  const have = new Set(current.split(/\r?\n/).map((l) => l.trim()))
+  const missing = SIGMA_IGNORED.filter((line) => !have.has(line))
+  if (!missing.length) return
+  await fs.writeFile(file, `${current}${current && !current.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`)
+}
 
 export interface Worktree {
   /** Absolute path of the worktree, the task's workspace. */
@@ -72,16 +104,18 @@ export async function ensureWorktree(root: string, prompt: string, previous?: Wo
   const branch = `sigma/${slug}`
   const path = join(root, WORKTREES_DIR, slug)
   // The outer repository must not see its own worktrees as untracked files.
-  await fs.mkdir(join(root, '.sigma'), { recursive: true })
-  const ignore = join(root, '.sigma', '.gitignore')
+  await ensureSigmaIgnore(root)
+  // v4.3: with no hooks. `git worktree add` checks the tree out, and a checkout
+  // runs the repository's post-checkout hook — code from the folder the app
+  // was pointed at, run because the app (not the user) asked git for a
+  // worktree. Hooks are read from an empty directory made for this call; never
+  // one inside the repository, which the repository could fill.
+  const noHooks = await fs.mkdtemp(join(tmpdir(), 'sigma-no-hooks-'))
   try {
-    await fs.stat(ignore)
-  } catch {
-    // The ignore file ignores itself too: notes.md and hooks.json stay the
-    // user's to commit; the plumbing never shows in git status.
-    await fs.writeFile(ignore, 'worktrees/\n.gitignore\n')
+    const made = await git(['-c', `core.hooksPath=${noHooks}`, 'worktree', 'add', '-b', branch, path, 'HEAD'], root)
+    if (!made.ok) return null
+  } finally {
+    await fs.rm(noHooks, { recursive: true, force: true }).catch(() => undefined)
   }
-  const made = await git(['worktree', 'add', '-b', branch, path, 'HEAD'], root)
-  if (!made.ok) return null
   return { path, branch }
 }

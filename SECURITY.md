@@ -74,9 +74,10 @@ is plain Node and never imports Electron (`test/agentEngine.test.ts` fails the b
     `run_command`: the same dialog, the same grants, the same network notice. Read the dialog: a hook
     is a command the repository chose.
   - **Worktrees (A9)** — the app itself runs `git rev-parse` and `git worktree add`, without a dialog.
-    Neither contacts a remote, but git runs the repository's own `post-checkout` hook on
-    `worktree add` if one is installed, and honours its config: code the repository ships, run
-    without asking. Turn this on in repositories you trust.
+    Neither contacts a remote. Since 4.3 `worktree add` runs with `core.hooksPath` set to an empty
+    directory made for the call, so the repository's own `post-checkout` hook does not run (through
+    4.2 it did: code the repository ships, run without asking). git still honours the repository's
+    config. Turn this on in repositories you trust.
   - **Notes (A10), recipes (C3), slash commands (C7)** — `.sigma/notes.md` and
     `.sigma/commands/*.md` are text from the folder that rides the prompt, as `SIGMA.md` does. They
     run nothing, but they are instructions: see prompt injection, below.
@@ -105,9 +106,10 @@ is plain Node and never imports Electron (`test/agentEngine.test.ts` fails the b
 | `trash/` | Files the CLI's `delete_file` moved aside (C2) | Your files |
 | `worktrees/` | One git worktree per task, on a `sigma/<slug>` branch (A9) | Plumbing |
 
-`.sigma/.gitignore`, written with the first worktree, ignores `worktrees/` and itself — **not**
-`inbox/` or `trash/`. In a repository you push, a `git add -A` commits a dropped file or a deleted
-one; add them to your own ignore file.
+`.sigma/.gitignore` ignores `worktrees/`, `inbox/`, `trash/` and itself, and is written — or an older
+one brought up to date, lines only ever added — whenever the app makes any of those folders (v4.3;
+through 4.2 it ignored `worktrees/` alone, and a `git add -A` committed a dropped or a deleted file).
+`notes.md`, `hooks.json` and `commands/` stay yours to commit.
 
 ## What this does not protect against
 
