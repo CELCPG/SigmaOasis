@@ -118,3 +118,42 @@ electron-builder 24 with electron-updater 6 before signing work; update marked;
 vite/electron-vite majors after"). Each step is one change on its own branch
 with the whole `npm test` and a launched app, because `node_modules` is shared
 between worktrees and an install in one moves every other.
+
+## 4.3 (2026-10-01): what moved, and the order for the rest
+
+Done on `rel/4.3`, one group a commit, the whole `npm test` green after each (node suite 3,584;
+all fourteen Electron check suites). Lockfiles were written by npm 11.10 on Windows, which drops
+the `libc` field of the optional native packages; those fields were put back by hand so the diffs
+carry only the upgrade.
+
+| group | from → to | why |
+| --- | --- | --- |
+| D1 | electron 44.1.1 → 44.5.1 | patch inside the range |
+| D2 | dompurify 3.4.12 → 3.4.16 | the sanitizer; ≤ 3.4.12 has an XSS advisory (IN_PLACE hook removal — the app does not use IN_PLACE) |
+| D3 | highlight.js 11.11.1 → 11.12.0 | minor inside the range |
+| D4 | postcss 8.5.23 → 8.5.28, autoprefixer 10.5.4 → 10.6.1 | with browserslist and nanoid 3.3.19 (nanoid < 3.3.18, high) |
+| D5 | @types/node 24.13.3 → 24.19.0 | types for Electron 44's Node 24 |
+| D6 | `npm audit fix`, no `--force` | undici, fast-uri (electron-store's ajv, in the main process), js-yaml (electron-updater's manifest reader), brace-expansion, @xmldom/xmldom |
+| D7 | **marked 12 → 18** | this file's order: renderers on token objects, then 18. Merged from `4.3/marked`; `renderMarkdown`'s HTML compared across 25 samples, identical but for three rendering-neutral changes |
+
+`npm audit`: 18 advisories before (1 critical, 14 high, 3 moderate), 11 after. Every one left needs
+a major.
+
+**Next, in this order:**
+
+1. **electron-builder 24 → 26 — now first, not only before signing work.** Nine of the eleven
+   advisories are its tree: `tar` (critical: file creation and overwrite through hardlinks and
+   symlinks), `builder-util-runtime` (a cross-origin redirect leaks `PRIVATE-TOKEN` and
+   `Authorization`), `app-builder-lib` (the AppImage's search path). All build time, on the
+   machines that build releases. The plan above stands: `mac.notarize` becomes a boolean with the
+   team id from `APPLE_TEAM_ID`; Windows signing options move under `win.signtoolOptions`; check
+   whether 26 still needs `release.yml`'s own keychain (the `CSC_KEYCHAIN` workaround for 24's
+   `set-key-partition-list` password bug) before deleting it; artifact names are hard-coded and
+   should not move. The proof needs a Mac and the release workflow: `npm run build:unpack` on each
+   platform, a signed and notarized build from a branch, and an update from 4.2.0 to it. That
+   needs Colin — a tag runs the real release — so it was not attempted.
+2. **The build chain together: vite 7 + electron-vite 5 + @vitejs/plugin-react 5** (the two
+   remaining moderates and vite's high: path traversal in the dev server, esbuild answering any
+   website — dev-server exposure, `npm run dev` only). vite 8 waits for electron-vite 6.
+3. React 19 + @types/react 19, then zustand 5, then tailwind 4 (alone), then electron-store 11,
+   then TypeScript 7 — as above, each on its own branch with a launched app.
