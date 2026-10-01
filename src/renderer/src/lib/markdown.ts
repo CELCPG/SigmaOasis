@@ -1,4 +1,4 @@
-import { marked, type TokenizerThis } from 'marked'
+import { marked, type TokenizerThis, type Tokens } from 'marked'
 import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 
@@ -233,9 +233,18 @@ marked.use({
       }
     }
   },
+  /*
+   * v4.3 (marked 12 → 18): renderers receive token objects, not positional
+   * arguments — the positional form was deprecated in 13 and removed in 14.
+   * Since 15 marked escapes HTML in its renderers rather than its tokenizers,
+   * so what these two emit they escape themselves: the code goes through
+   * highlight.js (which escapes) and the language name through escapeHtml; the
+   * table's cells come from marked's own tablecell. test/markdownCheck.ts, in a
+   * real window, is the proof on the DOMPurify side.
+   */
   renderer: {
-    code(code: string, infostring: string | undefined): string {
-      const requested = (infostring ?? '').trim().split(/\s+/)[0]
+    code({ text: code, lang }: Tokens.Code): string {
+      const requested = (lang ?? '').trim().split(/\s+/)[0]
       const language = requested && hljs.getLanguage(requested) ? requested : 'plaintext'
       const highlighted = streamingParse ? highlightInChunks(code, language) : highlight(code, language)
       // Scrolling is the default and stays the default; startsWrapped names the
@@ -273,7 +282,10 @@ marked.use({
      * columns. tabindex="0" because a region that scrolls must be scrollable
      * from the keyboard; DOMPurify keeps both attributes.
      */
-    table(header: string, body: string): string {
+    table(token: Tokens.Table): string {
+      const row = (cells: Tokens.TableCell[]): string => this.tablerow({ text: cells.map((cell) => this.tablecell(cell)).join('') })
+      const header = row(token.header)
+      const body = token.rows.map(row).join('')
       return (
         `<div class="md-table-scroll" tabindex="0"><table>` +
         `<thead>${header}</thead>` +
