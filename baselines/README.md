@@ -88,3 +88,6 @@ eight. The 4.1 gate called the 4.1 engine's second run WORSE than its first; the
 against 4.2 (four passes each) SAME-WITHIN-NOISE — solved −2.50 per pass against a band of ±3.21,
 collateral +1.25 against ±1.35. At that spread a four-pass arm resolves about ±3.5 cases of 26; a
 2-case change needs about 13 passes a side.
+
+The committed `agent-qwen3.8-9b-distill.json` is those eight passes, four runs (v4.3): solved
+18.25 of 26 a pass, σ 2.49; a four-pass run diffed against it gets a band of ±3.05.
