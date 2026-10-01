@@ -514,3 +514,40 @@ The harness had to give this up to measure it. Its `complete()` treated an empty
 — correct for the reasoning suite, which has no tools and no loop to recover — and that throw
 pre-empted the very recovery being tested. It now defers when tools are in play, because reporting
 a failure the app does not have is the same error as missing one it does.
+
+## The distill, measured after 4.1 and 4.2 (v4.3)
+
+`qwen3.8-9b-distill` (68,608-token window, temperature 0), main's code (4.2.0), the default suites
+plus `live`, three passes, 2026-09-30 night. No server error and no excluded case in any pass. The
+first answer-suite numbers for this model; the 2026-08 table above is qwythos-9b's.
+
+| suite | pass 1 | pass 2 | pass 3 | all three |
+| --- | --- | --- | --- | --- |
+| library: answered (every required fact) | 26/28 | 27/28 | 27/28 | 80/84 · 95% |
+| library: cited the source | 19/28 | 18/28 | 18/28 | 55/84 · 65% |
+| library: stated an unsupported measurement | 4/28 | 5/28 | 5/28 | 14/84 · 17% (lower is better) |
+| quant: bare | 10/20 | 10/20 | 8/20 | 28/60 · 47% |
+| quant: with the Workbench | 19/20 | 20/20 | 20/20 | **59/60 · 98%** |
+| deliberate: bare → think harder | 9 → 10 of 20 | 10 → 10 of 19 | 10 → 10 of 19 | 29/60 → 30/58 |
+| live: passed every line | 4/6 | 3/6 | 3/6 | 10/18 · 56% |
+| live: ledger answers · wrong day | 0 · 0 | 0 · 0 | 0 · 0 | 0/18 · 0/18 |
+
+About 5 s a library case, 3.5 s a Workbench case — the distill answers briefly.
+
+- **Library.** Retrieval found passages for every case in every pass. Citing is where it is weak:
+  a third of the replies name no source. The unsupported figures repeat (`08` "5 years", `14`
+  "18°C", `21` "20 feet", `25` "30%, 15%, 10%"). `20-tornado-during`'s *forbidden* hit is the
+  check's false positive: the reply says "stay away from windows", which is the advice, and the
+  pattern cannot see the negation. Forbidden hits are printed per case and counted in no summary
+  line.
+- **Deliberate.** Think-harder moved one case in 60. Twice in `03-compound-monthly` the review
+  spent 1,999 of its 2,000 completion tokens reasoning and returned nothing — on a reasoning model
+  the review pass's budget goes to thinking.
+- **Live misses its 4.1 gate (≥ 90%), and the suite is why.** Every miss searched and then gave no
+  answer, and 7 of the 8 say why: the results were "local/internal pages" or "localhost URLs that
+  aren't accessible". The fixture pages are `http://127.0.0.1:<port>/…`, and `fetch_webpage`'s
+  description says *HTTPS only, private addresses refused* — the model declined to fetch what the
+  app's own tool says it cannot. It never answered from the planted ledger entry or with the wrong
+  day's figure. Until the fixture serves its pages under a public-looking HTTPS origin (a seam
+  change in `src/main/ipc/search/ssrf.ts`, so a decision, ROADMAP-v4.3.md), this number measures
+  the fixture.

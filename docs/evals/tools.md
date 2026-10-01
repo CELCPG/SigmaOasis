@@ -46,3 +46,32 @@ nothing the model sees unless a server's tool outranks a built-in for the user's
 on these 24 fixtures none did: the same six tools went on the wire, the same 57 calls were
 right, and no stub tool was ever called. The scope's reserved-slots mitigation (§4.5) stays
 unbuilt, with this table as the reason.
+
+## The distill, re-measured after 4.1 and 4.2 changed the descriptions (v4.3)
+
+4.1 dropped the tool descriptions' Example lines (S5, `adceca4` — the only change to
+`src/shared/tools/defs` between 4.0.1 and 4.2.0) and added the live fixtures. Both arms re-run on `qwen3.8-9b-distill` (68,608-token window, temperature 0), four separate one-pass
+runs each, 2026-09-30 night, no server error in any run. They are the first tool-choice baselines:
+`baselines/toolchoice-qwen3.8-9b-distill.json` and `…-subset.json`.
+
+| arm | clean per pass (of 28) | correct-tool | spurious (no-tool) | loops | invalid arguments |
+| --- | --- | --- | --- | --- | --- |
+| the whole toolbox | 22, 22, 22, 22 | 84/100 · 84% | 0/12 | 16/112 | 0 |
+| **the app's subset** (`EVAL_SUBSET=1`) | **23, 23, 23, 23** | 80/100 · 80% | 0/12 | 0/112 | 0 |
+
+No fixture flipped between runs: the noise floor here is zero, and every miss is a choice.
+
+- **Both arms:** `05-web-search-fx` ("EUR to USD") and `27-live-futures` ("s&p futures this
+  morning") call `market_data`, whose description says it is daily history and not for live
+  quotes; in the subset `05` sometimes calls nothing.
+- **The whole toolbox:** `01-list-directory` and `16-shop-compare` call the right tool and then
+  loop against the stubs to the cap; `09-datetime` calls nothing; `24-reference-own-docs` lists
+  directories.
+- **The subset:** `02-read-file` calls `read_note`, `03-write-file` calls `memory_save`,
+  `25-live-weather` calls `memory_search`. The results file does not record which six tools each
+  fixture put on the wire, so whether the expected one was among them is not known; recording it
+  is a small change to `eval-tools.ts` worth making before the next run.
+
+Against the subset arm of 2026-09-28 (4.0's descriptions, `vibe.md`), on the 24 fixtures both ran:
+21 of 24 then and now. `02-read-file` was lost, `24-reference-own-docs` gained. The descriptions
+lost their Example lines and the model lost nothing measurable.

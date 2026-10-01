@@ -132,3 +132,25 @@ the share of drafted tokens the model kept, when the server reports it (LM Studi
 the field. The comparison that matters is decode tok/s and TTFT between the two lines. A role's
 *Draft model* (Settings → Roles) stays none by default until a line here shows a gain; the 9B
 distill already drafts through MTP in LM Studio's own config and is not expected to gain.
+
+**The first lines (2026-09-30 night).** `qwen3.8-9b-distill` on the RTX 5070, `BENCH_WINDOW=68608`
+(the loaded context), three repeats, medians; `4.2.0` from main's code, `4.3-dev` from rel/4.3 with
+the two low-water scenarios added. No 4.0.1 line exists, so the 4.1 gate's "down against 4.0.1"
+was never measured; the low-water pair is the before-and-after S1 claims, on one machine and one
+night:
+
+| label | cold | warm | turn-1 | turn-10 | window-first | window-next | lowwater-first | lowwater-next | decode tok/s | prompt at window |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4.2.0 | 1.1 s | 73 ms | 223 ms | 264 ms | 27.0 s | 27.6 s | — | — | 99.5 | 65,515 tok |
+| 4.3-dev | 1.0 s | 73 ms | 234 ms | 261 ms | 26.8 s | 27.5 s | 17.0 s | 703 ms | 95.5 | 65,514 tok |
+
+- **S1, measured:** past a full window, the next turn costs 27.5 s when the oldest turn is dropped
+  and the window re-read, and 0.70 s when the history was trimmed to the low-water mark the turn
+  before — 42,900 prompt tokens of which about 330 are new. The trim itself costs one 17.0 s
+  prefill of 65% of the window; every turn after it, until the history grows back to the brim,
+  costs the 0.7 s. Each repeat agreed within 2.5 s (first) and 30 ms (next).
+- A prompt cache that holds: warm 73 ms against cold 1.0–1.1 s; turn 10 (3,118 prompt tokens)
+  costs 30–40 ms more than turn 1.
+- Not quiet: the installed Sigma Oasis app shares the model (two slots) and was running — the
+  bench could not close it; the OpenClaw Clerk task, the model's other client, was paused. LM
+  Studio's MTP drafting kept 41–90% of drafted tokens.
