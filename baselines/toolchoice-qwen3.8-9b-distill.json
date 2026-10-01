@@ -1,0 +1,3512 @@
+{
+  "model": "qwen3.8-9b-distill",
+  "baseUrl": "http://127.0.0.1:1234/v1",
+  "ranAt": "2026-10-01T02:46:56.538Z",
+  "arm": "full",
+  "caveats": [
+    "tool results canned stubs",
+    "temperature 0"
+  ],
+  "scores": {
+    "correctTool": {
+      "hit": 21,
+      "of": 25
+    },
+    "spuriousCall": {
+      "hit": 0,
+      "of": 3
+    },
+    "argValidity": {
+      "hit": 82,
+      "of": 82
+    },
+    "loop": {
+      "hit": 4,
+      "of": 28
+    }
+  },
+  "runs": [
+    {
+      "file": "01-list-directory.json",
+      "prompt": "what's in my ~/Downloads folder?",
+      "expect": {
+        "tool": "list_directory"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "02-read-file.json",
+      "prompt": "read the file notes/todo.md and summarize it",
+      "expect": {
+        "tool": "read_file"
+      },
+      "round1Calls": [
+        "read_file"
+      ],
+      "allCalls": [
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "03-write-file.json",
+      "prompt": "save this shopping list to a file called groceries.txt: milk, eggs, coffee",
+      "expect": {
+        "tool": "write_file"
+      },
+      "round1Calls": [
+        "write_file"
+      ],
+      "allCalls": [
+        {
+          "name": "write_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "04-web-search-setlist.json",
+      "prompt": "what did Phish play at Hampton in 1997?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "05-web-search-fx.json",
+      "prompt": "what's the current EUR to USD exchange rate?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "06-fetch-webpage.json",
+      "prompt": "fetch https://example.com and tell me what it says",
+      "expect": {
+        "tool": "fetch_webpage"
+      },
+      "round1Calls": [
+        "fetch_webpage"
+      ],
+      "allCalls": [
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "07-deep-research.json",
+      "prompt": "research the pros and cons of heat pumps versus gas furnaces for a cold climate and give me a cited summary",
+      "expect": {
+        "tool": "deep_research"
+      },
+      "round1Calls": [
+        "deep_research"
+      ],
+      "allCalls": [
+        {
+          "name": "deep_research",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "08-finance-calculator.json",
+      "prompt": "if I invest $500 a month at 7% for 20 years, what will I have?",
+      "expect": {
+        "tool": "finance_calculator"
+      },
+      "round1Calls": [
+        "finance_calculator"
+      ],
+      "allCalls": [
+        {
+          "name": "finance_calculator",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "09-datetime.json",
+      "prompt": "what time is it right now?",
+      "expect": {
+        "tool": "get_current_datetime"
+      },
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "10-create-note.json",
+      "prompt": "save a note titled 'gift ideas' with: vinyl records, a good chef's knife",
+      "expect": {
+        "tool": "create_note"
+      },
+      "round1Calls": [
+        "create_note"
+      ],
+      "allCalls": [
+        {
+          "name": "create_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "11-list-notes.json",
+      "prompt": "what notes do I have saved?",
+      "expect": {
+        "tool": "list_notes"
+      },
+      "round1Calls": [
+        "list_notes"
+      ],
+      "allCalls": [
+        {
+          "name": "list_notes",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "12-read-note.json",
+      "prompt": "read my note called 'gift ideas'",
+      "expect": {
+        "tool": "read_note"
+      },
+      "round1Calls": [
+        "read_note"
+      ],
+      "allCalls": [
+        {
+          "name": "read_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "13-memory-save.json",
+      "prompt": "remember that my favorite band is Phish",
+      "expect": {
+        "tool": "memory_save"
+      },
+      "round1Calls": [
+        "memory_save"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "14-memory-search.json",
+      "prompt": "what do you remember about my music preferences?",
+      "expect": {
+        "tool": "memory_search"
+      },
+      "round1Calls": [
+        "memory_search"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "15-shop-requirements.json",
+      "prompt": "I need a new laptop for video editing, what should I look for?",
+      "expect": {
+        "tool": "shop_requirements"
+      },
+      "round1Calls": [
+        "shop_requirements"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_requirements",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "16-shop-compare.json",
+      "prompt": "compare prices for a 32GB RAM laptop with a 1TB SSD under $2000",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "17-no-tool-haiku.json",
+      "prompt": "write me a haiku about rain",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "18-no-tool-explain.json",
+      "prompt": "explain the difference between TCP and UDP",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "19-no-tool-email.json",
+      "prompt": "help me phrase a difficult email to my landlord about the broken heater",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "20-image-search-stroller.json",
+      "prompt": "show me what an all-terrain pet stroller looks like",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "21-image-search-laptop.json",
+      "prompt": "find me pictures of the MSI Titan 18 HX gaming laptop",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "22-price-near-miss.json",
+      "prompt": "what does the MSI Titan 18 HX gaming laptop cost right now?",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "23-reference-first-aid.json",
+      "prompt": "what does the first aid manual say about treating a burn?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "reference_lookup"
+      ],
+      "allCalls": [
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "24-reference-own-docs.json",
+      "prompt": "check my documents — what does the router manual say about resetting it?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "25-live-weather.json",
+      "prompt": "what's the weather in richmond va today?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "26-live-score.json",
+      "prompt": "who won the celtics game last night?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "27-live-futures.json",
+      "prompt": "how are s&p futures looking this morning?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "28-live-latest-version.json",
+      "prompt": "what's the latest version of node.js?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "01-list-directory.json",
+      "prompt": "what's in my ~/Downloads folder?",
+      "expect": {
+        "tool": "list_directory"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "02-read-file.json",
+      "prompt": "read the file notes/todo.md and summarize it",
+      "expect": {
+        "tool": "read_file"
+      },
+      "round1Calls": [
+        "read_file"
+      ],
+      "allCalls": [
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "03-write-file.json",
+      "prompt": "save this shopping list to a file called groceries.txt: milk, eggs, coffee",
+      "expect": {
+        "tool": "write_file"
+      },
+      "round1Calls": [
+        "write_file"
+      ],
+      "allCalls": [
+        {
+          "name": "write_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "04-web-search-setlist.json",
+      "prompt": "what did Phish play at Hampton in 1997?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "05-web-search-fx.json",
+      "prompt": "what's the current EUR to USD exchange rate?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "06-fetch-webpage.json",
+      "prompt": "fetch https://example.com and tell me what it says",
+      "expect": {
+        "tool": "fetch_webpage"
+      },
+      "round1Calls": [
+        "fetch_webpage"
+      ],
+      "allCalls": [
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "07-deep-research.json",
+      "prompt": "research the pros and cons of heat pumps versus gas furnaces for a cold climate and give me a cited summary",
+      "expect": {
+        "tool": "deep_research"
+      },
+      "round1Calls": [
+        "deep_research"
+      ],
+      "allCalls": [
+        {
+          "name": "deep_research",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "08-finance-calculator.json",
+      "prompt": "if I invest $500 a month at 7% for 20 years, what will I have?",
+      "expect": {
+        "tool": "finance_calculator"
+      },
+      "round1Calls": [
+        "finance_calculator"
+      ],
+      "allCalls": [
+        {
+          "name": "finance_calculator",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "09-datetime.json",
+      "prompt": "what time is it right now?",
+      "expect": {
+        "tool": "get_current_datetime"
+      },
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "10-create-note.json",
+      "prompt": "save a note titled 'gift ideas' with: vinyl records, a good chef's knife",
+      "expect": {
+        "tool": "create_note"
+      },
+      "round1Calls": [
+        "create_note"
+      ],
+      "allCalls": [
+        {
+          "name": "create_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "11-list-notes.json",
+      "prompt": "what notes do I have saved?",
+      "expect": {
+        "tool": "list_notes"
+      },
+      "round1Calls": [
+        "list_notes"
+      ],
+      "allCalls": [
+        {
+          "name": "list_notes",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "12-read-note.json",
+      "prompt": "read my note called 'gift ideas'",
+      "expect": {
+        "tool": "read_note"
+      },
+      "round1Calls": [
+        "read_note"
+      ],
+      "allCalls": [
+        {
+          "name": "read_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "13-memory-save.json",
+      "prompt": "remember that my favorite band is Phish",
+      "expect": {
+        "tool": "memory_save"
+      },
+      "round1Calls": [
+        "memory_save"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "14-memory-search.json",
+      "prompt": "what do you remember about my music preferences?",
+      "expect": {
+        "tool": "memory_search"
+      },
+      "round1Calls": [
+        "memory_search"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "15-shop-requirements.json",
+      "prompt": "I need a new laptop for video editing, what should I look for?",
+      "expect": {
+        "tool": "shop_requirements"
+      },
+      "round1Calls": [
+        "shop_requirements"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_requirements",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "16-shop-compare.json",
+      "prompt": "compare prices for a 32GB RAM laptop with a 1TB SSD under $2000",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "17-no-tool-haiku.json",
+      "prompt": "write me a haiku about rain",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "18-no-tool-explain.json",
+      "prompt": "explain the difference between TCP and UDP",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "19-no-tool-email.json",
+      "prompt": "help me phrase a difficult email to my landlord about the broken heater",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "20-image-search-stroller.json",
+      "prompt": "show me what an all-terrain pet stroller looks like",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "21-image-search-laptop.json",
+      "prompt": "find me pictures of the MSI Titan 18 HX gaming laptop",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "22-price-near-miss.json",
+      "prompt": "what does the MSI Titan 18 HX gaming laptop cost right now?",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "23-reference-first-aid.json",
+      "prompt": "what does the first aid manual say about treating a burn?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "reference_lookup"
+      ],
+      "allCalls": [
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "24-reference-own-docs.json",
+      "prompt": "check my documents — what does the router manual say about resetting it?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "25-live-weather.json",
+      "prompt": "what's the weather in richmond va today?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "26-live-score.json",
+      "prompt": "who won the celtics game last night?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "27-live-futures.json",
+      "prompt": "how are s&p futures looking this morning?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "28-live-latest-version.json",
+      "prompt": "what's the latest version of node.js?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "01-list-directory.json",
+      "prompt": "what's in my ~/Downloads folder?",
+      "expect": {
+        "tool": "list_directory"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "02-read-file.json",
+      "prompt": "read the file notes/todo.md and summarize it",
+      "expect": {
+        "tool": "read_file"
+      },
+      "round1Calls": [
+        "read_file"
+      ],
+      "allCalls": [
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "03-write-file.json",
+      "prompt": "save this shopping list to a file called groceries.txt: milk, eggs, coffee",
+      "expect": {
+        "tool": "write_file"
+      },
+      "round1Calls": [
+        "write_file"
+      ],
+      "allCalls": [
+        {
+          "name": "write_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "04-web-search-setlist.json",
+      "prompt": "what did Phish play at Hampton in 1997?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "05-web-search-fx.json",
+      "prompt": "what's the current EUR to USD exchange rate?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "06-fetch-webpage.json",
+      "prompt": "fetch https://example.com and tell me what it says",
+      "expect": {
+        "tool": "fetch_webpage"
+      },
+      "round1Calls": [
+        "fetch_webpage"
+      ],
+      "allCalls": [
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "07-deep-research.json",
+      "prompt": "research the pros and cons of heat pumps versus gas furnaces for a cold climate and give me a cited summary",
+      "expect": {
+        "tool": "deep_research"
+      },
+      "round1Calls": [
+        "deep_research"
+      ],
+      "allCalls": [
+        {
+          "name": "deep_research",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "08-finance-calculator.json",
+      "prompt": "if I invest $500 a month at 7% for 20 years, what will I have?",
+      "expect": {
+        "tool": "finance_calculator"
+      },
+      "round1Calls": [
+        "finance_calculator"
+      ],
+      "allCalls": [
+        {
+          "name": "finance_calculator",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "09-datetime.json",
+      "prompt": "what time is it right now?",
+      "expect": {
+        "tool": "get_current_datetime"
+      },
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "10-create-note.json",
+      "prompt": "save a note titled 'gift ideas' with: vinyl records, a good chef's knife",
+      "expect": {
+        "tool": "create_note"
+      },
+      "round1Calls": [
+        "create_note"
+      ],
+      "allCalls": [
+        {
+          "name": "create_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "11-list-notes.json",
+      "prompt": "what notes do I have saved?",
+      "expect": {
+        "tool": "list_notes"
+      },
+      "round1Calls": [
+        "list_notes"
+      ],
+      "allCalls": [
+        {
+          "name": "list_notes",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "12-read-note.json",
+      "prompt": "read my note called 'gift ideas'",
+      "expect": {
+        "tool": "read_note"
+      },
+      "round1Calls": [
+        "read_note"
+      ],
+      "allCalls": [
+        {
+          "name": "read_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "13-memory-save.json",
+      "prompt": "remember that my favorite band is Phish",
+      "expect": {
+        "tool": "memory_save"
+      },
+      "round1Calls": [
+        "memory_save"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "14-memory-search.json",
+      "prompt": "what do you remember about my music preferences?",
+      "expect": {
+        "tool": "memory_search"
+      },
+      "round1Calls": [
+        "memory_search"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "15-shop-requirements.json",
+      "prompt": "I need a new laptop for video editing, what should I look for?",
+      "expect": {
+        "tool": "shop_requirements"
+      },
+      "round1Calls": [
+        "shop_requirements"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_requirements",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "16-shop-compare.json",
+      "prompt": "compare prices for a 32GB RAM laptop with a 1TB SSD under $2000",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "17-no-tool-haiku.json",
+      "prompt": "write me a haiku about rain",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "18-no-tool-explain.json",
+      "prompt": "explain the difference between TCP and UDP",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "19-no-tool-email.json",
+      "prompt": "help me phrase a difficult email to my landlord about the broken heater",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "20-image-search-stroller.json",
+      "prompt": "show me what an all-terrain pet stroller looks like",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "21-image-search-laptop.json",
+      "prompt": "find me pictures of the MSI Titan 18 HX gaming laptop",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "22-price-near-miss.json",
+      "prompt": "what does the MSI Titan 18 HX gaming laptop cost right now?",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "23-reference-first-aid.json",
+      "prompt": "what does the first aid manual say about treating a burn?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "reference_lookup"
+      ],
+      "allCalls": [
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "24-reference-own-docs.json",
+      "prompt": "check my documents — what does the router manual say about resetting it?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "25-live-weather.json",
+      "prompt": "what's the weather in richmond va today?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "26-live-score.json",
+      "prompt": "who won the celtics game last night?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "27-live-futures.json",
+      "prompt": "how are s&p futures looking this morning?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "28-live-latest-version.json",
+      "prompt": "what's the latest version of node.js?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "01-list-directory.json",
+      "prompt": "what's in my ~/Downloads folder?",
+      "expect": {
+        "tool": "list_directory"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "02-read-file.json",
+      "prompt": "read the file notes/todo.md and summarize it",
+      "expect": {
+        "tool": "read_file"
+      },
+      "round1Calls": [
+        "read_file"
+      ],
+      "allCalls": [
+        {
+          "name": "read_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "03-write-file.json",
+      "prompt": "save this shopping list to a file called groceries.txt: milk, eggs, coffee",
+      "expect": {
+        "tool": "write_file"
+      },
+      "round1Calls": [
+        "write_file"
+      ],
+      "allCalls": [
+        {
+          "name": "write_file",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "04-web-search-setlist.json",
+      "prompt": "what did Phish play at Hampton in 1997?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "05-web-search-fx.json",
+      "prompt": "what's the current EUR to USD exchange rate?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "06-fetch-webpage.json",
+      "prompt": "fetch https://example.com and tell me what it says",
+      "expect": {
+        "tool": "fetch_webpage"
+      },
+      "round1Calls": [
+        "fetch_webpage"
+      ],
+      "allCalls": [
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "07-deep-research.json",
+      "prompt": "research the pros and cons of heat pumps versus gas furnaces for a cold climate and give me a cited summary",
+      "expect": {
+        "tool": "deep_research"
+      },
+      "round1Calls": [
+        "deep_research"
+      ],
+      "allCalls": [
+        {
+          "name": "deep_research",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "08-finance-calculator.json",
+      "prompt": "if I invest $500 a month at 7% for 20 years, what will I have?",
+      "expect": {
+        "tool": "finance_calculator"
+      },
+      "round1Calls": [
+        "finance_calculator"
+      ],
+      "allCalls": [
+        {
+          "name": "finance_calculator",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "09-datetime.json",
+      "prompt": "what time is it right now?",
+      "expect": {
+        "tool": "get_current_datetime"
+      },
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "10-create-note.json",
+      "prompt": "save a note titled 'gift ideas' with: vinyl records, a good chef's knife",
+      "expect": {
+        "tool": "create_note"
+      },
+      "round1Calls": [
+        "create_note"
+      ],
+      "allCalls": [
+        {
+          "name": "create_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "11-list-notes.json",
+      "prompt": "what notes do I have saved?",
+      "expect": {
+        "tool": "list_notes"
+      },
+      "round1Calls": [
+        "list_notes"
+      ],
+      "allCalls": [
+        {
+          "name": "list_notes",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "12-read-note.json",
+      "prompt": "read my note called 'gift ideas'",
+      "expect": {
+        "tool": "read_note"
+      },
+      "round1Calls": [
+        "read_note"
+      ],
+      "allCalls": [
+        {
+          "name": "read_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "13-memory-save.json",
+      "prompt": "remember that my favorite band is Phish",
+      "expect": {
+        "tool": "memory_save"
+      },
+      "round1Calls": [
+        "memory_save"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "14-memory-search.json",
+      "prompt": "what do you remember about my music preferences?",
+      "expect": {
+        "tool": "memory_search"
+      },
+      "round1Calls": [
+        "memory_search"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "15-shop-requirements.json",
+      "prompt": "I need a new laptop for video editing, what should I look for?",
+      "expect": {
+        "tool": "shop_requirements"
+      },
+      "round1Calls": [
+        "shop_requirements"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_requirements",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "16-shop-compare.json",
+      "prompt": "compare prices for a 32GB RAM laptop with a 1TB SSD under $2000",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": true,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "17-no-tool-haiku.json",
+      "prompt": "write me a haiku about rain",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "18-no-tool-explain.json",
+      "prompt": "explain the difference between TCP and UDP",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "19-no-tool-email.json",
+      "prompt": "help me phrase a difficult email to my landlord about the broken heater",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false
+    },
+    {
+      "file": "20-image-search-stroller.json",
+      "prompt": "show me what an all-terrain pet stroller looks like",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "21-image-search-laptop.json",
+      "prompt": "find me pictures of the MSI Titan 18 HX gaming laptop",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "22-price-near-miss.json",
+      "prompt": "what does the MSI Titan 18 HX gaming laptop cost right now?",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "shop_compare"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_compare",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "23-reference-first-aid.json",
+      "prompt": "what does the first aid manual say about treating a burn?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "reference_lookup"
+      ],
+      "allCalls": [
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "24-reference-own-docs.json",
+      "prompt": "check my documents — what does the router manual say about resetting it?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_terminal_command",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "25-live-weather.json",
+      "prompt": "what's the weather in richmond va today?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "26-live-score.json",
+      "prompt": "who won the celtics game last night?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    },
+    {
+      "file": "27-live-futures.json",
+      "prompt": "how are s&p futures looking this morning?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "market_data"
+      ],
+      "allCalls": [
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "market_data",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "run_python",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "iteration_cap",
+      "correct": false,
+      "spurious": null,
+      "looped": true
+    },
+    {
+      "file": "28-live-latest-version.json",
+      "prompt": "what's the latest version of node.js?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false
+    }
+  ],
+  "baseline": {
+    "from": [
+      "toolchoice-qwen3.8-9b-distill-2026-10-01T02-46-56.json",
+      "toolchoice-qwen3.8-9b-distill-2026-10-01T02-50-34.json",
+      "toolchoice-qwen3.8-9b-distill-2026-10-01T02-53-43.json",
+      "toolchoice-qwen3.8-9b-distill-2026-10-01T02-56-55.json"
+    ],
+    "savedAt": "2026-10-01T04:34:18.241Z",
+    "passRuns": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "noise": {
+    "rule": "per-pass rates; band = 2 × √(σb²/nb + max(σr, σb)²/nr); false claims never banded — src/main/agent/evalDiff.ts (v4.3)",
+    "k": 2,
+    "minPasses": 4,
+    "passes": 4,
+    "runs": 4,
+    "cases": [
+      "01-list-directory.json",
+      "02-read-file.json",
+      "03-write-file.json",
+      "04-web-search-setlist.json",
+      "05-web-search-fx.json",
+      "06-fetch-webpage.json",
+      "07-deep-research.json",
+      "08-finance-calculator.json",
+      "09-datetime.json",
+      "10-create-note.json",
+      "11-list-notes.json",
+      "12-read-note.json",
+      "13-memory-save.json",
+      "14-memory-search.json",
+      "15-shop-requirements.json",
+      "16-shop-compare.json",
+      "17-no-tool-haiku.json",
+      "18-no-tool-explain.json",
+      "19-no-tool-email.json",
+      "20-image-search-stroller.json",
+      "21-image-search-laptop.json",
+      "22-price-near-miss.json",
+      "23-reference-first-aid.json",
+      "24-reference-own-docs.json",
+      "25-live-weather.json",
+      "26-live-score.json",
+      "27-live-futures.json",
+      "28-live-latest-version.json"
+    ],
+    "lines": {
+      "solved": {
+        "perPass": [
+          22,
+          22,
+          22,
+          22
+        ],
+        "of": [
+          28,
+          28,
+          28,
+          28
+        ],
+        "mean": 0.7857,
+        "sd": 0,
+        "band": 0
+      },
+      "spurious": {
+        "perPass": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "of": [
+          3,
+          3,
+          3,
+          3
+        ],
+        "mean": 0,
+        "sd": 0,
+        "band": 0
+      },
+      "looped": {
+        "perPass": [
+          4,
+          4,
+          4,
+          4
+        ],
+        "of": [
+          28,
+          28,
+          28,
+          28
+        ],
+        "mean": 0.1429,
+        "sd": 0,
+        "band": 0
+      },
+      "invalidArgs": {
+        "perPass": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "of": [
+          28,
+          28,
+          28,
+          28
+        ],
+        "mean": 0,
+        "sd": 0,
+        "band": 0
+      }
+    }
+  }
+}
