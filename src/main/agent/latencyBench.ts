@@ -1,4 +1,4 @@
-import { planHistory, estimateTokens } from '../../renderer/src/lib/contextBudget'
+import { planHistory, estimateTokens, HISTORY_LOW_WATER } from '../../renderer/src/lib/contextBudget'
 import type { ApiMessage } from '../../renderer/src/lib/agentLoop'
 import type { ChatMessage } from '../../renderer/src/types'
 import { fmtMs, median, type RoundLatency } from './latency'
@@ -20,6 +20,13 @@ import { fmtMs, median, type RoundLatency } from './latency'
  *   window-next   the next turn of it: the planner drops the oldest messages,
  *                 so the prefix changes just after the system prompt and the
  *                 whole window is prefilled again (Track S1's cost)
+ *   lowwater-first, lowwater-next (v4.3)  the same chat planned as the chat
+ *                 has planned it since 4.1 (S1): over budget, trim to the low-
+ *                 water mark (HISTORY_LOW_WATER of the budget), and the next
+ *                 turn starts from where that trim cut — so its prefix is the
+ *                 last request's and only the new turn is prefilled. Through
+ *                 4.2 the bench timed only the two above: S1's cost, never
+ *                 S1's saving.
  *
  * Every text is fixed, and the assistant turns are canned rather than the
  * model's, so two runs send the same bytes. Each run's system prompt opens
@@ -80,6 +87,19 @@ export function withinWindow(messages: ApiMessage[], budgetTokens: number): ApiM
   return keep.slice(from).map((m) => ({ role: m.role, content: m.content }))
 }
 
+/**
+ * v4.3: the planner as the chat calls it (hooks/turnHelpers.ts): trimmed to the
+ * low-water mark when over budget, never back past `floor` — the id of the last
+ * message an earlier turn dropped, which the chat remembers (rememberTrim). The
+ * new floor is returned for the next turn.
+ */
+export function withinWindowAsTheChat(messages: ApiMessage[], budgetTokens: number, floor?: string): { messages: ApiMessage[]; floor?: string } {
+  const chat = messages.map((m, i) => ({ id: String(i), role: m.role as 'user' | 'assistant', content: String(m.content ?? '') }) as ChatMessage)
+  const { keep, drop } = planHistory(chat, budgetTokens, { lowWater: HISTORY_LOW_WATER, foldedThrough: floor })
+  const from = keep[0]?.role === 'assistant' ? 1 : 0
+  return { messages: keep.slice(from).map((m) => ({ role: m.role, content: m.content })), floor: drop.at(-1)?.id ?? floor }
+}
+
 export interface BenchPlanOptions {
   /** The loaded context, in tokens: the window scenarios are built past it. */
   window: number
@@ -105,11 +125,16 @@ export function benchPlan(o: BenchPlanOptions): BenchStep[] {
   const past = system(o.nonce())
   steps.push({ scenario: 'window-first', messages: [past, ...withinWindow(conversation(n), budget)] })
   steps.push({ scenario: 'window-next', messages: [past, ...withinWindow(conversation(n + 1), budget)] })
+  // v4.3: the same two turns as the chat plans them since 4.1 (S1), on a cache of their own.
+  const lw = system(o.nonce())
+  const first = withinWindowAsTheChat(conversation(n), budget)
+  steps.push({ scenario: 'lowwater-first', messages: [lw, ...first.messages] })
+  steps.push({ scenario: 'lowwater-next', messages: [lw, ...withinWindowAsTheChat(conversation(n + 1), budget, first.floor).messages] })
   return steps
 }
 
 /** The scenarios a report shows, in order; the other turns are kept in the line but not tabled. */
-export const REPORTED = ['cold', 'warm', 'turn-1', 'turn-10', 'window-first', 'window-next'] as const
+export const REPORTED = ['cold', 'warm', 'turn-1', 'turn-10', 'window-first', 'window-next', 'lowwater-first', 'lowwater-next'] as const
 
 export interface ScenarioResult {
   ttftMs: number | null

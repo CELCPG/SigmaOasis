@@ -20,7 +20,7 @@ test('the plan sends the scenarios in order, and the same bytes every run', () =
   const p = plan()
   assert.deepEqual(
     p.map((s) => s.scenario),
-    ['cold', 'warm', ...Array.from({ length: 10 }, (_, i) => `turn-${i + 1}`), 'window-first', 'window-next']
+    ['cold', 'warm', ...Array.from({ length: 10 }, (_, i) => `turn-${i + 1}`), 'window-first', 'window-next', 'lowwater-first', 'lowwater-next']
   )
   assert.deepEqual(JSON.stringify(plan()), JSON.stringify(p))
 })
@@ -62,6 +62,21 @@ test('past the window: both requests fit it, and the next one drops the oldest t
   assert.ok(withinWindow(all, 4000).length < all.length)
 })
 
+test('v4.3: planned as the chat plans it (S1), the next turn past the window extends the last request exactly — only the new turn is prefilled', () => {
+  const p = plan()
+  const first = p[14]!
+  const next = p[15]!
+  assert.deepEqual([first.scenario, next.scenario], ['lowwater-first', 'lowwater-next'])
+  assert.notEqual(first.messages[0]!.content, p[12]!.messages[0]!.content, 'a cache of its own')
+  const budget = 8192 - 64 - estimateTokens(String(first.messages[0]!.content)) - 256
+  // Trimmed to the low-water mark, not to the brim: 65% of the budget, give or take the newest message.
+  assert.ok(tokens(first) - estimateTokens(String(first.messages[0]!.content)) <= budget * 0.65 + 400, 'lowwater-first is trimmed well below the window')
+  assert.ok(tokens(next) <= 8192 - 64)
+  assert.equal(next.messages.length, first.messages.length + 2, 'one reply and one new question added, nothing dropped')
+  assert.ok(JSON.stringify(next.messages).startsWith(JSON.stringify(first.messages).slice(0, -1)), 'the next request opens with the last one, byte for byte')
+  assert.equal(first.messages[1]!.role, 'user')
+})
+
 test('the summary takes medians over the repeats, and the report tables the scenarios that matter', () => {
   const lat = (ttftMs: number, extra: Partial<RoundLatency> = {}): RoundLatency => ({ ok: true, ttftMs, prefillMs: ttftMs, prefillFrom: 'ttft', totalMs: ttftMs + 500, decodeTokPerSec: 50, promptTokens: 1000, ...extra })
   const s = summarizeBench([
@@ -77,7 +92,7 @@ test('the summary takes medians over the repeats, and the report tables the scen
   assert.equal(s.warm?.cachedTokens, 990)
   const line: BenchLine = { label: '4.1-dev', model: 'qwen3.8-9b-distill', at: '2026-09-30T00:00:00Z', window: 8192, repeats: 3, scenarios: s }
   const report = formatBenchReport([line, { ...line, label: 'noisy', machine: 'PCIe replays rose by 40' }])
-  assert.match(report, /\| label \| model \| cold \| warm \| turn-1 \| turn-10 \| window-first \| window-next \| decode tok\/s \| prompt at window \|/)
-  assert.match(report, /\| 4\.1-dev \| qwen3\.8-9b-distill \| 1\.0 s \| 120 ms \| — \| — \| — \| 4\.2 s \| 50\.0 \| 7,800 tok \|/)
+  assert.match(report, /\| label \| model \| cold \| warm \| turn-1 \| turn-10 \| window-first \| window-next \| lowwater-first \| lowwater-next \| decode tok\/s \| prompt at window \|/)
+  assert.match(report, /\| 4\.1-dev \| qwen3\.8-9b-distill \| 1\.0 s \| 120 ms \| — \| — \| — \| 4\.2 s \| — \| — \| 50\.0 \| 7,800 tok \|/)
   assert.match(report, /\| noisy \(machine\) \|/)
 })

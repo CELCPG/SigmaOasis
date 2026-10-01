@@ -111,6 +111,7 @@ at a time, streamed, temperature 0, 64-token replies, and times each request as 
 | warm | the same request again, its prefix cached |
 | turn-1 … turn-10 | one chat growing a turn at a time, each request extending the last; the report shows 1 and 10 |
 | window-first, window-next | a chat past `BENCH_WINDOW` (default 16,384 — set it to the loaded context), trimmed by the app's own `planHistory`, then its next turn: the oldest turns drop, the prefix changes just after the system prompt, and the window is prefilled again — Track S1's cost |
+| lowwater-first, lowwater-next (v4.3) | the same chat planned as the chat has planned it since 4.1: trimmed to the low-water mark (65% of the budget), and the next turn floored where that trim cut, so it opens with the last request byte for byte — S1's saving. Through 4.2 the bench timed only the cost |
 
 The assistant turns are canned, not the model's, so every run sends the same bytes.
 `BENCH_REPEATS` (default 3) repeats the workload; the line keeps medians. Each run appends one line
