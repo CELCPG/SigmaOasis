@@ -1,16 +1,16 @@
 {
   "model": "qwen3.8-9b-distill",
   "baseUrl": "http://127.0.0.1:1234/v1",
-  "ranAt": "2026-10-01T03:24:01.382Z",
+  "ranAt": "2026-10-01T14:11:31.440Z",
   "arm": "subset",
   "caveats": [
     "tool results canned stubs",
     "temperature 0",
-    "EVAL_SUBSET=1: the app's per-turn selection, capped at 6"
+    "EVAL_SUBSET=1: the app's per-turn selection, capped at 6, web tools forced as the chat forces them (since 4.3)"
   ],
   "scores": {
     "correctTool": {
-      "hit": 20,
+      "hit": 19,
       "of": 25
     },
     "spuriousCall": {
@@ -18,8 +18,8 @@
       "of": 3
     },
     "argValidity": {
-      "hit": 31,
-      "of": 31
+      "hit": 43,
+      "of": 43
     },
     "loop": {
       "hit": 0,
@@ -46,7 +46,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "read_file",
+        "list_directory",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "02-read-file.json",
@@ -67,7 +75,15 @@
       "stopReason": "completed",
       "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "03-write-file.json",
@@ -83,12 +99,30 @@
           "name": "memory_save",
           "valid": true,
           "errors": []
+        },
+        {
+          "name": "memory_forget",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "list_directory",
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "04-web-search-setlist.json",
@@ -104,12 +138,50 @@
           "name": "web_search",
           "valid": true,
           "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "05-web-search-fx.json",
@@ -117,12 +189,33 @@
       "expect": {
         "tool": "web_search"
       },
-      "round1Calls": [],
-      "allCalls": [],
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "06-fetch-webpage.json",
@@ -138,12 +231,25 @@
           "name": "fetch_webpage",
           "valid": true,
           "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "07-deep-research.json",
@@ -169,7 +275,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "deep_research",
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "08-finance-calculator.json",
@@ -190,7 +304,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "market_data"
+      ]
     },
     {
       "file": "09-datetime.json",
@@ -199,19 +321,37 @@
         "tool": "get_current_datetime"
       },
       "round1Calls": [
-        "get_current_datetime"
+        "date_calculator"
       ],
       "allCalls": [
         {
-          "name": "get_current_datetime",
+          "name": "date_calculator",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "date_calculator",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "10-create-note.json",
@@ -220,19 +360,27 @@
         "tool": "create_note"
       },
       "round1Calls": [
-        "create_note"
+        "memory_save"
       ],
       "allCalls": [
         {
-          "name": "create_note",
+          "name": "memory_save",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "11-list-notes.json",
@@ -253,7 +401,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "12-read-note.json",
@@ -274,7 +430,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "13-memory-save.json",
@@ -300,7 +464,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "14-memory-search.json",
@@ -321,7 +493,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "15-shop-requirements.json",
@@ -342,7 +522,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "16-shop-compare.json",
@@ -351,19 +539,27 @@
         "tool": "shop_compare"
       },
       "round1Calls": [
-        "shop_compare"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "shop_compare",
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "17-no-tool-haiku.json",
@@ -374,7 +570,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "18-no-tool-explain.json",
@@ -385,7 +589,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
     },
     {
       "file": "19-no-tool-email.json",
@@ -396,7 +608,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "propose_patch",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "20-image-search-stroller.json",
@@ -417,7 +637,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
     },
     {
       "file": "21-image-search-laptop.json",
@@ -438,7 +666,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "22-price-near-miss.json",
@@ -447,24 +683,37 @@
         "tool": "shop_compare"
       },
       "round1Calls": [
-        "shop_compare"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "shop_compare",
+          "name": "web_search",
           "valid": true,
           "errors": []
         },
         {
-          "name": "shop_compare",
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "23-reference-first-aid.json",
@@ -480,27 +729,20 @@
           "name": "reference_lookup",
           "valid": true,
           "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "24-reference-own-docs.json",
@@ -521,7 +763,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "25-live-weather.json",
@@ -530,19 +780,37 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "memory_search"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "memory_search",
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "26-live-score.json",
@@ -563,7 +831,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "27-live-futures.json",
@@ -572,24 +848,27 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "market_data"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "market_data",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "market_data",
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "28-live-latest-version.json",
@@ -610,7 +889,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "01-list-directory.json",
@@ -631,7 +918,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "read_file",
+        "list_directory",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "02-read-file.json",
@@ -652,7 +947,15 @@
       "stopReason": "completed",
       "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "03-write-file.json",
@@ -668,12 +971,25 @@
           "name": "memory_save",
           "valid": true,
           "errors": []
+        },
+        {
+          "name": "memory_forget",
+          "valid": true,
+          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "list_directory",
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "04-web-search-setlist.json",
@@ -689,12 +1005,25 @@
           "name": "web_search",
           "valid": true,
           "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "05-web-search-fx.json",
@@ -703,19 +1032,37 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "market_data"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "market_data",
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "06-fetch-webpage.json",
@@ -746,7 +1093,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "07-deep-research.json",
@@ -772,7 +1127,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "deep_research",
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "08-finance-calculator.json",
@@ -793,7 +1156,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "market_data"
+      ]
     },
     {
       "file": "09-datetime.json",
@@ -802,19 +1173,27 @@
         "tool": "get_current_datetime"
       },
       "round1Calls": [
-        "get_current_datetime"
+        "date_calculator"
       ],
       "allCalls": [
         {
-          "name": "get_current_datetime",
+          "name": "date_calculator",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "10-create-note.json",
@@ -823,19 +1202,27 @@
         "tool": "create_note"
       },
       "round1Calls": [
-        "create_note"
+        "memory_save"
       ],
       "allCalls": [
         {
-          "name": "create_note",
+          "name": "memory_save",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "11-list-notes.json",
@@ -856,7 +1243,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "12-read-note.json",
@@ -877,7 +1272,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "13-memory-save.json",
@@ -903,7 +1306,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "14-memory-search.json",
@@ -924,7 +1335,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "15-shop-requirements.json",
@@ -945,7 +1364,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "16-shop-compare.json",
@@ -954,19 +1381,32 @@
         "tool": "shop_compare"
       },
       "round1Calls": [
-        "shop_compare"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "shop_compare",
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "17-no-tool-haiku.json",
@@ -977,7 +1417,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "18-no-tool-explain.json",
@@ -988,7 +1436,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
     },
     {
       "file": "19-no-tool-email.json",
@@ -999,7 +1455,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "propose_patch",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "20-image-search-stroller.json",
@@ -1020,7 +1484,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
     },
     {
       "file": "21-image-search-laptop.json",
@@ -1041,7 +1513,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "22-price-near-miss.json",
@@ -1050,19 +1530,27 @@
         "tool": "shop_compare"
       },
       "round1Calls": [
-        "shop_compare"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "shop_compare",
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "23-reference-first-aid.json",
@@ -1078,27 +1566,20 @@
           "name": "reference_lookup",
           "valid": true,
           "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "24-reference-own-docs.json",
@@ -1114,17 +1595,20 @@
           "name": "reference_lookup",
           "valid": true,
           "errors": []
-        },
-        {
-          "name": "memory_search",
-          "valid": true,
-          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "25-live-weather.json",
@@ -1133,19 +1617,37 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "memory_search"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "memory_search",
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "26-live-score.json",
@@ -1166,7 +1668,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "27-live-futures.json",
@@ -1175,24 +1685,27 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "market_data"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "market_data",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "market_data",
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "28-live-latest-version.json",
@@ -1213,7 +1726,877 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "01-list-directory.json",
+      "prompt": "what's in my ~/Downloads folder?",
+      "expect": {
+        "tool": "list_directory"
+      },
+      "round1Calls": [
+        "list_directory"
+      ],
+      "allCalls": [
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "list_directory",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "read_file",
+        "list_directory",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "02-read-file.json",
+      "prompt": "read the file notes/todo.md and summarize it",
+      "expect": {
+        "tool": "read_file"
+      },
+      "round1Calls": [
+        "read_note"
+      ],
+      "allCalls": [
+        {
+          "name": "read_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "03-write-file.json",
+      "prompt": "save this shopping list to a file called groceries.txt: milk, eggs, coffee",
+      "expect": {
+        "tool": "write_file"
+      },
+      "round1Calls": [
+        "memory_save"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_forget",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "list_directory",
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "04-web-search-setlist.json",
+      "prompt": "what did Phish play at Hampton in 1997?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "05-web-search-fx.json",
+      "prompt": "what's the current EUR to USD exchange rate?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "06-fetch-webpage.json",
+      "prompt": "fetch https://example.com and tell me what it says",
+      "expect": {
+        "tool": "fetch_webpage"
+      },
+      "round1Calls": [
+        "fetch_webpage"
+      ],
+      "allCalls": [
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "07-deep-research.json",
+      "prompt": "research the pros and cons of heat pumps versus gas furnaces for a cold climate and give me a cited summary",
+      "expect": {
+        "tool": "deep_research"
+      },
+      "round1Calls": [
+        "deep_research"
+      ],
+      "allCalls": [
+        {
+          "name": "deep_research",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "deep_research",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "deep_research",
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "08-finance-calculator.json",
+      "prompt": "if I invest $500 a month at 7% for 20 years, what will I have?",
+      "expect": {
+        "tool": "finance_calculator"
+      },
+      "round1Calls": [
+        "finance_calculator"
+      ],
+      "allCalls": [
+        {
+          "name": "finance_calculator",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "market_data"
+      ]
+    },
+    {
+      "file": "09-datetime.json",
+      "prompt": "what time is it right now?",
+      "expect": {
+        "tool": "get_current_datetime"
+      },
+      "round1Calls": [
+        "date_calculator"
+      ],
+      "allCalls": [
+        {
+          "name": "date_calculator",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "10-create-note.json",
+      "prompt": "save a note titled 'gift ideas' with: vinyl records, a good chef's knife",
+      "expect": {
+        "tool": "create_note"
+      },
+      "round1Calls": [
+        "memory_save"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "11-list-notes.json",
+      "prompt": "what notes do I have saved?",
+      "expect": {
+        "tool": "list_notes"
+      },
+      "round1Calls": [
+        "list_notes"
+      ],
+      "allCalls": [
+        {
+          "name": "list_notes",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "12-read-note.json",
+      "prompt": "read my note called 'gift ideas'",
+      "expect": {
+        "tool": "read_note"
+      },
+      "round1Calls": [
+        "read_note"
+      ],
+      "allCalls": [
+        {
+          "name": "read_note",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "13-memory-save.json",
+      "prompt": "remember that my favorite band is Phish",
+      "expect": {
+        "tool": "memory_save"
+      },
+      "round1Calls": [
+        "memory_save"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "memory_save",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "14-memory-search.json",
+      "prompt": "what do you remember about my music preferences?",
+      "expect": {
+        "tool": "memory_search"
+      },
+      "round1Calls": [
+        "memory_search"
+      ],
+      "allCalls": [
+        {
+          "name": "memory_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
+    },
+    {
+      "file": "15-shop-requirements.json",
+      "prompt": "I need a new laptop for video editing, what should I look for?",
+      "expect": {
+        "tool": "shop_requirements"
+      },
+      "round1Calls": [
+        "shop_requirements"
+      ],
+      "allCalls": [
+        {
+          "name": "shop_requirements",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
+    },
+    {
+      "file": "16-shop-compare.json",
+      "prompt": "compare prices for a 32GB RAM laptop with a 1TB SSD under $2000",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "17-no-tool-haiku.json",
+      "prompt": "write me a haiku about rain",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "18-no-tool-explain.json",
+      "prompt": "explain the difference between TCP and UDP",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
+    },
+    {
+      "file": "19-no-tool-email.json",
+      "prompt": "help me phrase a difficult email to my landlord about the broken heater",
+      "expect": "no_tool",
+      "round1Calls": [],
+      "allCalls": [],
+      "stopReason": "completed",
+      "correct": null,
+      "spurious": false,
+      "looped": false,
+      "wire": [
+        "propose_patch",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
+    },
+    {
+      "file": "20-image-search-stroller.json",
+      "prompt": "show me what an all-terrain pet stroller looks like",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
+    },
+    {
+      "file": "21-image-search-laptop.json",
+      "prompt": "find me pictures of the MSI Titan 18 HX gaming laptop",
+      "expect": {
+        "tool": "image_search"
+      },
+      "round1Calls": [
+        "image_search"
+      ],
+      "allCalls": [
+        {
+          "name": "image_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
+    },
+    {
+      "file": "22-price-near-miss.json",
+      "prompt": "what does the MSI Titan 18 HX gaming laptop cost right now?",
+      "expect": {
+        "tool": "shop_compare"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": false,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "23-reference-first-aid.json",
+      "prompt": "what does the first aid manual say about treating a burn?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "reference_lookup"
+      ],
+      "allCalls": [
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
+    },
+    {
+      "file": "24-reference-own-docs.json",
+      "prompt": "check my documents — what does the router manual say about resetting it?",
+      "expect": {
+        "tool": "reference_lookup"
+      },
+      "round1Calls": [
+        "reference_lookup"
+      ],
+      "allCalls": [
+        {
+          "name": "reference_lookup",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
+    },
+    {
+      "file": "25-live-weather.json",
+      "prompt": "what's the weather in richmond va today?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "26-live-score.json",
+      "prompt": "who won the celtics game last night?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "27-live-futures.json",
+      "prompt": "how are s&p futures looking this morning?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
+    },
+    {
+      "file": "28-live-latest-version.json",
+      "prompt": "what's the latest version of node.js?",
+      "expect": {
+        "tool": "web_search"
+      },
+      "round1Calls": [
+        "web_search"
+      ],
+      "allCalls": [
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "stopReason": "completed",
+      "correct": true,
+      "spurious": null,
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "01-list-directory.json",
@@ -1234,7 +2617,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "read_file",
+        "list_directory",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "02-read-file.json",
@@ -1255,7 +2646,15 @@
       "stopReason": "completed",
       "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "03-write-file.json",
@@ -1276,7 +2675,15 @@
       "stopReason": "completed",
       "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "list_directory",
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "04-web-search-setlist.json",
@@ -1292,12 +2699,25 @@
           "name": "web_search",
           "valid": true,
           "errors": []
+        },
+        {
+          "name": "web_search",
+          "valid": true,
+          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "05-web-search-fx.json",
@@ -1306,19 +2726,32 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "market_data"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "market_data",
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "06-fetch-webpage.json",
@@ -1344,7 +2777,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "07-deep-research.json",
@@ -1365,7 +2806,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "deep_research",
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "08-finance-calculator.json",
@@ -1386,7 +2835,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "market_data"
+      ]
     },
     {
       "file": "09-datetime.json",
@@ -1395,19 +2852,27 @@
         "tool": "get_current_datetime"
       },
       "round1Calls": [
-        "get_current_datetime"
+        "date_calculator"
       ],
       "allCalls": [
         {
-          "name": "get_current_datetime",
+          "name": "date_calculator",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "10-create-note.json",
@@ -1416,19 +2881,27 @@
         "tool": "create_note"
       },
       "round1Calls": [
-        "create_note"
+        "memory_save"
       ],
       "allCalls": [
         {
-          "name": "create_note",
+          "name": "memory_save",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "11-list-notes.json",
@@ -1449,7 +2922,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "12-read-note.json",
@@ -1470,7 +2951,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "create_note",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "13-memory-save.json",
@@ -1496,7 +2985,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "14-memory-search.json",
@@ -1517,7 +3014,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "list_notes",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "15-shop-requirements.json",
@@ -1538,600 +3043,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "16-shop-compare.json",
-      "prompt": "compare prices for a 32GB RAM laptop with a 1TB SSD under $2000",
-      "expect": {
-        "tool": "shop_compare"
-      },
-      "round1Calls": [
-        "shop_compare"
-      ],
-      "allCalls": [
-        {
-          "name": "shop_compare",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "17-no-tool-haiku.json",
-      "prompt": "write me a haiku about rain",
-      "expect": "no_tool",
-      "round1Calls": [],
-      "allCalls": [],
-      "stopReason": "completed",
-      "correct": null,
-      "spurious": false,
-      "looped": false
-    },
-    {
-      "file": "18-no-tool-explain.json",
-      "prompt": "explain the difference between TCP and UDP",
-      "expect": "no_tool",
-      "round1Calls": [],
-      "allCalls": [],
-      "stopReason": "completed",
-      "correct": null,
-      "spurious": false,
-      "looped": false
-    },
-    {
-      "file": "19-no-tool-email.json",
-      "prompt": "help me phrase a difficult email to my landlord about the broken heater",
-      "expect": "no_tool",
-      "round1Calls": [],
-      "allCalls": [],
-      "stopReason": "completed",
-      "correct": null,
-      "spurious": false,
-      "looped": false
-    },
-    {
-      "file": "20-image-search-stroller.json",
-      "prompt": "show me what an all-terrain pet stroller looks like",
-      "expect": {
-        "tool": "image_search"
-      },
-      "round1Calls": [
-        "image_search"
-      ],
-      "allCalls": [
-        {
-          "name": "image_search",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "21-image-search-laptop.json",
-      "prompt": "find me pictures of the MSI Titan 18 HX gaming laptop",
-      "expect": {
-        "tool": "image_search"
-      },
-      "round1Calls": [
-        "image_search"
-      ],
-      "allCalls": [
-        {
-          "name": "image_search",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "22-price-near-miss.json",
-      "prompt": "what does the MSI Titan 18 HX gaming laptop cost right now?",
-      "expect": {
-        "tool": "shop_compare"
-      },
-      "round1Calls": [
-        "shop_compare"
-      ],
-      "allCalls": [
-        {
-          "name": "shop_compare",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "23-reference-first-aid.json",
-      "prompt": "what does the first aid manual say about treating a burn?",
-      "expect": {
-        "tool": "reference_lookup"
-      },
-      "round1Calls": [
-        "reference_lookup"
-      ],
-      "allCalls": [
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "24-reference-own-docs.json",
-      "prompt": "check my documents — what does the router manual say about resetting it?",
-      "expect": {
-        "tool": "reference_lookup"
-      },
-      "round1Calls": [
-        "reference_lookup"
-      ],
-      "allCalls": [
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "25-live-weather.json",
-      "prompt": "what's the weather in richmond va today?",
-      "expect": {
-        "tool": "web_search"
-      },
-      "round1Calls": [
-        "memory_search"
-      ],
-      "allCalls": [
-        {
-          "name": "memory_search",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": false,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "26-live-score.json",
-      "prompt": "who won the celtics game last night?",
-      "expect": {
-        "tool": "web_search"
-      },
-      "round1Calls": [
-        "web_search"
-      ],
-      "allCalls": [
-        {
-          "name": "web_search",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "27-live-futures.json",
-      "prompt": "how are s&p futures looking this morning?",
-      "expect": {
-        "tool": "web_search"
-      },
-      "round1Calls": [
-        "market_data"
-      ],
-      "allCalls": [
-        {
-          "name": "market_data",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "market_data",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": false,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "28-live-latest-version.json",
-      "prompt": "what's the latest version of node.js?",
-      "expect": {
-        "tool": "web_search"
-      },
-      "round1Calls": [
-        "web_search"
-      ],
-      "allCalls": [
-        {
-          "name": "web_search",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "01-list-directory.json",
-      "prompt": "what's in my ~/Downloads folder?",
-      "expect": {
-        "tool": "list_directory"
-      },
-      "round1Calls": [
-        "list_directory"
-      ],
-      "allCalls": [
-        {
-          "name": "list_directory",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "02-read-file.json",
-      "prompt": "read the file notes/todo.md and summarize it",
-      "expect": {
-        "tool": "read_file"
-      },
-      "round1Calls": [
-        "read_note"
-      ],
-      "allCalls": [
-        {
-          "name": "read_note",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": false,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "03-write-file.json",
-      "prompt": "save this shopping list to a file called groceries.txt: milk, eggs, coffee",
-      "expect": {
-        "tool": "write_file"
-      },
-      "round1Calls": [
-        "memory_save"
-      ],
-      "allCalls": [
-        {
-          "name": "memory_save",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": false,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "04-web-search-setlist.json",
-      "prompt": "what did Phish play at Hampton in 1997?",
-      "expect": {
-        "tool": "web_search"
-      },
-      "round1Calls": [
-        "web_search"
-      ],
-      "allCalls": [
-        {
-          "name": "web_search",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "05-web-search-fx.json",
-      "prompt": "what's the current EUR to USD exchange rate?",
-      "expect": {
-        "tool": "web_search"
-      },
-      "round1Calls": [
-        "market_data"
-      ],
-      "allCalls": [
-        {
-          "name": "market_data",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": false,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "06-fetch-webpage.json",
-      "prompt": "fetch https://example.com and tell me what it says",
-      "expect": {
-        "tool": "fetch_webpage"
-      },
-      "round1Calls": [
-        "fetch_webpage"
-      ],
-      "allCalls": [
-        {
-          "name": "fetch_webpage",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "fetch_webpage",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "fetch_webpage",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "07-deep-research.json",
-      "prompt": "research the pros and cons of heat pumps versus gas furnaces for a cold climate and give me a cited summary",
-      "expect": {
-        "tool": "deep_research"
-      },
-      "round1Calls": [
-        "deep_research"
-      ],
-      "allCalls": [
-        {
-          "name": "deep_research",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "08-finance-calculator.json",
-      "prompt": "if I invest $500 a month at 7% for 20 years, what will I have?",
-      "expect": {
-        "tool": "finance_calculator"
-      },
-      "round1Calls": [
-        "finance_calculator"
-      ],
-      "allCalls": [
-        {
-          "name": "finance_calculator",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "09-datetime.json",
-      "prompt": "what time is it right now?",
-      "expect": {
-        "tool": "get_current_datetime"
-      },
-      "round1Calls": [
-        "get_current_datetime"
-      ],
-      "allCalls": [
-        {
-          "name": "get_current_datetime",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "10-create-note.json",
-      "prompt": "save a note titled 'gift ideas' with: vinyl records, a good chef's knife",
-      "expect": {
-        "tool": "create_note"
-      },
-      "round1Calls": [
-        "create_note"
-      ],
-      "allCalls": [
-        {
-          "name": "create_note",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "11-list-notes.json",
-      "prompt": "what notes do I have saved?",
-      "expect": {
-        "tool": "list_notes"
-      },
-      "round1Calls": [
-        "list_notes"
-      ],
-      "allCalls": [
-        {
-          "name": "list_notes",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "12-read-note.json",
-      "prompt": "read my note called 'gift ideas'",
-      "expect": {
-        "tool": "read_note"
-      },
-      "round1Calls": [
-        "read_note"
-      ],
-      "allCalls": [
-        {
-          "name": "read_note",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "13-memory-save.json",
-      "prompt": "remember that my favorite band is Phish",
-      "expect": {
-        "tool": "memory_save"
-      },
-      "round1Calls": [
-        "memory_save"
-      ],
-      "allCalls": [
-        {
-          "name": "memory_save",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "memory_save",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "14-memory-search.json",
-      "prompt": "what do you remember about my music preferences?",
-      "expect": {
-        "tool": "memory_search"
-      },
-      "round1Calls": [
-        "memory_search"
-      ],
-      "allCalls": [
-        {
-          "name": "memory_search",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
-    },
-    {
-      "file": "15-shop-requirements.json",
-      "prompt": "I need a new laptop for video editing, what should I look for?",
-      "expect": {
-        "tool": "shop_requirements"
-      },
-      "round1Calls": [
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
         "shop_requirements"
-      ],
-      "allCalls": [
-        {
-          "name": "shop_requirements",
-          "valid": true,
-          "errors": []
-        }
-      ],
-      "stopReason": "completed",
-      "correct": true,
-      "spurious": null,
-      "looped": false
+      ]
     },
     {
       "file": "16-shop-compare.json",
@@ -2140,19 +3060,27 @@
         "tool": "shop_compare"
       },
       "round1Calls": [
-        "shop_compare"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "shop_compare",
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "17-no-tool-haiku.json",
@@ -2163,7 +3091,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "18-no-tool-explain.json",
@@ -2174,7 +3110,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
     },
     {
       "file": "19-no-tool-email.json",
@@ -2185,7 +3129,15 @@
       "stopReason": "completed",
       "correct": null,
       "spurious": false,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "propose_patch",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "20-image-search-stroller.json",
@@ -2206,7 +3158,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_compare"
+      ]
     },
     {
       "file": "21-image-search-laptop.json",
@@ -2227,7 +3187,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "image_search",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "shop_requirements"
+      ]
     },
     {
       "file": "22-price-near-miss.json",
@@ -2236,19 +3204,27 @@
         "tool": "shop_compare"
       },
       "round1Calls": [
-        "shop_compare"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "shop_compare",
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": true,
+      "correct": false,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "23-reference-first-aid.json",
@@ -2264,27 +3240,20 @@
           "name": "reference_lookup",
           "valid": true,
           "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "reference_lookup",
-          "valid": true,
-          "errors": []
         }
       ],
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "finance_calculator",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "24-reference-own-docs.json",
@@ -2310,7 +3279,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "date_calculator",
+        "read_note",
+        "memory_save",
+        "memory_search",
+        "memory_forget",
+        "reference_lookup"
+      ]
     },
     {
       "file": "25-live-weather.json",
@@ -2319,19 +3296,37 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "memory_search"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "memory_search",
+          "name": "web_search",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "fetch_webpage",
+          "valid": true,
+          "errors": []
+        },
+        {
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "26-live-score.json",
@@ -2352,7 +3347,15 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "27-live-futures.json",
@@ -2361,24 +3364,27 @@
         "tool": "web_search"
       },
       "round1Calls": [
-        "market_data"
+        "web_search"
       ],
       "allCalls": [
         {
-          "name": "market_data",
-          "valid": true,
-          "errors": []
-        },
-        {
-          "name": "market_data",
+          "name": "web_search",
           "valid": true,
           "errors": []
         }
       ],
       "stopReason": "completed",
-      "correct": false,
+      "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     },
     {
       "file": "28-live-latest-version.json",
@@ -2399,17 +3405,25 @@
       "stopReason": "completed",
       "correct": true,
       "spurious": null,
-      "looped": false
+      "looped": false,
+      "wire": [
+        "web_search",
+        "fetch_webpage",
+        "date_calculator",
+        "memory_save",
+        "memory_search",
+        "memory_forget"
+      ]
     }
   ],
   "baseline": {
     "from": [
-      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T03-24-01.json",
-      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T03-26-30.json",
-      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T03-28-52.json",
-      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T03-31-21.json"
+      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T14-11-31.json",
+      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T14-13-47.json",
+      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T14-16-02.json",
+      "subset-toolchoice-qwen3.8-9b-distill-2026-10-01T14-18-31.json"
     ],
-    "savedAt": "2026-10-01T04:34:20.188Z",
+    "savedAt": "2026-10-01T14:29:31.887Z",
     "passRuns": [
       0,
       1,
@@ -2456,10 +3470,10 @@
     "lines": {
       "solved": {
         "perPass": [
-          23,
-          23,
-          23,
-          23
+          22,
+          22,
+          22,
+          22
         ],
         "of": [
           28,
@@ -2467,7 +3481,7 @@
           28,
           28
         ],
-        "mean": 0.8214,
+        "mean": 0.7857,
         "sd": 0,
         "band": 0
       },
