@@ -39,7 +39,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { ApiMessage, ApiToolCall } from '../src/renderer/src/lib/agentLoop'
-import { withGrounding, withToolCallPreamble, TOOL_PREAMBLE_INSTRUCTION } from '../src/renderer/src/lib/grounding'
+import { withGrounding, withToolCallPreamble, webToolsForTurn, TOOL_PREAMBLE_INSTRUCTION } from '../src/renderer/src/lib/grounding'
 import { vibeSystemBlock } from '../src/renderer/src/lib/vibe'
 import {
   parseCompletionMessage,
@@ -50,7 +50,7 @@ import {
 } from '../src/renderer/src/lib/evalRunner'
 import { TOOL_SCHEMAS, TOOL_TURN_BUDGETS } from '../src/shared/tools'
 import { createMcpManager } from '../src/main/ipc/mcp/manager'
-import { selectTurnTools, withBudgetNotes, TURN_TOOL_CAP } from '../src/renderer/src/lib/toolSelection'
+import { selectTurnTools, withBudgetNotes, withForcedTools, TURN_TOOL_CAP } from '../src/renderer/src/lib/toolSelection'
 import type { ToolSchema } from '../src/renderer/src/types'
 
 // Compiled by scripts/eval-tools.sh to .eval-build/scripts/eval-tools.js —
@@ -84,8 +84,15 @@ const VIBE_ARM = Boolean(process.env.EVAL_VIBE)
  * it would have merged them into one baseline.
  */
 const SUBSET_ARM = Boolean(process.env.EVAL_SUBSET)
-/** 'full', 'vibe', 'subset' or 'vibe-subset': the results file's `arm` and its name's prefix. */
-const ARM = [VIBE_ARM ? 'vibe' : '', SUBSET_ARM ? 'subset' : ''].filter(Boolean).join('-') || 'full'
+/**
+ * v4.3: EVAL_FORCED_ON_TOP=1 (with EVAL_SUBSET) — an eval-only arm for a
+ * decision the app has not taken (ROADMAP-v4.3, F6): tools the turn forces
+ * ride on top of the cap instead of evicting the ranked picks. The app keeps
+ * the cap (toolSelection.ts withForcedTools, since 4.0.1).
+ */
+const ON_TOP_ARM = SUBSET_ARM && Boolean(process.env.EVAL_FORCED_ON_TOP)
+/** 'full', 'vibe', 'subset', 'vibe-subset', and '-ontop' after subset: the results file's `arm` and its name's prefix. */
+const ARM = [VIBE_ARM ? 'vibe' : '', SUBSET_ARM ? 'subset' : '', ON_TOP_ARM ? 'ontop' : ''].filter(Boolean).join('-') || 'full'
 
 function systemPromptFor(model: string): string {
   const base = withGrounding('You are a helpful local assistant.' + vibeSystemBlock(VIBE_ARM))
@@ -300,11 +307,21 @@ async function main(): Promise<void> {
       const q = queryVectors.get(fixture.prompt)!
       const scores: Record<string, number> = {}
       for (const t of all) scores[t.function.name] = cosine(q, toolVectors.get(t.function.name)!)
-      const selected = withBudgetNotes(selectTurnTools(all, scores), TOOL_TURN_BUDGETS)
+      // v4.3: and the tools the chat forces onto the turn whatever the rank —
+      // the web pair on a live or web-named question (chatTurn.ts, since
+      // 4.0.1). Without it this arm was not the app's wire: on 2026-10-01 its
+      // first wire record showed live weather and futures questions with no
+      // web_search to call.
+      const forced = webToolsForTurn(fixture.prompt)
+      const cap = ON_TOP_ARM ? TURN_TOOL_CAP + forced.length : TURN_TOOL_CAP
+      const selected = withBudgetNotes(withForcedTools(all, selectTurnTools(all, scores), forced, cap), TOOL_TURN_BUDGETS)
       wireSizes.push(selected.length)
       return selected
     }
-    console.log(`       EVAL_SUBSET=1 — the app's per-turn selection (cap ${TURN_TOOL_CAP}), ranked by ${embedModel}\n`)
+    console.log(
+      `       EVAL_SUBSET=1 — the app's per-turn selection (cap ${TURN_TOOL_CAP}), ranked by ${embedModel}, the web pair forced as the chat forces it\n` +
+        (ON_TOP_ARM ? '       EVAL_FORCED_ON_TOP=1 — forced tools ride on top of the cap (an eval-only arm; not the app)\n' : '')
+    )
   }
 
   // v2.5: EVAL_PASSES=N repeats the whole run and reports per-fixture
@@ -409,7 +426,8 @@ async function main(): Promise<void> {
               ? ['EVAL_FORCE_PREAMBLE=1: preamble pinned on (not app behavior for reasoning models)']
               : []),
             ...(VIBE_ARM ? ['EVAL_VIBE=1: VIBE system line in place'] : []),
-            ...(SUBSET_ARM ? [`EVAL_SUBSET=1: the app's per-turn selection, capped at ${TURN_TOOL_CAP}`] : [])
+            ...(SUBSET_ARM ? [`EVAL_SUBSET=1: the app's per-turn selection, capped at ${TURN_TOOL_CAP}, web tools forced as the chat forces them (since 4.3)`] : []),
+            ...(ON_TOP_ARM ? ['EVAL_FORCED_ON_TOP=1: forced tools on top of the cap — not the app'] : [])
           ],
           scores: {
             correctTool: rates.correctTool,

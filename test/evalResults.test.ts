@@ -197,7 +197,10 @@ describe('readEvalResults and the VIBE arm', () => {
 
   test('the CLI names the arm that way — and, since v4.3, the subset arm too', () => {
     const src = readFileSync(join(__dirname, '..', '..', 'scripts', 'eval-tools.ts'), 'utf-8')
-    assert.match(src, /const ARM = \[VIBE_ARM \? 'vibe' : '', SUBSET_ARM \? 'subset' : ''\]\.filter\(Boolean\)\.join\('-'\) \|\| 'full'/)
+    assert.match(src, /const ARM = \[VIBE_ARM \? 'vibe' : '', SUBSET_ARM \? 'subset' : '', ON_TOP_ARM \? 'ontop' : ''\]\.filter\(Boolean\)\.join\('-'\) \|\| 'full'/)
+    // v4.3: and the subset arm forces the web pair onto the turn as the chat does (chatTurn.ts).
+    assert.match(src, /withForcedTools\(all, selectTurnTools\(all, scores\), forced, cap\)/)
+    assert.match(src, /const forced = webToolsForTurn\(fixture\.prompt\)/)
     assert.match(src, /`\$\{ARM === 'full' \? '' : `\$\{ARM\}-`\}toolchoice-/)
     assert.match(src, /arm: ARM,/)
   })
