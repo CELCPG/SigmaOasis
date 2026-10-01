@@ -27,6 +27,10 @@ does not fit. Neither is the app's turn, which is why `EVAL_SUBSET=1` now exists
 ranks with the same cosine over LM Studio's `/v1/embeddings` and caps at the same six, per
 fixture, so the number below is the app's.
 
+Since v4.3 an `EVAL_SUBSET=1` run is its own arm: `arm: 'subset'`, written as
+`subset-toolchoice-*.json`, outside the model picker's score line and never merged with a
+whole-toolbox run by `eval:diff`. Through 4.2 it was written as a whole-toolbox run.
+
 **The app's list, measured** (`EVAL_SUBSET=1`, same model, context, temperature and passes):
 
 | MCP servers connected | schemas registered | on the wire per fixture | clean per pass | correct-tool | spurious |

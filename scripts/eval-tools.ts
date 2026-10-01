@@ -30,6 +30,8 @@
  * EVAL_VIBE=1 (v3.1, M3) runs the VIBE arm: VIBE's line in the system prompt,
  * where the app puts it. Its results are written as vibe-toolchoice-*.json so
  * the model picker's score line — the full view's number — never folds them in.
+ * EVAL_SUBSET=1 (v2.5) is an arm the same way since v4.3: subset-toolchoice-*.json,
+ * `arm: 'subset'` (with both, vibe-subset).
  * Results are written as JSON to .eval-results/ and folded into the model
  * picker's score line (Layer 0c).
  */
@@ -75,6 +77,15 @@ const RESULTS_DIR = join(REPO_ROOT, '.eval-results')
  * where the brevity line goes"); this arm is the whole suite.
  */
 const VIBE_ARM = Boolean(process.env.EVAL_VIBE)
+/**
+ * v4.3: EVAL_SUBSET=1 is an arm too. Through 4.2 its runs were written as
+ * toolchoice-*.json with `arm: 'full'` — the picker folded them over the full
+ * view's number (newest wins), and `eval:diff` could not tell the two apart, so
+ * it would have merged them into one baseline.
+ */
+const SUBSET_ARM = Boolean(process.env.EVAL_SUBSET)
+/** 'full', 'vibe', 'subset' or 'vibe-subset': the results file's `arm` and its name's prefix. */
+const ARM = [VIBE_ARM ? 'vibe' : '', SUBSET_ARM ? 'subset' : ''].filter(Boolean).join('-') || 'full'
 
 function systemPromptFor(model: string): string {
   const base = withGrounding('You are a helpful local assistant.' + vibeSystemBlock(VIBE_ARM))
@@ -195,10 +206,8 @@ async function main(): Promise<void> {
         ? '       EVAL_FORCE_PREAMBLE=1 — tool-call preamble instruction pinned ON for all models\n' +
           '       (the app skips it for reasoning-gated models; this is an A/B probe, not app behavior).\n'
         : '') +
-      (VIBE_ARM
-        ? "       EVAL_VIBE=1 — the VIBE arm: VIBE's line in the system prompt, where the app puts it;\n" +
-          "       results go to vibe-toolchoice-*.json, outside the model picker's score.\n"
-        : '')
+      (VIBE_ARM ? "       EVAL_VIBE=1 — the VIBE arm: VIBE's line in the system prompt, where the app puts it.\n" : '') +
+      (ARM !== 'full' ? `       results go to ${ARM}-toolchoice-*.json, outside the model picker's score.\n` : '')
   )
 
   mkdirSync(RESULTS_DIR, { recursive: true })
@@ -243,7 +252,7 @@ async function main(): Promise<void> {
   // done here with plain fetch because this shell runs under node.
   let toolsFor: ((fixture: { prompt: string }, all: ToolSchema[]) => Promise<ToolSchema[]>) | undefined
   let wireSizes: number[] = []
-  if (process.env.EVAL_SUBSET) {
+  if (SUBSET_ARM) {
     const embedModel = await (async (): Promise<string | null> => {
       try {
         const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`)
@@ -383,7 +392,7 @@ async function main(): Promise<void> {
       console.log('  (fixtures marked ! errored at the server and are excluded from rates)')
     }
 
-    const outFile = join(RESULTS_DIR, `${VIBE_ARM ? 'vibe-' : ''}toolchoice-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
+    const outFile = join(RESULTS_DIR, `${ARM === 'full' ? '' : `${ARM}-`}toolchoice-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
     writeFileSync(
       outFile,
       JSON.stringify(
@@ -391,14 +400,15 @@ async function main(): Promise<void> {
           model,
           baseUrl,
           ranAt: new Date().toISOString(),
-          arm: VIBE_ARM ? 'vibe' : 'full',
+          arm: ARM,
           caveats: [
             'tool results canned stubs',
             'temperature 0',
             ...(process.env.EVAL_FORCE_PREAMBLE
               ? ['EVAL_FORCE_PREAMBLE=1: preamble pinned on (not app behavior for reasoning models)']
               : []),
-            ...(VIBE_ARM ? ['EVAL_VIBE=1: VIBE system line in place'] : [])
+            ...(VIBE_ARM ? ['EVAL_VIBE=1: VIBE system line in place'] : []),
+            ...(SUBSET_ARM ? [`EVAL_SUBSET=1: the app's per-turn selection, capped at ${TURN_TOOL_CAP}`] : [])
           ],
           scores: {
             correctTool: rates.correctTool,

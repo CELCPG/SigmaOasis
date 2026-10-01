@@ -195,8 +195,24 @@ describe('readEvalResults and the VIBE arm', () => {
     }
   })
 
-  test('the CLI names the arm that way', () => {
+  test('the CLI names the arm that way — and, since v4.3, the subset arm too', () => {
     const src = readFileSync(join(__dirname, '..', '..', 'scripts', 'eval-tools.ts'), 'utf-8')
-    assert.match(src, /`\$\{VIBE_ARM \? 'vibe-' : ''\}toolchoice-/)
+    assert.match(src, /const ARM = \[VIBE_ARM \? 'vibe' : '', SUBSET_ARM \? 'subset' : ''\]\.filter\(Boolean\)\.join\('-'\) \|\| 'full'/)
+    assert.match(src, /`\$\{ARM === 'full' \? '' : `\$\{ARM\}-`\}toolchoice-/)
+    assert.match(src, /arm: ARM,/)
+  })
+
+  test('a subset-toolchoice file is never folded into the picker score either', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oasis-eval-'))
+    try {
+      const full = { model: 'm', ranAt: '2026-09-28T10:00:00Z', runs: [run({ file: 'a.json', correct: true })] }
+      const subset = { model: 'm', ranAt: '2026-10-01T01:00:00Z', arm: 'subset', runs: [run({ file: 'a.json', correct: false })] }
+      writeFileSync(join(dir, 'toolchoice-m-2026-09-28T10-00-00.json'), JSON.stringify(full))
+      writeFileSync(join(dir, 'subset-toolchoice-m-2026-10-01T01-00-00.json'), JSON.stringify(subset))
+      const [summary] = readEvalResults(dir)
+      assert.deepEqual(summary.correctTool, { hit: 1, of: 1 })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
