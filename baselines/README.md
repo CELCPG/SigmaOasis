@@ -41,6 +41,9 @@ difference: an unchanged engine lands outside it about one time in twenty.
 - **At least four passes a side.** Several results files of one arm merge into one side — and
   should: passes of one run share the server's state, and two runs of the same code differed by
   four cases in their means on 9/30. A merge refuses files of another model or arm.
+- **A pass too long for one command** can be run in `EVAL_CASES` slices and joined back into one
+  pass with `npm run eval:diff -- --join <slice> <slice> … --out <pass.json>` (v4.3): same model,
+  arm and pass count, no case in two slices. A merge would count each slice as a pass.
 - The **stable set** (the baseline's cases that never flipped) and the flaky cases are still
   printed, with the cases a run lost or gained — that is where to look — but no longer gated.
 - The table prints the band beside every delta, and a last line says how many passes a 2-case

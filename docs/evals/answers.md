@@ -536,18 +536,45 @@ About 5 s a library case, 3.5 s a Workbench case — the distill answers briefly
 
 - **Library.** Retrieval found passages for every case in every pass. Citing is where it is weak:
   a third of the replies name no source. The unsupported figures repeat (`08` "5 years", `14`
-  "18°C", `21` "20 feet", `25` "30%, 15%, 10%"). `20-tornado-during`'s *forbidden* hit is the
-  check's false positive: the reply says "stay away from windows", which is the advice, and the
-  pattern cannot see the negation. Forbidden hits are printed per case and counted in no summary
-  line.
+  "18°C", `21` "20 feet", `25` "30%, 15%, 10%"). `20-tornado-during` was flagged *forbidden* in all
+  three passes, wrongly: the negation scoping already passed "stay away from windows"; what matched
+  `\bwindows?\b` was "put your head down below the windows" — the preparedness pack's own advice
+  for a car. **Fixed in 4.3 (E7):** the case forbids the unsafe advice (opening windows, sheltering
+  near one), not the word, and the library summary counts forbidden hits ("asserted forbidden").
+  The three passes rescored with the new fixture: 3/84 → 0/84.
 - **Deliberate.** Think-harder moved one case in 60. Twice in `03-compound-monthly` the review
-  spent 1,999 of its 2,000 completion tokens reasoning and returned nothing — on a reasoning model
-  the review pass's budget goes to thinking.
+  spent 1,999 of its 2,000 completion tokens reasoning and returned nothing, and the case was
+  excluded as an error. That was the harness: every eval request is capped at 2,000 tokens (a
+  transport limit for slow models), while the app sends the review and the revision with the slot's
+  cap — none — and thinking on. **Fixed in 4.3 (E6):** the two get 6,000, and a review that still
+  never answers is scored as the app shows it — the draft, unreviewed — and counted on its own line.
 - **Live misses its 4.1 gate (≥ 90%), and the suite is why.** Every miss searched and then gave no
   answer, and 7 of the 8 say why: the results were "local/internal pages" or "localhost URLs that
   aren't accessible". The fixture pages are `http://127.0.0.1:<port>/…`, and `fetch_webpage`'s
   description says *HTTPS only, private addresses refused* — the model declined to fetch what the
   app's own tool says it cannot. It never answered from the planted ledger entry or with the wrong
-  day's figure. Until the fixture serves its pages under a public-looking HTTPS origin (a seam
-  change in `src/main/ipc/search/ssrf.ts`, so a decision, ROADMAP-v4.3.md), this number measures
-  the fixture.
+  day's figure. **Fixed in 4.3 (E4)** — below.
+
+### After the fixes (2026-10-01, rel/4.3)
+
+Three passes each, the same model, from `rel/4.3` with E4 and E6 in.
+
+**Live, under an ordinary HTTPS address** (`https://www.harrowgate-dunmore-courier.com`, which the
+fetch guard's test seam maps to the loopback server — `src/main/ipc/fixtureSeam.ts`; nothing sent
+to it leaves the machine):
+
+| | pass 1 | pass 2 | pass 3 | all three |
+| --- | --- | --- | --- | --- |
+| passed every line | 5/6 | 6/6 | 6/6 | **17/18 · 94%** |
+| read a page | 5/6 | 6/6 | 6/6 | 17/18 |
+| ledger answers · wrong day · wrong date | 0 · 0 · 0 | 0 · 0 · 0 | 0 · 0 · 0 | 0/18 |
+
+**The 4.1 live-world gate — ≥ 90% from a fetched page, no ledger answer — passes**, for the first
+time it has been measured on the model rather than the fixture. The one miss (`01`, pass 1)
+searched, did not fetch, and declined: "none of the pages were readable before I answered."
+
+**Deliberate, with the review's room:** bare 9, 10, 10 of 20; think harder 9, 10, 11 of 20 —
+29/60 → 30/60. No error and no unreviewed draft in 60 (two errors before); `03-compound-monthly`'s
+review now finishes, in 2–25 s. Revised 16 drafts, changed one result (`02-mortgage-payment`,
+✗ → ✓). On this model think harder is a near-wash on these 20, as v1.9.1 found for reasoning
+models.

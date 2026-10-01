@@ -51,13 +51,14 @@ unbuilt, with this table as the reason.
 
 4.1 dropped the tool descriptions' Example lines (S5, `adceca4` — the only change to
 `src/shared/tools/defs` between 4.0.1 and 4.2.0) and added the live fixtures. Both arms re-run on `qwen3.8-9b-distill` (68,608-token window, temperature 0), four separate one-pass
-runs each, 2026-09-30 night, no server error in any run. They are the first tool-choice baselines:
-`baselines/toolchoice-qwen3.8-9b-distill.json` and `…-subset.json`.
+runs each, 2026-09-30 night, no server error in any run. The whole-toolbox runs are the first
+tool-choice baseline, `baselines/toolchoice-qwen3.8-9b-distill.json`; the subset's baseline was
+re-recorded the next day, below.
 
 | arm | clean per pass (of 28) | correct-tool | spurious (no-tool) | loops | invalid arguments |
 | --- | --- | --- | --- | --- | --- |
 | the whole toolbox | 22, 22, 22, 22 | 84/100 · 84% | 0/12 | 16/112 | 0 |
-| **the app's subset** (`EVAL_SUBSET=1`) | **23, 23, 23, 23** | 80/100 · 80% | 0/12 | 0/112 | 0 |
+| the subset (`EVAL_SUBSET=1`), ranked only — not quite the app, see below | 23, 23, 23, 23 | 80/100 · 80% | 0/12 | 0/112 | 0 |
 
 No fixture flipped between runs: the noise floor here is zero, and every miss is a choice.
 
@@ -68,10 +69,36 @@ No fixture flipped between runs: the noise floor here is zero, and every miss is
   loop against the stubs to the cap; `09-datetime` calls nothing; `24-reference-own-docs` lists
   directories.
 - **The subset:** `02-read-file` calls `read_note`, `03-write-file` calls `memory_save`,
-  `25-live-weather` calls `memory_search`. The results file does not record which six tools each
-  fixture put on the wire, so whether the expected one was among them is not known; recording it
-  is a small change to `eval-tools.ts` worth making before the next run.
+  `25-live-weather` calls `memory_search`. These runs did not record which six tools each fixture
+  put on the wire, so whether the expected one was among them is not known from them. Since 4.3
+  (E5) a subset run records each fixture's `wire`, and the failure line says whether the expected
+  tool was offered.
 
 Against the subset arm of 2026-09-28 (4.0's descriptions, `vibe.md`), on the 24 fixtures both ran:
 21 of 24 then and now. `02-read-file` was lost, `24-reference-own-docs` gained. The descriptions
 lost their Example lines and the model lost nothing measurable.
+
+### What the chat really sends (2026-10-01, E5)
+
+The first run that recorded each fixture's wire showed every subset miss to be the ranking's: the
+expected tool was never offered — the live weather and futures questions included, which the
+chat forces the web pair onto (`webToolsForTurn`, since 4.0.1). The subset arm had only ranked.
+It now composes the turn as `chatTurn.ts` does, and the baseline above was re-recorded on it:
+
+| subset arm | clean per pass (of 28) | correct-tool | gained | lost |
+| --- | --- | --- | --- | --- |
+| 9/30: ranked only (not the app) | 23, 23, 23, 23 | 80/100 | — | — |
+| **10/1: as the chat composes the turn** (the baseline) | **22, 22, 22, 22** | 76/100 | `05`, `25`, `27` | `09-datetime`, `10-create-note`, `16-shop-compare`, `22-price-near-miss` |
+| 10/1: forced tools on top of the cap (eval only, `EVAL_FORCED_ON_TOP=1`) | 23, 23, 22, 23 | 79/100 | `09`, `10`, `16`, `22` back | `26-live-score`, `27` to `market_data` |
+
+The losses are the chat's own: four tools are always on and the cap is six, so a forced web pair
+evicts both ranked picks (`withForcedTools`, by design since 4.0.1 — and it evicts by wire order,
+not by rank as its comment says). "What time is it right now?" reaches the model with no
+`get_current_datetime`, and "make a note…" with no `create_note`; both are on by default. The
+shopping and market tools in the other rows are off by default. Putting forced tools on top of the
+cap measured BETTER than the chat as it is (+0.75 clean a pass, band ±0.50) on the eval's full
+toolset; the app keeps its behaviour in 4.3, and the decision is ROADMAP-v4.3's F6.
+
+`02-read-file` and `03-write-file` lose to `read_note` and `memory_save` in the ranking itself —
+the embedding ranks the notes and memory tools above the file tools for "read the file …" and
+"write … to a file". Recorded for 4.4; a ranking change is a wire change and needs its own arm.
