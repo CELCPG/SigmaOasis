@@ -163,6 +163,58 @@ codesign --verify --deep --strict --verbose=2 /Applications/Sigma Oasis.app
 
 It should launch with **no Gatekeeper dialog at all**.
 
+## Dry-running the signed Mac build (v4.4)
+
+`release.yml` only runs on a pushed `v*` tag, so a change to how the Mac build
+is signed or notarized — first of all electron-builder 24 → 26, on
+`4.4/builder26` — could only be tried by cutting a real release.
+`.github/workflows/release-dryrun.yml` is that macOS job started by hand: the
+credentials preflight, `npm ci`, the typecheck and `npm test`, the keychain,
+`electron-builder --mac --publish never` (sign, notarize, staple), the macOS
+floor in `latest-mac.yml`. Then it keeps both DMGs as a 7-day workflow artifact
+(`dryrun-installers-mac`) and checks the app in each: `codesign --verify
+--deep --strict` and a *Developer ID Application* authority, `spctl` saying
+*Notarized Developer ID* (skipped, with a warning, on a runner whose Gatekeeper
+assessments are off), `stapler validate`.
+No release, no draft, no tap bump, a read-only token; it reads the five Apple
+secrets of step 5 and nothing else. The notarization submission to Apple is
+real — that is the point. `test/releaseDryrun.test.ts` keeps it that way and
+fails when `release.yml`'s macOS steps change without it.
+
+GitHub lists a `workflow_dispatch` workflow only once the file is on the
+default branch, and runs it as the chosen branch has it. So, once:
+
+```bash
+cd C:/Users/clong/Projects/SigmaOasis     # the main checkout, on main, clean
+# After 4.3.0 is out (main = rel/4.3), 4.4/dryrun is the dry run alone on top of it:
+git merge --ff-only 4.4/dryrun
+# (Before 4.3.0: git cherry-pick rel/4.3..4.4/dryrun — it applies to 4.2.0 as is.)
+git push origin main                     # runs CI only; the new file has no push trigger
+```
+
+Then, for each branch to prove (it must carry the file — `4.4/builder26` does):
+
+```bash
+git push origin 4.4/builder26
+gh workflow run release-dryrun.yml --ref 4.4/builder26
+gh run watch
+```
+
+or **Actions → Release dry run → Run workflow → Use workflow from:
+`4.4/builder26` → Run workflow**. Leaving *Use workflow from* on `main` and
+typing the branch into the **ref** box builds that branch with main's copy of
+the workflow.
+
+Reading the run: the *Say what is being built* step names the commit, the
+version and the electron-builder that ran. Green means both DMGs were signed,
+notarized and stapled by that builder; `gh run download <run-id> -n
+dryrun-installers-mac` fetches them for step 7's check on a Mac, or to update
+an installed copy from. Red at the preflight or the keychain import is the
+secrets (as under *If the macOS job fails* below); red at *Build, sign &
+notarize* is the change under test; red at the last check leaves the DMGs on
+the run's page to look at. The assets carry the branch's `package.json`
+version — they are never attached to anything.
+
 ---
 
 ## Repository protections

@@ -1,0 +1,229 @@
+name: Release dry run
+
+# The signed, notarized macOS build of release.yml, run by hand from any branch,
+# with nothing published. v4.4: electron-builder 26 changes how notarization is
+# configured (mac.notarize became a boolean, the team id read from
+# APPLE_TEAM_ID), and release.yml only runs on a pushed `v*` tag, so before this
+# file the only way to see a signed build from a new builder was to cut a real
+# release. Run it from Actions → "Release dry run" → Run workflow (RELEASING.md,
+# "Dry-running the signed Mac build").
+#
+# What it does: the macOS job exactly as release.yml has it — credentials
+# preflight, npm ci, typecheck, the suite, the bundle, our own signing keychain,
+# `electron-builder --mac --publish never`, the macOS floor stamped into
+# latest-mac.yml — then uploads the DMGs as a workflow artifact and checks the
+# app inside each one for a valid signature, Gatekeeper's notarized verdict and
+# a stapled ticket.
+#
+# What it does not do, on purpose: no guard job (there is no tag to check), no
+# Windows or Linux job, no `publish` job, no release (draft or otherwise), no
+# Homebrew tap bump. No step holds GH_TOKEN, GITHUB_TOKEN is never handed to a
+# step, and the workflow's token can only read. The one thing that leaves for
+# Apple is the notarization submission itself — that is what is being tested.
+#
+# test/releaseDryrun.test.ts holds this file to that: dispatch only, read-only,
+# `--publish never` the only publish mode, no token and no release or tap step,
+# and release.yml's macOS steps present here unchanged and in order — so when
+# release.yml's macOS job changes, the suite says this file must follow.
+#
+# GitHub only offers a workflow_dispatch workflow once the file is on the
+# default branch; it then runs the file *as the chosen branch has it*, so a
+# branch picked under "Use workflow from" must carry this file too. The `ref`
+# input builds another branch, tag or SHA with this file as the chosen branch
+# has it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to build (empty = the branch chosen under "Use workflow from")
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS (signed & notarized, not published)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      # From release.yml, unchanged (see the comment there).
+      - name: Preflight — verify Apple notary credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          [ -n "$APPLE_ID" ] || missing+=(APPLE_ID)
+          [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] || missing+=(APPLE_APP_SPECIFIC_PASSWORD)
+          [ -n "$APPLE_TEAM_ID" ] || missing+=(APPLE_TEAM_ID)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secret(s): ${missing[*]}"
+            exit 1
+          fi
+
+          # A pasted app-specific password often carries a trailing newline or
+          # space. Apple answers that with a bare 401, so name it explicitly.
+          case "$APPLE_APP_SPECIFIC_PASSWORD" in
+            *[[:space:]]) echo "::warning::APPLE_APP_SPECIFIC_PASSWORD ends in whitespace — re-paste it without the trailing character." ;;
+          esac
+
+          set +e
+          out=$(xcrun notarytool history \
+                  --apple-id "$APPLE_ID" \
+                  --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD" 2>&1)
+          status=$?
+          set -e
+
+          if [ $status -ne 0 ]; then
+            echo "::error::Apple rejected these notary credentials (notarytool exit $status). Raw response:"
+            echo "$out"
+            exit 1
+          fi
+          echo "Notary credentials accepted by Apple for team $APPLE_TEAM_ID."
+
+      # The one change to a release.yml step: `ref`. Empty, checkout takes the
+      # branch the run was started from, as release.yml's takes the tag.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Dry run only: the log says which commit, version and electron-builder
+      # this run proved, since a branch moves and the artifact outlives it.
+      - name: Say what is being built
+        run: |
+          echo "commit:           $(git log -1 --format='%h %s')"
+          echo "package.json:     $(jq -r .version package.json)"
+          echo "electron-builder: $(npx electron-builder --version)"
+
+      - name: Fetch Pyodide runtime (Workbench)
+        run: bash scripts/fetch-pyodide.sh
+
+      - run: npm run typecheck
+
+      # As in release.yml: a failing suite stops the signed build here.
+      - run: npm test
+
+      - name: Bundle main, preload & renderer
+        run: npx electron-vite build
+
+      # v3.0: the `sigma` CLI, bundled into out/cli for extraResources.
+      - name: Bundle the sigma CLI
+        run: node scripts/build-cli.mjs
+
+      # From release.yml, unchanged — the keychain electron-builder 24 could not
+      # build for itself on the macOS 26.6 runner image. Whether 26 still needs
+      # it is one of the things a dry run can show, by a run with this step and
+      # one without it; until then it stays, so the dry run signs as the
+      # release does.
+      - name: Import the Developer ID certificate into a keychain of our own
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          P12="$RUNNER_TEMP/certificate.p12"
+          # CSC_LINK is the base64 of the .p12 (RELEASING.md step 4), which is
+          # also what electron-builder itself decodes from it.
+          printf '%s' "$CSC_LINK" | tr -d '\n\r ' | base64 --decode > "$P12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+          rm -f "$P12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          # Fail here, with the identity list in the log, rather than inside
+          # electron-builder with a less direct message.
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          security find-identity -v -p codesigning "$KEYCHAIN" | grep -q 'Developer ID Application'
+          echo "CSC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Build, sign & notarize
+        run: npx electron-builder --mac --publish never
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # CSC_KEYCHAIN comes from the step above; CSC_LINK and
+          # CSC_KEY_PASSWORD stay out of this env on purpose (see there).
+          # Traces the notarytool invocation (args, exit code, temp paths). Note
+          # it does NOT reveal Apple's rejection message — @electron/notarize
+          # throws inside JSON.parse before it logs the response body. The
+          # preflight step above is what surfaces that.
+          DEBUG: electron-notarize*
+
+      # From release.yml, unchanged: electron-updater reads this floor (Darwin
+      # 22 = macOS 13) from latest-mac.yml.
+      - name: Stamp the macOS floor into the update manifest
+        run: |
+          set -euo pipefail
+          test -f dist/latest-mac.yml
+          grep -q '^minimumSystemVersion:' dist/latest-mac.yml || echo 'minimumSystemVersion: 22.0.0' >> dist/latest-mac.yml
+          grep -n '^minimumSystemVersion:' dist/latest-mac.yml
+
+      # Where release.yml hands these to its publish job, the dry run keeps them
+      # on the run's page (Summary → Artifacts, or `gh run download <run-id>`).
+      - name: Keep the signed DMGs as a workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dryrun-installers-mac
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/latest-mac.yml
+
+      # Dry run only, after the upload so a failure here still leaves the DMGs
+      # to inspect. What RELEASING.md step 7 checks by hand on a downloaded DMG,
+      # for both architectures: the names the release and the tap expect, a
+      # valid deep signature by a Developer ID, Gatekeeper's "Notarized
+      # Developer ID", and a stapled ticket (the app opens offline without
+      # asking Apple). A runner with Gatekeeper assessments switched off answers
+      # spctl with "override=security disabled" whatever the app is; there the
+      # staple, which only a notarization can produce, is the check.
+      - name: Check each DMG's app — signature, notarization, staple
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .version package.json)
+          gatekeeper=on
+          spctl --status 2>&1 | grep -q 'assessments enabled' || gatekeeper=off
+          [ "$gatekeeper" = on ] || echo "::warning::Gatekeeper assessments are off on this runner; checking the staple instead of spctl."
+          for arch in arm64 x64; do
+            dmg="dist/Sigma-Oasis-${VERSION}-mac-${arch}.dmg"
+            test -f "$dmg" || { echo "::error::$dmg was not built"; ls dist; exit 1; }
+            mnt=$(mktemp -d)
+            hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" > /dev/null
+            app="$mnt/Sigma Oasis.app"
+            echo "== $arch: $dmg"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign --display --verbose=2 "$app" 2>&1 | grep '^Authority=Developer ID Application'
+            if [ "$gatekeeper" = on ]; then
+              spctl --assess --type execute --verbose=4 "$app" 2>&1 | tee "$RUNNER_TEMP/spctl-$arch.txt"
+              grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl-$arch.txt"
+            fi
+            xcrun stapler validate "$app"
+            hdiutil detach "$mnt" > /dev/null
+          done
+          echo "Both DMGs: signed, notarized and stapled."
+
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          if [ -n "${CSC_KEYCHAIN:-}" ] && [ -f "$CSC_KEYCHAIN" ]; then security delete-keychain "$CSC_KEYCHAIN"; fi
