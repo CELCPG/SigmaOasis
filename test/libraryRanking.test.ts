@@ -150,6 +150,22 @@ describe('the re-rank (v4.2 L2)', () => {
     assert.equal((body.response_format as { type?: string } | undefined)?.type, 'json_schema')
   })
 
+  test('v4.4: a <think> family is asked plainly, its think block closed by the prefill — under the grammar the 9B distill thought through all 80 tokens and never answered', async () => {
+    rerankOn()
+    await lib.installPackFromDirectory(writePack('health', [{ id: 'stings', title: 'Stings', text: STINGS }]))
+    state.completions = ['{"answering": [2]}']
+    const out = await lib.lookupLibrary({ query: QUESTION, topK: 3, modelId: 'qwen3.8-9b-distill' })
+    assert.equal(out.rerank, 'applied')
+    const body = state.completionBodies[0] as { model?: string; response_format?: unknown; max_tokens?: number; messages?: { role: string; content: string }[] }
+    assert.equal(body.model, 'qwen3.8-9b-distill')
+    assert.equal(body.response_format, undefined, 'no grammar: LM Studio refuses one beside the prefill')
+    assert.equal(body.max_tokens, 80)
+    const last = body.messages?.at(-1)
+    assert.equal(last?.role, 'assistant')
+    assert.match(last?.content ?? '', /^<think>\s*<\/think>/)
+    // A family without think tags keeps the grammar (the test above).
+  })
+
   test('with topK 1, the model\'s pick is the whole answer', async () => {
     rerankOn()
     await lib.installPackFromDirectory(writePack('health', [{ id: 'stings', title: 'Stings', text: STINGS }]))

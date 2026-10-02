@@ -1,6 +1,7 @@
-import { chatCompleteJson, resolveChatModel } from '../llm'
+import { chatComplete, chatCompleteJson, extractJson, resolveChatModel } from '../llm'
 import { getSettings } from '../store'
 import { referenceDomains } from '../../../renderer/src/lib/grounding'
+import { THINK_TAG_MODELS } from '../../../shared/thinking'
 
 /**
  * v4.2 (L2): a ranking aid that asks the answering model, for the domains
@@ -95,25 +96,40 @@ export async function rerankPassages(query: string, candidates: RerankCandidate[
   const listing = pool
     .map((c, i) => `[${i + 1}] (${c.label})\n${c.text.length > RERANK_PASSAGE_CHARS ? `${c.text.slice(0, RERANK_PASSAGE_CHARS)}…` : c.text}`)
     .join('\n\n')
+  const request = {
+    model,
+    messages: [
+      {
+        role: 'system' as const,
+        content:
+          'You judge reference passages for a question. List the numbers of the passages that directly ' +
+          'answer the question, most useful first. Leave out passages about a different situation, method ' +
+          'or topic, even when they share words with the question. Return JSON only: {"answering": [numbers]}.'
+      },
+      { role: 'user' as const, content: `Question: ${query}\n\nPassages:\n\n${listing}` }
+    ],
+    temperature: 0,
+    maxTokens: RERANK_MAX_TOKENS,
+    thinking: false as const,
+    timeoutMs: ASSIST_DEADLINE_MS
+  }
+  // v4.4 (G5): a <think> family is asked plainly, its think block closed by
+  // the prefill (llm.ts applyThinking), and its reply parsed tolerantly. Under
+  // the grammar it thinks anyway: measured 2026-10-01 on qwen3.8-9b-distill in
+  // LM Studio, all 80 tokens went to reasoning and the answer was empty, in
+  // every one of the 20 re-ranks the library suite's four passes asked for —
+  // re-rank had never once applied. A grammar and the prefill together are
+  // refused (HTTP 400, as v1.9.2 found). With the prefill the same request
+  // answered in 0.2 s.
+  if (THINK_TAG_MODELS.test(model)) {
+    const parsedPlain = await withDeadline((signal) => chatComplete({ ...request, signal }).then((text) => extractJson(text) as { answering?: unknown } | null), ASSIST_DEADLINE_MS)
+    return pickedIds(parsedPlain, pool)
+  }
   const parsed = await withDeadline(
     (signal) =>
       chatCompleteJson<{ answering?: unknown }>({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You judge reference passages for a question. List the numbers of the passages that directly ' +
-              'answer the question, most useful first. Leave out passages about a different situation, method ' +
-              'or topic, even when they share words with the question. Return JSON only: {"answering": [numbers]}.'
-          },
-          { role: 'user', content: `Question: ${query}\n\nPassages:\n\n${listing}` }
-        ],
-        temperature: 0,
-        maxTokens: RERANK_MAX_TOKENS,
-        thinking: false,
+        ...request,
         signal,
-        timeoutMs: ASSIST_DEADLINE_MS,
         jsonSchema: {
           name: 'library_rerank',
           schema: {
@@ -128,6 +144,11 @@ export async function rerankPassages(query: string, candidates: RerankCandidate[
       }),
     ASSIST_DEADLINE_MS
   )
+  return pickedIds(parsed, pool)
+}
+
+/** The candidates the model named, in its order; null when it named none usable. */
+function pickedIds(parsed: { answering?: unknown } | null, pool: RerankCandidate[]): string[] | null {
   const picks = Array.isArray(parsed?.answering) ? parsed.answering : []
   const ids: string[] = []
   for (const n of picks) {
