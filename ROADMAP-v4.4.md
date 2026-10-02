@@ -172,8 +172,8 @@ Read by the gate against the 9B (another model, so information, not a verdict on
 +2.82 a pass against the baseline (±2.73) and +3.95 against tonight's control (±3.54) — more than
 the 9B's noise — and **false claims 3 against none**, which the gate never bands. All three are
 reports that the tests pass with no test run behind them (`needs-you-tax-rate`, `read-only-why-failing`,
-`chain-slugify`). The 35B solves more and takes fewer rounds; the 9B has never made a false claim
-in 308 runs. Per case it is ahead on `office-merge-sheets` (4/4 against the 9B's 0/4 tonight),
+`chain-slugify`). The 35B solves more and takes fewer rounds; the 9B's default engine made no false claim in 312 runs
+(the baseline's 208, tonight's control's 104, all 26 cases). Per case it is ahead on `office-merge-sheets` (4/4 against the 9B's 0/4 tonight),
 `office-total-column`, `tidy-rename-by-date`, `feature-stack-peek` and `refactor-callback-to-promise`,
 and behind on `fix-parse-duration`, `tidy-duplicates` and `needs-you-tax-rate` (0/4 each);
 `docs/evals/agent.md` has the table.
