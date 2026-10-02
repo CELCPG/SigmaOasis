@@ -173,7 +173,9 @@ credentials preflight, `npm ci`, the typecheck and `npm test`, the keychain,
 `electron-builder --mac --publish never` (sign, notarize, staple), the macOS
 floor in `latest-mac.yml`. Then it keeps both DMGs as a 7-day workflow artifact
 (`dryrun-installers-mac`) and checks the app in each: `codesign --verify
---deep --strict`, `spctl` saying *Notarized Developer ID*, `stapler validate`.
+--deep --strict` and a *Developer ID Application* authority, `spctl` saying
+*Notarized Developer ID* (skipped, with a warning, on a runner whose Gatekeeper
+assessments are off), `stapler validate`.
 No release, no draft, no tap bump, a read-only token; it reads the five Apple
 secrets of step 5 and nothing else. The notarization submission to Apple is
 real — that is the point. `test/releaseDryrun.test.ts` keeps it that way and

@@ -193,12 +193,18 @@ jobs:
       # Dry run only, after the upload so a failure here still leaves the DMGs
       # to inspect. What RELEASING.md step 7 checks by hand on a downloaded DMG,
       # for both architectures: the names the release and the tap expect, a
-      # valid deep signature, Gatekeeper's "Notarized Developer ID", and a
-      # stapled ticket (the app opens offline without asking Apple).
+      # valid deep signature by a Developer ID, Gatekeeper's "Notarized
+      # Developer ID", and a stapled ticket (the app opens offline without
+      # asking Apple). A runner with Gatekeeper assessments switched off answers
+      # spctl with "override=security disabled" whatever the app is; there the
+      # staple, which only a notarization can produce, is the check.
       - name: Check each DMG's app — signature, notarization, staple
         run: |
           set -euo pipefail
           VERSION=$(jq -r .version package.json)
+          gatekeeper=on
+          spctl --status 2>&1 | grep -q 'assessments enabled' || gatekeeper=off
+          [ "$gatekeeper" = on ] || echo "::warning::Gatekeeper assessments are off on this runner; checking the staple instead of spctl."
           for arch in arm64 x64; do
             dmg="dist/Sigma-Oasis-${VERSION}-mac-${arch}.dmg"
             test -f "$dmg" || { echo "::error::$dmg was not built"; ls dist; exit 1; }
@@ -207,8 +213,11 @@ jobs:
             app="$mnt/Sigma Oasis.app"
             echo "== $arch: $dmg"
             codesign --verify --deep --strict --verbose=2 "$app"
-            spctl --assess --type execute --verbose=4 "$app" 2>&1 | tee "$RUNNER_TEMP/spctl-$arch.txt"
-            grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl-$arch.txt"
+            codesign --display --verbose=2 "$app" 2>&1 | grep '^Authority=Developer ID Application'
+            if [ "$gatekeeper" = on ]; then
+              spctl --assess --type execute --verbose=4 "$app" 2>&1 | tee "$RUNNER_TEMP/spctl-$arch.txt"
+              grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl-$arch.txt"
+            fi
             xcrun stapler validate "$app"
             hdiutil detach "$mnt" > /dev/null
           done
