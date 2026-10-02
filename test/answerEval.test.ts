@@ -120,6 +120,23 @@ describe('assertedPatterns — negation-aware "must not"', () => {
     assert.equal(assertedPatterns('Shelter in a room near a window so you can watch the funnel.', fx.mustNotAssert).length, 1)
     assert.deepEqual(assertedPatterns('Do not open the windows; it does not equalize pressure.', fx.mustNotAssert), [])
   })
+
+  test('v4.4: a list item is negated by its lead-in — the burn case\'s "**Do NOT:**" list is the right advice, not ice and butter', () => {
+    const fx = JSON.parse(readFileSync(join(__dirname, '..', '..', 'test', 'fixtures', 'library', '01-burn-cooling.json'), 'utf-8')) as { mustNotAssert: string[] }
+    // Verbatim, qwen3.8-9b-distill, 2026-10-01 night (the re-rank arm, 01-burn-cooling): flagged for ice and butter.
+    const reply =
+      "**Treat the burn/scald immediately:**\n\n1. **Hold your forearm under cool running water for 15–30 minutes**, or until the pain feels better. If there's no running water available, you can use cool bottled water. [2]\n\n2. **Remove any clothing or jewellery near the affected area** — but do not remove anything that is stuck to the skin. [2]\n\n3. **When cooled, lay cling film over it loosely.** Do not wrap the cling film around tightly. [2]\n\n**Do NOT:**\n- Rub the affected area. [5]\n- Apply ice or very cold water (which can cause further tissue damage).\n- Use butter, oil, toothpaste, or other home remedies.\n\nIf the burn is large, blistered, on your face/hands/feet/genitals, or if you have underlying health conditions like diabetes, seek medical attention promptly."
+    assert.deepEqual(assertedPatterns(reply, fx.mustNotAssert), [])
+    // Other lead-ins that negate: a blank line under it, a heading, "Avoid:".
+    assert.deepEqual(assertedPatterns('Avoid:\n\n- ice packs\n- butter', fx.mustNotAssert), [])
+    assert.deepEqual(assertedPatterns("### What not to do\n* put ice on it\n* spread butter on it", fx.mustNotAssert), [])
+    // A lead-in that does not negate leaves its items asserted, and so does a list with none.
+    assert.deepEqual(assertedPatterns('**Do this now:**\n1. Put ice on the burn.\n2. Then butter.', fx.mustNotAssert), fx.mustNotAssert)
+    assert.deepEqual(assertedPatterns('Steps\n- put ice on it', fx.mustNotAssert), ['\\bice\\b'])
+    assert.deepEqual(assertedPatterns('- put ice on it\n- rest', fx.mustNotAssert), ['\\bice\\b'])
+    // A paragraph after the list is not an item of it.
+    assert.deepEqual(assertedPatterns('**Do NOT:**\n- rub it\n\nPut ice on it afterwards.', fx.mustNotAssert), ['\\bice\\b'])
+  })
   test('negation in a neighbouring sentence does not excuse an assertion', () => {
     assert.deepEqual(
       assertedPatterns('Do not leave food out. Thaw it on the counter for a few hours.', ['\\bcounter\\b']),

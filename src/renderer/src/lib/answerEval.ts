@@ -192,9 +192,40 @@ function scopeAround(text: string, index: number, length: number): string {
   return text.slice(start + 1, index + length + end + 1)
 }
 
+const LIST_ITEM = /^\s*(?:[-*•+]|\d{1,2}[.)])\s+/
+/** A line that introduces what follows: it ends in a colon (bold or not), or it is a heading. */
+const LEAD_IN = /:\s*[*_]*\s*$|^\s*#{1,6}\s/
+
+/**
+ * v4.4 (G5): the line a list item hangs from. "**Do NOT:**" followed by
+ * "- Apply ice …" and "- Use butter …" is the burn case's correct advice — and
+ * each item, read alone, asserts the very thing the case forbids: on
+ * 2026-10-01 the re-rank and sample-answer arms' replies to 01-burn-cooling
+ * were scored as asserting ice and butter for exactly that layout. The scope
+ * of a list item is its line (`scopeAround`), and its lead-in negates it too.
+ * Empty when the match is not in a list item, or the list has no lead-in.
+ */
+function listLeadIn(text: string, index: number): string {
+  let start = text.lastIndexOf('\n', index - 1) + 1
+  const end = text.indexOf('\n', index)
+  if (!LIST_ITEM.test(text.slice(start, end === -1 ? text.length : end))) return ''
+  // Up over the list's other items, to the first line that is not one.
+  while (start > 0) {
+    const prevStart = text.lastIndexOf('\n', start - 2) + 1
+    const prev = text.slice(prevStart, start - 1)
+    // A loose list, or a blank line under the lead-in, is still the same list.
+    if (LIST_ITEM.test(prev) || prev.trim() === '') {
+      start = prevStart
+      continue
+    }
+    return LEAD_IN.test(prev.trim()) ? prev : ''
+  }
+  return ''
+}
+
 /**
  * Patterns the reply *asserts* — matched somewhere no negation cue shares its
- * sentence. This is what a case means by "must not": a reply that says
+ * sentence, or (v4.4) the lead-in of the list it is an item of. This is what a case means by "must not": a reply that says
  * "never thaw on the counter" or "cook to 165°F, not 145°F" is correct, and
  * measured against the naive form both were flagged as failures.
  */
@@ -205,7 +236,7 @@ export function assertedPatterns(reply: string, patterns: string[]): string[] {
     let asserted = false
     for (const m of reply.matchAll(re)) {
       const scope = scopeAround(reply, m.index ?? 0, m[0].length)
-      if (!NEGATION_CUES.test(scope)) {
+      if (!NEGATION_CUES.test(scope) && !NEGATION_CUES.test(listLeadIn(reply, m.index ?? 0))) {
         asserted = true
         break
       }
