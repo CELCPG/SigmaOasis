@@ -130,21 +130,22 @@ timeouts, exclusions or the machine. Three of the four arms' solved lines sat in
 what decided those three was the rule the band leaves alone, a false claim. The reviewer arm made
 five in 104 runs.
 
-###  beside a same-day control, and the 35B-A3B's baseline (v4.4, 2026-10-01 night)
+### `toolsByPhase` beside a same-day control, and the 35B-A3B's baseline (v4.4, 2026-10-01 night)
 
-** (G3).** , four passes a side, the arm and its control (every
+**`toolsByPhase` (G3).** `qwen3.8-9b-distill`, four passes a side, the arm and its control (every
 switch off) interleaved slice by slice in one session (ROADMAP-v4.4, G1):
 
 | arm | solved a pass (of 26) | false claims | collateral a pass | verdict |
 | --- | --- | --- | --- | --- |
 | same-day control | 18, 19, 18, 13 | 0/104 | 1.75 | — |
-|  | 17, 17, 15, 18 | 0/104 | 3.00 | SAME-WITHIN-NOISE — solved −0.25 (±3.83), collateral +1.25 (±1.26); stays off |
+| `toolsByPhase` | 17, 17, 15, 18 | 0/104 | 3.00 | SAME-WITHIN-NOISE — solved −0.25 (±3.83), collateral +1.25 (±1.26); stays off |
 
-**The 35B-A3B (G6)** —  in llama-server on the B60 (,
-), four passes, saved as  over the 25 cases every
-pass has ( finished inside the 8.5-minute chunk 2 times in 7, both solved).
-Beside the 9B, per case — the 35B's four passes, the 9B's same-day control (four) and its committed
-baseline (eight); times are medians of the solved runs:
+**The 35B-A3B (G6)** — `qwen3.8-35b-a3b` in llama-server on the B60
+(`LMSTUDIO_BASE_URL=http://127.0.0.1:8081/v1`, `EVAL_GPU=none`), four passes, saved as
+`baselines/agent-qwen3.8-35b-a3b.json` over the 25 cases every pass has (`long-discount-rules`
+finished inside the 8.5-minute chunk 2 times in 7, both solved). Beside the 9B, per case — the
+35B's four passes, the 9B's same-day control (four) and its committed baseline (eight); times are
+medians of the solved runs:
 
 | case | 35B-A3B solved | 9B tonight | 9B baseline (9/30) | 35B time, solved (median) | 9B time, solved (median, tonight) |
 | --- | --- | --- | --- | --- | --- |
@@ -179,5 +180,4 @@ The 35B: solved 21, 21, 21, 19 of 25 (20.70 a pass against the 9B baseline's 17.
 false claims in 99 runs — each a report that the tests pass with no test run behind it — where the
 9B's default engine has none in 312; median 21 s a solved case against 16–17 s, at 68 tok/s
 against ~104 and a TTFT of 451 ms against ~205 ms, in 6 rounds against 9. One run was excluded:
-the server dropped the connection () on .
-
+the server dropped the connection (`fetch failed`) on `office-letters-from-csv`.
