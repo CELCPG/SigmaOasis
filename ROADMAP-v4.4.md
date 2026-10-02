@@ -150,3 +150,36 @@ solved in 38 s; control pass 3: rerun not solved). The arm's first run was not k
 see *Harness* below — and finished not solved after 19 minutes, overlapping other runs; it is set
 aside (`44-eval/.eval-results/discarded/`). Counted instead of the rerun, the arm's pass 1 would be
 16 and its mean 16.50: the verdict is the same.
+
+## G6 — the 35B-A3B's agent baseline: **saved**, `baselines/agent-qwen3.8-35b-a3b.json`
+
+`eval:agent` already spoke to any OpenAI-compatible server on this machine (`LMSTUDIO_BASE_URL`,
+loopback only); the one addition is `EVAL_GPU=none`, so a server on the B60 is not watched through
+the 5070's PCIe counter (`scripts/gpuHealth.ts`, tested). `qwen3.8-35b-a3b` as the B60's
+llama-server serves it (`http://127.0.0.1:8081/v1`, a 32,768-token slot), one request at a time,
+its slices run beside the G3 chunks, 2026-10-01 21:16 → 10-02 03:31.
+
+| on the 25 cases all four passes share | 35B-A3B | 9B, tonight's control | 9B, the 8-pass baseline (9/30) |
+| --- | --- | --- | --- |
+| solved a pass (of 25) | **21, 21, 21, 19 — 20.70** (σ 0.60) | 18, 18, 18, 13 — 16.75 | 17.88 (σ 2.23) |
+| false claims | **3/99** | 0/100 | 0/200 |
+| collateral a pass | 1.01 | 1.75 | 2.25 |
+| runs excluded (the server dropped one) | 1 | 0 | 0 |
+| median time a case, solved | 21 s | 17 s | 16 s |
+| median rounds · TTFT · decode | 6 · 451 ms · 68 tok/s | 9 · 207 ms · 102 tok/s | 9 · 204 ms · 106 tok/s |
+
+Read by the gate against the 9B (another model, so information, not a verdict on a change): solved
++2.82 a pass against the baseline (±2.73) and +3.95 against tonight's control (±3.54) — more than
+the 9B's noise — and **false claims 3 against none**, which the gate never bands. All three are
+reports that the tests pass with no test run behind them (`needs-you-tax-rate`, `read-only-why-failing`,
+`chain-slugify`). The 35B solves more and takes fewer rounds; the 9B has never made a false claim
+in 308 runs. Per case it is ahead on `office-merge-sheets` (4/4 against the 9B's 0/4 tonight),
+`office-total-column`, `tidy-rename-by-date`, `feature-stack-peek` and `refactor-callback-to-promise`,
+and behind on `fix-parse-duration`, `tidy-duplicates` and `needs-you-tax-rate` (0/4 each);
+`docs/evals/agent.md` has the table.
+
+`long-discount-rules` is not in it: on the 35B it finished inside the 8.5-minute chunk this harness
+runs in 2 times in 7 (solved both, 106 s and 245 s); the other five ran past it, with rounds that
+reached the 16,384-token cap at 68 tok/s. `read-only-why-failing` ran past it once in five (one
+16,384-token round in a 468 s run). The baseline holds four passes of the other 25 cases; a run
+diffed against it is compared on those and told so.
