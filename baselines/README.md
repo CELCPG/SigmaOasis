@@ -37,6 +37,7 @@ difference: an unchanged engine lands outside it about one time in twenty.
 | --- | --- | --- | --- |
 | `eval:agent` | solved per pass | collateral · Undo leaving files | false claims |
 | `eval:tools` | clean per pass (correct, no spurious call, no loop) | spurious calls on no-tool fixtures · loops · runs with invalid arguments | — |
+| `eval:answers` library (v4.4) | answered per pass | cited the source (may not fall beyond its band) · unsupported figures | asserted forbidden advice |
 
 - **At least four passes a side.** Several results files of one arm merge into one side — and
   should: passes of one run share the server's state, and two runs of the same code differed by
@@ -94,3 +95,35 @@ collateral +1.25 against ±1.35. At that spread a four-pass arm resolves about �
 
 The committed `agent-qwen3.8-9b-distill.json` is those eight passes, four runs (v4.3): solved
 18.25 of 26 a pass, σ 2.49; a four-pass run diffed against it gets a band of ±3.05.
+
+## The same-day control (v4.4, G1)
+
+A committed baseline is another day's: the machine, the server's state and the hour are not the
+arm's. On 9/30 two runs of unchanged code differed by four cases in their means, so a BETTER
+against a baseline from another day may have measured the day. **A switch turns on by default only
+if its arm is BETTER beyond the band against a same-day control, with no new false claim** (and,
+in the library suite, no new forbidden advice). The control is the engine with every switch off,
+run in the arm's own session, interleaved with it:
+
+```
+# one command: a pass of each in turn, ABBA (control first on odd passes, the arm first on even)
+EVAL_CONTROL=1 EVAL_EXPERIMENTS=toolsByPhase EVAL_PASSES=4 LMSTUDIO_EVAL=1 npm run eval:agent -- <model>
+EVAL_CONTROL=1 EVAL_SUBSET=1 EVAL_FORCED_ON_TOP=1 EVAL_PASSES=4 LMSTUDIO_EVAL=1 npm run eval:tools -- <model>
+EVAL_CONTROL=1 EVAL_SUITES=library EVAL_LIBRARY_ASSIST=rerank EVAL_PASSES=4 LMSTUDIO_EVAL=1 npm run eval:answers -- <model>
+
+# a pass too long for one command: EVAL_CASES slices, each tagged with the session, the
+# control's and the arm's slices alternating; join each side's slices into passes (--join)
+EVAL_SESSION=<id> EVAL_CASES=1-4 LMSTUDIO_EVAL=1 npm run eval:agent -- <model>                         # control
+EVAL_SESSION=<id> EVAL_CASES=1-4 EVAL_EXPERIMENTS=toolsByPhase LMSTUDIO_EVAL=1 npm run eval:agent -- <model>  # arm
+
+npm run eval:diff -- --paired <the session's control and arm files …>    # sorted by their tags
+npm run eval:diff -- --base <control passes …> --run <arm passes …>        # the same, by hand
+```
+
+Each results file says `session: { id, role }` — `control` for the engine with every switch off,
+`arm` otherwise. Every diff prints its base on its second line: *the same-day control* (the base
+is the control and the run the arm of the same session ids), *a committed baseline* (saved on a
+date), *a control from another session*, or *a results file with no session*. A BETTER against
+anything but the same-day control carries a note that it cannot turn a switch on. Several arms may
+share one control's passes when they ran interleaved with it in one session (4.4's tool-choice and
+library arms did).
