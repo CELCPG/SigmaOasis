@@ -125,3 +125,28 @@ Seen and not fixed (4.5): the same grammar-and-no-thinking pairing is sent by th
 (`ipc/plan.ts`), the outline (`ipc/outline.ts`) and deep research's planner
 (`ipc/deepResearch/plan.ts`). Their budgets are larger than the re-rank's 80 tokens, so on a
 `<think>` family they likely think first and answer late rather than not at all — unmeasured.
+
+## G3 — `toolsByPhase`: **measured, off**
+
+4.1's A5 (edit tools wait for a read; documents, chores and MCP tools wait until the task points at
+them), never decided by a measurement. `qwen3.8-9b-distill` on the 5070, four passes a side, the
+arm and its same-day control interleaved slice by slice, ABBA (session `g3-2026-10-01`, 2026-10-01
+21:16 → 10-02 03:11), each pass as six `EVAL_CASES` slices joined back (`eval:diff --join`):
+
+| | solved a pass (of 26) | false claims | collateral a pass | median time, solved |
+| --- | --- | --- | --- | --- |
+| same-day control, every switch off | 18, 19, 18, 13 — 17.00, σ 2.71 | 0/104 | 1.75 | 17 s |
+| `toolsByPhase` | 17, 17, 15, 18 — 16.75, σ 1.26 | 0/104 | 3.00 | 18 s |
+
+**SAME-WITHIN-NOISE**: solved −0.25 (band ±3.83), collateral +1.25 (±1.26), no false claim; the
+same with the spread floored at the eight-pass baseline's (`--noise-from`). Not BETTER, so it stays
+off. Fifteen cases moved between the sides in at least one pass, in both directions; the three the
+control solved every time and the arm did not (`chain-csv-totals`, `fix-weekend`,
+`tidy-sort-downloads`) are where to look if it is tried again. At this spread a 2-case change needs
+about 15 passes a side.
+
+Two `long-discount-rules` runs outlasted their chunk and were rerun, one a side (arm pass 1: rerun
+solved in 38 s; control pass 3: rerun not solved). The arm's first run was not killed as meant —
+see *Harness* below — and finished not solved after 19 minutes, overlapping other runs; it is set
+aside (`44-eval/.eval-results/discarded/`). Counted instead of the rerun, the arm's pass 1 would be
+16 and its mean 16.50: the verdict is the same.
