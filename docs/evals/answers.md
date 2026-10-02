@@ -623,6 +623,10 @@ of 20 eligible lookups):
 | control, aids off | 25, 27, 27, 27 | 17.75 | 3.75 | 0/112 | — |
 | re-rank | 26, 28, 26, 27 | 15.75 | 2.75 | 0/112 | SAME-WITHIN-NOISE: answered +0.25 (±1.41), cited −2.00 (±2.68), unsupported −1.00 (±1.78) |
 
+The second session's first chunk (a control pass and a re-rank pass) and the re-rank pass that
+opened its second shared the 9B with an agent run that outlived its chunk (ROADMAP-v4.4, *the
+night's harness*); the two sides were touched alike, and the verdict does not turn on them.
+
 Neither aid is BETTER beside its control, so both stay off. Five eligible cases a pass is little
 room for a ranking aid to show; the suite would need questions where the fused order picks the
 wrong section for the switch to be measured there, not only shown to cost nothing.
