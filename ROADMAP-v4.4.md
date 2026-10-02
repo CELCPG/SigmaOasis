@@ -183,3 +183,70 @@ runs in 2 times in 7 (solved both, 106 s and 245 s); the other five ran past it,
 reached the 16,384-token cap at 68 tok/s. `read-only-why-failing` ran past it once in five (one
 16,384-token round in a 468 s run). The baseline holds four passes of the other 25 cases; a run
 diffed against it is compared on those and told so.
+
+## The night's harness, and what it got wrong (outside the repository)
+
+The measurements ran as one queue of chunks, each under the shared heavy lock and under ten
+minutes (`.eval-results/4.4-night-2026-10-01/`: `q.sh`, `ag.sh`/`ag2.sh`, `tl.sh`, `status.txt`),
+a 9B slice and a 35B slice at once in the agent chunks, the build worker's chunks between them.
+Clerk was paused 21:16 → 03:12 and is back (Ready).
+
+- **A killed chunk's runs did not always die.** `step.sh` kills at its deadline with `taskkill /T`
+  on the command's shell; the agent chunks started their two `node` runs in the background
+  (`ag.sh`), and the tree kill did not reach them. Three runs outlived their kill: the 9B's
+  `long-discount-rules` (G3 arm, pass 1) finished 10 minutes later beside library chunks `libB1`
+  and the first pass of `libB2` (G5's second session: both sides of `libB1` shared the 9B with it);
+  the 35B's `read-only-why-failing` (pass 1) finished 5 minutes later, overlapping its own rerun —
+  two requests on the B60 for 2 min 18 s; a third (35B, pass 2) was found and killed by hand within
+  10 s. The two that saved results are set aside (`44-eval/.eval-results/discarded/`, with a
+  README); the reruns count, as 4.3's method reruns a killed case. From 01:00 the chunks ran
+  through `ag2.sh`, which kills its own children by Windows pid 30 s before the deadline: no orphan
+  after that (checked).
+- **A script edited while it ran** (`tl.sh`, bash reads as it goes) failed one tool-choice chunk at
+  its end; both of its passes had finished and saved, and count.
+- **Killed and rerun:** G3 — `long-discount-rules` once a side (arm pass 1, control pass 3). G6 — the
+  35B's `long-discount-rules` five times (left out, above) and `read-only-why-failing` twice (both
+  reruns finished).
+
+## Decisions for Colin
+
+1. **F6 is decided by measurement, as recommended — confirm at release.** Forced tools ride on top of
+   the cap (`FORCED_TOOLS_ON_TOP`, on): default toolset 21 → 23 of 24 clean a pass, nothing lost. The
+   price is two more tool schemas on a turn the web pair is forced onto (8 instead of 6), and on a
+   conversation the web tools stay with (sticky since 4.1) every turn after. Off is one constant.
+2. **File tools first** (`FILE_TOOLS_FIRST`, on) is a lexical rule in the chat's selection: a
+   named file promotes `read_file`, `write_file`, `propose_patch`. Narrow on purpose (no code
+   extensions bare, no web addresses, no folders) — it will miss "open my budget spreadsheet".
+3. **The 35B-A3B makes false claims the 9B does not** (3 in 99 runs against none in 312): it reports
+   that tests pass without having run them. It solves more (20.70 against 17.88 of 25). Whether it
+   is offered as an agent model, and with what warning, is Colin's.
+4. Re-rank and the sample answer stay off (SAME-WITHIN-NOISE). Re-rank now works on a `<think>`
+   family when turned on — it never did before (F2).
+
+## Status (2026-10-02 03:40, `rel/4.4`, nothing pushed)
+
+| goal | state | measured |
+| --- | --- | --- |
+| G1 same-day control | **done** | runners tag `session: { id, role }`; `EVAL_CONTROL=1` (ABBA) in `eval:agent`, `eval:tools`, `eval:answers`; `EVAL_SESSION` for slices; `eval:diff` names its base, `--paired`, `--noise-from`; every 4.4 verdict below is against a same-day control |
+| G2 F6, forced tools on top | **done — on** | default toolset clean 21, 21, 21, 21 → **23, 23, 23, 23** of 24, BETTER (±0.00), none lost; whole toolbox 21 → 23 of 28; eviction by score moved 0 of 28 wires |
+| G3 `toolsByPhase` | **done — off** | solved 17.00 (18, 19, 18, 13) → 16.75 (17, 17, 15, 18) of 26, **SAME-WITHIN-NOISE** (±3.83); false claims 0/104 both; collateral +1.25 (±1.26) |
+| G4 file-request ranking | **done — on** | default toolset 21 → **22** of 24, whole toolbox (chat subset) 21 → **23** of 28, BETTER (±0.00), none lost; with G2: 20.75 → **24.00** of 24 (±0.71) |
+| G5 re-rank, sample answer | **done — both off** | re-rank (working): answered 26.50 → 26.75 of 28 (±1.41), cited 17.75 → 15.75 (±2.68); sample answer: 26.25 → 26.75 (±0.71); forbidden 0 in 560 runs; both **SAME-WITHIN-NOISE** |
+| G6 35B-A3B baseline | **done** — `baselines/agent-qwen3.8-35b-a3b.json` | 21, 21, 21, 19 of 25 (σ 0.60); false claims **3/99**; median 21 s a solved case (9B 16–17 s), 68 tok/s, 6 rounds; `long-discount-rules` left out (2 of 7 inside the chunk) |
+| G7–G9 | the build worker's | `4.4/dryrun`, `4.4/builder26`, `4.4/buildchain` |
+| G10 integration, 4.4.0 | after G7–G9 | — |
+| `npm test` on `rel/4.4` | **green** on `87a9460` (every change in) | node suite **3,627/3,627**; render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 (14 suites) |
+
+Every switch and its default after the night: `FORCED_TOOLS_ON_TOP` **on**, `FILE_TOOLS_FIRST`
+**on**, agent `toolsByPhase` **off** (and every other agent experiment off, as 4.3 left them),
+`libraryRerank` **off**, `libraryHyde` **off**. The version is still 4.3.0 (G10's).
+
+## What is left
+
+- **G10:** merge G7–G9, the version (with `CLIENT_INFO`), the notes, the full `npm test`.
+- The same grammar-and-no-thinking pairing in plan mode, the outline and deep research's planner
+  (F, *seen*) — measure whether it costs them on a `<think>` family.
+- A suite where the library's ranking aids could show a gain: 5 of 28 cases are in their domains.
+- `long-discount-rules` on the 35B needs a run longer than this harness's chunk to be measured.
+- The night's agent runs were rerun on a kill (both sides alike); a harness with no ten-minute
+  ceiling would not need to.
