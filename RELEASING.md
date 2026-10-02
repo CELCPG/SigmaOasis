@@ -252,8 +252,16 @@ workflow's `guard` job, with the limitation noted above.
   24's own keychain path runs `set-key-partition-list` with the wrong password
   and the macOS 26.6 runner image refuses it (`SecKeychainUnlock: The user name
   or passphrase you entered is not correct`), which is what broke v2.8.0's first
-  build. If the import step fails, its log shows the identities the keychain
-  holds, which says whether the `.p12` and its password were the problem.
+  build. 26.15.3's path still does, so the step stays with 26. If the import
+  step fails, its log shows the identities the keychain holds, which says
+  whether the `.p12` and its password were the problem.
+- **Built, but not notarized** — electron-builder (24 and 26 alike) only warns
+  ("skipped macOS notarization") when the build step's env has no Apple
+  credentials at all. With 26 the team id comes from `APPLE_TEAM_ID` too, not
+  from `electron-builder.yml` (`mac.notarize` is a plain `true`); `APPLE_ID`
+  without it fails the build. The preflight requires all three and the build
+  step passes them — keep both that way. The dry run's last step fails on an
+  app that is not notarized and stapled.
 - **At notarization** — get the log (the submission ID is in the CI log):
 
 ```bash

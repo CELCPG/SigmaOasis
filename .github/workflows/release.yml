@@ -205,6 +205,10 @@ jobs:
       # is pointed at it through CSC_KEYCHAIN — with CSC_LINK deliberately
       # absent from the build step's env, because with it set electron-builder
       # would build its own keychain again and fail the same way.
+      # v4.4: electron-builder 26.15.3 still does it — importCerts in
+      # app-builder-lib/out/codeSign/macCodeSign.js passes the p12 password to
+      # `set-key-partition-list -k` — and still reads CSC_KEYCHAIN
+      # (macPackager.js), so this step stays with 26.
       - name: Import the Developer ID certificate into a keychain of our own
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -245,8 +249,8 @@ jobs:
           DEBUG: electron-notarize*
 
       # v2.3 moved to Electron 44, which needs macOS 13. electron-builder 24
-      # stamps LSMinimumSystemVersion into the app but writes nothing about it
-      # into latest-mac.yml, so a Mac on 12 would download the update, install
+      # (and 26.15.3) stamps LSMinimumSystemVersion into the app but writes
+      # nothing about it into latest-mac.yml, so a Mac on 12 would download the update, install
       # it, and get an app that cannot launch. electron-updater (6.x) refuses an
       # update whose `minimumSystemVersion` is above the running OS — comparing
       # against os.release(), which on a Mac is the DARWIN kernel version, not
