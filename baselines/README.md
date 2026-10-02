@@ -124,6 +124,9 @@ Each results file says `session: { id, role }` — `control` for the engine with
 `arm` otherwise. Every diff prints its base on its second line: *the same-day control* (the base
 is the control and the run the arm of the same session ids), *a committed baseline* (saved on a
 date), *a control from another session*, or *a results file with no session*. A BETTER against
-anything but the same-day control carries a note that it cannot turn a switch on. Several arms may
+anything but the same-day control carries a note that it cannot turn a switch on. A four-pass control
+measures its own spread from four numbers and can read quieter than the engine is (tonight's 9B control:
+σ 0.58 of 26, against the eight-pass baseline's 2.49); `--noise-from baselines/<baseline>.json` floors
+every side's spread at that baseline's, and says so. Several arms may
 share one control's passes when they ran interleaved with it in one session (4.4's tool-choice and
 library arms did).

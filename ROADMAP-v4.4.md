@@ -44,6 +44,8 @@ turned on that way, but a BETTER would have needed a control beside it.
   results file with no session*. A BETTER against anything but the same-day control carries a note
   that it cannot turn a switch on. `--paired <files>` sorts one session's files into control and arm
   by their tags. Merges and joins keep the session and refuse to mix a control with its arm.
+  `--noise-from <baseline>` floors the spread at a committed baseline's: a four-pass control can read
+  quieter than the engine is (tonight's: σ 0.58 of 26, against the eight-pass baseline's 2.49).
 - The same-day control and the library suite in `baselines/README.md`; tests in
   `test/evalSession.test.ts` and `test/evalDiff.test.ts`.
 
