@@ -625,7 +625,8 @@ of 20 eligible lookups):
 
 The second session's first chunk (a control pass and a re-rank pass) and the re-rank pass that
 opened its second shared the 9B with an agent run that outlived its chunk (ROADMAP-v4.4, *the
-night's harness*); the two sides were touched alike, and the verdict does not turn on them.
+night's harness*): one control pass and two re-rank passes of the four a side. Without them each
+side has too few passes for the gate to call.
 
 Neither aid is BETTER beside its control, so both stay off. Five eligible cases a pass is little
 room for a ranking aid to show; the suite would need questions where the fused order picks the

@@ -133,8 +133,9 @@ On by the rule. The agent's wire does not change (its tools are its own).
   - the sample answer: answered 26.25 → 26.75 (±0.71), cited 20.50 → 21.00 (±1.53), forbidden
     0/112 both — **SAME-WITHIN-NOISE, stays off**.
 - Only 5 of the 28 library cases are in the aids' domains (health, first aid, finance, building).
-- The second session's first three passes (control, re-rank, re-rank) shared the 9B with an agent run
-  that outlived its chunk (*the night's harness*, below) — both sides touched.
+- The second session's first three passes (one control, two re-rank) shared the 9B with an agent
+  run that outlived its chunk (*the night's harness*, below); without them neither side has the
+  four passes the gate needs.
 
 ## G6 — the 35B-A3B's agent baseline: **saved**, `baselines/agent-qwen3.8-35b-a3b.json`
 
