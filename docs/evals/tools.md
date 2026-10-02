@@ -157,3 +157,29 @@ after pass — so a fixture that moved, moved every time.
 Both switches are on in 4.4 by the rule (BETTER beyond the band, beside a same-day control, no new
 false claim — this suite has none to make). The agent never reads the chat's selection
 (`src/main/agent` has its own tools), so neither switch moves `eval:agent`.
+
+### The subset baselines, re-recorded (v4.4, G10, 2026-10-02)
+
+4.3's subset baseline ranked on `name: description` and had both switches off, so it was neither
+the app's ranking nor the app's selection. Re-recorded on `rel/4.4` with the 4.4.0 code, one
+session (`g10-subset-2026-10-02`), the whole toolbox's 28 fixtures, four one-pass runs a side,
+ABBA, the 9B alone on the 5070:
+
+| subset arm, clean per pass (of 28) | | correct-tool | fixtures that failed |
+| --- | --- | --- | --- |
+| 4.3's baseline (10/1; `name: description`, switches off) | 22, 22, 22, 22 | 76/100 | — |
+| `…-subset.json`, switches off (the control) | 21, 21, 21, 20 — 20.75 | 72/100 | `02`, `03`, `09`, `10`, `16`, `22` (the ranking and the cap, every pass), `15-shop-requirements` (called nothing, every pass), `01-list-directory` (looped, one pass) |
+| **`…-subset-ontop-filefirst.json`, as 4.4 ships** | **25, 24, 25, 25 — 24.75** | 87/100 | `15` (every pass), `26-live-score` and `27-live-futures` to `market_data` (off by default, every pass), `09-datetime` (called nothing, one pass) |
+
+Against its control the shipped selection is **BETTER**, +4.00 clean a pass (band ±0.71): `02`,
+`03`, `09`, `10`, `16`, `22` gained, `26` and `27` lost — G2's and G4's whole-toolbox moves added
+together (+2 and +2). No spurious call, no invalid argument; the control's one loop is the only
+loop. The wire: 6.71 tools a fixture on average, 8 at most (the control 6.00, 6 at most); eviction
+by score moved no wire.
+
+The control against 4.3's baseline is −1.25 a pass. `15-shop-requirements` ("I need a new laptop
+for video editing, what should I look for?") has `shop_requirements` ranked in under either text,
+but the other ranked place goes to `image_search` on `name: description` and to `reference_lookup`
+on the description alone — and beside `reference_lookup` the model calls nothing, every pass (as
+in all four of the 10/1 night's whole-toolbox controls). The rest is the one looped pass of `01`.
+A measurement correction (F1), not a change in the app, which always ranked on the description.

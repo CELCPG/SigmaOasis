@@ -84,6 +84,14 @@ stay in the ignored `.eval-results/`.
 - `agent-qwen3.8-35b-a3b.json` (v4.4, G6): the 35B-A3B in llama-server on the B60, four passes from four
   joined runs, 2026-10-01 night — over 25 cases: `long-discount-rules` finished inside the harness's
   8.5-minute chunk 2 times in 7 on it and is left out of every pass (the file says so in `note`).
+- The subset baselines (v4.4, G10, re-recorded 2026-10-02 in one session, four passes a side, ABBA):
+  `toolchoice-qwen3.8-9b-distill-subset-ontop-filefirst.json` is the chat as 4.4 ships it
+  (`FORCED_TOOLS_ON_TOP` and `FILE_TOOLS_FIRST` on — `EVAL_SUBSET=1 EVAL_FORCED_ON_TOP=1
+  EVAL_FILE_TOOLS_FIRST=1`), and a change to the chat's selection is diffed against it;
+  `toolchoice-qwen3.8-9b-distill-subset.json` is the same arm with every switch off, its control.
+  Both rank on the descriptions alone, as the app does (4.3's subset baseline ranked on
+  `name: description` — ROADMAP-v4.4, F1). The whole-toolbox `toolchoice-qwen3.8-9b-distill.json`
+  stands: no description, fixture or system prompt changed in 4.4, so its wire is byte-identical.
 
 ## The noise floor (measured 2026-09-30)
 
