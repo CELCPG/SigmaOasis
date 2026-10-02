@@ -87,3 +87,21 @@ in the ranked places first. A switch, `FILE_TOOLS_FIRST`.
   24.00** of 24 (+3.25, band ±0.71), BETTER — `02`, `09`, `10`; nothing lost.
 
 On by the rule. The agent's wire does not change (its tools are its own).
+
+## G5 — re-rank and the sample answer: **measurable, measured, off**
+
+- **Measurable.** The library lookup is given the model under test by name — never "the first chat
+  model LM Studio lists" — in both the app-initiated lookup and the model's own `reference_lookup`;
+  `EVAL_LIBRARY_ASSIST=rerank|hyde` turns the switches on; each case records whether re-rank
+  applied or fell back, and whether the sample answer ranked; `eval:diff` reads the library block as
+  a third suite (answered per pass gated; cited and unsupported banded; forbidden advice never
+  banded, like a false claim); `EVAL_CONTROL=1` and `EVAL_SESSION` as for the other suites.
+- **Re-rank had never applied** (F2): under the `json_schema` grammar the 9B distill thought
+  through all 80 tokens and answered nothing — 20 of 20 re-ranks in the first session fell back. A
+  `<think>` family is now asked plainly with the closed-think prefill; re-applied 20 of 20.
+- **Measured**, four passes a side beside same-day controls (`docs/evals/answers.md`):
+  - re-rank, working: answered 26.50 → 26.75 of 28 (±1.41), cited 17.75 → 15.75 (±2.68),
+    unsupported 3.75 → 2.75 (±1.78), forbidden 0/112 both — **SAME-WITHIN-NOISE, stays off**;
+  - the sample answer: answered 26.25 → 26.75 (±0.71), cited 20.50 → 21.00 (±1.53), forbidden
+    0/112 both — **SAME-WITHIN-NOISE, stays off**.
+- Only 5 of the 28 library cases are in the aids' domains (health, first aid, finance, building).

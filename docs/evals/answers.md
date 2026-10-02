@@ -578,3 +578,51 @@ searched, did not fetch, and declined: "none of the pages were readable before I
 review now finishes, in 2–25 s. Revised 16 drafts, changed one result (`02-mortgage-payment`,
 ✗ → ✓). On this model think harder is a near-wash on these 20, as v1.9.1 found for reasoning
 models.
+
+## The library's model aids, measured (v4.4, G5, 2026-10-01 night)
+
+Re-rank (*Re-rank library passages*) and the sample-answer expansion (*Expand library questions
+with a sample answer*), both 4.2 and off, had never run on a model: the suite's lookup asked "the
+first chat model LM Studio lists", and `eval:diff` did not read the suite's results. Now the
+lookup is given the model under test by name (as the app gives it the slot's), `eval:diff` reads
+the library block (answered per pass gated; cited and unsupported banded; forbidden advice never
+banded), and `EVAL_LIBRARY_ASSIST=rerank|hyde` turns the switches on in the eval's throwaway store.
+`qwen3.8-9b-distill`, temperature 0, four one-pass runs a side interleaved with a same-day control.
+The aids apply only to health, first-aid, finance and building questions — 5 of the 28 cases.
+
+**First session** (`g5-library`, 44-eval-b at `15bb441`):
+
+| arm | answered a pass (of 28) | cited | unsupported | forbidden | verdict |
+| --- | --- | --- | --- | --- | --- |
+| control, aids off | 26, 26, 27, 26 | 20.50 | 2.25 | 0/112 | — |
+| re-rank | 26, 26, 26, 27 | 20.50 | 2.25 | 0/112 | SAME-WITHIN-NOISE (+0.00 ±0.71) — **but it never applied** |
+| sample answer | 27, 27, 26, 27 | 21.00 | 2.00 | 0/112 | SAME-WITHIN-NOISE (+0.50 ±0.71) |
+
+Two things found on the way, both fixed:
+
+- **Re-rank had never applied.** All 20 re-ranks the four passes asked for fell back to the fused
+  order. Probed directly: under the `json_schema` grammar the 9B distill spends all 80 tokens
+  thinking (`reasoning_tokens: 80`, empty answer, `finish_reason: length`) — `enable_thinking:
+  false` does nothing in LM Studio, and a grammar does not stop a think block there. The
+  closed-think prefill does (`{"answering": []}` in 0.2 s), but LM Studio refuses a grammar beside
+  a prefill (HTTP 400, as v1.9.2 found). So a `<think>` family is now asked plainly with the
+  prefill and its reply parsed tolerantly; the grammar stays for the rest
+  (`library/modelAssist.ts`).
+- **The forbidden check flagged the right advice.** The burn case forbids ice and butter; replies
+  that listed them under "**Do NOT:**" were scored as asserting both, because a list item's scope
+  was its own line. A list item now inherits its lead-in's negation ("Do NOT:", "Avoid:", a heading
+  that says not). The first session's files were re-scored with it, both sides alike: 5 runs
+  flagged → 0, all of them `01-burn-cooling` under a "Do NOT" list (four in the arms, one in the
+  control).
+
+**Second session, re-rank working** (`g5b-library`, 44-eval-c at `ed7fe1e`; re-rank applied in 20
+of 20 eligible lookups):
+
+| arm | answered a pass (of 28) | cited | unsupported | forbidden | verdict |
+| --- | --- | --- | --- | --- | --- |
+| control, aids off | 25, 27, 27, 27 | 17.75 | 3.75 | 0/112 | — |
+| re-rank | 26, 28, 26, 27 | 15.75 | 2.75 | 0/112 | SAME-WITHIN-NOISE: answered +0.25 (±1.41), cited −2.00 (±2.68), unsupported −1.00 (±1.78) |
+
+Neither aid is BETTER beside its control, so both stay off. Five eligible cases a pass is little
+room for a ranking aid to show; the suite would need questions where the fused order picks the
+wrong section for the switch to be measured there, not only shown to cost nothing.
