@@ -330,6 +330,10 @@ export interface LibraryCaseResult {
   mode?: 'hybrid' | 'keyword'
   /** v2.8, EVAL_ZIM: how many of the retrieved passages came from the ZIM pack. */
   zimPassages?: number
+  /** v4.4 (G5): the app-initiated lookup's re-rank, when the arm turned it on — applied, or the fused order stood. */
+  rerank?: 'applied' | 'fallback'
+  /** v4.4 (G5): the lookup ranked by the question and a sample answer together. */
+  expanded?: boolean
   /**
    * v2.4: the shapes the multi-pass runs kept failing in, recorded per case so
    * the noise floor can be read rather than guessed at. `toolCalls` — the

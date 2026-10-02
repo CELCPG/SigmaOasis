@@ -25,6 +25,12 @@
  *                                  'ledger' — v1.9 recall of established facts — and\n *                                  'projects' — v1.11 recall across a project's chats — are opt-in)
  *   EVAL_CASES=1-5                 1-based inclusive slice, per suite
  *   LMSTUDIO_BASE_URL=…            default http://127.0.0.1:1234/v1
+ *   EVAL_LIBRARY_ASSIST=rerank     v4.4 (G5): the library's model aids on for the lookup — rerank,
+ *                                  hyde, or rerank,hyde (Settings → Grounding & checks). The aids
+ *                                  ask the model under test, by name; never "the first listed".
+ *   EVAL_CONTROL=1                 v4.4 (G1): with EVAL_LIBRARY_ASSIST and EVAL_SUITES=library, the
+ *                                  same-day control too — the aids off, a pass of each in turn (ABBA)
+ *   EVAL_SESSION=<id>              v4.4 (G1): tag the results with a session (evalSession.ts)
  *
  * Caveats, printed with every report: temperature is pinned to 0; the
  * library suite installs packs/ into a throwaway library; with one model
@@ -35,6 +41,7 @@ import { app } from 'electron'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { controlOrderFrom, sessionId, sidesForPass, type SessionRole } from '../src/main/agent/evalSession'
 
 // Isolate every store the app modules touch before any of them load.
 const SCRATCH = mkdtempSync(join(tmpdir(), 'sigma-eval-'))
@@ -207,6 +214,34 @@ async function completeOnce(
 
 // ---- suites ---------------------------------------------------------------------------
 
+/** v4.4 (G5): the library's model aids — Settings → Grounding & checks' re-rank and sample-answer expansion. */
+interface LibraryAssist {
+  rerank: boolean
+  hyde: boolean
+}
+
+function libraryAssistFrom(spec: string | undefined): LibraryAssist {
+  const keys = (spec ?? '').split(',').map((k) => k.trim()).filter(Boolean)
+  const unknown = keys.filter((k) => k !== 'rerank' && k !== 'hyde')
+  if (unknown.length) throw new Error(`EVAL_LIBRARY_ASSIST names rerank and hyde, not ${unknown.join(', ')}`)
+  return { rerank: keys.includes('rerank'), hyde: keys.includes('hyde') }
+}
+
+/** The arm's name: 'rerank', 'hyde', 'hyde+rerank'; none is the default. */
+function assistArm(a: LibraryAssist): string {
+  return [a.hyde ? 'hyde' : '', a.rerank ? 'rerank' : ''].filter(Boolean).join('+') || 'default'
+}
+
+/**
+ * The switches as the app reads them (library/modelAssist.ts `assistSettings`):
+ * written to the eval's throwaway store before a pass.
+ */
+function setLibraryAssist(a: LibraryAssist): void {
+  const storeMod = require('../src/main/ipc/store') as typeof import('../src/main/ipc/store')
+  const prev = storeMod.getSettings()
+  storeMod.writeSettings({ ...prev, grounding: { ...prev.grounding, libraryRerank: a.rerank, libraryHyde: a.hyde } })
+}
+
 async function runLibrarySuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').LibraryCaseResult[]> {
   const lib = require('../src/main/ipc/library') as typeof import('../src/main/ipc/library')
   const { scoreLibrary } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
@@ -288,10 +323,15 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
     try {
       // Exactly the app's app-initiated path: whole-library lookup, formatted
       // for the model, appended to the turn with the domain's playbook.
-      const lookup = await lib.lookupLibrary({ query: fx.prompt, topK: 5 })
+      // v4.4 (G5): the model under test by name, as the app passes the slot's —
+      // left out, the re-rank and the sample answer asked "the first chat
+      // model LM Studio lists", which could load another model.
+      const lookup = await lib.lookupLibrary({ query: fx.prompt, topK: 5, modelId: model })
       out.passagesFound = lookup.passages.length
       out.retrieved = lookup.passages.map((p) => `${p.packName} › ${p.docTitle}${p.section ? ` › ${p.section}` : ''}`)
       out.mode = lookup.mode
+      if (lookup.rerank) out.rerank = lookup.rerank
+      if (lookup.expanded) out.expanded = true
       if (process.env.EVAL_ZIM) out.zimPassages = lookup.passages.filter((p) => p.packId.startsWith('zim-')).length
       const blocks: string[] = []
       if (lookup.passages.length > 0) blocks.push(buildLibraryContext(lib.formatLookup(lookup, fx.prompt), false))
@@ -332,7 +372,7 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
             const requested = Number(args.max_passages)
             const topK = Number.isFinite(requested) ? Math.min(lib.MAX_LOOKUP_PASSAGES, Math.max(1, Math.round(requested))) : 6
             const packId = typeof args.pack === 'string' && args.pack.trim() ? args.pack.trim() : null
-            const outcome = await lib.lookupLibrary({ query, packId, topK })
+            const outcome = await lib.lookupLibrary({ query, packId, topK, modelId: model })
             if (!outcome.ok) return { ok: false, error: outcome.error ?? 'Lookup failed.' }
             return { ok: true, output: lib.formatLookup(outcome, query) }
           }
@@ -1857,52 +1897,95 @@ async function main(): Promise<void> {
     )
   }
 
+  // v4.4 (G5): the library's model aids as an arm, and (G1) its same-day control beside it.
+  const assist = libraryAssistFrom(process.env.EVAL_LIBRARY_ASSIST)
+  const assistOn = assist.rerank || assist.hyde
+  const controlOrder = controlOrderFrom(process.env.EVAL_CONTROL)
+  if (controlOrder && (!assistOn || want.join(',') !== 'library')) {
+    throw new Error('EVAL_CONTROL runs the library suite beside its control: set EVAL_SUITES=library and name the arm with EVAL_LIBRARY_ASSIST')
+  }
+  sessionId(process.env.EVAL_SESSION, 'check')
+  const tagged = Boolean(controlOrder || process.env.EVAL_SESSION)
+  const runStamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const session = tagged ? sessionId(process.env.EVAL_SESSION, runStamp) : undefined
+  if (assistOn) report.arm = assistArm(assist)
+  if (session) report.session = { id: session, role: assistOn ? 'arm' : 'control' }
+  // With EVAL_CONTROL the control's passes are written to a file of their own.
+  let controlReport: Record<string, unknown> | null = null
+
   if (want.includes('library')) {
-    console.log('library grounding')
-    const allPasses: { summary: ReturnType<typeof summarizeLibrary>; runs: Awaited<ReturnType<typeof runLibrarySuite>> }[] = []
+    console.log('library grounding' + (assistOn ? ` — model aids on: ${assistArm(assist)} (${model}, by name)` : ''))
+    type LibraryPass = { summary: ReturnType<typeof summarizeLibrary>; runs: Awaited<ReturnType<typeof runLibrarySuite>> }
+    const sides: { role: SessionRole; assist: LibraryAssist; passes: LibraryPass[] }[] = controlOrder
+      ? [{ role: 'control', assist: { rerank: false, hyde: false }, passes: [] }, { role: 'arm', assist, passes: [] }]
+      : [{ role: assistOn ? 'arm' : 'control', assist, passes: [] }]
+    if (controlOrder) console.log(`  same-day control: the aids off, a pass of each in turn (${controlOrder}, then alternating)`)
     for (let pass = 0; pass < passesWanted; pass++) {
-      if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
-      const runs = await runLibrarySuite(model)
-      allPasses.push({ summary: summarizeLibrary(runs), runs })
-    }
-    // Aggregate over every pass, not pass 1: with EVAL_PASSES=3 the headline
-    // must be what was measured (found when a 3-pass run's headline disagreed
-    // with the hand-aggregated numbers).
-    const s = summarizeLibrary(allPasses.flatMap((p) => p.runs))
-    console.log(
-      `\n  retrieved passages   ${s.retrieved.hit}/${s.retrieved.of}  ${pct(s.retrieved)}\n` +
-        `  answered             ${s.answered.hit}/${s.answered.of}  ${pct(s.answered)}\n` +
-        `  cited the source     ${s.cited.hit}/${s.cited.of}  ${pct(s.cited)}\n` +
-        `  unsupported figures  ${s.unsupported.hit}/${s.unsupported.of}  ${pct(s.unsupported)}  (lower is better)\n` +
-        `  asserted forbidden   ${s.forbidden.hit}/${s.forbidden.of}  ${pct(s.forbidden)}  (lower is better)\n` +
-        (s.zimRetrieved ? `  from the ZIM         ${s.zimRetrieved.hit}/${s.zimRetrieved.of}  ${pct(s.zimRetrieved)}  (cases with a ZIM passage among those retrieved)\n` : '') +
-        `  ${s.seconds.toFixed(1)} s/case\n`
-    )
-    if (passesWanted > 1) {
-      const { stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
-      const stability = stabilityAcrossPasses(
-        allPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.error ? null : (r.score?.answered ?? false) })))
-      )
-      // v2.4: what the failing runs looked like. Three shapes kept coming up
-      // and none of them is retrieval; counted from the per-case record so
-      // the noise floor is read, not guessed at.
-      const failing = allPasses.flatMap((p) => p.runs.filter((r) => !r.error && r.score && !r.score.answered))
-      const shapes = {
-        calledTheTool: failing.filter((r) => (r.toolCalls ?? 0) > 0).length,
-        echoedTheHeader: failing.filter((r) => r.echoed).length,
-        cutOffByTheCap: failing.filter((r) => r.finishReason === 'length').length,
-        stoppedShort: failing.filter((r) => r.finishReason === 'stop' && (r.reply?.length ?? 0) < 200).length
+      const turn = controlOrder ? sidesForPass(pass, controlOrder).map((r) => sides.find((x) => x.role === r)!) : sides
+      for (const side of turn) {
+        if (passesWanted > 1 || controlOrder) console.log(`  — pass ${pass + 1}/${passesWanted}${controlOrder ? ` · ${side.role}` : ''} —`)
+        setLibraryAssist(side.assist)
+        const runs = await runLibrarySuite(model)
+        side.passes.push({ summary: summarizeLibrary(runs), runs })
       }
+    }
+    setLibraryAssist({ rerank: false, hyde: false })
+    const printSide = (allPasses: LibraryPass[]): Record<string, unknown> => {
+      let block: Record<string, unknown> = {}
+      // Aggregate over every pass, not pass 1: with EVAL_PASSES=3 the headline
+      // must be what was measured (found when a 3-pass run's headline disagreed
+      // with the hand-aggregated numbers).
+      const s = summarizeLibrary(allPasses.flatMap((p) => p.runs))
       console.log(
-        `  answered across ${passesWanted} passes: [${stability.perPass.join(', ')}] · median ${stability.median}\n` +
-          `  stable-pass ${stability.stablePass} · stable-fail ${stability.stableFail} · flaky ${stability.flaky.length}` +
-          (stability.flaky.length ? ` (${stability.flaky.join(', ')})` : '') +
-          `\n  failing runs ${failing.length}: called reference_lookup itself ${shapes.calledTheTool} · echoed the turn-notes header ${shapes.echoedTheHeader}` +
-          ` · cut off by the eval's cap ${shapes.cutOffByTheCap} · stopped under 200 chars ${shapes.stoppedShort}\n`
+        `\n  retrieved passages   ${s.retrieved.hit}/${s.retrieved.of}  ${pct(s.retrieved)}\n` +
+          `  answered             ${s.answered.hit}/${s.answered.of}  ${pct(s.answered)}\n` +
+          `  cited the source     ${s.cited.hit}/${s.cited.of}  ${pct(s.cited)}\n` +
+          `  unsupported figures  ${s.unsupported.hit}/${s.unsupported.of}  ${pct(s.unsupported)}  (lower is better)\n` +
+          `  asserted forbidden   ${s.forbidden.hit}/${s.forbidden.of}  ${pct(s.forbidden)}  (lower is better)\n` +
+          (s.zimRetrieved ? `  from the ZIM         ${s.zimRetrieved.hit}/${s.zimRetrieved.of}  ${pct(s.zimRetrieved)}  (cases with a ZIM passage among those retrieved)\n` : '') +
+          `  ${s.seconds.toFixed(1)} s/case\n`
       )
-      report.library = { passes: allPasses, stability, shapes }
-    } else {
-      report.library = { summary: s, runs: allPasses[0].runs }
+      if (passesWanted > 1) {
+        const { stabilityAcrossPasses } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+        const stability = stabilityAcrossPasses(
+          allPasses.map((p) => p.runs.map((r) => ({ file: r.file, pass: r.error ? null : (r.score?.answered ?? false) })))
+        )
+        // v2.4: what the failing runs looked like. Three shapes kept coming up
+        // and none of them is retrieval; counted from the per-case record so
+        // the noise floor is read, not guessed at.
+        const failing = allPasses.flatMap((p) => p.runs.filter((r) => !r.error && r.score && !r.score.answered))
+        const shapes = {
+          calledTheTool: failing.filter((r) => (r.toolCalls ?? 0) > 0).length,
+          echoedTheHeader: failing.filter((r) => r.echoed).length,
+          cutOffByTheCap: failing.filter((r) => r.finishReason === 'length').length,
+          stoppedShort: failing.filter((r) => r.finishReason === 'stop' && (r.reply?.length ?? 0) < 200).length
+        }
+        console.log(
+          `  answered across ${passesWanted} passes: [${stability.perPass.join(', ')}] · median ${stability.median}\n` +
+            `  stable-pass ${stability.stablePass} · stable-fail ${stability.stableFail} · flaky ${stability.flaky.length}` +
+            (stability.flaky.length ? ` (${stability.flaky.join(', ')})` : '') +
+            `\n  failing runs ${failing.length}: called reference_lookup itself ${shapes.calledTheTool} · echoed the turn-notes header ${shapes.echoedTheHeader}` +
+            ` · cut off by the eval's cap ${shapes.cutOffByTheCap} · stopped under 200 chars ${shapes.stoppedShort}\n`
+        )
+        block = { passes: allPasses, stability, shapes }
+      } else {
+        block = { summary: s, runs: allPasses[0].runs }
+      }
+      return block
+    }
+    for (const side of sides) {
+      if (controlOrder) console.log(`\n  ${side.role}${side.role === 'arm' ? ` (${assistArm(side.assist)})` : ' (the aids off)'}:`)
+      const applied = side.passes.flatMap((x) => x.runs).filter((r) => r.rerank === 'applied').length
+      const fellBack = side.passes.flatMap((x) => x.runs).filter((r) => r.rerank === 'fallback').length
+      const expanded = side.passes.flatMap((x) => x.runs).filter((r) => r.expanded).length
+      if (side.assist.rerank) console.log(`  re-rank applied ${applied} · fell back to the fused order ${fellBack} (the rest are outside its domains)`)
+      if (side.assist.hyde) console.log(`  ranked with a sample answer ${expanded}`)
+      const block = printSide(side.passes)
+      if (side.role === 'control' && controlOrder) {
+        controlReport = { model, baseUrl: BASE_URL, ranAt: new Date().toISOString(), cases: process.env.EVAL_CASES ?? 'all', session: { id: session, role: 'control' }, library: block }
+      } else {
+        report.library = block
+      }
     }
   }
 
@@ -2375,9 +2458,16 @@ async function main(): Promise<void> {
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const outFile = join(RESULTS_DIR, `answers-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
+  const slug = model.replace(/[^a-z0-9._-]+/gi, '_')
+  const armTag = typeof report.arm === 'string' ? `-${report.arm}` : ''
+  const outFile = join(RESULTS_DIR, `answers-${slug}${armTag}-${stamp}.json`)
   writeFileSync(outFile, JSON.stringify(report, null, 2))
-  console.log(`results: ${outFile}`)
+  console.log(`results: ${outFile}${report.session ? ` · session ${(report.session as { id: string }).id}, ${(report.session as { role: string }).role}` : ''}`)
+  if (controlReport) {
+    const controlFile = join(RESULTS_DIR, `answers-${slug}-control-${stamp}.json`)
+    writeFileSync(controlFile, JSON.stringify(controlReport, null, 2))
+    console.log(`results (control): ${controlFile}`)
+  }
   setTimeout(() => app.exit(0), 200)
 }
 
