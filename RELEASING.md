@@ -186,9 +186,9 @@ default branch, and runs it as the chosen branch has it. So, once:
 
 ```bash
 cd C:/Users/clong/Projects/SigmaOasis     # the main checkout, on main, clean
-# After 4.3.0 is out (main = rel/4.3), 4.4/dryrun is one commit ahead of main:
+# After 4.3.0 is out (main = rel/4.3), 4.4/dryrun is the dry run alone on top of it:
 git merge --ff-only 4.4/dryrun
-# (Before 4.3.0: git cherry-pick <4.4/dryrun's commit> — it applies to 4.2.0 as is.)
+# (Before 4.3.0: git cherry-pick rel/4.3..4.4/dryrun — it applies to 4.2.0 as is.)
 git push origin main                     # runs CI only; the new file has no push trigger
 ```
 
