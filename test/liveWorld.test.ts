@@ -62,7 +62,8 @@ describe('a live-world turn on the wire, before any model', () => {
       assert.deepEqual([...webToolsForTurn(q.text)], WEB)
       const wire = withBudgetNotes(withForcedTools(NATIVE, ranked, webToolsForTurn(q.text)), TOOL_TURN_BUDGETS).map((t) => t.function.name)
       for (const w of WEB) assert.ok(wire.includes(w), `${w} is not on the wire for "${q.text}"`)
-      assert.ok(wire.length <= TURN_TOOL_CAP)
+      // v4.4 (G2): on top of the cap, not inside it.
+      assert.ok(wire.length <= TURN_TOOL_CAP + WEB.length)
     })
   }
 })

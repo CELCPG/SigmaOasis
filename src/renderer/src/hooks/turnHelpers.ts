@@ -366,7 +366,7 @@ export async function subsetForTurn(
       tools.map((t) => ({ name: t.function.name, description: t.function.description }))
     )
     if (!res.ok || !res.scores) return unranked()
-    // v4.4 (G4): a turn that names a file puts the file tools first (switch off until measured).
+    // v4.4 (G4): a turn that names a file puts the file tools first (FILE_TOOLS_FIRST, on by measurement).
     const promoted = FILE_TOOLS_FIRST ? promotedTools(query) : []
     const selected = selectTurnTools(tools, res.scores, TURN_TOOL_CAP, promoted)
     // v4.4 (G2): forced tools evict the lowest-scored picks, as the comment always said.

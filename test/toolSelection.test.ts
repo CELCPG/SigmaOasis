@@ -332,9 +332,9 @@ describe('withForcedTools (v1.6)', () => {
   const { withForcedTools, ALWAYS_ON_TOOLS, TURN_TOOL_CAP } = require('../src/renderer/src/lib/toolSelection') as typeof import('../src/renderer/src/lib/toolSelection')
   const schema = (name: string): ToolSchema => ({ type: 'function', function: { name, description: name, parameters: { type: 'object', properties: {} } } })
   const available = [...ALWAYS_ON_TOOLS, 'web_search', 'fetch_webpage', 'run_python', 'analyze_file', 'shop_compare'].map(schema)
-  test('adds a missing forced tool, evicting the last optional pick to keep the cap', () => {
+  test('with the cap (4.0.1–4.3, onTop: false): adds a missing forced tool, evicting the last optional pick to keep the cap', () => {
     const selected = [...ALWAYS_ON_TOOLS, 'web_search', 'fetch_webpage'].map(schema) // 6 = cap
-    const out = withForcedTools(available, selected, ['run_python']).map((t) => t.function.name)
+    const out = withForcedTools(available, selected, ['run_python'], TURN_TOOL_CAP, { onTop: false }).map((t) => t.function.name)
     assert.ok(out.includes('run_python'))
     assert.ok(out.length <= TURN_TOOL_CAP)
     assert.ok(!out.includes('fetch_webpage'), 'the last optional pick made room')
@@ -375,11 +375,13 @@ describe('a live turn reaches the web (v4.0.1)', () => {
     assert.ok(!ranked.includes('web_search') && !ranked.includes('fetch_webpage'))
   })
 
-  test('the turn puts them on it, inside the cap, with the always-on tools intact', () => {
+  test('the turn puts them on it — on top of the ranked picks since 4.4 (G2) — with the always-on tools intact', () => {
     const text = 'can you check the weather for righmond va today'
+    const ranked = selectTurnTools(available, scores).map((t) => t.function.name)
     const out = withForcedTools(available, selectTurnTools(available, scores), webToolsForTurn(text)).map((t) => t.function.name)
     assert.ok(out.includes('web_search') && out.includes('fetch_webpage'))
-    assert.ok(out.length <= TURN_TOOL_CAP)
+    assert.ok(ranked.every((n) => out.includes(n)), 'no ranked pick evicted')
+    assert.ok(out.length <= TURN_TOOL_CAP + 2)
     assert.ok(ALWAYS_ON_TOOLS.filter((n) => available.some((t) => t.function.name === n)).every((n) => out.includes(n)))
   })
 
@@ -436,20 +438,22 @@ describe('v4.4: forced tools on top of the cap, eviction by score, a named file 
   // The default toolbox's shape: the four always-on tools among the rest.
   const available = ['read_file', 'propose_patch', 'list_directory', 'date_calculator', 'get_current_datetime', 'create_note', 'read_note', 'memory_save', 'memory_search', 'memory_forget', 'web_search', 'fetch_webpage'].map(schema)
 
-  test('both switches ship off: 4.0.1 cap, and the ranking alone', () => {
-    assert.equal(sel.FORCED_TOOLS_ON_TOP, false)
-    assert.equal(sel.FILE_TOOLS_FIRST, false)
+  test('both switches ship on, as measured beside a same-day control (ROADMAP-v4.4, G2 and G4)', () => {
+    assert.equal(sel.FORCED_TOOLS_ON_TOP, true)
+    assert.equal(sel.FILE_TOOLS_FIRST, true)
   })
 
   test('on top: the web pair joins the ranked picks instead of evicting them — 8 tools, every ranked pick kept', () => {
     // "what time is it right now?" ranked: get_current_datetime and create_note took the two places.
     const ranked = sel.selectTurnTools(available, { get_current_datetime: 0.7, create_note: 0.6, read_note: 0.5 })
     assert.deepEqual(names(ranked).filter((n) => !ALWAYS_ON_TOOLS.includes(n)), ['get_current_datetime', 'create_note'])
-    const capped = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage']))
+    const capped = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'], TURN_TOOL_CAP, { onTop: false }))
     assert.ok(!capped.includes('get_current_datetime') && !capped.includes('create_note'), 'the cap evicts both ranked picks (F6)')
     assert.equal(capped.length, TURN_TOOL_CAP)
     const onTop = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'], TURN_TOOL_CAP, { onTop: true }))
     assert.deepEqual(onTop, ['date_calculator', 'get_current_datetime', 'create_note', 'memory_save', 'memory_search', 'memory_forget', 'web_search', 'fetch_webpage'])
+    // The default since 4.4.
+    assert.deepEqual(names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'])), onTop)
     // Nothing forced: on top changes nothing.
     assert.equal(sel.withForcedTools(available, ranked, [], TURN_TOOL_CAP, { onTop: true }), ranked)
   })
@@ -458,19 +462,19 @@ describe('v4.4: forced tools on top of the cap, eviction by score, a named file 
     // Wire order: read_file before create_note; by score create_note ranks higher.
     const ranked = sel.selectTurnTools(available, { create_note: 0.9, read_file: 0.8 })
     assert.deepEqual(names(ranked).filter((n) => !ALWAYS_ON_TOOLS.includes(n)), ['read_file', 'create_note'])
-    const byScore = names(sel.withForcedTools(available, ranked, ['web_search'], TURN_TOOL_CAP, { scores: { create_note: 0.9, read_file: 0.8 } }))
+    const byScore = names(sel.withForcedTools(available, ranked, ['web_search'], TURN_TOOL_CAP, { onTop: false, scores: { create_note: 0.9, read_file: 0.8 } }))
     assert.ok(byScore.includes('create_note') && !byScore.includes('read_file'), 'the lower-scored read_file made room')
-    const byWire = names(sel.withForcedTools(available, ranked, ['web_search']))
+    const byWire = names(sel.withForcedTools(available, ranked, ['web_search'], TURN_TOOL_CAP, { onTop: false }))
     assert.ok(byWire.includes('read_file') && !byWire.includes('create_note'), 'without scores the last in wire order goes, as through 4.3')
     // Equal scores: wire order decides, as before.
-    const tie = names(sel.withForcedTools(available, ranked, ['web_search'], TURN_TOOL_CAP, { scores: { create_note: 0.5, read_file: 0.5 } }))
+    const tie = names(sel.withForcedTools(available, ranked, ['web_search'], TURN_TOOL_CAP, { onTop: false, scores: { create_note: 0.5, read_file: 0.5 } }))
     assert.deepEqual(tie, byWire)
   })
 
   test('the chat forces the web pair together: two forced tools take both ranked places whatever their order', () => {
     const ranked = sel.selectTurnTools(available, { create_note: 0.9, read_file: 0.8 })
-    const a = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'], TURN_TOOL_CAP, { scores: { create_note: 0.9, read_file: 0.8 } }))
-    const b = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage']))
+    const a = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'], TURN_TOOL_CAP, { onTop: false, scores: { create_note: 0.9, read_file: 0.8 } }))
+    const b = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'], TURN_TOOL_CAP, { onTop: false }))
     assert.deepEqual(a, b)
   })
 

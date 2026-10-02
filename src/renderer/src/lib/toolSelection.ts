@@ -109,8 +109,8 @@ export { ALWAYS_ON_TOOLS } from '../../../shared/tools'
 export const TURN_TOOL_CAP = 6
 
 /**
- * v4.4 (G4): a turn that names a local file ranks the file tools first — the
- * switch, off until measured (ROADMAP-v4.4).
+ * v4.4 (G4): a turn that names a local file ranks the file tools first — a
+ * switch, on by measurement (ROADMAP-v4.4).
  *
  * The ranking reads meaning, and a file name is a lexical fact it blurs. With
  * the app's own ranking (each description alone, nomic-embed-text-v1.5) "read
@@ -120,8 +120,13 @@ export const TURN_TOOL_CAP = 6
  * ninth (0.554), behind reference_lookup, list_notes and read_note. The notes
  * tools' descriptions say "file" in their *Do not use* lines, and an embedding
  * does not read a "not". 4.3's wire record (E5) showed the same miss.
+ *
+ * **On since 4.4**, by measurement (2026-10-01 night, qwen3.8-9b-distill,
+ * eval:tools' subset arm, four passes a side beside a same-day control):
+ * the default toolset 21 → 22 clean of 24 a pass (`02-read-file`), the whole
+ * toolbox 21 → 23 of 28 (`02`, `03-write-file`); nothing lost, no spread.
  */
-export const FILE_TOOLS_FIRST = false
+export const FILE_TOOLS_FIRST = true
 
 /** The file tools a named file promotes, in the order they take the ranked places. */
 export const FILE_TOOLS: readonly string[] = ['read_file', 'write_file', 'propose_patch']
@@ -317,10 +322,15 @@ export function holdTurnTools(
 }
 
 /**
- * v4.4 (G2, ROADMAP-v4.3 F6): forced tools on top of the cap — the switch, off
- * (4.0.1's cap) until measured on the default toolset beside a same-day control.
+ * v4.4 (G2, ROADMAP-v4.3 F6): forced tools on top of the cap. **On since 4.4**,
+ * by measurement (2026-10-01 night, qwen3.8-9b-distill, eval:tools' subset arm,
+ * four passes a side beside a same-day control): the default toolset 21 → 23
+ * clean of 24 a pass (`09-datetime`, `10-create-note` keep their tool), nothing
+ * lost; the whole toolbox 21 → 23 of 28 (four gained, `26` and `27` lost to
+ * market_data, which is off by default). A turn the web pair is forced onto
+ * carries 8 tools instead of 6. `onTop: false` is 4.0.1–4.3's cap.
  */
-export const FORCED_TOOLS_ON_TOP = false
+export const FORCED_TOOLS_ON_TOP = true
 
 /**
  * v1.6: guarantee named tools are in the turn's set. When the app has just
