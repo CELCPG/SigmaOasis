@@ -195,14 +195,23 @@ describe('readEvalResults and the VIBE arm', () => {
     }
   })
 
-  test('the CLI names the arm that way — and, since v4.3, the subset arm too', () => {
+  test('the CLI names the arm that way — and, since v4.3, the subset arm too; since v4.4 the default toolset and the selection switches', () => {
     const src = readFileSync(join(__dirname, '..', '..', 'scripts', 'eval-tools.ts'), 'utf-8')
-    assert.match(src, /const ARM = \[VIBE_ARM \? 'vibe' : '', SUBSET_ARM \? 'subset' : '', ON_TOP_ARM \? 'ontop' : ''\]\.filter\(Boolean\)\.join\('-'\) \|\| 'full'/)
-    // v4.3: and the subset arm forces the web pair onto the turn as the chat does (chatTurn.ts).
-    assert.match(src, /withForcedTools\(all, selectTurnTools\(all, scores\), forced, cap\)/)
+    assert.match(src, /\[VIBE_ARM \? 'vibe' : '', DEFAULT_TOOLSET \? 'deftools' : '', SUBSET_ARM \? 'subset' : '', s\.onTop \? 'ontop' : '', s\.fileFirst \? 'filefirst' : ''\]\.filter\(Boolean\)\.join\('-'\) \|\| 'full'/)
+    // v4.3: and the subset arm forces the web pair onto the turn as the chat does (chatTurn.ts);
+    // v4.4: through the chat's own selection and switches (turnHelpers.ts subsetForTurn).
+    assert.match(src, /selectTurnTools\(all, scores, TURN_TOOL_CAP, s\.fileFirst \? promotedTools\(fixture\.prompt\) : \[\]\)/)
+    assert.match(src, /withForcedTools\(all, ranked, forced, TURN_TOOL_CAP, \{ onTop: s\.onTop, scores \}\)/)
     assert.match(src, /const forced = webToolsForTurn\(fixture\.prompt\)/)
-    assert.match(src, /`\$\{ARM === 'full' \? '' : `\$\{ARM\}-`\}toolchoice-/)
-    assert.match(src, /arm: ARM,/)
+    // v4.4: ranked on each description alone, as main/ipc/toolRank.ts ranks.
+    assert.match(src, /embed\(missing\.map\(\(t\) => t\.function\.description\)\)/)
+    assert.match(src, /`\$\{arm === 'full' \? '' : `\$\{arm\}-`\}toolchoice-/)
+    assert.match(src, /\n {12}arm,\n/)
+  })
+
+  test("v4.4: the app ranks each tool's description alone — the eval's subset arm ranks the same text", () => {
+    const rank = readFileSync(join(__dirname, '..', '..', 'src', 'main', 'ipc', 'toolRank.ts'), 'utf-8')
+    assert.match(rank, /const missing = tools\.map\(\(t\) => t\.description\)/)
   })
 
   test('a subset-toolchoice file is never folded into the picker score either', () => {

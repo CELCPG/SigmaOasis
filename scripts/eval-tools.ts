@@ -32,6 +32,15 @@
  * the model picker's score line — the full view's number — never folds them in.
  * EVAL_SUBSET=1 (v2.5) is an arm the same way since v4.3: subset-toolchoice-*.json,
  * `arm: 'subset'` (with both, vibe-subset).
+ * EVAL_TOOLSET=default (v4.4, G2) offers the tools a fresh install has on — the
+ * Assistant slot's toolbox (Settings → Tools' defaults, Code Mode off) — and
+ * skips the fixtures whose tool is off by default; the arm's name starts deftools-.
+ * EVAL_FORCED_ON_TOP=1 (v4.3, G2) and EVAL_FILE_TOOLS_FIRST=1 (v4.4, G4), with
+ * EVAL_SUBSET: the selection's switches as arms — toolSelection.ts's
+ * FORCED_TOOLS_ON_TOP and FILE_TOOLS_FIRST, through the same parameters the chat passes.
+ * EVAL_CONTROL=1 (v4.4, G1) runs the same-day control beside such an arm — the
+ * same toolset and selection with the switches off, a pass of each in turn (ABBA)
+ * — and EVAL_SESSION=<id> tags a run with its session (evalSession.ts).
  * Results are written as JSON to .eval-results/ and folded into the model
  * picker's score line (Layer 0c).
  */
@@ -48,9 +57,10 @@ import {
   type EvalFixture,
   type EvalFixtureRun
 } from '../src/renderer/src/lib/evalRunner'
-import { TOOL_SCHEMAS, TOOL_TURN_BUDGETS } from '../src/shared/tools'
+import { DEFAULT_TOOL_TOGGLES, TOOL_SCHEMAS, TOOL_TURN_BUDGETS } from '../src/shared/tools'
 import { createMcpManager } from '../src/main/ipc/mcp/manager'
-import { selectTurnTools, withBudgetNotes, withForcedTools, TURN_TOOL_CAP } from '../src/renderer/src/lib/toolSelection'
+import { promotedTools, selectTurnTools, withBudgetNotes, withForcedTools, TURN_TOOL_CAP } from '../src/renderer/src/lib/toolSelection'
+import { controlOrderFrom, sessionId, sidesForPass, type SessionRole } from '../src/main/agent/evalSession'
 import type { ToolSchema } from '../src/renderer/src/types'
 
 // Compiled by scripts/eval-tools.sh to .eval-build/scripts/eval-tools.js —
@@ -85,14 +95,37 @@ const VIBE_ARM = Boolean(process.env.EVAL_VIBE)
  */
 const SUBSET_ARM = Boolean(process.env.EVAL_SUBSET)
 /**
- * v4.3: EVAL_FORCED_ON_TOP=1 (with EVAL_SUBSET) — an eval-only arm for a
- * decision the app has not taken (ROADMAP-v4.3, F6): tools the turn forces
- * ride on top of the cap instead of evicting the ranked picks. The app keeps
- * the cap (toolSelection.ts withForcedTools, since 4.0.1).
+ * v4.4 (G2): EVAL_TOOLSET=default — the toolbox a fresh install offers: every
+ * tool Settings → Tools turns on by default, minus run_code (a native slot).
+ * 4.3 measured F6 on the whole toolbox only, where market_data and the shopping
+ * tools — all off by default — are on the wire.
+ */
+const DEFAULT_TOOLSET = process.env.EVAL_TOOLSET === 'default'
+if (process.env.EVAL_TOOLSET && !DEFAULT_TOOLSET) throw new Error(`EVAL_TOOLSET is 'default' or unset (the whole toolbox), not ${process.env.EVAL_TOOLSET}`)
+/**
+ * v4.3: EVAL_FORCED_ON_TOP=1 (with EVAL_SUBSET) — tools the turn forces ride on
+ * top of the cap instead of evicting the ranked picks (ROADMAP-v4.3, F6). Since
+ * 4.4 the arm is the app's own switch (withForcedTools' `onTop`).
  */
 const ON_TOP_ARM = SUBSET_ARM && Boolean(process.env.EVAL_FORCED_ON_TOP)
-/** 'full', 'vibe', 'subset', 'vibe-subset', and '-ontop' after subset: the results file's `arm` and its name's prefix. */
-const ARM = [VIBE_ARM ? 'vibe' : '', SUBSET_ARM ? 'subset' : '', ON_TOP_ARM ? 'ontop' : ''].filter(Boolean).join('-') || 'full'
+/** v4.4 (G4): EVAL_FILE_TOOLS_FIRST=1 (with EVAL_SUBSET) — a turn naming a file ranks the file tools first. */
+const FILE_FIRST_ARM = SUBSET_ARM && Boolean(process.env.EVAL_FILE_TOOLS_FIRST)
+
+/** One side of a run: the selection switches it measures. */
+interface Switches {
+  onTop: boolean
+  fileFirst: boolean
+}
+const ASKED: Switches = { onTop: ON_TOP_ARM, fileFirst: FILE_FIRST_ARM }
+const OFF: Switches = { onTop: false, fileFirst: false }
+/**
+ * The results file's `arm` and its name's prefix: 'full', 'vibe', 'subset',
+ * 'vibe-subset', 'deftools-' before subset on the default toolset, and the
+ * switches after it ('-ontop', '-filefirst').
+ */
+const armName = (s: Switches): string =>
+  [VIBE_ARM ? 'vibe' : '', DEFAULT_TOOLSET ? 'deftools' : '', SUBSET_ARM ? 'subset' : '', s.onTop ? 'ontop' : '', s.fileFirst ? 'filefirst' : ''].filter(Boolean).join('-') || 'full'
+const ARM = armName(ASKED)
 
 function systemPromptFor(model: string): string {
   const base = withGrounding('You are a helpful local assistant.' + vibeSystemBlock(VIBE_ARM))
@@ -194,7 +227,18 @@ async function main(): Promise<void> {
     process.exitCode = 1
     return
   }
+  // v4.4 (G1): the same-day control, in this process or as a tag.
+  const armOn = ASKED.onTop || ASKED.fileFirst
+  const order = controlOrderFrom(process.env.EVAL_CONTROL)
+  if (order && !armOn) throw new Error('EVAL_CONTROL runs a control beside an arm: name it with EVAL_SUBSET=1 and EVAL_FORCED_ON_TOP=1 or EVAL_FILE_TOOLS_FIRST=1')
+  sessionId(process.env.EVAL_SESSION, 'check')
+  const tagged = Boolean(order || process.env.EVAL_SESSION)
+
   const baseUrl = process.env.LMSTUDIO_BASE_URL ?? 'http://127.0.0.1:1234/v1'
+  // v2.7: run_code rides only a slot in Code Mode; the graded toolbox is the native one.
+  const NATIVE_TOOLS = TOOL_SCHEMAS.filter((t) => t.function.name !== 'run_code')
+  // v4.4 (G2): or what a fresh install turns on.
+  const toolbox = DEFAULT_TOOLSET ? NATIVE_TOOLS.filter((t) => (DEFAULT_TOOL_TOGGLES as Record<string, boolean>)[t.function.name]) : NATIVE_TOOLS
   let fixtures = loadFixtures()
   const range = /^(\d+)-(\d+)$/.exec(process.env.EVAL_FIXTURES ?? '')
   if (range) {
@@ -205,6 +249,9 @@ async function main(): Promise<void> {
       return
     }
   }
+  // A fixture whose tool the toolset does not offer cannot be scored on it.
+  const unoffered = fixtures.filter((f) => f.expect !== 'no_tool' && !toolbox.some((t) => t.function.name === (f.expect as { tool: string }).tool))
+  fixtures = fixtures.filter((f) => !unoffered.includes(f))
   console.log(
     `tool-choice eval — ${fixtures.length} fixtures, ${models.length} model(s), ${baseUrl}\n` +
       'notes: tool results are canned stubs (choices are real, executions are not);\n' +
@@ -214,6 +261,7 @@ async function main(): Promise<void> {
           '       (the app skips it for reasoning-gated models; this is an A/B probe, not app behavior).\n'
         : '') +
       (VIBE_ARM ? "       EVAL_VIBE=1 — the VIBE arm: VIBE's line in the system prompt, where the app puts it.\n" : '') +
+      (DEFAULT_TOOLSET ? `       EVAL_TOOLSET=default — the ${toolbox.length} tools a fresh install turns on; not scored here: ${unoffered.map((f) => f.file).join(', ') || 'none'}\n` : '') +
       (ARM !== 'full' ? `       results go to ${ARM}-toolchoice-*.json, outside the model picker's score.\n` : '')
   )
 
@@ -227,9 +275,7 @@ async function main(): Promise<void> {
   // that number. A call to a stub tool is spurious by construction: no fixture
   // expects one.
   const stubServers = Math.max(0, Math.round(Number(process.env.EVAL_MCP_STUB ?? '0')) || 0)
-  // v2.7: run_code rides only a slot in Code Mode; the graded toolbox is the native one.
-  const NATIVE_TOOLS = TOOL_SCHEMAS.filter((t) => t.function.name !== 'run_code')
-  let tools = NATIVE_TOOLS
+  let tools = toolbox
   let mcp: ReturnType<typeof createMcpManager> | null = null
   if (stubServers > 0) {
     mcp = createMcpManager({ builtInNames: new Set(TOOL_SCHEMAS.map((t) => t.function.name)) })
@@ -246,8 +292,8 @@ async function main(): Promise<void> {
       }))
     )
     const extra = mcp.schemas()
-    tools = [...NATIVE_TOOLS, ...extra]
-    console.log(`       EVAL_MCP_STUB=${stubServers} — ${extra.length} MCP tool(s) on the wire after the ${NATIVE_TOOLS.length} built-ins\n`)
+    tools = [...toolbox, ...extra]
+    console.log(`       EVAL_MCP_STUB=${stubServers} — ${extra.length} MCP tool(s) on the wire after the ${toolbox.length} built-ins\n`)
   }
 
   // v2.5: EVAL_SUBSET=1 puts on the wire what the app puts on the wire — the
@@ -257,8 +303,10 @@ async function main(): Promise<void> {
   // sends, and with MCP servers connected that list did not even fit an 8K
   // context. Ranking is the app's cosine over LM Studio's /v1/embeddings,
   // done here with plain fetch because this shell runs under node.
-  let toolsFor: ((fixture: { prompt: string }, all: ToolSchema[]) => Promise<ToolSchema[]>) | undefined
-  let wireSizes: number[] = []
+  let toolsFor: ((s: Switches) => (fixture: { prompt: string }, all: ToolSchema[]) => Promise<ToolSchema[]>) | undefined
+  const wireSizes: number[] = []
+  /** v4.4 (G2): fixtures where evicting by score sent another wire than evicting from the end of the wire order. */
+  const evictionMoved = new Set<string>()
   if (SUBSET_ARM) {
     const embedModel = await (async (): Promise<string | null> => {
       try {
@@ -297,10 +345,13 @@ async function main(): Promise<void> {
     }
     const toolVectors = new Map<string, number[]>()
     const queryVectors = new Map<string, number[]>()
-    toolsFor = async (fixture, all) => {
+    toolsFor = (s) => async (fixture, all) => {
+      // v4.4 (G4): each description alone, as the app ranks (main/ipc/toolRank.ts).
+      // Through 4.3 this embedded `name: description`, which the app never does —
+      // and the two rank the file requests differently.
       const missing = all.filter((t) => !toolVectors.has(t.function.name))
       if (missing.length) {
-        const vs = await embed(missing.map((t) => `${t.function.name}: ${t.function.description}`))
+        const vs = await embed(missing.map((t) => t.function.description))
         missing.forEach((t, i) => toolVectors.set(t.function.name, vs[i]))
       }
       if (!queryVectors.has(fixture.prompt)) queryVectors.set(fixture.prompt, (await embed([fixture.prompt]))[0])
@@ -313,135 +364,163 @@ async function main(): Promise<void> {
       // first wire record showed live weather and futures questions with no
       // web_search to call.
       const forced = webToolsForTurn(fixture.prompt)
-      const cap = ON_TOP_ARM ? TURN_TOOL_CAP + forced.length : TURN_TOOL_CAP
-      const selected = withBudgetNotes(withForcedTools(all, selectTurnTools(all, scores), forced, cap), TOOL_TURN_BUDGETS)
+      // v4.4: the chat's own selection, its switches as the side sets them (turnHelpers.ts subsetForTurn).
+      const ranked = selectTurnTools(all, scores, TURN_TOOL_CAP, s.fileFirst ? promotedTools(fixture.prompt) : [])
+      const chosen = withForcedTools(all, ranked, forced, TURN_TOOL_CAP, { onTop: s.onTop, scores })
+      const byWireOrder = withForcedTools(all, ranked, forced, TURN_TOOL_CAP, { onTop: s.onTop })
+      if (chosen.map((t) => t.function.name).join() !== byWireOrder.map((t) => t.function.name).join()) evictionMoved.add(fixture.prompt)
+      const selected = withBudgetNotes(chosen, TOOL_TURN_BUDGETS)
       wireSizes.push(selected.length)
       return selected
     }
     console.log(
-      `       EVAL_SUBSET=1 — the app's per-turn selection (cap ${TURN_TOOL_CAP}), ranked by ${embedModel}, the web pair forced as the chat forces it\n` +
-        (ON_TOP_ARM ? '       EVAL_FORCED_ON_TOP=1 — forced tools ride on top of the cap (an eval-only arm; not the app)\n' : '')
+      `       EVAL_SUBSET=1 — the app's per-turn selection (cap ${TURN_TOOL_CAP}), ranked by ${embedModel} on each description as the app ranks, the web pair forced as the chat forces it\n` +
+        (ON_TOP_ARM ? '       EVAL_FORCED_ON_TOP=1 — forced tools ride on top of the cap (the FORCED_TOOLS_ON_TOP switch)\n' : '') +
+        (FILE_FIRST_ARM ? '       EVAL_FILE_TOOLS_FIRST=1 — a turn naming a file ranks the file tools first (the FILE_TOOLS_FIRST switch)\n' : '')
     )
   }
+
+  // v4.4 (G1): one side, or the arm and its same-day control.
+  interface Side {
+    role: SessionRole
+    switches: Switches
+    passes: Awaited<ReturnType<typeof runToolChoiceEval>>[]
+  }
+  const asked: Side = { role: armOn ? 'arm' : 'control', switches: ASKED, passes: [] }
+  const control: Side | null = order ? { role: 'control', switches: OFF, passes: [] } : null
+  const sides = control ? [control, asked] : [asked]
+  if (order) console.log(`same-day control: ${armName(OFF)}, a pass of each in turn (${order}, then alternating)\n`)
 
   // v2.5: EVAL_PASSES=N repeats the whole run and reports per-fixture
   // stability, the way the answer suites do — a ±1 between single runs at
   // temperature 0 is within what identical prompts produce.
   const passesWanted = Math.max(1, Math.min(9, Math.round(Number(process.env.EVAL_PASSES ?? '1')) || 1))
-  const allPasses: Awaited<ReturnType<typeof runToolChoiceEval>>[] = []
   for (let pass = 0; pass < passesWanted; pass++) {
-    if (passesWanted > 1) console.log(`  — pass ${pass + 1}/${passesWanted} —`)
-    allPasses.push(
-      await runToolChoiceEval({
-        models,
-        fixtures,
-        tools,
-        toolsFor,
-        systemPromptFor,
-        complete: (model, messages, tools) => complete(baseUrl, model, messages, tools),
-        onFixture: (_model, _i, _total, run) => {
-          process.stdout.write(`${mark(run)} ${run.file}\n`)
-        }
-      })
-    )
+    const turn = order && control ? sidesForPass(pass, order).map((r) => (r === 'control' ? control : asked)) : [asked]
+    for (const side of turn) {
+      if (passesWanted > 1 || control) console.log(`  — pass ${pass + 1}/${passesWanted}${control ? ` · ${side.role} (${armName(side.switches)})` : ''} —`)
+      side.passes.push(
+        await runToolChoiceEval({
+          models,
+          fixtures,
+          tools,
+          toolsFor: toolsFor?.(side.switches),
+          systemPromptFor,
+          complete: (model, messages, tools) => complete(baseUrl, model, messages, tools),
+          onFixture: (_model, _i, _total, run) => {
+            process.stdout.write(`${mark(run)} ${run.file}\n`)
+          }
+        })
+      )
+    }
   }
   if (mcp) await mcp.closeAll()
   if (wireSizes.length) {
     const avg = wireSizes.reduce((a, b) => a + b, 0) / wireSizes.length
     console.log(`\n  tools on the wire per fixture: ${avg.toFixed(1)} on average (of ${tools.length} registered)`)
+    console.log(`  eviction by score sent another wire than eviction by wire order on ${evictionMoved.size} of ${fixtures.length} fixtures${evictionMoved.size ? `: ${[...evictionMoved].join(' | ')}` : ''}`)
   }
 
-  // One result per model, aggregated over every pass.
-  const results = models.map((model) => {
-    const runs = allPasses.flatMap((p) => p.find((r) => r.model === model)?.runs ?? [])
-    return { model, runs, rates: summarizeRuns(runs) }
-  })
+  const runStamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const session = tagged ? sessionId(process.env.EVAL_SESSION, runStamp) : undefined
+  for (const side of sides) {
+    const arm = armName(side.switches)
+    if (control) console.log(`\n=== ${side.role}: ${arm} ===`)
+    // One result per model, aggregated over every pass.
+    const results = models.map((model) => {
+      const runs = side.passes.flatMap((p) => p.find((r) => r.model === model)?.runs ?? [])
+      return { model, runs, rates: summarizeRuns(runs) }
+    })
 
-  if (passesWanted > 1) {
-    for (const { model } of results) {
-      const perPass = allPasses.map((p) => (p.find((r) => r.model === model)?.runs ?? []).filter((r) => r.correct !== false && !r.spurious && !r.looped && !r.error).length)
-      const byFile = new Map<string, boolean[]>()
-      for (const p of allPasses) for (const r of p.find((x) => x.model === model)?.runs ?? []) {
-        const ok = r.correct !== false && !r.spurious && !r.looped && !r.error
-        byFile.set(r.file, [...(byFile.get(r.file) ?? []), ok])
+    if (passesWanted > 1) {
+      for (const { model } of results) {
+        const perPass = side.passes.map((p) => (p.find((r) => r.model === model)?.runs ?? []).filter((r) => r.correct !== false && !r.spurious && !r.looped && !r.error).length)
+        const byFile = new Map<string, boolean[]>()
+        for (const p of side.passes) for (const r of p.find((x) => x.model === model)?.runs ?? []) {
+          const ok = r.correct !== false && !r.spurious && !r.looped && !r.error
+          byFile.set(r.file, [...(byFile.get(r.file) ?? []), ok])
+        }
+        const flaky = [...byFile].filter(([, oks]) => oks.some(Boolean) && !oks.every(Boolean)).map(([f]) => f)
+        const stablePass = [...byFile].filter(([, oks]) => oks.every(Boolean)).length
+        const stableFail = [...byFile].filter(([, oks]) => !oks.some(Boolean)).length
+        console.log(
+          `\n${model}: clean across ${passesWanted} passes: [${perPass.join(', ')}] · stable-pass ${stablePass} · stable-fail ${stableFail} · flaky ${flaky.length}` +
+            (flaky.length ? ` (${flaky.join(', ')})` : '')
+        )
       }
-      const flaky = [...byFile].filter(([, oks]) => oks.some(Boolean) && !oks.every(Boolean)).map(([f]) => f)
-      const stablePass = [...byFile].filter(([, oks]) => oks.every(Boolean)).length
-      const stableFail = [...byFile].filter(([, oks]) => !oks.some(Boolean)).length
-      console.log(
-        `\n${model}: clean across ${passesWanted} passes: [${perPass.join(', ')}] · stable-pass ${stablePass} · stable-fail ${stableFail} · flaky ${flaky.length}` +
-          (flaky.length ? ` (${flaky.join(', ')})` : '')
-      )
     }
-  }
 
-  for (const { model, runs, rates } of results) {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    console.log(`\n${model}`)
-    console.log(
-      `  correct-tool rate   ${rates.correctTool.hit}/${rates.correctTool.of}   ${pct(rates.correctTool.hit, rates.correctTool.of)}`
-    )
-    console.log(
-      `  spurious-call rate  ${rates.spuriousCall.hit}/${rates.spuriousCall.of}    ${pct(rates.spuriousCall.hit, rates.spuriousCall.of)}`
-    )
-    console.log(
-      `  arg-validity rate   ${rates.argValidity.hit}/${rates.argValidity.of}   ${pct(rates.argValidity.hit, rates.argValidity.of)}`
-    )
-    console.log(`  loop rate           ${rates.loop.hit}/${rates.loop.of}   ${pct(rates.loop.hit, rates.loop.of)}`)
+    for (const { model, runs, rates } of results) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      console.log(`\n${model}`)
+      console.log(
+        `  correct-tool rate   ${rates.correctTool.hit}/${rates.correctTool.of}   ${pct(rates.correctTool.hit, rates.correctTool.of)}`
+      )
+      console.log(
+        `  spurious-call rate  ${rates.spuriousCall.hit}/${rates.spuriousCall.of}    ${pct(rates.spuriousCall.hit, rates.spuriousCall.of)}`
+      )
+      console.log(
+        `  arg-validity rate   ${rates.argValidity.hit}/${rates.argValidity.of}   ${pct(rates.argValidity.hit, rates.argValidity.of)}`
+      )
+      console.log(`  loop rate           ${rates.loop.hit}/${rates.loop.of}   ${pct(rates.loop.hit, rates.loop.of)}`)
 
-    const failures = runs.filter((r) => r.correct === false || r.spurious === true || r.looped || r.error)
-    if (failures.length > 0) {
-      console.log('  failures:')
-      for (const f of failures) {
-        if (f.error) console.log(`    ! ${f.file} — ${f.error}`)
-        else if (f.correct === false) {
-          const want = (f.expect as { tool: string }).tool
-          // v4.3: in the subset arm, whether the ranking offered the tool at all.
-          const offered = f.wire ? (f.wire.includes(want) ? ' (it was on the wire)' : ` (not on the wire: ${f.wire.join(', ')})`) : ''
-          console.log(`    ✗ ${f.file} — expected ${want}, round 1 called: ${f.round1Calls.join(', ') || '(nothing)'}${offered}`)
-        } else if (f.spurious) {
-          console.log(`    ✗ ${f.file} — spurious call: ${f.round1Calls.join(', ')}`)
-        } else if (f.looped) {
-          console.log(`    ✗ ${f.file} — hit the iteration cap (${f.allCalls.length} calls)`)
+      const failures = runs.filter((r) => r.correct === false || r.spurious === true || r.looped || r.error)
+      if (failures.length > 0) {
+        console.log('  failures:')
+        for (const f of failures) {
+          if (f.error) console.log(`    ! ${f.file} — ${f.error}`)
+          else if (f.correct === false) {
+            const want = (f.expect as { tool: string }).tool
+            // v4.3: in the subset arm, whether the ranking offered the tool at all.
+            const offered = f.wire ? (f.wire.includes(want) ? ' (it was on the wire)' : ` (not on the wire: ${f.wire.join(', ')})`) : ''
+            console.log(`    ✗ ${f.file} — expected ${want}, round 1 called: ${f.round1Calls.join(', ') || '(nothing)'}${offered}`)
+          } else if (f.spurious) {
+            console.log(`    ✗ ${f.file} — spurious call: ${f.round1Calls.join(', ')}`)
+          } else if (f.looped) {
+            console.log(`    ✗ ${f.file} — hit the iteration cap (${f.allCalls.length} calls)`)
+          }
         }
       }
-    }
-    if (runs.some((r) => r.error)) {
-      console.log('  (fixtures marked ! errored at the server and are excluded from rates)')
-    }
+      if (runs.some((r) => r.error)) {
+        console.log('  (fixtures marked ! errored at the server and are excluded from rates)')
+      }
 
-    const outFile = join(RESULTS_DIR, `${ARM === 'full' ? '' : `${ARM}-`}toolchoice-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
-    writeFileSync(
-      outFile,
-      JSON.stringify(
-        {
-          model,
-          baseUrl,
-          ranAt: new Date().toISOString(),
-          arm: ARM,
-          caveats: [
-            'tool results canned stubs',
-            'temperature 0',
-            ...(process.env.EVAL_FORCE_PREAMBLE
-              ? ['EVAL_FORCE_PREAMBLE=1: preamble pinned on (not app behavior for reasoning models)']
-              : []),
-            ...(VIBE_ARM ? ['EVAL_VIBE=1: VIBE system line in place'] : []),
-            ...(SUBSET_ARM ? [`EVAL_SUBSET=1: the app's per-turn selection, capped at ${TURN_TOOL_CAP}, web tools forced as the chat forces them (since 4.3)`] : []),
-            ...(ON_TOP_ARM ? ['EVAL_FORCED_ON_TOP=1: forced tools on top of the cap — not the app'] : [])
-          ],
-          scores: {
-            correctTool: rates.correctTool,
-            spuriousCall: rates.spuriousCall,
-            argValidity: rates.argValidity,
-            loop: rates.loop
+      const outFile = join(RESULTS_DIR, `${arm === 'full' ? '' : `${arm}-`}toolchoice-${model.replace(/[^a-z0-9._-]+/gi, '_')}-${stamp}.json`)
+      writeFileSync(
+        outFile,
+        JSON.stringify(
+          {
+            model,
+            baseUrl,
+            ranAt: new Date().toISOString(),
+            arm,
+            ...(session ? { session: { id: session, role: side.role } } : {}),
+            caveats: [
+              'tool results canned stubs',
+              'temperature 0',
+              ...(process.env.EVAL_FORCE_PREAMBLE
+                ? ['EVAL_FORCE_PREAMBLE=1: preamble pinned on (not app behavior for reasoning models)']
+                : []),
+              ...(VIBE_ARM ? ['EVAL_VIBE=1: VIBE system line in place'] : []),
+              ...(DEFAULT_TOOLSET ? [`EVAL_TOOLSET=default: the ${toolbox.length} tools on by default; not scored: ${unoffered.map((f) => f.file).join(', ') || 'none'}`] : []),
+              ...(SUBSET_ARM ? [`EVAL_SUBSET=1: the app's per-turn selection, capped at ${TURN_TOOL_CAP}, web tools forced as the chat forces them (since 4.3), ranked on descriptions as the app ranks (since 4.4)`] : []),
+              ...(side.switches.onTop ? ['EVAL_FORCED_ON_TOP=1: forced tools on top of the cap (FORCED_TOOLS_ON_TOP)'] : []),
+              ...(side.switches.fileFirst ? ['EVAL_FILE_TOOLS_FIRST=1: a named file ranks the file tools first (FILE_TOOLS_FIRST)'] : [])
+            ],
+            scores: {
+              correctTool: rates.correctTool,
+              spuriousCall: rates.spuriousCall,
+              argValidity: rates.argValidity,
+              loop: rates.loop
+            },
+            runs
           },
-          runs
-        },
-        null,
-        2
+          null,
+          2
+        )
       )
-    )
-    console.log(`  results: ${outFile}\n`)
+      console.log(`  results: ${outFile}${session ? ` · session ${session}, ${side.role}` : ''}\n`)
+    }
   }
 }
 

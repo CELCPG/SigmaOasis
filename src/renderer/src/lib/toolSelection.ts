@@ -109,17 +109,69 @@ export { ALWAYS_ON_TOOLS } from '../../../shared/tools'
 export const TURN_TOOL_CAP = 6
 
 /**
+ * v4.4 (G4): a turn that names a local file ranks the file tools first — the
+ * switch, off until measured (ROADMAP-v4.4).
+ *
+ * The ranking reads meaning, and a file name is a lexical fact it blurs. With
+ * the app's own ranking (each description alone, nomic-embed-text-v1.5) "read
+ * the file notes/todo.md and summarize it" gave the two ranked places to
+ * read_note (0.622) and list_directory (0.609), read_file fourth at 0.603;
+ * "save this shopping list to a file called groceries.txt" put write_file
+ * ninth (0.554), behind reference_lookup, list_notes and read_note. The notes
+ * tools' descriptions say "file" in their *Do not use* lines, and an embedding
+ * does not read a "not". 4.3's wire record (E5) showed the same miss.
+ */
+export const FILE_TOOLS_FIRST = false
+
+/** The file tools a named file promotes, in the order they take the ranked places. */
+export const FILE_TOOLS: readonly string[] = ['read_file', 'write_file', 'propose_patch']
+
+/**
+ * Document and data extensions only: code extensions are product names as
+ * often as files ("the latest version of node.js"). A code file is still
+ * caught by its path ("read src/app.js").
+ */
+const DOC_EXTENSION = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|xml|log|pdf|docx?|xlsx?|pptx?|rtf|odt|ods|ini|toml|cfg|conf|html?)$/i
+
+/**
+ * Does the text name a local file? A path with an extension (notes/todo.md,
+ * ~/a/b.py, C:\x\y.txt), or a bare file name with a document or data
+ * extension (groceries.txt). A web address is not a local file; a folder
+ * path with no file in it is list_directory's, which the ranking already
+ * finds ("what's in my ~/Downloads folder?" ranks it first).
+ */
+export function namesLocalFile(text: string | undefined): boolean {
+  for (const raw of (text ?? '').split(/\s+/)) {
+    const token = raw.replace(/^[("'`[<]+|[)"'`\]>,;:!?.]+$/g, '')
+    if (!token || /^[a-z][a-z0-9+.-]*:\/\//i.test(token) || /^www\./i.test(token)) continue
+    if (/[\\/]/.test(token) && /[\\/][^\\/]*\.\w{1,5}$/.test(token)) return true
+    if (/^[\w-]+(\.[\w-]+)*$/.test(token) && DOC_EXTENSION.test(token)) return true
+  }
+  return false
+}
+
+/** v4.4 (G4): the tools this turn's ranking puts first, before the scores are read. */
+export function promotedTools(text: string | undefined): readonly string[] {
+  return namesLocalFile(text) ? FILE_TOOLS : []
+}
+
+/**
  * Per-turn subsetting: always-on tools plus the top-scoring matches by
  * embedding cosine, capped at TURN_TOOL_CAP, in the original wire order.
  *
  * `scores === null` means "no ranking available" (no embedding model, an
  * endpoint error) and returns the full list — subsetting is an optimization,
  * never a gate. Tools missing a score rank as zero.
+ *
+ * v4.4 (G4): `promoted` tools (the file tools, when the turn names a file and
+ * FILE_TOOLS_FIRST is on) take the ranked places first, in their order, when
+ * the slot has them; the scores fill what is left.
  */
 export function selectTurnTools(
   available: ToolSchema[],
   scores: Record<string, number> | null,
-  cap: number = TURN_TOOL_CAP
+  cap: number = TURN_TOOL_CAP,
+  promoted: readonly string[] = []
 ): ToolSchema[] {
   if (scores === null || available.length <= cap) return available
 
@@ -127,6 +179,10 @@ export function selectTurnTools(
   const chosen = new Set<string>()
   for (const t of available) {
     if (alwaysOn.has(t.function.name)) chosen.add(t.function.name)
+  }
+  for (const name of promoted) {
+    if (chosen.size >= cap) break
+    if (available.some((t) => t.function.name === name)) chosen.add(name)
   }
   const ranked = available
     .filter((t) => !chosen.has(t.function.name))
@@ -261,27 +317,50 @@ export function holdTurnTools(
 }
 
 /**
+ * v4.4 (G2, ROADMAP-v4.3 F6): forced tools on top of the cap — the switch, off
+ * (4.0.1's cap) until measured on the default toolset beside a same-day control.
+ */
+export const FORCED_TOOLS_ON_TOP = false
+
+/**
  * v1.6: guarantee named tools are in the turn's set. When the app has just
  * profiled a data file and told the model "compute with run_python", the tool
  * must be on the wire — measured: the embedding rank dropped run_python for
  * "which region had the highest revenue" and a 9B model spent five minutes
  * reasoning that it had no way to compute. Forced tools take the place of the
  * lowest-ranked non-always-on picks so the cap still holds; wire order is kept.
+ *
+ * v4.4 (G2): "lowest-ranked" was the comment's and not the code's — it dropped
+ * picks from the end of the wire order. With the turn's `scores` it now drops
+ * the lowest-scored first (ties, and a turn with no ranking, from the end of
+ * the wire order as before). The chat forces the web pair together or not at
+ * all, and two forced tools take both ranked places whatever their order, so
+ * no tool-choice fixture's wire moves (eval:tools counts it: 0 of 28).
+ *
+ * `onTop` (FORCED_TOOLS_ON_TOP, ROADMAP-v4.3 F6): forced tools ride on top of
+ * the cap instead of evicting the ranked picks — 8 tools on a turn the web
+ * pair is forced onto, where the cap leaves "what time is it right now?" with
+ * no get_current_datetime.
  */
 export function withForcedTools(
   available: ToolSchema[],
   selected: ToolSchema[],
   forced: readonly string[],
-  cap: number = TURN_TOOL_CAP
+  cap: number = TURN_TOOL_CAP,
+  opts: { onTop?: boolean; scores?: Record<string, number> | null } = {}
 ): ToolSchema[] {
   const want = forced.filter((n) => available.some((t) => t.function.name === n))
   if (want.length === 0) return selected
   const names = new Set(selected.map((t) => t.function.name))
   const alwaysOn = new Set(ALWAYS_ON_TOOLS)
   for (const n of want) names.add(n)
-  // Over the cap: drop optional picks (not always-on, not forced) from the
-  // end of the wire order until it fits.
+  if (opts.onTop ?? FORCED_TOOLS_ON_TOP) return available.filter((t) => names.has(t.function.name))
+  // Over the cap: drop optional picks (not always-on, not forced), the
+  // lowest-scored first, until it fits. sort() is stable: equal scores keep
+  // wire order, and pop() takes the last of them first, as before.
   const optional = selected.map((t) => t.function.name).filter((n) => !alwaysOn.has(n) && !want.includes(n))
+  const scores = opts.scores
+  if (scores) optional.sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0))
   while (names.size > cap && optional.length > 0) names.delete(optional.pop()!)
   return available.filter((t) => names.has(t.function.name))
 }

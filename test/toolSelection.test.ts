@@ -424,3 +424,77 @@ describe('stable tool payloads (v4.1 S5)', () => {
     assert.match(search.function.description, /Do not use when:/)
   })
 })
+
+/**
+ * v4.4 (G2, G4): the selection's two switches and the eviction order — each
+ * switch off until a same-day measurement turns it on (ROADMAP-v4.4).
+ */
+describe('v4.4: forced tools on top of the cap, eviction by score, a named file (G2, G4)', () => {
+  const sel = require('../src/renderer/src/lib/toolSelection') as typeof import('../src/renderer/src/lib/toolSelection')
+  const schema = (name: string): ToolSchema => ({ type: 'function', function: { name, description: name, parameters: { type: 'object', properties: {} } } })
+  const names = (ts: ToolSchema[]): string[] => ts.map((t) => t.function.name)
+  // The default toolbox's shape: the four always-on tools among the rest.
+  const available = ['read_file', 'propose_patch', 'list_directory', 'date_calculator', 'get_current_datetime', 'create_note', 'read_note', 'memory_save', 'memory_search', 'memory_forget', 'web_search', 'fetch_webpage'].map(schema)
+
+  test('both switches ship off: 4.0.1 cap, and the ranking alone', () => {
+    assert.equal(sel.FORCED_TOOLS_ON_TOP, false)
+    assert.equal(sel.FILE_TOOLS_FIRST, false)
+  })
+
+  test('on top: the web pair joins the ranked picks instead of evicting them — 8 tools, every ranked pick kept', () => {
+    // "what time is it right now?" ranked: get_current_datetime and create_note took the two places.
+    const ranked = sel.selectTurnTools(available, { get_current_datetime: 0.7, create_note: 0.6, read_note: 0.5 })
+    assert.deepEqual(names(ranked).filter((n) => !ALWAYS_ON_TOOLS.includes(n)), ['get_current_datetime', 'create_note'])
+    const capped = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage']))
+    assert.ok(!capped.includes('get_current_datetime') && !capped.includes('create_note'), 'the cap evicts both ranked picks (F6)')
+    assert.equal(capped.length, TURN_TOOL_CAP)
+    const onTop = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'], TURN_TOOL_CAP, { onTop: true }))
+    assert.deepEqual(onTop, ['date_calculator', 'get_current_datetime', 'create_note', 'memory_save', 'memory_search', 'memory_forget', 'web_search', 'fetch_webpage'])
+    // Nothing forced: on top changes nothing.
+    assert.equal(sel.withForcedTools(available, ranked, [], TURN_TOOL_CAP, { onTop: true }), ranked)
+  })
+
+  test('eviction drops the lowest-scored pick, as the comment always said; with no scores, from the end of the wire order as before', () => {
+    // Wire order: read_file before create_note; by score create_note ranks higher.
+    const ranked = sel.selectTurnTools(available, { create_note: 0.9, read_file: 0.8 })
+    assert.deepEqual(names(ranked).filter((n) => !ALWAYS_ON_TOOLS.includes(n)), ['read_file', 'create_note'])
+    const byScore = names(sel.withForcedTools(available, ranked, ['web_search'], TURN_TOOL_CAP, { scores: { create_note: 0.9, read_file: 0.8 } }))
+    assert.ok(byScore.includes('create_note') && !byScore.includes('read_file'), 'the lower-scored read_file made room')
+    const byWire = names(sel.withForcedTools(available, ranked, ['web_search']))
+    assert.ok(byWire.includes('read_file') && !byWire.includes('create_note'), 'without scores the last in wire order goes, as through 4.3')
+    // Equal scores: wire order decides, as before.
+    const tie = names(sel.withForcedTools(available, ranked, ['web_search'], TURN_TOOL_CAP, { scores: { create_note: 0.5, read_file: 0.5 } }))
+    assert.deepEqual(tie, byWire)
+  })
+
+  test('the chat forces the web pair together: two forced tools take both ranked places whatever their order', () => {
+    const ranked = sel.selectTurnTools(available, { create_note: 0.9, read_file: 0.8 })
+    const a = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage'], TURN_TOOL_CAP, { scores: { create_note: 0.9, read_file: 0.8 } }))
+    const b = names(sel.withForcedTools(available, ranked, ['web_search', 'fetch_webpage']))
+    assert.deepEqual(a, b)
+  })
+
+  test('a named file: a path with an extension, or a document or data file name — not a web address, a folder, or a product called node.js', () => {
+    for (const t of ['read the file notes/todo.md and summarize it', 'save this shopping list to a file called groceries.txt: milk, eggs, coffee', 'open C:\\Users\\me\\report.docx', 'fix the bug in src/app.js', 'what is in "budget 2026.xlsx"?', 'summarize ~/notes/plan.md.', 'load data.csv'])
+      assert.equal(sel.namesLocalFile(t), true, t)
+    for (const t of ["what's in my ~/Downloads folder?", 'fetch https://example.com and tell me what it says', "what's the latest version of node.js?", 'read my note called \'gift ideas\'', 'check www.example.org/readme.md', 'what is 3.5 times 2', '', undefined])
+      assert.equal(sel.namesLocalFile(t), false, String(t))
+    assert.deepEqual(sel.promotedTools('read the file notes/todo.md'), sel.FILE_TOOLS)
+    assert.deepEqual(sel.promotedTools('what time is it?'), [])
+  })
+
+  test('promoted tools take the ranked places first, in their order, when the slot has them; the scores fill the rest', () => {
+    // The app's ranking of "read the file notes/todo.md and summarize it": read_note and list_directory ahead of read_file.
+    const scores = { read_note: 0.622, list_directory: 0.609, create_note: 0.607, read_file: 0.603, propose_patch: 0.538 }
+    assert.deepEqual(names(sel.selectTurnTools(available, scores)).filter((n) => !ALWAYS_ON_TOOLS.includes(n)), ['list_directory', 'read_note'])
+    const promoted = names(sel.selectTurnTools(available, scores, TURN_TOOL_CAP, sel.FILE_TOOLS))
+    // write_file is off in this slot: read_file and propose_patch, in wire order.
+    assert.deepEqual(promoted.filter((n) => !ALWAYS_ON_TOOLS.includes(n)), ['read_file', 'propose_patch'])
+    assert.equal(promoted.length, TURN_TOOL_CAP)
+    // A slot with one file tool: it, then the best-scored.
+    const one = available.filter((t) => t.function.name !== 'propose_patch')
+    assert.deepEqual(names(sel.selectTurnTools(one, scores, TURN_TOOL_CAP, sel.FILE_TOOLS)).filter((n) => !ALWAYS_ON_TOOLS.includes(n)), ['read_file', 'read_note'])
+    // No ranking, no subsetting: the promotion does not apply.
+    assert.equal(sel.selectTurnTools(available, null, TURN_TOOL_CAP, sel.FILE_TOOLS), available)
+  })
+})

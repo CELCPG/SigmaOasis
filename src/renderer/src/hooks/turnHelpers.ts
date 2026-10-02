@@ -15,6 +15,8 @@ import { budgetContextLength } from '../lib/modelInfo'
 import { projectInstructionsBlock } from '../lib/projectContext'
 import {
   fallbackTurnTools,
+  FILE_TOOLS_FIRST,
+  promotedTools,
   schemasAvailableTo,
   selectTurnTools,
   holdTurnTools,
@@ -364,8 +366,11 @@ export async function subsetForTurn(
       tools.map((t) => ({ name: t.function.name, description: t.function.description }))
     )
     if (!res.ok || !res.scores) return unranked()
-    const selected = selectTurnTools(tools, res.scores)
-    if (!stabilityKey) return withForcedTools(tools, selected, force)
+    // v4.4 (G4): a turn that names a file puts the file tools first (switch off until measured).
+    const promoted = FILE_TOOLS_FIRST ? promotedTools(query) : []
+    const selected = selectTurnTools(tools, res.scores, TURN_TOOL_CAP, promoted)
+    // v4.4 (G2): forced tools evict the lowest-scored picks, as the comment always said.
+    if (!stabilityKey) return withForcedTools(tools, selected, force, TURN_TOOL_CAP, { scores: res.scores })
     // v1.4.5: an indecisive ranking must not be allowed to move anything. On
     // "1" or "yes" the scores are separated by less than a rounding error, so
     // whichever tool wins is arbitrary — and swapping the toolbox on a coin
@@ -374,8 +379,9 @@ export async function subsetForTurn(
     // incumbent and stops moving. (v3.1: and with one, it is kept outright —
     // see holdTurnTools — and small talk never counts as decisive:
     // rankingMayMove.)
-    const stable = holdTurnTools(tools, selected, previous, rankingMayMove(res.scores, query))
-    const withForced = withForcedTools(tools, stable, [...force, ...stickyTools(previous)])
+    // A named file is a reason to move, as a decisive ranking is.
+    const stable = holdTurnTools(tools, selected, previous, rankingMayMove(res.scores, query) || promoted.length > 0)
+    const withForced = withForcedTools(tools, stable, [...force, ...stickyTools(previous)], TURN_TOOL_CAP, { scores: res.scores })
     turnToolMemo.set(
       stabilityKey,
       withForced.map((t) => t.function.name)
