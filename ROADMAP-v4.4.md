@@ -19,7 +19,7 @@ no push, no tag, no release. The status is at the end.
 | G7 | A dry run for the signed Mac build (`release-dryrun.yml`, `workflow_dispatch`) | build | `4.4/dryrun` |
 | G8 | electron-builder 26 (4.3's D8, proved on Windows in `4.3/builder26`) | build | `4.4/builder26` |
 | G9 | The build chain (vite 7, electron-vite 5, plugin-react 5) | build | `4.4/buildchain` |
-| G10 | Integration: G1–G9 on `rel/4.4`, the full `npm test`, 4.4.0 release-ready (version, notes) | Apex, after both | `rel/4.4` |
+| G10 | Integration: G1–G9 on `rel/4.4` (G8 waits on its track for the dry run), the full `npm test`, 4.4.0 release-ready (version, notes) | Apex, after both | `rel/4.4` |
 
 The rule every switch below is held to (set by Apex with the goals): **a switch turns on by default
 only if its arm is BETTER beyond the noise band, beside a same-day control (G1), with zero new
@@ -172,6 +172,58 @@ past it twice in six (all four that finished solved; one of them, 468 s, spent a
 16,384-token cap). The baseline holds four passes of the other 25 cases; a run diffed against it
 is compared on those and told so.
 
+## G7–G9 — the build tracks
+
+Each from `rel/4.3` on its own branch, so each can land or wait alone; the build worker's notes are
+outside the repository (`so-wt/44-build-notes.md`).
+
+- **G7, the dry run** (`4.4/dryrun`, `736952a`): `.github/workflows/release-dryrun.yml` —
+  `workflow_dispatch` only, one macOS job, read-only, release.yml's macOS steps unchanged and in
+  order with `electron-builder --mac --publish never`, the DMGs kept as a 7-day artifact and each
+  app checked (`codesign --verify --deep --strict` with a Developer ID authority, `spctl`
+  *Notarized Developer ID*, `stapler validate`). `test/releaseDryrun.test.ts` (7) holds it to that;
+  12 mutations of the workflow each fail it. RELEASING.md, "Dry-running the signed Mac build". An
+  actual run needs the file on the default branch — a push to `main`, Colin's.
+- **G8, electron-builder 26** (`4.4/builder26`, `13aea08`): 4.3's `0126690` (^26.15.3,
+  `mac.notarize: true`) plus G7, and what 26 still needs written down (the team id only from
+  `APPLE_TEAM_ID`; release.yml's own keychain stays; the macOS floor stamp stays). Windows build
+  proved (`Sigma-Oasis-4.3.0-setup.exe`, `latest.yml` with 24's fields); its full `npm test` 3,610 /
+  3,610 and the 14 Electron suites. Advisories 11 → 3 alone, 0 with G9. **Not merged:** it waits on
+  a green dry run (decision 5).
+- **G9, the build chain** (`4.4/buildchain`, `308f52f`): vite ^5.1.0 → ^7.3.6, electron-vite ^2.0.0
+  → ^5.0.0, @vitejs/plugin-react ^4.2.1 → ^5.2.0; `build.externalizeDeps: true` for the deprecated
+  `externalizeDepsPlugin()`. Same source, both chains: main +477 B, preload identical, renderer
+  −60,207 B (−3.15%, the newer esbuild's printing), CSS and CLI byte-identical; out/main and
+  out/preload require the same modules. Full `npm test` green there; advisories 11 → 8.
+
+## G10 — integration, 4.4.0
+
+- **Merged** `4.4/dryrun` (`7063d0a`) and `4.4/buildchain` (`7130e18`), both clean — `rel/4.4` had
+  not touched `package.json` or the lockfile, so G9's came over as they were. `npm install` in this
+  worktree (4 added, 7 changed), `lockkeep.js`: the lockfile byte-identical to G9's (libc kept on 13
+  entries). `npm run typecheck` clean; `electron-vite build` (vite 7.3.6) and the CLI build clean.
+  `npm run build -- --publish never` packs `app.asar` with electron-builder 24 — the same 52
+  packages as 4.3 — and then fails on this PC extracting winCodeSign-2.6.0 ("Cannot create
+  symbolic link: A required privilege is not held by the client"), as on `rel/4.3`; the signed
+  builds run on CI.
+- **The subset tool-choice baselines re-recorded** (`56fda8b`; F1 made 4.3's stale, and the two
+  switches are on): one session, `g10-subset-2026-10-02`, 2026-10-02 03:51 → 04:10, the whole
+  toolbox's 28 fixtures, four one-pass runs a side, ABBA. As 4.4 ships (both switches on,
+  `…-subset-ontop-filefirst.json`, new): clean **25, 24, 25, 25** of 28, correct-tool 87/100; every
+  switch off (`…-subset.json`, replaced; 4.3's was 22, 22, 22, 22): **21, 21, 21, 20**, 72/100.
+  Shipped against its control: **BETTER**, +4.00 (±0.71) — `02`, `03`, `09`, `10`, `16`, `22`
+  gained, `26-live-score` and `27-live-futures` lost to `market_data` (off by default); no
+  spurious call or bad argument, the control's one loop the only one. Old → new control −1.25:
+  `15-shop-requirements` (`reference_lookup` beside `shop_requirements` on the description alone,
+  `image_search` on `name: description`, and the 9B calls nothing beside the first — every pass,
+  as in the night's four whole-toolbox controls) and `01-list-directory`'s one loop.
+  `docs/evals/tools.md` has the table. The whole-toolbox baseline stands: no description, fixture,
+  system prompt or request changed, so its wire is byte-identical.
+- **Version** `9056182` ("4.4.0: version": `package.json`, the lockfile's two root entries,
+  `CLIENT_INFO`); **notes** `afc426a`, `RELEASE-NOTES-v4.4.0.md`.
+- **`npm test`** on `9056182`: green (the Status, below). The commits after it are notes and this
+  file.
+
 ## F — found and fixed on the way
 
 1. **`eval:tools`' subset arm did not rank as the app ranks.** It embedded `name: description`;
@@ -194,7 +246,9 @@ Seen and not fixed (4.5): the same grammar-and-no-thinking pairing is sent by th
 The measurements ran as one queue of chunks, each under the shared heavy lock and under ten
 minutes (`.eval-results/4.4-night-2026-10-01/`: `q.sh`, `ag.sh`/`ag2.sh`, `tl.sh`, `status.txt`),
 a 9B slice and a 35B slice at once in the agent chunks, the build worker's chunks between them.
-Clerk was paused 21:16 → 03:12 and is back (Ready).
+Clerk was paused 21:16 → 03:12, and for G10's baseline session 03:51 → 04:10, and is back (Ready).
+G10's chunks (`g10-*` in `status.txt`) ran one at a time under the same lock, their `node` in the
+foreground of the chunk; nothing outlived one.
 
 - **A killed chunk's runs did not always die.** `step.sh` kills at its deadline with `taskkill /T`
   on the command's shell; the agent chunks started their two `node` runs in the background
@@ -216,7 +270,8 @@ Clerk was paused 21:16 → 03:12 and is back (Ready).
 ## Decisions for Colin
 
 1. **F6 is decided by measurement, as recommended — confirm at release.** Forced tools ride on top of
-   the cap (`FORCED_TOOLS_ON_TOP`, on): default toolset 21 → 23 of 24 clean a pass, nothing lost. The
+   the cap (`FORCED_TOOLS_ON_TOP`, on): default toolset 21 → 23 of 24 clean a pass, nothing lost;
+   with file tools first, as 4.4 ships, the whole toolbox 20.75 → 24.75 of 28 (G10). The
    price is two more tool schemas on a turn the web pair is forced onto (8 instead of 6), and on a
    conversation the web tools stay with (sticky since 4.1) every turn after. Off is one constant.
 2. **File tools first** (`FILE_TOOLS_FIRST`, on) is a lexical rule in the chat's selection: a
@@ -227,8 +282,45 @@ Clerk was paused 21:16 → 03:12 and is back (Ready).
    is offered as an agent model, and with what warning, is Colin's.
 4. Re-rank and the sample answer stay off (SAME-WITHIN-NOISE). Re-rank now works on a `<think>`
    family when turned on — it never did before (F2).
+5. **electron-builder 26 waits on the signed Mac build's dry run, which only Colin can start**
+   (A-042 kept it out of 4.3 for the same reason). Once `main` carries `release-dryrun.yml` (the
+   4.4.0 push below does it; before that, RELEASING.md's cherry-pick): `git push origin
+   4.4/builder26`, then Actions → Release dry run → Use workflow from `4.4/builder26` → Run. It
+   notarizes for real and publishes nothing; the repository is public, so the branch becomes
+   visible. Green: merge it into the next release (its `package.json` and lockfile meet G9's — the
+   resolution is in the build notes: builder26's files, the three G9 lines, `npm install`,
+   `lockkeep.js`); `npm audit` then reads 0. Red at *Build, sign & notarize*: the log says what 26
+   wants.
+6. **4.3.0 ships first** (A-049): `rel/4.4` is built on `rel/4.3`, and its notes follow 4.3.0's.
+   Optional before the 4.4.0 tag: dry-run `main` itself once it is at `rel/4.4` (Actions → Release
+   dry run → Use workflow from `main`) — the vite 7 bundles have been packed by electron-builder 24
+   here, but not yet signed and notarized by it on a Mac; the tag's own run would be the first.
 
-## Status (2026-10-02 03:40, `rel/4.4`, nothing pushed)
+## Release 4.4.0
+
+`rel/4.4` is release-ready and pushed nowhere. It is a fast-forward of `rel/4.3` (`8fe8d37`, 4.3.0)
+and of `main` (`e1a5272`, 4.2.0). After 4.3.0 is out (ROADMAP-v4.3.md, *Release 4.3.0*: `main` and
+`origin/main` at `8fe8d37`, the tag `v4.3.0` pushed), in the main checkout:
+
+```bash
+cd C:/Users/clong/Projects/SigmaOasis           # the main checkout, on main, clean
+git fetch origin
+git merge --ff-only rel/4.4                       # main → rel/4.4's tip
+git push origin main                              # first: the release's guard needs the commit on origin/main
+git tag -a v4.4.0 -m "Sigma Oasis 4.4.0 — the tools a question asks for, and a control beside every measurement"
+git push origin v4.4.0                            # runs .github/workflows/release.yml
+```
+
+For Colin to run, or to OK for Apex to run — nothing here has been run. What the tag's run checks,
+as for 4.3.0: the guard wants the tagged commit on `origin/main` (pushed first) and `package.json`
+at 4.4.0 (the "4.4.0: version" commit, with the lockfile and `CLIENT_INFO`); the macOS job runs
+`npm ci` (the lockfile G9 wrote, `libc` fields kept), the typecheck and `npm test` (green here,
+below); electron-builder is still 24, as 4.3.0 shipped; the assets are named by
+`electron-builder.yml`'s `Sigma-Oasis-${version}-…`. Then publish the draft with
+`RELEASE-NOTES-v4.4.0.md` as its body. Pushing `main` also puts `release-dryrun.yml` on the default
+branch, which decision 5 needs; it has no push trigger, so the push runs CI only.
+
+## Status (2026-10-02 04:40, 4.4.0 on `rel/4.4`, nothing pushed)
 
 | goal | state | measured |
 | --- | --- | --- |
@@ -238,17 +330,21 @@ Clerk was paused 21:16 → 03:12 and is back (Ready).
 | G4 file-request ranking | **done — on** | default toolset 21 → **22** of 24, whole toolbox (chat subset) 21 → **23** of 28, BETTER (±0.00), none lost; with G2: 20.75 → **24.00** of 24 (±0.71) |
 | G5 re-rank, sample answer | **done — both off** | re-rank (working): answered 26.50 → 26.75 of 28 (±1.41), cited 17.75 → 15.75 (±2.68); sample answer: 26.25 → 26.75 (±0.71); forbidden 0 in 560 runs; both **SAME-WITHIN-NOISE** |
 | G6 35B-A3B baseline | **done** — `baselines/agent-qwen3.8-35b-a3b.json` | 21, 21, 21, 19 of 25 (σ 0.60); false claims **3/99**; median 21 s a solved case (9B 16–17 s), 68 tok/s, 6 rounds; `long-discount-rules` left out (2 of 7 inside the chunk) |
-| G7–G9 | the build worker's | `4.4/dryrun`, `4.4/builder26`, `4.4/buildchain` |
-| G10 integration, 4.4.0 | after G7–G9 | — |
-| `npm test` on `rel/4.4` | **green** on `87a9460` (every change in) | node suite **3,627/3,627**; render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 (14 suites) |
+| G7 dry run | **done — merged** (`7063d0a`) | `release-dryrun.yml`, `test/releaseDryrun.test.ts` 7/7; an actual run is Colin's (decision 5) |
+| G8 electron-builder 26 | **done — ready, not merged** (`4.4/builder26` @ `13aea08`) | Windows build proved; 3,610/3,610 and the 14 suites there; advisories 11 → 3, 0 with G9; waits on the Mac dry run |
+| G9 build chain | **done — merged** (`7130e18`) | vite 7.3.6, electron-vite 5.0.0, plugin-react 5.2.0; typecheck and bundles clean on `rel/4.4`; advisories 11 → **8** (all electron-builder 24's) |
+| G10 integration, 4.4.0 | **done** | G7 and G9 merged; subset baselines re-recorded (`56fda8b`: shipped 25, 24, 25, 25 of 28, control 21, 21, 21, 20, BETTER +4.00 ±0.71); version `9056182`; notes `afc426a`; this file |
+| `npm test` on `rel/4.4` | **green** on `9056182` (4.4.0, every change in; after it, notes and this file only) | node suite **3,634/3,634** (786 suites; 87a9460's 3,627 + G7's 7); render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 (14 suites) |
+| release preconditions | **met** | `rel/4.4` a fast-forward of `rel/4.3` and of `main`; `package.json`, lockfile and `CLIENT_INFO` at 4.4.0; `npm ls` clean (exit 0; `--all` only platform-optional packages unmet); `npm audit` 8 (1 critical, 7 high — `tar`, `app-builder-lib`, `builder-util`, `builder-util-runtime`, `dmg-builder`, `electron-builder`, `electron-builder-squirrel-windows`, `electron-publish`: electron-builder 24's tree; 4.3.0 has 11) |
 
-Every switch and its default after the night: `FORCED_TOOLS_ON_TOP` **on**, `FILE_TOOLS_FIRST`
-**on**, agent `toolsByPhase` **off** (and every other agent experiment off, as 4.3 left them),
-`libraryRerank` **off**, `libraryHyde` **off**. The version is still 4.3.0 (G10's).
+Every switch and its default in 4.4.0: `FORCED_TOOLS_ON_TOP` **on**, `FILE_TOOLS_FIRST` **on**,
+agent `toolsByPhase` **off** (and every other agent experiment off, as 4.3 left them),
+`libraryRerank` **off**, `libraryHyde` **off**. The version is 4.4.0.
 
 ## What is left
 
-- **G10:** merge G7–G9, the version (with `CLIENT_INFO`), the notes, the full `npm test`.
+- **Colin:** 4.3.0, then 4.4.0 (*Release 4.4.0*); the dry run of `4.4/builder26` and, on green,
+  its merge (decision 5); decisions 1 and 3.
 - The same grammar-and-no-thinking pairing in plan mode, the outline and deep research's planner
   (F, *seen*) — measure whether it costs them on a `<think>` family.
 - A suite where the library's ranking aids could show a gain: 5 of 28 cases are in their domains.
