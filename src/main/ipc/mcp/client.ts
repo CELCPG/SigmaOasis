@@ -33,7 +33,7 @@ export const PROTOCOL_VERSION_MODERN = '2026-07-28'
 export const PROTOCOL_VERSION_LEGACY = '2025-06-18'
 // The app's version, sent in every handshake. A literal because this module is
 // compiled without JSON imports; test/version.test.ts holds it to package.json.
-export const CLIENT_INFO = { name: 'sigma-oasis', version: '4.3.0' } as const
+export const CLIENT_INFO = { name: 'sigma-oasis', version: '4.4.0' } as const
 export const UNSUPPORTED_PROTOCOL_VERSION = -32022
 
 const META_VERSION = 'io.modelcontextprotocol/protocolVersion'
