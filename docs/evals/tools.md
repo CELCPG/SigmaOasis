@@ -102,3 +102,58 @@ toolset; the app keeps its behaviour in 4.3, and the decision is ROADMAP-v4.3's 
 `02-read-file` and `03-write-file` lose to `read_note` and `memory_save` in the ranking itself —
 the embedding ranks the notes and memory tools above the file tools for "read the file …" and
 "write … to a file". Recorded for 4.4; a ranking change is a wire change and needs its own arm.
+
+## Two switches decided beside same-day controls (v4.4, G2 and G4, 2026-10-01 night)
+
+`qwen3.8-9b-distill` on the 5070, temperature 0, `eval:tools`' subset arm — the chat's own
+selection (`selectTurnTools`, `withForcedTools`), the web pair forced as the chat forces it. Every
+arm ran four one-pass runs interleaved with four of its control's in one session (ROADMAP-v4.4,
+G1), and `eval:diff` read each against that control.
+
+Two changes to the arm itself first:
+
+- **It ranks as the app ranks.** Through 4.3 the arm embedded `name: description`; the app
+  (`main/ipc/toolRank.ts`) embeds the description alone. The two rank the file requests
+  differently, so every number below is on the app's text, and none is comparable with 4.3's
+  subset baseline.
+- **The default toolset** (`EVAL_TOOLSET=default`): the 20 tools a fresh install turns on (Code
+  Mode off) — the Assistant slot's toolbox. `03-write-file`, `15-shop-requirements`,
+  `16-shop-compare` and `22-price-near-miss` expect tools that are off by default and are not
+  scored there; 24 fixtures are.
+
+| arm (clean per pass) | default toolset, of 24 | whole toolbox, of 28 | fixtures that moved |
+| --- | --- | --- | --- |
+| control — the cap (4.0.1–4.3), the ranking alone | 21, 21, 21, 21 | 21, 21, 21, 21 | — |
+| **forced tools on top of the cap** (G2, `FORCED_TOOLS_ON_TOP`) | **23, 23, 23, 23 — BETTER**, +2.00 (±0.00) | 23, 23, 23, 23 — BETTER, +2.00 (±0.00) | default: `09-datetime`, `10-create-note` gained, none lost · whole: `09`, `10`, `16`, `22` gained; `26-live-score`, `27-live-futures` lost to `market_data` (off by default) |
+| **file tools first** (G4, `FILE_TOOLS_FIRST`) | **22, 22, 22, 22 — BETTER**, +1.00 (±0.00) | 23, 23, 23, 23 — BETTER, +2.00 (±0.00) | default: `02-read-file` · whole: `02`, `03-write-file`; none lost |
+| control, its own session | 21, 20, 21, 21 | — | (one loop in one pass) |
+| **both switches** (as 4.4 ships) | **24, 24, 24, 24 — BETTER**, +3.25 (±0.71) | — | `02`, `09`, `10`; none lost |
+
+No arm made a spurious call on a no-tool fixture, looped, or sent an invalid argument. The bands
+are zero where both sides repeated themselves exactly — at temperature 0 this suite does, pass
+after pass — so a fixture that moved, moved every time.
+
+- **On top of the cap (F6).** With four tools always on and a cap of six, a forced web pair took
+  both ranked places: "what time is it right now?" went out with no `get_current_datetime` (the
+  model called `date_calculator`), and "save a note titled 'gift ideas'…" — which the web
+  classifier forces the web pair onto — with no `create_note` (the model called `memory_save`). On
+  top, both keep their tool. The cost is the wire: 6.7 tools a fixture on average instead of 6.0,
+  8 on a forced turn. On the whole toolbox a kept ranked pick can be the wrong one —
+  `market_data`, off by default, took the live score and futures questions.
+- **File tools first.** "Read the file notes/todo.md…" ranked `read_note` (0.622) and
+  `list_directory` (0.609) into the two places, `read_file` fourth (0.603); "save … to a file
+  called groceries.txt" put `write_file` ninth (0.554). A named file — a path with an extension, or
+  a document or data file name; not a web address, a folder, or `node.js` — now puts `read_file`,
+  `write_file` and `propose_patch` (those the slot has) in the ranked places first.
+  `namesLocalFile` is lexical and narrow on purpose; `test/toolSelection.test.ts` pins what it
+  takes and refuses. The whole-toolbox arm cannot move: the fix is in the per-turn selection and
+  no description changed, so the whole toolbox's wire is byte-identical.
+- **Eviction by rank** (`withForcedTools` now drops the lowest-scored pick, as its comment always
+  said): the run counts the fixtures where that sent another wire than eviction by wire order —
+  **0 of 28**. The chat forces the web pair together or not at all, and two forced tools take both
+  ranked places whatever their order; the order matters only for a single forced tool (a sticky
+  web tool, a provider's late force), where it now keeps the better-scored pick.
+
+Both switches are on in 4.4 by the rule (BETTER beyond the band, beside a same-day control, no new
+false claim — this suite has none to make). The agent never reads the chat's selection
+(`src/main/agent` has its own tools), so neither switch moves `eval:agent`.
