@@ -461,3 +461,23 @@ describe('eval:diff on eval:answers library results (v4.4, G5)', () => {
     assert.deepEqual([detectSuite(saved), diffResults(saved, merged).verdict], ['library', 'SAME-WITHIN-NOISE'])
   })
 })
+
+describe('a floor under a short control\'s spread (v4.4, G1)', () => {
+  test('a four-pass control that happens to agree with itself does not narrow the band below a committed baseline\'s spread', () => {
+    const tag = (role: 'control' | 'arm') => ({ session: { id: 'night', role } })
+    // The control as measured on 2026-10-01 night (σ 0.58 of 26); the arm two lower a pass.
+    const control = agentFile(passes(26, [18, 19, 18, 18]), tag('control'))
+    const arm = agentFile(passes(26, [16, 17, 15, 16]), { experiments: { toolsByPhase: true }, ...tag('arm') })
+    const own = diffResults(control, arm)
+    assert.equal(own.verdict, 'WORSE', formatDiff(own))
+    // The eight-pass baseline's spread (σ 2.49 of 26) as the floor: the same two cases are inside it.
+    const committed = trimForBaseline(mergeResults([ENGINE_41, ENGINE_42]), 'e', new Date('2026-09-30T00:00:00Z'), { noise: true })
+    const floored = diffResults(control, arm, { noiseFloor: { noise: committed.noise as ReturnType<typeof measureNoise>, from: 'agent-qwen3.8-9b-distill.json' } })
+    assert.equal(floored.verdict, 'SAME-WITHIN-NOISE', formatDiff(floored))
+    assert.equal(row(floored, /^solved per pass/).band, '±3.53')
+    assert.match(floored.caveats.join('\n'), /spread floored at agent-qwen3\.8-9b-distill\.json's \(solved σ 2\.49 of 26, 8 passes in 2 runs\)/)
+    // A floor is a floor: a noisier control keeps its own spread.
+    const loud = diffResults(agentFile(passes(26, [12, 24, 14, 22]), tag('control')), arm, { noiseFloor: { noise: committed.noise as ReturnType<typeof measureNoise>, from: 'b' } })
+    assert.ok(Number(row(loud, /^solved per pass/).band.slice(1)) > 3.53)
+  })
+})

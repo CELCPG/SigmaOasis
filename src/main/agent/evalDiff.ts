@@ -371,6 +371,14 @@ export interface DiffOptions {
   minPasses?: number
   /** Standard errors the band spans (default NOISE_K). */
   k?: number
+  /**
+   * v4.4 (G1): a spread no side may be read as quieter than — a committed
+   * baseline's stored noise. A four-pass same-day control measures its own σ
+   * from four numbers; on 2026-10-01 night the 9B's control read σ 0.58 of 26
+   * where the eight-pass baseline holds 2.49, and a band built on the smaller
+   * figure calls a change the engine's own noise can make.
+   */
+  noiseFloor?: { noise: StoredNoise; from: string }
 }
 
 type Stability = 'stable-pass' | 'stable-fail' | 'flaky'
@@ -420,6 +428,12 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
   if (base.noise && !stored) caveats.push(`the baseline's stored band covers its ${base.noise.cases.length} cases; this comparison covers ${common.length}, so the spread is re-derived from its passes on those`)
   if (stored) caveats.push(`baseline spread: stored, from ${stored.passes} passes in ${stored.runs} run${stored.runs === 1 ? '' : 's'}`)
   else caveats.push(`baseline spread: derived from its ${base.passes.length} pass${base.passes.length === 1 ? '' : 'es'} in ${base.runs} run${base.runs === 1 ? '' : 's'} (no stored band)`)
+  if (opts.noiseFloor) {
+    const f = opts.noiseFloor
+    const s = f.noise.lines[SOLVED]
+    const scale = s ? Math.round(s.of.reduce((a, b) => a + b, 0) / s.of.length) : 0
+    caveats.push(`spread floored at ${f.from}'s${s ? ` (${SOLVED_LABEL[suite]} σ ${f2(s.sd * scale)} of ${scale}, ${f.noise.passes} passes in ${f.noise.runs} runs)` : ''}: no side is read as quieter than that (--noise-from)`)
+  }
   for (const [who, n] of [['baseline', base], ['run', run]] as const) {
     if (minPasses > 1 && n.passes.length >= 2 && n.runs === 1) caveats.push(`the ${who}'s passes all come from one run, and share the server's state; merge a second run to measure the spread between runs too`)
   }
@@ -429,7 +443,9 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
     const bt = perPass(base, ids, key)
     const rt = perPass(run, ids, key)
     if (!bt.length || !rt.length) return
-    const nb = noiseBand(rates(bt), rates(rt), stored?.lines[key]?.sd, k)
+    const floor = opts.noiseFloor?.noise.lines[key]?.sd
+    const baseSd = floor === undefined ? stored?.lines[key]?.sd : Math.max(stored?.lines[key]?.sd ?? sampleSd(rates(bt)), floor)
+    const nb = noiseBand(rates(bt), rates(rt), baseSd, k)
     const scale = scaleOf(bt)
     const band = nb.band + extra
     const show = (t: PassTally[], sd: number): string => `${f2(mean(rates(t)) * scale)}/${scale} per pass, σ ${f2(sd * scale)} · [${t.map((x) => x.hit).join(', ')}]`
@@ -515,7 +531,7 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
   const solvedBase = perPass(base, ids, SOLVED)
   const solvedRun = perPass(run, ids, SOLVED)
   if (enough && solvedBase.length && solvedRun.length) {
-    const sd = Math.max(stored?.lines[SOLVED]?.sd ?? sampleSd(rates(solvedBase)), sampleSd(rates(solvedRun)))
+    const sd = Math.max(stored?.lines[SOLVED]?.sd ?? sampleSd(rates(solvedBase)), sampleSd(rates(solvedRun)), opts.noiseFloor?.noise.lines[SOLVED]?.sd ?? 0)
     const scale = scaleOf(solvedBase)
     if (sd > 0 && scale >= 2) caveats.push(`at this spread (σ ${f2(sd * scale)} of ${scale} per pass) a change of 2 ${SOLVED_LABEL[suite]} per pass needs about ${passesToResolve(sd, 2 / scale, k)} passes per arm to resolve`)
   }

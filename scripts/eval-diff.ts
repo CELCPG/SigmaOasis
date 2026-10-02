@@ -7,6 +7,7 @@
  *   npm run eval:diff -- --save <run.json> [<run2.json> …] [--name agent-qwen3.8-9b]
  *   npm run eval:diff -- --join <slice1.json> <slice2.json> … --out <pass.json>
  *   npm run eval:diff -- --paired <control and arm files of one session …>
+ *   … [--noise-from baselines/<baseline>.json]   no side read as quieter than that baseline's spread
  *
  * v4.4 (G1): every diff says which base it read — the arm's same-day control,
  * a committed baseline, or another file. `--paired` takes one session's files
@@ -24,7 +25,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { basename, join, resolve } from 'path'
-import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, measureNoise, mergeResults, trimForBaseline } from '../src/main/agent/evalDiff'
+import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, measureNoise, mergeResults, trimForBaseline, type StoredNoise } from '../src/main/agent/evalDiff'
 import { readSession } from '../src/main/agent/evalSession'
 
 // Compiled by scripts/eval-diff.sh to .eval-build/diff/scripts/eval-diff.js —
@@ -38,7 +39,8 @@ const USAGE = [
   '       npm run eval:diff -- --base <a.json> [<b.json> …] --run <c.json> [<d.json> …]',
   '       npm run eval:diff -- --save <run.json> [<run2.json> …] [--name <baseline-name>]',
   '       npm run eval:diff -- --join <slice1.json> <slice2.json> … --out <pass.json>',
-  '       npm run eval:diff -- --paired <control and arm files of one session …>'
+  '       npm run eval:diff -- --paired <control and arm files of one session …>',
+  '       (any diff) --noise-from <baseline.json>: no side is read as quieter than that baseline'
 ].join('\n')
 
 function read(path: string): unknown {
@@ -73,6 +75,7 @@ function main(): number {
   const tol = flag(args, '--tolerance')
   const min = flag(args, '--min-passes')
   const out = flag(args, '--out')
+  const noiseFrom = flag(args, '--noise-from')
 
   if (args.includes('--join')) {
     const paths = after(args, '--join')
@@ -150,7 +153,17 @@ function main(): number {
     console.error(`--min-passes is a whole number of passes, not ${min}`)
     return 2
   }
-  const d = diffResults(arm(basePaths), arm(runPaths), { tolerance, minPasses })
+  // v4.4 (G1): a short same-day control's spread, floored at a committed baseline's.
+  let noiseFloor: { noise: StoredNoise; from: string } | undefined
+  if (noiseFrom) {
+    const f = read(noiseFrom) as { noise?: StoredNoise }
+    if (detectSuite(f) !== detectSuite(arm(basePaths))) {
+      console.error(`--noise-from ${noiseFrom} is another suite's results`)
+      return 2
+    }
+    noiseFloor = { noise: f.noise ?? measureNoise(f), from: basename(noiseFrom) }
+  }
+  const d = diffResults(arm(basePaths), arm(runPaths), { tolerance, minPasses, noiseFloor })
   console.log(formatDiff(d))
   return d.verdict === 'WORSE' ? 1 : d.verdict === 'TOO-FEW-PASSES' ? 3 : 0
 }
