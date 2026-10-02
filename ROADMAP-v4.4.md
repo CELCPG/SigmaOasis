@@ -70,6 +70,31 @@ can matter only for one forced tool (a sticky web tool, a provider's late force)
 keeps the better-scored pick. The agent eval does not apply: the agent has its own tools and never
 reads the chat's selection.
 
+## G3 — `toolsByPhase`: **measured, off**
+
+4.1's A5 (edit tools wait for a read; documents, chores and MCP tools wait until the task points at
+them), never decided by a measurement. `qwen3.8-9b-distill` on the 5070, four passes a side, the
+arm and its same-day control interleaved slice by slice, ABBA (session `g3-2026-10-01`, 2026-10-01
+21:16 → 10-02 03:11), each pass as six `EVAL_CASES` slices joined back (`eval:diff --join`):
+
+| | solved a pass (of 26) | false claims | collateral a pass | median time, solved |
+| --- | --- | --- | --- | --- |
+| same-day control, every switch off | 18, 19, 18, 13 — 17.00, σ 2.71 | 0/104 | 1.75 | 17 s |
+| `toolsByPhase` | 17, 17, 15, 18 — 16.75, σ 1.26 | 0/104 | 3.00 | 18 s |
+
+**SAME-WITHIN-NOISE**: solved −0.25 (band ±3.83), collateral +1.25 (±1.26), no false claim; the
+same with the spread floored at the eight-pass baseline's (`--noise-from`). Not BETTER, so it stays
+off. Fifteen cases moved between the sides in at least one pass, in both directions; the three the
+control solved every time and the arm did not (`chain-csv-totals`, `fix-weekend`,
+`tidy-sort-downloads`) are where to look if it is tried again. At this spread a 2-case change needs
+about 15 passes a side.
+
+Two `long-discount-rules` runs outlasted their chunk and were rerun, one a side (arm pass 1: rerun
+solved in 38 s; control pass 3: rerun not solved). The arm's first run was not killed as meant —
+see *Harness* below — and finished not solved after 19 minutes, overlapping other runs; it is set
+aside (`44-eval/.eval-results/discarded/`). Counted instead of the rerun, the arm's pass 1 would be
+16 and its mean 16.50: the verdict is the same.
+
 ## G4 — the file-request ranking miss: **fixed**, by measurement
 
 With the app's own ranking (each description alone — see F1), "read the file notes/todo.md and
@@ -109,48 +134,6 @@ On by the rule. The agent's wire does not change (its tools are its own).
     0/112 both — **SAME-WITHIN-NOISE, stays off**.
 - Only 5 of the 28 library cases are in the aids' domains (health, first aid, finance, building).
 
-## F — found and fixed on the way
-
-1. **`eval:tools`' subset arm did not rank as the app ranks.** It embedded `name: description`;
-   the app (`main/ipc/toolRank.ts`) embeds the description alone, and the two rank the file
-   requests differently. The arm ranks on the description now; 4.3's subset baseline is not
-   comparable with 4.4's numbers (every 4.4 comparison is against a same-day control anyway).
-2. **Re-rank had never applied on a `<think>` family** (G5): a `json_schema` grammar does not stop
-   the 9B distill thinking in LM Studio, `enable_thinking: false` is ignored, and the 80-token
-   answer was all reasoning. Asked plainly with the closed-think prefill, it answers in 0.2 s.
-3. **The library suite flagged correct advice as forbidden** (G5): items under "**Do NOT:**" were
-   scored on their own line. A list item inherits its lead-in's negation; 5 flags → 0 on re-scoring.
-
-Seen and not fixed (4.5): the same grammar-and-no-thinking pairing is sent by the chat's plan mode
-(`ipc/plan.ts`), the outline (`ipc/outline.ts`) and deep research's planner
-(`ipc/deepResearch/plan.ts`). Their budgets are larger than the re-rank's 80 tokens, so on a
-`<think>` family they likely think first and answer late rather than not at all — unmeasured.
-
-## G3 — `toolsByPhase`: **measured, off**
-
-4.1's A5 (edit tools wait for a read; documents, chores and MCP tools wait until the task points at
-them), never decided by a measurement. `qwen3.8-9b-distill` on the 5070, four passes a side, the
-arm and its same-day control interleaved slice by slice, ABBA (session `g3-2026-10-01`, 2026-10-01
-21:16 → 10-02 03:11), each pass as six `EVAL_CASES` slices joined back (`eval:diff --join`):
-
-| | solved a pass (of 26) | false claims | collateral a pass | median time, solved |
-| --- | --- | --- | --- | --- |
-| same-day control, every switch off | 18, 19, 18, 13 — 17.00, σ 2.71 | 0/104 | 1.75 | 17 s |
-| `toolsByPhase` | 17, 17, 15, 18 — 16.75, σ 1.26 | 0/104 | 3.00 | 18 s |
-
-**SAME-WITHIN-NOISE**: solved −0.25 (band ±3.83), collateral +1.25 (±1.26), no false claim; the
-same with the spread floored at the eight-pass baseline's (`--noise-from`). Not BETTER, so it stays
-off. Fifteen cases moved between the sides in at least one pass, in both directions; the three the
-control solved every time and the arm did not (`chain-csv-totals`, `fix-weekend`,
-`tidy-sort-downloads`) are where to look if it is tried again. At this spread a 2-case change needs
-about 15 passes a side.
-
-Two `long-discount-rules` runs outlasted their chunk and were rerun, one a side (arm pass 1: rerun
-solved in 38 s; control pass 3: rerun not solved). The arm's first run was not killed as meant —
-see *Harness* below — and finished not solved after 19 minutes, overlapping other runs; it is set
-aside (`44-eval/.eval-results/discarded/`). Counted instead of the rerun, the arm's pass 1 would be
-16 and its mean 16.50: the verdict is the same.
-
 ## G6 — the 35B-A3B's agent baseline: **saved**, `baselines/agent-qwen3.8-35b-a3b.json`
 
 `eval:agent` already spoke to any OpenAI-compatible server on this machine (`LMSTUDIO_BASE_URL`,
@@ -183,6 +166,23 @@ runs in 2 times in 7 (solved both, 106 s and 245 s); the other five ran past it,
 reached the 16,384-token cap at 68 tok/s. `read-only-why-failing` ran past it once in five (one
 16,384-token round in a 468 s run). The baseline holds four passes of the other 25 cases; a run
 diffed against it is compared on those and told so.
+
+## F — found and fixed on the way
+
+1. **`eval:tools`' subset arm did not rank as the app ranks.** It embedded `name: description`;
+   the app (`main/ipc/toolRank.ts`) embeds the description alone, and the two rank the file
+   requests differently. The arm ranks on the description now; 4.3's subset baseline is not
+   comparable with 4.4's numbers (every 4.4 comparison is against a same-day control anyway).
+2. **Re-rank had never applied on a `<think>` family** (G5): a `json_schema` grammar does not stop
+   the 9B distill thinking in LM Studio, `enable_thinking: false` is ignored, and the 80-token
+   answer was all reasoning. Asked plainly with the closed-think prefill, it answers in 0.2 s.
+3. **The library suite flagged correct advice as forbidden** (G5): items under "**Do NOT:**" were
+   scored on their own line. A list item inherits its lead-in's negation; 5 flags → 0 on re-scoring.
+
+Seen and not fixed (4.5): the same grammar-and-no-thinking pairing is sent by the chat's plan mode
+(`ipc/plan.ts`), the outline (`ipc/outline.ts`) and deep research's planner
+(`ipc/deepResearch/plan.ts`). Their budgets are larger than the re-rank's 80 tokens, so on a
+`<think>` family they likely think first and answer late rather than not at all — unmeasured.
 
 ## The night's harness, and what it got wrong (outside the repository)
 
