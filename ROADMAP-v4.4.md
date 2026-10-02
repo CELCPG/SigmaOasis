@@ -163,10 +163,11 @@ and behind on `fix-parse-duration`, `tidy-duplicates` and `needs-you-tax-rate` (
 `docs/evals/agent.md` has the table.
 
 `long-discount-rules` is not in it: on the 35B it finished inside the 8.5-minute chunk this harness
-runs in 2 times in 7 (solved both, 106 s and 245 s); the other five ran past it, with rounds that
-reached the 16,384-token cap at 68 tok/s. `read-only-why-failing` ran past it twice in six (all four
-that finished solved; one of them, 468 s, spent a round at the 16,384-token cap). The baseline holds four passes of the other 25 cases; a run
-diffed against it is compared on those and told so.
+runs in 2 times in 7 (solved both, 106 s and 245 s); the other five were still running when it
+ended (a killed run saves nothing, so how far they got is not known). `read-only-why-failing` ran
+past it twice in six (all four that finished solved; one of them, 468 s, spent a round at the
+16,384-token cap). The baseline holds four passes of the other 25 cases; a run diffed against it
+is compared on those and told so.
 
 ## F — found and fixed on the way
 
