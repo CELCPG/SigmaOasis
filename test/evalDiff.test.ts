@@ -353,3 +353,111 @@ test('--save trims a results file to a baseline of the same schema, which diffs 
   assert.deepEqual(diffResults(trimmed, full, { minPasses: 1 }).regressions, [])
   assert.equal(detectSuite(trimForBaseline(toolsFile([fx('01', true)]), 'f')), 'toolchoice')
 })
+
+// ---- which base (v4.4, G1) -------------------------------------------------------------
+
+describe('eval:diff says which base it read (v4.4, G1)', () => {
+  const tag = (id: string, role: 'control' | 'arm') => ({ session: { id, role } })
+  const control = agentFile(passes(26, [16, 18, 17, 17]), tag('night', 'control'))
+  const arm = agentFile(passes(26, [22, 23, 22, 23]), { experiments: { toolsByPhase: true }, ...tag('night', 'arm') })
+
+  test("the arm's own control, tagged by the runner, is the same-day control — and only then can a BETTER turn a switch on", () => {
+    const d = diffResults(control, arm)
+    assert.equal(d.verdict, 'BETTER')
+    assert.deepEqual([d.base.kind, d.sameDay], ['same-day control', true])
+    assert.match(formatDiff(d), /^base: the same-day control — session night: every switch off, interleaved with the arm$/m)
+    assert.ok(!d.notes.some((n) => /only beside a same-day control/.test(n)))
+  })
+
+  test('a committed baseline is another day: the diff says so, and a BETTER against it says it cannot turn a switch on', () => {
+    const saved = trimForBaseline(mergeResults([agentFile(passes(26, [16, 18])), agentFile(passes(26, [17, 17]))]), ['a', 'b'], new Date('2026-09-30T12:00:00Z'), { noise: true })
+    const d = diffResults(saved, arm)
+    assert.deepEqual([d.verdict, d.base.kind, d.sameDay], ['BETTER', 'committed baseline', false])
+    assert.match(formatDiff(d), /^base: a committed baseline, saved 2026-09-30 — another day's, not a same-day control$/m)
+    assert.match(d.notes.join('\n'), /BETTER against a committed baseline: a switch turns on only beside a same-day control — run the arm with EVAL_CONTROL=1/)
+  })
+
+  test('a control from another session, an untagged file, or an arm as the base: not a same-day control', () => {
+    const other = diffResults(agentFile(passes(26, [16, 18, 17, 17]), tag('last-night', 'control')), arm)
+    assert.deepEqual([other.base.kind, other.sameDay], ['control from another session', false])
+    assert.match(other.base.text, /session last-night, not the run's \(arm, session night\)/)
+    assert.match(other.notes.join('\n'), /BETTER against another session's control/)
+    assert.deepEqual([diffResults(agentFile(passes(26, [16, 18, 17, 17])), arm).base.kind], ['untagged run'])
+    assert.match(diffResults(arm, control).base.text, /no session as the control \(it is an arm\)/)
+    // A WORSE or a SAME needs no such note: nothing turns on.
+    assert.ok(!diffResults(arm, control).notes.some((n) => /same-day control —/.test(n)))
+  })
+
+  test('sliced runs of one session join into passes and merge into one side, keeping the session; a control never merges with its arm', () => {
+    const slice = (ids: string[], role: 'control' | 'arm', id: string): Record<string, unknown> =>
+      agentFile([ids.map((c) => run(c, true))], { ...(role === 'arm' ? { experiments: { toolsByPhase: true } } : {}), ...tag(id, role) })
+    const pass = joinSlices([slice(['a', 'b'], 'control', 's1'), slice(['c'], 'control', 's2')])
+    assert.deepEqual(pass.session, { ids: ['s1', 's2'], role: 'control' })
+    const four = mergeResults([pass, pass, pass, pass])
+    assert.deepEqual(four.session, { ids: ['s1', 's2'], role: 'control' })
+    const armPass = joinSlices([slice(['a', 'b'], 'arm', 's1'), slice(['c'], 'arm', 's2')])
+    const d = diffResults(four, mergeResults([armPass, armPass, armPass, armPass]))
+    assert.equal(d.sameDay, true)
+    // Untagged in the mix: the merged side is untagged, so not a same-day control.
+    assert.equal(mergeResults([pass, agentFile([[run('a', true), run('b', true), run('c', true)]])]).session, undefined)
+    assert.throws(() => mergeResults([control, agentFile(passes(26, [1]), tag('night', 'arm'))], ['c.json', 'a.json']), /cannot combine a\.json \(the session's arm\)/)
+  })
+})
+
+// ---- eval:answers' library suite (v4.4, G5) -----------------------------------------------
+
+const lib = (file: string, answered: boolean, o: { cited?: boolean; unsupported?: string[]; forbidden?: string[]; error?: string } = {}) => ({
+  file,
+  prompt: file,
+  passagesFound: 3,
+  ms: 1000,
+  ...(o.error ? { error: o.error } : { score: { answered, cited: o.cited ?? answered, unsupported: o.unsupported ?? [], missing: [], forbidden: o.forbidden ?? [] } })
+})
+/** An eval:answers file as the runner writes it with EVAL_PASSES > 1: `library.passes[].runs`. */
+const answersFile = (ps: ReturnType<typeof lib>[][], extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  model: 'm',
+  baseUrl: 'x',
+  ranAt: 'now',
+  cases: 'all',
+  library: { passes: ps.map((runs) => ({ summary: {}, runs })), stability: {}, shapes: {} },
+  quant: { ignored: true },
+  ...extra
+})
+const libPass = (n: number, answered: number, o: { uncited?: number; forbidden?: number } = {}) =>
+  Array.from({ length: n }, (_, i) => lib(`L${i}`, i < answered, { cited: i < answered && i >= (o.uncited ?? 0), forbidden: i < (o.forbidden ?? 0) ? ['stay by the windows'] : [] }))
+
+describe('eval:diff on eval:answers library results (v4.4, G5)', () => {
+  const base = answersFile([libPass(28, 27), libPass(28, 26), libPass(28, 27), libPass(28, 27)])
+
+  test('an answers file is the library suite: answered per pass is the gated line, and the other suites in the file are not read', () => {
+    assert.equal(detectSuite(base), 'library')
+    const d = diffResults(base, base)
+    assert.equal(d.suite, 'library')
+    assert.equal(d.verdict, 'SAME-WITHIN-NOISE')
+    assert.match(formatDiff(d), /^eval:answers \(library\) diff/)
+    assert.equal(row(d, /^answered per pass \(28 cases\)$/).baseline, '26.75/28 per pass, σ 0.50 · [27, 26, 27, 27]')
+    // A single-pass file (library.runs) reads as one pass.
+    assert.equal(diffResults(answersFile([libPass(28, 27)]), { ...base, library: { summary: {}, runs: libPass(28, 27) } }, { minPasses: 1 }).baseline.passes, 1)
+  })
+
+  test('cited is better higher; one forbidden assertion is WORSE on any number of passes — never banded, like a false claim', () => {
+    const lessCited = diffResults(base, answersFile([libPass(28, 27, { uncited: 10 }), libPass(28, 26, { uncited: 10 }), libPass(28, 27, { uncited: 10 }), libPass(28, 27, { uncited: 10 })]))
+    assert.equal(lessCited.verdict, 'WORSE')
+    assert.match(lessCited.regressions.join('\n'), /^cited the source fell/m)
+    const forbidden = diffResults(base, answersFile([libPass(28, 27, { forbidden: 1 }), libPass(28, 26), libPass(28, 27), libPass(28, 27)]))
+    assert.equal(forbidden.verdict, 'WORSE')
+    assert.deepEqual(forbidden.regressions, ['asserted forbidden advice rose from 0/112 (0.0%) to 1/112 (0.9%) — never banded: any rise is WORSE'])
+  })
+
+  test('an errored case is excluded, not failed; runs of one arm merge, a re-rank arm does not merge with its control', () => {
+    const d = diffResults(base, answersFile([[...libPass(27, 26), lib('L27', false, { error: 'HTTP 500' })], libPass(28, 26), libPass(28, 27), libPass(28, 27)]))
+    assert.equal(row(d, /^runs excluded/).run, '1')
+    const one = (k: number): Record<string, unknown> => answersFile([libPass(28, 26 + (k % 2))], { arm: 'rerank' })
+    const merged = mergeResults([one(0), one(1), one(2), one(3)])
+    assert.equal(detectSuite(merged), 'library')
+    assert.deepEqual([diffResults(base, merged).run.passes, diffResults(base, merged).run.arm], [4, 'rerank'])
+    assert.throws(() => mergeResults([base, one(0)]), /another arm/)
+    const saved = trimForBaseline(merged, ['a', 'b', 'c', 'd'], new Date('2026-10-02T00:00:00Z'), { noise: true })
+    assert.deepEqual([detectSuite(saved), diffResults(saved, merged).verdict], ['library', 'SAME-WITHIN-NOISE'])
+  })
+})

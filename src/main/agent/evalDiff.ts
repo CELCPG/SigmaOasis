@@ -1,6 +1,8 @@
 import { summarize, type CaseRun } from './evalHarness'
 import { fmtMs, median } from './latency'
 import type { EvalFixtureRun } from '../../renderer/src/lib/evalRunner'
+import type { LibraryCaseResult } from '../../renderer/src/lib/answerEval'
+import { combineSessions, readSession, type MergedSession } from './evalSession'
 
 /**
  * v4.1 (M2), v4.3: two eval results, compared — the gate every change passes.
@@ -43,10 +45,22 @@ import type { EvalFixtureRun } from '../../renderer/src/lib/evalRunner'
  *   - Timing is printed and never gated: the machine moves it (v4.1,
  *     decision 1).
  *
+ * v4.4 (G1): **which base.** Every diff says what it compared against: a
+ * same-day control (the engine with every switch off, run in the arm's own
+ * session and interleaved with it — evalSession.ts), a committed baseline
+ * (another day's), or another results file. A BETTER against anything but a
+ * same-day control says that it cannot turn a switch on.
+ *
+ * v4.4 (G5): **the library suite.** `eval:answers`' library results (the
+ * `library` block of an answers file) are a third suite: answered per pass
+ * is the gated line, then cited (higher is better), unsupported figures, and
+ * forbidden advice — never banded, like a false claim: a library answer that
+ * asserts what a case forbids is the unsafe advice the suite exists to catch.
+ *
  * Plain data in, plain text out; the shell is scripts/eval-diff.ts.
  */
 
-export type DiffSuite = 'agent' | 'toolchoice'
+export type DiffSuite = 'agent' | 'toolchoice' | 'library'
 export type LineVerdict = 'BETTER' | 'SAME-WITHIN-NOISE' | 'WORSE' | ''
 export type Verdict = 'BETTER' | 'SAME-WITHIN-NOISE' | 'WORSE' | 'TOO-FEW-PASSES'
 
@@ -97,11 +111,15 @@ interface Normalized {
   excluded: number
   agentRuns?: CaseRun[][]
   noise?: StoredNoise
+  /** v4.4 (G1): the session(s) the passes were measured in, and the side; null when untagged. */
+  session: MergedSession | null
+  /** v4.4 (G1): when `--save` committed it as a baseline. */
+  savedAt?: string
 }
 
-/** The line every suite gates first; then its flags, [key, label]. */
+/** The line every suite gates first; then its flags, [key, label, higher is better]. */
 const SOLVED = 'solved'
-const FLAGS: Record<DiffSuite, [string, string][]> = {
+const FLAGS: Record<DiffSuite, ([string, string] | [string, string, boolean])[]> = {
   agent: [
     ['falseClaim', 'false claims'],
     ['collateral', 'collateral'],
@@ -111,21 +129,35 @@ const FLAGS: Record<DiffSuite, [string, string][]> = {
     ['spurious', 'spurious calls (no-tool fixtures)'],
     ['looped', 'loops'],
     ['invalidArgs', 'runs with invalid arguments']
+  ],
+  library: [
+    ['cited', 'cited the source', true],
+    ['unsupported', 'unsupported figures'],
+    ['forbidden', 'asserted forbidden advice']
   ]
 }
 /** Flags compared without a band: any rise is WORSE. */
-const NEVER_BANDED = new Set(['falseClaim'])
+const NEVER_BANDED = new Set(['falseClaim', 'forbidden'])
 
-const SOLVED_LABEL: Record<DiffSuite, string> = { agent: 'solved', toolchoice: 'clean' }
+const SOLVED_LABEL: Record<DiffSuite, string> = { agent: 'solved', toolchoice: 'clean', library: 'answered' }
+const SUITE_NAME: Record<DiffSuite, string> = { agent: 'eval:agent', toolchoice: 'eval:tools', library: 'eval:answers (library)' }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** Which runner wrote this file; throws with the reason when neither did. */
 export function detectSuite(file: unknown): DiffSuite {
+  // v4.4 (G5): an eval:answers file with a library block — one pass's runs, or several passes'.
+  if (isObj(file) && isObj(file.library) && (Array.isArray(file.library.runs) || Array.isArray(file.library.passes))) return 'library'
   if (!isObj(file) || !Array.isArray(file.runs)) throw new Error('not an eval results file: no "runs" array')
   if (file.suite === 'agent' || (file.runs.length > 0 && file.runs.every(Array.isArray))) return 'agent'
   if (file.runs.every((r) => isObj(r) && typeof r.file === 'string' && 'expect' in r)) return 'toolchoice'
-  throw new Error('not an eval:agent or eval:tools results file')
+  throw new Error('not an eval:agent, eval:tools or eval:answers (library) results file')
+}
+
+/** v4.4 (G5): the library block's passes, each a list of case results. */
+function libraryPasses(file: Record<string, unknown>): LibraryCaseResult[][] {
+  const lib = file.library as { runs?: LibraryCaseResult[]; passes?: { runs: LibraryCaseResult[] }[] }
+  return Array.isArray(lib.passes) ? lib.passes.map((p) => p.runs ?? []) : [lib.runs ?? []]
 }
 
 function armOf(file: Record<string, unknown>): string {
@@ -180,6 +212,21 @@ function normalize(file: unknown): Normalized {
       }
       passes.push(pass)
     }
+  } else if (suite === 'library') {
+    for (const p of libraryPasses(f)) {
+      const pass = new Map<string, Outcome>()
+      for (const r of p) {
+        if (r.error || !r.score) {
+          excluded++
+          continue
+        }
+        record(pass, r.file, {
+          ok: r.score.answered,
+          flags: { cited: r.score.cited, unsupported: r.score.unsupported.length > 0, forbidden: (r.score.forbidden ?? []).length > 0 }
+        })
+      }
+      passes.push(pass)
+    }
   } else {
     for (const p of toolPasses(f.runs as EvalFixtureRun[])) {
       const pass = new Map<string, Outcome>()
@@ -201,7 +248,26 @@ function normalize(file: unknown): Normalized {
     }
   }
   const noise = isObj(f.noise) && isObj(f.noise.lines) && Array.isArray(f.noise.cases) ? (f.noise as unknown as StoredNoise) : undefined
-  return { suite, model: typeof f.model === 'string' ? f.model : '?', arm: armOf(f), passes, runs: runsOf(f), cases, excluded, agentRuns, noise }
+  const savedAt = isObj(f.baseline) && typeof f.baseline.savedAt === 'string' ? f.baseline.savedAt : undefined
+  return { suite, model: typeof f.model === 'string' ? f.model : '?', arm: armOf(f), passes, runs: runsOf(f), cases, excluded, agentRuns, noise, session: readSession(f), savedAt }
+}
+
+// ---- which base (v4.4, G1) -----------------------------------------------------------
+
+export type BaseKind = 'same-day control' | 'committed baseline' | 'control from another session' | 'untagged run'
+
+/** What the base of a diff is, in words — and whether it is the run's own same-day control. */
+export function describeBase(base: { session: MergedSession | null; savedAt?: string }, run: { session: MergedSession | null }): { kind: BaseKind; sameDay: boolean; text: string } {
+  const ids = (x: MergedSession): string => x.ids.join(', ')
+  if (base.savedAt) return { kind: 'committed baseline', sameDay: false, text: `a committed baseline, saved ${base.savedAt.slice(0, 10)} — another day's, not a same-day control` }
+  const b = base.session
+  const r = run.session
+  if (b && b.role === 'control') {
+    const same = r !== null && r.role === 'arm' && r.ids.length === b.ids.length && r.ids.every((id) => b.ids.includes(id))
+    if (same) return { kind: 'same-day control', sameDay: true, text: `the same-day control — session ${ids(b)}: every switch off, interleaved with the arm` }
+    return { kind: 'control from another session', sameDay: false, text: `a control from session ${ids(b)}, not the run's (${r ? `${r.role}, session ${ids(r)}` : 'untagged'}) — not a same-day control` }
+  }
+  return { kind: 'untagged run', sameDay: false, text: `a results file with no session${b ? ` as the control (it is an ${b.role})` : ''} — not a same-day control` }
 }
 
 // ---- statistics ----------------------------------------------------------------------
@@ -276,6 +342,10 @@ export interface DiffResult {
   minPasses: number
   baseline: { model: string; arm: string; passes: number; runs: number }
   run: { model: string; arm: string; passes: number; runs: number }
+  /** v4.4 (G1): what the base was, in words, and whether it is the run's same-day control. */
+  base: { kind: BaseKind; text: string }
+  /** v4.4 (G1): only a diff against a same-day control can turn a switch on. */
+  sameDay: boolean
   rows: DiffRow[]
   /** Gated lines that got worse beyond their band (at all, for false claims), in words. Empty: no WORSE. */
   regressions: string[]
@@ -395,9 +465,9 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
   info(`${SOLVED_LABEL[suite]}, flaky in the baseline (${flaky.length}; not gated)`, flaky)
 
   // The flags, over every common case: a false claim on a flaky case is still a false claim.
-  for (const [key, label] of FLAGS[suite]) {
+  for (const [key, label, higherBetter] of FLAGS[suite]) {
     if (!NEVER_BANDED.has(key)) {
-      banded(key, label, false)
+      banded(key, label, higherBetter === true)
       continue
     }
     const b = total(perPass(base, ids, key))
@@ -454,12 +524,19 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
   const gained = stable.filter((c) => stability(base.cases.get(c)!) === 'stable-fail' && run.cases.get(c)!.some((o) => o.ok))
 
   const verdict: Verdict = regressions.length ? 'WORSE' : !enough ? 'TOO-FEW-PASSES' : improvements.length ? 'BETTER' : 'SAME-WITHIN-NOISE'
+  const which = describeBase(base, run)
+  if (verdict === 'BETTER' && !which.sameDay) {
+    const against = which.kind === 'committed baseline' ? 'a committed baseline' : which.kind === 'control from another session' ? "another session's control" : 'an untagged run'
+    notes.push(`BETTER against ${against}: a switch turns on only beside a same-day control — run the arm with EVAL_CONTROL=1 (or as EVAL_SESSION slices beside its control) and diff against that (ROADMAP-v4.4, G1)`)
+  }
   return {
     suite,
     verdict,
     minPasses,
     baseline: { model: base.model, arm: base.arm, passes: base.passes.length, runs: base.runs },
     run: { model: run.model, arm: run.arm, passes: run.passes.length, runs: run.runs },
+    base: { kind: which.kind, text: which.text },
+    sameDay: which.sameDay,
     rows,
     regressions,
     improvements,
@@ -473,7 +550,8 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
 export function formatDiff(d: DiffResult): string {
   const arm = (x: DiffResult['run']): string => `${x.model} (${x.arm}, ${x.passes} pass${x.passes === 1 ? '' : 'es'}, ${x.runs} run${x.runs === 1 ? '' : 's'})`
   const lines: string[] = []
-  lines.push(`eval:${d.suite === 'agent' ? 'agent' : 'tools'} diff · baseline ${arm(d.baseline)} → run ${arm(d.run)}`)
+  lines.push(`${SUITE_NAME[d.suite]} diff · baseline ${arm(d.baseline)} → run ${arm(d.run)}`)
+  lines.push(`base: ${d.base.text}`)
   lines.push('')
   lines.push('| | baseline | run | Δ | noise band | |')
   lines.push('| --- | --- | --- | --- | --- | --- |')
@@ -509,6 +587,8 @@ export function mergeResults(files: unknown[], names: string[] = []): Record<str
   const suite = detectSuite(files[0])
   const first = files[0] as Record<string, unknown>
   const label = (i: number): string => names[i] ?? `file ${i + 1}`
+  // v4.4 (G1): one side of one session's comparison, or untagged; never a control merged with its arm.
+  const session = combineSessions(files, label)
   const passRuns: number[] = []
   const runs: unknown[] = []
   files.forEach((file, i) => {
@@ -520,14 +600,17 @@ export function mergeResults(files: unknown[], names: string[] = []): Record<str
     const m = isObj(f.merged) ? f.merged : isObj(f.baseline) ? f.baseline : null
     const inner = m && Array.isArray(m.passRuns) ? (m.passRuns as number[]) : null
     const offset = passRuns.length ? Math.max(...passRuns) + 1 : 0
-    const ps: unknown[][] = suite === 'agent' ? (f.runs as unknown[][]) : toolPasses(f.runs as EvalFixtureRun[])
+    const ps: unknown[][] = suite === 'agent' ? (f.runs as unknown[][]) : suite === 'library' ? libraryPasses(f) : toolPasses(f.runs as EvalFixtureRun[])
     ps.forEach((_p, j) => passRuns.push(offset + (inner?.[j] ?? 0)))
-    if (suite === 'agent') runs.push(...(f.runs as unknown[][]))
-    else runs.push(...(f.runs as unknown[]))
+    if (suite === 'toolchoice') runs.push(...(f.runs as unknown[]))
+    else runs.push(...ps)
   })
+  const { baseline: _b, noise: _n, session: _s, ...rest } = first
+  const tag = session ? { session } : {}
+  const merged = { from: files.map((_f, i) => label(i)), passRuns }
+  if (suite === 'library') return { ...rest, ...tag, merged, library: { passes: (runs as LibraryCaseResult[][]).map((r) => ({ runs: r })) } }
   const extra = suite === 'agent' ? { passes: runs.length, cases: [...new Set((runs as CaseRun[][]).flat().map((r) => r.case))] } : {}
-  const { baseline: _b, noise: _n, ...rest } = first
-  return { ...rest, ...extra, merged: { from: files.map((_f, i) => label(i)), passRuns }, runs }
+  return { ...rest, ...tag, ...extra, merged, runs }
 }
 
 /**
@@ -543,6 +626,7 @@ export function joinSlices(files: unknown[], names: string[] = []): Record<strin
   const first = files[0] as Record<string, unknown>
   if (detectSuite(first) !== 'agent') throw new Error('only eval:agent results are joined; an eval:tools pass takes minutes and runs whole')
   const passes = (first.runs as unknown[][]).length
+  const session = combineSessions(files, label)
   const seen = new Map<string, number>()
   const runs: CaseRun[][] = Array.from({ length: passes }, () => [])
   files.forEach((file, i) => {
@@ -558,8 +642,8 @@ export function joinSlices(files: unknown[], names: string[] = []): Record<strin
     }
     ps.forEach((p, j) => runs[j]!.push(...p))
   })
-  const { baseline: _b, noise: _n, merged: _m, ...rest } = first
-  return { ...rest, passes, cases: [...seen.keys()], runs, joined: { from: files.map((_f, i) => label(i)) } }
+  const { baseline: _b, noise: _n, merged: _m, session: _s, ...rest } = first
+  return { ...rest, ...(session ? { session } : {}), passes, cases: [...seen.keys()], runs, joined: { from: files.map((_f, i) => label(i)) } }
 }
 
 /** The spread of every gated line over a file's own passes, as `--save` stores it. */
@@ -597,6 +681,14 @@ export function measureNoise(file: unknown, opts: { k?: number; minPasses?: numb
 export function trimForBaseline(file: unknown, from: string | string[], savedAt: Date = new Date(), opts: { noise?: boolean } = {}): Record<string, unknown> {
   const suite = detectSuite(file)
   const f = file as Record<string, unknown>
+  if (suite === 'library') {
+    // v4.4 (G5): the library block alone, each reply cut to what a reader of one failure needs.
+    const { merged, noise: _n, library: _l, ...rest } = f
+    const from_ = isObj(merged) ? merged : isObj(f.baseline) ? f.baseline : null
+    const passRuns = from_ && Array.isArray(from_.passRuns) ? { passRuns: from_.passRuns } : {}
+    const passes = libraryPasses(f).map((p) => ({ runs: p.map((r) => ({ ...r, reply: (r.reply ?? '').slice(0, 300) })) }))
+    return { ...rest, baseline: { from, savedAt: savedAt.toISOString(), ...passRuns }, ...(opts.noise ? { noise: measureNoise(file) } : {}), library: { passes } }
+  }
   const runs =
     suite === 'agent'
       ? (f.runs as CaseRun[][]).map((pass) =>

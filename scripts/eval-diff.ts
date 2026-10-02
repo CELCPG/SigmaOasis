@@ -6,6 +6,13 @@
  *   npm run eval:diff -- --base <a.json> [<b.json> …] --run <c.json> [<d.json> …]
  *   npm run eval:diff -- --save <run.json> [<run2.json> …] [--name agent-qwen3.8-9b]
  *   npm run eval:diff -- --join <slice1.json> <slice2.json> … --out <pass.json>
+ *   npm run eval:diff -- --paired <control and arm files of one session …>
+ *
+ * v4.4 (G1): every diff says which base it read — the arm's same-day control,
+ * a committed baseline, or another file. `--paired` takes one session's files
+ * (EVAL_CONTROL=1, or EVAL_SESSION slices joined into passes), the control's
+ * on one side and the arm's on the other, by the tags the runners wrote.
+ * v4.4 (G5): eval:answers files are read for their library block.
  *
  * Several files on one side are one arm: their passes merge, and the runs they
  * came from are counted (passes of one run share the server's state). `--join`
@@ -18,6 +25,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { basename, join, resolve } from 'path'
 import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, measureNoise, mergeResults, trimForBaseline } from '../src/main/agent/evalDiff'
+import { readSession } from '../src/main/agent/evalSession'
 
 // Compiled by scripts/eval-diff.sh to .eval-build/diff/scripts/eval-diff.js —
 // its own folder, so a diff never clobbers an eval's build mid-run.
@@ -29,7 +37,8 @@ const USAGE = [
   'usage: npm run eval:diff -- <baseline.json> <run.json> [<run2.json> …] [--tolerance 0.05] [--min-passes 4]',
   '       npm run eval:diff -- --base <a.json> [<b.json> …] --run <c.json> [<d.json> …]',
   '       npm run eval:diff -- --save <run.json> [<run2.json> …] [--name <baseline-name>]',
-  '       npm run eval:diff -- --join <slice1.json> <slice2.json> … --out <pass.json>'
+  '       npm run eval:diff -- --join <slice1.json> <slice2.json> … --out <pass.json>',
+  '       npm run eval:diff -- --paired <control and arm files of one session …>'
 ].join('\n')
 
 function read(path: string): unknown {
@@ -108,10 +117,26 @@ function main(): number {
     return 0
   }
 
+  // v4.4 (G1): one session's files, sorted into its control and its arm by their tags.
+  const paired = args.includes('--paired')
+  let pairedBase: string[] = []
+  let pairedRun: string[] = []
+  if (paired) {
+    const paths = after(args, '--paired')
+    const sides = paths.map((path) => ({ path, s: readSession(read(path)) }))
+    const untagged = sides.filter((x) => !x.s).map((x) => basename(x.path))
+    if (untagged.length) {
+      console.error(`--paired sorts files by the session the runner tagged them with; these have none: ${untagged.join(', ')}`)
+      return 2
+    }
+    pairedBase = sides.filter((x) => x.s!.role === 'control').map((x) => x.path)
+    pairedRun = sides.filter((x) => x.s!.role === 'arm').map((x) => x.path)
+    console.log(`--paired: control ${pairedBase.map((x) => basename(x)).join(', ') || '(none)'} · arm ${pairedRun.map((x) => basename(x)).join(', ') || '(none)'}\n`)
+  }
   const grouped = args.includes('--base') || args.includes('--run')
-  const basePaths = grouped ? after(args, '--base') : args.slice(0, 1)
-  const runPaths = grouped ? after(args, '--run') : args.slice(1)
-  if (!basePaths.length || !runPaths.length || (!grouped && args.some((a) => a.startsWith('--')))) {
+  const basePaths = paired ? pairedBase : grouped ? after(args, '--base') : args.slice(0, 1)
+  const runPaths = paired ? pairedRun : grouped ? after(args, '--run') : args.slice(1)
+  if (!basePaths.length || !runPaths.length || (!grouped && !paired && args.some((a) => a.startsWith('--')))) {
     console.error(USAGE)
     return 2
   }
