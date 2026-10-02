@@ -1,11 +1,17 @@
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+// v4.4 (electron-vite 5): `build.externalizeDeps` replaces the deprecated
+// externalizeDepsPlugin() and does the same thing — package.json's
+// `dependencies` stay require()s in out/main and out/preload, loaded from the
+// app's node_modules. 5 turns it on for main and preload by default; it is
+// spelled out so the bundles' shape does not hang on a default. The renderer
+// bundles everything, as before.
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
     build: {
+      externalizeDeps: true,
       outDir: 'out/main',
       rollupOptions: {
         input: {
@@ -17,8 +23,8 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
+      externalizeDeps: true,
       outDir: 'out/preload',
       rollupOptions: {
         input: {
