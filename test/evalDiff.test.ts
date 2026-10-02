@@ -465,7 +465,7 @@ describe('eval:diff on eval:answers library results (v4.4, G5)', () => {
 describe('a floor under a short control\'s spread (v4.4, G1)', () => {
   test('a four-pass control that happens to agree with itself does not narrow the band below a committed baseline\'s spread', () => {
     const tag = (role: 'control' | 'arm') => ({ session: { id: 'night', role } })
-    // The control as measured on 2026-10-01 night (σ 0.58 of 26); the arm two lower a pass.
+    // A control that agrees with itself, as 2026-10-01 night's did for three passes (18, 19, 18: σ 0.58 of 26) before a 13; the arm two lower a pass.
     const control = agentFile(passes(26, [18, 19, 18, 18]), tag('control'))
     const arm = agentFile(passes(26, [16, 17, 15, 16]), { experiments: { toolsByPhase: true }, ...tag('arm') })
     const own = diffResults(control, arm)

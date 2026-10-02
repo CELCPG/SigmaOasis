@@ -374,9 +374,10 @@ export interface DiffOptions {
   /**
    * v4.4 (G1): a spread no side may be read as quieter than — a committed
    * baseline's stored noise. A four-pass same-day control measures its own σ
-   * from four numbers; on 2026-10-01 night the 9B's control read σ 0.58 of 26
-   * where the eight-pass baseline holds 2.49, and a band built on the smaller
-   * figure calls a change the engine's own noise can make.
+   * from four numbers. On 2026-10-01 night the 9B's control read 18, 19, 18 —
+   * σ 0.58 of 26 — after three passes, where the eight-pass baseline holds
+   * 2.49; its fourth pass scored 13. A band built on the smaller figure calls
+   * a change the engine's own noise can make.
    */
   noiseFloor?: { noise: StoredNoise; from: string }
 }
