@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseNvidiaCsv, parseReplays } from '../src/main/ipc/gpu'
-import { machineMoved } from '../scripts/gpuHealth'
+import { machineMoved, watchesGpu } from '../scripts/gpuHealth'
 import { bytesPerWeight, fitSentence, fitVerdict, paramsFromId } from '../src/renderer/src/lib/modelFit'
 
 /** v4.0 (E1, E9): the GPU read from its own tool, and a model's fit judged before the first reply. */
@@ -26,6 +26,14 @@ describe('nvidia-smi parsing', () => {
     assert.deepEqual(machineMoved(before, { ...before, pcieReplays: 10 }), { moved: false, delta: 0 })
     assert.deepEqual(machineMoved(null, before), { moved: false, delta: 0 })
     assert.deepEqual(machineMoved({ ...before, pcieReplays: null }, before), { moved: false, delta: 0 })
+  })
+
+  test('v4.4 (G6): EVAL_GPU=none — a server on another card (the B60) — is not watched through nvidia-smi; anything else is', () => {
+    assert.equal(watchesGpu('none'), false)
+    assert.equal(watchesGpu(' None '), false)
+    assert.equal(watchesGpu(undefined), true)
+    assert.equal(watchesGpu(''), true)
+    assert.equal(watchesGpu('nvidia'), true)
   })
 })
 

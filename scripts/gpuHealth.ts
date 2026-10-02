@@ -44,6 +44,17 @@ export function machineMoved(before: GpuReading | null, after: GpuReading | null
   return { moved: delta > 0, delta }
 }
 
+/**
+ * v4.4 (G6): whether the runner watches this machine's NVIDIA card. EVAL_GPU=none
+ * says the server is elsewhere — the 35B-A3B runs in llama-server on an Intel B60,
+ * which nvidia-smi cannot see — so the 5070's counter would taint the wrong runs.
+ */
+export function watchesGpu(env: string | undefined): boolean {
+  return (env ?? '').trim().toLowerCase() !== 'none'
+}
+
+export const GPU_NOT_WATCHED = 'GPU: EVAL_GPU=none — the server is not on the card nvidia-smi reads; error counters not read'
+
 export function describeGpu(g: GpuReading | null): string {
   if (!g) return 'GPU: no nvidia-smi here; error counters not read'
   const gb = (g.memoryBytes / 1024 ** 3).toFixed(0)

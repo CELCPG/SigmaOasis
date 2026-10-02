@@ -44,7 +44,7 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { defaultShell } from '../src/main/agent/command'
-import { describeGpu, machineMoved, readGpuSync } from './gpuHealth'
+import { describeGpu, GPU_NOT_WATCHED, machineMoved, readGpuSync, watchesGpu } from './gpuHealth'
 import {
   agentResultsFile,
   describeRun,
@@ -138,7 +138,7 @@ async function main(): Promise<void> {
   const tagged = Boolean(order || process.env.EVAL_SESSION)
   sessionId(process.env.EVAL_SESSION, 'check') // a bad id stops here, before any model is asked anything
   // v4.4 (G6): a server on another card — the B60's llama-server — is not watched through nvidia-smi.
-  const watchGpu = process.env.EVAL_GPU !== 'none'
+  const watchGpu = watchesGpu(process.env.EVAL_GPU)
   mkdirSync(RESULTS_DIR, { recursive: true })
 
   const controller = new AbortController()
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
   console.log('Close other LM Studio clients (a Sigma Oasis window included) for the length of the run.')
   // v4.0 (E9): the GPU's error counter, before the run and after each case.
   let gpu = watchGpu ? readGpuSync() : null
-  console.log(`${watchGpu ? describeGpu(gpu) : 'GPU: EVAL_GPU=none — the server is not on the card nvidia-smi reads; error counters not read'}\n`)
+  console.log(`${watchGpu ? describeGpu(gpu) : GPU_NOT_WATCHED}\n`)
   if (order) console.log(`same-day control: every switch off, a pass of each in turn (${order}, then alternating)\n`)
 
   const summaries: ModelSummary[] = []
