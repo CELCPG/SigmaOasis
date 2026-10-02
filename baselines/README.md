@@ -81,6 +81,9 @@ stay in the ignored `.eval-results/`.
   (ROADMAP-v4.1.md, decision 2).
 - `agent-qwen3.8-9b-distill-4.0.2.json` has two passes from one run: kept as the record of 4.0.2, it
   can only answer TOO-FEW-PASSES.
+- `agent-qwen3.8-35b-a3b.json` (v4.4, G6): the 35B-A3B in llama-server on the B60, four passes from four
+  joined runs, 2026-10-01 night — over 25 cases: `long-discount-rules` finished inside the harness's
+  8.5-minute chunk 2 times in 7 on it and is left out of every pass (the file says so in `note`).
 
 ## The noise floor (measured 2026-09-30)
 

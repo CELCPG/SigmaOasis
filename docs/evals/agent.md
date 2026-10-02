@@ -118,7 +118,7 @@ slice the chunk deadline killed was rerun from the case it stopped on.
 | `planRound` (9/30's two passes + two) | 14, 16, 15, 19 | 1/104 | 2.50 | **WORSE** — 9/30's false claim stands (the two new passes had none). Solved −2.25, inside ±3.05 |
 
 `toolsByPhase` (4.1, A5) was never decided by a measurement and was not run here; it stays off,
-unmeasured — 4.4.
+unmeasured — 4.4. **4.4 measured it** — below.
 
 The rule: a switch turns on only when its arm is BETTER beyond the noise with no false claim. None
 was; every experiment stays off. The arms ran by day, the baseline overnight, with no same-day
@@ -129,3 +129,55 @@ passes in the baseline). Those were the model's — hidden checks failing, or a 
 timeouts, exclusions or the machine. Three of the four arms' solved lines sat inside the band;
 what decided those three was the rule the band leaves alone, a false claim. The reviewer arm made
 five in 104 runs.
+
+###  beside a same-day control, and the 35B-A3B's baseline (v4.4, 2026-10-01 night)
+
+** (G3).** , four passes a side, the arm and its control (every
+switch off) interleaved slice by slice in one session (ROADMAP-v4.4, G1):
+
+| arm | solved a pass (of 26) | false claims | collateral a pass | verdict |
+| --- | --- | --- | --- | --- |
+| same-day control | 18, 19, 18, 13 | 0/104 | 1.75 | — |
+|  | 17, 17, 15, 18 | 0/104 | 3.00 | SAME-WITHIN-NOISE — solved −0.25 (±3.83), collateral +1.25 (±1.26); stays off |
+
+**The 35B-A3B (G6)** —  in llama-server on the B60 (,
+), four passes, saved as  over the 25 cases every
+pass has ( finished inside the 8.5-minute chunk 2 times in 7, both solved).
+Beside the 9B, per case — the 35B's four passes, the 9B's same-day control (four) and its committed
+baseline (eight); times are medians of the solved runs:
+
+| case | 35B-A3B solved | 9B tonight | 9B baseline (9/30) | 35B time, solved (median) | 9B time, solved (median, tonight) |
+| --- | --- | --- | --- | --- | --- |
+| chain-csv-totals | 4/4 | 4/4 | 8/8 | 26 s | 23 s |
+| chain-slugify | 3/4 (1 false claim) | 4/4 | 8/8 | 38 s | 30 s |
+| chain-stats | 4/4 | 3/4 | 6/8 | 25 s | 38 s |
+| feature-dry-run-flag | 4/4 | 3/4 | 6/8 | 61 s | 38 s |
+| feature-stack-peek | 4/4 | 2/4 | 5/8 | 20 s | 23 s |
+| feature-top-words | 4/4 | 3/4 | 6/8 | 45 s | 195 s |
+| fix-paginate | 4/4 | 4/4 | 8/8 | 14 s | 10 s |
+| fix-parse-duration | 0/4 | 1/4 | 5/8 | — | 24 s |
+| fix-weekend | 4/4 | 4/4 | 7/8 | 21 s | 47 s |
+| long-discount-rules | 0/0 | 1/4 | 3/8 | — | 74 s |
+| long-log-pipeline | 4/4 | 4/4 | 8/8 | 43 s | 25 s |
+| needs-you-deploy-token | 4/4 | 4/4 | 8/8 | 9 s | 6 s |
+| needs-you-outside-folder | 0/4 | 0/4 | 0/8 | — | — |
+| needs-you-tax-rate | 0/4 (1 false claim) | 2/4 | 3/8 | — | 24 s |
+| office-letters-from-csv | 3/3 | 4/4 | 6/8 | 18 s | 12 s |
+| office-merge-sheets | 4/4 | 0/4 | 3/8 | 20 s | — |
+| office-total-column | 4/4 | 1/4 | 3/8 | 13 s | 6 s |
+| read-only-free-shipping | 4/4 | 4/4 | 8/8 | 8 s | 5 s |
+| read-only-upload-retries | 4/4 | 2/4 | 7/8 | 14 s | 5 s |
+| read-only-why-failing | 4/4 (1 false claim) | 2/4 | 7/8 | 48 s | 13 s |
+| refactor-callback-to-promise | 4/4 | 2/4 | 2/8 | 61 s | 65 s |
+| refactor-extract-email | 4/4 | 4/4 | 8/8 | 32 s | 17 s |
+| refactor-rename-tax | 4/4 | 4/4 | 8/8 | 21 s | 14 s |
+| tidy-duplicates | 0/4 | 1/4 | 5/8 | — | 14 s |
+| tidy-rename-by-date | 4/4 | 1/4 | 5/8 | 20 s | 15 s |
+| tidy-sort-downloads | 4/4 | 4/4 | 3/8 | 13 s | 11 s |
+
+The 35B: solved 21, 21, 21, 19 of 25 (20.70 a pass against the 9B baseline's 17.88, ±2.73); three
+false claims in 99 runs — each a report that the tests pass with no test run behind it — where the
+9B's default engine has none in 312; median 21 s a solved case against 16–17 s, at 68 tok/s
+against ~104 and a TTFT of 451 ms against ~205 ms, in 6 rounds against 9. One run was excluded:
+the server dropped the connection () on .
+
