@@ -105,3 +105,20 @@ On by the rule. The agent's wire does not change (its tools are its own).
   - the sample answer: answered 26.25 → 26.75 (±0.71), cited 20.50 → 21.00 (±1.53), forbidden
     0/112 both — **SAME-WITHIN-NOISE, stays off**.
 - Only 5 of the 28 library cases are in the aids' domains (health, first aid, finance, building).
+
+## F — found and fixed on the way
+
+1. **`eval:tools`' subset arm did not rank as the app ranks.** It embedded `name: description`;
+   the app (`main/ipc/toolRank.ts`) embeds the description alone, and the two rank the file
+   requests differently. The arm ranks on the description now; 4.3's subset baseline is not
+   comparable with 4.4's numbers (every 4.4 comparison is against a same-day control anyway).
+2. **Re-rank had never applied on a `<think>` family** (G5): a `json_schema` grammar does not stop
+   the 9B distill thinking in LM Studio, `enable_thinking: false` is ignored, and the 80-token
+   answer was all reasoning. Asked plainly with the closed-think prefill, it answers in 0.2 s.
+3. **The library suite flagged correct advice as forbidden** (G5): items under "**Do NOT:**" were
+   scored on their own line. A list item inherits its lead-in's negation; 5 flags → 0 on re-scoring.
+
+Seen and not fixed (4.5): the same grammar-and-no-thinking pairing is sent by the chat's plan mode
+(`ipc/plan.ts`), the outline (`ipc/outline.ts`) and deep research's planner
+(`ipc/deepResearch/plan.ts`). Their budgets are larger than the re-rank's 80 tokens, so on a
+`<think>` family they likely think first and answer late rather than not at all — unmeasured.
