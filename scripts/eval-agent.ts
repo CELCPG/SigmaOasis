@@ -17,7 +17,15 @@
  *   EVAL_KEEP=1          keep each run's scratch folder
  *   EVAL_EXPERIMENTS=a,b turn those experiments on for every case (one arm of an A/B)
  *   EVAL_ROUND_MAX_TOKENS=8192  one round's output cap (16384, 8192 or 4096; default 16384)
- *   LMSTUDIO_BASE_URL=…  default http://127.0.0.1:1234/v1 (loopback only, as in the CLI)
+ *   LMSTUDIO_BASE_URL=…  default http://127.0.0.1:1234/v1 (loopback only, as in the CLI); any
+ *                        OpenAI-compatible server on this machine — llama-server too (v4.4, G6)
+ *   EVAL_CONTROL=1       with an arm (EVAL_EXPERIMENTS or EVAL_ROUND_MAX_TOKENS): the same-day control
+ *                        too — every switch off, a pass of each in turn, ABBA (v4.4, G1); arm-first
+ *                        starts with the arm. Two results files, tagged control and arm.
+ *   EVAL_SESSION=<id>    tag the results with a session, so a control and an arm run as separate
+ *                        commands (EVAL_CASES slices) are read as one session by eval:diff
+ *   EVAL_GPU=none        the server is not on this machine's NVIDIA card (the B60's llama-server):
+ *                        skip the PCIe replay check, which would read the wrong card
  *
  * Needs Node on the PATH: the cases' tests run with `node --test`, in the shell
  * the agent itself is given. Temperature is pinned to 0. Results are written to
@@ -50,6 +58,7 @@ import {
 } from '../src/main/agent/evalHarness'
 import { isLoopback } from '../src/cli/sigma'
 import { EXPERIMENT_KEYS, ROUND_MAX_TOKENS_OPTIONS, type AgentExperiments } from '../src/main/agent/types'
+import { controlOrderFrom, sessionId, sidesForPass, type SessionRole } from '../src/main/agent/evalSession'
 
 // Compiled by scripts/eval-agent.sh to .eval-build/scripts/eval-agent.js — the
 // repo root is two levels up from there.
@@ -122,6 +131,14 @@ async function main(): Promise<void> {
   if (roundMaxTokens !== undefined && !ROUND_MAX_TOKENS_OPTIONS.includes(roundMaxTokens)) {
     throw new Error(`EVAL_ROUND_MAX_TOKENS must be one of ${ROUND_MAX_TOKENS_OPTIONS.join(', ')}`)
   }
+  // v4.4 (G1): the same-day control, in this process (EVAL_CONTROL) or as a tag (EVAL_SESSION).
+  const armOn = Object.keys(experiments).length > 0 || roundMaxTokens !== undefined
+  const order = controlOrderFrom(process.env.EVAL_CONTROL)
+  if (order && !armOn) throw new Error('EVAL_CONTROL runs a control beside an arm: name the arm with EVAL_EXPERIMENTS or EVAL_ROUND_MAX_TOKENS')
+  const tagged = Boolean(order || process.env.EVAL_SESSION)
+  sessionId(process.env.EVAL_SESSION, 'check') // a bad id stops here, before any model is asked anything
+  // v4.4 (G6): a server on another card — the B60's llama-server — is not watched through nvidia-smi.
+  const watchGpu = process.env.EVAL_GPU !== 'none'
   mkdirSync(RESULTS_DIR, { recursive: true })
 
   const controller = new AbortController()
@@ -135,8 +152,9 @@ async function main(): Promise<void> {
   console.log('caveats: temperature 0; commands limited to each case\'s test runner; one model loaded at a time.')
   console.log('Close other LM Studio clients (a Sigma Oasis window included) for the length of the run.')
   // v4.0 (E9): the GPU's error counter, before the run and after each case.
-  let gpu = readGpuSync()
-  console.log(`${describeGpu(gpu)}\n`)
+  let gpu = watchGpu ? readGpuSync() : null
+  console.log(`${watchGpu ? describeGpu(gpu) : 'GPU: EVAL_GPU=none — the server is not on the card nvidia-smi reads; error counters not read'}\n`)
+  if (order) console.log(`same-day control: every switch off, a pass of each in turn (${order}, then alternating)\n`)
 
   const summaries: ModelSummary[] = []
   for (const model of models) {
@@ -149,53 +167,92 @@ async function main(): Promise<void> {
     }
     console.log(`answering after ${(warm.ms / 1000).toFixed(1)} s`)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const arm = (Object.keys(experiments).length > 0 ? `-x-${Object.keys(experiments).sort().join('+')}` : '') + (roundMaxTokens ? `-cap${roundMaxTokens}` : '')
-    const outFile = join(RESULTS_DIR, `agent-${model.replace(/[^a-z0-9._-]+/gi, '_')}${arm}-${stamp}.json`)
-    const byPass: CaseRun[][] = []
-    const save = (): void =>
+    const session = tagged ? sessionId(process.env.EVAL_SESSION, stamp) : undefined
+    const slug = model.replace(/[^a-z0-9._-]+/gi, '_')
+    // One side per results file: the arm as asked, and with EVAL_CONTROL its
+    // control — no experiment, the default cap — beside it.
+    interface Side {
+      role: SessionRole
+      experiments: Partial<AgentExperiments>
+      roundMaxTokens?: number
+      outFile: string
+      byPass: CaseRun[][]
+    }
+    const armName = (Object.keys(experiments).length > 0 ? `-x-${Object.keys(experiments).sort().join('+')}` : '') + (roundMaxTokens ? `-cap${roundMaxTokens}` : '')
+    const asked: Side = {
+      role: armOn ? 'arm' : 'control',
+      experiments,
+      roundMaxTokens,
+      outFile: join(RESULTS_DIR, `agent-${slug}${armName || (tagged ? '-control' : '')}-${stamp}.json`),
+      byPass: []
+    }
+    const control: Side | null = order ? { role: 'control', experiments: {}, outFile: join(RESULTS_DIR, `agent-${slug}-control-${stamp}.json`), byPass: [] } : null
+    const save = (side: Side): void =>
       writeFileSync(
-        outFile,
-        JSON.stringify(agentResultsFile({ model, experiments, baseUrl: BASE_URL, shell: shell.name, startedAt: stamp, passes, cases: cases.map((c) => c.id), runs: byPass }), null, 2)
+        side.outFile,
+        JSON.stringify(
+          agentResultsFile({
+            model,
+            experiments: side.experiments,
+            baseUrl: BASE_URL,
+            shell: shell.name,
+            startedAt: stamp,
+            passes,
+            cases: cases.map((c) => c.id),
+            runs: side.byPass,
+            ...(session ? { session: { id: session, role: side.role } } : {})
+          }),
+          null,
+          2
+        )
       )
     let serverFailures = 0
     let lost = false
     for (let p = 0; p < passes && !controller.signal.aborted && !lost; p++) {
-      const runs: CaseRun[] = []
-      byPass.push(runs)
-      for (const c of cases) {
-        if (controller.signal.aborted) break
-        process.stdout.write(`[${model} · pass ${p + 1}/${passes}] ${c.id} (${c.kind}) … `)
-        const run = await runCase(c, {
-          baseUrl: BASE_URL,
-          model,
-          shell,
-          signal: controller.signal,
-          keep: Boolean(process.env.EVAL_KEEP),
-          experiments,
-          roundMaxTokens
-        })
-        // A case during which the GPU's error counter moved measured the
-        // machine: excluded and named, like a run the server ended.
-        const after = readGpuSync()
-        const moved = machineMoved(gpu, after)
-        gpu = after
-        // v4.1 (decision 1): corrected replays taint the time, not the score.
-        if (moved.moved) run.machine = `PCIe replay counter rose by ${moved.delta} during this case (time not counted)`
-        runs.push(run)
-        console.log(describeRun(run) + (moved.moved ? `  [machine: ${run.machine}]` : ''))
-        save()
-        serverFailures = run.excluded ? serverFailures + 1 : 0
-        if (serverFailures >= 2) {
-          console.log(`\n  stopping ${model}: the server failed two runs in a row, so nothing after this would be a measurement.`)
-          console.log('  Is another client using LM Studio? Close it, then rerun the cases that were not scored (EVAL_CASES).')
-          lost = true
-          process.exitCode = 1
-          break
+      const turn = order && control ? sidesForPass(p, order).map((r) => (r === 'control' ? control : asked)) : [asked]
+      for (const side of turn) {
+        if (controller.signal.aborted || lost) break
+        const runs: CaseRun[] = []
+        side.byPass.push(runs)
+        const label = control ? ` · ${side.role}` : ''
+        for (const c of cases) {
+          if (controller.signal.aborted) break
+          process.stdout.write(`[${model}${label} · pass ${p + 1}/${passes}] ${c.id} (${c.kind}) … `)
+          const run = await runCase(c, {
+            baseUrl: BASE_URL,
+            model,
+            shell,
+            signal: controller.signal,
+            keep: Boolean(process.env.EVAL_KEEP),
+            experiments: side.experiments,
+            roundMaxTokens: side.roundMaxTokens
+          })
+          // A case during which the GPU's error counter moved measured the
+          // machine: excluded and named, like a run the server ended.
+          const after = watchGpu ? readGpuSync() : null
+          const moved = machineMoved(gpu, after)
+          gpu = after
+          // v4.1 (decision 1): corrected replays taint the time, not the score.
+          if (moved.moved) run.machine = `PCIe replay counter rose by ${moved.delta} during this case (time not counted)`
+          runs.push(run)
+          console.log(describeRun(run) + (moved.moved ? `  [machine: ${run.machine}]` : ''))
+          save(side)
+          serverFailures = run.excluded ? serverFailures + 1 : 0
+          if (serverFailures >= 2) {
+            console.log(`\n  stopping ${model}: the server failed two runs in a row, so nothing after this would be a measurement.`)
+            console.log('  Is another client using LM Studio? Close it, then rerun the cases that were not scored (EVAL_CASES).')
+            lost = true
+            process.exitCode = 1
+            break
+          }
         }
       }
     }
-    summaries.push(summarize(model, byPass))
-    console.log(`\n  results: ${outFile}\n`)
+    for (const side of control ? [control, asked] : [asked]) {
+      summaries.push(summarize(control ? `${model} · ${side.role}` : model, side.byPass))
+      console.log(`\n  results${control ? ` (${side.role})` : ''}: ${side.outFile}${session ? ` · session ${session}, ${side.role}` : ''}`)
+    }
+    console.log('')
   }
 
   console.log(formatSummary(summaries))

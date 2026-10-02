@@ -7,6 +7,7 @@ import { DEFAULT_ROUND_MAX_TOKENS, runAgentTask } from './engine'
 import { fetchTransport } from './stream'
 import { fmtMs, median, summarizeLatency, timedTransport, type LatencySummary, type RoundLatency } from './latency'
 import type { AgentEvent, AgentExperiments, AgentHost, AgentStatus, ChunkTransport, PermissionMode, ShellSpec, ToolCallRecord } from './types'
+import type { EvalSession } from './evalSession'
 
 /**
  * The agent eval (v3.1, `eval:agent`): how often the agent actually finishes
@@ -525,11 +526,13 @@ export interface AgentResultsFile {
   passes: number
   cases: string[]
   runs: CaseRun[][]
+  /** v4.4 (G1): the session this run was measured in, and its side — a same-day control or the arm (evalSession.ts). */
+  session?: EvalSession
 }
 
 /** v4.1 (M6): built in one place, so the offline replay gate writes the runner's schema, not a copy of it. */
 export function agentResultsFile(o: Omit<AgentResultsFile, 'suite'>): AgentResultsFile {
-  return { suite: 'agent', model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs }
+  return { suite: 'agent', model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs, ...(o.session ? { session: o.session } : {}) }
 }
 
 // ---- many passes -----------------------------------------------------------
