@@ -46,3 +46,44 @@ turned on that way, but a BETTER would have needed a control beside it.
   by their tags. Merges and joins keep the session and refuse to mix a control with its arm.
 - The same-day control and the library suite in `baselines/README.md`; tests in
   `test/evalSession.test.ts` and `test/evalDiff.test.ts`.
+
+## G2 — F6, forced tools on top of the cap: **on**, by measurement
+
+The behaviour is a switch, `FORCED_TOOLS_ON_TOP` (`withForcedTools`' `onTop`), and `eval:tools`'
+on-top arm is the app's own code through it. Measured on the **default** toolset
+(`EVAL_TOOLSET=default`: the 20 tools a fresh install turns on; 24 fixtures, the four whose tool is
+off by default unscored), `qwen3.8-9b-distill`, four passes a side interleaved with a same-day
+control: clean **21, 21, 21, 21 → 23, 23, 23, 23** of 24, **BETTER** (+2.00, band ±0.00 — both
+sides repeated themselves exactly). `09-datetime` and `10-create-note` keep their tool; nothing
+lost; no spurious call, loop or bad argument. On the whole toolbox, the same: 21 → 23 of 28, four
+gained, `26-live-score` and `27-live-futures` lost to `market_data` (off by default). On by the
+rule; 4.0.1's cap stays reachable as `onTop: false`. The cost: 6.7 tools a fixture instead of 6.0,
+8 on a forced turn.
+
+`withForcedTools` now evicts the lowest-scored pick, as its comment said. Every run counted the
+fixtures where that sent another wire than eviction by wire order: **0 of 28** (the chat forces the
+web pair together, and two forced tools take both ranked places whatever their order). The order
+can matter only for one forced tool (a sticky web tool, a provider's late force), where it now
+keeps the better-scored pick. The agent eval does not apply: the agent has its own tools and never
+reads the chat's selection.
+
+## G4 — the file-request ranking miss: **fixed**, by measurement
+
+With the app's own ranking (each description alone — see F1), "read the file notes/todo.md and
+summarize it" gave the two ranked places to `read_note` (0.622) and `list_directory` (0.609),
+`read_file` fourth (0.603); "save this shopping list to a file called groceries.txt" put
+`write_file` ninth (0.554). The notes tools' descriptions say "file" in their *Do not use* lines,
+and an embedding does not read a "not". The smallest fix is lexical: a turn that names a local file
+(a path with an extension, or a document or data file name — not a web address, a folder, or
+`node.js`; `namesLocalFile`) puts `read_file`, `write_file` and `propose_patch` (those the slot has)
+in the ranked places first. A switch, `FILE_TOOLS_FIRST`.
+
+- Default toolset: **21 → 22** of 24 a pass (`02-read-file`), BETTER (±0.00), nothing lost.
+- Whole toolbox, the chat's subset: **21 → 23** of 28 (`02`, `03-write-file`), BETTER (±0.00),
+  nothing lost.
+- The whole-toolbox arm (every tool on the wire) cannot move: no description changed, so its wire
+  is byte-identical; not re-run.
+- **Both switches together** (as 4.4 ships), default toolset, their own same-day control: **20.75 →
+  24.00** of 24 (+3.25, band ±0.71), BETTER — `02`, `09`, `10`; nothing lost.
+
+On by the rule. The agent's wire does not change (its tools are its own).
