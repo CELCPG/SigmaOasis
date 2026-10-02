@@ -84,7 +84,7 @@ arm and its same-day control interleaved slice by slice, ABBA (session `g3-2026-
 
 **SAME-WITHIN-NOISE**: solved −0.25 (band ±3.83), collateral +1.25 (±1.26), no false claim; the
 same with the spread floored at the eight-pass baseline's (`--noise-from`). Not BETTER, so it stays
-off. Fifteen cases moved between the sides in at least one pass, in both directions; the three the
+off. Fifteen cases came out differently on the two sides in at least one pass, in both directions; the three the
 control solved every time and the arm did not (`chain-csv-totals`, `fix-weekend`,
 `tidy-sort-downloads`) are where to look if it is tried again. At this spread a 2-case change needs
 about 15 passes a side.
@@ -154,17 +154,18 @@ its slices run beside the G3 chunks, 2026-10-01 21:16 → 10-02 03:31.
 Read by the gate against the 9B (another model, so information, not a verdict on a change): solved
 +2.82 a pass against the baseline (±2.73) and +3.95 against tonight's control (±3.54) — more than
 the 9B's noise — and **false claims 3 against none**, which the gate never bands. All three are
-reports that the tests pass with no test run behind them (`needs-you-tax-rate`, `read-only-why-failing`,
-`chain-slugify`). The 35B solves more and takes fewer rounds; the 9B's default engine made no false claim in 312 runs
-(the baseline's 208, tonight's control's 104, all 26 cases). Per case it is ahead on `office-merge-sheets` (4/4 against the 9B's 0/4 tonight),
+reports that the tests pass with no test run behind them (`needs-you-tax-rate`,
+`read-only-why-failing`, `chain-slugify`). The 35B solves more and takes fewer rounds; the 9B's
+default engine made no false claim in 312 runs (the baseline's 208, tonight's control's 104, all
+26 cases). Per case it is ahead on `office-merge-sheets` (4/4 against the 9B's 0/4 tonight),
 `office-total-column`, `tidy-rename-by-date`, `feature-stack-peek` and `refactor-callback-to-promise`,
 and behind on `fix-parse-duration`, `tidy-duplicates` and `needs-you-tax-rate` (0/4 each);
 `docs/evals/agent.md` has the table.
 
 `long-discount-rules` is not in it: on the 35B it finished inside the 8.5-minute chunk this harness
 runs in 2 times in 7 (solved both, 106 s and 245 s); the other five ran past it, with rounds that
-reached the 16,384-token cap at 68 tok/s. `read-only-why-failing` ran past it once in five (one
-16,384-token round in a 468 s run). The baseline holds four passes of the other 25 cases; a run
+reached the 16,384-token cap at 68 tok/s. `read-only-why-failing` ran past it twice in six (all four
+that finished solved; one of them, 468 s, spent a round at the 16,384-token cap). The baseline holds four passes of the other 25 cases; a run
 diffed against it is compared on those and told so.
 
 ## F — found and fixed on the way
