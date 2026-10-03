@@ -12,6 +12,8 @@
  *   BENCH_WINDOW=16384     the context the window scenarios are built past — set it
  *                          to the model's loaded context
  *   BENCH_MAX_TOKENS=64    the reply cap: enough to time decoding, short enough not to dominate
+ *   BENCH_STALL_MS=180000  how long a request may stay silent before it is cut — raise it on a slow card:
+ *                          a full window's prefill past 180 s on the B65 (v4.5, H1)
  *   LMSTUDIO_BASE_URL=…    default http://127.0.0.1:1234/v1 (loopback only, as in the CLI)
  *
  * One line per run is appended to .latency-bench/results.jsonl, like
@@ -72,7 +74,7 @@ async function main(): Promise<void> {
     const res = await send(url, {
       body: JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true }, temperature: 0, max_tokens: maxTokens, ...(arm ? { draft_model: arm } : {}) }),
       signal,
-      stallMs: 180_000,
+      stallMs: num(process.env.BENCH_STALL_MS, 180_000),
       onChunk: () => undefined
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${(res.errorText ?? '').slice(0, 300)}`)

@@ -194,12 +194,34 @@ SAME-WITHIN-NOISE at ±0.71; the flags (spurious calls, loops, invalid arguments
   `agent-qwen3.8-9b-distill-4.0.2.json` does already. Passes 3–4 (about 45–50 minutes of GPU a pass here)
   make four passes in four runs.
 
+**The agent's verdict on the B65** (H1, two passes, the 4.4 engine with every experiment off):
+- **Solved:** 20 and 17 of 26, mean 18.50 (σ 2.12) against the 5070's 18.25 over eight passes (14–21,
+  σ 2.49): +0.25, nowhere near a difference. Two passes cannot show that the cards are equal, only that
+  nothing here says the B65 solves fewer (`eval:diff` on them reads TOO-FEW-PASSES, exit 3; the band
+  it would have held them to is ±3.94).
+- **False claims: 0** in 52 runs (26 cases, two passes). Collateral on 3 cases in each pass.
+- **Not deterministic:** 23 of 26 cases kept their verdict, 3 flipped (all solved → not solved); rounds
+  equal in 12, tool calls in 12, final text in 7. Case by case:
+  `.eval-results/4.5-2026-10-03/h1/determinism-p1-p2.md`.
+- **No agent baseline file is committed.** The rules above want at least four passes from at least two
+  runs; there are two passes. Passes 3–4 are left for later. Until then a change to the agent on the
+  B65 is diffed against its own same-day control (`EVAL_CONTROL=1`), as the table above says.
+- **Found, not fixed: an order-dependent runaway.** `feature-top-words` (case 6) ran past 7.5 minutes and
+  past 9 minutes (both chunks killed; the first at 450 s, the second at 570 s) when it came right after
+  `feature-stack-peek` in the same chunk, and finished in 100 s (15 rounds) and 315 s (21 rounds) when
+  run alone. The 5070's eight passes ran it in 22–353 s. Cause not found. A chunk that holds that pair
+  of cases in that order can lose the rest of the chunk to the harness's limit (cases 7–9 never ran in
+  the second kill); run `feature-top-words` alone.
+
 **Speed** (the runners' own timing; not gated). Decode 38–48 tok/s on short prompts and 25 on 14,000-token
 ones, against 102–105 on the 5070; TTFT median 0.47 s against 0.21 s; a whole agent pass is 2,589 to
 2,940 s of case time against 973 s of the 5070's medians (x2.7–3.0; without `long-discount-rules`,
 which ran 1,579 s then 578 s, x1.9 in pass 1 and x2.8 in pass 2),
 `eval:tools` 339–402 s a pass against 272–294 s. The latency bench's line is in
-[docs/evals/measurement.md](../docs/evals/measurement.md).
+[docs/evals/measurement.md](../docs/evals/measurement.md): a full window's prefill 261 s against
+26.8 s (9.8×), the next turn past it with the low-water trim 3.0 s against 0.70 s, short prompts
+under a second, decode 42 against 95.5 tok/s. The chat gives up on a first byte at 300 s, the agent
+at 360 s: the 261 s prefill is inside both, 39 s short of the chat's.
 
 **After `4.5/claims` merges** (H3b): it stamps every scored agent file with a `claimsRule` and makes
 `eval:diff` refuse to compare, merge or join files scored by different rules. The tool-choice file here
