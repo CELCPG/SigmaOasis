@@ -513,12 +513,12 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
     if (result.worktree) lastWorktree = result.worktree
     if (result.checkpoints.length > 0) lastCheckpoints = result.checkpoints
     if (o.json) {
-      write(`${JSON.stringify({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, detail: result.detail })}\n`)
+      write(`${JSON.stringify({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, detail: result.detail, ...(result.claim ? { claim: result.claim } : {}) })}\n`)
     } else {
       if (!result.finalText.endsWith('\n')) write('\n')
       const tone = result.status === 'done' ? green : result.status === 'error' ? red : yellow
       const files = result.changedFiles.length > 0 ? ` · changed ${result.changedFiles.join(', ')}` : ''
-      write(`${tone(`● ${result.status}`)}${dim(files)}${result.detail ? `\n${yellow(result.detail)}` : ''}\n`)
+      write(`${tone(`● ${result.status}`)}${dim(files)}${result.detail ? `\n${yellow(result.detail)}` : ''}${result.claim ? `\n${yellow(`⚠ ${result.claim.text}`)}` : ''}\n`)
     }
     return result.status === 'done' ? 0 : result.status === 'paused' ? 3 : 1
   }

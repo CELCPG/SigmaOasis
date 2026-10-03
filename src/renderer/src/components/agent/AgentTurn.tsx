@@ -259,6 +259,13 @@ function Outcome({ message, conversation, elapsed }: { message: ChatMessage; con
   return (
     <div className="mt-3 border-t border-black/5 pt-2 text-xs dark:border-white/10">
       {agent.detail && <p className={`mb-1 ${agent.status === 'error' ? 'text-ink-danger' : 'text-ink-warn'}`}>{agent.detail}</p>}
+      {/* v4.5 (H3): the report says the tests pass and nothing the run did shows it. Only the mark: the report above is the model's own words. */}
+      {agent.claim && (
+        <p className="mb-1 text-ink-warn" role="note" data-testid="agent-claim" title="Marked by the app, not the model: it read the commands this task ran and how each one ended. The report's own words are unchanged.">
+          <span aria-hidden="true">⚠ </span>
+          {agent.claim.text}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-ink-secondary">
         <span>
           {STATUS[agent.status].label} in {formatElapsed(elapsed)}

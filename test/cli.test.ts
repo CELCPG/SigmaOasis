@@ -147,6 +147,27 @@ describe('a task, from the command line', () => {
     const final = events[events.length - 1]!
     assert.deepEqual([final.type, final.status, final.finalText, final.changedFiles], ['final', 'done', 'Fixed: add() subtracted.', ['src/add.js']])
     assert.ok(events.some((e) => e.type === 'tool_start'))
+    assert.equal((final as { claim?: unknown }).claim, undefined, 'a report that claims nothing carries no mark')
+  })
+
+  // v4.5 (H3): a report that says the tests pass with no run behind it is marked here too.
+  test('a pass claimed with nothing run is marked: in the JSON final line, and under the report in plain text', async () => {
+    const script = (): typeof replies => [() => [call('c1', 'read_file', { path: 'src/add.js' })], () => [text('Looked it over. All tests pass.')]]
+    const expected = 'Says the tests pass — no passing test run in this task (no command ran).'
+    replies = script()
+    requests = 0
+    const json: string[] = []
+    await main(['-p', 'check add', '-C', dir, '--accept-edits', '--base-url', url, '--model', 'stub', '--json'], { out: (s) => json.push(s), err: () => {} })
+    const events = json.join('').trim().split('\n').map((l) => JSON.parse(l) as { type: string; finalText?: string; claim?: { text: string; shows: string } })
+    const final = events[events.length - 1]!
+    assert.equal(final.finalText, 'Looked it over. All tests pass.', 'the report is the model\'s words')
+    assert.deepEqual([final.claim?.shows, final.claim?.text], ['no-run', expected])
+
+    replies = script()
+    requests = 0
+    const plain: string[] = []
+    await main(['-p', 'check add', '-C', dir, '--accept-edits', '--base-url', url, '--model', 'stub'], { out: (s) => plain.push(s), err: () => {} })
+    assert.ok(plain.join('').includes(`⚠ ${expected}`), plain.join(''))
   })
 
   test('with nobody to ask, an edit in ask mode is declined — and said — rather than made', async () => {

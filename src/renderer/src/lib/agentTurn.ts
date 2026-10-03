@@ -73,6 +73,7 @@ export function applyAgentEvent(message: ChatMessage, event: AgentWireEvent): Pa
           ...agent,
           status: event.status,
           ...(event.detail ? { detail: event.detail } : {}),
+          ...(event.claim ? { claim: event.claim } : {}),
           changedFiles: event.changedFiles,
           endedAt: Date.now()
         }
