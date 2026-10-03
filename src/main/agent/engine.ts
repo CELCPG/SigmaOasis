@@ -12,7 +12,7 @@ import { ToolPhase } from './toolPhase'
 import { agentSystemPrompt, gitBranch, loadProjectNotes, subagentSystemPrompt, topLevel, type PromptEnv } from './prompts'
 import { streamRound } from './stream'
 import { roundPhase } from './phase'
-import { claimsTestsPass } from './evalHarness'
+import { claimsTestsPass, commandRun, lastRunInHistory, unrunClaim, type TestRun } from './claims'
 import { CLOSED_THINK_PREFILL, THINK_TAG_MODELS } from '../../shared/thinking'
 import { agentThinkingProfile } from '../../renderer/src/lib/modelProfiles'
 import { unifiedDiff } from '../../shared/patch'
@@ -132,6 +132,13 @@ interface RunContext {
   /** A5: when a file last changed in this task, and every command run — the verify round reads both. */
   lastEditAt: number
   commands: { command: string; ok: boolean; at: number }[]
+  /**
+   * v4.5 (H3): the last command that ran in this task, helpers' included, as
+   * the records the host sees end — what the unrun-claim mark reads (./claims.ts).
+   * Seeded from the history an earlier turn left; 'unread' when one ran there
+   * and its result has been set aside.
+   */
+  lastRun: TestRun | 'unread' | null
   /** A8: the project's hooks, when the experiment is on and the file exists. */
   hooks: Hooks | null
   hookCount: number
@@ -208,6 +215,7 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
     completionTokens: 0,
     lastEditAt: 0,
     commands: [],
+    lastRun: spec.history ? lastRunInHistory(spec.history) : null,
     hooks,
     hookCount: 0,
     question: null,
@@ -317,6 +325,10 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
   }
   if (worktree) detail = `${detail ? `${detail}\n` : ''}Worked on branch ${worktree.branch} in ${worktree.path}.`
   host.emit({ type: 'status', status, ...(detail ? { detail } : {}) })
+  // v4.5 (H3): a report that says the tests pass when the run does not show it
+  // is marked for the reader. Annotation only: nothing here reaches the model,
+  // the history above, or the report's own text.
+  const claim = unrunClaim(finalText, run.lastRun)
   return {
     status,
     finalText,
@@ -326,7 +338,8 @@ export async function runAgentTask(spec: AgentTaskSpec, host: AgentHost): Promis
     checkpoints: [...state.checkpoints.values()],
     workspace: root,
     ...(worktree ? { worktree } : {}),
-    ...(detail ? { detail } : {})
+    ...(detail ? { detail } : {}),
+    ...(claim ? { claim } : {})
   }
 }
 
@@ -534,6 +547,9 @@ async function loop(run: RunContext, o: LoopOptions): Promise<AgentLoopStopReaso
         host.emit({ type: 'tool_start', record: shown })
       } else if (record.status !== 'running') {
         host.emit({ type: 'tool_end', record: shown })
+        // v4.5 (H3): the same record the eval reads its last test run from.
+        const ran = commandRun(record)
+        if (ran) run.lastRun = ran
       }
     },
     deps: {

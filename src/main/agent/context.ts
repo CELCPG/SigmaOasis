@@ -40,7 +40,7 @@ export const DEFAULT_CONTEXT_TOKENS = 32_768
  */
 export const LOW_WATER = 0.7
 
-const ELIDED_PREFIX = '[Earlier output of '
+export const ELIDED_PREFIX = '[Earlier output of '
 
 function contentChars(content: ApiMessage['content']): number {
   if (content === null || content === undefined) return 0
