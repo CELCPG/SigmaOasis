@@ -201,7 +201,7 @@ beyond the band with no new forbidden advice; the answered line fell beyond its 
   missing. Re-testing the saved replies with Unicode spaces read as spaces moves exactly these four
   `answered` flags of the 216 replies (the control's and the sample answer's `19-joist-span` replies carry
   one too, and still match), and none of H5b's 216 re-rank-session replies.
-  The table above is the scorer as it is. Read with those four counted, answered is 20.75 against 21.00
+  The table above is 4.5's scorer as it was (4.6 fixed it: [the last section](#the-scorer-reads-the-reply-as-plain-text-and-every-library-file-re-scored-v46-j3)). Read with those four counted, answered is 20.75 against 21.00
   (−0.25, ±0.50, SAME-WITHIN-NOISE), cited and the other lines do not move, and the verdict would read
   **BETTER**, on the unsupported-figures line alone (−1.50 beyond ±0.71: `01` and `11-card-or-fund`
   are flagged far less often, `05` newly twice). That reading is not the measurement: changing a scorer
@@ -217,3 +217,177 @@ beyond the band with no new forbidden advice; the answered line fell beyond its 
 - It adds about 0.3 s a case (9.5 s against 9.2 s) for the extra model call and embedding.
 - Files: `.eval-results/answers-qwen3.8-9b-distill-aids-{control,hyde}-2026-10-03T12-37-53.json` and
   `…T12-55-13.json`.
+
+## The scorer reads the reply as plain text, and every library file re-scored (v4.6, J3)
+
+The H5b sample-answer run showed a scorer artifact (above): four replies wrote "June 15" with a narrow
+no-break space (U+202F), the case's `mustInclude` pattern has an ASCII space, and the fact counted as
+missing. 4.5 did not change a scorer after the result; 4.6's J3 did, as a change of its own.
+
+**What it does.** `scoreLibrary` (`src/renderer/src/lib/answerEval.ts`) reads the reply through
+`normalizeReply` once, before any pattern or cue reads it: the Unicode space separators (U+00A0,
+U+2000–U+200A, U+202F, U+205F, U+3000) become a plain space; the hyphen-like dashes (U+2010–U+2013) and
+the minus sign (U+2212) become "-"; curly quotes and apostrophes (U+2018, U+2019, U+201B, U+201C, U+201D,
+U+201F) become straight ones. The em dash (U+2014) is punctuation and stays. `answered`/`missing` and
+`forbidden` both read the normalised reply (one function, `readReply`), and so do `cited` and
+`unsupported`; the case's patterns and the passages are the fixtures'.
+
+**Dashes and quotes, checked on the same files.** The characters are in the replies (1,391 replies read:
+U+2014 1,734 times, U+2019 228, U+2013 208, U+201C and U+201D 121 each, U+202F 28, U+2011 24, U+2018 2,
+U+2212 1), and a curly apostrophe does blind a scorer — the negation cue is "don't", so "Don't use ice"
+written with U+2019 reads as asserting ice. Measured on every recorded reply, each normalisation by itself:
+**spaces move 4 `answered` flags, dashes 0, quotes 0**, and the three together the same 4. They are in the
+scorer because the failure is the same one and the next model writes them differently, not because a
+recorded flag moved.
+
+**A version, and a refusal.** `LIBRARY_SCORER_RULE` is **2** (1 is 4.4's and 4.5's, which read a reply
+exactly as written). `eval:answers` stamps it on a results file as `libraryScorerRule` (the arm's file
+and the control's), and `eval:diff` refuses to compare, or merge, two library files scored by different
+ones (exit 2, naming both and the command that moves the older), as it does for
+[claim rules](claims.md#one-rule-on-both-sides-of-the-gate). The diff prints `library scorer rule N:
+answered and forbidden read by it on both sides`.
+
+**Every recorded library file, re-scored.** `npm run eval:library-rescore -- <folders> [--skip <text>]
+[--write [--reformat]]` reads each run's reply against its case's patterns and says which flags move
+and why — the normalisation, or an older scorer — then, with `--write`, rewrites the file with the flags
+moved, the summaries recomputed by the functions that wrote them, and the stamp. `cited` and
+`unsupported` are not re-read (the file keeps no passages); neither can move on the characters, and the
+tool counts the replies whose measurements the normalisation would change: **0**. Over every results file
+with a library block on this machine on 2026-10-03 (62 files, 54 distinct; the 8 hand-patched `-norm`
+copies H5b's sensitivity check wrote are left out, the 8 byte-identical copies counted once): **46 files,
+1,447 runs re-scored** (21 errored runs have no score):
+
+| files | runs | flags moved |
+| --- | --- | --- |
+| H5b, the sample answer (`h5/hyde-results`: 2 control + 2 arm files, 2 passes each) | 216 | **4** `answered` false → true, all in the arm: `14-estimated-payments`, both passes of both files |
+| H5b, re-rank (`h5/rerank-results`: 4 files) | 216 | **0** |
+| H7's two synthetic files (4.4's library runs stamped `library-aids` to test the diff) | 56 | 0 |
+| 4.4's G5 files (`44-eval-b`, `44-eval-c`, `int42`: 36 files) | 959 | 0 by the normalisation; **8** `forbidden` true → false by an older scorer (below) |
+
+So exactly the four HyDE flags, none of re-rank's, as H5b's check said. The eight others are not this
+change: 4.4's list-lead-in and negation fixes (`01-burn-cooling` under "**Do NOT:**", "stay away from
+windows" in `20-tornado-during`) came after some files were scored, and the stored flags still say what
+the older scorer said — five `01-burn-cooling` replies (the sample answer's three, re-rank's, a control)
+and three `20-tornado-during`. They are listed apart, by cause, in the tool's output. Nine files stored
+summaries that do not equal what their own flags give (5 carry 4.4's stale `forbidden` count, 4 predate
+the key); the tool recomputes them on write.
+
+**Where it is written.** The eight H5b files above (the four of the sample answer, the four of re-rank:
+`.eval-results/4.5-2026-10-03/h5/{hyde,rerank}-results/`), after a copy of each (`.eval-results/4.6-2026-10-03/j3/pre-rescore/lib-*`).
+Not written: the other worktrees' files (the 4.4 eval worktrees: a unit that is not this one's), the
+`-norm` copies and H7's two synthetic files. A rule-1 library file is refused by `eval:diff` against a
+fresh pass until it is moved, which is the point.
+
+**The sample answer, on the scorer as it now is** (`eval:diff --paired` on the four rescored files, the
+same-day control; a measurement of the rescored recorded passes, **not** J4's fresh passes):
+
+| | control | sample answer | Δ | band | |
+| --- | --- | --- | --- | --- | --- |
+| answered per pass (27) | 21.00 | 20.75 | −0.25 | ±0.50 | SAME-WITHIN-NOISE |
+| cited | 25.00 | 23.25 | −1.75 | ±2.00 | SAME-WITHIN-NOISE |
+| unsupported figures | 3.25 | 1.75 | −1.50 | ±0.71 | **BETTER** |
+| forbidden (never banded) | 0/108 | 0/108 | | | |
+
+— the reading H5b projected, now the scorer's own. Under the switch rule that verdict would turn
+`libraryHyde` on, and it stays **off**: the four recorded passes are read on a scorer that was changed
+after them, and J4 measured four fresh passes beside a same-day control on this one before any flip ([the next section](#the-sample-answer-four-fresh-passes-on-the-corrected-scorer-v46-j4-2026-10-03)): WORSE, off. The
+re-rank's file reads as before (answered +0.75 ±0.71, cited −3.00 ±0.71 WORSE).
+
+### `eval:diff` reads the suite (v4.6, J3)
+
+A library results file is one of two suites, and 4.5's `eval:diff` did not read which: a `library` file
+(the 28 curated-pack questions) and a `library-aids` file (the 27 built for the aids) were compared
+case by case without complaint — the cases do not match, so most lines would read as nothing in common
+and a few as a change of engine. It now refuses (exit 2), for a diff and for a merge, in plain words:
+
+```
+eval:diff: the baseline holds the library suite (the 28 curated-pack questions) and the run holds the
+library-aids suite (the questions built for the model aids): they are different questions, so the diff
+would compare cases, not engines. Compare a library file with a library file.
+```
+
+The suite is the file's `librarySuite` (the runner writes it when it is `library-aids`). 4.5's runner wrote it
+on the arm's file and **not on the control's**, so a control read as a `library` file: `eval:diff` reads
+a file with no field by its runs — every library-aids case has a `kind` (vocabulary, paraphrase,
+near-tie, multi-document) and no library case does — and the runner now stamps the control too.
+`eval:library-rescore --write` stamps the field on a file that holds library-aids runs and does not say
+so: the four control files of H5b's two sessions (`h5/{hyde,rerank}-results/*aids-control*`). The diff
+header says which suite and scorer it read (`library suite library-aids · library scorer rule 2: answered
+and forbidden read by it on both sides`). Checked on real files: a 4.4 library file against H5b's
+control exits 2 with the message above; the control against its own arm compares (exit 3,
+too-few-passes, as 2 passes are).
+
+One thing it cannot tell: H7's two files `h7/aids-base.json` and `aids-run.json` carry `librarySuite:
+library-aids` but hold 4.4's library cases (they were made to test this diff, from 4.4's runs): a stamp
+is believed over the runs, so they read as library-aids files. They are test fixtures, not results.
+
+## The sample answer, four fresh passes on the corrected scorer (v4.6, J4, 2026-10-03)
+
+[J3](#the-scorer-reads-the-reply-as-plain-text-and-every-library-file-re-scored-v46-j3) fixed the
+scorer after H5b2's result and re-scored the recorded passes to a reading that would have turned the
+switch on (unsupported figures BETTER, answered SAME). A reading taken on a scorer changed after the
+data is not a measurement, so J4 ran the arm again: the same model, machine and shape as H5b2
+(`qwen3.8-9b-distill` on the Arc Pro B65, LM Studio alone, one session `j4-hyde-2026-10-03`, two commands
+of `EVAL_PASSES=2`, each control, arm | arm, control), now stamped `libraryScorerRule` 2:
+
+```
+EVAL_CONTROL=1 EVAL_SESSION=j4-hyde-2026-10-03 EVAL_SUITES=library-aids EVAL_LIBRARY_ASSIST=hyde EVAL_PASSES=2 LMSTUDIO_EVAL=1 npm run eval:answers -- qwen3.8-9b-distill   # twice, 888 s and 871 s
+npm run eval:diff -- --paired <the two control files and the two hyde files>
+```
+
+| of 27 a pass | control, aids off | sample answer | band | |
+| --- | --- | --- | --- | --- |
+| answered | 22, 20, 20, 21 — 20.75 (σ 0.96) | 20, 20, 21, 21 — 20.50 (σ 0.58) | ±1.35 | −0.25 SAME-WITHIN-NOISE |
+| cited the source | 25, 26, 26, 26 — 25.75 (σ 0.50) | 23, 23, 24, 24 — 23.50 (σ 0.58) | ±0.76 | **−2.25 WORSE** |
+| unsupported figures | 4, 3, 3, 3 — 3.25 | 1, 1, 1, 1 — 1.00 | ±0.71 | **−2.25 BETTER** |
+| asserted forbidden advice | 0 of 108 | 0 of 108 | never banded | no new one |
+| the source section first | 9 in every pass (36/108) | 13, 13, 12, 12 (50/108) | | recorded, not scored |
+
+**Verdict: WORSE (exit 1). `libraryHyde` stays off** (`grounding.libraryHyde: false`, `src/main/ipc/store.ts`);
+no default changed. The switch needs BETTER beyond the band with no new forbidden advice: the unsupported
+line improved beyond its band and no forbidden advice appeared, but answered did not move and the cited
+line fell beyond its band.
+
+- **It applied.** The sample answer was written, embedded and averaged into the ranking vector for 27 of 27
+  cases in every pass, 108 of 108 (`expanded`; 0 of 108 under the control). 5 passages shown on both sides.
+  The source went from first in 9 of 27 cases to first in 13 (12 in the second command: `24-babysitter-sting`
+  was first in the first command and second in the second, the only case whose rank differs between the
+  two commands, so the ranking is not identical across processes as it was across H5b2's passes) and from
+  outside the five in 2 cases to 1. About 0.4 s a case more (8.2 s against 7.8 s).
+- **The scorer fix held on live replies.** All four sample-answer replies to `14-estimated-payments` again
+  write "June 15" with U+202F (12 of the 216 replies carry one: these four and `19-joist-span`'s, four a
+  side) and the case is answered in 4 of 4 passes on both sides, where 4.5's scorer read the sample
+  answer's as 0 of 4.
+- **Answered is a wash because the wins and losses cancel.** 83 answered replies under the control, 82
+  under the sample answer (stable set 80 of 100 against 78). Won `22-employer-match` (0 → 4: the source
+  comes in at third, from not retrieved), `24-babysitter-sting` (0 → 2) and `27-home-office-corner`
+  (2 → 4); lost `01-baby-burning-up` (4 → 0), `02-black-head-in-skin` (4 → 0) and
+  `05-penalty-free-withdrawal` (1 → 0). `02` is H5b2's loss again (all four replies say the library does
+  not describe removal, though the source moved from fourth to third), and `01` a harder one than before
+  (4 → 1 in H5b2, 4 → 0 here, with the source *first*): the reply keeps to the passage and leaves out the
+  fact that is not in it ("3 months"), so `mustInclude` reads it missing.
+- **The unsupported-figures gain is partly the same loss.** Control replies were flagged in 13 runs: `01`
+  ("3 months", all four passes), `11-card-or-fund` ("5 years", all four), `15-five-month-fever` (all four,
+  "101°F") and `05` once; the sample answer's replies were flagged in 4, all `15` (it added "5 months" in
+  two). So `11` is a clean gain (answered 4 of 4 on both sides, no figure the passages lack), `05` is
+  one pass, and `01` is the figure vanishing because the reply stopped giving the fact (answered 4 → 0). The
+  line cannot be read apart from the answered line here, and the answered line is flat.
+- **Citing fell, in H5b2's way.** Replies carrying any `[n]`: 95 of 108 under the control, 84 under the sample
+  answer (H5b2: 91 → 85); where the source was first, 36 of 50 carry one (72%) against 32 of 36 (89%).
+  `cited` fell on `16-sprain-heat-or-ice` (4 → 0: "According to your reference notes", no `[n]`, no
+  title; the same reply as H5b2's, with the source first on both sides), `21-footing-depth`, `27` and
+  `15` (each 4 → 2) and rose on `12-bump-keeps-vomiting` (3 → 4): 103 cited replies against 94.
+- **Beside H5b2, on one scorer.** H5b2 re-scored by J3: answered 20.75 against 21.00 (−0.25), cited −1.75,
+  unsupported −1.50. Here: −0.25, −2.25, −2.25. The same direction on every line in both sessions (4
+  passes a side each); what differs is the cited line's control spread (σ 0.50 here against 1.41), and the
+  band with it, so a drop that H5b2's band could not tell from noise is outside this one.
+
+**The decision.** The sample answer moves the source up (first in 13 of 27 cases against 9), costs about 0.4 s a
+case and adds no forbidden advice, but on this suite and this model it does not make the 9B answer more
+questions (−0.25 of 27, inside ±1.35) and it makes it cite less (−2.25, outside ±0.76); the unsupported
+figures fell by about as much, partly because one reply stopped giving a fact. The switch rule's
+verdict is WORSE, so `libraryHyde` stays off.
+
+Files: `.eval-results/answers-qwen3.8-9b-distill-aids-{control,hyde}-2026-10-03T18-52-40.json` and
+`…T19-11-39.json` (in the worktree; copies, the diff and the per-pass and per-case tables with the run's
+notes, outside the repo).

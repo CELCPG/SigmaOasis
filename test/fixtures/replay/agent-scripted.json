@@ -1,6 +1,6 @@
 {
   "suite": "agent",
-  "claimsRule": 2,
+  "claimsRule": 3,
   "model": "scripted",
   "experiments": {},
   "baseUrl": "http://127.0.0.1:1234/v1",

@@ -257,17 +257,54 @@ export interface LibraryScore {
   forbidden: string[]
 }
 
+/**
+ * The version of the library scorer below. A results file records the version
+ * its library flags were scored under (`libraryScorerRule`), and `eval:diff`
+ * refuses to compare, or merge, two library files scored under different ones:
+ * a change of scorer would otherwise read as a change of engine.
+ *   1 — 4.4's, 4.5's: the reply matched exactly as the model wrote it. A file
+ *       without the field was scored by it.
+ *   2 — 4.6 (J3): the reply's Unicode spaces, dashes and quotes are read as
+ *       their plain forms first (`normalizeReply`).
+ */
+export const LIBRARY_SCORER_RULE = 2
+
+/**
+ * The reply as a case's patterns are written: Unicode space separators as a
+ * plain space, dash-like hyphens and the minus sign as "-", curly quotes as
+ * straight ones. Found 2026-10-03 (4.5, H5): the sample answer's four replies
+ * to `14-estimated-payments` wrote "June 15" with a narrow no-break space
+ * (U+202F), the case's pattern has an ASCII space, and the fact counted as
+ * missing — a scorer's artifact that decided a verdict. Every model writes
+ * these now and then (U+2019 in "don't" blinded the negation cues, U+2013 in a
+ * range blinds a pattern like "10-15"), so it is done once, here, before any
+ * pattern or cue reads the reply. An em dash (U+2014) is punctuation and stays.
+ */
+export function normalizeReply(text: string): string {
+  return text
+    .replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, ' ')
+    .replace(/[\u2010-\u2013\u2212]/g, '-')
+    .replace(/[\u2018\u2019\u201b]/g, "'")
+    .replace(/[\u201c\u201d\u201f]/g, '"')
+}
+
+/** What a case's patterns read in a reply: the facts it states (`missing` is those it does not) and the advice it asserts that the case forbids. */
+export function readReply(reply: string, input: { mustInclude: string[]; mustNotAssert?: string[] }): { missing: string[]; forbidden: string[] } {
+  const text = normalizeReply(reply)
+  return { missing: input.mustInclude.filter((p) => !new RegExp(p, 'i').test(text)), forbidden: assertedPatterns(text, input.mustNotAssert ?? []) }
+}
+
 export function scoreLibrary(
   reply: string,
   input: { mustInclude: string[]; mustNotAssert?: string[]; passages: string; titles: string[] }
 ): LibraryScore {
-  const missing = input.mustInclude.filter((p) => !new RegExp(p, 'i').test(reply))
-  const forbidden = assertedPatterns(reply, input.mustNotAssert ?? [])
+  const text = normalizeReply(reply)
+  const { missing, forbidden } = readReply(text, input)
   return {
     answered: missing.length === 0,
     missing,
-    cited: citesSource(reply, input.titles),
-    unsupported: unsupportedMeasurements(reply, input.passages),
+    cited: citesSource(text, input.titles),
+    unsupported: unsupportedMeasurements(text, normalizeReply(input.passages)),
     forbidden
   }
 }

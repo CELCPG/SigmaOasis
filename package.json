@@ -33,6 +33,7 @@
     "eval:agent": "bash scripts/eval-agent.sh",
     "eval:diff": "bash scripts/eval-diff.sh",
     "eval:claims": "bash scripts/eval-claims.sh",
+    "eval:library-rescore": "bash scripts/eval-library-rescore.sh",
     "bench:render": "bash scripts/render-bench.sh",
     "bench:main-loop": "bash scripts/main-loop-bench.sh",
     "bench:latency": "bash scripts/bench-latency.sh",
