@@ -249,9 +249,14 @@ which ran 1,579 s then 578 s, x1.9 in pass 1 and x2.8 in pass 2),
 under a second, decode 42 against 95.5 tok/s. The chat gives up on a first byte at 300 s, the agent
 at 360 s: the 261 s prefill is inside both, 39 s short of the chat's.
 
-**After `4.5/claims` merges** (H3b): it stamps every scored agent file with a `claimsRule` and makes
-`eval:diff` refuse to compare, merge or join files scored by different rules. The tool-choice file here
-holds no claims and needs nothing; its test only reads `agent-*` baselines. The two agent passes in
-`.eval-results/` (and any pass 3–4) are scored by the old rule: re-score them with
-`npm run eval:claims -- <results folders> --rescore <files> --write` before they meet a stamped baseline
-(H7 does it).
+**The claims rule** (H3b, merged before this section; re-scored in H7). `4.5/claims` stamps every
+scored agent file with a `claimsRule` and makes `eval:diff` refuse to compare, merge or join files
+scored by different rules. The tool-choice file here holds no claims and needs nothing (it has no
+`suite: agent`, so `eval:claims --rescore` passes it by; its test only reads `agent-*` baselines).
+The two agent passes were scored by the old rule and are now on rule 2: `npm run eval:claims --
+<h1 results> --rescore <the 18 chunk files and the joined passes> --write` read 50 of their 52 runs
+from a report (the other 2 have none and were not stored as claims) and **moved 0 flags** —
+claimedPass, falseClaim and solved alike — so the verdict above stands as written. Stamped, the two
+passes diff against `agent-qwen3.8-9b-distill.json` (rule 2) as TOO-FEW-PASSES (exit 3, "claims
+rule 2: false claims read by it on both sides"); unstamped, the diff refused them (exit 2). Passes
+3–4, recorded on 4.5's harness, are stamped when they are written.
