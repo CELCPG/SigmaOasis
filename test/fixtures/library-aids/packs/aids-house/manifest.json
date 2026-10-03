@@ -49,6 +49,14 @@
       "file": "home-inspection-report.md"
     },
     {
+      "id": "homeowner-faq",
+      "title": "Homeowner questions we saved",
+      "source": "fixture://library-aids/aids-house/homeowner-faq.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "homeowner-faq.md"
+    },
+    {
       "id": "load-bearing-walls",
       "title": "Opening up a wall",
       "source": "fixture://library-aids/aids-house/load-bearing-walls.md",

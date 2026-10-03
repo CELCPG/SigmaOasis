@@ -18,6 +18,10 @@
     {
       "doc": "tax-prep-notes",
       "section": "Documents to gather"
+    },
+    {
+      "doc": "money-faq",
+      "section": "Can I deduct my home office?"
     }
   ],
   "mustInclude": [

@@ -18,6 +18,10 @@
     {
       "doc": "retirement-account-rules",
       "section": "Rolling over an old 401(k)"
+    },
+    {
+      "doc": "money-faq",
+      "section": "How does an employer 401(k) match work?"
     }
   ],
   "mustInclude": [

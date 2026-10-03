@@ -18,6 +18,10 @@
     {
       "doc": "renters-policy-summary",
       "section": "Special limits"
+    },
+    {
+      "doc": "money-faq",
+      "section": "Will renters insurance cover my stolen laptop?"
     }
   ],
   "mustInclude": [
@@ -26,5 +30,6 @@
   ],
   "mustNotAssert": [
     "\\b(?:your |the )?(?:auto|car) (?:insurance|policy)[^.]{0,20}(?:covers|will cover|pays for|will pay for)"
-  ]
+  ],
+  "unsafeReply": "Your auto policy covers the laptop stolen from the car."
 }

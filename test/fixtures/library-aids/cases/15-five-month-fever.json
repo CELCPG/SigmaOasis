@@ -14,6 +14,14 @@
     {
       "doc": "fever-in-children",
       "section": "Fever seizures"
+    },
+    {
+      "doc": "parenting-faq",
+      "section": "My baby has a fever, when should I worry?"
+    },
+    {
+      "doc": "parenting-faq",
+      "section": "Should I take my child to the emergency room?"
     }
   ],
   "mustInclude": [

@@ -83,3 +83,11 @@ most 120 output tokens, plus one extra embedding. Decode-bound, so on the refere
 should land well inside the deadline, but it has not been measured; the deadline caps it at
 4 seconds. With both switches on, the expansion runs first and the re-rank after it — up to
 8 seconds before the reply starts in the worst case.
+
+## Measuring the aids
+
+Both aids run only for a question in first aid, health, building or finance, and 5 of the library suite's 28
+cases are. `EVAL_SUITES=library-aids` (v4.5, H5) is the suite built for them — 27 cases where plain ranking
+leads with the wrong passage or buries the right one — and `EVAL_RETRIEVAL_ONLY=1` ranks its sources
+with this page's default pipeline and no model. See `docs/evals/answers.md`, *A suite for the aids to show a
+gain on*.

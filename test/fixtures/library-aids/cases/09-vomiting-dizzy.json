@@ -18,6 +18,10 @@
     {
       "doc": "fever-and-flu-adults",
       "section": "When an adult should call a doctor"
+    },
+    {
+      "doc": "adult-health-faq",
+      "section": "I have been throwing up and feel dizzy, should I see a doctor?"
     }
   ],
   "mustInclude": [

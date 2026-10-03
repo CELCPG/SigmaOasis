@@ -559,16 +559,22 @@ async function runLibraryRetrieval(suite: LibrarySuiteConfig): Promise<void> {
     )
   }
 
-  const line = (name: string, ranks: number[]): string => {
-    const s = splitRanks(ranks)
-    return `  ${name.padEnd(15)} ${String(s.of).padStart(2)} cases · top-1 ${s.top1} · top-3 ${s.top3} · top-5 ${s.top5} · top-12 ${s.top12} · missed ${s.missed} · headroom (2nd-5th) ${headroom(ranks)}`
+  // top-1, top-3 and top-5 read the app-initiated lookup (topK 5); "within 12" and "missed" the widest lookup there is.
+  const line = (name: string, of: Row[]): string => {
+    const five = splitRanks(of.map((r) => r.rank5))
+    const twelve = splitRanks(of.map((r) => r.rank12))
+    return (
+      `  ${name.padEnd(15)} ${String(five.of).padStart(2)} cases · first ${five.top1} · top-3 ${five.top3} · top-5 ${five.top5} · within 12 ${twelve.top12} · missed ${twelve.missed}` +
+      ` · headroom: ${headroom(of.map((r) => r.rank5))} at #2-#5, ${of.filter((r) => r.rank5 === 0 && r.rank12 > 0).length} outside the five`
+    )
   }
   const kinds = [...new Set(rows.map((r) => r.kind ?? ''))]
-  console.log('\n  ✓ first  ◐ retrieved, not first  ✗ not among the five\n')
-  console.log(line('all', rows.map((r) => r.rank5)))
-  for (const k of kinds) if (k) console.log(line(k, rows.filter((r) => r.kind === k).map((r) => r.rank5)))
-  const reach = rows.filter((r) => r.rank5 === 0 && r.rank12 > 0).length
-  console.log(`\n  not among the five but within twelve: ${reach} · fused order rank 2-15 (the re-rank's pool) while the lookup gave #1: ${rows.filter((r) => r.rank5 === 1 && r.fusedRank > 1).length}`)
+  console.log('\n  ✓ first  ◐ retrieved, not first  ✗ not among the five (the number after the slash is the twelve-passage lookup)\n')
+  console.log(line('all', rows))
+  for (const k of kinds) if (k) console.log(line(k, rows.filter((r) => r.kind === k)))
+  const byRank = [1, 2, 3, 4, 5].map((n) => `#${n}: ${rows.filter((r) => r.rank5 === n).length}`).join(' · ')
+  console.log(`\n  where the source stood in the five — ${byRank} · outside: ${rows.filter((r) => r.rank5 === 0).length} (ranks ${rows.filter((r) => r.rank5 === 0).map((r) => r.rank12 || '-').join(', ') || 'none'} in the twelve)`)
+  console.log(`  fused order before the floor, guard and MMR (the order the re-rank's pool of 15 is cut from): the source is within 15 in ${rows.filter((r) => r.fusedRank >= 1 && r.fusedRank <= 15).length}/${rows.length}`)
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const outFile = join(RESULTS_DIR, `library-retrieval-${suite.name}-${stamp}.json`)

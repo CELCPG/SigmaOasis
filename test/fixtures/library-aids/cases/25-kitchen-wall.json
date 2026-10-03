@@ -18,6 +18,10 @@
     {
       "doc": "load-bearing-walls",
       "section": "Non-bearing partitions"
+    },
+    {
+      "doc": "homeowner-faq",
+      "section": "Can I remove the wall between my kitchen and dining room?"
     }
   ],
   "mustInclude": [

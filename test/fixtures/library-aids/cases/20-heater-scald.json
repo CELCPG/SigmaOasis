@@ -18,6 +18,10 @@
     {
       "doc": "gas-appliance-notes",
       "section": "Annual service"
+    },
+    {
+      "doc": "homeowner-faq",
+      "section": "What temperature should my water heater be set to?"
     }
   ],
   "mustInclude": [

@@ -57,6 +57,14 @@
       "file": "health-plan-summary.md"
     },
     {
+      "id": "money-faq",
+      "title": "Money questions we saved",
+      "source": "fixture://library-aids/aids-money/money-faq.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "money-faq.md"
+    },
+    {
       "id": "mortgage-notes",
       "title": "Mortgage notes",
       "source": "fixture://library-aids/aids-money/mortgage-notes.md",

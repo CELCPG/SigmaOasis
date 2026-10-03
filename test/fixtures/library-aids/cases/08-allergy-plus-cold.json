@@ -18,6 +18,14 @@
     {
       "doc": "medicine-cabinet-notes",
       "section": "Ibuprofen"
+    },
+    {
+      "doc": "parenting-faq",
+      "section": "Can my child take cold medicine and allergy medicine together?"
+    },
+    {
+      "doc": "adult-health-faq",
+      "section": "Can I take two medicines at once?"
     }
   ],
   "mustInclude": [

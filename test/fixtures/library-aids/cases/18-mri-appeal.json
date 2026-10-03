@@ -18,6 +18,10 @@
     {
       "doc": "health-plan-summary",
       "section": "Costs at a glance"
+    },
+    {
+      "doc": "money-faq",
+      "section": "Why was my health insurance claim denied?"
     }
   ],
   "mustInclude": [

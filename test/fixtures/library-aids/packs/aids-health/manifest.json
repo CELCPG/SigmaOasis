@@ -9,6 +9,14 @@
   "sourceNote": "Written for the library-aids eval suite (test/fixtures/library-aids); realistic personal-library material, not a real agency page. Figures are fixture figures.",
   "docs": [
     {
+      "id": "adult-health-faq",
+      "title": "Adult health questions we saved",
+      "source": "fixture://library-aids/aids-health/adult-health-faq.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "adult-health-faq.md"
+    },
+    {
       "id": "allergies-and-asthma",
       "title": "Allergies and asthma",
       "source": "fixture://library-aids/aids-health/allergies-and-asthma.md",
@@ -79,6 +87,14 @@
       "license": "Fixture text written for Sigma Oasis's eval (MIT)",
       "date": "written 2026-10-03",
       "file": "medicine-cabinet-notes.md"
+    },
+    {
+      "id": "parenting-faq",
+      "title": "Parenting questions we saved",
+      "source": "fixture://library-aids/aids-health/parenting-faq.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "parenting-faq.md"
     },
     {
       "id": "sprains-and-strains",
