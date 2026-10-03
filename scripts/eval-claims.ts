@@ -2,7 +2,7 @@
  * v4.5 (H3, H3b): read recorded agent runs the way the unrun-claim guard does.
  *
  *   npm run eval:claims -- <results.json | folder> [more …] [--before <git-rev>] [--same] [--list]
- *   npm run eval:claims -- <results folders> --rescore <results.json> [more …] [--write]
+ *   npm run eval:claims -- <results folders> --rescore <results.json> [more …] [--write [--reformat]]
  *
  * For every agent results file (a folder is walked; identical files and runs
  * are counted once) it re-scores each run with the shared rule in
@@ -29,7 +29,8 @@
  * re-scored from its report, the stored noise is measured again, and the file
  * is stamped (`claimsRule`) so eval:diff can refuse a comparison across rules
  * (src/main/agent/evalRescore.ts). Without --write it only says what would
- * move. A committed baseline keeps no report, so its reports are read from the
+ * move; a file that is not 2-space JSON is not written (its diff would be the
+ * whole file) unless --reformat says so. A committed baseline keeps no report, so its reports are read from the
  * full results in the folders named before --rescore, by the run's own
  * fingerprint (model, case, wall time, tokens, rounds); a run whose report is
  * nowhere is left as it was and counted.
@@ -155,6 +156,7 @@ function main(argv: string[]): number {
   const list = args.includes('--list')
   const same = args.includes('--same')
   const write = args.includes('--write')
+  const reformat = args.includes('--reformat')
   const paths = args.filter((a) => !a.startsWith('--'))
   if (paths.length === 0 && rescore.length === 0) {
     process.stderr.write('usage: npm run eval:claims -- <results.json | folder> [more …] [--before <git-rev>] [--same] [--list]\n       npm run eval:claims -- <results folders> --rescore <results.json> [more …] [--write]\n')
@@ -231,8 +233,8 @@ function main(argv: string[]): number {
         w(`  flags moved: claimedPass ${byField('claimedPass').length}, falseClaim ${byField('falseClaim').length}, solved ${byField('solved').length}`)
         for (const c of res.changes) w(`    pass ${c.pass} ${c.case} (${c.model}): ${c.field} ${c.was} → ${c.now}`)
         if (write) {
-          if (JSON.stringify(j, null, 2) + '\n' !== raw) {
-            w('  NOT written: the file is not 2-space JSON with a final newline, and writing would reformat all of it')
+          if (!reformat && JSON.stringify(j, null, 2) + '\n' !== raw) {
+            w('  NOT written: the file is not 2-space JSON with a final newline, and writing would reformat all of it (--reformat to write it anyway)')
             refused++
             continue
           }

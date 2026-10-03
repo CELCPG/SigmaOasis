@@ -438,6 +438,9 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
   const regressions: string[] = []
   const improvements: string[] = []
   const rows: DiffRow[] = []
+  // v4.5 (H3b): what a BETTER rests on — a banded line moved beyond its band, or only a never-banded line fell.
+  let bandedBetter = false
+  let neverBandedFall = ''
 
   if (base.model !== run.model) notes.push(`different models: ${base.model} (baseline) vs ${run.model} (run)`)
   if (base.arm !== run.arm) notes.push(`different arms: ${base.arm} (baseline) vs ${run.arm} (run)`)
@@ -490,7 +493,10 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
     rows.push({ metric: label, baseline: show(bt, nb.sdBase), run: show(rt, sampleSd(rates(rt))), delta: signed(nb.delta * scale), band: `±${f2(band * scale)}`, verdict })
     const moved = `${nb.delta < 0 ? 'fell' : 'rose'} from ${f2(mean(rates(bt)) * scale)} to ${f2(mean(rates(rt)) * scale)} of ${scale} per pass (${signed(nb.delta * scale)}; noise band ±${f2(band * scale)})`
     if (verdict === 'WORSE') regressions.push(`${label} ${moved}`)
-    if (verdict === 'BETTER') improvements.push(`${label} ${moved}`)
+    if (verdict === 'BETTER') {
+      improvements.push(`${label} ${moved}`)
+      bandedBetter = true
+    }
   }
 
   // The gate's first line: solved (clean) per pass, over every common case.
@@ -527,7 +533,10 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
     const fell = rr < br - 1e-9
     rows.push({ metric: `${label} (never banded)`, baseline: pct(b.hit, b.of), run: pct(r.hit, r.of), delta: pp(br, rr), band: '', verdict: rose ? 'WORSE' : !enough ? '' : fell ? 'BETTER' : 'SAME-WITHIN-NOISE' })
     if (rose) regressions.push(`${label} rose from ${pct(b.hit, b.of)} to ${pct(r.hit, r.of)} — never banded: any rise is WORSE`)
-    else if (fell && enough) improvements.push(`${label} fell from ${pct(b.hit, b.of)} to ${pct(r.hit, r.of)}`)
+    else if (fell && enough) {
+      improvements.push(`${label} fell from ${pct(b.hit, b.of)} to ${pct(r.hit, r.of)}`)
+      neverBandedFall = `${label} ${pct(b.hit, b.of)} → ${pct(r.hit, r.of)}`
+    }
   }
 
   rows.push({ metric: 'runs excluded (server failures)', baseline: String(base.excluded), run: String(run.excluded), delta: '', band: '', verdict: '' })
@@ -573,6 +582,11 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
 
   const verdict: Verdict = regressions.length ? 'WORSE' : !enough ? 'TOO-FEW-PASSES' : improvements.length ? 'BETTER' : 'SAME-WITHIN-NOISE'
   const which = describeBase(base, run)
+  if (verdict === 'BETTER' && !bandedBetter && neverBandedFall) {
+    notes.push(
+      `this BETTER rests only on a fall in a never-banded line (${neverBandedFall}): it has no noise band, so one report moves it — and since 4.5 the rule finds real false claims the first one missed, so a side that had one can read as better than it was. No banded line moved; read ${SOLVED_LABEL[suite]} per pass before turning anything on (docs/evals/claims.md)`
+    )
+  }
   if (verdict === 'BETTER' && !which.sameDay) {
     const against = which.kind === 'committed baseline' ? 'a committed baseline' : which.kind === 'control from another session' ? "another session's control" : 'an untagged run'
     notes.push(`BETTER against ${against}: a switch turns on only beside a same-day control — run the arm with EVAL_CONTROL=1 (or as EVAL_SESSION slices beside its control) and diff against that (ROADMAP-v4.4, G1)`)

@@ -533,4 +533,18 @@ describe('one claim rule on both sides (v4.5, H3b)', () => {
     const fewer = diffResults(agentFile(passes(26, [18, 19, 18, 18], { falseClaims: [1, 0, 0, 0] })), base)
     assert.equal(row(fewer, /^false claims/).verdict, 'BETTER')
   })
+
+  test('a BETTER that rests only on a fall in false claims says so — one report moves a line that has no band', () => {
+    // 4.4's toolsByPhase beside its control, read by rule 2: the control gained the one false claim 4.4's window missed; solved did not move.
+    const control = agentFile(passes(26, [18, 19, 18, 13], { falseClaims: [0, 0, 1, 0] }), { session: { id: 'g3', role: 'control' } })
+    const arm = agentFile(passes(26, [17, 17, 15, 18]), { experiments: { toolsByPhase: true }, session: { id: 'g3', role: 'arm' } })
+    const d = diffResults(control, arm)
+    assert.equal(d.verdict, 'BETTER', formatDiff(d))
+    assert.equal(row(d, /^solved per pass/).verdict, 'SAME-WITHIN-NOISE')
+    assert.ok(d.notes.some((n) => /rests only on a fall in a never-banded line \(false claims 1\/104 \(1\.0%\) → 0\/104 \(0\.0%\)\)/.test(n)), d.notes.join('\n'))
+    // a BETTER the solved line earned carries no such note
+    const solid = diffResults(agentFile(passes(26, [14, 14, 14, 14])), agentFile(passes(26, [22, 22, 22, 22])))
+    assert.equal(solid.verdict, 'BETTER')
+    assert.ok(!solid.notes.some((n) => /never-banded/.test(n)))
+  })
 })
