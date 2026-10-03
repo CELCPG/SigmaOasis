@@ -5,6 +5,8 @@ import { writeFileAtomic } from './fsAtomic'
 import { runAgentTask } from '../agent/engine'
 import { defaultShell } from '../agent/command'
 import { auditedTransport } from './agent'
+import { prepareAgentRoute } from './agentRoute'
+import { agentConnectionOn, onAgentConnection, type AgentRoute } from '../agent/connection'
 import { pinChatModel } from './modelPin'
 import { getSettings } from './store'
 import { recordAuditEntry } from './audit'
@@ -454,14 +456,26 @@ async function runAgentJob(job: Job): Promise<JobRunResult> {
   }
   const modelId = job.args.modelId ?? firstEnabledModel()
   if (!modelId) return { outcome: 'failed', note: 'No enabled model to run the task with.' }
-  await pinChatModel(modelId).catch(() => undefined)
+  // 4.6 (J1): an agent job is the agent, so it runs where the agent runs —
+  // on the agent connection when that is on, checked first, never pinned.
+  let route: AgentRoute = { via: 'main', baseUrl: settings.baseUrl, model: modelId }
+  let contextTokens: number | undefined
+  if (agentConnectionOn(settings.agentConnection)) {
+    const prepared = await prepareAgentRoute(modelId)
+    if (!prepared.ok) return { outcome: 'failed', note: prepared.error }
+    route = prepared.route
+    contextTokens = prepared.contextTokens
+  } else {
+    await pinChatModel(modelId).catch(() => undefined)
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), AGENT_JOB_MS)
   try {
     const result = await runAgentTask(
       {
-        baseUrl: settings.baseUrl,
-        model: modelId,
+        baseUrl: route.baseUrl,
+        model: route.model,
+        ...(contextTokens ? { contextTokens } : {}),
         workspace: folder,
         permission: 'readOnly',
         prompt,
@@ -479,7 +493,7 @@ async function runAgentJob(job: Job): Promise<JobRunResult> {
         approveCommand: async () => 'declined'
       }
     )
-    if (result.status !== 'done') return { outcome: 'failed', note: result.detail ?? `the task ended ${result.status}` }
+    if (result.status !== 'done') return { outcome: 'failed', note: result.detail ? onAgentConnection(result.detail, route) : `the task ended ${result.status}` }
     return {
       outcome: 'ok',
       note: `${result.finalText.length.toLocaleString('en-US')} characters`,

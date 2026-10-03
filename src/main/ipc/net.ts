@@ -194,11 +194,24 @@ export function allowedHosts(purpose: NetworkPurpose): string[] {
     case 'command':
       return []
     case 'lmstudio': {
+      const hosts: string[] = []
       try {
-        return [new URL(settings.baseUrl).hostname]
+        hosts.push(new URL(settings.baseUrl).hostname)
       } catch {
-        return []
+        // an unparseable address allows nothing
       }
+      // 4.6 (J1): the agent connection's server, only while it is on. The
+      // normalizer keeps it on this machine (store.ts), so this adds no egress;
+      // it is a model server like LM Studio — loopback, direct, never proxied.
+      if (settings.agentConnection?.enabled) {
+        try {
+          const host = new URL(settings.agentConnection.baseUrl).hostname
+          if (isLoopbackHostname(host) && !hosts.includes(host)) hosts.push(host)
+        } catch {
+          // as above
+        }
+      }
+      return hosts
     }
     case 'search': {
       switch (settings.search.provider) {

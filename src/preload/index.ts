@@ -145,6 +145,11 @@ const api = {
     { models: ModelInfo[]; detailed: boolean } | { error: string }
   > => ipcRenderer.invoke('models:catalog'),
 
+  /** 4.6 (J1): the agent connection's server, the same reader; `off` while the connection is off (nothing is asked then). */
+  getAgentModelCatalog: (): Promise<
+    { models: ModelInfo[]; detailed: boolean } | { error: string; off?: true }
+  > => ipcRenderer.invoke('models:agentCatalog'),
+
   /** Compact dropped conversation history into a carry-forward note (main/ipc/summarize.ts). */
   summarizeConversation: (request: {
     previousSummary?: string
@@ -355,7 +360,8 @@ const api = {
 
   // v3.0: agent tasks run in the main process (main/ipc/agent.ts); the window
   // starts, steers, stops and draws them, and is never what keeps one alive.
-  agentRun: (req: AgentRunRequest): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('agent:run', req),
+  // 4.6 (J1): on the agent connection, `model` and `connection` say what runs the task.
+  agentRun: (req: AgentRunRequest): Promise<{ ok: boolean; error?: string; model?: string; connection?: string }> => ipcRenderer.invoke('agent:run', req),
   agentStop: (taskId: string): Promise<boolean> => ipcRenderer.invoke('agent:stop', taskId),
   /** v4.0: the shell the agent's run_command uses on this machine. */
   agentShell: (): Promise<{ name: string; file: string }> => ipcRenderer.invoke('agent:shell'),

@@ -115,6 +115,8 @@ export interface HarnessState {
   v1ModelsBody: unknown
   /** What GET /props answers (4.5 H4a): a recorded payload, or a status with no body. Null = 404, as LM Studio does. */
   propsResponse: { status: number; body: unknown } | null
+  /** 4.6 (J1): origins nothing listens on — a request to one fails as a refused connection does. */
+  refusedOrigins: string[]
   /**
    * DNS answers per hostname, for search.ts's SSRF guard. Anything not listed
    * resolves to a public address.
@@ -170,6 +172,7 @@ export const state: HarnessState = {
   catalogModels: null,
   v1ModelsBody: null,
   propsResponse: null,
+  refusedOrigins: [],
   dnsOverrides: {},
   dnsFailures: [],
   encryptionAvailable: true,
@@ -213,6 +216,7 @@ export function resetState(): void {
   state.catalogModels = null
   state.v1ModelsBody = null
   state.propsResponse = null
+  state.refusedOrigins = []
   state.dnsOverrides = {}
   state.dnsFailures = []
   state.encryptionAvailable = true
@@ -303,6 +307,8 @@ const netStub = {
     purpose: string
   ) => {
     state.fetchLog.push({ url, purpose })
+
+    if (state.refusedOrigins.some((o) => url.startsWith(`${o}/`))) throw new Error(`connect ECONNREFUSED ${new URL(url).host}`)
 
     if (url.endsWith('/api/v0/models/load')) {
       if (state.pinUnavailable) {

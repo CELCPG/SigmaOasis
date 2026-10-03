@@ -8,7 +8,9 @@ import { writeFileAtomic } from './fsAtomic'
 import { isLoopbackBaseUrl } from './loopback'
 import { DEFAULT_TOOL_TOGGLES, type ToolToggles } from '../../shared/tools'
 import { EXPERIMENT_KEYS, ROUND_MAX_TOKENS_OPTIONS } from '../agent/types'
+import { DEFAULT_AGENT_CONNECTION, normalizeAgentConnection, type AgentConnectionSettings } from '../agent/connection'
 import { normalizeDraftModel } from '../../shared/draftModel'
+export type { AgentConnectionSettings } from '../agent/connection'
 
 /**
  * Default settings shape. The renderer keeps a mirror of this shape in its
@@ -426,6 +428,12 @@ export interface AppSettings {
   mcp: McpSettings
   /** v3.0: the agent workspace. */
   agent: AgentSettings
+  /**
+   * 4.6 (J1): a second server for the agent alone (../agent/connection.ts).
+   * Off by default; chat, embeddings, titles, the library and the model pin
+   * stay on `baseUrl` whether it is on or not.
+   */
+  agentConnection: AgentConnectionSettings
 }
 
 /**
@@ -618,7 +626,8 @@ export function defaultSettings(): AppSettings {
       notify: true,
       // v4.0: every experiment off. The keys are EXPERIMENT_KEYS in main/agent/types.ts; a key not listed there is dropped by the normalizer.
       experiments: Object.fromEntries(EXPERIMENT_KEYS.map((k) => [k, false]))
-    }
+    },
+    agentConnection: { ...DEFAULT_AGENT_CONNECTION }
   }
 }
 
@@ -906,7 +915,11 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
       notify: settings.agent?.notify !== false,
       // Only known experiments, only true when written as true: a stale or misspelt key cannot switch one on.
       experiments: Object.fromEntries(EXPERIMENT_KEYS.map((k) => [k, settings.agent?.experiments?.[k] === true]))
-    }
+    },
+    // 4.6 (J1): on only when written as true; the address under the main
+    // address's loopback rule (normalizeBaseUrl above), in ../agent/connection.ts
+    // so `sigma` reads the app's file by the same rule.
+    agentConnection: normalizeAgentConnection(settings.agentConnection)
   }
   return normalized
 }
@@ -997,7 +1010,8 @@ export function migrateSettings(): void {
     audit: { ...defaults.audit, ...current.audit },
     plan: { ...defaults.plan, ...current.plan },
     mcp: { ...defaults.mcp, ...mcp },
-    agent: { ...defaults.agent, ...current.agent }
+    agent: { ...defaults.agent, ...current.agent },
+    agentConnection: { ...defaults.agentConnection, ...current.agentConnection }
   } as AppSettings
   writeSettings(normalizeSettings(merged))
 }
