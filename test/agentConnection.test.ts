@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { load, resetState, state } from './harness'
+import { load, readSource, resetState, state } from './harness'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { agentResultsFile, evalAgentConnection } from '../src/main/agent/evalHarness'
@@ -15,7 +15,8 @@ import {
   normalizeAgentConnection,
   onAgentConnection,
   pickServedModel,
-  routeAgent
+  routeAgent,
+  taskDetail
 } from '../src/main/agent/connection'
 import { runAgentTask } from '../src/main/agent/engine'
 import type { AgentHost, ChunkTransport, ShellSpec } from '../src/main/agent/types'
@@ -98,6 +99,23 @@ describe('the route', () => {
     assert.equal(onAgentConnection('fetch failed', on), `On the agent connection (${AGENT}): fetch failed`)
     assert.equal(onAgentConnection('LM Studio returned HTTP 500', routeAgent(MAIN, undefined, 'x')), 'LM Studio returned HTTP 500')
     assert.equal(describeRoute(on), `qwen3.8-35b-a3b on the agent connection (${AGENT})`)
+  })
+
+  test('only a failure is said of the server: a pause, a question or a stuck note is the task\'s own (the app, sigma and agent jobs all show this)', () => {
+    const on = routeAgent(MAIN, ON, 'x')
+    assert.equal(taskDetail({ status: 'error', detail: 'LM Studio went silent for 300 s and the request was cut.' }, on), `The agent connection's server (${AGENT}) went silent for 300 s and the request was cut.`)
+    for (const [status, detail] of [
+      ['paused', 'Paused after 40 rounds. Say “continue” to let it keep going.'],
+      ['paused', 'The agent asks: which file?'],
+      ['paused', 'Stopped: 3 failures in a row of run_command. Say how to go on, or “continue” to let it try again.'],
+      ['stopped', 'Stopped.']
+    ]) {
+      assert.equal(taskDetail({ status: status!, detail }, on), detail)
+    }
+    assert.equal(taskDetail({ status: 'done' }, on), undefined)
+    assert.equal(taskDetail({ status: 'error', detail: 'LM Studio returned HTTP 500' }, routeAgent(MAIN, undefined, 'x')), 'LM Studio returned HTTP 500', 'off: as the engine wrote it')
+    for (const f of ['ipc/agent.ts', 'ipc/jobs.ts']) assert.match(readSource(join(__dirname, '..', '..', 'src', 'main', f)), /taskDetail\(result, /, f)
+    assert.match(readSource(join(__dirname, '..', '..', 'src', 'cli', 'sigma.ts')), /result\.detail = taskDetail\(result, route\)/)
   })
 })
 

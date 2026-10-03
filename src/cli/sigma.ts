@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from 'path'
 import { createInterface, type Interface } from 'readline'
 import { runAgentTask, DEFAULT_MAX_ROUNDS } from '../main/agent/engine'
 import { restoreCheckpoints } from '../main/agent/checkpoints'
-import { agentConnectionOn, checkAgentServer, normalizeAgentConnection, onAgentConnection, routeAgent, type AgentRoute } from '../main/agent/connection'
+import { agentConnectionOn, checkAgentServer, normalizeAgentConnection, routeAgent, taskDetail, type AgentRoute } from '../main/agent/connection'
 import { fetchTransport } from '../main/agent/stream'
 import { defaultShell } from '../main/agent/command'
 import { expandCommand, loadCommands } from '../main/agent/commands'
@@ -540,8 +540,8 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
     history = result.history
     if (result.worktree) lastWorktree = result.worktree
     if (result.checkpoints.length > 0) lastCheckpoints = result.checkpoints
-    // 4.6 (J1): an error on the agent connection names it, not LM Studio.
-    if (result.detail) result.detail = onAgentConnection(result.detail, route)
+    // 4.6 (J1): a failure on the agent connection names it, not LM Studio.
+    result.detail = taskDetail(result, route)
     if (o.json) {
       // 4.6 (J1): which connection ran the task, for a script to read.
       const ran = { via: route.via, baseUrl, model: currentModel }

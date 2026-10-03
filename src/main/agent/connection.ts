@@ -146,6 +146,15 @@ export function onAgentConnection(detail: string, route: AgentRoute): string {
   return named === detail ? `On the agent connection (${route.baseUrl}): ${detail}` : named.charAt(0).toUpperCase() + named.slice(1)
 }
 
+/**
+ * What a host shows under a finished task: a failure on the agent connection
+ * says which server failed; a pause, a question or a stuck note is the task's
+ * own and is left as the engine wrote it.
+ */
+export function taskDetail(result: { status: string; detail?: string }, route: AgentRoute): string | undefined {
+  return result.detail && result.status === 'error' ? onAgentConnection(result.detail, route) : result.detail
+}
+
 /** One line for a header or a log: `qwen3.8-35b-a3b on the agent connection (http://127.0.0.1:8081/v1)`. */
 export function describeRoute(route: AgentRoute): string {
   return route.via === 'agent' ? `${route.model || 'the server’s model'} on the agent connection (${route.baseUrl})` : `${route.model} on LM Studio (${route.baseUrl})`

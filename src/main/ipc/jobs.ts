@@ -6,7 +6,7 @@ import { runAgentTask } from '../agent/engine'
 import { defaultShell } from '../agent/command'
 import { auditedTransport } from './agent'
 import { prepareAgentRoute } from './agentRoute'
-import { agentConnectionOn, onAgentConnection, type AgentRoute } from '../agent/connection'
+import { agentConnectionOn, taskDetail, type AgentRoute } from '../agent/connection'
 import { pinChatModel } from './modelPin'
 import { getSettings } from './store'
 import { recordAuditEntry } from './audit'
@@ -493,7 +493,7 @@ async function runAgentJob(job: Job): Promise<JobRunResult> {
         approveCommand: async () => 'declined'
       }
     )
-    if (result.status !== 'done') return { outcome: 'failed', note: result.detail ? onAgentConnection(result.detail, route) : `the task ended ${result.status}` }
+    if (result.status !== 'done') return { outcome: 'failed', note: taskDetail(result, route) ?? `the task ended ${result.status}` }
     return {
       outcome: 'ok',
       note: `${result.finalText.length.toLocaleString('en-US')} characters`,

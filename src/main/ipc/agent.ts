@@ -13,7 +13,7 @@ import { writeFileAtomic } from './fsAtomic'
 import { hostWindow } from './hostWindow'
 import { fetchModelCatalog } from './modelCatalog'
 import { prepareAgentRoute } from './agentRoute'
-import { agentConnectionOn, onAgentConnection, type AgentRoute } from '../agent/connection'
+import { agentConnectionOn, taskDetail, type AgentRoute } from '../agent/connection'
 import { draftRejected, noteDraftRejected, pinChatModel } from './modelPin'
 import { withDraftFallback } from '../agent/draftFallback'
 import { draftModelFor } from '../../shared/draftModel'
@@ -344,8 +344,8 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest, onA
         extraTools: appTools(sender, req.conversationId, req.model)
       }
     )
-    // 4.6 (J1): the engine's words name LM Studio; say which server it was.
-    if (onAgent && result.detail) result = { ...result, detail: onAgentConnection(result.detail, onAgent.route) }
+    // 4.6 (J1): a failed task's words name LM Studio; say which server it was.
+    if (onAgent && result.detail) result = { ...result, detail: taskDetail(result, onAgent.route) }
   } catch (err) {
     // runAgentTask does not throw; this is the pin or the catalog, or a bug.
     result = {
