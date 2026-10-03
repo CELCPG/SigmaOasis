@@ -1,5 +1,6 @@
 import type { ToolCallRecord, ToolResult, ToolSchema } from '../../renderer/src/types'
 import type { PatchStats } from '../../shared/patch'
+import type { ClaimMark } from './claims'
 
 /**
  * The agent engine's vocabulary (v3.0).
@@ -14,6 +15,7 @@ import type { PatchStats } from '../../shared/patch'
  */
 
 export type { ToolCallRecord, ToolResult, ToolSchema }
+export type { ClaimMark }
 
 /**
  * How much the agent may do without asking, per task.
@@ -244,6 +246,11 @@ export interface AgentTaskResult {
   /** v4.0 (A9): the worktree and branch this task worked on, for the next turn and the user. */
   worktree?: { path: string; branch: string }
   detail?: string
+  /**
+   * v4.5 (H3): set when the report says the tests pass and the run does not
+   * show it (./claims.ts). An annotation: the report's text is unchanged.
+   */
+  claim?: ClaimMark
 }
 
 /** A file as it was before the task first changed it (content null: did not exist). */

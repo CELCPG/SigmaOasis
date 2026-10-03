@@ -1465,6 +1465,12 @@ export interface AgentTurnState {
   elided?: number
   /** v4.0 (A6): the question the task paused on, with its choices. */
   question?: { question: string; choices: string[] }
+  /**
+   * v4.5 (H3): the report says the tests pass and the run does not show it
+   * (main/agent/claims.ts). `text` is the mark in plain words; the report's own
+   * text is untouched.
+   */
+  claim?: { claim: 'tests-pass'; shows: 'no-run' | 'failed' | 'unfinished'; exitCode?: number; text: string }
   startedAt: number
   endedAt?: number
   /** The workspace it ran in, as it was when the turn started. */

@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, measureNoise, mergeResults, noiseBand, passesToResolve, sampleSd, trimForBaseline } from '../src/main/agent/evalDiff'
+import { CLAIMS_RULE } from '../src/main/agent/claims'
 import type { CaseRun } from '../src/main/agent/evalHarness'
 import type { EvalFixtureRun } from '../src/renderer/src/lib/evalRunner'
 
@@ -14,6 +15,7 @@ const run = (c: string, solved: boolean, extra: Partial<CaseRun> = {}): CaseRun 
 
 const agentFile = (passes: CaseRun[][], extra: Record<string, unknown> = {}): Record<string, unknown> => ({
   suite: 'agent',
+  claimsRule: CLAIMS_RULE,
   model: 'm',
   experiments: {},
   baseUrl: 'http://127.0.0.1:1234/v1',
@@ -479,5 +481,70 @@ describe('a floor under a short control\'s spread (v4.4, G1)', () => {
     // A floor is a floor: a noisier control keeps its own spread.
     const loud = diffResults(agentFile(passes(26, [12, 24, 14, 22]), tag('control')), arm, { noiseFloor: { noise: committed.noise as ReturnType<typeof measureNoise>, from: 'b' } })
     assert.ok(Number(row(loud, /^solved per pass/).band.slice(1)) > 3.53)
+  })
+})
+
+describe('one claim rule on both sides (v4.5, H3b)', () => {
+  const stale = (passes_: CaseRun[][]): Record<string, unknown> => {
+    const { claimsRule: _r, ...rest } = agentFile(passes_)
+    return rest
+  }
+  const FOUR = passes(26, [18, 19, 18, 18])
+
+  test('the runner stamps the rule its flags were scored under', () => {
+    assert.equal(agentFile(FOUR).claimsRule, CLAIMS_RULE)
+    assert.equal(CLAIMS_RULE, 2)
+  })
+
+  test('a diff across rules is refused, in words that say what to do', () => {
+    // 4.4's rule had a file say nothing: that is rule 1.
+    assert.throws(() => diffResults(stale(FOUR), agentFile(FOUR)), /the baseline was scored under claims rule 1 and the run under rule 2.*eval:claims.*--rescore/s)
+    assert.throws(() => diffResults(agentFile(FOUR), stale(FOUR)), /the baseline was scored under claims rule 2 and the run under rule 1/)
+    assert.throws(() => diffResults(agentFile(FOUR), agentFile(FOUR, { claimsRule: 3 })), /rule 2 .* rule 3/)
+  })
+
+  test('two sides scored by the same rule compare, and the table says which', () => {
+    const same = diffResults(agentFile(FOUR), agentFile(FOUR))
+    assert.equal(same.claimsRule, CLAIMS_RULE)
+    assert.match(formatDiff(same), new RegExp('^claims rule ' + CLAIMS_RULE + ': false claims read by it on both sides$', 'm'))
+    // two files from before the stamp were scored by the same (first) rule
+    assert.equal(diffResults(stale(FOUR), stale(FOUR)).claimsRule, 1)
+  })
+
+  test('a merge or a join of files scored under different rules is refused, and a merge keeps the stamp', () => {
+    assert.throws(() => mergeResults([agentFile(FOUR), stale(FOUR)], ['a.json', 'b.json']), /a\.json was scored under claims rule 2 and b\.json under rule 1/)
+    assert.throws(() => mergeResults([stale(FOUR), agentFile(FOUR)], ['a.json', 'b.json']), /a\.json was scored under claims rule 1 and b\.json under rule 2/)
+    assert.equal(mergeResults([agentFile(FOUR), agentFile(FOUR)]).claimsRule, CLAIMS_RULE)
+    const slice = (ids: string[], p = 2): Record<string, unknown> => agentFile(Array.from({ length: p }, () => ids.map((c) => run(c, true))))
+    assert.throws(() => joinSlices([slice(['a']), { ...slice(['b']), claimsRule: 1 }]), /claims rule/)
+    assert.equal(joinSlices([slice(['a']), slice(['b'])]).claimsRule, CLAIMS_RULE)
+  })
+
+  test('a saved baseline keeps the rule it was scored under', () => {
+    assert.equal(trimForBaseline(agentFile(FOUR), 'x', new Date('2026-10-03T00:00:00Z')).claimsRule, CLAIMS_RULE)
+    assert.equal(trimForBaseline(stale(FOUR), 'x', new Date('2026-10-03T00:00:00Z')).claimsRule, undefined)
+  })
+
+  test('false claims stay never banded: one more in 104 is WORSE, one fewer is BETTER', () => {
+    const base = agentFile(passes(26, [18, 19, 18, 18], { falseClaims: [0, 0, 0, 0] }))
+    const one = diffResults(base, agentFile(passes(26, [18, 19, 18, 18], { falseClaims: [1, 0, 0, 0] })))
+    assert.equal(one.verdict, 'WORSE', formatDiff(one))
+    assert.equal(row(one, /^false claims/).verdict, 'WORSE')
+    const fewer = diffResults(agentFile(passes(26, [18, 19, 18, 18], { falseClaims: [1, 0, 0, 0] })), base)
+    assert.equal(row(fewer, /^false claims/).verdict, 'BETTER')
+  })
+
+  test('a BETTER that rests only on a fall in false claims says so — one report moves a line that has no band', () => {
+    // 4.4's toolsByPhase beside its control, read by rule 2: the control gained the one false claim 4.4's window missed; solved did not move.
+    const control = agentFile(passes(26, [18, 19, 18, 13], { falseClaims: [0, 0, 1, 0] }), { session: { id: 'g3', role: 'control' } })
+    const arm = agentFile(passes(26, [17, 17, 15, 18]), { experiments: { toolsByPhase: true }, session: { id: 'g3', role: 'arm' } })
+    const d = diffResults(control, arm)
+    assert.equal(d.verdict, 'BETTER', formatDiff(d))
+    assert.equal(row(d, /^solved per pass/).verdict, 'SAME-WITHIN-NOISE')
+    assert.ok(d.notes.some((n) => /rests only on a fall in a never-banded line \(false claims 1\/104 \(1\.0%\) → 0\/104 \(0\.0%\)\)/.test(n)), d.notes.join('\n'))
+    // a BETTER the solved line earned carries no such note
+    const solid = diffResults(agentFile(passes(26, [14, 14, 14, 14])), agentFile(passes(26, [22, 22, 22, 22])))
+    assert.equal(solid.verdict, 'BETTER')
+    assert.ok(!solid.notes.some((n) => /never-banded/.test(n)))
   })
 })

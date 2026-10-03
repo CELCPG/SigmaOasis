@@ -4,7 +4,7 @@ import { join } from 'path'
 import { runAgentTask } from '../agent/engine'
 import { restoreCheckpoints } from '../agent/checkpoints'
 import { defaultShell } from '../agent/command'
-import type { AgentEvent, AgentTaskResult, Checkpoint, ChunkTransport, ExtraTools, PermissionMode, ToolSchema } from '../agent/types'
+import type { AgentEvent, AgentTaskResult, Checkpoint, ChunkTransport, ClaimMark, ExtraTools, PermissionMode, ToolSchema } from '../agent/types'
 import { PERMISSION_MODES } from '../agent/types'
 import type { ApiMessage } from '../../renderer/src/lib/agentLoop'
 import { TOOL_SCHEMAS } from '../../shared/tools'
@@ -76,6 +76,8 @@ export type AgentWireEvent =
       finalText: string
       changedFiles: string[]
       detail?: string
+      /** v4.5 (H3): the report says the tests pass and the run does not show it (../agent/claims.ts). */
+      claim?: ClaimMark
     }
 
 export interface AgentWirePayload {
@@ -338,7 +340,7 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
   // Undo restores the folder the task worked in — the worktree when it made one.
   const workedIn = result.workspace ?? req.workspace
   if (workedIn) await saveCheckpoints(req.conversationId, req.messageId, workedIn, result.checkpoints).catch(() => undefined)
-  send({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, ...(result.detail ? { detail: result.detail } : {}) })
+  send({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, ...(result.detail ? { detail: result.detail } : {}), ...(result.claim ? { claim: result.claim } : {}) })
   notifyFinished(sender, task, result.status)
 }
 

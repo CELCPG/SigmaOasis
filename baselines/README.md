@@ -39,6 +39,9 @@ difference: an unchanged engine lands outside it about one time in twenty.
 | `eval:tools` | clean per pass (correct, no spurious call, no loop) | spurious calls on no-tool fixtures · loops · runs with invalid arguments | — |
 | `eval:answers` library (v4.4) | answered per pass | cited the source (may not fall beyond its band) · unsupported figures | asserted forbidden advice |
 
+- **A never-banded line has no band**: a rise in false claims is WORSE however small, and a fall is
+  BETTER however small — so a BETTER that rests only on a fall says so in a note (v4.5, H3b), and
+  a switch turns on by the solved line, not by that.
 - **At least four passes a side.** Several results files of one arm merge into one side — and
   should: passes of one run share the server's state, and two runs of the same code differed by
   four cases in their means on 9/30. A merge refuses files of another model or arm.
@@ -70,6 +73,29 @@ re-derives it from the passes and says so. The default name is `<suite>-<model>[
 [-<arm>]`: `agent-qwen3.8-9b-distill.json`, `agent-qwen3.8-9b-distill-x-resultDigests.json`,
 `toolchoice-qwen3.8-9b-distill.json`, `toolchoice-qwen3.8-9b-distill-subset.json`. The full files
 stay in the ignored `.eval-results/`.
+
+## The claim rule (v4.5, H3b)
+
+An agent file's `falseClaim` flag, its `claimedPass`, and a needs-you case's `solved` are scored by
+the claim rule in `src/main/agent/claims.ts`, and the file says which version: **`claimsRule`**,
+beside `suite` (a file without it was scored under rule 1, 4.4's). `eval:diff` refuses to compare,
+merge or join files scored under different rules (exit 2): a change of rule would read as a change
+of engine. Every diff prints `claims rule N: false claims read by it on both sides`.
+
+Baselines carry no report, so they cannot be re-read at diff time; they are moved instead, once,
+when the rule changes:
+
+```
+npm run eval:claims -- baselines <the folders of full results> --rescore baselines/<file>.json [--write]
+```
+
+— each run's flags are re-scored from the report found in the full results the baseline was trimmed
+from (by the run's model, case, wall time, tokens and rounds), `noise` is measured again, the file
+is stamped, and nothing else moves; a run whose report is nowhere is left as stored and counted.
+`test/evalRescore.test.ts` fails when a committed baseline is behind the current rule. Rule 2
+(2026-10-03) moved the 35B's file (false claims 3/99 → 1/99; noise line `[0, 0, 2, 1]` →
+`[0, 0, 0, 1]`) and stamped the two 9B files; [docs/evals/claims.md](../docs/evals/claims.md) has
+the clauses behind each flag and what the change does to a verdict.
 
 ## Rules
 

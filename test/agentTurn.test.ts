@@ -246,6 +246,36 @@ describe('the timeline on screen', () => {
     assert.match(html, /Left b\.ts — it has been changed since the task wrote it/)
     assert.doesNotMatch(html, /↶ Undo changes/)
   })
+
+  // v4.5 (H3): the unrun-claim mark rides the closing event and is drawn under the report.
+  const CLAIM = { claim: 'tests-pass' as const, shows: 'no-run' as const, text: 'Says the tests pass — no passing test run in this task (no command ran).' }
+
+  test('a report that says the tests pass with no run behind it carries the mark, and the words are the app\'s, not the model\'s', async () => {
+    const m = fold(turn(), [
+      { type: 'text', delta: 'All tests pass.' },
+      { type: 'final', status: 'done', finalText: 'All tests pass.', changedFiles: [], claim: CLAIM }
+    ])
+    assert.deepEqual(m.agent!.claim, CLAIM)
+    assert.equal(m.content, 'All tests pass.', 'the report is untouched')
+    const html = await render(m)
+    assert.match(html, /data-testid="agent-claim"/)
+    assert.match(html, /Says the tests pass — no passing test run in this task \(no command ran\)\./)
+    assert.match(html, /role="note"/)
+    assert.match(html, /text-ink-warn/, 'drawn like the turn\'s other notices (agent.detail)')
+    assert.match(html, /All tests pass\./)
+  })
+
+  test('a report with nothing to mark shows no mark; a running turn shows none yet', async () => {
+    const done = fold(turn(), [{ type: 'final', status: 'done', finalText: 'All tests pass.', changedFiles: [] }])
+    assert.equal(done.agent!.claim, undefined)
+    assert.doesNotMatch(await render(done), /agent-claim/)
+    assert.doesNotMatch(await render(turn()), /agent-claim/)
+  })
+
+  test('the mark survives the turn being saved and read back', () => {
+    const m = fold(turn(), [{ type: 'final', status: 'done', finalText: 'All tests pass.', changedFiles: [], claim: CLAIM }])
+    assert.deepEqual((JSON.parse(JSON.stringify(m)) as ChatMessage).agent!.claim, CLAIM)
+  })
 })
 
 describe('the task list follows the task, not the chat', () => {
