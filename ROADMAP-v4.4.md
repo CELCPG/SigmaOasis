@@ -280,6 +280,11 @@ foreground of the chunk; nothing outlived one.
 3. **The 35B-A3B makes false claims the 9B does not** (3 in 99 runs against none in 312): it reports
    that tests pass without having run them. It solves more (20.70 against 17.88 of 25). Whether it
    is offered as an agent model, and with what warning, is Colin's.
+   **Corrected 2026-10-03 (v4.5, H3b):** the detector behind "3 in 99" counted two plans and
+   descriptions as claims. Under the corrected rule the 35B's baseline has **1 in 99** (`chain-slugify`,
+   no command ran), and the 9B's 312 have **1** (`long-discount-rules`, which the detector's 40-character
+   window had hidden; none on the 25 cases the 35B's baseline covers). One against one is not a
+   difference between the models at these sizes. `docs/evals/claims.md` has the clauses.
 4. Re-rank and the sample answer stay off (SAME-WITHIN-NOISE). Re-rank now works on a `<think>`
    family when turned on — it never did before (F2).
 5. **electron-builder 26 waits on the signed Mac build's dry run, which only Colin can start**

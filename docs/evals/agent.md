@@ -117,6 +117,14 @@ slice the chunk deadline killed was rerun from the case it stopped on.
 | reviewer, notes | 16, 14, 15, 16 | 5/104 | 2.50 | **WORSE** — false claims in every pass (`chain-slugify`, `read-only-why-failing`, `needs-you-outside-folder`, `feature-top-words`, `refactor-callback-to-promise`). Solved −3.00, inside ±3.05 |
 | `planRound` (9/30's two passes + two) | 14, 16, 15, 19 | 1/104 | 2.50 | **WORSE** — 9/30's false claim stands (the two new passes had none). Solved −2.25, inside ±3.05 |
 
+> **Re-read 2026-10-03 (v4.5, H3b).** The table is the record as 4.3 scored it, by 4.4's claim
+> detector. Six of the eleven false claims it counted were not claims — a plan, an instruction, a
+> description of code ([claims.md](claims.md)). Under the corrected rule the same files give: the
+> verify-round arm **0/104** false claims (was 1) and the `planRound` arm **0/104** (was 1) — both
+> **SAME-WITHIN-NOISE** (solved 16.75 and 16.00 against ±3.05), their only WORSE having been the
+> detector; reviewer + notes **3/104** (was 5), still **WORSE**. None had a BETTER, so every
+> experiment still stays off.
+
 `toolsByPhase` (4.1, A5) was never decided by a measurement and was not run here; it stays off,
 unmeasured — 4.4. **4.4 measured it** — below.
 
@@ -181,3 +189,10 @@ false claims in 99 runs — each a report that the tests pass with no test run b
 9B's default engine has none in 312; median 21 s a solved case against 16–17 s, at 68 tok/s
 against ~104 and a TTFT of 451 ms against ~205 ms, in 6 rounds against 9. One run was excluded:
 the server dropped the connection (`fetch failed`) on `office-letters-from-csv`.
+
+> **Corrected 2026-10-03 (v4.5, H3b).** Two of those three were not claims (a plan in
+> `needs-you-tax-rate`, "passes the name" in `read-only-why-failing`); the committed baseline now
+> reads **1 false claim in 99 runs** (`chain-slugify`), and the 9B's 312 hold **1** that 4.4's
+> detector missed (`long-discount-rules`; none on the 25 cases the 35B's baseline covers). The
+> table's "false claim" cells for those two cases are the old reading. See
+> [claims.md](claims.md#corrected-numbers-for-44s-decision-3).
