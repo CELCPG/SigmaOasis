@@ -125,10 +125,9 @@ jobs:
         run: node scripts/build-cli.mjs
 
       # From release.yml, unchanged — the keychain electron-builder 24 could not
-      # build for itself on the macOS 26.6 runner image. Whether 26 still needs
-      # it is one of the things a dry run can show, by a run with this step and
-      # one without it; until then it stays, so the dry run signs as the
-      # release does.
+      # build for itself on the macOS 26.6 runner image. 26.15.3's own keychain
+      # path has the same bug (release.yml says where), so it stays here too,
+      # and the dry run signs as the release does.
       - name: Import the Developer ID certificate into a keychain of our own
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}

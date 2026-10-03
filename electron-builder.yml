@@ -57,11 +57,13 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # teamId must be explicit: electron-builder does not map APPLE_TEAM_ID from
-  # the environment into the notarytool args on its own ("The teamId property
-  # is required when using notarization with password credentials").
-  notarize:
-    teamId: P85LBTGBM6
+  # v4.3 (electron-builder 26): a boolean. 24 needed teamId spelled out here
+  # ("The teamId property is required when using notarization with password
+  # credentials"); 25 made notarize a boolean and reads the team id from
+  # APPLE_TEAM_ID, which release.yml's build step sets from the secret. 26
+  # refuses the object form at config validation — for every platform's build,
+  # not only the Mac's.
+  notarize: true
   extendInfo:
     NSMicrophoneUsageDescription: Sigma Oasis uses the microphone for push-to-talk voice input, transcribed locally on your Mac.
 win:
