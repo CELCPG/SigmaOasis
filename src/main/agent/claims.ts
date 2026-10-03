@@ -178,6 +178,11 @@ function readsAsClaim(clause: string): boolean {
   })
 }
 
+/** A report's clauses, as the report wrote them: the units every reading of it works on. */
+export function reportClauses(text: string): string[] {
+  return splitClauses(text).map((c) => c.original)
+}
+
 /** The clauses of a report that say the tests pass, as the report wrote them. */
 export function claimClauses(text: string): string[] {
   return splitClauses(text)

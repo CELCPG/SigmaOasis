@@ -1,3 +1,4 @@
+import { CLAIMS_RULE } from './claims'
 import { summarize, type CaseRun } from './evalHarness'
 import { fmtMs, median } from './latency'
 import type { EvalFixtureRun } from '../../renderer/src/lib/evalRunner'
@@ -57,6 +58,18 @@ import { combineSessions, readSession, type MergedSession } from './evalSession'
  * forbidden advice — never banded, like a false claim: a library answer that
  * asserts what a case forbids is the unsafe advice the suite exists to catch.
  *
+ * v4.5 (H3b): **one claim rule on both sides.** The false-claim line, and a
+ * needs-you case's solved, are scored by the claim rule in claims.ts, and a
+ * results file records the version its flags were scored under (`claimsRule`;
+ * none = rule 1, 4.4's). A diff of two files scored under different rules would
+ * call a change of rule a change of engine — the 4.4 rule's six wrong marks in
+ * eleven made a one-clause difference a WORSE — so it is refused (exit 2), and
+ * so is a merge or a join of them. `npm run eval:claims -- --rescore <file>`
+ * moves a file to the current rule (the baselines were moved this way: they
+ * carry no reports, so the reports were read from the full results they were
+ * trimmed from). False claims stay never banded; what changed is how few of
+ * the marks they count are the detector's.
+ *
  * Plain data in, plain text out; the shell is scripts/eval-diff.ts.
  */
 
@@ -110,6 +123,8 @@ interface Normalized {
   cases: Map<string, Outcome[]>
   excluded: number
   agentRuns?: CaseRun[][]
+  /** v4.5 (H3b): the claim rule the agent flags were scored under; null for the other suites. */
+  claimsRule: number | null
   noise?: StoredNoise
   /** v4.4 (G1): the session(s) the passes were measured in, and the side; null when untagged. */
   session: MergedSession | null
@@ -249,7 +264,20 @@ function normalize(file: unknown): Normalized {
   }
   const noise = isObj(f.noise) && isObj(f.noise.lines) && Array.isArray(f.noise.cases) ? (f.noise as unknown as StoredNoise) : undefined
   const savedAt = isObj(f.baseline) && typeof f.baseline.savedAt === 'string' ? f.baseline.savedAt : undefined
-  return { suite, model: typeof f.model === 'string' ? f.model : '?', arm: armOf(f), passes, runs: runsOf(f), cases, excluded, agentRuns, noise, session: readSession(f), savedAt }
+  return { suite, model: typeof f.model === 'string' ? f.model : '?', arm: armOf(f), passes, runs: runsOf(f), cases, excluded, agentRuns, claimsRule: suite === 'agent' ? claimsRuleOf(f) : null, noise, session: readSession(f), savedAt }
+}
+
+/** The claim rule an agent results file's flags were scored under; a file that does not say was scored under rule 1. */
+export function claimsRuleOf(file: unknown): number {
+  return isObj(file) && typeof file.claimsRule === 'number' ? file.claimsRule : 1
+}
+
+function sameClaimsRule(what: string, a: { rule: number; name: string }, b: { rule: number; name: string }): void {
+  if (a.rule === b.rule) return
+  throw new Error(
+    `${a.name} was scored under claims rule ${a.rule} and ${b.name} under rule ${b.rule}: its false claims (and a needs-you case's solved) are not read the same way, so ${what} would call a change of rule a change of engine. ` +
+      `Move the older one first: npm run eval:claims -- <results folders> --rescore <file> --write (current rule: ${CLAIMS_RULE})`
+  )
 }
 
 // ---- which base (v4.4, G1) -----------------------------------------------------------
@@ -346,6 +374,8 @@ export interface DiffResult {
   base: { kind: BaseKind; text: string }
   /** v4.4 (G1): only a diff against a same-day control can turn a switch on. */
   sameDay: boolean
+  /** v4.5 (H3b): the claim rule both sides' false claims were scored under; null for the suites that have none. */
+  claimsRule: number | null
   rows: DiffRow[]
   /** Gated lines that got worse beyond their band (at all, for false claims), in words. Empty: no WORSE. */
   regressions: string[]
@@ -399,6 +429,7 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
   const run = normalize(runFile)
   if (base.suite !== run.suite) throw new Error(`the baseline is ${base.suite} results and the run is ${run.suite}: nothing to compare`)
   const suite = base.suite
+  if (base.claimsRule !== null && run.claimsRule !== null) sameClaimsRule('the diff', { rule: base.claimsRule, name: 'the baseline' }, { rule: run.claimsRule, name: 'the run' })
   const tolerance = Math.max(0, opts.tolerance ?? 0)
   const minPasses = Math.max(1, Math.round(opts.minPasses ?? MIN_PASSES))
   const k = opts.k ?? NOISE_K
@@ -554,6 +585,7 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
     run: { model: run.model, arm: run.arm, passes: run.passes.length, runs: run.runs },
     base: { kind: which.kind, text: which.text },
     sameDay: which.sameDay,
+    claimsRule: base.claimsRule,
     rows,
     regressions,
     improvements,
@@ -569,6 +601,7 @@ export function formatDiff(d: DiffResult): string {
   const lines: string[] = []
   lines.push(`${SUITE_NAME[d.suite]} diff · baseline ${arm(d.baseline)} → run ${arm(d.run)}`)
   lines.push(`base: ${d.base.text}`)
+  if (d.claimsRule !== null) lines.push(`claims rule ${d.claimsRule}: false claims read by it on both sides`)
   lines.push('')
   lines.push('| | baseline | run | Δ | noise band | |')
   lines.push('| --- | --- | --- | --- | --- | --- |')
@@ -614,6 +647,7 @@ export function mergeResults(files: unknown[], names: string[] = []): Record<str
     const f = file as Record<string, unknown>
     if (f.model !== first.model) throw new Error(`cannot merge ${label(i)} (${String(f.model)}) with ${label(0)} (${String(first.model)}): another model`)
     if (armOf(f) !== armOf(first)) throw new Error(`cannot merge ${label(i)} (${armOf(f)}) with ${label(0)} (${armOf(first)}): another arm`)
+    if (suite === 'agent') sameClaimsRule('a merge', { rule: claimsRuleOf(first), name: label(0) }, { rule: claimsRuleOf(f), name: label(i) })
     const m = isObj(f.merged) ? f.merged : isObj(f.baseline) ? f.baseline : null
     const inner = m && Array.isArray(m.passRuns) ? (m.passRuns as number[]) : null
     const offset = passRuns.length ? Math.max(...passRuns) + 1 : 0
@@ -651,6 +685,7 @@ export function joinSlices(files: unknown[], names: string[] = []): Record<strin
     if (detectSuite(f) !== 'agent') throw new Error(`${label(i)} is not eval:agent results`)
     if (f.model !== first.model) throw new Error(`cannot join ${label(i)} (${String(f.model)}) with ${label(0)} (${String(first.model)}): another model`)
     if (armOf(f) !== armOf(first)) throw new Error(`cannot join ${label(i)} (${armOf(f)}) with ${label(0)} (${armOf(first)}): another arm`)
+    sameClaimsRule('a join', { rule: claimsRuleOf(first), name: label(0) }, { rule: claimsRuleOf(f), name: label(i) })
     const ps = f.runs as CaseRun[][]
     if (ps.length !== passes) throw new Error(`cannot join ${label(i)} (${ps.length} passes) with ${label(0)} (${passes}): slices of one run have the same passes`)
     for (const c of new Set(ps.flat().map((r) => r.case))) {

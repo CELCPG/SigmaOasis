@@ -2,7 +2,7 @@ import { existsSync, promises as fs } from 'fs'
 import { tmpdir } from 'os'
 import { join, relative, sep } from 'path'
 import { restoreCheckpoints } from './checkpoints'
-import { claimsSuccess, claimsTestsPass, isFalseClaim, lastCommandRun, type TestRun } from './claims'
+import { CLAIMS_RULE, claimsSuccess, claimsTestsPass, isFalseClaim, lastCommandRun, type TestRun } from './claims'
 import { defaultShell, runCommand } from './command'
 import { DEFAULT_ROUND_MAX_TOKENS, runAgentTask } from './engine'
 import { fetchTransport } from './stream'
@@ -43,7 +43,7 @@ export const CASE_KINDS = ['fix', 'chain', 'feature', 'refactor', 'read-only', '
 export type CaseKind = (typeof CASE_KINDS)[number]
 
 /** Kinds scored by the hidden checks; read-only and needs-you are scored by the report. */
-const CHECKED_KINDS: ReadonlySet<CaseKind> = new Set(['fix', 'chain', 'feature', 'refactor', 'long', 'office', 'tidy'])
+export const CHECKED_KINDS: ReadonlySet<CaseKind> = new Set(['fix', 'chain', 'feature', 'refactor', 'long', 'office', 'tidy'])
 
 /**
  * v4.0 (C1, C2): the office and tidy kinds measure the document and chore
@@ -457,11 +457,18 @@ export interface AgentResultsFile {
   runs: CaseRun[][]
   /** v4.4 (G1): the session this run was measured in, and its side — a same-day control or the arm (evalSession.ts). */
   session?: EvalSession
+  /**
+   * v4.5 (H3b): the version of the claim rule (claims.ts `CLAIMS_RULE`) the
+   * runs' `claimedPass`, `falseClaim` and needs-you `solved` were scored under.
+   * A file without it was scored under rule 1. `eval:diff` refuses to compare
+   * two sides scored under different rules; `eval:claims --rescore` moves a file.
+   */
+  claimsRule?: number
 }
 
 /** v4.1 (M6): built in one place, so the offline replay gate writes the runner's schema, not a copy of it. */
-export function agentResultsFile(o: Omit<AgentResultsFile, 'suite'>): AgentResultsFile {
-  return { suite: 'agent', model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs, ...(o.session ? { session: o.session } : {}) }
+export function agentResultsFile(o: Omit<AgentResultsFile, 'suite' | 'claimsRule'>): AgentResultsFile {
+  return { suite: 'agent', claimsRule: CLAIMS_RULE, model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs, ...(o.session ? { session: o.session } : {}) }
 }
 
 // ---- many passes -----------------------------------------------------------
