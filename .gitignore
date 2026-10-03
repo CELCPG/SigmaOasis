@@ -22,6 +22,7 @@ homebrew-tap/
 .render-bench/
 .main-loop-bench/
 .latency-bench/
+.probe-planners/
 
 # Workbench runtime (fetched by scripts/fetch-pyodide.sh; shipped as an extra resource)
 resources/pyodide/
