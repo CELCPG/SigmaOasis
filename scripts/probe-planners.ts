@@ -30,6 +30,9 @@
  *   --budget-s <n>     stop starting calls after n seconds (default 420); a call
  *                      in flight at the limit is dropped and re-asked next chunk
  *   --limit <n>        only the first n prompts of each planner
+ *   --prompts 2,3,5    only these prompts (indexes); --arms prefill only that arm
+ *   --tag detail       a separate pass: its rows are kept apart (and keep the whole reply),
+ *                      and --summary --tag detail reads them
  *   LMSTUDIO_BASE_URL  default http://127.0.0.1:1234/v1 (loopback only)
  *
  * Needs the model loaded and the machine to itself. Not part of the test suite.
@@ -214,7 +217,7 @@ const netStub = {
       promptTokens: data.usage?.prompt_tokens ?? null,
       reasoningChars: reasoning.length,
       inlineThinkChars: inline,
-      content: content.slice(0, 600),
+      content: content.slice(0, 8000),
       reasoningHead: reasoning.slice(0, 240),
       fetchMs: Math.round(fetchMs)
     })
@@ -249,36 +252,53 @@ const researchMod = require(join(COMPILED_IPC, 'deepResearch', 'plan')) as typeo
 
 type Schema = { type?: string; properties?: Record<string, Schema>; required?: string[]; additionalProperties?: boolean; items?: Schema; enum?: unknown[]; minItems?: number; maxItems?: number }
 
-export function matchesSchema(value: unknown, schema: Schema): boolean {
-  if (schema.enum && !schema.enum.includes(value)) return false
+/** The first way a value departs from the schema, or null when it fits. */
+export function schemaProblem(value: unknown, schema: Schema, path = '$'): string | null {
+  if (schema.enum && !schema.enum.includes(value)) return `${path}: ${JSON.stringify(value)} is not one of the allowed values`
   switch (schema.type) {
     case 'string':
-      return typeof value === 'string'
+      return typeof value === 'string' ? null : `${path}: not a string`
     case 'array': {
-      if (!Array.isArray(value)) return false
-      if (schema.minItems !== undefined && value.length < schema.minItems) return false
-      if (schema.maxItems !== undefined && value.length > schema.maxItems) return false
-      return !schema.items || value.every((v) => matchesSchema(v, schema.items!))
+      if (!Array.isArray(value)) return `${path}: not an array`
+      if (schema.minItems !== undefined && value.length < schema.minItems) return `${path}: fewer than ${schema.minItems} items`
+      if (schema.maxItems !== undefined && value.length > schema.maxItems) return `${path}: more than ${schema.maxItems} items (${value.length})`
+      for (const [i, v] of value.entries()) {
+        const p = schema.items ? schemaProblem(v, schema.items, `${path}[${i}]`) : null
+        if (p) return p
+      }
+      return null
     }
     case 'object': {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return `${path}: not an object`
       const o = value as Record<string, unknown>
-      if (!(schema.required ?? []).every((k) => k in o)) return false
-      if (schema.additionalProperties === false && Object.keys(o).some((k) => !(k in (schema.properties ?? {})))) return false
-      return Object.entries(schema.properties ?? {}).every(([k, s]) => !(k in o) || matchesSchema(o[k], s))
+      const missing = (schema.required ?? []).find((k) => !(k in o))
+      if (missing) return `${path}: missing "${missing}"`
+      const extra = schema.additionalProperties === false ? Object.keys(o).find((k) => !(k in (schema.properties ?? {}))) : undefined
+      if (extra) return `${path}: extra key "${extra}"`
+      for (const [k, s] of Object.entries(schema.properties ?? {})) {
+        const p = k in o ? schemaProblem(o[k], s, `${path}.${k}`) : null
+        if (p) return p
+      }
+      return null
     }
     default:
-      return true
+      return null
   }
 }
+
+export const matchesSchema = (value: unknown, schema: Schema): boolean => schemaProblem(value, schema) === null
 
 // ---- one call per planner, read by that caller's own parser -------------------
 
 interface Outcome {
   valid: boolean
   schemaOk: boolean
+  /** Why not, when it does not fit the grammar's schema (the first departure). */
+  schemaProblem: string | null
   /** Steps, sections, sub-questions, or re-asked sub-questions. */
   n: number
+  /** Plan mode with tools: how each step disclosed what it may use. */
+  disclosure?: { steps: number; withToolsField: number; withTools: number; namesNotEnabled: number }
 }
 
 type Ask = <T>(request: import('../src/main/ipc/llm').CompleteOptions, arm: Arm) => Promise<T | null>
@@ -303,7 +323,10 @@ const planners: Record<PlannerName, Planner> = {
       const parsed = await ask<import('../src/main/ipc/plan').PlanPayload>(request, arm)
       const steps = planMod.stepsFromPayload(parsed, PLAN_CAP, new Set(tools))
       const schema = planMod.planRequest(MODEL(), c.task, PLAN_CAP, c.context, tools, false).jsonSchema!.schema as Schema
-      return { valid: steps !== null, schemaOk: matchesSchema(parsed, schema), n: steps?.length ?? 0 }
+      const problem = schemaProblem(parsed, schema)
+      const raw = parsed?.steps ?? []
+      const disclosure = tools.length > 0 ? { steps: raw.length, withToolsField: raw.filter((s) => Array.isArray(s?.tools)).length, withTools: raw.filter((s) => Array.isArray(s?.tools) && s.tools.length > 0).length, namesNotEnabled: raw.reduce((n, s) => n + (Array.isArray(s?.tools) ? s.tools.filter((t) => !tools.includes(String(t))).length : 0), 0) } : undefined
+      return { valid: steps !== null, schemaOk: problem === null, schemaProblem: problem, n: steps?.length ?? 0, disclosure }
     }
   },
   outline: {
@@ -313,7 +336,8 @@ const planners: Record<PlannerName, Planner> = {
       const parsed = await ask<unknown>(outlineMod.outlineRequest(MODEL(), r, undefined, arm === 'prefill'), arm)
       const outline = outlineMod.cleanOutline(parsed)
       const schema = outlineMod.outlineRequest(MODEL(), r).jsonSchema!.schema as Schema
-      return { valid: outline !== null, schemaOk: matchesSchema(parsed, schema), n: outline?.sections.length ?? 0 }
+      const problem = schemaProblem(parsed, schema)
+      return { valid: outline !== null, schemaOk: problem === null, schemaProblem: problem, n: outline?.sections.length ?? 0 }
     }
   },
   research: {
@@ -325,7 +349,8 @@ const planners: Record<PlannerName, Planner> = {
       // makePlan's own test for a real plan versus the one-question fallback.
       const planned = !!plan && !(plan.subQuestions.length === 1 && plan.subQuestions[0]!.question === q.trim())
       const schema = researchMod.plannerRequest(q, MODEL()).jsonSchema!.schema as Schema
-      return { valid: planned, schemaOk: matchesSchema(raw, schema), n: plan?.subQuestions.length ?? 0 }
+      const problem = schemaProblem(raw, schema)
+      return { valid: planned, schemaOk: problem === null, schemaProblem: problem, n: plan?.subQuestions.length ?? 0 }
     }
   },
   reformulate: {
@@ -337,7 +362,8 @@ const planners: Record<PlannerName, Planner> = {
       // A sub-question the model did not re-ask comes back as its own array.
       const reasked = open.filter((s, k) => queries[k] !== s.queries).length
       const schema = researchMod.reformulateRequest(open, MODEL()).jsonSchema!.schema as Schema
-      return { valid: reasked === open.length, schemaOk: matchesSchema(raw, schema), n: reasked }
+      const problem = schemaProblem(raw, schema)
+      return { valid: reasked === open.length, schemaOk: problem === null, schemaProblem: problem, n: reasked }
     }
   }
 }
@@ -348,10 +374,14 @@ interface Row {
   planner: PlannerName
   prompt: number
   arm: Arm
+  /** The pass: '' is the main protocol, 'detail' a re-ask that keeps the whole reply. */
+  tag?: string
   at: string
   model: string
   valid: boolean
   schemaOk: boolean
+  schemaProblem?: string | null
+  disclosure?: Outcome['disclosure']
   n: number
   wallMs: number
   /** Requests the call made (a grammar the server rejects steps down). */
@@ -365,6 +395,8 @@ interface Row {
   errorKind: 'none' | 'reasoning-only' | 'timeout' | 'http' | 'other'
   wire: { responseFormat: string | null; prefill: boolean; maxTokens: number | null }
   reply: string
+  /** The whole reply (up to 8,000 characters); rows from the first pass keep only `reply`. */
+  replyFull?: string
   reasoningHead: string
 }
 
@@ -379,7 +411,7 @@ function classify(err: unknown): { kind: Row['errorKind']; message: string } {
 async function oneCall(name: PlannerName, prompt: number, arm: Arm): Promise<Row | null> {
   captures = []
   const t0 = performance.now()
-  let outcome: Outcome = { valid: false, schemaOk: false, n: 0 }
+  let outcome: Outcome = { valid: false, schemaOk: false, schemaProblem: null, n: 0 }
   let failure: { kind: Row['errorKind']; message: string } | null = null
   try {
     outcome = await planners[name].run(prompt, arm)
@@ -396,6 +428,7 @@ async function oneCall(name: PlannerName, prompt: number, arm: Arm): Promise<Row
     planner: name,
     prompt,
     arm,
+    tag: tagArg,
     at: new Date().toISOString(),
     model: modelArg,
     ...outcome,
@@ -410,6 +443,7 @@ async function oneCall(name: PlannerName, prompt: number, arm: Arm): Promise<Row
     errorKind: failure?.kind ?? 'none',
     wire: { responseFormat: first?.responseFormat ?? null, prefill: first?.prefill ?? false, maxTokens: first?.maxTokens ?? null },
     reply: (last?.content ?? '').slice(0, 500),
+    replyFull: last?.content ?? '',
     reasoningHead: (captures.find((c) => c.reasoningHead)?.reasoningHead ?? '')
   }
 }
@@ -479,10 +513,14 @@ const flag = (name: string, d?: string): string | undefined => {
 }
 const modelArg = flag('--model', 'qwen3.8-9b-distill')!
 const outFile = flag('--out', join(REPO_ROOT, '.probe-planners', 'results.jsonl'))!
+const tagArg = flag('--tag', '')!
+/** `--prompts 2,3,5` and `--arms prefill`: a detail pass asks only what it is looking at. */
+const promptsArg = flag('--prompts')?.split(',').map(Number)
+const armsArg = (flag('--arms') ?? 'today,prefill').split(',') as Arm[]
 
 async function main(): Promise<void> {
   if (args.includes('--summary')) {
-    console.log(summarize(readRows(outFile)))
+    console.log(summarize(readRows(outFile).filter((r) => (r.tag ?? '') === tagArg)))
     return
   }
   const host = new URL(BASE_URL).hostname
@@ -510,7 +548,7 @@ async function main(): Promise<void> {
   const timer = setTimeout(() => chunkAbort.abort(), budgetS * 1000)
   timer.unref()
   mkdirSync(dirname(outFile), { recursive: true })
-  const done = new Set(readRows(outFile).map((r) => `${r.planner}/${r.prompt}/${r.arm}`))
+  const done = new Set(readRows(outFile).filter((r) => (r.tag ?? '') === tagArg).map((r) => `${r.planner}/${r.prompt}/${r.arm}`))
   console.log(`planner probe · ${modelArg} · ${BASE_URL} · ${todo.join(', ')} · budget ${budgetS}s · ${done.size} calls already recorded in ${outFile}`)
 
   // Warm-up, not recorded: the model answers one small request before anything is timed.
@@ -527,9 +565,10 @@ async function main(): Promise<void> {
   outer: for (const name of todo) {
     const count = Math.min(planners[name].count, limit)
     for (let p = 0; p < count; p++) {
+      if (promptsArg && !promptsArg.includes(p)) continue
       // ABBA across prompts: even prompts ask today first, odd prompts the prefill first.
       const order: Arm[] = p % 2 === 0 ? ['today', 'prefill'] : ['prefill', 'today']
-      for (const arm of order) {
+      for (const arm of order.filter((a) => armsArg.includes(a))) {
         if (done.has(`${name}/${p}/${arm}`)) continue
         if (chunkAbort.signal.aborted) {
           finished = false
