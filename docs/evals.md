@@ -58,6 +58,7 @@ Code comments and release notes cite sections of this file by heading; each head
 | VIBE: where the brevity line goes (v3.0); VIBE's tool-choice arm (v3.1, M3) | [vibe.md](evals/vibe.md) |
 | Two things a plan claimed about a process that had died (v3.0.1); CL1: the loader that deleted what disk could not return (v3.0.1) | [plan-and-loader.md](evals/plan-and-loader.md) |
 | The agent, measured (v3.1, `eval:agent`) | [agent.md](evals/agent.md) |
+| The unrun-claim guard: a report that says the tests pass when the task does not show it, marked (v4.5, H3) | [claims.md](evals/claims.md) |
 | Track M: what every run now records (v4.1) | [measurement.md](evals/measurement.md) |
 | Speed: Track S (v4.1) | [speed.md](evals/speed.md) |
 
