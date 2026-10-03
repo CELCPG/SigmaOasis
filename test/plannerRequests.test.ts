@@ -162,11 +162,11 @@ describe('deep research: the planner and the reformulation', () => {
 })
 
 /**
- * The wired callers. On a `<think>` family plan mode, the outline and deep
- * research's planner ask plainly (measured on the 9B: valid either way for plan
- * and research, 3/12 against 12/12 for the outline, and faster in all three);
- * the reformulation keeps the grammar (plain was 9/12 against 11/12). A family
- * without think tags gets today's request, byte for byte.
+ * The wired callers. On a `<think>` family plan mode and the outline ask plainly
+ * (measured on the 9B: valid 12/12 either way for plan mode, 3/12 against 12/12
+ * for the outline, and faster in both); deep research's planner (23/24 against
+ * 24/24 for 0.8 s) and its reformulation (9/12 against 11/12) keep the grammar. A
+ * family without think tags gets today's request, byte for byte.
  */
 describe('which model gets which request', () => {
   const fixture = JSON.parse(readFileSync(join(__dirname, '..', '..', 'test', 'fixtures', 'plannerRequests', 'gemma-grammar-bodies.json'), 'utf8')) as { bodies: Record<string, string[]> }
@@ -209,7 +209,7 @@ describe('which model gets which request', () => {
     })
   }
 
-  for (const name of ['plan+tools+context', 'plan', 'outline', 'research plan']) {
+  for (const name of ['plan+tools+context', 'plan', 'outline']) {
     test(`${name}: a <think> family is asked plainly — no grammar, the closed block last, the budget as before`, async () => {
       await callers[name]!(THINK_MODEL)
       assert.equal(state.completionBodies.length, 1)
@@ -231,7 +231,11 @@ describe('which model gets which request', () => {
     assert.match(lastBody().messages?.[0]?.content ?? '', /exactly this shape: \{"title"/)
   })
 
-  test('the reformulation keeps the grammar on a <think> family: plain read worse on the 9B', async () => {
+  test('the research planner and the reformulation keep the grammar on a <think> family: plain read worse on the 9B', async () => {
+    await callers['research plan']!(THINK_MODEL)
+    assert.equal(lastBody().response_format?.json_schema?.name, 'research_plan')
+    assert.equal(lastBody().messages?.at(-1)?.role, 'user')
+    resetState()
     await callers['reformulate']!(THINK_MODEL)
     assert.equal(lastBody().response_format?.json_schema?.name, 'research_reformulate')
     assert.equal(lastBody().messages?.at(-1)?.role, 'user')

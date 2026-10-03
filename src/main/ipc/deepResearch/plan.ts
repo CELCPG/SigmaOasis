@@ -1,4 +1,4 @@
-import { chatCompleteJson, chatCompleteStructured, type CompleteOptions } from '../llm'
+import { chatCompleteJson, type CompleteOptions } from '../llm'
 import type { ResearchPlan, SubQuestion } from './types'
 
 // ---- planning ----------------------------------------------------------------
@@ -151,6 +151,12 @@ export function keywordQueryFor(question: string): string {
  * tests). `plain` is the shape a `<think>` family can answer under (v4.5, H2):
  * no grammar, so `thinking: false` becomes the closed-think prefill; the system
  * prompt already says the shape.
+ *
+ * Measured, not shipped (v4.5, H2): on the 9B the plain shape was valid 12/12
+ * and 0.9 s faster (median 4.4 s against 5.3 s) in the interleaved pass, but 23/24
+ * against 24/24 over both passes (0.8 s faster) — one malformed plan fell back to
+ * the one-question plan, in a run that goes on for minutes. A second of a planning
+ * call is not worth a degraded plan in 24; the grammar stays on every family.
  */
 export function plannerRequest(question: string, model: string, signal?: AbortSignal, plain = false): CompleteOptions {
   return {
@@ -175,10 +181,7 @@ export async function makePlan(
   signal?: AbortSignal
 ): Promise<{ plan: ResearchPlan; planned: boolean }> {
   try {
-    // v4.5 (H2): a <think> family is asked plainly — 12/12 real plans either
-    // way on the 9B, median 4.4 s against 5.3 s (under the grammar it thought
-    // first, 12 of 12); the prompt already says the shape.
-    const raw = await chatCompleteStructured<unknown>(model, (plain) => plannerRequest(question, model, signal, plain))
+    const raw = await chatCompleteJson<unknown>(plannerRequest(question, model, signal))
     const plan = parsePlan(raw, question)
     if (plan) {
       // Distinguish a real plan from the single-sub-question fallback.

@@ -27,7 +27,7 @@ model busy:
 | outline (cap 1,500) | grammar | **3/12** | 3/12 | 31.9 | 33.8 | 1,500 | 12/12 | 0 / **8** |
 | | prefill | **12/12** | 11/12 | **7.7** | 9.4 | 355 | 0/12 | 0 / 0 |
 | research planner (cap 700) | grammar | 12/12 | 12/12 | 5.3 | 6.6 | 212 | 12/12 | 0 / 0 |
-| | prefill | 12/12 | 10/12 | **4.4** | 6.0 | 182 | 0/12 | 0 / 0 |
+| | prefill | 12/12 | 10/12 | 4.4 | 6.0 | 182 | 0/12 | 0 / 0 |
 | reformulation (cap 400) | grammar | 11/12 | 11/12 | 9.0 | 12.9 | 266 | 12/12 | 0 / 0 |
 | | prefill | 9/12 | 0/12 | 3.5 | 5.4 | 127 | 0/12 | 0 / 0 |
 
@@ -35,11 +35,17 @@ model busy:
   planner answered late (+5.8 s and +1.3 s median, paired); the outline's 1,500 tokens were spent
   thinking in 8 of 12 (the reply was cut mid-thought) and one more answer was cut mid-JSON — it
   wrote no outline in 9 of 12.
-- **Applied** where the plain request was no worse on validity and faster: plan mode, the outline
-  and the research planner, on a `<think>` family only (`THINK_TAG_MODELS`, the re-rank's
-  detection). Every other family (Gemma 4 among them) is sent today's request byte for byte;
+- **Applied** where the plain request was no worse on validity and faster: plan mode and the
+  outline, on a `<think>` family only (`THINK_TAG_MODELS`, the re-rank's detection). Every other family (Gemma 4 among them) is sent today's request byte for byte;
   `test/plannerRequests.test.ts` pins it against bodies captured from the code before H2.
-- **Left**: the reformulation. Plain was faster (3.5 s against 9.0 s) but valid 9/12 against 11/12
+- **Left, the research planner**: equal and faster in the interleaved pass (12/12 both, 4.4 s
+  against 5.3 s), but a second, prefill-and-grammar re-ask of the same twelve questions (not
+  interleaved) gave 11/12 against 12/12, and one malformed plan fell back to the one-question
+  plan. Over both passes: valid 23/24 plain against 24/24 grammar, median 4.8 s against 5.5 s. A
+  second of a planning call that precedes a multi-minute run is not worth a degraded plan in 24;
+  the grammar stays. The builder keeps its `plain` shape for the probe, so a different model or
+  machine can be asked again.
+- **Left, the reformulation**: Plain was faster (3.5 s against 9.0 s) but valid 9/12 against 11/12
   (a detail re-ask: 8/12): the model flattens the nested `{"queries":[{"queries":[…]}]}` the prompt
   describes into one list, or a list of lists, and the reader falls back to the old queries. A
   reader that accepts those shapes would be a change to measure on its own; until then the
@@ -53,5 +59,4 @@ model busy:
   the detail re-ask shows why. The reader shows an omitted field as an empty list.
 - Plain replies depart from the schema more often (an extra key, three queries where two are
   allowed, a bare string among the sub-questions); the planners' readers were built for exactly
-  that and kept every one but a malformed research plan (1 of 24 plain research-planner calls
-  over both passes fell back to the one-question plan; 0 of 12 grammar calls did).
+  that and kept every one but the malformed research plan above.
