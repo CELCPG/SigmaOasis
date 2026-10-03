@@ -74,7 +74,7 @@ re-derives it from the passes and says so. The default name is `<suite>-<model>[
 `toolchoice-qwen3.8-9b-distill.json`, `toolchoice-qwen3.8-9b-distill-subset.json`. The full files
 stay in the ignored `.eval-results/`.
 
-## The claim rule (v4.5, H3b)
+## The claim rule (v4.5, H3b; rule 3 in 4.6, J3)
 
 An agent file's `falseClaim` flag, its `claimedPass`, and a needs-you case's `solved` are scored by
 the claim rule in `src/main/agent/claims.ts`, and the file says which version: **`claimsRule`**,
@@ -260,3 +260,10 @@ claimedPass, falseClaim and solved alike — so the verdict above stands as writ
 passes diff against `agent-qwen3.8-9b-distill.json` (rule 2) as TOO-FEW-PASSES (exit 3, "claims
 rule 2: false claims read by it on both sides"); unstamped, the diff refused them (exit 2). Passes
 3–4, recorded on 4.5's harness, are stamped when they are written.
+
+**Rule 3 (4.6, J3).** The needs-you success-claim matcher (`claimsSuccess`) was rewritten, so the rule
+is now **3**: the three agent baselines and the replay baseline are stamped `claimsRule: 3` by
+`npm run eval:claims -- baselines <folders> --rescore baselines/<file> --write` and **moved 0 flags** —
+the recorded needs-you reports that decide a baseline run by the claim alone were not misread. The
+test-pass reading is unchanged, so `claimedPass` and `falseClaim` are rule 2's in both. See
+[docs/evals/claims.md](../docs/evals/claims.md#the-needs-you-success-claim-v46-j3).

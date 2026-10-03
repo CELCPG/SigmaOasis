@@ -223,5 +223,5 @@ describe('the same reading serves the other check', () => {
 })
 
 test('the rule has a version a results file can carry', () => {
-  assert.equal(CLAIMS_RULE, 2)
+  assert.equal(CLAIMS_RULE, 3)
 })

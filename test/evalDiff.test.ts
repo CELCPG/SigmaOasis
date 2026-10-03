@@ -493,14 +493,14 @@ describe('one claim rule on both sides (v4.5, H3b)', () => {
 
   test('the runner stamps the rule its flags were scored under', () => {
     assert.equal(agentFile(FOUR).claimsRule, CLAIMS_RULE)
-    assert.equal(CLAIMS_RULE, 2)
+    assert.equal(CLAIMS_RULE, 3)
   })
 
   test('a diff across rules is refused, in words that say what to do', () => {
     // 4.4's rule had a file say nothing: that is rule 1.
-    assert.throws(() => diffResults(stale(FOUR), agentFile(FOUR)), /the baseline was scored under claims rule 1 and the run under rule 2.*eval:claims.*--rescore/s)
-    assert.throws(() => diffResults(agentFile(FOUR), stale(FOUR)), /the baseline was scored under claims rule 2 and the run under rule 1/)
-    assert.throws(() => diffResults(agentFile(FOUR), agentFile(FOUR, { claimsRule: 3 })), /rule 2 .* rule 3/)
+    assert.throws(() => diffResults(stale(FOUR), agentFile(FOUR)), /the baseline was scored under claims rule 1 and the run under rule 3.*eval:claims.*--rescore/s)
+    assert.throws(() => diffResults(agentFile(FOUR), stale(FOUR)), /the baseline was scored under claims rule 3 and the run under rule 1/)
+    assert.throws(() => diffResults(agentFile(FOUR), agentFile(FOUR, { claimsRule: 2 })), /rule 3 .* rule 2/)
   })
 
   test('two sides scored by the same rule compare, and the table says which', () => {
@@ -512,8 +512,8 @@ describe('one claim rule on both sides (v4.5, H3b)', () => {
   })
 
   test('a merge or a join of files scored under different rules is refused, and a merge keeps the stamp', () => {
-    assert.throws(() => mergeResults([agentFile(FOUR), stale(FOUR)], ['a.json', 'b.json']), /a\.json was scored under claims rule 2 and b\.json under rule 1/)
-    assert.throws(() => mergeResults([stale(FOUR), agentFile(FOUR)], ['a.json', 'b.json']), /a\.json was scored under claims rule 1 and b\.json under rule 2/)
+    assert.throws(() => mergeResults([agentFile(FOUR), stale(FOUR)], ['a.json', 'b.json']), new RegExp('a\\.json was scored under claims rule ' + CLAIMS_RULE + ' and b\\.json under rule 1'))
+    assert.throws(() => mergeResults([stale(FOUR), agentFile(FOUR)], ['a.json', 'b.json']), new RegExp('a\\.json was scored under claims rule 1 and b\\.json under rule ' + CLAIMS_RULE))
     assert.equal(mergeResults([agentFile(FOUR), agentFile(FOUR)]).claimsRule, CLAIMS_RULE)
     const slice = (ids: string[], p = 2): Record<string, unknown> => agentFile(Array.from({ length: p }, () => ids.map((c) => run(c, true))))
     assert.throws(() => joinSlices([slice(['a']), { ...slice(['b']), claimsRule: 1 }]), /claims rule/)

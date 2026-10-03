@@ -17,6 +17,10 @@
  *     and the false claims and needs-you solved that moved with them. --same
  *     makes any difference an exit 1 (H3's proof that a *move* of the code
  *     changed nothing).
+ *     v4.6 (J3): the needs-you success claim (claimsSuccess) has a labelled set of its own,
+ *     test/fixtures/unrun-claims/needs-you.json; with --before, each needs-you run whose `solved`
+ *     flips with it is listed with the clause that decided it and the clause's label, and both
+ *     detectors are scored on that set.
  *   - whether the stored flags still stand: a recorded `claimedPass` and
  *     `falseClaim` against the current rule (a run's report is cut at 4,000
  *     characters in the file; a claim in the cut part cannot be re-read).
@@ -44,7 +48,7 @@ import { execFileSync } from 'child_process'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import * as vm from 'vm'
-import { CLAIMS_RULE, claimClauses, claimsSuccess, claimsTestsPass, isFalseClaim, reportClauses, unrunClaim, type TestRun } from '../src/main/agent/claims'
+import { CLAIMS_RULE, claimClauses, claimsSuccess, claimsTestsPass, isFalseClaim, reportClauses, successClauses, unrunClaim, type TestRun } from '../src/main/agent/claims'
 import { rescoreAgentFile } from '../src/main/agent/evalRescore'
 import { CHECKED_KINDS, type CaseRun } from '../src/main/agent/evalHarness'
 
@@ -251,8 +255,9 @@ function main(argv: string[]): number {
   }
 
   const labelled = JSON.parse(readFileSync(join(REPO_ROOT, 'test', 'fixtures', 'unrun-claims', 'labelled.json'), 'utf8')) as Labelled
-  const labelOf = new Map(labelled.items.map((i) => [i.text, i.label]))
-  const labelFor = (sentence: string): string => labelOf.get(sentence) ?? 'unlabelled'
+  const needsYou = JSON.parse(readFileSync(join(REPO_ROOT, 'test', 'fixtures', 'unrun-claims', 'needs-you.json'), 'utf8')) as { items: Labelled['items'] }
+  const labelOf = new Map([...labelled.items, ...needsYou.items].map((i) => [i.text.replace(/\s+/g, ' ').trim(), i.label]))
+  const labelFor = (sentence: string): string => labelOf.get(sentence.replace(/\s+/g, ' ').trim()) ?? 'unlabelled'
 
   // ---- the change of rule: the old detectors against the current ones, over every report
   let moved: { claims: number; success: number; differ: number } | null = null
@@ -264,6 +269,7 @@ function main(argv: string[]): number {
     const falseFlips: string[] = []
     const solvedFlips: string[] = []
     let differ = 0
+    let successFlips = 0
     for (const s of withText) {
       const r = s.run
       const t = r.finalText!
@@ -283,8 +289,16 @@ function main(argv: string[]): number {
       }
       if (isFalseClaim(oc, last) !== isFalseClaim(nc, last)) falseFlips.push(`  ${where}: falseClaim ${isFalseClaim(oc, last)} → ${isFalseClaim(nc, last)} (last test: ${last ? `${last.command} → ${last.exitCode}` : 'none ran'})`, ...deciding())
       // a needs-you case's solved reads the claim only when nothing earlier decided it
+      if (r.kind === 'needs-you' && os !== ns) successFlips++
       if (r.kind === 'needs-you' && !CHECKED_KINDS.has(r.kind) && (r.changed ?? []).length === 0 && (r.mentionsMissing ?? []).length === 0 && os !== ns) {
-        solvedFlips.push(`  ${where}: solved ${!os} → ${!ns} (stored: ${r.solved}${r.why ? `, ${r.why}` : ''})`)
+        const was = os ? reportClauses(t).filter((c) => old.claimsSuccess(c)) : []
+        const now = ns ? successClauses(t) : []
+        solvedFlips.push(
+          `  ${where}: solved ${!os} → ${!ns} (stored: ${r.solved}${r.why ? `, ${r.why}` : ''})`,
+          ...was.map((c) => `      was a claim: ${one(c)}  [labelled: ${labelFor(c)}]`),
+          ...now.map((c) => `      is a claim:  ${one(c)}  [labelled: ${labelFor(c)}]`),
+          ...(os && was.length === 0 ? ['      was a claim: (the report as a whole; no one clause does)'] : [])
+        )
       }
       if (os !== ns && oc === nc) differ++
     }
@@ -294,7 +308,8 @@ function main(argv: string[]): number {
     w(`What the change of rule moved (${before} → claims rule ${CLAIMS_RULE}): ${withText.length} reports — claimsTestsPass says yes to ${claims} before, ${withText.filter((s) => claimsTestsPass(s.run.finalText!)).length} now; claimsSuccess to ${success} before, ${withText.filter((s) => claimsSuccess(s.run.finalText!)).length} now.`)
     w(`  reports whose claimedPass flips: ${claimFlips.filter((l) => l.startsWith('  ') && !l.startsWith('      ')).length}${claimFlips.length ? '\n' + claimFlips.join('\n') : ''}`)
     w(`  runs whose falseClaim flips (the last test run as recorded): ${falseFlips.filter((l) => !l.startsWith('      ')).length}${falseFlips.length ? '\n' + falseFlips.join('\n') : ''}`)
-    w(`  needs-you runs whose solved flips (nothing else decided them): ${solvedFlips.length}${solvedFlips.length ? '\n' + solvedFlips.join('\n') : ''}`)
+    w(`  needs-you reports whose claimsSuccess flips: ${successFlips}`)
+    w(`  needs-you runs whose solved flips (nothing else decided them): ${solvedFlips.filter((l) => !l.startsWith('      ')).length}${solvedFlips.length ? '\n' + solvedFlips.join('\n') : ''}`)
     const sb = scoreOn(labelled, old.claimsTestsPass)
     const sn = scoreOn(labelled, claimsTestsPass)
     const row = (n: string, x: typeof sb): string => `    ${n}: ${x.tp} claims found · ${x.fp} read as claims that are not · ${x.fn} claims missed · ${x.tn} correctly left · precision ${pct(x.precision)} · recall ${pct(x.recall)}`
@@ -307,6 +322,12 @@ function main(argv: string[]): number {
       return `${claimsRead.length} of ${labelled.falseClaimReports.length} read as claims, ${claimsRead.filter((r) => r.label === 'claim').length} of them claims`
     }
     w(`  the ${labelled.falseClaimReports.length} reports the 4.4 eval scored a false claim: ${before}: ${reportsWhat(old.claimsTestsPass)}; rule ${CLAIMS_RULE}: ${reportsWhat(claimsTestsPass)}`)
+    const nb = scoreOn(needsYou as Labelled, old.claimsSuccess)
+    const nn = scoreOn(needsYou as Labelled, claimsSuccess)
+    w()
+    w(`On the needs-you set (${needsYou.items.length} clauses of the recorded needs-you reports, test/fixtures/unrun-claims/needs-you.json) — claimsSuccess:`)
+    w(row(before, nb))
+    w(row(`rule ${CLAIMS_RULE}`, nn))
     w()
   }
 
