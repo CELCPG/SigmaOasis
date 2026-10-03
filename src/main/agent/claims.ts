@@ -165,7 +165,8 @@ function asserted(s: string, verbAt: number, verb: string, claimStart: number, c
 
 /** Whether one clause says the tests pass, read for tense, mood and subject. */
 function readsAsClaim(clause: string): boolean {
-  if (clause.includes('?')) return false
+  // A clause is cut after a "?" that ends a sentence, so one that ends in "?" is a question (a "?" inside a web address is not).
+  if (/\?["')\]*_]*$/.test(clause)) return false
   const s = mask(clause)
   if (NOT_PASS.test(s) || HEDGED.test(s) || STILL_FAILING.test(s)) return false
   return PASS_CLAIMS.some((re) => {

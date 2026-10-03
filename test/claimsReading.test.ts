@@ -122,7 +122,7 @@ describe('a condition, a future or a hedge is not a claim', () => {
 
 describe('a question is not a claim', () => {
   check(
-    [],
+    ['The run is at https://ci.example.com/run?id=4 — all tests pass.'],
     ['Do all tests pass?', 'Did the tests pass on your machine?', 'Why do the tests pass locally but fail in CI?', 'Can you check that the tests pass?']
   )
 })
