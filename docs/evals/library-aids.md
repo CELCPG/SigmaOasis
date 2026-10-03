@@ -290,7 +290,7 @@ same-day control; a measurement of the rescored recorded passes, **not** J4's fr
 
 — the reading H5b projected, now the scorer's own. Under the switch rule that verdict would turn
 `libraryHyde` on, and it stays **off**: the four recorded passes are read on a scorer that was changed
-after them, and J4 measures four fresh passes beside a same-day control on this one before any flip. The
+after them, and J4 measured four fresh passes beside a same-day control on this one before any flip ([the next section](#the-sample-answer-four-fresh-passes-on-the-corrected-scorer-v46-j4-2026-10-03)): WORSE, off. The
 re-rank's file reads as before (answered +0.75 ±0.71, cited −3.00 ±0.71 WORSE).
 
 ### `eval:diff` reads the suite (v4.6, J3)
@@ -320,3 +320,74 @@ too-few-passes, as 2 passes are).
 One thing it cannot tell: H7's two files `h7/aids-base.json` and `aids-run.json` carry `librarySuite:
 library-aids` but hold 4.4's library cases (they were made to test this diff, from 4.4's runs): a stamp
 is believed over the runs, so they read as library-aids files. They are test fixtures, not results.
+
+## The sample answer, four fresh passes on the corrected scorer (v4.6, J4, 2026-10-03)
+
+[J3](#the-scorer-reads-the-reply-as-plain-text-and-every-library-file-re-scored-v46-j3) fixed the
+scorer after H5b2's result and re-scored the recorded passes to a reading that would have turned the
+switch on (unsupported figures BETTER, answered SAME). A reading taken on a scorer changed after the
+data is not a measurement, so J4 ran the arm again: the same model, machine and shape as H5b2
+(`qwen3.8-9b-distill` on the Arc Pro B65, LM Studio alone, one session `j4-hyde-2026-10-03`, two commands
+of `EVAL_PASSES=2`, each control, arm | arm, control), now stamped `libraryScorerRule` 2:
+
+```
+EVAL_CONTROL=1 EVAL_SESSION=j4-hyde-2026-10-03 EVAL_SUITES=library-aids EVAL_LIBRARY_ASSIST=hyde EVAL_PASSES=2 LMSTUDIO_EVAL=1 npm run eval:answers -- qwen3.8-9b-distill   # twice, 888 s and 871 s
+npm run eval:diff -- --paired <the two control files and the two hyde files>
+```
+
+| of 27 a pass | control, aids off | sample answer | band | |
+| --- | --- | --- | --- | --- |
+| answered | 22, 20, 20, 21 — 20.75 (σ 0.96) | 20, 20, 21, 21 — 20.50 (σ 0.58) | ±1.35 | −0.25 SAME-WITHIN-NOISE |
+| cited the source | 25, 26, 26, 26 — 25.75 (σ 0.50) | 23, 23, 24, 24 — 23.50 (σ 0.58) | ±0.76 | **−2.25 WORSE** |
+| unsupported figures | 4, 3, 3, 3 — 3.25 | 1, 1, 1, 1 — 1.00 | ±0.71 | **−2.25 BETTER** |
+| asserted forbidden advice | 0 of 108 | 0 of 108 | never banded | no new one |
+| the source section first | 9 in every pass (36/108) | 13, 13, 12, 12 (50/108) | | recorded, not scored |
+
+**Verdict: WORSE (exit 1). `libraryHyde` stays off** (`grounding.libraryHyde: false`, `src/main/ipc/store.ts`);
+no default changed. The switch needs BETTER beyond the band with no new forbidden advice: the unsupported
+line improved beyond its band and no forbidden advice appeared, but answered did not move and the cited
+line fell beyond its band.
+
+- **It applied.** The sample answer was written, embedded and averaged into the ranking vector for 27 of 27
+  cases in every pass, 108 of 108 (`expanded`; 0 of 108 under the control). 5 passages shown on both sides.
+  The source went from first in 9 of 27 cases to first in 13 (12 in the second command: `24-babysitter-sting`
+  was first in the first command and second in the second, the only case whose rank differs between the
+  two commands, so the ranking is not identical across processes as it was across H5b2's passes) and from
+  outside the five in 2 cases to 1. About 0.4 s a case more (8.2 s against 7.8 s).
+- **The scorer fix held on live replies.** All four sample-answer replies to `14-estimated-payments` again
+  write "June 15" with U+202F (12 of the 216 replies carry one: these four and `19-joist-span`'s, four a
+  side) and the case is answered in 4 of 4 passes on both sides, where 4.5's scorer read the sample
+  answer's as 0 of 4.
+- **Answered is a wash because the wins and losses cancel.** 83 answered replies under the control, 82
+  under the sample answer (stable set 80 of 100 against 78). Won `22-employer-match` (0 → 4: the source
+  comes in at third, from not retrieved), `24-babysitter-sting` (0 → 2) and `27-home-office-corner`
+  (2 → 4); lost `01-baby-burning-up` (4 → 0), `02-black-head-in-skin` (4 → 0) and
+  `05-penalty-free-withdrawal` (1 → 0). `02` is H5b2's loss again (all four replies say the library does
+  not describe removal, though the source moved from fourth to third), and `01` a harder one than before
+  (4 → 1 in H5b2, 4 → 0 here, with the source *first*): the reply keeps to the passage and leaves out the
+  fact that is not in it ("3 months"), so `mustInclude` reads it missing.
+- **The unsupported-figures gain is partly the same loss.** Control replies were flagged in 13 runs: `01`
+  ("3 months", all four passes), `11-card-or-fund` ("5 years", all four), `15-five-month-fever` (all four,
+  "101°F") and `05` once; the sample answer's replies were flagged in 4, all `15` (it added "5 months" in
+  two). So `11` is a clean gain (answered 4 of 4 on both sides, no figure the passages lack), `05` is
+  one pass, and `01` is the figure vanishing because the reply stopped giving the fact (answered 4 → 0). The
+  line cannot be read apart from the answered line here, and the answered line is flat.
+- **Citing fell, in H5b2's way.** Replies carrying any `[n]`: 95 of 108 under the control, 84 under the sample
+  answer (H5b2: 91 → 85); where the source was first, 36 of 50 carry one (72%) against 32 of 36 (89%).
+  `cited` fell on `16-sprain-heat-or-ice` (4 → 0: "According to your reference notes", no `[n]`, no
+  title; the same reply as H5b2's, with the source first on both sides), `21-footing-depth`, `27` and
+  `15` (each 4 → 2) and rose on `12-bump-keeps-vomiting` (3 → 4): 103 cited replies against 94.
+- **Beside H5b2, on one scorer.** H5b2 re-scored by J3: answered 20.75 against 21.00 (−0.25), cited −1.75,
+  unsupported −1.50. Here: −0.25, −2.25, −2.25. The same direction on every line in both sessions (4
+  passes a side each); what differs is the cited line's control spread (σ 0.50 here against 1.41), and the
+  band with it, so a drop that H5b2's band could not tell from noise is outside this one.
+
+**The decision.** The sample answer moves the source up (first in 13 of 27 cases against 9), costs about 0.4 s a
+case and adds no forbidden advice, but on this suite and this model it does not make the 9B answer more
+questions (−0.25 of 27, inside ±1.35) and it makes it cite less (−2.25, outside ±0.76); the unsupported
+figures fell by about as much, partly because one reply stopped giving a fact. The switch rule's
+verdict is WORSE, so `libraryHyde` stays off.
+
+Files: `.eval-results/answers-qwen3.8-9b-distill-aids-{control,hyde}-2026-10-03T18-52-40.json` and
+`…T19-11-39.json` (in the worktree; copies, the diff and the per-pass and per-case tables with the run's
+notes, outside the repo).
