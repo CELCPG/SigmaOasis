@@ -14,6 +14,7 @@ its original words, into the file named below.
 | --- | --- | --- | --- | --- |
 | Tool choice | correct-tool, spurious-call, arg-validity and loop rates over 24 fixtures; MCP servers on the wire | `LMSTUDIO_EVAL=1 npm run eval:tools -- <model>` (`EVAL_SUBSET=1`, `EVAL_MCP_STUB=<n>`) | v2.5, qwen3.8-9b: 57/63 · 90% correct-tool, 0 spurious, with 0, 4 or 12 MCP servers connected | [tools.md](evals/tools.md) |
 | Library grounding | offline reference questions answered from retrieved passages, cited, no invented measurement | `LMSTUDIO_EVAL=1 EVAL_SUITES=library npm run eval:answers -- <model>` | v1.7: 23/28 answered, 22/28 cited, **0/28** unsupported measurements | [answers.md](evals/answers.md) |
+| Library model aids | the library's re-rank and sample answer where they can matter: 27 questions inside the stakes domains (health, first aid, building, finance), four kinds, over three packs of their own; the source is first under plain ranking in only 9 | `LMSTUDIO_EVAL=1 EVAL_SUITES=library-aids npm run eval:answers -- <model>` (`EVAL_RETRIEVAL_ONLY=1` ranks the sources with no model; `EVAL_CONTROL=1 EVAL_LIBRARY_ASSIST=rerank` for an aid against its same-day control) | v4.5 (H5): the retrieval-only split — source first 9/27, within the re-rank's pool of 15 in 27/27 | [library-aids.md](evals/library-aids.md) |
 | Quantitative + deliberation | the number right or wrong, bare vs. with the Workbench, and after one think-harder pass | `LMSTUDIO_EVAL=1 EVAL_SUITES=quant,deliberate npm run eval:answers -- <model>` | bare 10/18 · 56% vs. Workbench **20/20 · 100%**; CSV questions 0/6 → 6/6 | [answers.md](evals/answers.md) |
 | Multi-turn analysis | follow-ups over one dataset, sessions vs. stateless | `LMSTUDIO_EVAL=1 EVAL_SUITES=multiturn npm run eval:answers -- <model>` | v1.8.1: session follow-up re-reads 30/30 → 18/27 with the playbook step | [answers.md](evals/answers.md) |
 | Deep research | the brief checked against its passages, rung on vs. off, loopback fixture corpus | `LMSTUDIO_EVAL=1 EVAL_SUITES=research npm run eval:answers -- <model>` | v1.9.1: null — clean corpus 12/12 both arms; thin corpus 9/9 rung on vs. 8/9 off; nothing invented | [answers.md](evals/answers.md) |
@@ -63,6 +64,7 @@ Code comments and release notes cite sections of this file by heading; each head
 | Track M: what every run now records (v4.1) | [measurement.md](evals/measurement.md) |
 | Speed: Track S (v4.1) | [speed.md](evals/speed.md) |
 | A grammar beside `thinking: false`, measured on four planners (v4.5, H2) | [planners.md](evals/planners.md) |
+| A suite for the library's model aids to show a gain on: the four kinds of case, the retrieval-only check and its split (v4.5, H5) | [library-aids.md](evals/library-aids.md) |
 
 A section that says "above" or "below" was written for the single file. The order is kept inside
 each file, and this table gives the rest.

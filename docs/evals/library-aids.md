@@ -1,0 +1,115 @@
+# The library's model aids: the `library-aids` suite
+
+Part of the [evals index](../evals.md). The aids themselves (re-rank, the sample answer) are
+described in [library-ranking.md](../library-ranking.md); the 28-case library suite they were first
+measured on is in [answers.md](answers.md) (*The library's model aids, measured*, v4.4, G5).
+
+## What it measures, and why it exists (v4.5, H5)
+
+4.4's G5 measured re-rank and the sample answer beside same-day controls and called both
+SAME-WITHIN-NOISE. The suite could hardly have shown otherwise. The aids run only when the
+question falls in a high-stakes domain (`stakesDomain`: first aid, health, building, finance — a
+keyword rule on the question, `grounding.referenceDomains`), and **5 of the library suite's 28
+cases do** (`02-burn-no-ice`, `03-nosebleed`, `06-heat-exhaustion`, `25-credit-score-range`,
+`26-standard-deduction`). The other 23 never reach an aid: their questions carry no trigger word
+("I spilled boiling water on my forearm", "what are the signs of a stroke", "bitten by a dog" —
+none says *burn*, *stroke* or *bite*). And the five are not hard: plain ranking puts their
+section first. An aid can only change the answer where plain ranking leads with the wrong
+passage — or leaves the right one out of the five a reply gets to read — and there the suite had
+none.
+
+`EVAL_SUITES=library-aids` is the suite built for them: 27 cases, every question inside the
+domains, over three small packs of their own, scored the way the library suite is scored. It is
+the suite on which an aid can be measured to *help*, not only shown to cost nothing. Nothing about
+the shipping defaults changes with it: both aids stay off unless a measurement on this suite says
+otherwise (the last section).
+
+## The four kinds of case
+
+Each is a place where plain embedding-and-keyword ranking plausibly leads with the wrong passage:
+
+| kind | what makes it hard | cases | example |
+| --- | --- | --- | --- |
+| vocabulary | the question's words are not the document's | 7 | "My two-month-old is burning up and fussy. Can it wait until morning?" (the section says *fever*, *baby under 3 months*) |
+| paraphrase | an indirect, situational question | 7 | "My son bumped his head … and keeps throwing up. Is that a concussion thing or something worse?" (the answer is under "Go to the emergency room if") |
+| near-tie | two sections of one topic both fit; the right one names the answer | 7 | "My 5-month-old has a fever of 101 …" (*under 3 months* is an emergency, *3 months to 3 years* is not) |
+| multi-document | the answer is in a document whose title is not the question's topic | 6 | "If my son gets a bee sting … what should the babysitter do?" (the babysitter sheet, not *Stings, bites and ticks*) |
+
+Each case (`test/fixtures/library-aids/cases/*.json`) names the question, the **source** section
+whose passage must be retrieved and cited, the **decoys** that plausibly outrank it, the facts a
+reply must state (`mustInclude`) and, for seven of them, the advice it must not give
+(`mustNotAssert`, with an `unsafeReply` the unit test shows it flagging). The scorer is the library
+suite's — `scoreLibrary`: answered (every fact), cited (`[n]` or a retrieved title), forbidden
+(never banded), unsupported figures — including 4.4's list lead-in fix. A source section holds the
+facts and none of its decoys holds them all (`test/libraryAids.test.ts` checks both), so a reply
+built on the wrong passage cannot pass. The runner records, per case, where the source stood among
+the passages the lookup returned (`rank`, 0 = not among them): recorded, not scored.
+
+**The documents** are three small packs written for it, `test/fixtures/library-aids/packs/`
+(`aids-health`, `aids-money`, `aids-house`): 33 documents of a personal library's kind (a
+pediatrician's handout, a pharmacist's notes, a renters and an auto policy summary, an employer's
+benefits guide, a deck project's notes, a home inspection report, the babysitter sheet on the
+fridge) and four *questions we saved* pages whose `##` headings are questions and whose answers
+are generic — the kind of page that ranks first for a question and holds none of its numbers. They
+install into a library of their own (`.eval-library-aids`), so the 28 cases' library and their
+scores are untouched; a pack whose source text changed is reinstalled (and re-embedded) at the
+next run. Figures in them are fixture figures.
+
+## Running it
+
+```
+# the retrieval-only check — no answering model, the embedder only (nomic on :1234); seconds
+LMSTUDIO_EVAL=1 EVAL_RETRIEVAL_ONLY=1 EVAL_SUITES=library-aids npm run eval:answers
+
+# the suite, on its own, or one kind, or a slice (the cases run in kind order)
+EVAL_SUITES=library-aids LMSTUDIO_EVAL=1 npm run eval:answers -- <model>
+EVAL_SUITES=library-aids EVAL_LIBRARY_KIND=near-tie,multi-document LMSTUDIO_EVAL=1 npm run eval:answers -- <model>
+EVAL_SUITES=library-aids EVAL_CASES=1-7 LMSTUDIO_EVAL=1 npm run eval:answers -- <model>
+
+# an aid against its same-day control, as for `library` (G1)
+EVAL_CONTROL=1 EVAL_SUITES=library-aids EVAL_LIBRARY_ASSIST=rerank EVAL_PASSES=4 LMSTUDIO_EVAL=1 npm run eval:answers -- <model>
+```
+
+The results file keeps the library block, so `eval:diff` reads it unchanged (`--paired`, `--base`
+and `--run`); the file name carries `-aids`, and `librarySuite: "library-aids"` is in it. Name the
+two library suites together and the runner refuses: each writes the file's one library block.
+**`eval:diff` does not read `librarySuite`** (H7a): a `library` file and a `library-aids` file
+would be compared without a refusal, so diff aids against aids only, never against a baseline or
+control from the 28-case suite.
+
+## The retrieval-only check, and the split it prints
+
+A suite where plain ranking already puts every source first has no headroom, so
+`EVAL_RETRIEVAL_ONLY=1` ranks each case's passages with the app's own lookup (hybrid keyword +
+nomic, the floor, the wrong-section guard, MMR; both aids off) at the app-initiated lookup's topK
+of 5 and at the most a lookup can return, 12, and prints where the source section stood, beside its
+rank by cosine alone, by keyword alone, and fused (the order the re-rank's pool of 15 is cut from).
+No answering model is loaded or asked.
+
+On the first draft of the corpus (the packs without the FAQ pages) 16 of 27 sources were already
+first and none was lower than third: an answering model would have been shown the source every
+time, with nothing for an aid to fix. The FAQ pages are what the check asked for. The final split
+(H5a, 2026-10-03, 432 passages, the aids off), **re-run on the merged tree (`rel/4.5`, 4.5.0; H5b)
+and identical**:
+
+| where the source stands | cases |
+| --- | --- |
+| first | **9 of 27 (33%)** |
+| second | 9 |
+| third | 3 |
+| fourth | 3 |
+| fifth | 1 |
+| outside the five the answering model is shown | 2 (seventh, and fifth in the twelve-passage lookup) |
+| within the twelve a lookup can return | 27 of 27 |
+| within the fused order's first fifteen — the re-rank's pool | 27 of 27 |
+
+By kind, first / not first: vocabulary 2 / 5, paraphrase 2 / 5, near-tie 3 / 4, multi-document
+2 / 4. The nine controls, where plain ranking is already right and an aid can only do harm, are
+`04-bank-insurance-extra`, `06-breaker-bigger`, `10-who-gets-401k`, `14-estimated-payments`,
+`16-sprain-heat-or-ice`, `17-ira-at-55`, `18-mri-appeal`, `26-east-wall-crack` and
+`27-home-office-corner`. What plain ranking leads with instead is mostly the FAQ page's generic
+answer ("ask your lender when it can be removed") or a section of the right document about another
+situation (*under 3 months* for a 5-month-old). Keyword ranking alone is the weak leg for the
+vocabulary and paraphrase cases (the source's BM25 rank is 10th to 25th for "burning up",
+"throwing up and dizzy" and the 5-month-old). Re-run the check before any measurement; if the
+split moves, a measurement on the suite is a measurement of a different suite.
