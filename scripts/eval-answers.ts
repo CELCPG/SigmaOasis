@@ -2100,6 +2100,9 @@ async function main(): Promise<void> {
   if (librarySuite) {
     const suiteConfig = LIBRARY_SUITES[librarySuite]
     if (librarySuite !== 'library') report.librarySuite = librarySuite
+    // v4.6 (J3): the scorer's version, so eval:diff can refuse two files scored by different ones.
+    const { LIBRARY_SCORER_RULE } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+    report.libraryScorerRule = LIBRARY_SCORER_RULE
     console.log((librarySuite === 'library' ? 'library grounding' : `${librarySuite}: the aids' own suite`) + (assistOn ? ` — model aids on: ${assistArm(assist)} (${model}, by name)` : ''))
     type LibraryPass = { summary: ReturnType<typeof summarizeLibrary>; runs: Awaited<ReturnType<typeof runLibrarySuite>> }
     const sides: { role: SessionRole; assist: LibraryAssist; passes: LibraryPass[] }[] = controlOrder
@@ -2168,7 +2171,8 @@ async function main(): Promise<void> {
       if (side.assist.hyde) console.log(`  ranked with a sample answer ${expanded}`)
       const block = printSide(side.passes)
       if (side.role === 'control' && controlOrder) {
-        controlReport = { model, baseUrl: BASE_URL, ranAt: new Date().toISOString(), cases: process.env.EVAL_CASES ?? 'all', session: { id: session, role: 'control' }, library: block }
+        // v4.6 (J3): the control says which suite and scorer it was run under, as the arm's file does (4.5's did not, so a library-aids control read as a library file).
+        controlReport = { model, baseUrl: BASE_URL, ranAt: new Date().toISOString(), cases: process.env.EVAL_CASES ?? 'all', session: { id: session, role: 'control' }, ...(librarySuite !== 'library' ? { librarySuite } : {}), libraryScorerRule: LIBRARY_SCORER_RULE, library: block }
       } else {
         report.library = block
       }

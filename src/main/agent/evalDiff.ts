@@ -2,7 +2,7 @@ import { CLAIMS_RULE } from './claims'
 import { summarize, type CaseRun } from './evalHarness'
 import { fmtMs, median } from './latency'
 import type { EvalFixtureRun } from '../../renderer/src/lib/evalRunner'
-import type { LibraryCaseResult } from '../../renderer/src/lib/answerEval'
+import { LIBRARY_SCORER_RULE, type LibraryCaseResult } from '../../renderer/src/lib/answerEval'
 import { combineSessions, readSession, type MergedSession } from './evalSession'
 
 /**
@@ -70,6 +70,15 @@ import { combineSessions, readSession, type MergedSession } from './evalSession'
  * trimmed from). False claims stay never banded; what changed is how few of
  * the marks they count are the detector's.
  *
+ * v4.6 (J3): **one library scorer on both sides.** A library results file
+ * records the version of the scorer its answered / forbidden flags were scored
+ * by (`libraryScorerRule`; none = 1, the scorer that read a reply exactly as
+ * the model wrote it). Rule 2 reads Unicode spaces, dashes and quotes as their
+ * plain forms (answerEval.ts `normalizeReply`) — the sample answer's four
+ * "June 15" replies were scored missing for a narrow no-break space — so a file
+ * scored by rule 1 and one scored by rule 2 are refused (exit 2), and so is a
+ * merge of them. `npm run eval:library-rescore` moves a file to the current one.
+ *
  * Plain data in, plain text out; the shell is scripts/eval-diff.ts.
  */
 
@@ -125,6 +134,8 @@ interface Normalized {
   agentRuns?: CaseRun[][]
   /** v4.5 (H3b): the claim rule the agent flags were scored under; null for the other suites. */
   claimsRule: number | null
+  /** v4.6 (J3): the version of the library scorer the flags were scored by; null for the other suites. */
+  libraryRule: number | null
   noise?: StoredNoise
   /** v4.4 (G1): the session(s) the passes were measured in, and the side; null when untagged. */
   session: MergedSession | null
@@ -264,7 +275,7 @@ function normalize(file: unknown): Normalized {
   }
   const noise = isObj(f.noise) && isObj(f.noise.lines) && Array.isArray(f.noise.cases) ? (f.noise as unknown as StoredNoise) : undefined
   const savedAt = isObj(f.baseline) && typeof f.baseline.savedAt === 'string' ? f.baseline.savedAt : undefined
-  return { suite, model: typeof f.model === 'string' ? f.model : '?', arm: armOf(f), passes, runs: runsOf(f), cases, excluded, agentRuns, claimsRule: suite === 'agent' ? claimsRuleOf(f) : null, noise, session: readSession(f), savedAt }
+  return { suite, model: typeof f.model === 'string' ? f.model : '?', arm: armOf(f), passes, runs: runsOf(f), cases, excluded, agentRuns, claimsRule: suite === 'agent' ? claimsRuleOf(f) : null, libraryRule: suite === 'library' ? libraryScorerRuleOf(f) : null, noise, session: readSession(f), savedAt }
 }
 
 /** The claim rule an agent results file's flags were scored under; a file that does not say was scored under rule 1. */
@@ -277,6 +288,19 @@ function sameClaimsRule(what: string, a: { rule: number; name: string }, b: { ru
   throw new Error(
     `${a.name} was scored under claims rule ${a.rule} and ${b.name} under rule ${b.rule}: its false claims (and a needs-you case's solved) are not read the same way, so ${what} would call a change of rule a change of engine. ` +
       `Move the older one first: npm run eval:claims -- <results folders> --rescore <file> --write (current rule: ${CLAIMS_RULE})`
+  )
+}
+
+/** The version of the library scorer a library results file's flags were scored by; a file that does not say was scored by rule 1. */
+export function libraryScorerRuleOf(file: unknown): number {
+  return isObj(file) && typeof file.libraryScorerRule === 'number' ? file.libraryScorerRule : 1
+}
+
+function sameLibraryScorer(what: string, a: { rule: number; name: string }, b: { rule: number; name: string }): void {
+  if (a.rule === b.rule) return
+  throw new Error(
+    `${a.name} was scored under library scorer rule ${a.rule} and ${b.name} under rule ${b.rule}: its answered and forbidden flags are not read the same way (rule 2 reads Unicode spaces, dashes and quotes as plain ones), so ${what} would call a change of scorer a change of engine. ` +
+      `Move the older one first: npm run eval:library-rescore -- <file> --write (current rule: ${LIBRARY_SCORER_RULE})`
   )
 }
 
@@ -376,6 +400,8 @@ export interface DiffResult {
   sameDay: boolean
   /** v4.5 (H3b): the claim rule both sides' false claims were scored under; null for the suites that have none. */
   claimsRule: number | null
+  /** v4.6 (J3): the version of the library scorer both sides were scored by; null for the other suites. */
+  libraryRule: number | null
   rows: DiffRow[]
   /** Gated lines that got worse beyond their band (at all, for false claims), in words. Empty: no WORSE. */
   regressions: string[]
@@ -429,6 +455,7 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
   const run = normalize(runFile)
   if (base.suite !== run.suite) throw new Error(`the baseline is ${base.suite} results and the run is ${run.suite}: nothing to compare`)
   const suite = base.suite
+  if (base.libraryRule !== null && run.libraryRule !== null) sameLibraryScorer('the diff', { rule: base.libraryRule, name: 'the baseline' }, { rule: run.libraryRule, name: 'the run' })
   if (base.claimsRule !== null && run.claimsRule !== null) sameClaimsRule('the diff', { rule: base.claimsRule, name: 'the baseline' }, { rule: run.claimsRule, name: 'the run' })
   const tolerance = Math.max(0, opts.tolerance ?? 0)
   const minPasses = Math.max(1, Math.round(opts.minPasses ?? MIN_PASSES))
@@ -600,6 +627,7 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
     base: { kind: which.kind, text: which.text },
     sameDay: which.sameDay,
     claimsRule: base.claimsRule,
+    libraryRule: base.libraryRule,
     rows,
     regressions,
     improvements,
@@ -616,6 +644,7 @@ export function formatDiff(d: DiffResult): string {
   lines.push(`${SUITE_NAME[d.suite]} diff · baseline ${arm(d.baseline)} → run ${arm(d.run)}`)
   lines.push(`base: ${d.base.text}`)
   if (d.claimsRule !== null) lines.push(`claims rule ${d.claimsRule}: false claims read by it on both sides`)
+  if (d.libraryRule !== null) lines.push(`library scorer rule ${d.libraryRule}: answered and forbidden read by it on both sides`)
   lines.push('')
   lines.push('| | baseline | run | Δ | noise band | |')
   lines.push('| --- | --- | --- | --- | --- | --- |')
@@ -662,6 +691,7 @@ export function mergeResults(files: unknown[], names: string[] = []): Record<str
     if (f.model !== first.model) throw new Error(`cannot merge ${label(i)} (${String(f.model)}) with ${label(0)} (${String(first.model)}): another model`)
     if (armOf(f) !== armOf(first)) throw new Error(`cannot merge ${label(i)} (${armOf(f)}) with ${label(0)} (${armOf(first)}): another arm`)
     if (suite === 'agent') sameClaimsRule('a merge', { rule: claimsRuleOf(first), name: label(0) }, { rule: claimsRuleOf(f), name: label(i) })
+    if (suite === 'library') sameLibraryScorer('a merge', { rule: libraryScorerRuleOf(first), name: label(0) }, { rule: libraryScorerRuleOf(f), name: label(i) })
     const m = isObj(f.merged) ? f.merged : isObj(f.baseline) ? f.baseline : null
     const inner = m && Array.isArray(m.passRuns) ? (m.passRuns as number[]) : null
     const offset = passRuns.length ? Math.max(...passRuns) + 1 : 0

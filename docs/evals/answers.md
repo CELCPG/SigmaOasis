@@ -636,4 +636,6 @@ wrong section for the switch to be measured there, not only shown to cost nothin
 
 Moved to its own page: [library-aids.md](library-aids.md) — why the 28-case suite could not show a
 gain (5 of 28 cases reach an aid, none hard), the 27 cases in four kinds, the retrieval-only check
-and its split (the source first in 9 of 27), how to run it, and what re-rank measured on it.
+and its split (the source first in 9 of 27), how to run it, and what re-rank measured on it. Since
+4.6 (J3) the library scorer reads a reply's Unicode spaces, dashes and quotes as plain ones and its
+results carry `libraryScorerRule`; every recorded library file was re-scored (the same page, last section).
