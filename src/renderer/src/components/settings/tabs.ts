@@ -36,7 +36,7 @@ export interface SettingsTab {
 }
 
 export const SETTINGS_TABS: readonly SettingsTab[] = [
-  { key: 'connection', label: 'LM Studio', description: 'The local server every model runs on, and what it has loaded.', group: 'Setup', icon: 'plug', keywords: ['connection', 'server', 'url', 'port'] },
+  { key: 'connection', label: 'LM Studio', description: 'The local server the app’s models run on and what it has loaded — and the agent’s own server, if it has one.', group: 'Setup', icon: 'plug', keywords: ['connection', 'server', 'url', 'port', 'agent connection', 'llama-server'] },
   { key: 'models', label: 'Roles', description: 'The roles a message can go to: each one a model, a persona and its own tools; the pipeline they form.', group: 'Setup', icon: 'roles', keywords: ['models', 'slots', 'persona', 'system prompt', 'sampling', 'pipeline', 'collaborative', 'chain'] },
   { key: 'general', label: 'Appearance & chat', description: 'How the window looks and what a reply shows.', group: 'Setup', icon: 'sliders', keywords: ['general', 'theme', 'font', 'vibe'] },
   { key: 'grounding', label: 'Grounding & checks', description: 'What the app does before, after and across replies to keep them honest.', group: 'Intelligence', icon: 'check', keywords: ['second opinion', 'claims', 'verification', 'ledger', 'playbooks'] },

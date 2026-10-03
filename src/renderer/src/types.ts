@@ -763,6 +763,18 @@ export interface AppSettings {
   plan: PlanSettings
   /** v3.0: the agent workspace. */
   agent: AgentSettings
+  /** 4.6 (J1): a second server for the agent alone; off by default. */
+  agentConnection: AgentConnectionSettings
+}
+
+/** 4.6 (J1): mirrors main/agent/connection.ts AgentConnectionSettings. */
+export interface AgentConnectionSettings {
+  /** Off: the agent runs on LM Studio (`baseUrl`), as through 4.5. */
+  enabled: boolean
+  /** An OpenAI-compatible server on this machine (llama-server's default is http://127.0.0.1:8080/v1). */
+  baseUrl: string
+  /** The model the agent asks it for; '' is the one the server lists first. */
+  model: string
 }
 
 // ---- LM Studio / OpenAI-compatible API --------------------------------------

@@ -221,9 +221,12 @@ async function fetchBasic(baseUrl: string): Promise<ModelCatalog> {
 /**
  * The model list, as detailed as this server can describe it. Throws only when
  * the server is unreachable — the caller reads that as "offline".
+ *
+ * 4.6 (J1): of the main connection unless told another address — the agent
+ * connection's (./agentRoute.ts), read by the same code, llama-server's reader
+ * included.
  */
-export async function fetchModelCatalog(): Promise<ModelCatalog> {
-  const baseUrl = getSettings().baseUrl
+export async function fetchModelCatalog(baseUrl: string = getSettings().baseUrl): Promise<ModelCatalog> {
   try {
     const detailed = await fetchDetailed(restApiRoot(baseUrl))
     if (detailed && detailed.length > 0) return { models: detailed, detailed: true }
@@ -237,6 +240,18 @@ export function registerModelCatalogHandlers(): void {
   ipcMain.handle('models:catalog', async (): Promise<ModelCatalog | { error: string }> => {
     try {
       return await fetchModelCatalog()
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+  // 4.6 (J1): the agent connection's server, for its card under Settings →
+  // Connection. Read only while the connection is on: off, nothing at all goes
+  // to that address.
+  ipcMain.handle('models:agentCatalog', async (): Promise<ModelCatalog | { error: string; off?: true }> => {
+    const connection = getSettings().agentConnection
+    if (!connection?.enabled) return { error: 'The agent connection is off.', off: true }
+    try {
+      return await fetchModelCatalog(connection.baseUrl)
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) }
     }

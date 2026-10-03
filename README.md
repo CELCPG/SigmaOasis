@@ -61,6 +61,10 @@ machine. `docs/agent.md` lists them; `RELEASE-NOTES-v4.0.0.md` says what is and 
 - **`sigma` in your terminal.** The same agent, installed from Settings → Agent, running on the
   app's own runtime: `sigma` for a session in the current folder, `sigma "fix the failing test"`
   for one task. Talks to LM Studio on this machine and nothing else.
+- **Its own server, if you want one (4.6).** Settings → LM Studio → *Agent connection* points the
+  agent — agent chats, `sigma`, agent jobs — at a second server on this machine (llama.cpp's
+  `llama-server`, say), while chat, embeddings, titles and the library stay on LM Studio. Off by
+  default; when it is down the agent says so and stops, never falling back to LM Studio.
 - **SIGMA.md.** A project's standing instructions for the agent, in the repository with the code
   (AGENTS.md and CLAUDE.md are read when there is none).
 

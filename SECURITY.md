@@ -157,8 +157,9 @@ It does **not** hold, because the app cannot see it:
 - **anything an MCP server sends** — it is its own process; nor does the proxy cover it
   (`docs/mcp.md`);
 - **what the repository's own git hooks do** when a worktree is made (above);
-- **the `sigma` CLI**, which keeps no log at all. It talks only to LM Studio on loopback and refuses
-  any other server address; its `run_command` reaches whatever the command reaches, and says so.
+- **the `sigma` CLI**, which keeps no log at all. It talks only to LM Studio on loopback — or, with
+  the app's agent connection on, to that loopback server instead — and refuses any other server
+  address; its `run_command` reaches whatever the command reaches, and says so.
 
 The Python sandbox has nothing to log: its network is blocked outright (below).
 
@@ -191,7 +192,10 @@ keychain.
 Sigma Oasis talks to your local LM Studio server (loopback only — enforced by the renderer's CSP
 for the chat stream, and since v1.4.8 by settings normalization for everything else: a base URL
 that is not a loopback address is not saved, so the deliberately un-proxied LM Studio path can
-never point off-machine). There is no telemetry, no analytics, and no cloud sync.
+never point off-machine). The agent connection (4.6, off by default) is a second model server for
+the agent alone under the same rule: a loopback address or the default, the same direct
+connection, the same audited path and activity log (purpose `lmstudio`), its host on the
+allowlist only while it is on. There is no telemetry, no analytics, and no cloud sync.
 
 Every request the app's main process makes itself passes through an egress allowlist derived from
 your settings and is recorded (origin only, never the full URL) in the activity log under

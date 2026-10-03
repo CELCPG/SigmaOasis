@@ -52,6 +52,8 @@ function seedProfile(): string {
       {
         settings: {
           baseUrl: 'http://127.0.0.1:65533/v1',
+          // 4.6 (J1): the agent connection on, so its card draws every control it has (switch, address, model, Test); nothing listens there.
+          agentConnection: { enabled: true, baseUrl: 'http://127.0.0.1:65532/v1', model: 'qwen3.8-35b-a3b' },
           onboardingCompleted: true,
           theme: 'dark',
           updates: { autoCheck: false },

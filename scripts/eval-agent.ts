@@ -26,6 +26,13 @@
  *                        commands (EVAL_CASES slices) are read as one session by eval:diff
  *   EVAL_GPU=none        the server is not on this machine's NVIDIA card (the B60's llama-server):
  *                        skip the PCIe replay check, which would read the wrong card
+ *   EVAL_AGENT_BASE_URL=…  4.6 (J1): run the agent through the app's agent connection — that server,
+ *                        loopback only, routed and checked as the app routes and checks it
+ *                        (src/main/agent/connection.ts); LMSTUDIO_BASE_URL stays the main connection
+ *                        beside it. EVAL_AGENT_MODEL names its model (default: the one it serves);
+ *                        give no model ids then. Results files record `connection`.
+ *
+ *     EVAL_AGENT_BASE_URL=http://127.0.0.1:8081/v1 EVAL_GPU=none LMSTUDIO_EVAL=1 npm run eval:agent
  *
  * Needs Node on the PATH: the cases' tests run with `node --test`, in the shell
  * the agent itself is given. Temperature is pinned to 0. Results are written to
@@ -48,6 +55,7 @@ import { describeGpu, GPU_NOT_WATCHED, machineMoved, readGpuSync, watchesGpu } f
 import {
   agentResultsFile,
   describeRun,
+  evalAgentConnection,
   formatSummary,
   loadCases,
   runCase,
@@ -59,6 +67,7 @@ import {
 import { isLoopback } from '../src/cli/sigma'
 import { EXPERIMENT_KEYS, ROUND_MAX_TOKENS_OPTIONS, type AgentExperiments } from '../src/main/agent/types'
 import { controlOrderFrom, sessionId, sidesForPass, type SessionRole } from '../src/main/agent/evalSession'
+import { checkAgentServer, routeAgent, type AgentRoute } from '../src/main/agent/connection'
 
 // Compiled by scripts/eval-agent.sh to .eval-build/scripts/eval-agent.js — the
 // repo root is two levels up from there.
@@ -87,10 +96,10 @@ function selectCases(all: AgentCase[], spec: string | undefined): AgentCase[] {
 }
 
 /** One short completion, so the model is loaded and answering before anything is timed. */
-async function warmUp(model: string): Promise<{ ok: true; ms: number } | { ok: false; error: string }> {
+async function warmUp(baseUrl: string, model: string): Promise<{ ok: true; ms: number } | { ok: false; error: string }> {
   const started = Date.now()
   try {
-    const res = await fetch(`${BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Reply with the word ready.' }], max_tokens: 16, temperature: 0, stream: false }),
@@ -111,7 +120,19 @@ async function main(): Promise<void> {
     return
   }
   const models = process.argv.slice(2).filter((a) => a !== 'help')
-  if (models.length === 0) {
+  // 4.6 (J1): the agent connection, as the app builds it from its settings.
+  const agentConnection = evalAgentConnection(process.env)
+  if (!agentConnection.ok) {
+    console.error(agentConnection.error)
+    process.exitCode = 1
+    return
+  }
+  if (agentConnection.connection && models.length > 0) {
+    console.error('With EVAL_AGENT_BASE_URL the model is the agent connection\'s (EVAL_AGENT_MODEL, or the one that server serves): give no model ids.')
+    process.exitCode = 1
+    return
+  }
+  if (models.length === 0 && !agentConnection.connection) {
     console.error(USAGE)
     process.exitCode = 1
     return
@@ -120,6 +141,20 @@ async function main(): Promise<void> {
     console.error(`Refusing ${BASE_URL}: the eval talks only to a model server on this machine, as the CLI does.`)
     process.exitCode = 1
     return
+  }
+  // Where each model's run goes: the app's route, and on the agent connection
+  // the app's check first — a server down or without the model stops here.
+  let routes: AgentRoute[]
+  if (agentConnection.connection) {
+    const checked = await checkAgentServer(routeAgent(BASE_URL, agentConnection.connection, ''))
+    if (!checked.ok) {
+      console.error(checked.error)
+      process.exitCode = 1
+      return
+    }
+    routes = [checked.route]
+  } else {
+    routes = models.map((m) => routeAgent(BASE_URL, undefined, m))
   }
   const cases = selectCases(await loadCases(CASES_DIR), process.env.EVAL_CASES)
   const passes = Math.max(1, Math.min(9, Math.round(Number(process.env.EVAL_PASSES ?? '1')) || 1))
@@ -148,7 +183,8 @@ async function main(): Promise<void> {
     controller.abort()
   })
 
-  console.log(`agent eval · ${cases.length} case${cases.length === 1 ? '' : 's'} × ${passes} pass${passes === 1 ? '' : 'es'} · ${BASE_URL} · shell: ${shell.name}`)
+  const where = agentConnection.connection ? `agent connection ${routes[0]!.baseUrl} (main connection ${BASE_URL})` : BASE_URL
+  console.log(`agent eval · ${cases.length} case${cases.length === 1 ? '' : 's'} × ${passes} pass${passes === 1 ? '' : 'es'} · ${where} · shell: ${shell.name}`)
   console.log('caveats: temperature 0; commands limited to each case\'s test runner; one model loaded at a time.')
   console.log('Close other LM Studio clients (a Sigma Oasis window included) for the length of the run.')
   // v4.0 (E9): the GPU's error counter, before the run and after each case.
@@ -157,9 +193,10 @@ async function main(): Promise<void> {
   if (order) console.log(`same-day control: every switch off, a pass of each in turn (${order}, then alternating)\n`)
 
   const summaries: ModelSummary[] = []
-  for (const model of models) {
+  for (const route of routes) {
+    const model = route.model
     process.stdout.write(`warming ${model} … `)
-    const warm = await warmUp(model)
+    const warm = await warmUp(route.baseUrl, model)
     if (!warm.ok) {
       console.log(`failed: ${warm.error}\n  skipping ${model}.`)
       process.exitCode = 1
@@ -194,13 +231,14 @@ async function main(): Promise<void> {
           agentResultsFile({
             model,
             experiments: side.experiments,
-            baseUrl: BASE_URL,
+            baseUrl: route.baseUrl,
             shell: shell.name,
             startedAt: stamp,
             passes,
             cases: cases.map((c) => c.id),
             runs: side.byPass,
-            ...(session ? { session: { id: session, role: side.role } } : {})
+            ...(session ? { session: { id: session, role: side.role } } : {}),
+            ...(route.via === 'agent' ? { connection: { via: 'agent' as const, baseUrl: route.baseUrl, model, mainBaseUrl: BASE_URL } } : {})
           }),
           null,
           2
@@ -219,7 +257,7 @@ async function main(): Promise<void> {
           if (controller.signal.aborted) break
           process.stdout.write(`[${model}${label} · pass ${p + 1}/${passes}] ${c.id} (${c.kind}) … `)
           const run = await runCase(c, {
-            baseUrl: BASE_URL,
+            baseUrl: route.baseUrl,
             model,
             shell,
             signal: controller.signal,

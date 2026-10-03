@@ -196,3 +196,22 @@ the server dropped the connection (`fetch failed`) on `office-letters-from-csv`.
 > detector missed (`long-discount-rules`; none on the 25 cases the 35B's baseline covers). The
 > table's "false claim" cells for those two cases are the old reading. See
 > [claims.md](claims.md#corrected-numbers-for-44s-decision-3).
+
+### Through the agent connection (4.6, J1)
+
+`EVAL_AGENT_BASE_URL` runs the suite the way the app runs an agent with its agent connection on
+(docs/settings.md, *The agent connection*): every case is routed by the app's own `routeAgent` and
+checked first by the same rule (the server answers and serves the model, or the run stops in words
+naming the connection). `LMSTUDIO_BASE_URL` stays the main connection beside it; the agent eval
+itself makes no embedding request. The model is `EVAL_AGENT_MODEL`, or the one that server serves,
+and no model id is given on the command line:
+
+```bash
+EVAL_AGENT_BASE_URL=http://127.0.0.1:8081/v1 EVAL_GPU=none LMSTUDIO_EVAL=1 npm run eval:agent
+```
+
+The case budgets (`contextTokens`) are the cases' own, as on the main connection, so a run through
+the agent connection compares with G6's 35B baseline, which reached the same server as
+`LMSTUDIO_BASE_URL`. The results file's `baseUrl` is the agent server, and it carries
+`connection: { via: 'agent', baseUrl, model, mainBaseUrl }`. A file without `connection` ran on the
+main connection, as every file before 4.6.

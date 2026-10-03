@@ -12,6 +12,8 @@ import { AGENT_APP_TOOLS } from '../../shared/agentAppTools'
 import { writeFileAtomic } from './fsAtomic'
 import { hostWindow } from './hostWindow'
 import { fetchModelCatalog } from './modelCatalog'
+import { prepareAgentRoute } from './agentRoute'
+import { agentConnectionOn, taskDetail, type AgentRoute } from '../agent/connection'
 import { draftRejected, noteDraftRejected, pinChatModel } from './modelPin'
 import { withDraftFallback } from '../agent/draftFallback'
 import { draftModelFor } from '../../shared/draftModel'
@@ -251,7 +253,17 @@ function notifyFinished(sender: Electron.WebContents, task: RunningTask, status:
   n.show()
 }
 
-async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Promise<void> {
+/**
+ * 4.6 (J1): a task on the agent connection carries where it runs, checked
+ * before it was accepted (./agentRoute.ts). Without one it runs on the main
+ * connection, as every task did through 4.5.
+ */
+interface OnAgentConnection {
+  route: AgentRoute
+  contextTokens?: number
+}
+
+async function startTask(sender: Electron.WebContents, req: AgentRunRequest, onAgent?: OnAgentConnection): Promise<void> {
   const settings = getSettings()
   const controller = new AbortController()
   const task: RunningTask = {
@@ -272,27 +284,37 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
 
   let result: AgentTaskResult
   try {
-    // Pin first, as the chat does, so an embedding call elsewhere does not
-    // evict the model mid-task; then read the window it was loaded with.
-    await pinChatModel(req.model).catch(() => undefined)
-    const catalog = await fetchModelCatalog().catch(() => null)
-    const entry = catalog?.models.find((m) => m.id === req.model)
-    // v4.2 (S8): the role's draft model rides the request body through the
-    // sampling fields the engine already spreads into it; a refusal is retried
-    // once without it at the transport (../agent/draftFallback.ts).
-    const named = draftModelFor(req.model, settings.models)
-    const draft = named && !draftRejected(req.model, named) ? named : undefined
+    let contextTokens: number | undefined
+    let draft: string | undefined
+    if (onAgent) {
+      // 4.6 (J1): the agent connection. No pin and no draft model — both are
+      // LM Studio's, and Sigma never loads or unloads a model on that server;
+      // the window is the one that server gives a request.
+      contextTokens = onAgent.contextTokens
+    } else {
+      // Pin first, as the chat does, so an embedding call elsewhere does not
+      // evict the model mid-task; then read the window it was loaded with.
+      await pinChatModel(req.model).catch(() => undefined)
+      const catalog = await fetchModelCatalog().catch(() => null)
+      const entry = catalog?.models.find((m) => m.id === req.model)
+      // v4.2 (S8): the role's draft model rides the request body through the
+      // sampling fields the engine already spreads into it; a refusal is retried
+      // once without it at the transport (../agent/draftFallback.ts).
+      const named = draftModelFor(req.model, settings.models)
+      draft = named && !draftRejected(req.model, named) ? named : undefined
+      contextTokens = entry?.loadedContextLength ?? entry?.maxContextLength ?? undefined
+    }
     result = await runAgentTask(
       {
-        baseUrl: settings.baseUrl,
-        model: req.model,
+        baseUrl: onAgent ? onAgent.route.baseUrl : settings.baseUrl,
+        model: onAgent ? onAgent.route.model : req.model,
         workspace: req.workspace,
         permission: req.permission,
         prompt: req.prompt,
         history: histories.get(req.conversationId) ?? req.history,
         sampling: draft ? { ...req.sampling, draft_model: draft } : req.sampling,
         rules: req.rules,
-        contextTokens: entry?.loadedContextLength ?? entry?.maxContextLength ?? undefined,
+        contextTokens,
         maxRounds: settings.agent.maxRounds,
         roundMaxTokens: settings.agent.roundMaxTokens,
         commandTimeoutSec: settings.agent.commandTimeoutSec,
@@ -303,7 +325,7 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
         takeSteers: () => task.steers.splice(0)
       },
       {
-        transport: draft ? withDraftFallback(auditedTransport, (detail) => noteDraftRejected(req.model, draft, detail)) : auditedTransport,
+        transport: draft ? withDraftFallback(auditedTransport, (detail) => noteDraftRejected(req.model, draft!, detail)) : auditedTransport,
         shell: defaultShell(),
         // C1 (v4.0): the app's own PDF extractor for read_document; C2: the system trash for delete_file.
         readPdf: async (bytes) => {
@@ -317,9 +339,13 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
         // v4.1 (F2): a command that reaches the network says so, and leaves a row in the network log.
         approveCommand: ({ command, cwd, warning, network }) =>
           approveCommand(sender, { tool: 'agent_command', command, cwd, where: cwd, notices: { warning, network } }),
+        // The app's own tools stay on the main connection with the chat's model
+        // (a tool that asks a model asks LM Studio), on the agent connection too.
         extraTools: appTools(sender, req.conversationId, req.model)
       }
     )
+    // 4.6 (J1): a failed task's words name LM Studio; say which server it was.
+    if (onAgent && result.detail) result = { ...result, detail: taskDetail(result, onAgent.route) }
   } catch (err) {
     // runAgentTask does not throw; this is the pin or the catalog, or a bug.
     result = {
@@ -342,6 +368,46 @@ async function startTask(sender: Electron.WebContents, req: AgentRunRequest): Pr
   if (workedIn) await saveCheckpoints(req.conversationId, req.messageId, workedIn, result.checkpoints).catch(() => undefined)
   send({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, ...(result.detail ? { detail: result.detail } : {}), ...(result.claim ? { claim: result.claim } : {}) })
   notifyFinished(sender, task, result.status)
+}
+
+/** The answer to `agent:run`; on the agent connection it names the model and the address that run the task. */
+export type AgentRunAnswer = { ok: boolean; error?: string; model?: string; connection?: string }
+
+/**
+ * What `agent:run` does with a well-formed request (exported for
+ * test/agentConnection.test.ts, which drives it with a stand-in window).
+ * 4.6 (J1): with the agent connection off the task starts here and now, as
+ * through 4.5 — no await, nothing asked first.
+ */
+export function acceptAgentRun(sender: Electron.WebContents, req: AgentRunRequest): AgentRunAnswer | Promise<AgentRunAnswer> {
+  if ([...running.values()].some((t) => t.conversationId === req.conversationId)) {
+    return { ok: false, error: 'A task is already running in this conversation.' }
+  }
+  if (!agentConnectionOn(getSettings().agentConnection)) {
+    void startTask(sender, req)
+    return { ok: true }
+  }
+  return startOnAgentConnection(sender, req)
+}
+
+/**
+ * 4.6 (J1): a task on the agent connection is accepted only once that server
+ * has answered with the model: otherwise the turn says why, in words that name
+ * the connection, and nothing is sent anywhere — LM Studio included. Accepted,
+ * the renderer is told the model that runs it, for the turn's label.
+ */
+async function startOnAgentConnection(
+  sender: Electron.WebContents,
+  req: AgentRunRequest
+): Promise<AgentRunAnswer> {
+  const prepared = await prepareAgentRoute(req.model)
+  if (!prepared.ok) return { ok: false, error: prepared.error }
+  // Asked again: another start for this chat may have landed during the check.
+  if ([...running.values()].some((t) => t.conversationId === req.conversationId)) {
+    return { ok: false, error: 'A task is already running in this conversation.' }
+  }
+  void startTask(sender, req, { route: prepared.route, contextTokens: prepared.contextTokens })
+  return { ok: true, model: prepared.route.model, connection: prepared.route.baseUrl }
 }
 
 /** C3 (v4.0): the recipe for this task — the shipped four, then any installed skill with an agent.md. */
@@ -387,9 +453,6 @@ export function registerAgentHandlers(): void {
     if (!r || typeof r.taskId !== 'string' || typeof r.conversationId !== 'string' || typeof r.messageId !== 'string' || typeof r.prompt !== 'string' || typeof r.model !== 'string') {
       return { ok: false, error: 'Malformed agent request.' }
     }
-    if ([...running.values()].some((t) => t.conversationId === r.conversationId)) {
-      return { ok: false, error: 'A task is already running in this conversation.' }
-    }
     const permission = PERMISSION_MODES.includes(r.permission as PermissionMode) ? (r.permission as PermissionMode) : 'ask'
     const req: AgentRunRequest = {
       taskId: r.taskId,
@@ -404,8 +467,7 @@ export function registerAgentHandlers(): void {
       rules: typeof r.rules === 'string' ? r.rules : undefined,
       history: Array.isArray(r.history) ? r.history : undefined
     }
-    void startTask(e.sender, req)
-    return { ok: true }
+    return acceptAgentRun(e.sender, req)
   })
 
   ipcMain.handle('agent:stop', (_e, taskId: unknown) => {
