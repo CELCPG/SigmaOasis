@@ -9,6 +9,8 @@ import { fetchTransport } from './stream'
 import { fmtMs, median, summarizeLatency, timedTransport, type LatencySummary, type RoundLatency } from './latency'
 import type { AgentEvent, AgentExperiments, AgentHost, AgentStatus, ChunkTransport, PermissionMode, ShellSpec, ToolCallRecord } from './types'
 import type { EvalSession } from './evalSession'
+import type { AgentConnectionSettings } from './connection'
+import { isLoopbackBaseUrl } from '../ipc/loopback'
 
 /**
  * The agent eval (v3.1, `eval:agent`): how often the agent actually finishes
@@ -464,11 +466,42 @@ export interface AgentResultsFile {
    * two sides scored under different rules; `eval:claims --rescore` moves a file.
    */
   claimsRule?: number
+  /**
+   * 4.6 (J1): set when the run went through the agent connection
+   * (EVAL_AGENT_BASE_URL): the route the app would take — `baseUrl` above is
+   * that server, `mainBaseUrl` the main connection beside it. Absent, the run
+   * was on the main connection, as every file before 4.6.
+   */
+  connection?: EvalConnection
+}
+
+/** 4.6 (J1): which connection an agent eval ran on (./connection.ts `routeAgent`). */
+export interface EvalConnection {
+  via: 'agent'
+  baseUrl: string
+  model: string
+  mainBaseUrl: string
 }
 
 /** v4.1 (M6): built in one place, so the offline replay gate writes the runner's schema, not a copy of it. */
 export function agentResultsFile(o: Omit<AgentResultsFile, 'suite' | 'claimsRule'>): AgentResultsFile {
-  return { suite: 'agent', claimsRule: CLAIMS_RULE, model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs, ...(o.session ? { session: o.session } : {}) }
+  return { suite: 'agent', claimsRule: CLAIMS_RULE, model: o.model, experiments: o.experiments, baseUrl: o.baseUrl, shell: o.shell, startedAt: o.startedAt, passes: o.passes, cases: o.cases, runs: o.runs, ...(o.session ? { session: o.session } : {}), ...(o.connection ? { connection: o.connection } : {}) }
+}
+
+/**
+ * 4.6 (J1): the agent connection `eval:agent` is pointed through, from its
+ * environment — `EVAL_AGENT_BASE_URL` (and `EVAL_AGENT_MODEL`, or the server's
+ * own model) — built as the app builds it, so the run takes the app's route.
+ * An address off this machine is refused here, not replaced: an eval asked
+ * for a server it cannot use should not quietly measure another one.
+ */
+export function evalAgentConnection(env: Record<string, string | undefined>): { ok: true; connection?: AgentConnectionSettings } | { ok: false; error: string } {
+  const baseUrl = env.EVAL_AGENT_BASE_URL?.trim()
+  if (!baseUrl) {
+    return env.EVAL_AGENT_MODEL ? { ok: false, error: 'EVAL_AGENT_MODEL names the agent connection\'s model: set EVAL_AGENT_BASE_URL too.' } : { ok: true }
+  }
+  if (!isLoopbackBaseUrl(baseUrl)) return { ok: false, error: `Refusing EVAL_AGENT_BASE_URL=${baseUrl}: the agent connection is a server on this machine, as in the app.` }
+  return { ok: true, connection: { enabled: true, baseUrl, model: env.EVAL_AGENT_MODEL?.trim() ?? '' } }
 }
 
 // ---- many passes -----------------------------------------------------------

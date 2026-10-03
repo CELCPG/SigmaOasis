@@ -4,9 +4,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { load, resetState, state } from './harness'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { agentResultsFile, evalAgentConnection } from '../src/main/agent/evalHarness'
 import {
   DEFAULT_AGENT_CONNECTION,
   agentConnectionOn,
+  checkAgentServer,
   describeRoute,
   normalizeAgentConnection,
   onAgentConnection,
@@ -385,6 +389,47 @@ describe('a scheduled agent job (C5) runs where the agent runs', () => {
     assert.equal(down.outcome, 'failed')
     assert.match(down.note, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → Connection\) did not answer/)
     assert.equal(state.completionBodies.length, 0)
+  })
+})
+
+describe('eval:agent through the agent connection', () => {
+  test('EVAL_AGENT_BASE_URL builds the connection the app would; off this machine is refused, not replaced', () => {
+    assert.deepEqual(evalAgentConnection({}), { ok: true })
+    assert.deepEqual(evalAgentConnection({ EVAL_AGENT_BASE_URL: ' http://127.0.0.1:8081/v1 ', EVAL_AGENT_MODEL: 'qwen3.8-35b-a3b' }), {
+      ok: true,
+      connection: { enabled: true, baseUrl: 'http://127.0.0.1:8081/v1', model: 'qwen3.8-35b-a3b' }
+    })
+    assert.deepEqual(evalAgentConnection({ EVAL_AGENT_BASE_URL: 'http://127.0.0.1:8081/v1' }), { ok: true, connection: { enabled: true, baseUrl: 'http://127.0.0.1:8081/v1', model: '' } })
+    assert.match((evalAgentConnection({ EVAL_AGENT_BASE_URL: 'http://10.0.0.10:8081/v1' }) as { error: string }).error, /^Refusing EVAL_AGENT_BASE_URL=http:\/\/10\.0\.0\.10:8081\/v1/)
+    assert.match((evalAgentConnection({ EVAL_AGENT_MODEL: 'qwen3.8-35b-a3b' }) as { error: string }).error, /set EVAL_AGENT_BASE_URL too/)
+  })
+
+  test('the results file records the connection only when the run took it — every other file keeps its 4.5 shape', () => {
+    const base = { model: 'qwen3.8-35b-a3b', experiments: {}, baseUrl: AGENT, shell: 'sh', startedAt: 's', passes: 1, cases: ['chain-csv-totals'], runs: [] }
+    assert.equal('connection' in agentResultsFile(base), false)
+    const connection = { via: 'agent' as const, baseUrl: AGENT, model: 'qwen3.8-35b-a3b', mainBaseUrl: MAIN }
+    assert.deepEqual(agentResultsFile({ ...base, connection }).connection, connection)
+  })
+
+  test('the check over plain HTTP (sigma, eval:agent): the served model, a missing one, a server that is down', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ data: [{ id: 'qwen3.8-35b-a3b' }] }))
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+    try {
+      const conn = { enabled: true, baseUrl: url, model: '' }
+      assert.deepEqual(await checkAgentServer(routeAgent(MAIN, conn, 'x')), { ok: true, route: { via: 'agent', baseUrl: url, model: 'qwen3.8-35b-a3b' } })
+      const missing = await checkAgentServer(routeAgent(MAIN, { ...conn, model: 'gemma-4-26b-a4b' }, 'x'))
+      assert.match((missing as { error: string }).error, /does not serve gemma-4-26b-a4b \(it lists qwen3\.8-35b-a3b\)/)
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+    // Refused, or — a pooled keep-alive socket to the server just closed — reset.
+    const down = await checkAgentServer(routeAgent(MAIN, { enabled: true, baseUrl: url, model: '' }, 'x'))
+    assert.match((down as { error: string }).error, new RegExp(`^The agent connection \\(${url.replace(/[.]/g, '\\.')}, Settings → Connection\\) did not answer: .*(ECONNREFUSED|ECONNRESET).*\\. The agent does not fall back to LM Studio`))
   })
 })
 

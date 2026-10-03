@@ -113,6 +113,28 @@ export function pickServedModel(route: AgentRoute, listed: string[]): { ok: true
 }
 
 /**
+ * The check before a task, over plain HTTP — for `sigma` and `eval:agent`,
+ * which run on Node. (The app asks through its audited transport and the
+ * catalog's reader instead: main/ipc/agentRoute.ts.) The server's model list,
+ * then `pickServedModel`; a server that does not answer is `agentConnectionError`.
+ */
+export async function checkAgentServer(route: AgentRoute, timeoutMs = 10_000): Promise<{ ok: true; route: AgentRoute } | { ok: false; error: string }> {
+  let ids: string[]
+  try {
+    const res = await fetch(`${route.baseUrl.replace(/\/+$/, '')}/models`, { signal: AbortSignal.timeout(timeoutMs) })
+    if (!res.ok) return { ok: false, error: agentConnectionError(route.baseUrl, `HTTP ${res.status}`) }
+    const data = (await res.json()) as { data?: { id?: unknown }[] }
+    ids = (data.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
+  } catch (err) {
+    // Node's fetch says "fetch failed" and keeps the reason (ECONNREFUSED …) in its cause.
+    const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : ''
+    return { ok: false, error: agentConnectionError(route.baseUrl, cause || (err instanceof Error ? err.message : String(err))) }
+  }
+  const picked = pickServedModel(route, ids)
+  return picked.ok ? { ok: true, route: { ...route, model: picked.model } } : picked
+}
+
+/**
  * An error the engine reported, said of the server it really came from. The
  * engine's words name LM Studio (main/agent/stream.ts) — and the eval reads
  * those words to tell a server failure from a task failure, so they stay; on

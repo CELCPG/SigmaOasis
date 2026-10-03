@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from 'path'
 import { createInterface, type Interface } from 'readline'
 import { runAgentTask, DEFAULT_MAX_ROUNDS } from '../main/agent/engine'
 import { restoreCheckpoints } from '../main/agent/checkpoints'
+import { agentConnectionOn, checkAgentServer, normalizeAgentConnection, onAgentConnection, routeAgent, type AgentRoute } from '../main/agent/connection'
 import { fetchTransport } from '../main/agent/stream'
 import { defaultShell } from '../main/agent/command'
 import { expandCommand, loadCommands } from '../main/agent/commands'
@@ -20,7 +21,9 @@ import { describeStep } from '../renderer/src/lib/agentTurn'
  * so nothing else needs installing. It reads the app's settings for the
  * server and the model, so nothing is configured twice, and it talks to
  * LM Studio on this machine and nothing else — no web tools, no telemetry;
- * a non-loopback server address is refused, as the app refuses one.
+ * a non-loopback server address is refused, as the app refuses one. 4.6 (J1):
+ * when the app's agent connection is on, the agent's server is that one
+ * instead (../main/agent/connection.ts), under the same loopback rule.
  *
  *   sigma                      interactive, in the current folder
  *   sigma -p "fix the tests"   one task, then exit (status in the exit code)
@@ -78,6 +81,8 @@ function fail(s: string): void {
 
 interface AppSettingsLike {
   baseUrl?: string
+  /** 4.6 (J1): read through normalizeAgentConnection, the app's own rule. */
+  agentConnection?: unknown
   models?: { id?: string; modelId?: string; enabled?: boolean; specialty?: string; rules?: string }[]
   agent?: { maxRounds?: number; roundMaxTokens?: number; commandTimeoutSec?: number; defaultPermission?: PermissionMode; experiments?: Record<string, boolean> }
 }
@@ -227,15 +232,18 @@ Usage
   sigma "task"  |  sigma -p "task"   do one task, then exit
 
 Options
-  -m, --model <id>              LM Studio model (default: the app's agent/coding slot)
+  -m, --model <id>              the model (default: the agent connection's, when the app has
+                                one on; else the app's agent/coding slot in LM Studio)
   -C, --cwd <folder>            work in this folder (default: the current one)
       --mode <ask|accept-edits|read-only>
       --accept-edits            edits land without asking (commands still ask)
       --read-only               look, don't touch: no edits, no commands
       --no-folder               no files at all
       --max-rounds <n>          steps before a task pauses (default ${DEFAULT_MAX_ROUNDS})
-      --base-url <url>          LM Studio's address (must be on this machine)
-      --json                    one JSON event per line, for scripts
+      --base-url <url>          the server for this run (must be on this machine); the
+                                agent connection is not used
+      --json                    one JSON event per line, for scripts; the last says which
+                                connection ran the task
   -v, --version                 print the version
   -h, --help                    this
 
@@ -243,8 +251,9 @@ In a session
   /mode ask|accept-edits|read-only   /model <id>   /undo   /clear   /help   /exit
   Type while a task works to add a note it reads at its next step. Ctrl+C stops a task.
 
-Privacy: talks only to LM Studio on this machine. Reads the app's settings
-(${appConfigPath()}) for the server and model.`
+Privacy: talks only to LM Studio on this machine — or, when the app's agent
+connection is on (Settings → Connection), to that server, also on this machine.
+Reads the app's settings (${appConfigPath()}) for the server and model.`
 
 // ---- the session -----------------------------------------------------------
 
@@ -322,18 +331,37 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
   }
 
   const app = readAppSettings()
-  const baseUrl = o.baseUrl ?? app.baseUrl ?? 'http://127.0.0.1:1234/v1'
-  if (!isLoopback(baseUrl)) {
-    fail(`Refusing ${baseUrl}: sigma talks only to a model server on this machine (localhost / 127.0.0.1).\n`)
+  const mainBaseUrl = o.baseUrl ?? app.baseUrl ?? 'http://127.0.0.1:1234/v1'
+  if (!isLoopback(mainBaseUrl)) {
+    fail(`Refusing ${mainBaseUrl}: sigma talks only to a model server on this machine (localhost / 127.0.0.1).\n`)
     return 2
   }
   const enabled = (app.models ?? []).filter((m) => m.enabled && m.modelId)
   const slot = enabled.find((m) => m.specialty === 'coding') ?? enabled[0]
-  const model = o.model ?? slot?.modelId ?? (await firstChatModel(baseUrl))
-  if (!model) {
-    fail(`No model to use. Is LM Studio running at ${baseUrl}? Load a model, or pass --model <id>.\n`)
-    return 1
+  // 4.6 (J1): the app's agent connection, when it is on — unless --base-url
+  // names the server for this run. On, its server is asked for its models
+  // first, and a server that does not answer or lacks the model ends the run
+  // in words that name it: there is no falling back to LM Studio.
+  const connection = o.baseUrl ? undefined : normalizeAgentConnection(app.agentConnection)
+  let route: AgentRoute
+  if (agentConnectionOn(connection)) {
+    const wanted = routeAgent(mainBaseUrl, connection, '')
+    const checked = await checkAgentServer({ ...wanted, model: o.model ?? wanted.model })
+    if (!checked.ok) {
+      fail(`${checked.error}\n`)
+      return 1
+    }
+    route = checked.route
+  } else {
+    const model = o.model ?? slot?.modelId ?? (await firstChatModel(mainBaseUrl))
+    if (!model) {
+      fail(`No model to use. Is LM Studio running at ${mainBaseUrl}? Load a model, or pass --model <id>.\n`)
+      return 1
+    }
+    route = routeAgent(mainBaseUrl, undefined, model)
   }
+  const baseUrl = route.baseUrl
+  const model = route.model
   if (!o.noFolder && !existsSync(o.cwd)) {
     fail(`No such folder: ${o.cwd}\n`)
     return 2
@@ -358,7 +386,7 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
   const header = (): void => {
     if (o.json) return
     write(`${bold('sigma')} ${dim(VERSION)} · ${cyan(currentModel)} · ${workspace ? workspace : dim('no folder')}\n`)
-    write(dim(`${PERMISSION_WORDS[permission]} · shell: ${shell.name} · LM Studio at ${baseUrl}\n`))
+    write(dim(`${PERMISSION_WORDS[permission]} · shell: ${shell.name} · ${route.via === 'agent' ? 'agent connection' : 'LM Studio'} at ${baseUrl}\n`))
   }
 
   const host = (): AgentHost => {
@@ -512,8 +540,12 @@ export async function main(argv: string[], output: CliIO = terminalIO): Promise<
     history = result.history
     if (result.worktree) lastWorktree = result.worktree
     if (result.checkpoints.length > 0) lastCheckpoints = result.checkpoints
+    // 4.6 (J1): an error on the agent connection names it, not LM Studio.
+    if (result.detail) result.detail = onAgentConnection(result.detail, route)
     if (o.json) {
-      write(`${JSON.stringify({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, detail: result.detail, ...(result.claim ? { claim: result.claim } : {}) })}\n`)
+      // 4.6 (J1): which connection ran the task, for a script to read.
+      const ran = { via: route.via, baseUrl, model: currentModel }
+      write(`${JSON.stringify({ type: 'final', status: result.status, finalText: result.finalText, changedFiles: result.changedFiles, detail: result.detail, ...(result.claim ? { claim: result.claim } : {}), connection: ran })}\n`)
     } else {
       if (!result.finalText.endsWith('\n')) write('\n')
       const tone = result.status === 'done' ? green : result.status === 'error' ? red : yellow
