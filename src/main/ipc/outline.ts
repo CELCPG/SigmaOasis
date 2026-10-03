@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { chatComplete, chatCompleteJson } from './llm'
+import { chatComplete, chatCompleteJson, type CompleteOptions } from './llm'
 
 /**
  * v2.6: outline-then-fill for long answers.
@@ -95,7 +95,7 @@ const OUTLINE_SCHEMA = {
   }
 }
 
-function cleanOutline(raw: unknown): Outline | null {
+export function cleanOutline(raw: unknown): Outline | null {
   const o = raw as Partial<Outline> | null
   if (!o || typeof o.title !== 'string' || !Array.isArray(o.sections)) return null
   const sections = o.sections
@@ -148,8 +148,20 @@ export function outlineFromRequest(request: string): Outline | null {
 export async function generateOutline(input: { model: string; persona: string; request: string; signal?: AbortSignal }): Promise<Outline | null> {
   const given = outlineFromRequest(input.request)
   if (given) return given
-  const parsed = await chatCompleteJson<unknown>({
-    model: input.model,
+  const parsed = await chatCompleteJson<unknown>(outlineRequest(input.model, input.request, input.signal))
+  return cleanOutline(parsed)
+}
+
+/**
+ * The request the model outline sends (exported for the H2 probe and the tests).
+ *
+ * `plain` is the shape a `<think>` family can answer under (v4.5, H2): no
+ * grammar, so `thinking: false` becomes the closed-think prefill, and the
+ * system prompt says the JSON shape the grammar no longer enforces.
+ */
+export function outlineRequest(model: string, request: string, signal?: AbortSignal, plain = false): CompleteOptions {
+  return {
+    model,
     messages: [
       {
         role: 'system',
@@ -157,20 +169,20 @@ export async function generateOutline(input: { model: string; persona: string; r
           'You plan documents. Given a request for a written piece, return its outline as JSON: a title and ' +
           `${OUTLINE_MIN_SECTIONS} to ${OUTLINE_MAX_SECTIONS} sections in reading order, each with a heading and a brief of at most ` +
           'fifteen words saying what that section must cover and nothing another section covers. If the request names ' +
-          'section headings, use exactly those, in that order. Return JSON only, nothing before or after it.'
+          'section headings, use exactly those, in that order. Return JSON only, nothing before or after it.' +
+          (plain ? ' Use exactly this shape: {"title":"...","sections":[{"heading":"...","brief":"..."}]}' : '')
       },
-      { role: 'user', content: input.request }
+      { role: 'user', content: request }
     ],
-    jsonSchema: OUTLINE_SCHEMA,
+    ...(plain ? {} : { jsonSchema: OUTLINE_SCHEMA }),
     temperature: 0.2,
     // The outline is a few hundred tokens; without a cap the first build let
     // a 9B run past the completion timeout on ten of twelve documents.
     maxTokens: OUTLINE_MAX_TOKENS,
     timeoutMs: OUTLINE_TIMEOUT_MS,
     thinking: false,
-    signal: input.signal
-  })
-  return cleanOutline(parsed)
+    signal
+  }
 }
 
 /** Write the document the outline promised, one section at a time. */

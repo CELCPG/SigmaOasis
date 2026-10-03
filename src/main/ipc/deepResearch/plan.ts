@@ -1,4 +1,4 @@
-import { chatCompleteJson } from '../llm'
+import { chatCompleteJson, type CompleteOptions } from '../llm'
 import type { ResearchPlan, SubQuestion } from './types'
 
 // ---- planning ----------------------------------------------------------------
@@ -146,26 +146,36 @@ export function keywordQueryFor(question: string): string {
   return kept.length > 0 ? kept.join(' ') : question.trim()
 }
 
+/**
+ * The request the research planner sends (exported for the H2 probe and the
+ * tests). `plain` is the shape a `<think>` family can answer under (v4.5, H2):
+ * no grammar, so `thinking: false` becomes the closed-think prefill; the system
+ * prompt already says the shape.
+ */
+export function plannerRequest(question: string, model: string, signal?: AbortSignal, plain = false): CompleteOptions {
+  return {
+    model,
+    messages: [
+      { role: 'system', content: PLANNER_SYSTEM },
+      { role: 'user', content: question }
+    ],
+    temperature: 0.1,
+    maxTokens: 700,
+    // The schema already constrains the output; thinking in front of it only
+    // spends the budget that has to reach the JSON.
+    thinking: false,
+    ...(plain ? {} : { jsonSchema: { name: 'research_plan', schema: PLAN_SCHEMA } }),
+    signal
+  }
+}
+
 export async function makePlan(
   question: string,
   model: string,
   signal?: AbortSignal
 ): Promise<{ plan: ResearchPlan; planned: boolean }> {
   try {
-    const raw = await chatCompleteJson<unknown>({
-      model,
-      messages: [
-        { role: 'system', content: PLANNER_SYSTEM },
-        { role: 'user', content: question }
-      ],
-      temperature: 0.1,
-      maxTokens: 700,
-      // The schema already constrains the output; thinking in front of it only
-      // spends the budget that has to reach the JSON.
-      thinking: false,
-      jsonSchema: { name: 'research_plan', schema: PLAN_SCHEMA },
-      signal
-    })
+    const raw = await chatCompleteJson<unknown>(plannerRequest(question, model, signal))
     const plan = parsePlan(raw, question)
     if (plan) {
       // Distinguish a real plan from the single-sub-question fallback.
@@ -231,31 +241,46 @@ export async function reformulateQueries(
 ): Promise<string[][]> {
   const fallback = open.map((sub) => sub.queries)
   try {
-    const listed = open
-      .map((sub, i) => `${i + 1}. ${sub.question}\n   failed queries: ${sub.queries.join(' | ')}`)
-      .join('\n')
-    const raw = await chatCompleteJson<{ queries?: { queries?: unknown }[] }>({
-      model,
-      messages: [
-        { role: 'system', content: REFORMULATE_SYSTEM },
-        { role: 'user', content: listed }
-      ],
-      temperature: 0.3,
-      maxTokens: 400,
-      thinking: false,
-      jsonSchema: { name: 'research_reformulate', schema: REFORMULATE_SCHEMA },
-      signal
-    })
-    if (!raw || !Array.isArray(raw.queries)) return fallback
-    return open.map((sub, i) => {
-      const entry = raw.queries?.[i]
-      const queries = (Array.isArray(entry?.queries) ? entry.queries : [])
-        .map((q) => String(q ?? '').trim())
-        .filter(Boolean)
-        .slice(0, MAX_QUERIES_PER_SUB)
-      return queries.length > 0 ? queries : sub.queries
-    })
+    const raw = await chatCompleteJson<ReformulatePayload>(reformulateRequest(open, model, signal))
+    return queriesFromReformulation(raw, open)
   } catch {
     return fallback
   }
+}
+
+type ReformulatePayload = { queries?: { queries?: unknown }[] }
+
+/**
+ * The request the reformulation sends (exported for the H2 probe and the
+ * tests); `plain` as in `plannerRequest`.
+ */
+export function reformulateRequest(open: SubQuestion[], model: string, signal?: AbortSignal, plain = false): CompleteOptions {
+  const listed = open
+    .map((sub, i) => `${i + 1}. ${sub.question}\n   failed queries: ${sub.queries.join(' | ')}`)
+    .join('\n')
+  return {
+    model,
+    messages: [
+      { role: 'system', content: REFORMULATE_SYSTEM },
+      { role: 'user', content: listed }
+    ],
+    temperature: 0.3,
+    maxTokens: 400,
+    thinking: false,
+    ...(plain ? {} : { jsonSchema: { name: 'research_reformulate', schema: REFORMULATE_SCHEMA } }),
+    signal
+  }
+}
+
+/** The new query sets a reformulation reply holds, per open sub-question; the old ones where it holds none. */
+export function queriesFromReformulation(raw: ReformulatePayload | null, open: SubQuestion[]): string[][] {
+  if (!raw || !Array.isArray(raw.queries)) return open.map((sub) => sub.queries)
+  return open.map((sub, i) => {
+    const entry = raw.queries?.[i]
+    const queries = (Array.isArray(entry?.queries) ? entry.queries : [])
+      .map((q) => String(q ?? '').trim())
+      .filter(Boolean)
+      .slice(0, MAX_QUERIES_PER_SUB)
+    return queries.length > 0 ? queries : sub.queries
+  })
 }
