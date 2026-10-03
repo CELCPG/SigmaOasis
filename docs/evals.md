@@ -30,6 +30,7 @@ its original words, into the file named below.
 | The agent | twenty small repositories through the shipping engine: solved, false claims, collateral, Undo, cost | `LMSTUDIO_EVAL=1 npm run eval:agent -- <model>` | baselines owed: both 2026-09-28 attempts voided by PCIe errors on the bench | [agent.md](evals/agent.md) |
 | Head-to-head | blind critic comparisons of two builds over 18 tasks | see `docs/head-to-head/README.md` | round 11 (v2.2): task column 2 won · 0 lost · 16 tied | [head-to-head.md](evals/head-to-head.md) and the round files below |
 | Measurement (Track M) | what every run records: per-round latency, committed baselines, the offline wire gate, the live world, the latency bench | in the file, per instrument | the instrument, not a score | [measurement.md](evals/measurement.md) |
+| The think-first planners | plan mode, the outline, deep research's planner and its reformulation, each asked with a grammar (as shipped through 4.4) and plainly with the closed-think prefill, on a `<think>` family | `npm run probe:planners -- --planner all` | v4.5 (H2): plan mode 14.0 → 8.8 s, the outline valid 3/12 → 12/12 and 31.9 → 7.7 s, the research planner 5.3 → 4.4 s, all applied on a `<think>` family; the reformulation left (plain 9/12 against 11/12) | [planners.md](evals/planners.md) |
 | Speed (Track S) | S1–S6 and what would measure each | `test/promptCache.test.ts` today | nothing measured yet | [speed.md](evals/speed.md) |
 
 ## Where each section went
@@ -60,6 +61,7 @@ Code comments and release notes cite sections of this file by heading; each head
 | The agent, measured (v3.1, `eval:agent`) | [agent.md](evals/agent.md) |
 | Track M: what every run now records (v4.1) | [measurement.md](evals/measurement.md) |
 | Speed: Track S (v4.1) | [speed.md](evals/speed.md) |
+| A grammar beside `thinking: false`, measured on four planners (v4.5, H2) | [planners.md](evals/planners.md) |
 
 A section that says "above" or "below" was written for the single file. The order is kept inside
 each file, and this table gives the rest.
