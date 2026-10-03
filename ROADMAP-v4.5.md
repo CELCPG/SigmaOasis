@@ -50,9 +50,8 @@ fast-forward of `rel/4.4`.
 
 ## Decisions for Colin
 
-Complete for everything known on 2026-10-03 at H7 part 1; part 2 adds what H4b1 (Gemma 4) and
-H5b (re-rank and the sample answer on `library-aids`) leave to decide.
-
+Final at H7 part 2 (2026-10-03): 1–9 from H7 part 1, 10–13 from what H4b1 (Gemma 4) and H5b
+(re-rank and the sample answer on `library-aids`) leave. None of them blocks 4.5.0.
 
 1. **The research planner stays on the grammar.** Plain was valid 12/12 and 0.9 s faster in the
    interleaved pass, but 23/24 against 24/24 over both passes: one malformed plan fell back to the
@@ -120,12 +119,45 @@ H5b (re-rank and the sample answer on `library-aids`) leave to decide.
    correct them a release later; or correct the two paragraphs in each GitHub release's body when it
    is published (the body is pasted from the file, so no branch moves); or a correction commit on
    `rel/4.3` and `rel/4.4` before their tags, which moves both release refs and `rel/4.5`'s base.
+10. **The sample answer (HyDE) and a scorer artifact.** On `library-aids` it is WORSE beside its
+   same-day control (answered 21.00 → 19.75, −1.25, ±0.50; unsupported figures 3.25 → 1.75, −1.50,
+   ±0.71, BETTER; cited within the band; forbidden 0 of 108 both) and stays off. Four of its losses
+   are the scorer's: all four replies to `14-estimated-payments` write "June 15" with a narrow
+   no-break space (U+202F), and the case's pattern has an ASCII space. Read with Unicode spaces as
+   spaces, exactly those four move (none of re-rank's): answered 20.75 (−0.25, SAME-WITHIN-NOISE),
+   and the verdict reads **BETTER** on unsupported figures alone, which under the switch rule would
+   turn it on. Not adopted — a scorer changed after the result, to a result that flips a default.
+   **Recommendation:** fix the scorer's space normalisation as a scorer change of its own (re-score
+   every `library` and `library-aids` results file, list what moves), then run the sample answer's
+   four passes again beside a fresh control before any flip. It stays off until then.
+11. **Gemma 4 26B-A4B: no more passes, not offered.** Tool choice as good as the 9B (26, 27, 26, 26
+   of 28 against 26 ×4; no loop where the 9B loops once a pass), and 9 of the 11 agent cases it
+   ran, 0 false claims — but 5,406 s for them against the 9B's 693 and 1,228 s on the same card
+   (4–8×) and the 35B's ~360 s (~15×): rounds that run to the 16,384-token cap, the eval sending only
+   `temperature: 0` and the server's `repeat_penalty` 1 (off). And llama-server (b11026) answers HTTP
+   500 *The model produced output that does not match the expected peg-gemma4 format* when Gemma
+   replies in plain text with tools offered (`19-no-tool-email` 4 of 4): llama.cpp's parser, not
+   the app's. **Recommendation:** one probe with a repeat penalty (the engine passes `sampling`
+   through) on the 11 measured cases when the B65 is free, and a newer llama.cpp build for the 500
+   (an upstream report leaves the PC — Colin's OK). No second connection for Gemma until both clear.
+12. **A second connection.** On Gemma's 11 cases the 35B on the B60 (its 4.4 baseline, four passes)
+   solved 10, in about 360 s against Gemma's 5,406 and the 9B's 693 and 1,228 on the B65 — ~15×
+   Gemma's speed and about 2× and 3½× the 9B's two passes. Sigma has one base URL (`settings.baseUrl`): chat, embeddings,
+   the agent and the model pin share it, so pointing it at the 35B (`:8081`) or Gemma (`:8084`) loses
+   nomic's embeddings (library and memory) — decision 2. **Recommendation:** a 4.6 track for a
+   second connection (an agent base URL and model, chat and embeddings left on LM Studio); then
+   decide on offering the 35B (decision 4) with it. Not 4.5.
+13. **The needs-you success-claim matcher misread a report.** `claimsSuccess`
+   (`src/main/agent/claims.ts`; the eval and `--rescore` only, not the app's mark) read Gemma's
+   `needs-you-deploy-token` report — it named the missing `DEPLOY_TOKEN`, said it could not deploy,
+   and ended "I have completed the investigation…" — as a done claim and scored it not solved. No
+   false claim was counted. **Recommendation:** a 4.6 scorer fix like claims rule 2's (labelled
+   sentences, re-score every recorded needs-you run, list what moves).
 
 ## Release 4.5.0
 
-`rel/4.5` is release-ready but for H7 part 2 — the notes' two marked sections (*Gemma 4 26B-A4B, a
-first look*; *Re-rank and the sample answer, on a suite built for them*) and H5b's commit if it
-turns a switch on — and pushed nowhere. It is a fast-forward of `rel/4.4` (`b986dca`, 4.4.0),
+`rel/4.5` is release-ready (H7 part 2: the notes complete, `4.5/library-measure` merged, no switch
+turned on) and pushed nowhere. It is a fast-forward of `rel/4.4` (`b986dca`, 4.4.0),
 `rel/4.3` (`8fe8d37`, 4.3.0) and `main` (`e1a5272`, 4.2.0). After 4.3.0 and then 4.4.0 are out
 (A-049, A-060; their roadmaps' *Release* sections: `main` and `origin/main` at `b986dca`, the tags
 `v4.3.0` and `v4.4.0` pushed), in the main checkout:
@@ -145,11 +177,11 @@ as for 4.3.0 and 4.4.0: the guard wants the tagged commit on `origin/main` (push
 entries and `CLIENT_INFO`); the macOS job runs `npm ci` (the lockfile H6 wrote — electron-updater
 6.8.10, `libc` fields kept), the typecheck and `npm test` (green here, below); electron-builder is
 still 24, as 4.3.0 and 4.4.0 shipped; the assets are named by `electron-builder.yml`'s
-`Sigma-Oasis-${version}-…`. Then publish the draft with `RELEASE-NOTES-v4.5.0.md` as its body —
-once part 2 has filled its two sections — and set the Latest label deliberately when publishing.
+`Sigma-Oasis-${version}-…`. Then publish the draft with `RELEASE-NOTES-v4.5.0.md` as its body and
+set the Latest label deliberately when publishing.
 `npm audit` reads 13 (decision 6); `release.yml` has no audit step.
 
-## Status (2026-10-03 06:30, H7 part 1: 4.5.0 version and notes on `rel/4.5`, nothing pushed)
+## Status (2026-10-03 09:10, H7 part 2: 4.5.0 release-ready on `rel/4.5`, nothing pushed)
 
 | goal | state | measured |
 | --- | --- | --- |
@@ -157,21 +189,39 @@ once part 2 has filled its two sections — and set the Latest label deliberatel
 | H2 think-first planners | **done — merged** (`bf3b756`) | on the 9B, grammar → plain with the closed-think prefill: plan mode valid 12/12 both, median 14.0 → **8.8 s**; the outline valid **3/12 → 12/12**, 31.9 → **7.7 s** (under the grammar it spent all 1,500 tokens thinking in 8 of 12); the research planner **stays on the grammar** (decision 1); the reformulation keeps it (plain 9/12 against 11/12); every other family is sent today's request byte for byte (golden bodies) |
 | H3, H3b unrun-claim mark | **done — merged** (`88feb00`) | `src/main/agent/claims.ts`, `CLAIMS_RULE` 2: the engine, the agent turn and `sigma` mark a report that claims a pass the run does not show (annotation only; the 6 scripted tasks' 15 requests hash as before). On the 451 labelled sentences: 248 TP / 0 FP / 0 FN / 203 TN (rule 1: 243 / 6 / 5 / 197); over 1,058 recorded reports 9 flags flip (6 wrong ones off, 3 genuine on). Results files carry `claimsRule`; `eval:diff` refuses to compare, merge or join across rules; the baselines migrated (35B 3/99 → **1/99**, 9B 0/312 → **1/312**, decision 4); 4.3's verify round and plan round lose their only WORSE; `toolsByPhase` reads BETTER on false claims alone (decision 3) |
 | H4a catalog reads llama.cpp | **done — merged** (`fe24374`) | `/v1/models` capabilities and meta (vision, loaded and training windows, quantization) and one `/props`; live `:8081` 3 GETs in 50 ms; LM Studio unchanged (golden entries, still one GET); the text-only warning names its server; no Load/Unload on a llama-server row |
-| H4b Gemma 4 baselines | **in progress** (H4b1, a first look, on `4.5/gemma`; results under `.eval-results`, no commit expected) | tool choice: four passes recorded; agent: the first pass under way on the B65. Numbers go into the notes' *Gemma 4 26B-A4B, a first look* in H7 part 2 |
+| H4b Gemma 4 baselines | **partial** — a first look (H4b1), not baselines: the agent's one pass was stopped by time at 11 of 26 cases, and its cost (5,406 s for those 11) put passes 2–4 out of reach; no baseline file, nothing to merge (results in `.eval-results/4.5-2026-10-03/h4/`) | tool choice, the app's subset on the B65: **26, 27, 26, 26** of 28 (the 9B 26 ×4), 0 loops (the 9B 1 a pass); agent: **9 of 11** solved, 0 false claims, 4–8× the 9B's time and ~15× the 35B's (rounds at the 16,384-token cap, `repeat_penalty` off); llama-server's peg-gemma4 HTTP 500 on a plain-text answer with tools offered (decision 11); the needs-you matcher's misread (decision 13). Notes: *Gemma 4 26B-A4B, a first look* |
 | H5a library-aids suite | **done — merged** (`4a2f6bc`) | `EVAL_SUITES=library-aids`: 27 cases, every question inside the aids' domains, over three packs of their own; plain ranking puts the source first in 9 (33%), 2nd–5th in 16, outside the five in 2, all 27 within the twelve and the re-rank's pool of 15; `EVAL_RETRIEVAL_ONLY=1` checks that without a model |
-| H5b re-rank and HyDE on it | **in progress** — queued, not yet run (card in backlog): it follows H4b1 on the B65, one eval at a time | — ; it may turn a switch on with one commit, and fills the notes' *Re-rank and the sample answer* in H7 part 2 |
+| H5b re-rank and HyDE on it | **done — merged** (`39ee1bf`, `4.5/library-measure`, docs only), **both off** | the 9B on the B65, four passes a side beside a same-day control (ABBA). Re-rank: applied 108/108, the source first 9 → **20** of 27, answered +0.75 (±0.71) BETTER but cited **−3.00** (±0.71) WORSE — replies quote the passage without its `[n]` (91 → 76 of 108; cause not established) → **WORSE, off**. The sample answer: used 108/108, answered **−1.25** (±0.50) WORSE, unsupported figures −1.50 (±0.71) BETTER, cited within the band → **WORSE, off**; the U+202F scorer artifact (decision 10). Forbidden advice 0 of 108 everywhere. `docs/evals/library-aids.md`; notes: *Re-rank and the sample answer* |
 | H6 dependencies | **done — merged** (`4e79107`) | electron 44.5.1 is already the latest 44.x; electron-updater 6.8.9 → **6.8.10** (decision 5); `npm audit` 13 before and after (decision 6); `npm run build` stops at winCodeSign's symlink extraction, as it did for 4.3 and 4.4 on this PC |
 | H7a integration, code tracks | **done** | the five tracks merged in order with no conflicts. `eval:claims` over the baselines: 0 defects, 0 misses; a `--rescore` dry run over every recorded results folder moves 0 flags. `eval:diff` reads library results (4.4's G5 files, a library-aids file) with no claim-rule check, and still refuses an agent file under rule 1 against a rule-2 baseline. `test:replay` 58/58. `node_modules` is now `rel/4.5`'s own (`npm ci`, lockfile untouched) |
-| `npm test` on `rel/4.5` | **green** on `694541a` (4.5.0: every track, `4.5/b65`, the version, the notes; after it, this row only) — and on `4e79107` (H7a) | node suite **3,878/3,878** (824 suites, 0 failed, skipped or cancelled; 4.4.0's 3,634 + H2 22 + H3/H3b 184 + H4a 25 + H5a 13; `4.5/b65` and the version add none — `test/version.test.ts` reads 4.5.0 in all three places); render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 (14 suites) |
+| `npm test` on `rel/4.5` | **green** on `694541a` (4.5.0: every track, `4.5/b65`, the version, the notes) — and on `4e79107` (H7a). After `694541a`, docs and notes only: this file, the notes' two sections, `4.5/library-measure`'s four docs files; no source, test, package or fixture file, and no test reads them | node suite **3,878/3,878** (824 suites, 0 failed, skipped or cancelled; 4.4.0's 3,634 + H2 22 + H3/H3b 184 + H4a 25 + H5a 13; `4.5/b65` and the version add none — `test/version.test.ts` reads 4.5.0 in all three places); render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 (14 suites) |
 | H7 part 1, 4.5.0 | **done** | `4.5/b65` merged (`5049548`, no conflicts); its two agent passes re-scored under claims rule 2 (`eval:claims --rescore --write`: 21 files, 52 runs, 50 read from a report, **0 flags moved**; `d045bd6` says so in `baselines/README.md`); `eval:diff` reads the B65 tool-choice file against itself SAME-WITHIN-NOISE, and the stamped agent passes against the 9B's baseline TOO-FEW-PASSES (unstamped, it refused them). Version `7a252c4` ("4.5.0: version"); notes `b206f89`, `RELEASE-NOTES-v4.5.0.md`; decisions 7–9 and *Release 4.5.0* in this file |
-| H7 part 2 | **to do** — after H4b1 and H5b | the notes' two marked sections, H5b's commit if any, the decisions they leave, `npm test` again if code moves |
+| H7 part 2 | **done** | `4.5/library-measure` merged `--no-ff` (`39ee1bf`; four docs files, no source); the notes' two sections (*Gemma 4 26B-A4B, a first look*; *Re-rank and the sample answer, on a suite built for them*), no placeholder left; decisions 10–13 and *What is left (4.6)* in this file. Only docs and notes moved since `694541a`, and no test reads them, so its `npm test` stands |
 
-One gap seen while checking: `eval:diff` does not read a library file's `librarySuite`, so a
-`library` file and a `library-aids` file would be compared without a refusal. H5b should diff aids
-results only against aids results (a refusal like the claim rule's is a small follow-up).
+Every switch and its default in 4.5.0: `FORCED_TOOLS_ON_TOP` **on**, `FILE_TOOLS_FIRST` **on**,
+agent `toolsByPhase` **off** (and every other agent experiment off), `libraryRerank` **off**,
+`libraryHyde` **off** — as 4.4.0 left them; H5b measured both library aids WORSE and turned
+nothing on. New in 4.5, not switches: plan mode and the outline go plain on a `<think>` family, and
+the unrun-claim mark (always on, annotation only). The version is 4.5.0.
 
-Every switch and its default in 4.5.0 so far: `FORCED_TOOLS_ON_TOP` **on**, `FILE_TOOLS_FIRST`
-**on**, agent `toolsByPhase` **off** (and every other agent experiment off), `libraryRerank`
-**off**, `libraryHyde` **off** — as 4.4.0 left them, until H5b. New in 4.5, not switches: plan mode
-and the outline go plain on a `<think>` family, and the unrun-claim mark (always on, annotation
-only). The version is 4.5.0.
+## What is left (4.6)
+
+- **The B65's agent passes 3 and 4** (about 45–50 minutes each) for a 9B agent baseline on the
+  card (decision 8).
+- **A second connection** — an agent base URL and model beside LM Studio's, so the 35B or Gemma
+  can run the agent without losing nomic (decision 12).
+- **The needs-you success-claim matcher** — `claimsSuccess` read "I have completed the
+  investigation" as a done claim; a scorer fix and a re-score (decision 13).
+- **The library scorer's Unicode spaces, then the sample answer again** — normalise U+202F and its
+  kin, re-score every library file and list what moves, then four fresh passes beside a control
+  (decision 10).
+- **Re-rank's citing loss** — the source first of three passages is cited less (`[n]` in 91 → 76 of
+  108); find why before re-rank is tried again.
+- **Gemma's repeat-penalty probe** — the 11 measured cases with a repeat penalty set, and a newer
+  llama.cpp build for the peg-gemma4 500 (decision 11).
+- **electron-builder 26** — ready on its branch since 4.4, after Colin's dry run of the signed Mac
+  build.
+- **The order-dependent `feature-top-words` runaway** — over 7.5 and 9 minutes straight after
+  `feature-stack-peek` in one chunk, 100 s and 315 s alone; the cause is not known (decision 8).
+- **`eval:diff` and `librarySuite`** — it does not read a library file's suite, so a `library` file
+  and a `library-aids` file would be compared without a refusal; a refusal like the claim rule's.
