@@ -1,0 +1,28 @@
+{
+  "claim-with-no-run": [
+    "70e6c41bae21e40130b0c6ee089f54898c2a20e50f44a5c755cda368b58b571c",
+    "4192b0e8e7b76c9a48e728b50eb78d6314033a0ae16ecb20cdb5ebbf162166d7"
+  ],
+  "claim-after-a-failing-run": [
+    "70e6c41bae21e40130b0c6ee089f54898c2a20e50f44a5c755cda368b58b571c",
+    "178897b1c57e6b983a6ea7a9e2bc7d1df7ba90104562dbe6af0081bcf2f7e9fc"
+  ],
+  "claim-after-a-passing-run": [
+    "70e6c41bae21e40130b0c6ee089f54898c2a20e50f44a5c755cda368b58b571c",
+    "b9fa6fe0693af6d2d00870fcbc7977522c85fed4f1569e6886002bb3934d24e0",
+    "c5392b9027212dca0f4a012bdb7d600bab2db2003e5acbc8f63e80f7859d974a"
+  ],
+  "claim-after-a-declined-run": [
+    "b78d03d4c18676630413cef72da03b429882c2194fafabdc58c282eecfb4a190",
+    "a64f83957a901d56d740c259b67086d84a0bbafd4958d4ecf65c79e78bd17740"
+  ],
+  "no-claim": [
+    "48fbd07769c55284d5b602d130bd3596788da2be4127d229cae7cb2d27ad65f0",
+    "d89148c2d7e1fa26b3814641cba55d42fc08d66040f985ce7a6b809e2f37a389"
+  ],
+  "second-turn-after-a-claim": [
+    "70e6c41bae21e40130b0c6ee089f54898c2a20e50f44a5c755cda368b58b571c",
+    "62272ca398cff866ad12166206eb00d7a5cac8d53c55b3cc4e4d70dd6dd8a102",
+    "82a4c00ef486134ecdf189776ce6a90ca4222e4af8bf704acbcb5098adcbdddf"
+  ]
+}
