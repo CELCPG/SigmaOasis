@@ -1,0 +1,27 @@
+{
+  "kind": "near-tie",
+  "pack": "aids-house",
+  "prompt": "How deep do the footings for a deck need to go?",
+  "source": {
+    "doc": "deck-building-notes",
+    "section": "Planning and footings"
+  },
+  "decoys": [
+    {
+      "doc": "deck-building-notes",
+      "section": "Permit and inspection"
+    },
+    {
+      "doc": "permits-and-inspections",
+      "section": "Inspection stages"
+    },
+    {
+      "doc": "foundation-and-basement",
+      "section": "Cracks that signal structural movement"
+    }
+  ],
+  "mustInclude": [
+    "36 ?(?:in|inches)|3 feet|three feet",
+    "frost"
+  ]
+}

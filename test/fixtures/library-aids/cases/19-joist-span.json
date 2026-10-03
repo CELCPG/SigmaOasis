@@ -1,0 +1,22 @@
+{
+  "kind": "near-tie",
+  "pack": "aids-house",
+  "prompt": "How far can a 2x8 deck joist span at 16 inches on center?",
+  "source": {
+    "doc": "deck-building-notes",
+    "section": "Joist spans"
+  },
+  "decoys": [
+    {
+      "doc": "deck-building-notes",
+      "section": "Beam spans and post spacing"
+    },
+    {
+      "doc": "deck-building-notes",
+      "section": "Decking boards"
+    }
+  ],
+  "mustInclude": [
+    "12 ?(?:ft|feet|foot|')[ ,]*(?:and )?4|12\\.3"
+  ]
+}

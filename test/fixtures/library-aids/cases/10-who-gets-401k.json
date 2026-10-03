@@ -1,0 +1,31 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-money",
+  "prompt": "My will leaves everything to my sister, but my 401(k) still names my ex-wife. Who gets the 401(k) when I die?",
+  "source": {
+    "doc": "estate-basics",
+    "section": "Who gets what: the form comes first"
+  },
+  "decoys": [
+    {
+      "doc": "estate-basics",
+      "section": "What a will does"
+    },
+    {
+      "doc": "estate-basics",
+      "section": "Power of attorney"
+    },
+    {
+      "doc": "retirement-account-rules",
+      "section": "Employer match in general"
+    }
+  ],
+  "mustInclude": [
+    "beneficiary",
+    "ex[- ]?(?:wife|spouse)|designation|form"
+  ],
+  "mustNotAssert": [
+    "\\b(?:the |your )?will (?:wins|controls|overrides|takes precedence|decides)",
+    "\\byour sister (?:will )?(?:gets|inherits|receives)(?: the)? (?:the )?401"
+  ]
+}

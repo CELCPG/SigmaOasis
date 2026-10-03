@@ -365,6 +365,13 @@ export interface LibraryCaseResult {
   rerank?: 'applied' | 'fallback'
   /** v4.4 (G5): the lookup ranked by the question and a sample answer together. */
   expanded?: boolean
+  /** v4.5 (H5), library-aids: the case's kind (vocabulary, paraphrase, near-tie, multi-document). */
+  kind?: string
+  /**
+   * v4.5 (H5), library-aids: where the case's source section stood among the passages the app-initiated
+   * lookup returned, 1 first; 0 when it was not among them. Recorded, not scored — the aids' own effect.
+   */
+  rank?: number
   /**
    * v2.4: the shapes the multi-pass runs kept failing in, recorded per case so
    * the noise floor can be read rather than guessed at. `toolCalls` — the

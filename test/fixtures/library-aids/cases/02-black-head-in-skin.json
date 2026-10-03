@@ -1,0 +1,31 @@
+{
+  "kind": "vocabulary",
+  "pack": "aids-health",
+  "prompt": "A bug bite on my calf has a tiny black head stuck in the skin. What's the safest way to get it out?",
+  "source": {
+    "doc": "stings-bites-and-ticks",
+    "section": "Removing a tick"
+  },
+  "decoys": [
+    {
+      "doc": "stings-bites-and-ticks",
+      "section": "Bee and wasp stings"
+    },
+    {
+      "doc": "stings-bites-and-ticks",
+      "section": "Animal bites"
+    },
+    {
+      "doc": "stings-bites-and-ticks",
+      "section": "Spider bites"
+    }
+  ],
+  "mustInclude": [
+    "tweezers",
+    "straight up|steady|even pressure|slow"
+  ],
+  "mustNotAssert": [
+    "petroleum jelly|vaseline|nail polish|(?:hot|lit|burning) match",
+    "\\b(?:twist|squeeze|crush)(?:ing)?\\b"
+  ]
+}

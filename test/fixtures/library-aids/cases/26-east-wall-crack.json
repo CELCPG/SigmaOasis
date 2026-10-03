@@ -1,0 +1,23 @@
+{
+  "kind": "multi-document",
+  "pack": "aids-house",
+  "prompt": "There's a crack in the east basement wall. Is it structural?",
+  "source": {
+    "doc": "home-inspection-report",
+    "section": "Foundation and basement"
+  },
+  "decoys": [
+    {
+      "doc": "foundation-and-basement",
+      "section": "Cracks that signal structural movement"
+    },
+    {
+      "doc": "foundation-and-basement",
+      "section": "Hairline cracks"
+    }
+  ],
+  "mustInclude": [
+    "3/16",
+    "engineer"
+  ]
+}

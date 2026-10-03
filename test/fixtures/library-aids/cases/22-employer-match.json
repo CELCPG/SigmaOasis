@@ -1,0 +1,28 @@
+{
+  "kind": "multi-document",
+  "pack": "aids-money",
+  "prompt": "How much does my employer match on my 401(k), and when does that money become mine?",
+  "source": {
+    "doc": "employer-benefits-guide",
+    "section": "Savings and retirement"
+  },
+  "decoys": [
+    {
+      "doc": "retirement-account-rules",
+      "section": "Employer match in general"
+    },
+    {
+      "doc": "retirement-account-rules",
+      "section": "401(k) contribution limits"
+    },
+    {
+      "doc": "retirement-account-rules",
+      "section": "Rolling over an old 401(k)"
+    }
+  ],
+  "mustInclude": [
+    "3 ?%",
+    "50 ?%",
+    "5 years|five years|20 ?%"
+  ]
+}

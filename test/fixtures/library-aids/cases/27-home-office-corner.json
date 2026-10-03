@@ -1,0 +1,27 @@
+{
+  "kind": "multi-document",
+  "pack": "aids-money",
+  "prompt": "Can I take a tax deduction for the corner of our apartment where I work on freelance jobs?",
+  "source": {
+    "doc": "tax-prep-notes",
+    "section": "Home office deduction"
+  },
+  "decoys": [
+    {
+      "doc": "tax-prep-notes",
+      "section": "Mileage and car"
+    },
+    {
+      "doc": "renters-policy-summary",
+      "section": "Special limits"
+    },
+    {
+      "doc": "tax-prep-notes",
+      "section": "Documents to gather"
+    }
+  ],
+  "mustInclude": [
+    "exclusive",
+    "\\$5|1,500|300 square"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "kind": "vocabulary",
+  "pack": "aids-house",
+  "prompt": "The kitchen breaker keeps flipping off when we run the microwave and the toaster together. Can I just put in a bigger breaker?",
+  "source": {
+    "doc": "electrical-panel-notes",
+    "section": "Why a breaker trips"
+  },
+  "decoys": [
+    {
+      "doc": "electrical-panel-notes",
+      "section": "GFCI and AFCI protection"
+    },
+    {
+      "doc": "electrical-panel-notes",
+      "section": "Circuit sizes and big appliances"
+    },
+    {
+      "doc": "electrical-panel-notes",
+      "section": "Panel capacity and upgrades"
+    }
+  ],
+  "mustInclude": [
+    "overload|too many|same circuit|different circuits?|separate circuits?",
+    "electrician"
+  ],
+  "mustNotAssert": [
+    "\\b(?:put in|install|use|swap in|replace it with|upgrade to) (?:a |the )?(?:bigger|larger|higher[- ]amp)"
+  ]
+}

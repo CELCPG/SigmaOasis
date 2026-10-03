@@ -1,0 +1,92 @@
+{
+  "formatVersion": 1,
+  "id": "aids-money",
+  "name": "Household money file",
+  "description": "A household's own money file: insurance policy summaries, the health plan and benefits guide, retirement account rules, tax prep, credit, the mortgage, the emergency fund and estate basics. Fixture text written for the library-aids eval suite.",
+  "version": "2026.10",
+  "license": "MIT (fixture text)",
+  "kind": "user",
+  "sourceNote": "Written for the library-aids eval suite (test/fixtures/library-aids); realistic personal-library material, not a real agency page. Figures are fixture figures.",
+  "docs": [
+    {
+      "id": "auto-policy-summary",
+      "title": "Auto policy summary",
+      "source": "fixture://library-aids/aids-money/auto-policy-summary.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "auto-policy-summary.md"
+    },
+    {
+      "id": "credit-and-debt",
+      "title": "Credit cards and debt",
+      "source": "fixture://library-aids/aids-money/credit-and-debt.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "credit-and-debt.md"
+    },
+    {
+      "id": "emergency-fund-and-budget",
+      "title": "Emergency fund and monthly budget",
+      "source": "fixture://library-aids/aids-money/emergency-fund-and-budget.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "emergency-fund-and-budget.md"
+    },
+    {
+      "id": "employer-benefits-guide",
+      "title": "Harlow and Finch benefits guide",
+      "source": "fixture://library-aids/aids-money/employer-benefits-guide.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "employer-benefits-guide.md"
+    },
+    {
+      "id": "estate-basics",
+      "title": "Wills, powers of attorney and beneficiaries",
+      "source": "fixture://library-aids/aids-money/estate-basics.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "estate-basics.md"
+    },
+    {
+      "id": "health-plan-summary",
+      "title": "Health plan summary",
+      "source": "fixture://library-aids/aids-money/health-plan-summary.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "health-plan-summary.md"
+    },
+    {
+      "id": "mortgage-notes",
+      "title": "Mortgage notes",
+      "source": "fixture://library-aids/aids-money/mortgage-notes.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "mortgage-notes.md"
+    },
+    {
+      "id": "renters-policy-summary",
+      "title": "Renters policy summary",
+      "source": "fixture://library-aids/aids-money/renters-policy-summary.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "renters-policy-summary.md"
+    },
+    {
+      "id": "retirement-account-rules",
+      "title": "IRA and 401(k) rules",
+      "source": "fixture://library-aids/aids-money/retirement-account-rules.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "retirement-account-rules.md"
+    },
+    {
+      "id": "tax-prep-notes",
+      "title": "Tax prep notes",
+      "source": "fixture://library-aids/aids-money/tax-prep-notes.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "tax-prep-notes.md"
+    }
+  ]
+}

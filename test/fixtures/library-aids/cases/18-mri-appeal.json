@@ -1,0 +1,26 @@
+{
+  "kind": "near-tie",
+  "pack": "aids-money",
+  "prompt": "My insurance denied the claim for my MRI after I'd already had it. How long do I have to appeal?",
+  "source": {
+    "doc": "health-plan-summary",
+    "section": "Denied claims and appeals"
+  },
+  "decoys": [
+    {
+      "doc": "health-plan-summary",
+      "section": "Prior authorization"
+    },
+    {
+      "doc": "health-plan-summary",
+      "section": "In-network and out-of-network"
+    },
+    {
+      "doc": "health-plan-summary",
+      "section": "Costs at a glance"
+    }
+  ],
+  "mustInclude": [
+    "180 days|six months|6 months"
+  ]
+}

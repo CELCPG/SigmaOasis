@@ -1,0 +1,23 @@
+{
+  "kind": "vocabulary",
+  "pack": "aids-money",
+  "prompt": "If I don't use up the medical savings account my employer funds by December, do I lose what's left?",
+  "source": {
+    "doc": "employer-benefits-guide",
+    "section": "Health savings account"
+  },
+  "decoys": [
+    {
+      "doc": "employer-benefits-guide",
+      "section": "Flexible spending account"
+    },
+    {
+      "doc": "employer-benefits-guide",
+      "section": "Savings and retirement"
+    }
+  ],
+  "mustInclude": [
+    "roll(?:s|ed)? over|stays? with you|(?:it'?s|is) yours|belongs to you|you keep",
+    "HSA|health savings"
+  ]
+}

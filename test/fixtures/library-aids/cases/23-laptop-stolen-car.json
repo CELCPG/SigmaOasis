@@ -1,0 +1,30 @@
+{
+  "kind": "multi-document",
+  "pack": "aids-money",
+  "prompt": "Someone broke into my car and stole my laptop. Will my renters insurance cover it?",
+  "source": {
+    "doc": "renters-policy-summary",
+    "section": "Belongings away from home"
+  },
+  "decoys": [
+    {
+      "doc": "auto-policy-summary",
+      "section": "Things stolen from the car"
+    },
+    {
+      "doc": "renters-policy-summary",
+      "section": "What is covered"
+    },
+    {
+      "doc": "renters-policy-summary",
+      "section": "Special limits"
+    }
+  ],
+  "mustInclude": [
+    "2,500",
+    "police report"
+  ],
+  "mustNotAssert": [
+    "\\b(?:your |the )?(?:auto|car) (?:insurance|policy)[^.]{0,20}(?:covers|will cover|pays for|will pay for)"
+  ]
+}

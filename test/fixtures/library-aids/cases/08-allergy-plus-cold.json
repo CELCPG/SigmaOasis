@@ -1,0 +1,27 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-health",
+  "prompt": "Is it okay to take my allergy medication together with a nighttime cold medicine?",
+  "source": {
+    "doc": "medicine-cabinet-notes",
+    "section": "Taking two medicines together"
+  },
+  "decoys": [
+    {
+      "doc": "medicine-cabinet-notes",
+      "section": "Acetaminophen"
+    },
+    {
+      "doc": "medicine-cabinet-notes",
+      "section": "Aspirin"
+    },
+    {
+      "doc": "medicine-cabinet-notes",
+      "section": "Ibuprofen"
+    }
+  ],
+  "mustInclude": [
+    "antihistamine",
+    "drows|sedat|sleepy"
+  ]
+}
