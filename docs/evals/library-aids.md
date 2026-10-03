@@ -158,4 +158,62 @@ citing line fell beyond its own.
   was not established; the loss on the line the gate bands is measured either way.
 - Re-rank adds about half a second a case (9.6 and 9.8 s against 8.9 and 9.4).
 - Files: `.eval-results/answers-qwen3.8-9b-distill-aids-{control,rerank}-2026-10-03T12-00-09.json` and
-  `…T12-17-22.json`. The sample answer (`EVAL_LIBRARY_ASSIST=hyde`) is not in this section: H5b2.
+  `…T12-17-22.json`. The sample answer (`EVAL_LIBRARY_ASSIST=hyde`) is the next section.
+
+## The sample answer (HyDE), measured on it (v4.5, H5b2, 2026-10-03)
+
+The same model, machine, temperature and shape as the re-rank's section: `qwen3.8-9b-distill` on the
+Arc Pro B65, one session (`h5b2-hyde`), two commands of `EVAL_PASSES=2` (control, arm | arm, control in
+each), four passes a side beside a same-day control:
+
+```
+EVAL_CONTROL=1 EVAL_SESSION=h5b2-hyde EVAL_SUITES=library-aids EVAL_LIBRARY_ASSIST=hyde EVAL_PASSES=2 LMSTUDIO_EVAL=1 npm run eval:answers -- qwen3.8-9b-distill   # twice
+npm run eval:diff -- --paired <the two control files and the two hyde files>
+```
+
+| of 27 a pass | control, aids off | sample answer | band | |
+| --- | --- | --- | --- | --- |
+| answered | 21, 21, 21, 21 — 21.00 (σ 0.00) | 20, 19, 20, 20 — 19.75 (σ 0.50) | ±0.50 | **−1.25 WORSE** |
+| cited the source | 23, 26, 26, 25 — 25.00 (σ 1.41) | 23, 24, 23, 23 — 23.25 (σ 0.50) | ±2.00 | −1.75 SAME-WITHIN-NOISE |
+| unsupported figures | 3, 3, 3, 4 — 3.25 | 2, 1, 2, 2 — 1.75 | ±0.71 | **−1.50 BETTER** |
+| asserted forbidden advice | 0 of 108 | 0 of 108 | never banded | no new one |
+| the source section first | 9 in every pass (36/108) | 13 in every pass (52/108) | | recorded, not scored |
+
+**Verdict: WORSE (exit 1). `libraryHyde` stays off.** The switch turns on only if the arm is BETTER
+beyond the band with no new forbidden advice; the answered line fell beyond its band.
+
+- **It applied.** The sample answer was written, embedded and averaged into the ranking vector for
+  27 of 27 cases in every pass, 108 of 108 (`expanded` in the case record is set only after both
+  steps succeed). It hands the model 5 passages, as plain ranking does.
+- **What it did to the ranking.** The source went from first in 9 of 27 cases to first in 13 and from
+  outside the five shown in 2 cases to 1 (`15-five-month-fever` stays unretrieved in both; `22-employer-match`
+  comes in at third). The ranks are the same in all four passes (the sample answer is written at
+  temperature 0). Against the control the five passages differ as a set in 9 of 27 cases and in
+  their order in 23.
+- **Answered.** Won `05-penalty-free-withdrawal` (0 → 2 of 4 passes), `22-employer-match` (0 → 4) and
+  `27-home-office-corner` (3 → 4); lost `01-baby-burning-up` (4 → 1), `02-black-head-in-skin` (4 → 0: all four
+  replies say the library does not describe removal, with the source third where it was fourth), `14-estimated-payments` (4 → 0, see the next
+  point) and `24-babysitter-sting` (1 → 0): 84 answered replies against 79. On the 25 cases the control
+  answered the same way every pass: 80 of 100 against 75.
+- **One loss is the scorer, not the model.** In `14-estimated-payments` all four sample-answer replies
+  write the dates correctly ("**June 15**, **September 15**") but with a narrow no-break space (U+202F)
+  between *June* and *15*; the case's `mustInclude` pattern has an ASCII space, so it reads the fact as
+  missing. Re-testing the saved replies with Unicode spaces read as spaces moves exactly these four
+  `answered` flags of the 216 replies (the control's and the sample answer's `19-joist-span` replies carry
+  one too, and still match), and none of H5b's 216 re-rank-session replies.
+  The table above is the scorer as it is. Read with those four counted, answered is 20.75 against 21.00
+  (−0.25, ±0.50, SAME-WITHIN-NOISE), cited and the other lines do not move, and the verdict would read
+  **BETTER**, on the unsupported-figures line alone (−1.50 beyond ±0.71: `01` and `11-card-or-fund`
+  are flagged far less often, `05` newly twice). That reading is not the measurement: changing a scorer
+  after the result, to a result that would turn a default on, is the owner's call, not this unit's.
+- **Citing is within the band, and mostly not re-rank's mechanism.** Cited fell by 1.75 where the
+  control itself spread by σ 1.41 (23 in its first pass, 26 in the next two). Replies carrying any `[n]`:
+  91 of 108 under the control, 85 of 108 under the sample answer (re-rank: 76). Where the source was
+  first, 43 of 52 carry one (83%) against 32 of 36 (89%): the same kind of loss in `16-sprain-heat-or-ice`
+  (4 → 0: the reply says "according to your reference notes" with no `[n]` or title) and `01`, but small,
+  and offset by `18-mri-appeal` and `21-footing-depth` (0 → 4 marked).
+- Unsupported figures fell mostly in two cases: `01` (flagged "3 months" in all four control passes,
+  one under the sample answer) and `11` (all four to none); `05` rose (0 → 2).
+- It adds about 0.3 s a case (9.5 s against 9.2 s) for the extra model call and embedding.
+- Files: `.eval-results/answers-qwen3.8-9b-distill-aids-{control,hyde}-2026-10-03T12-37-53.json` and
+  `…T12-55-13.json`.
