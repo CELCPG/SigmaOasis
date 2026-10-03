@@ -119,7 +119,7 @@ describe('sigma on the agent connection', () => {
     settings({ enabled: true, baseUrl: deadUrl, model: 'qwen3.8-35b-a3b' })
     const r = await run([])
     assert.equal(r.code, 1)
-    assert.match(r.err, new RegExp(`^The agent connection \\(${deadUrl.replace(/[.]/g, '\\.')}, Settings → Connection\\) did not answer: .*ECONNREFUSED.*\\. The agent does not fall back to LM Studio`))
+    assert.match(r.err, new RegExp(`^The agent connection \\(${deadUrl.replace(/[.]/g, '\\.')}, Settings → LM Studio\\) did not answer: .*ECONNREFUSED.*\\. The agent does not fall back to LM Studio`))
     assert.deepEqual(lmSeen, [])
   })
 

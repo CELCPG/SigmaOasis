@@ -154,6 +154,16 @@ found it (a file the task created is removed) — except a file that has changed
 wrote it: that later change is somebody's work, so it is left alone and named. Deleting the chat
 stops its task and deletes its checkpoints.
 
+## Its own server — the agent connection (4.6)
+
+The agent can run on a server of its own while chat, embeddings, titles, the library and the model
+pin stay on LM Studio: **Settings → LM Studio → Agent connection** (off by default; the details are
+in [settings.md](settings.md#the-agent-connection-46)). On this PC that is the 35B-A3B in
+llama-server on the B60 (`http://127.0.0.1:8081/v1`), two to three and a half times the 9B's speed
+on agent work. Agent chats, `sigma` and agent jobs all follow it. If that server does not answer or
+lacks the model, the task stops with a message that names the connection; it is never moved back to
+LM Studio unasked.
+
 ## The `sigma` command
 
 The same engine in a terminal. **Settings → Agent → Install the sigma command** puts a launcher on
@@ -173,12 +183,17 @@ command, for the rest of the session. A one-shot run with no terminal to ask dec
 commands and says so; `--accept-edits` lets edits land. In a session, `/mode`, `/model`, `/undo`,
 `/clear` and `/help`; Ctrl+C stops a task.
 
+With the app's agent connection on, `sigma` runs there too, after the same check (exit 1, in words,
+when that server is down or lacks the model); `--base-url` names the server for one run instead, and
+`--json`'s last line carries `connection: { via, baseUrl, model }` — `via` is `agent` or `main`.
+
 ## What it will not do
 
 - **Leave the folder.** Every path resolves inside it; `..`, an absolute path elsewhere, and a
   write through a symlink that points out of it are all refused.
 - **Talk to anything but LM Studio on this machine — from the CLI.** The CLI has no web tools and
-  refuses a server address that is not loopback. In the app, the agent's requests go through the
+  refuses a server address that is not loopback; the agent connection (4.6), when it is on, is a
+  server on this machine under the same rule. In the app, the agent's requests go through the
   same audited transport as a chat's (the egress allowlist, the network activity log), and the
   app's own tools keep their own rules. **A command is the exception, in both** (v4.1): it is a
   program with sockets of its own, so what `run_command` or a hook sends is outside the allowlist,

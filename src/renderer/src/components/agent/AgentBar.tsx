@@ -31,7 +31,7 @@ function useAgentConnection(): { model: string; baseUrl: string } | null {
 }
 
 export const connectionHint = (baseUrl: string): string =>
-  `Runs on the agent connection, ${baseUrl} (Settings → Connection). Chat, embeddings and titles stay on LM Studio.`
+  `Runs on the agent connection, ${baseUrl} (Settings → LM Studio). Chat, embeddings and titles stay on LM Studio.`
 
 export function AgentBar({ conversation }: { conversation: Conversation }): JSX.Element {
   const agent = conversation.agent!

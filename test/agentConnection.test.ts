@@ -86,7 +86,7 @@ describe('the route', () => {
     assert.deepEqual(pickServedModel(route, ['qwen3.8-35b-a3b']), { ok: true, model: 'qwen3.8-35b-a3b' })
     const missing = pickServedModel(route, ['gemma-4-26b-a4b'])
     assert.equal(missing.ok, false)
-    assert.match((missing as { error: string }).error, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → Connection\) does not serve qwen3\.8-35b-a3b \(it lists gemma-4-26b-a4b\)\. The agent does not fall back to LM Studio/)
+    assert.match((missing as { error: string }).error, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → LM Studio\) does not serve qwen3\.8-35b-a3b \(it lists gemma-4-26b-a4b\)\. The agent does not fall back to LM Studio/)
     const unnamed = { ...route, model: '' }
     assert.deepEqual(pickServedModel(unnamed, ['text-embedding-nomic-embed-text-v1.5', 'qwen3.8-35b-a3b']), { ok: true, model: 'qwen3.8-35b-a3b' }, 'an embedding model is never the agent\'s')
     assert.match((pickServedModel(unnamed, ['text-embedding-nomic-embed-text-v1.5']) as { error: string }).error, /lists no chat model/)
@@ -248,7 +248,7 @@ describe('the check before an agent task in the app (ipc/agentRoute.ts)', () => 
     serve35B()
     const r = await prepareAgentRoute('qwen3.8-9b-distill')
     assert.equal(r.ok, false)
-    assert.match((r as { error: string }).error, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → Connection\) does not serve qwen3\.8-9b-distill \(it lists qwen3\.8-35b-a3b\)\. The agent does not fall back to LM Studio/)
+    assert.match((r as { error: string }).error, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → LM Studio\) does not serve qwen3\.8-9b-distill \(it lists qwen3\.8-35b-a3b\)\. The agent does not fall back to LM Studio/)
   })
 
   test('on, the server is down: a plain error naming the connection, and nothing else asked', async () => {
@@ -256,7 +256,7 @@ describe('the check before an agent task in the app (ipc/agentRoute.ts)', () => 
     state.refusedOrigins = ['http://127.0.0.1:8081']
     const r = await prepareAgentRoute('qwen3.8-9b-distill')
     assert.equal(r.ok, false)
-    assert.match((r as { error: string }).error, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → Connection\) did not answer: connect ECONNREFUSED 127\.0\.0\.1:8081\. The agent does not fall back to LM Studio: start that server, or turn the agent connection off\.$/)
+    assert.match((r as { error: string }).error, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → LM Studio\) did not answer: connect ECONNREFUSED 127\.0\.0\.1:8081\. The agent does not fall back to LM Studio: start that server, or turn the agent connection off\.$/)
     assert.ok(state.fetchLog.every((f) => f.url.startsWith('http://127.0.0.1:8081/')))
   })
 })
@@ -321,7 +321,7 @@ describe('an agent task in the app, end to end (ipc/agent.ts)', () => {
     const events: Payload[] = []
     const answer = await agent.acceptAgentRun(sender(events), request(3))
     assert.equal(answer.ok, false)
-    assert.match(answer.error ?? '', /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → Connection\) did not answer/)
+    assert.match(answer.error ?? '', /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → LM Studio\) did not answer/)
     assert.equal(events.length, 0)
     assert.ok(!state.fetchLog.some((f) => f.url.endsWith('/chat/completions') || f.url.includes(':1234')))
   })
@@ -387,7 +387,7 @@ describe('a scheduled agent job (C5) runs where the agent runs', () => {
     state.refusedOrigins = ['http://127.0.0.1:8081']
     const down = await run(ON)
     assert.equal(down.outcome, 'failed')
-    assert.match(down.note, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → Connection\) did not answer/)
+    assert.match(down.note, /^The agent connection \(http:\/\/127\.0\.0\.1:8081\/v1, Settings → LM Studio\) did not answer/)
     assert.equal(state.completionBodies.length, 0)
   })
 })
@@ -429,7 +429,7 @@ describe('eval:agent through the agent connection', () => {
     }
     // Refused, or — a pooled keep-alive socket to the server just closed — reset.
     const down = await checkAgentServer(routeAgent(MAIN, { enabled: true, baseUrl: url, model: '' }, 'x'))
-    assert.match((down as { error: string }).error, new RegExp(`^The agent connection \\(${url.replace(/[.]/g, '\\.')}, Settings → Connection\\) did not answer: .*(ECONNREFUSED|ECONNRESET).*\\. The agent does not fall back to LM Studio`))
+    assert.match((down as { error: string }).error, new RegExp(`^The agent connection \\(${url.replace(/[.]/g, '\\.')}, Settings → LM Studio\\) did not answer: .*(ECONNREFUSED|ECONNRESET).*\\. The agent does not fall back to LM Studio`))
   })
 })
 

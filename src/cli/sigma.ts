@@ -252,7 +252,7 @@ In a session
   Type while a task works to add a note it reads at its next step. Ctrl+C stops a task.
 
 Privacy: talks only to LM Studio on this machine — or, when the app's agent
-connection is on (Settings → Connection), to that server, also on this machine.
+connection is on (Settings → LM Studio), to that server, also on this machine.
 Reads the app's settings (${appConfigPath()}) for the server and model.`
 
 // ---- the session -----------------------------------------------------------

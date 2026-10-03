@@ -81,7 +81,7 @@ export function routeAgent(mainBaseUrl: string, connection: Partial<AgentConnect
 
 /** The words every failure on the agent connection starts with. */
 export function agentConnectionName(baseUrl: string): string {
-  return `The agent connection (${baseUrl}, Settings → Connection)`
+  return `The agent connection (${baseUrl}, Settings → LM Studio)`
 }
 
 /** What to do about it — the same sentence wherever the failure is told. */

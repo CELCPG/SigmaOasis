@@ -35,7 +35,7 @@ const card = (html: string): string => {
   return html.slice(at, end)
 }
 
-describe('Settings → Connection: the agent connection card', () => {
+describe('Settings → LM Studio: the agent connection card', () => {
   test('off (and absent, as in a 4.5 file): a switch that is off, the address, no model picker, and the card says the agent runs on LM Studio', () => {
     for (const s of [settings(), settings({ enabled: false, baseUrl: 'http://127.0.0.1:8080/v1', model: '' })]) {
       const c = card(tab(s))
@@ -88,7 +88,7 @@ describe('the agent chat says what runs it', () => {
   test('on: the agent connection\'s model and address, in the header and the panel', () => {
     assert.deepEqual(agentConnectionLabel({ enabled: true, baseUrl: 'http://127.0.0.1:8081/v1', model: 'qwen3.8-35b-a3b' }), { model: 'qwen3.8-35b-a3b', baseUrl: 'http://127.0.0.1:8081/v1' })
     assert.deepEqual(agentConnectionLabel({ enabled: true, baseUrl: 'http://127.0.0.1:8081/v1', model: '' })?.model, 'the server’s model', 'no model named: the server\'s, not the slot\'s')
-    assert.equal(connectionHint('http://127.0.0.1:8081/v1'), 'Runs on the agent connection, http://127.0.0.1:8081/v1 (Settings → Connection). Chat, embeddings and titles stay on LM Studio.')
+    assert.equal(connectionHint('http://127.0.0.1:8081/v1'), 'Runs on the agent connection, http://127.0.0.1:8081/v1 (Settings → LM Studio). Chat, embeddings and titles stay on LM Studio.')
     assert.match(source, /data-testid="agent-connection-label">\n\s*\{onAgent\.model\} · agent connection/)
     assert.match(source, /agent connection · \{onAgent\.baseUrl\}/)
     assert.equal((source.match(/const onAgent = useAgentConnection\(\)/g) ?? []).length, 2, 'the header and the panel')
