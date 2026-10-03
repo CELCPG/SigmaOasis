@@ -267,3 +267,10 @@ is now **3**: the three agent baselines and the replay baseline are stamped `cla
 the recorded needs-you reports that decide a baseline run by the claim alone were not misread. The
 test-pass reading is unchanged, so `claimedPass` and `falseClaim` are rule 2's in both. See
 [docs/evals/claims.md](../docs/evals/claims.md#the-needs-you-success-claim-v46-j3).
+
+**Library files (4.6, J3).** `eval:diff` also reads two things off an `eval:answers` library file: the suite it
+holds (`librarySuite`: the 28-question `library`, or `library-aids`) and the version of the library scorer its
+flags were scored by (`libraryScorerRule`; none = 1). It refuses, with exit 2, to compare or merge a
+`library` file with a `library-aids` file, and two files scored by different scorer versions
+(`npm run eval:library-rescore -- <file> --write` moves the older). A `--save`d library baseline keeps both
+fields. See [docs/evals/library-aids.md](../docs/evals/library-aids.md#the-scorer-reads-the-reply-as-plain-text-and-every-library-file-re-scored-v46-j3).

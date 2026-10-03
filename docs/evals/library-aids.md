@@ -292,3 +292,31 @@ same-day control; a measurement of the rescored recorded passes, **not** J4's fr
 `libraryHyde` on, and it stays **off**: the four recorded passes are read on a scorer that was changed
 after them, and J4 measures four fresh passes beside a same-day control on this one before any flip. The
 re-rank's file reads as before (answered +0.75 ±0.71, cited −3.00 ±0.71 WORSE).
+
+### `eval:diff` reads the suite (v4.6, J3)
+
+A library results file is one of two suites, and 4.5's `eval:diff` did not read which: a `library` file
+(the 28 curated-pack questions) and a `library-aids` file (the 27 built for the aids) were compared
+case by case without complaint — the cases do not match, so most lines would read as nothing in common
+and a few as a change of engine. It now refuses (exit 2), for a diff and for a merge, in plain words:
+
+```
+eval:diff: the baseline holds the library suite (the 28 curated-pack questions) and the run holds the
+library-aids suite (the questions built for the model aids): they are different questions, so the diff
+would compare cases, not engines. Compare a library file with a library file.
+```
+
+The suite is the file's `librarySuite` (the runner writes it when it is `library-aids`). 4.5's runner wrote it
+on the arm's file and **not on the control's**, so a control read as a `library` file: `eval:diff` reads
+a file with no field by its runs — every library-aids case has a `kind` (vocabulary, paraphrase,
+near-tie, multi-document) and no library case does — and the runner now stamps the control too.
+`eval:library-rescore --write` stamps the field on a file that holds library-aids runs and does not say
+so: the four control files of H5b's two sessions (`h5/{hyde,rerank}-results/*aids-control*`). The diff
+header says which suite and scorer it read (`library suite library-aids · library scorer rule 2: answered
+and forbidden read by it on both sides`). Checked on real files: a 4.4 library file against H5b's
+control exits 2 with the message above; the control against its own arm compares (exit 3,
+too-few-passes, as 2 passes are).
+
+One thing it cannot tell: H7's two files `h7/aids-base.json` and `aids-run.json` carry `librarySuite:
+library-aids` but hold 4.4's library cases (they were made to test this diff, from 4.4's runs): a stamp
+is believed over the runs, so they read as library-aids files. They are test fixtures, not results.

@@ -179,6 +179,19 @@ describe('rescoreLibraryFile', () => {
     assert.equal(twice.summariesExact, true)
     assert.deepEqual(twice.file, once.file)
   })
+  test('a control file that holds library-aids runs and does not say so is stamped with its suite', () => {
+    const { librarySuite: _s, ...control } = multiPass()
+    const r = rescoreLibraryFile(control, fixtureOf)
+    assert.equal(r.suiteStamped, true)
+    assert.deepEqual(Object.keys(r.file), ['model', 'ranAt', 'session', 'librarySuite', 'libraryScorerRule', 'library', 'quant'])
+    assert.equal(r.file.librarySuite, 'library-aids')
+    // one that says already, and one with no kind in it (the 28-question suite), are not touched
+    assert.equal(rescoreLibraryFile(multiPass(), fixtureOf).suiteStamped, false)
+    const plain = { model: 'm', library: { runs: [lrun('01-burn-cooling.json', 'Cool it.', { answered: true })] } }
+    const p = rescoreLibraryFile(plain, fixtureOf)
+    assert.equal(p.suiteStamped, false)
+    assert.equal('librarySuite' in p.file, false)
+  })
   test('a committed baseline keeps each reply cut: it cannot be re-scored from them', () => {
     const saved = trimForBaseline(mergeResults([multiPass(), multiPass()]), ['a', 'b'], new Date('2026-10-03T00:00:00Z'))
     assert.equal(detectSuite(saved), 'library')
@@ -215,7 +228,7 @@ describe('eval:diff refuses two library files scored by different library scorer
   test('two sides scored by the same scorer compare, and the table says which', () => {
     const same = diffResults(stamped(), stamped())
     assert.equal(same.libraryRule, LIBRARY_SCORER_RULE)
-    assert.match(formatDiff(same), new RegExp('^library scorer rule ' + LIBRARY_SCORER_RULE + ': answered and forbidden read by it on both sides$', 'm'))
+    assert.match(formatDiff(same), new RegExp('^library suite library · library scorer rule ' + LIBRARY_SCORER_RULE + ': answered and forbidden read by it on both sides$', 'm'))
     // two files from before the stamp were scored by the same (first) scorer
     assert.equal(diffResults(file(four()), file(four())).libraryRule, 1)
   })

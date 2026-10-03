@@ -8,7 +8,7 @@ import {
   summarizeLibrary,
   type LibraryCaseResult
 } from '../../renderer/src/lib/answerEval'
-import { detectSuite, measureNoise } from './evalDiff'
+import { detectSuite, librarySuiteOf, measureNoise } from './evalDiff'
 
 /**
  * v4.6 (J3): a library results file, moved to the current library scorer.
@@ -33,7 +33,9 @@ import { detectSuite, measureNoise } from './evalDiff'
  * un-normalised current scorer reads the reply as the stored flag says, the
  * normalised one does not), or an older scorer (the stored flag is not what
  * today's scorer says of the reply as written — 4.4's list-lead-in and negation
- * changes came after some of its files were scored). A file's summaries
+ * changes came after some of its files were scored). A file that holds library-aids
+ * runs (each has a `kind`) and does not say so — 4.5's control files did not — gets
+ * `librarySuite` stamped, so eval:diff reads the suite off the file. A file's summaries
  * (`summary`, `stability`, `shapes`) are recomputed by the functions that wrote
  * them, and a stored `noise` is measured again by the one `--save` uses.
  */
@@ -64,6 +66,8 @@ export interface LibraryRescored {
   left: { errored: number; noReply: number; noFixture: string[] }
   /** Replies whose measurements differ before and after the normalisation: what `unsupported` could move on. */
   measurementsMoved: number
+  /** `librarySuite` was stamped on a file that held library-aids runs and did not say so. */
+  suiteStamped: boolean
   /** Whether a summary recomputed from the stored flags equals the stored one, before anything moved (false: the recompute is not exact for this file). */
   summariesExact: boolean
 }
@@ -123,10 +127,12 @@ export function rescoreLibraryFile(file: unknown, fixtureOf: (run: LibraryCaseRe
 
   const passes = before.map((p, i) => ({ ...p, runs: rescorePass(p.runs, i + 1) }))
   const moved: Record<string, unknown> = {}
+  const stampSuite = f.librarySuite === undefined && librarySuiteOf(f) === 'library-aids'
   const stamped = (k: string): boolean => k === 'libraryScorerRule'
   for (const [k, v] of Object.entries(f)) {
     if (stamped(k)) continue
     if (k === 'library') {
+      if (stampSuite) moved.librarySuite = 'library-aids'
       moved.libraryScorerRule = LIBRARY_SCORER_RULE
       const out: Record<string, unknown> = {}
       for (const [lk, lv] of Object.entries(lib)) {
@@ -148,5 +154,5 @@ export function rescoreLibraryFile(file: unknown, fixtureOf: (run: LibraryCaseRe
     } else moved[k] = v
   }
   if (isObj(f.noise)) moved.noise = measureNoise(moved)
-  return { file: moved, changes, read, left, measurementsMoved, summariesExact }
+  return { file: moved, changes, read, left, measurementsMoved, suiteStamped: stampSuite, summariesExact }
 }

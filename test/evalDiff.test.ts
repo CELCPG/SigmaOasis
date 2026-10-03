@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, measureNoise, mergeResults, noiseBand, passesToResolve, sampleSd, trimForBaseline } from '../src/main/agent/evalDiff'
+import { MIN_PASSES, detectSuite, diffResults, formatDiff, joinSlices, librarySuiteOf, measureNoise, mergeResults, noiseBand, passesToResolve, sampleSd, trimForBaseline } from '../src/main/agent/evalDiff'
 import { CLAIMS_RULE } from '../src/main/agent/claims'
 import type { CaseRun } from '../src/main/agent/evalHarness'
 import type { EvalFixtureRun } from '../src/renderer/src/lib/evalRunner'
@@ -546,5 +546,74 @@ describe('one claim rule on both sides (v4.5, H3b)', () => {
     const solid = diffResults(agentFile(passes(26, [14, 14, 14, 14])), agentFile(passes(26, [22, 22, 22, 22])))
     assert.equal(solid.verdict, 'BETTER')
     assert.ok(!solid.notes.some((n) => /never-banded/.test(n)))
+  })
+})
+
+// ---- one library suite on both sides (v4.6, J3) -----------------------------------------------
+
+describe('eval:diff refuses a library file against a library-aids file', () => {
+  /** A library-aids run carries the case's `kind`; a library one has none. */
+  const aids = (runs: ReturnType<typeof libPass>): ReturnType<typeof libPass> => runs.map((r) => ({ ...r, kind: 'near-tie' }))
+  const four = (): ReturnType<typeof libPass>[] => [libPass(27, 21), libPass(27, 21), libPass(27, 21), libPass(27, 21)]
+  const libraryFile = (extra: Record<string, unknown> = {}): Record<string, unknown> => answersFile([libPass(28, 27), libPass(28, 26), libPass(28, 27), libPass(28, 27)], extra)
+  /** 4.5's runner stamped the arm's file and not the control's, though the control's runs carry a kind. */
+  const aidsArm = (extra: Record<string, unknown> = {}): Record<string, unknown> => answersFile(four().map(aids), { librarySuite: 'library-aids', ...extra })
+  const aidsControl = (extra: Record<string, unknown> = {}): Record<string, unknown> => answersFile(four().map(aids), extra)
+
+  test('the suite is what the file says, or what its runs say', () => {
+    assert.equal(librarySuiteOf(libraryFile()), 'library')
+    assert.equal(librarySuiteOf(libraryFile({ librarySuite: 'library' })), 'library')
+    assert.equal(librarySuiteOf(aidsArm()), 'library-aids')
+    // a control file with no field and runs with a kind is a library-aids file
+    assert.equal(librarySuiteOf(aidsControl()), 'library-aids')
+    // the field wins; a file with no runs and no field is the 28-question suite
+    assert.equal(librarySuiteOf(answersFile([], {})), 'library')
+    assert.equal(librarySuiteOf({ ...libraryFile(), librarySuite: 'library-aids' }), 'library-aids')
+    // an unknown kind is not a library-aids case
+    assert.equal(librarySuiteOf(answersFile([libPass(3, 3).map((r) => ({ ...r, kind: 'invented' }))])), 'library')
+  })
+
+  test('a diff of one against the other is refused, in plain words, either way round', () => {
+    assert.throws(
+      () => diffResults(libraryFile(), aidsArm()),
+      /the baseline holds the library suite \(the 28 curated-pack questions\) and the run holds the library-aids suite \(the questions built for the model aids\): they are different questions, so the diff would compare cases, not engines\. Compare a library file with a library file\./
+    )
+    assert.throws(() => diffResults(aidsArm(), libraryFile()), /the baseline holds the library-aids suite .* and the run holds the library suite .*Compare a library-aids file with a library-aids file\./s)
+  })
+
+  test('a control with no stamp is still read as library-aids, so it is refused against a library file and compares with its own arm', () => {
+    assert.throws(() => diffResults(aidsControl(), libraryFile()), /baseline holds the library-aids suite/)
+    assert.throws(() => diffResults(libraryFile(), aidsControl()), /run holds the library-aids suite/)
+    const d = diffResults(aidsControl({ session: { id: 'night', role: 'control' } }), aidsArm({ session: { id: 'night', role: 'arm' } }))
+    assert.equal(d.librarySuite, 'library-aids')
+    assert.equal(d.sameDay, true)
+  })
+
+  test('two files of one suite compare, and the table says which', () => {
+    const same = diffResults(aidsArm(), aidsArm())
+    assert.equal(same.librarySuite, 'library-aids')
+    assert.match(formatDiff(same), /^library suite library-aids · library scorer rule 1: answered and forbidden read by it on both sides$/m)
+    assert.match(formatDiff(diffResults(libraryFile(), libraryFile())), /^library suite library · library scorer rule 1:/m)
+  })
+
+  test('a merge of the two is refused, and a merge of one suite keeps what says which', () => {
+    assert.throws(() => mergeResults([libraryFile(), aidsArm()], ['lib.json', 'aids.json']), /lib\.json holds the library suite .* and aids\.json holds the library-aids suite .*a merge would compare cases, not engines/s)
+    assert.throws(() => mergeResults([aidsControl(), libraryFile()], ['c.json', 'lib.json']), /c\.json holds the library-aids suite/)
+    const merged = mergeResults([aidsArm({ arm: 'rerank' }), aidsArm({ arm: 'rerank' })])
+    assert.equal(merged.librarySuite, 'library-aids')
+    assert.equal(librarySuiteOf(merged), 'library-aids')
+    // the unstamped control's merge is read off its runs
+    assert.equal(librarySuiteOf(mergeResults([aidsControl(), aidsControl()])), 'library-aids')
+  })
+
+  test('a saved baseline keeps the suite it holds', () => {
+    const saved = trimForBaseline(aidsArm(), 'x', new Date('2026-10-03T00:00:00Z'))
+    assert.equal(saved.librarySuite, 'library-aids')
+    assert.throws(() => diffResults(saved, libraryFile()), /baseline holds the library-aids suite/)
+  })
+
+  test('the other suites are not read for one', () => {
+    const agent = agentFile(passes(26, [18, 19, 18, 18]))
+    assert.equal(diffResults(agent, agent).librarySuite, null)
   })
 })

@@ -72,7 +72,7 @@ function main(argv: string[]): number {
   const out: string[] = []
   const w = (s = ''): number => out.push(s)
   w(`Re-scoring library results under library scorer rule ${LIBRARY_SCORER_RULE}${write ? ' (writing)' : ' (dry run — add --write to write)'}.`)
-  const tally = { files: 0, runs: 0, normalisation: 0, older: 0, measurements: 0, refused: 0, inexactSummaries: 0, copies: 0 }
+  const tally = { files: 0, runs: 0, normalisation: 0, older: 0, measurements: 0, refused: 0, inexactSummaries: 0, copies: 0, suiteStamped: 0 }
   const byField: Record<string, number> = {}
   const seen = new Set<string>()
   for (const p of paths) {
@@ -116,6 +116,10 @@ function main(argv: string[]): number {
       const o = res.changes.length - n
       tally.normalisation += n
       tally.older += o
+      if (res.suiteStamped) {
+        tally.suiteStamped++
+        w('  holds library-aids runs and does not say so: librarySuite library-aids is stamped')
+      }
       w(`  flags moved: ${res.changes.length} (the normalisation ${n}, an older scorer ${o})`)
       for (const c of res.changes) {
         byField[`${c.field} ${c.was}→${c.now} (${c.because})`] = (byField[`${c.field} ${c.was}→${c.now} (${c.because})`] ?? 0) + 1
@@ -136,6 +140,7 @@ function main(argv: string[]): number {
   w()
   w(`${tally.files} library file${tally.files === 1 ? '' : 's'} read${write ? ' and written' : ''}${tally.refused ? `, ${tally.refused} refused` : ''} (${tally.copies} byte-identical cop${tally.copies === 1 ? 'y' : 'ies'} skipped); ${tally.runs} runs re-scored.`)
   w(`flags moved — by the normalisation: ${tally.normalisation}; by an older scorer: ${tally.older}. ${JSON.stringify(byField)}`)
+  w(`files stamped librarySuite library-aids (they held library-aids runs and did not say so): ${tally.suiteStamped}.`)
   w(`replies whose measurements (so: unsupported) the normalisation would change: ${tally.measurements}. Files whose stored summaries were not exact: ${tally.inexactSummaries}.`)
   process.stdout.write(out.join('\n') + '\n')
   return tally.refused > 0 ? 2 : 0
