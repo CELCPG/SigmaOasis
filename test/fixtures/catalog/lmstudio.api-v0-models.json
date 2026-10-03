@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "text-embedding-nomic-embed-text-v1.5",
+      "object": "model",
+      "type": "embeddings",
+      "publisher": "nomic-ai",
+      "arch": "nomic-bert",
+      "compatibility_type": "gguf",
+      "quantization": "Q4_K_M",
+      "state": "loaded",
+      "max_context_length": 2048,
+      "loaded_context_length": 2048
+    },
+    {
+      "id": "qwen3.8-9b-distill",
+      "object": "model",
+      "type": "llm",
+      "publisher": "empero-ai",
+      "arch": "qwen35",
+      "compatibility_type": "gguf",
+      "quantization": "Q4_K_M",
+      "state": "loaded",
+      "max_context_length": 262144,
+      "loaded_context_length": 68608,
+      "capabilities": [
+        "tool_use"
+      ]
+    }
+  ],
+  "object": "list"
+}
