@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "id": "text-embedding-nomic-embed-text-v1.5",
+      "object": "model",
+      "owned_by": "organization_owner"
+    },
+    {
+      "id": "qwen3.8-9b-distill",
+      "object": "model",
+      "owned_by": "organization_owner"
+    }
+  ],
+  "object": "list"
+}

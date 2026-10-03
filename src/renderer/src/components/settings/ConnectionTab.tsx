@@ -8,6 +8,7 @@ import type { AppSettings, ConnectionStatus, ModelInfo } from '../../types'
 import type { ApplySettings } from '../../hooks/settingsApply'
 import { defineRows, registerRows } from '../../lib/settingsKit'
 import { fitSentence, fitVerdict } from '../../lib/modelFit'
+import { serverName } from '../../lib/modelInfo'
 import { isLoopbackUrl } from './helpers'
 import { ActionRow, Button, Card, Field, Notice, RoleDot, Row, Section, StatusDot, type ActionResult } from './kit'
 
@@ -72,7 +73,7 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
         title={
           <span className="inline-flex items-center gap-2">
             <StatusDot tone={connection === 'online' ? 'ok' : connection === 'connecting' ? 'info' : 'danger'} pulse={connection === 'connecting'} />
-            LM Studio
+            {serverName(availableModels[0])}
           </span>
         }
         status={connection === 'online' ? `${loaded} of ${availableModels.length} loaded` : undefined}
@@ -125,9 +126,12 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
                       {verdict && <div className={`text-xs ${verdict.kind === 'fits' ? 'text-ink-tertiary' : verdict.kind === 'tight' ? 'text-ink-warn' : 'text-ink-danger'}`}>{fitSentence(verdict, m.id)}</div>}
                       {outcome?.id === m.id && <div className={`text-xs ${outcome.result.tone === 'ok' ? 'text-ink-ok' : 'text-ink-danger'}`}>{outcome.result.text}</div>}
                     </div>
-                    <Button busy={acting === m.id ? '…' : undefined} onClick={() => act(m.id, m.loaded ? 'unload' : 'load')} title={m.loaded ? 'Unload it from LM Studio' : 'Load it in LM Studio, pinned so the app’s embedding calls do not evict it'}>
-                      {m.loaded ? 'Unload' : 'Load'}
-                    </Button>
+                    {/* 4.5: llama-server serves the one model it was started with; there is no load or unload to ask it for. */}
+                    {m.server !== 'llamacpp' && (
+                      <Button busy={acting === m.id ? '…' : undefined} onClick={() => act(m.id, m.loaded ? 'unload' : 'load')} title={m.loaded ? 'Unload it from LM Studio' : 'Load it in LM Studio, pinned so the app’s embedding calls do not evict it'}>
+                        {m.loaded ? 'Unload' : 'Load'}
+                      </Button>
+                    )}
                     {roles.length > 0 && (
                       <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-xs text-ink-secondary">
                         {settings.models

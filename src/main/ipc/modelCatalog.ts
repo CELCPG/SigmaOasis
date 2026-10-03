@@ -25,6 +25,17 @@ import { getSettings } from './store'
  *
  * Older LM Studio builds have no `/api/v0`. Those fall back to `/v1/models`
  * and the app degrades to exactly its previous behavior.
+ *
+ * 4.5 (H4a): llama.cpp's own `llama-server` can be the server instead — this PC
+ * runs Gemma 4 26B-A4B and the 35B-A3B that way. It has no `/api/v0` (a JSON
+ * 404), so it lands on the same `/v1/models` fallback, but that list is not
+ * ids-only there: `models[].capabilities` says whether a multimodal projector
+ * is loaded and `data[].meta` carries `n_ctx` (the window the server was
+ * started with) and `n_ctx_train`. `GET /props` adds `modalities.vision` and
+ * `default_generation_settings.n_ctx`, the window one request really gets. The
+ * fallback reads those only when the body looks like llama-server's, so an LM
+ * Studio answer — with or without `/api/v0` — goes through the code it always
+ * did and costs no extra request.
  */
 
 export interface CatalogModel {
@@ -41,15 +52,22 @@ export interface CatalogModel {
   loaded?: boolean
   quantization?: string
   arch?: string
+  /**
+   * Which server described this model, set only when it is not LM Studio — so
+   * LM Studio's entries stay exactly the entries they were.
+   */
+  server?: 'llamacpp'
 }
 
 export interface ModelCatalog {
   models: CatalogModel[]
-  /** False when only /v1/models answered, so capability fields are absent. */
+  /** False when only /v1/models answered with ids, so capability fields are absent. */
   detailed: boolean
 }
 
 const TIMEOUT_MS = 10_000
+/** /props is an extra, optional read; a server too busy to answer it quickly is not waited for. */
+const PROPS_TIMEOUT_MS = 3_000
 
 interface RestModel {
   id?: string
@@ -85,8 +103,105 @@ async function fetchDetailed(root: string): Promise<CatalogModel[] | null> {
     }))
 }
 
-/** The OpenAI-compatible list: ids only, but present on every LM Studio build. */
-async function fetchBasic(baseUrl: string): Promise<CatalogModel[]> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Is this `/v1/models` body llama-server's? Its list has an Ollama-style
+ * `models[]` with `capabilities`, and its `data[]` entries are owned by
+ * `llamacpp` and carry a `meta` with the model's training context. LM Studio's
+ * entries have none of these (`owned_by: "organization_owner"`).
+ */
+function fromLlamaCpp(body: unknown): boolean {
+  if (!isRecord(body)) return false
+  if (Array.isArray(body.models) && body.models.some((m) => isRecord(m) && Array.isArray(m.capabilities))) return true
+  return (
+    Array.isArray(body.data) &&
+    body.data.some(
+      (m) => isRecord(m) && (m.owned_by === 'llamacpp' || (isRecord(m.meta) && num(m.meta.n_ctx_train) !== undefined))
+    )
+  )
+}
+
+/** What llama-server's `GET /props` says about the model it serves; null when it does not answer. */
+async function fetchProps(root: string): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await auditedFetch(`${root}/props`, { timeoutMs: PROPS_TIMEOUT_MS }, 'lmstudio')
+    if (!res.ok) return null
+    const body: unknown = await res.json()
+    return isRecord(body) ? body : null
+  } catch {
+    return null
+  }
+}
+
+/** llama.cpp's file-type name in LM Studio's spelling ("Q4_K - Medium" → "Q4_K_M"); any other name as reported. */
+function quantizationName(ftype: unknown): string | undefined {
+  if (typeof ftype !== 'string' || !ftype.trim()) return undefined
+  const name = ftype.trim()
+  const sized = /^(Q\d_K) - (Small|Medium|Large)$/.exec(name)
+  return sized ? `${sized[1]}_${sized[2][0]}` : name
+}
+
+/**
+ * The catalog of a llama-server, from its `/v1/models` body and its `/props`.
+ *
+ *   - Vision: `/props` `modalities.vision` when it answers (an audio-only
+ *     projector is "multimodal" too, so the list's capability is the fallback,
+ *     not the authority); otherwise `capabilities` — `multimodal` is vision, a
+ *     list without it is text-only. No capability list and no `/props`: unknown.
+ *   - Context: the loaded window, `default_generation_settings.n_ctx` (what one
+ *     request gets), else the list's `meta.n_ctx`; the training window is
+ *     `meta.n_ctx_train`. The loaded one wins in `effectiveContextLength`.
+ *   - Loaded: llama-server serves the one model it lists, so it is resident
+ *     unless `/props` says `is_sleeping`. With several models listed and no
+ *     `/props` answer for one of them, that is not known, so not claimed.
+ *   - Not reported at all, so absent: architecture.
+ *
+ * `/props` describes the server's one model. It is applied to a listed model
+ * only when that is the only one listed or its `model_alias` names it.
+ */
+async function describeLlamaCpp(body: Record<string, unknown>, root: string): Promise<CatalogModel[]> {
+  const entries = (Array.isArray(body.data) ? body.data : []).filter(
+    (m): m is Record<string, unknown> & { id: string } => isRecord(m) && typeof m.id === 'string'
+  )
+  const props = await fetchProps(root)
+  const listed = Array.isArray(body.models) ? body.models.filter(isRecord) : []
+  const sole = entries.length === 1
+  return entries.map((m): CatalogModel => {
+    const names = [m.id, ...(Array.isArray(m.aliases) ? m.aliases.filter((a): a is string => typeof a === 'string') : [])]
+    const meta = isRecord(m.meta) ? m.meta : {}
+    const caps = listed.find((l) => names.includes(l.name as string) || names.includes(l.model as string))?.capabilities
+    const capabilities = Array.isArray(caps) && caps.length > 0 ? caps : undefined
+    const mine = props && (sole || (typeof props.model_alias === 'string' && names.includes(props.model_alias))) ? props : null
+    const modalities = mine && isRecord(mine.modalities) ? mine.modalities : {}
+    const generation = mine && isRecord(mine.default_generation_settings) ? mine.default_generation_settings : {}
+
+    const vision =
+      typeof modalities.vision === 'boolean'
+        ? modalities.vision
+        : capabilities
+          ? capabilities.includes('multimodal')
+          : undefined
+    return {
+      id: m.id,
+      type: vision === undefined ? undefined : vision ? 'vlm' : 'llm',
+      vision,
+      loadedContextLength: num(generation.n_ctx) ?? num(meta.n_ctx),
+      maxContextLength: num(meta.n_ctx_train),
+      loaded: mine || sole ? !(mine && mine.is_sleeping === true) : undefined,
+      quantization: quantizationName(meta.ftype),
+      server: 'llamacpp'
+    }
+  })
+}
+
+/**
+ * The OpenAI-compatible list, present on every server we support. From LM Studio
+ * it is ids only; from llama-server it is read for capabilities (see above).
+ */
+async function fetchBasic(baseUrl: string): Promise<ModelCatalog> {
   const res = await auditedFetch(
     `${baseUrl.replace(/\/+$/, '')}/models`,
     { timeoutMs: TIMEOUT_MS },
@@ -94,9 +209,13 @@ async function fetchBasic(baseUrl: string): Promise<CatalogModel[]> {
   )
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const data = (await res.json()) as { data?: { id?: string }[] }
-  return (data.data ?? [])
-    .filter((m): m is { id: string } => typeof m?.id === 'string')
-    .map((m) => ({ id: m.id }))
+  if (fromLlamaCpp(data)) return { models: await describeLlamaCpp(data as Record<string, unknown>, restApiRoot(baseUrl)), detailed: true }
+  return {
+    models: (data.data ?? [])
+      .filter((m): m is { id: string } => typeof m?.id === 'string')
+      .map((m) => ({ id: m.id })),
+    detailed: false
+  }
 }
 
 /**
@@ -111,7 +230,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
   } catch {
     // Endpoint missing or malformed — fall through to the universal one.
   }
-  return { models: await fetchBasic(baseUrl), detailed: false }
+  return fetchBasic(baseUrl)
 }
 
 export function registerModelCatalogHandlers(): void {

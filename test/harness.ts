@@ -111,6 +111,10 @@ export interface HarnessState {
   catalogUnavailable: boolean
   /** Full override for the GET /api/v0/models `data` array, for capability fields. */
   catalogModels: Record<string, unknown>[] | null
+  /** Full override for the body of GET .../v1/models, e.g. a recorded llama-server payload. */
+  v1ModelsBody: unknown
+  /** What GET /props answers (4.5 H4a): a recorded payload, or a status with no body. Null = 404, as LM Studio does. */
+  propsResponse: { status: number; body: unknown } | null
   /**
    * DNS answers per hostname, for search.ts's SSRF guard. Anything not listed
    * resolves to a public address.
@@ -164,6 +168,8 @@ export const state: HarnessState = {
   modelStates: {},
   catalogUnavailable: false,
   catalogModels: null,
+  v1ModelsBody: null,
+  propsResponse: null,
   dnsOverrides: {},
   dnsFailures: [],
   encryptionAvailable: true,
@@ -205,6 +211,8 @@ export function resetState(): void {
   state.modelStates = {}
   state.catalogUnavailable = false
   state.catalogModels = null
+  state.v1ModelsBody = null
+  state.propsResponse = null
   state.dnsOverrides = {}
   state.dnsFailures = []
   state.encryptionAvailable = true
@@ -411,7 +419,14 @@ const netStub = {
         'application/json'
       )
     }
+    if (url.endsWith('/props')) {
+      if (!state.propsResponse) {
+        return makeResponse('{"error":{"message":"File Not Found","type":"not_found_error","code":404}}', 'application/json', 404)
+      }
+      return makeResponse(JSON.stringify(state.propsResponse.body), 'application/json', state.propsResponse.status)
+    }
     if (url.endsWith('/models')) {
+      if (state.v1ModelsBody !== null) return makeResponse(JSON.stringify(state.v1ModelsBody), 'application/json')
       return makeResponse(
         JSON.stringify({ data: [{ id: 'fake-embed' }, { id: 'fake-chat' }] }),
         'application/json'
