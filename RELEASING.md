@@ -215,6 +215,31 @@ notarize* is the change under test; red at the last check leaves the DMGs on
 the run's page to look at. The assets carry the branch's `package.json`
 version — they are never attached to anything.
 
+### The `@electron/get` override in `package.json` (4.6, J8b)
+
+`"overrides": {"@electron/get": "^5.1.0"}` exists because electron-builder
+26.15.3 (and 26.17.0, the `v26` tag) still depend on `@electron/get ^3` → `got 11`
+→ `cacheable-request` → `http-cache-semantics` ≤ 4.2.0, which carries
+GHSA-ch52-4w7c-c8xp / CVE-2026-93748 with no patched version: `npm audit` reads
+13 with it, 5 (the `braces` chain only) without. It is build-time only — the
+packager downloads Electron and builder's tools with it, nothing in the shipped
+app. `electron` 44 already uses `@electron/get` 5.1.0, so the override leaves
+one copy of it.
+
+**Drop it when electron-builder's own `@electron/get` moves to `^5`**
+(27.0.0-alpha.9 has; 26.17.0 does not), or when `http-cache-semantics` ships a
+patch: delete the `overrides` block, `npm install`, run `lockkeep.js`, and check
+`npm ls @electron/get` still shows one 5.x copy and `npm audit` still reads 5.
+
+`@electron/get` 5 is ESM-only and needs Node ≥ 22.12 (builder `require()`s it);
+CI's Node 24 is fine. Its cache is `%LOCALAPPDATA%/electron/Cache`
+(`~/Library/Caches/electron` on a Mac) — its code has no `ELECTRON_CACHE` /
+`electron_config_cache` lookup — so to force a fresh Electron download, point
+`LOCALAPPDATA` (or `HOME` on a Mac) at an empty directory for the build. Proved
+on Windows that way (Electron zip, `SHASUMS256.txt`, builder's nsis and 7zip
+downloads, all through it, checksums validated); the Mac side is what the dry
+run above is for.
+
 ---
 
 ## Repository protections
