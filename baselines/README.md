@@ -168,3 +168,90 @@ measures its own spread from four numbers and can read quieter than the engine i
 every side's spread at that baseline's, and says so. Several arms may
 share one control's passes when they ran interleaved with it in one session (4.4's tool-choice and
 library arms did).
+
+## The B65 (v4.5, H1)
+
+Since 2026-10-02 the 9B (`qwen3.8-9b-distill`, Q4_K_M, 68,608-token context, LM Studio over Vulkan)
+runs on an Intel Arc Pro B65; the RTX 5070 is gone. Every number above was measured on the 5070 and
+stays as it is: that is the history, and the card is out of the machine. Recorded 2026-10-03
+on `4.5/b65` (the 4.4.0 engine, the chat as it ships), one machine, LM Studio to itself, Clerk off.
+
+| on the B65, diff against | file | how |
+| --- | --- | --- |
+| tool choice, the app's subset (`EVAL_SUBSET=1 EVAL_FORCED_ON_TOP=1 EVAL_FILE_TOOLS_FIRST=1`) | `toolchoice-qwen3.8-9b-distill-subset-ontop-filefirst-b65.json` | add `--noise-from baselines/toolchoice-qwen3.8-9b-distill-subset-ontop-filefirst.json` (below) |
+| agent | **none yet** | two passes exist (20 and 17 of 26), the agent is not deterministic here and the rule wants four: run the same-day control (`EVAL_CONTROL=1`) and diff against it, or record passes 3–4 first |
+| anything else (whole-toolbox tool choice, the subset's control, the 35B-A3B) | the 5070 files above | a cross-card look at best; not re-recorded on the B65 |
+
+`toolchoice-…-ontop-filefirst-b65.json` is four passes from four runs (rule met): **26, 26, 26, 26
+of 28 clean**, spurious 0/3, invalid arguments 0, loops 1 a pass. The 5070's file reads 25, 24, 25, 25.
+It fails the same two fixtures every pass — `22-price-near-miss` (calls `web_search`, not
+`shop_compare`, and repeats it to the iteration cap: the one loop) and `27-live-futures` (calls
+`market_data` first where `web_search` is expected) — and solves two the 5070's file never did (`15-shop-requirements`, `26-live-score`).
+Diffed against the 5070's file it reads BETTER on clean (+1.25, band ±0.71) and WORSE on loops
+(0 → 1, band ±0.00): a difference between the cards on one fixture, saved in
+`.eval-results/…/h1/diff-tools-vs-5070-ontop-filefirst.txt`, not a regression of the code.
+
+**Use `--noise-from` with it.** The four passes agree to the case, so σ is 0.00 and a future run
+would be held to a band of ±0.00: one lost fixture would read WORSE. The 5070's σ (0.50 of 28, ±0.71
+for four passes) is the honest floor — four passes that happen to agree do not prove a quiet engine
+(the rule's own words about the control, above). With the flag a run identical to the file reads
+SAME-WITHIN-NOISE at ±0.71; the flags (spurious calls, loops, invalid arguments) keep their band of ±0.
+
+**Is the B65 deterministic? For tool choice's verdicts, nearly; for the agent, no.**
+- Tool choice, four passes: 27 of 28 fixtures made the same calls, stopped the same way and scored
+  the same in every pass. The one that did not, `01-list-directory`, made 3 calls in passes 1–3 and 2
+  in pass 4 — scored correct either way. So no pass differed in a score, and the passes add no spread.
+- Agent, two passes (20 and 17 of 26, 0 false claims in 52 runs, collateral on 3 cases in each): 23 of
+  26 cases kept their verdict, and the 3 that flipped (`chain-stats`, `needs-you-tax-rate`,
+  `read-only-why-failing`) all went from solved to not solved. Rounds were equal in 12 of 26 cases, tool
+  calls in 12, final text in 7, the per-round completion-token sequence in 1 (`needs-you-deploy-token`).
+  Two of the three collateral cases differ between the passes (`refactor-callback-to-promise` touched
+  `check-config.js` in pass 1 and nothing in pass 2; `needs-you-tax-rate` the reverse, `src/vat.js`;
+  `office-merge-sheets` touched `make_merged.py` and then `merge.py`). The same cases in the same order
+  in the same chunk gave different runs (cases 1–4: `chain-slugify` 18 rounds, 156 s in pass 1, 37
+  rounds, 508 s in pass 2), and `feature-top-words` ran away (> 7 min and > 9 min) after
+  `feature-stack-peek` in two chunks and took 100 s and 315 s alone. Case by case:
+  `.eval-results/…/h1/determinism-p1-p2.md`.
+- So greedy decoding on the B65 does **not** make the agent suite repeatable: a round whose hidden
+  reasoning differs by a few tokens changes the next prompt, and the runs part within one or two
+  rounds. Extra passes buy spread here, as on the 5070 (the two passes' σ is 2.12 of 26; the 5070's
+  eight, 2.49). Tool choice is the exception because a fixture is one or two rounds.
+- No agent baseline is committed: two passes cannot answer anything but TOO-FEW-PASSES, which is all
+  `agent-qwen3.8-9b-distill-4.0.2.json` does already. Passes 3–4 (about 45–50 minutes of GPU a pass here)
+  make four passes in four runs.
+
+**The agent's verdict on the B65** (H1, two passes, the 4.4 engine with every experiment off):
+- **Solved:** 20 and 17 of 26, mean 18.50 (σ 2.12) against the 5070's 18.25 over eight passes (14–21,
+  σ 2.49): +0.25, nowhere near a difference. Two passes cannot show that the cards are equal, only that
+  nothing here says the B65 solves fewer (`eval:diff` on them reads TOO-FEW-PASSES, exit 3; the band
+  it would have held them to is ±3.94).
+- **False claims: 0** in 52 runs (26 cases, two passes). Collateral on 3 cases in each pass.
+- **Not deterministic:** 23 of 26 cases kept their verdict, 3 flipped (all solved → not solved); rounds
+  equal in 12, tool calls in 12, final text in 7. Case by case:
+  `.eval-results/4.5-2026-10-03/h1/determinism-p1-p2.md`.
+- **No agent baseline file is committed.** The rules above want at least four passes from at least two
+  runs; there are two passes. Passes 3–4 are left for later. Until then a change to the agent on the
+  B65 is diffed against its own same-day control (`EVAL_CONTROL=1`), as the table above says.
+- **Found, not fixed: an order-dependent runaway.** `feature-top-words` (case 6) ran past 7.5 minutes and
+  past 9 minutes (both chunks killed; the first at 450 s, the second at 570 s) when it came right after
+  `feature-stack-peek` in the same chunk, and finished in 100 s (15 rounds) and 315 s (21 rounds) when
+  run alone. The 5070's eight passes ran it in 22–353 s. Cause not found. A chunk that holds that pair
+  of cases in that order can lose the rest of the chunk to the harness's limit (cases 7–9 never ran in
+  the second kill); run `feature-top-words` alone.
+
+**Speed** (the runners' own timing; not gated). Decode 38–48 tok/s on short prompts and 25 on 14,000-token
+ones, against 102–105 on the 5070; TTFT median 0.47 s against 0.21 s; a whole agent pass is 2,589 to
+2,940 s of case time against 973 s of the 5070's medians (x2.7–3.0; without `long-discount-rules`,
+which ran 1,579 s then 578 s, x1.9 in pass 1 and x2.8 in pass 2),
+`eval:tools` 339–402 s a pass against 272–294 s. The latency bench's line is in
+[docs/evals/measurement.md](../docs/evals/measurement.md): a full window's prefill 261 s against
+26.8 s (9.8×), the next turn past it with the low-water trim 3.0 s against 0.70 s, short prompts
+under a second, decode 42 against 95.5 tok/s. The chat gives up on a first byte at 300 s, the agent
+at 360 s: the 261 s prefill is inside both, 39 s short of the chat's.
+
+**After `4.5/claims` merges** (H3b): it stamps every scored agent file with a `claimsRule` and makes
+`eval:diff` refuse to compare, merge or join files scored by different rules. The tool-choice file here
+holds no claims and needs nothing; its test only reads `agent-*` baselines. The two agent passes in
+`.eval-results/` (and any pass 3–4) are scored by the old rule: re-score them with
+`npm run eval:claims -- <results folders> --rescore <files> --write` before they meet a stamped baseline
+(H7 does it).

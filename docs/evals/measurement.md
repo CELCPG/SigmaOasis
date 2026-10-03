@@ -154,3 +154,68 @@ night:
 - The OpenClaw Clerk task, a client of the same model, was paused. The installed Sigma Oasis app
   also shares the model (two slots); whether it was open during the runs was not checked — at
   00:55 it was not running. LM Studio's MTP drafting kept 41–90% of drafted tokens.
+
+**The B65's line (2026-10-03, v4.5 H1).** The same 9B (`qwen3.8-9b-distill`, Q4_K_M, 68,608-token
+context) on the Intel Arc Pro B65, LM Studio over Vulkan, the RTX 5070 out of the machine. Label
+`4.5-b65`, from `4.5/b65` (the 4.4.0 engine; the bench's workload is unchanged since 4.3),
+`BENCH_WINDOW=68608`, three repeats, medians, the OpenClaw Clerk off, 2,107 s start to finish. The
+results file is not committed (`.latency-bench/` is ignored); this section is the record, and the
+5070's two lines above are the only other record there is. The line carries no `machine` mark. Whether
+the Sigma Oasis app was closed was not checked.
+
+| label | cold | warm | turn-1 | turn-10 | window-first | window-next | lowwater-first | lowwater-next | decode tok/s | prompt at window |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4.3-dev, RTX 5070 | 1.0 s | 73 ms | 234 ms | 261 ms | 26.8 s | 27.5 s | 17.0 s | 703 ms | 95.5 | 65,514 tok |
+| 4.5-b65, Arc Pro B65 | 1.7 s | 118 ms | 591 ms | 800 ms | 261.3 s | 262.1 s | 120.2 s | 3.03 s | 42.1 | 65,516 tok |
+| B65 ÷ 5070 | 1.7× | 1.6× | 2.5× | 3.1× | 9.8× | 9.5× | 7.1× | 4.3× | 0.44× | — |
+
+The B65 per scenario (median of three; the range is the fastest and slowest repeat; "kept" is the
+share of drafted tokens LM Studio's MTP drafting kept — the 5070's lines keep no per-scenario figures):
+
+| scenario | TTFT | range | prompt tok | decode tok/s | kept |
+| --- | --- | --- | --- | --- | --- |
+| cold | 1.72 s | 0.52 – 2.13 s | 280 | 48.9 | 84% |
+| warm | 118 ms | 113 – 130 ms | 280 | 49.3 | 84% |
+| turn-1 | 591 ms | 573 – 599 ms | 280 | 48.2 | 81% |
+| turn-2 | 562 ms | 557 – 579 ms | 581 | 45.2 | 74% |
+| turn-3 | 655 ms | 655 – 670 ms | 900 | 46.4 | 77% |
+| turn-4 | 676 ms | 669 – 682 ms | 1,223 | 45.0 | 79% |
+| turn-5 | 627 ms | 615 – 640 ms | 1,537 | 42.0 | 76% |
+| turn-6 | 720 ms | 719 – 767 ms | 1,867 | 41.7 | 76% |
+| turn-7 | 659 ms | 650 – 673 ms | 2,174 | 42.7 | 78% |
+| turn-8 | 666 ms | 665 – 686 ms | 2,484 | 42.2 | 77% |
+| turn-9 | 686 ms | 684 – 710 ms | 2,796 | 40.4 | 75% |
+| turn-10 | 800 ms | 777 – 835 ms | 3,118 | 40.7 | 80% |
+| window-first | 261.3 s | 261.3 – 261.5 s | 65,525 | 8.4 | 68% |
+| window-next | 262.1 s | 261.4 – 262.6 s | 65,516 | 7.3 | 50% |
+| lowwater-first | 120.2 s | 118.1 – 121.4 s | 42,566 | 11.6 | 68% |
+| lowwater-next | 3.03 s | 3.01 – 3.08 s | 42,898 | 11.6 | 68% |
+
+- **S1 holds on the B65, and matters more.** Past a full window the next turn costs 262.1 s when the
+  oldest turn is dropped and the window re-read, and 3.03 s with the low-water trim: 259 s saved a
+  turn (the 5070: 27.5 s against 0.70 s). The trim's own prefill of 42,566 tokens is 120.2 s, once,
+  and every turn after it until the history grows back to the brim costs the 3 s. The three repeats
+  of window-first agree to 0.2 s, those of lowwater-next to 70 ms.
+- **Prefill is the card's weak side.** 3,118 tokens (turn 10) prefill at about 3,900 tok/s, the
+  42,566-token trim at 354 tok/s and the 65,525-token window at 251 tok/s: the rate falls with depth
+  (the 5070 read the window at about 2,440 tok/s). Decode falls with depth too: 48–49 tok/s on a
+  280-token prompt, 40.7 at 3,118, 11.6 at 42,566, 7.3–8.4 at the full window. The report's
+  decode column (42.1) is the median across all sixteen scenarios, as the 5070's 95.5 is.
+- **Short prompts stay under a second.** Warm 118 ms, turn 1 591 ms, turn 10 800 ms (3,118 tokens
+  cost 200 ms more than 280); cold ranges 0.52–2.13 s across the repeats, the widest spread of any
+  short scenario, so its median (the middle repeat) says little. The prompt cache holds: warm is
+  118 ms against cold's 1.72 s.
+- MTP drafting kept 50–84% of drafted tokens (the 5070: 41–90%): fewest at the full window.
+- **The timeouts the 261 s prefill meets.** The chat waits 300 s for a first byte
+  (`FIRST_BYTE_TIMEOUT_MS`, `chatTransport.ts`); the agent waits `AGENT_STREAM_STALL_MS` × 4 = 360 s
+  (90 s × 4, `stream.ts`). A full window's prefill, 261 s, is inside both, with 39 s to spare on
+  the chat's and 99 s on the agent's: close on the chat's. Between chunks the chat tolerates 60 s of
+  silence (`STREAM_STALL_MS`) and the agent 90 s; decode at 7–8 tok/s is nowhere near either.
+  A prefill 15% slower (a card that is also serving another request) would cross the chat's limit.
+  Past the window the low-water trim is what keeps the chat clear of it: its next turn is 3 s.
+- **Attempt 1 died at the bench's own limit.** The bench cut a request after 180 s of silence
+  (hardcoded), and the window prefill is 261 s, so the first run was cut at its first window scenario
+  (cold, warm and turns 1–10 of repeat 1 had printed). `BENCH_STALL_MS` (default 180000, unchanged
+  for any card that was already inside it) now sets the limit; this line ran with `BENCH_STALL_MS=900000`.
+  The script has no test of its own (its options are read inside `main()`; the tests cover the
+  workload and the report in `latencyBench.ts`), so the variable is not pinned by one.
