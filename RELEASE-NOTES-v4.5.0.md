@@ -7,7 +7,8 @@ report that says the tests pass when the task shows no passing run is marked —
 now read clause by clause, which also corrects 4.4's false-claim numbers. The catalog reads a
 llama.cpp server as well as LM Studio. And under all of it the machine changed: the RTX 5070 is
 gone, and the 9B runs on an Intel Arc Pro B65, measured here before anything was decided on it.
-4.5.0 follows 4.4.0 and is built on it. The plan and its status are `ROADMAP-v4.5.md`.
+Gemma 4 26B-A4B had a first look as an agent, and the library's two model aids were measured on
+a suite built for them; none of it changes a default. 4.5.0 follows 4.4.0 and is built on it. The plan and its status are `ROADMAP-v4.5.md`.
 
 ## What you will notice
 
@@ -146,17 +147,89 @@ so an aid has something to move. `EVAL_RETRIEVAL_ONLY=1` checks that without a m
 
 ## Gemma 4 26B-A4B, a first look
 
-> **[Part 2]** Measured in H4b1 (track `4.5/gemma`); filled in before release.
+Gemma 4 26B-A4B runs on the B65 beside the 9B, served by llama.cpp's `llama-server` (build
+b11026, a 65,536-token window, one request at a time). A first look on 2026-10-03, the 4.5 engine,
+temperature 0, not a baseline: tool choice four passes; the agent one pass, stopped by time after
+11 of its 26 cases, so it compares case by case and not as a total.
+
+| | Gemma 4 26B-A4B, B65 | 9B, B65 | 35B-A3B, B60 (4.4's baseline) |
+| --- | --- | --- | --- |
+| tool choice, the app's subset — clean of 28 | 26, 27, 26, 26 | 26, 26, 26, 26 | — |
+| — loops | 0 | 1 a pass (`22-price-near-miss`) | — |
+| agent, on the 11 cases Gemma ran — solved | 9 | 11 and 10 (two passes) | 10 (most of four passes) |
+| — false claims | 0 | 0 in 22 runs | 1 in 44 (`chain-slugify`) |
+| — time for the 11 | **5,406 s** | 693 s and 1,228 s | about 360 s |
+| — rounds a case | 9–41 | 4–18 and 4–37 | 3–13 (medians) |
+
+- **Tool choice: as good as the 9B.** The right tool in 24 of 25 or better every pass (the 9B: 23),
+  no spurious call, no invalid argument, and no loop where the 9B loops every pass. It misses
+  `27-live-futures` as the 9B does (`market_data` for `web_search`), in two passes of four; the
+  rest of what it lost — `19-no-tool-email` every pass, `27` once — the server refused (below).
+  439 s a pass against 370.
+- **The agent: right, and slow.** 9 of 11 solved (`feature-top-words` on a rerun, after the
+  server's error), no false claim under rule 2, and `fix-parse-duration` solved, which the 35B did
+  not solve in four passes. Not solved: `long-log-pipeline` (41 rounds and 31 minutes, stopped at the
+  round cap, two debug scripts left behind) and `needs-you-deploy-token`. But the 11 took 4–8 times
+  the 9B's time on the same card and about 15 times the 35B's. Decode is the 9B's (41–48 tok/s, the
+  first token in about half a second); the cost is tokens per round. In 4 of the 11 runs a round
+  ran to the 16,384-token cap, about 350 s, repeating itself. The eval sends only `temperature: 0`,
+  and the server's defaults leave its repeat penalty off (`repeat_penalty` 1). Whether one fixes
+  it is a single probe on the same 11 cases; it was not tried.
+- **The server refuses some of its answers.** When Gemma answers in plain text with tools offered,
+  llama-server can return HTTP 500, *The model produced output that does not match the expected
+  peg-gemma4 format*: its Gemma 4 parser rejects the model's own reply before the app sees it.
+  `19-no-tool-email` ("help me phrase a difficult email to my landlord…") failed so in all four
+  passes, `27-live-futures` in one, an agent case once (clean on its rerun). It is llama.cpp's;
+  nothing on the app's side can fix it, and the request fails.
+- **Found on the way:** the agent eval read `needs-you-deploy-token`'s report — it named the
+  missing `DEPLOY_TOKEN`, said it could not deploy, and ended "I have completed the investigation…"
+  — as a claim that the task was done, and scored it not solved. No false claim was counted. The
+  success-claim matcher is the eval's, and its fix is 4.6's. (The run still took 29 rounds and
+  940 s; the 9B's took 4 and 14 s.)
+
+Nothing in the app changes with it: Gemma 4 is not offered as an agent model, and it gets no more
+passes and no second connection now. Reaching it today means replacing LM Studio's address
+(below).
 
 ## Re-rank and the sample answer, on a suite built for them
 
-> **[Part 2]** Measured in H5b; filled in before release.
+Both library aids on `library-aids`, the 9B on the B65, temperature 0, four passes a side beside
+a same-day control (ABBA), 2026-10-03 (`docs/evals/library-aids.md`):
+
+| of 27 a pass | re-rank: control → arm | | the sample answer: control → arm | |
+| --- | --- | --- | --- | --- |
+| the source passage first | 9 → **20** | | 9 → 13 | |
+| answered | 21.25 → 22.00, +0.75 (±0.71) | BETTER | 21.00 → 19.75, **−1.25** (±0.50) | **WORSE** |
+| cited the source | 24.25 → 21.25, **−3.00** (±0.71) | **WORSE** | 25.00 → 23.25, −1.75 (±2.00) | same |
+| unsupported figures | 3.25 → 4.00, +0.75 (±0.96) | same | 3.25 → 1.75, −1.50 (±0.71) | BETTER |
+| forbidden advice | 0 of 108 → 0 | | 0 of 108 → 0 | |
+| verdict | | **WORSE — off** | | **WORSE — off** |
+
+- **Both applied every time:** 108 of 108 re-ranks, none falling back (4.4's fix for `<think>`
+  models holds on the B65), and 108 of 108 sample answers written and used.
+- **Re-rank does its own job; the answers do not follow.** It puts the right passage first in 20
+  cases of 27 against 9, and hands the model 3 passages where plain ranking hands it 5. Answered
+  rose by one case net, just past its band: four won, three lost, and 80 of 96 on both sides on the
+  24 cases the control answered the same way every pass. But the replies cite less. They quote the
+  right passage ("the reference library states …") without its `[n]`: a `[n]` in 91 of 108
+  replies under the control, 76 under re-rank. Why the 9B marks a passage less when it is first of
+  three is not known. One more case answered and three fewer cited keeps it off.
+- **The sample answer answers less and invents fewer figures.** Answered fell beyond its band
+  (lost `01`, `02`, `14` and `24`; won `05`, `22` and `27`), unsupported figures fell beyond
+  theirs (mostly in two cases), and cited moved within the control's own spread.
+- **One of its losses is the scorer's.** All four of its replies to `14-estimated-payments` give
+  the dates right but write "June 15" with a narrow no-break space (U+202F), where the case's
+  pattern wants an ASCII space. Counted, answered is 20.75 against 21.00 (−0.25, inside the band)
+  and the verdict would read BETTER, on unsupported figures alone. That reading was not adopted:
+  a scorer changed after the result, to a result that would turn a default on, is Colin's call.
+  The scorer's fix comes first, re-scored over every library file, then four fresh passes.
 
 ## What stays off, and why
 
 - **Every switch as 4.4.0 left it:** forced tools on top of the cap **on**, file tools first
   **on**; the agent's tool phases and every other agent experiment **off**; library re-rank and the
-  sample answer **off** — none has a BETTER beyond the noise beside a same-day control.
+  sample answer **off**, each WORSE beside a same-day control on the suite built for them (above).
+  Nothing turned on in 4.5.
 - **Deep research's planner keeps the grammar.** Plain was as valid and a second faster in the
   interleaved pass, but 23 of 24 against 24 of 24 over two: one malformed plan fell back to the
   one-question plan, to save a second of a call that precedes minutes of research. The query
