@@ -35,6 +35,7 @@
     "bench:render": "bash scripts/render-bench.sh",
     "bench:main-loop": "bash scripts/main-loop-bench.sh",
     "bench:latency": "bash scripts/bench-latency.sh",
+    "probe:planners": "bash scripts/probe-planners.sh",
     "export:traces": "bash scripts/export-traces.sh",
     "eval:answers": "bash scripts/eval-answers.sh"
   },

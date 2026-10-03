@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { chatCompleteJson, resolveChatModel } from './llm'
+import { chatCompleteStructured, resolveChatModel, type CompleteOptions } from './llm'
 import { getSettings } from './store'
 
 /**
@@ -21,7 +21,7 @@ export interface PlannedStep {
   tools: string[]
 }
 
-interface PlanPayload {
+export interface PlanPayload {
   steps?: { title?: unknown; detail?: unknown; tools?: unknown }[]
 }
 
@@ -86,7 +86,30 @@ export async function generatePlan(
   const cap = Math.min(10, Math.max(1, Math.round(maxSteps ?? getSettings().plan.maxSteps)))
   const allowed = new Set(toolNames)
 
-  const parsed = await chatCompleteJson<PlanPayload>({
+  // v4.5 (H2): a <think> family is asked plainly (measured on the 9B: 12/12
+  // valid either way, median 8.8 s against 14.0 s — under the grammar it
+  // thought first, 12 of 12). The rest keep the grammar.
+  const parsed = await chatCompleteStructured<PlanPayload>(model, (plain) => planRequest(model, task, cap, context, toolNames, plain))
+  return stepsFromPayload(parsed, cap, allowed)
+}
+
+/**
+ * The request plan mode sends (exported for the H2 probe and the tests).
+ *
+ * `plain` is the shape a `<think>` family can answer under (v4.5, H2): no
+ * grammar, so `thinking: false` becomes the closed-think prefill, and the
+ * system prompt says the JSON shape the grammar no longer enforces.
+ */
+export function planRequest(
+  model: string,
+  task: string,
+  cap: number,
+  context?: string,
+  toolNames: readonly string[] = [],
+  plain = false
+): CompleteOptions {
+  const allowed = new Set(toolNames)
+  return {
     model,
     messages: [
       {
@@ -98,6 +121,11 @@ export async function generatePlan(
           'instruction. No step may be "think about" or "consider" — every step produces ' +
           'something checkable. If the task is simple enough to answer directly, return a ' +
           'single step. Return JSON only.' +
+          (plain
+            ? ' Use exactly this shape: {"steps":[{"title":"...","detail":"..."' +
+              (allowed.size > 0 ? ',"tools":["..."]' : '') +
+              '}]}'
+            : '') +
           // The user approves the plan before any of it runs, so the step has
           // to say what it will reach for while that is still a decision.
           (allowed.size > 0
@@ -118,9 +146,16 @@ export async function generatePlan(
     ],
     temperature: 0.2,
     thinking: false,
-    jsonSchema: planSchema([...allowed])
-  })
+    ...(plain ? {} : { jsonSchema: planSchema([...allowed]) })
+  }
+}
 
+/** The steps a plan reply holds, or null when it holds none usable. */
+export function stepsFromPayload(
+  parsed: PlanPayload | null,
+  cap: number,
+  allowed: ReadonlySet<string>
+): PlannedStep[] | null {
   const steps = (parsed?.steps ?? [])
     .map((s) => ({
       title: String(s?.title ?? '').trim(),
