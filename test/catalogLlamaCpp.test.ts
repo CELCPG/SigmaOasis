@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { load, resetState, state } from './harness'
+import { describeModel, effectiveContextLength, knownToLackVision, serverName } from '../src/renderer/src/lib/modelInfo'
+import type { ModelInfo } from '../src/renderer/src/types'
 
 const { fetchModelCatalog } = load<typeof import('../src/main/ipc/modelCatalog')>('modelCatalog')
 
@@ -276,5 +278,50 @@ describe('a server that is neither', () => {
     const catalog = await fetchModelCatalog()
     assert.equal(catalog.detailed, false)
     assert.deepEqual(catalog.models, [{ id: 'llama3' }])
+  })
+})
+
+describe('what the UI makes of a llama.cpp entry', () => {
+  beforeEach(() => {
+    resetState()
+  })
+
+  const entry = async (models: unknown, props: unknown | null): Promise<ModelInfo> => {
+    resetState()
+    serveLlamaCpp(models, props)
+    return (await fetchModelCatalog()).models[0]
+  }
+
+  test("Gemma: the model row says vision, quantization, the window, loaded; the budget is the loaded window; no image warning", async () => {
+    const gemma = await entry(GEMMA_MODELS, GEMMA_PROPS)
+    assert.equal(describeModel(gemma), 'vision · Q4_K_M · 66K ctx · loaded')
+    assert.equal(effectiveContextLength(gemma), 65536)
+    assert.equal(knownToLackVision(gemma), false)
+  })
+
+  test('the 35B: the warning fires, because the server positively reported no vision, and it names llama.cpp', async () => {
+    const qwen = await entry(QWEN_MODELS, QWEN_PROPS)
+    assert.equal(describeModel(qwen), 'Q4_K_M · 98K ctx · loaded')
+    assert.equal(knownToLackVision(qwen), true)
+    assert.equal(serverName(qwen), 'llama.cpp')
+  })
+
+  test('a llama.cpp model whose vision is unknown does not trigger the warning', async () => {
+    const old = await entry({ object: 'list', data: [{ ...GEMMA_MODELS.data[0] }] }, null)
+    assert.equal(knownToLackVision(old), false)
+  })
+
+  test('an entry from an ids-only list, or no entry at all, is not a refusal and is called LM Studio, as before', () => {
+    assert.equal(knownToLackVision({ id: 'x' }), false)
+    assert.equal(knownToLackVision(undefined), false)
+    assert.equal(serverName({ id: 'x' }), 'LM Studio')
+    assert.equal(serverName(undefined), 'LM Studio')
+    assert.equal(serverName({ id: 'x', type: 'vlm', vision: true }), 'LM Studio')
+  })
+
+  test('the composer names the server it quotes, and ConnectionTab offers no Load or Unload for a llama-server model', () => {
+    const src = (file: string): string => readFileSync(join(__dirname, '..', '..', 'src', 'renderer', 'src', 'components', file), 'utf-8')
+    assert.match(src('InputBar.tsx'), /title=\{`\$\{serverName\(activeModel\)\} reports this model as text-only\./)
+    assert.match(src(join('settings', 'ConnectionTab.tsx')), /\{m\.server !== 'llamacpp' && \(\s*<Button/)
   })
 })

@@ -218,7 +218,7 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   composerNotice: { source: inputBar, re: /<span className="(text-ink-[a-z]+)">\{notice\}/ },
   composerBlind: {
     source: inputBar,
-    re: /className="(text-ink-[a-z]+)"\s*\n\s*title="LM Studio reports this model as text-only/
+    re: /className="(text-ink-[a-z]+)"\s*\n\s*title=\{`\$\{serverName\(activeModel\)\} reports this model as text-only/
   },
   // v1.17.3: the title moved from a constant to the composed failure, because
   // the line itself is no longer a constant — it names whichever party actually

@@ -4,7 +4,7 @@ import { useLMStudio } from '../hooks/useLMStudio'
 import { stopAgent } from '../hooks/agentTasks'
 import { warmComposerModel } from '../hooks/warmModel'
 import { WavRecorder } from '../lib/voice'
-import { knownToLackVision, formatContextLength } from '../lib/modelInfo'
+import { knownToLackVision, formatContextLength, serverName } from '../lib/modelInfo'
 import { turnContextUsage } from '../hooks/turnHelpers'
 import { thinkHarderNote } from '../lib/deliberation'
 import type { Attachment } from '../types'
@@ -84,10 +84,11 @@ export function InputBar(): JSX.Element {
   const activeSlot =
     settings?.models.find((m) => m.id === activeConvo?.activeModelSlotId && m.enabled) ??
     settings?.models.find((m) => m.enabled)
+  const activeModel = availableModels.find((am) => am.id === activeSlot?.modelId)
   const blindToImages =
     attachments.some((a) => a.kind === 'image') &&
     (activeConvo?.mode ?? 'independent') === 'independent' &&
-    knownToLackVision(availableModels.find((am) => am.id === activeSlot?.modelId))
+    knownToLackVision(activeModel)
 
   const stopRecTimer = (): void => {
     if (recTimerRef.current) {
@@ -603,7 +604,7 @@ export function InputBar(): JSX.Element {
           ) : blindToImages ? (
             <span
               className="text-ink-warn"
-              title="LM Studio reports this model as text-only. It will answer as if it saw the image."
+              title={`${serverName(activeModel)} reports this model as text-only. It will answer as if it saw the image.`}
             >
               ⚠ {activeSlot?.roleName} cannot see images — pick a vision model
             </span>

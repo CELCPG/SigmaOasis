@@ -770,9 +770,10 @@ export interface AppSettings {
 export type ConnectionStatus = 'offline' | 'connecting' | 'online'
 
 /**
- * A model as LM Studio describes it. Everything past `id` comes from LM
- * Studio's own REST API (`/api/v0/models`) and is absent on older builds that
- * only serve the OpenAI-compatible `/v1/models`.
+ * A model as its server describes it. Everything past `id` comes from LM
+ * Studio's own REST API (`/api/v0/models`) — absent on older builds that only
+ * serve the OpenAI-compatible `/v1/models` — or, with `server: 'llamacpp'`,
+ * from llama.cpp's llama-server (4.5, main/ipc/modelCatalog.ts).
  */
 export interface ModelInfo {
   id: string
@@ -787,6 +788,8 @@ export interface ModelInfo {
   loaded?: boolean
   quantization?: string
   arch?: string
+  /** Set only when llama.cpp's llama-server described the model; absent for LM Studio. */
+  server?: 'llamacpp'
 }
 
 // ---- v1.5 Reference library (main/ipc/library.ts) ------------------------------

@@ -91,11 +91,17 @@ export function describeEvalScore(score: EvalScoreSummary): string {
 }
 
 /**
- * True only when LM Studio positively reported that the model cannot take
- * images. An unknown capability (older server, model not in the catalog) is
+ * True only when the server positively reported that the model cannot take
+ * images (LM Studio's `type`, llama-server's `/props` modalities or capability
+ * list). An unknown capability (older server, model not in the catalog) is
  * not a refusal — warning on "we don't know" would train users to dismiss the
  * warning that matters.
  */
 export function knownToLackVision(model: ModelInfo | undefined): boolean {
   return Boolean(model && model.type && model.type !== 'vlm')
+}
+
+/** The server a model's description came from, for the sentences that quote it. */
+export function serverName(model: ModelInfo | undefined): string {
+  return model?.server === 'llamacpp' ? 'llama.cpp' : 'LM Studio'
 }
