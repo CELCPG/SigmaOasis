@@ -113,3 +113,49 @@ situation (*under 3 months* for a 5-month-old). Keyword ranking alone is the wea
 vocabulary and paraphrase cases (the source's BM25 rank is 10th to 25th for "burning up",
 "throwing up and dizzy" and the 5-month-old). Re-run the check before any measurement; if the
 split moves, a measurement on the suite is a measurement of a different suite.
+
+## Re-rank, measured on it (v4.5, H5b, 2026-10-03)
+
+`qwen3.8-9b-distill` on the Arc Pro B65 (LM Studio alone), temperature 0, one session
+(`h5b-rerank`), four passes a side beside a same-day control, interleaved ABBA (two commands of
+`EVAL_PASSES=2`, control first on one pass, the aid first on the next):
+
+```
+EVAL_CONTROL=1 EVAL_SESSION=h5b-rerank EVAL_SUITES=library-aids EVAL_LIBRARY_ASSIST=rerank EVAL_PASSES=2 LMSTUDIO_EVAL=1 npm run eval:answers -- qwen3.8-9b-distill   # twice
+npm run eval:diff -- --paired <the two control files and the two re-rank files>
+```
+
+| of 27 a pass | control, aids off | re-rank | band | |
+| --- | --- | --- | --- | --- |
+| answered | 22, 21, 21, 21 — 21.25 (σ 0.50) | 22, 22, 22, 22 — 22.00 (σ 0.00) | ±0.71 | **+0.75 BETTER** |
+| cited the source | 25, 24, 24, 24 — 24.25 | 21, 21, 21, 22 — 21.25 | ±0.71 | **−3.00 WORSE** |
+| unsupported figures | 4, 3, 3, 3 — 3.25 | 4, 4, 3, 5 — 4.00 | ±0.96 | +0.75 SAME-WITHIN-NOISE |
+| asserted forbidden advice | 0 of 108 | 0 of 108 | never banded | no new one |
+| the source section first | 9 in every pass (36/108) | 20 in every pass (80/108) | | recorded, not scored |
+
+**Verdict: WORSE (exit 1). `libraryRerank` stays off.** The switch turns on only if the arm is BETTER
+beyond the band with no new forbidden advice; here the answered line rose beyond its band and the
+citing line fell beyond its own.
+
+- **It applied.** 27 of 27 re-ranks in each of the four passes, 108 of 108, none fell back to the
+  fused order. (Before 4.4's F2 fix none had applied on a `<think>` family; the plain ask with the
+  closed-think prefill holds on the B65.)
+- **It does what it is for, to the rank.** The source went from first in 9 of 27 cases to first in
+  20 — it is the aid's own job, and a gain the dry check promised (all 27 sources were in the pool
+  of 15). It hands the model 3 passages where plain ranking hands it 5.
+- **The answers did not follow it.** The passes agree to the case, so the bands are narrow and the
+  difference is by case. Answered: four cases won (`05-penalty-free-withdrawal`, `15-five-month-fever`,
+  `22-employer-match`, `27-home-office-corner`), three lost (`02-black-head-in-skin`, where the re-rank
+  dropped the source out of the three passages; `16-sprain-heat-or-ice`, where it pushed a source that
+  was first down to third; `24-babysitter-sting`, source first in all four passes and a fact still missed —
+  cause not found). On the 24 cases the control answered the same way every pass, answered is 80 of 96
+  on both sides (two won, two lost); the +0.75 is the three cases that were flaky under the control
+  (5 of 12 passes → 8 of 12): one case net.
+- **Citing is where it cost.** Nine cases moved, six down (`01`, `02`, `04`, `05`, `08`, `12`) and three up.
+  In the lost ones the reply quotes the right passage ("the reference library states …") with no `[n]`
+  and no title. Replies carrying a `[n]` at all: 91 of 108 under the control, 76 of 108 under re-rank; with
+  the source first, 32 of 36 against 50 of 80. Why the 9B marks a passage less when it is first of three
+  was not established; the loss on the line the gate bands is measured either way.
+- Re-rank adds about half a second a case (9.6 and 9.8 s against 8.9 and 9.4).
+- Files: `.eval-results/answers-qwen3.8-9b-distill-aids-{control,rerank}-2026-10-03T12-00-09.json` and
+  `…T12-17-22.json`. The sample answer (`EVAL_LIBRARY_ASSIST=hyde`) is not in this section: H5b2.
