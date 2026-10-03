@@ -48,7 +48,11 @@ measurement before it ships.
 4.3.0, then 4.4.0 (their roadmaps' *Release* sections), then 4.5.0. `rel/4.5` stays a
 fast-forward of `rel/4.4`.
 
-## Decisions for Colin (draft, H7a — H7 completes it)
+## Decisions for Colin
+
+Complete for everything known on 2026-10-03 at H7 part 1; part 2 adds what H4b1 (Gemma 4) and
+H5b (re-rank and the sample answer on `library-aids`) leave to decide.
+
 
 1. **The research planner stays on the grammar.** Plain was valid 12/12 and 0.9 s faster in the
    interleaved pass, but 23/24 against 24/24 over both passes: one malformed plan fell back to the
@@ -59,8 +63,9 @@ fast-forward of `rel/4.4`.
 2. **Gemma 4 is reachable only by replacing LM Studio's URL.** Sigma has one connection
    (`settings.baseUrl`): chat, embeddings, the agent and the model pin all use it. Pointed at
    `:8084`, the library and memory lose nomic's embeddings and Gemma's single slot queues chat,
-   titles and summaries. A second connection (or one per role) would be a feature, not part of 4.5.
-   H4a lets the catalog describe a llama-server correctly either way.
+   titles and summaries; the model pin's load call, an LM Studio endpoint, answers 404 twice there
+   and is then left alone for the session. A second connection (or one per role) would be a
+   feature, not part of 4.5. H4a lets the catalog describe a llama-server correctly either way.
 3. **Should a fall in false claims alone count as BETTER?** False claims are never banded: any rise
    is WORSE and any fall is BETTER. Under the corrected rule, 4.4's `toolsByPhase` reads **BETTER**
    against its same-day control on false claims alone (control 0 → 1 of 104, arm 0; solved −0.25,
@@ -85,27 +90,88 @@ fast-forward of `rel/4.4`.
    braces 3.0.3, so they read 16 and 13 today (`npm audit --package-lock-only` on each). `release.yml` has no audit step, so
    nothing fails on it. The options are to accept it as dev-only, to wait for a braces patch, or to
    take tailwind 4 as its own track.
+7. **The 9B on the B65: a full window's first token takes 261 s** (the 5070: 26.8 s; H1's
+   `bench:latency`, three repeats within 0.2 s of each other). The chat gives up on a first byte at
+   300 s (`FIRST_BYTE_TIMEOUT_MS`, `chatTransport.ts`), so it clears by 39 s; a prefill 15% slower
+   would cross it, and the B65 also serves Gemma 4, so a 9B prefill beside a Gemma request is the
+   likely way to get there. The agent's 360 s (90 s × 4) clears it by 99 s. Only the first turn at
+   a full window meets it: the low-water trim's own re-read is 120 s, once, and every turn after it
+   3.0 s. The options: **leave it** (it clears today, and nothing has failed), **raise it** (one
+   constant; a server that has really stalled is then called stalled later), or **move the 9B** to a
+   faster card (the card swap was Colin's). Leaving it for 4.5.0 and raising it only when a
+   full-window turn on the shared card is seen to fail costs nothing now.
+8. **The agent on the B65 is not deterministic, so the four-pass rule stands.** Two passes at
+   temperature 0: 23 of 26 cases kept their verdict (the 3 that changed all went solved → not
+   solved), rounds were equal in 12, the final text in 7 — the runs part within a round or two, as on
+   the 5070. Tool choice is nearly repeatable (27 of 28 fixtures identical in four passes, no score
+   moved) and has its B65 baseline. The agent has none: passes 3 and 4 cost about 45–50 minutes of
+   the B65 each, behind Gemma and H5b on the same card. Record them on a quiet night for a B65
+   agent baseline, or keep diffing agent changes on the B65 against a same-day control only (which
+   costs four passes a side anyway). Also seen: `feature-top-words` runs away after
+   `feature-stack-peek` in one chunk (> 7.5 and > 9 minutes, twice; 100 s and 315 s alone) — the
+   harness runs it alone; the cause is not known.
+9. **4.3.0's and 4.4.0's release notes carry the old false-claim reading.** Both are unreleased
+   (A-049, A-060) and their branches are frozen. `RELEASE-NOTES-v4.4.0.md` says the 35B-A3B made
+   false claims "3 in 99 runs" that "the 9B does not", and that the 9B's default engine made none in
+   312; under rule 2 they are 1 in 99 and 1 in 312. `RELEASE-NOTES-v4.3.0.md` calls two arms (the
+   digests/low-water/multi-read/verify-round arm and `planRound`) WORSE on a false claim that rule 2
+   reads as an instruction and a description of code — SAME-WITHIN-NOISE now, still off. 4.5.0's
+   notes give the corrected numbers. The options: publish 4.3.0 and 4.4.0 as written and let 4.5.0
+   correct them a release later; or correct the two paragraphs in each GitHub release's body when it
+   is published (the body is pasted from the file, so no branch moves); or a correction commit on
+   `rel/4.3` and `rel/4.4` before their tags, which moves both release refs and `rel/4.5`'s base.
 
-## Status (2026-10-03 03:45, H7a: five tracks on `rel/4.5`, nothing pushed)
+## Release 4.5.0
+
+`rel/4.5` is release-ready but for H7 part 2 — the notes' two marked sections (*Gemma 4 26B-A4B, a
+first look*; *Re-rank and the sample answer, on a suite built for them*) and H5b's commit if it
+turns a switch on — and pushed nowhere. It is a fast-forward of `rel/4.4` (`b986dca`, 4.4.0),
+`rel/4.3` (`8fe8d37`, 4.3.0) and `main` (`e1a5272`, 4.2.0). After 4.3.0 and then 4.4.0 are out
+(A-049, A-060; their roadmaps' *Release* sections: `main` and `origin/main` at `b986dca`, the tags
+`v4.3.0` and `v4.4.0` pushed), in the main checkout:
+
+```bash
+cd C:/Users/clong/Projects/SigmaOasis           # the main checkout, on main, clean
+git fetch origin
+git merge --ff-only rel/4.5                       # main → rel/4.5's tip
+git push origin main                              # first: the release's guard needs the commit on origin/main
+git tag -a v4.5.0 -m "Sigma Oasis 4.5.0 — plans that answer on a thinking model, a mark on a claim no test backs, and a new card under the 9B"
+git push origin v4.5.0                            # runs .github/workflows/release.yml
+```
+
+For Colin to run, or to OK for Apex to run — nothing here has been run. What the tag's run checks,
+as for 4.3.0 and 4.4.0: the guard wants the tagged commit on `origin/main` (pushed first) and
+`package.json` at 4.5.0 (the "4.5.0: version" commit `7a252c4`, with the lockfile's two root
+entries and `CLIENT_INFO`); the macOS job runs `npm ci` (the lockfile H6 wrote — electron-updater
+6.8.10, `libc` fields kept), the typecheck and `npm test` (green here, below); electron-builder is
+still 24, as 4.3.0 and 4.4.0 shipped; the assets are named by `electron-builder.yml`'s
+`Sigma-Oasis-${version}-…`. Then publish the draft with `RELEASE-NOTES-v4.5.0.md` as its body —
+once part 2 has filled its two sections — and set the Latest label deliberately when publishing.
+`npm audit` reads 13 (decision 6); `release.yml` has no audit step.
+
+## Status (2026-10-03 06:30, H7 part 1: 4.5.0 version and notes on `rel/4.5`, nothing pushed)
 
 | goal | state | measured |
 | --- | --- | --- |
-| H1 9B on the B65 | **in progress** (H1a, H1b done; H1c on `4.5/b65`) | tool choice: 4 passes recorded. Agent pass 1 of 4: 20/26 solved (the 5070's baseline: mean 18.25, range 14–21), false claims 0, decode 38–48 tok/s (5070: 102). Pass 2's first slice already differs from pass 1. Baseline and `bench:latency` are still to come |
+| H1 9B on the B65 | **done — merged** (`5049548`), as measured | tool choice, the app's subset: **26, 26, 26, 26** of 28 in four runs (the 5070's 25, 24, 25, 25), saved as `baselines/toolchoice-…-ontop-filefirst-b65.json` (diff with `--noise-from` the 5070's file: σ 0). Agent: two passes, **20 and 17** of 26 (mean 18.50 against the 5070's 18.25, TOO-FEW-PASSES), 0 false claims in 52 runs, **not deterministic** (23 of 26 verdicts kept; decision 8), no agent baseline. `bench:latency`: a full window's first token **261 s** (5070 26.8 s; decision 7), past it with the low-water trim 3.03 s (0.70 s), decode 42 tok/s (95.5). Re-scored under claims rule 2 in H7: 0 flags moved |
 | H2 think-first planners | **done — merged** (`bf3b756`) | on the 9B, grammar → plain with the closed-think prefill: plan mode valid 12/12 both, median 14.0 → **8.8 s**; the outline valid **3/12 → 12/12**, 31.9 → **7.7 s** (under the grammar it spent all 1,500 tokens thinking in 8 of 12); the research planner **stays on the grammar** (decision 1); the reformulation keeps it (plain 9/12 against 11/12); every other family is sent today's request byte for byte (golden bodies) |
 | H3, H3b unrun-claim mark | **done — merged** (`88feb00`) | `src/main/agent/claims.ts`, `CLAIMS_RULE` 2: the engine, the agent turn and `sigma` mark a report that claims a pass the run does not show (annotation only; the 6 scripted tasks' 15 requests hash as before). On the 451 labelled sentences: 248 TP / 0 FP / 0 FN / 203 TN (rule 1: 243 / 6 / 5 / 197); over 1,058 recorded reports 9 flags flip (6 wrong ones off, 3 genuine on). Results files carry `claimsRule`; `eval:diff` refuses to compare, merge or join across rules; the baselines migrated (35B 3/99 → **1/99**, 9B 0/312 → **1/312**, decision 4); 4.3's verify round and plan round lose their only WORSE; `toolsByPhase` reads BETTER on false claims alone (decision 3) |
 | H4a catalog reads llama.cpp | **done — merged** (`fe24374`) | `/v1/models` capabilities and meta (vision, loaded and training windows, quantization) and one `/props`; live `:8081` 3 GETs in 50 ms; LM Studio unchanged (golden entries, still one GET); the text-only warning names its server; no Load/Unload on a llama-server row |
-| H4b Gemma 4 baselines | **to do** (card in backlog) | — |
+| H4b Gemma 4 baselines | **in progress** (H4b1, a first look, on `4.5/gemma`; results under `.eval-results`, no commit expected) | tool choice: four passes recorded; agent: the first pass under way on the B65. Numbers go into the notes' *Gemma 4 26B-A4B, a first look* in H7 part 2 |
 | H5a library-aids suite | **done — merged** (`4a2f6bc`) | `EVAL_SUITES=library-aids`: 27 cases, every question inside the aids' domains, over three packs of their own; plain ranking puts the source first in 9 (33%), 2nd–5th in 16, outside the five in 2, all 27 within the twelve and the re-rank's pool of 15; `EVAL_RETRIEVAL_ONLY=1` checks that without a model |
-| H5b re-rank and HyDE on it | **to do** (card in backlog) | — |
+| H5b re-rank and HyDE on it | **in progress** — queued, not yet run (card in backlog): it follows H4b1 on the B65, one eval at a time | — ; it may turn a switch on with one commit, and fills the notes' *Re-rank and the sample answer* in H7 part 2 |
 | H6 dependencies | **done — merged** (`4e79107`) | electron 44.5.1 is already the latest 44.x; electron-updater 6.8.9 → **6.8.10** (decision 5); `npm audit` 13 before and after (decision 6); `npm run build` stops at winCodeSign's symlink extraction, as it did for 4.3 and 4.4 on this PC |
 | H7a integration, code tracks | **done** | the five tracks merged in order with no conflicts. `eval:claims` over the baselines: 0 defects, 0 misses; a `--rescore` dry run over every recorded results folder moves 0 flags. `eval:diff` reads library results (4.4's G5 files, a library-aids file) with no claim-rule check, and still refuses an agent file under rule 1 against a rule-2 baseline. `test:replay` 58/58. `node_modules` is now `rel/4.5`'s own (`npm ci`, lockfile untouched) |
 | `npm test` on `rel/4.5` | **green** on `4e79107` (all five tracks in; after it, this file only) | node suite **3,878/3,878** (824 suites; 4.4.0's 3,634 + H2 22 + H3/H3b 184 + H4a 25 + H5a 13); render 25, style 74 and 123, tab traversal 43, modal focus 179, field contrast 22, settings kit 12, button names 20, plan accessibility 175, main bundle 20, markdown 62, workbench 53, MCP secrets 19, transport 24 (14 suites) |
-| H7 4.5.0 | **to do** — after H1c, H4b, H5b | their merges and results, the version, the notes, this section's final form |
+| H7 part 1, 4.5.0 | **done** | `4.5/b65` merged (`5049548`, no conflicts); its two agent passes re-scored under claims rule 2 (`eval:claims --rescore --write`: 21 files, 52 runs, 50 read from a report, **0 flags moved**; `d045bd6` says so in `baselines/README.md`); `eval:diff` reads the B65 tool-choice file against itself SAME-WITHIN-NOISE, and the stamped agent passes against the 9B's baseline TOO-FEW-PASSES (unstamped, it refused them). Version `7a252c4` ("4.5.0: version"); notes `b206f89`, `RELEASE-NOTES-v4.5.0.md`; decisions 7–9 and *Release 4.5.0* in this file |
+| H7 part 2 | **to do** — after H4b1 and H5b | the notes' two marked sections, H5b's commit if any, the decisions they leave, `npm test` again if code moves |
 
 One gap seen while checking: `eval:diff` does not read a library file's `librarySuite`, so a
 `library` file and a `library-aids` file would be compared without a refusal. H5b should diff aids
 results only against aids results (a refusal like the claim rule's is a small follow-up).
 
-Every switch is as 4.4.0 left it. New in 4.5 so far: plan mode and the outline go plain on a
-`<think>` family (always, not a switch), and the unrun-claim mark (always on, annotation only). The
-version is still 4.4.0.
+Every switch and its default in 4.5.0 so far: `FORCED_TOOLS_ON_TOP` **on**, `FILE_TOOLS_FIRST`
+**on**, agent `toolsByPhase` **off** (and every other agent experiment off), `libraryRerank`
+**off**, `libraryHyde` **off** — as 4.4.0 left them, until H5b. New in 4.5, not switches: plan mode
+and the outline go plain on a `<think>` family, and the unrun-claim mark (always on, annotation
+only). The version is 4.5.0.
