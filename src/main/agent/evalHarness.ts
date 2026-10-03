@@ -10,7 +10,7 @@ import { fmtMs, median, summarizeLatency, timedTransport, type LatencySummary, t
 import type { AgentEvent, AgentExperiments, AgentHost, AgentStatus, ChunkTransport, PermissionMode, ShellSpec, ToolCallRecord } from './types'
 import type { EvalSession } from './evalSession'
 import type { AgentConnectionSettings } from './connection'
-import { isLoopbackBaseUrl } from '../ipc/loopback'
+import { isLoopbackBaseUrl } from '../../shared/loopback'
 
 /**
  * The agent eval (v3.1, `eval:agent`): how often the agent actually finishes

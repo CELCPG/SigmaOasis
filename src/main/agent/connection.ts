@@ -20,7 +20,7 @@
  * Plain Node, no Electron: the CLI and the eval import it as the app does.
  */
 
-import { isLoopbackBaseUrl } from '../ipc/loopback'
+import { isLoopbackBaseUrl } from '../../shared/loopback'
 
 /** 4.6 (J1): mirrors main/ipc/store.ts and the renderer's types.ts. */
 export interface AgentConnectionSettings {
