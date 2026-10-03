@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { chatComplete, chatCompleteJson, type CompleteOptions } from './llm'
+import { chatComplete, chatCompleteStructured, type CompleteOptions } from './llm'
 
 /**
  * v2.6: outline-then-fill for long answers.
@@ -148,7 +148,10 @@ export function outlineFromRequest(request: string): Outline | null {
 export async function generateOutline(input: { model: string; persona: string; request: string; signal?: AbortSignal }): Promise<Outline | null> {
   const given = outlineFromRequest(input.request)
   if (given) return given
-  const parsed = await chatCompleteJson<unknown>(outlineRequest(input.model, input.request, input.signal))
+  // v4.5 (H2): a <think> family is asked plainly. Measured on the 9B, under the
+  // grammar it spent the whole 1,500 tokens thinking and never wrote the
+  // outline in 9 of 12 (valid 3/12, median 31.9 s); plain: 12/12, 7.7 s.
+  const parsed = await chatCompleteStructured<unknown>(input.model, (plain) => outlineRequest(input.model, input.request, input.signal, plain))
   return cleanOutline(parsed)
 }
 

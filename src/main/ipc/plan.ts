@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { chatCompleteJson, resolveChatModel, type CompleteOptions } from './llm'
+import { chatCompleteStructured, resolveChatModel, type CompleteOptions } from './llm'
 import { getSettings } from './store'
 
 /**
@@ -86,7 +86,10 @@ export async function generatePlan(
   const cap = Math.min(10, Math.max(1, Math.round(maxSteps ?? getSettings().plan.maxSteps)))
   const allowed = new Set(toolNames)
 
-  const parsed = await chatCompleteJson<PlanPayload>(planRequest(model, task, cap, context, toolNames))
+  // v4.5 (H2): a <think> family is asked plainly (measured on the 9B: 12/12
+  // valid either way, median 8.8 s against 14.0 s — under the grammar it
+  // thought first, 12 of 12). The rest keep the grammar.
+  const parsed = await chatCompleteStructured<PlanPayload>(model, (plain) => planRequest(model, task, cap, context, toolNames, plain))
   return stepsFromPayload(parsed, cap, allowed)
 }
 

@@ -1,4 +1,4 @@
-import { chatCompleteJson, type CompleteOptions } from '../llm'
+import { chatCompleteJson, chatCompleteStructured, type CompleteOptions } from '../llm'
 import type { ResearchPlan, SubQuestion } from './types'
 
 // ---- planning ----------------------------------------------------------------
@@ -175,7 +175,10 @@ export async function makePlan(
   signal?: AbortSignal
 ): Promise<{ plan: ResearchPlan; planned: boolean }> {
   try {
-    const raw = await chatCompleteJson<unknown>(plannerRequest(question, model, signal))
+    // v4.5 (H2): a <think> family is asked plainly — 12/12 real plans either
+    // way on the 9B, median 4.4 s against 5.3 s (under the grammar it thought
+    // first, 12 of 12); the prompt already says the shape.
+    const raw = await chatCompleteStructured<unknown>(model, (plain) => plannerRequest(question, model, signal, plain))
     const plan = parsePlan(raw, question)
     if (plan) {
       // Distinguish a real plan from the single-sub-question fallback.
@@ -253,6 +256,12 @@ type ReformulatePayload = { queries?: { queries?: unknown }[] }
 /**
  * The request the reformulation sends (exported for the H2 probe and the
  * tests); `plain` as in `plannerRequest`.
+ *
+ * Measured, not shipped (v4.5, H2): on the 9B the plain shape was faster (median
+ * 3.5 s against 9.0 s) but worse on validity (9/12 against 11/12) — the model
+ * flattened the nested `queries` the prompt describes into one list, and the
+ * reader falls back to the old queries. Reformulation keeps the grammar on every
+ * family until that has been read and measured again.
  */
 export function reformulateRequest(open: SubQuestion[], model: string, signal?: AbortSignal, plain = false): CompleteOptions {
   const listed = open

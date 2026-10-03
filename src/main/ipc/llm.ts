@@ -546,6 +546,20 @@ export async function chatCompleteJsonPlain<T>(options: CompleteOptions): Promis
 }
 
 /**
+ * v4.5 (H2): a planner's structured request, in the shape its model can
+ * answer under. A `<think>` family (the detection the re-rank uses) gets the
+ * plain shape — `build(true)`, read by chatCompleteJsonPlain; every other
+ * family gets `build(false)`, today's grammar request, through chatCompleteJson
+ * exactly as before.
+ */
+export async function chatCompleteStructured<T>(
+  model: string,
+  build: (plain: boolean) => CompleteOptions
+): Promise<T | null> {
+  return THINK_TAG_MODELS.test(model) ? chatCompleteJsonPlain<T>(build(true)) : chatCompleteJson<T>(build(false))
+}
+
+/**
  * Which model should do the reasoning. The caller's own model is preferred — the
  * orchestrator should think with whatever the user is already talking to — and
  * auto-detection is only a fallback for when that is unknown.
