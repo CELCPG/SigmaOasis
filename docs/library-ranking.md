@@ -89,5 +89,4 @@ should land well inside the deadline, but it has not been measured; the deadline
 Both aids run only for a question in first aid, health, building or finance, and 5 of the library suite's 28
 cases are. `EVAL_SUITES=library-aids` (v4.5, H5) is the suite built for them — 27 cases where plain ranking
 leads with the wrong passage or buries the right one — and `EVAL_RETRIEVAL_ONLY=1` ranks its sources
-with this page's default pipeline and no model. See `docs/evals/answers.md`, *A suite for the aids to show a
-gain on*.
+with this page's default pipeline and no model. See [docs/evals/library-aids.md](evals/library-aids.md).
