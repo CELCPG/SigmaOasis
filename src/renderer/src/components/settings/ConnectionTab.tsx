@@ -10,13 +10,17 @@ import { defineRows, registerRows } from '../../lib/settingsKit'
 import { fitSentence, fitVerdict } from '../../lib/modelFit'
 import { serverName } from '../../lib/modelInfo'
 import { isLoopbackUrl } from './helpers'
-import { ActionRow, Button, Card, Field, Notice, RoleDot, Row, Section, StatusDot, type ActionResult } from './kit'
+import { ActionRow, Button, Card, Field, Notice, RoleDot, Row, Section, Select, StatusDot, Switch, type ActionResult } from './kit'
 
 export const ROWS = defineRows('connection', {
   baseUrl: { label: 'Server address', help: 'LM Studio’s OpenAI-compatible endpoint on this machine. Applies when you press Enter or leave the field.', keywords: ['url', 'base url', 'endpoint', 'port', '1234'] },
   machine: { label: 'This machine', help: 'The GPU as its own tool reports it, and whether it has been reporting errors. A model is judged against it before its first slow reply.', keywords: ['gpu', 'vram', 'card', 'memory', 'nvidia', 'errors'] },
   models: { label: 'Detected models', help: 'What the server lists right now, which role uses each, whether it fits the card, and Load or Unload on your click.', keywords: ['loaded', 'quantization', 'context', 'load', 'unload'] },
-  drafts: { label: 'Draft models refused', help: 'A role’s draft model LM Studio would not take this session. Those replies went without it — nothing failed — and it is not sent again until the app restarts. Usually the two models’ vocabularies differ; pick a smaller model of the same family under Roles.', keywords: ['draft', 'speculative', 'refused'] }
+  drafts: { label: 'Draft models refused', help: 'A role’s draft model LM Studio would not take this session. Those replies went without it — nothing failed — and it is not sent again until the app restarts. Usually the two models’ vocabularies differ; pick a smaller model of the same family under Roles.', keywords: ['draft', 'speculative', 'refused'] },
+  // 4.6 (J1): the agent connection.
+  agentConnection: { label: 'Run the agent on its own server', help: 'Agent chats, the sigma command and agent jobs talk to this server instead. Chat, embeddings (the library, memory, tool ranking), titles and the model pin stay on LM Studio. If it does not answer, the agent says so and stops — it never falls back to LM Studio.', keywords: ['agent', 'second', 'llama-server', 'llama.cpp', '8081', '35b', 'connection'] },
+  agentBaseUrl: { label: 'Agent server address', help: 'An OpenAI-compatible endpoint on this machine — llama.cpp’s llama-server, for one. Applies when you press Enter or leave the field.', keywords: ['agent', 'url', 'base url', 'endpoint', 'port', 'llama-server'] },
+  agentModel: { label: 'Agent model', help: 'What the agent asks that server for. Sigma never loads or unloads a model there; it uses what the server is serving.', keywords: ['agent', 'model', 'llama-server'] }
 })
 registerRows(ROWS)
 
@@ -89,6 +93,8 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
           </Notice>
         )}
       </Card>
+
+      <AgentConnectionCard settings={settings} apply={apply} />
 
       <Section title="This machine" description="What the model is judged against.">
         <Row meta={ROWS.machine}>
@@ -163,5 +169,81 @@ export function ConnectionTab({ settings, apply, availableModels, connection, re
         )}
       </Section>
     </div>
+  )
+}
+
+type AgentCatalog = Awaited<ReturnType<typeof window.api.getAgentModelCatalog>>
+
+/** The main process's default (main/agent/connection.ts), for a settings object read before 4.6. */
+const AGENT_CONNECTION_OFF: AppSettings['agentConnection'] = { enabled: false, baseUrl: 'http://127.0.0.1:8080/v1', model: '' }
+
+/** The agent connection's status line: what the Test reads, in the main card's words. */
+function agentResult(conn: AppSettings['agentConnection'], catalog: AgentCatalog | null | undefined): ActionResult | null {
+  if (!conn.enabled) return null
+  if (catalog === undefined) return { tone: 'info', text: 'Connecting…' }
+  if (catalog === null || 'error' in catalog) return { tone: 'danger', text: `Not answering${catalog && 'error' in catalog ? ` (${catalog.error})` : ''} — the agent will stop with this until it does` }
+  const chat = catalog.models.filter((m) => m.type !== 'embeddings')
+  if (conn.model && !chat.some((m) => m.id === conn.model)) return { tone: 'danger', text: `Connected, but it does not serve ${conn.model}` }
+  return { tone: 'ok', text: `Connected — ${chat.length} model${chat.length === 1 ? '' : 's'} listed` }
+}
+
+/**
+ * 4.6 (J1): the agent connection — a second server for the agent alone (main/agent/connection.ts).
+ * Off, nothing here asks that server anything; on, its list is read through the main process's
+ * catalog reader, the same one the card above uses (llama-server included).
+ */
+function AgentConnectionCard({ settings, apply }: { settings: AppSettings; apply: ApplySettings }): JSX.Element {
+  const conn = settings.agentConnection ?? AGENT_CONNECTION_OFF
+  const set = (meta: (typeof ROWS)[keyof typeof ROWS], patch: Partial<AppSettings['agentConnection']>, shown?: string): void =>
+    apply(meta, { agentConnection: { ...conn, ...patch } }, shown)
+  // undefined = reading, null = the read itself failed.
+  const [catalog, setCatalog] = useState<AgentCatalog | null | undefined>(undefined)
+  const read = (): void => {
+    if (!conn.enabled) return
+    setCatalog(undefined)
+    void window.api.getAgentModelCatalog().then(setCatalog).catch(() => setCatalog(null))
+  }
+  useEffect(read, [conn.enabled, conn.baseUrl])
+  const listed = catalog && !('error' in catalog) ? catalog.models.filter((m) => m.type !== 'embeddings') : []
+  const result = agentResult(conn, catalog)
+  const options = [
+    { value: '', label: listed[0] ? `The server’s model (${listed[0].id})` : 'The server’s model' },
+    ...listed.map((m) => ({ value: m.id, label: [m.id, contextLabel(m)].filter(Boolean).join(' · ') })),
+    ...(conn.model && !listed.some((m) => m.id === conn.model) ? [{ value: conn.model, label: `${conn.model} (not listed)` }] : [])
+  ]
+  return (
+    <Card
+      data-testid="agent-connection"
+      title={
+        <span className="inline-flex items-center gap-2">
+          <StatusDot tone={!conn.enabled ? 'muted' : result?.tone === 'ok' ? 'ok' : result?.tone === 'info' ? 'info' : 'danger'} pulse={conn.enabled && catalog === undefined} />
+          Agent connection
+        </span>
+      }
+      status={conn.enabled ? `${conn.model || listed[0]?.id || 'the server’s model'} at ${conn.baseUrl}` : 'off — the agent runs on LM Studio'}
+      right={conn.enabled ? <ActionRow action="Test" onAction={read} result={result} /> : undefined}
+    >
+      <Row meta={ROWS.agentConnection}>
+        <Switch checked={conn.enabled} onChange={(enabled) => set(ROWS.agentConnection, { enabled }, enabled ? 'on' : 'off')} />
+      </Row>
+      <div className="mt-4">
+        <Row meta={ROWS.agentBaseUrl} layout="stack">
+          <Field value={conn.baseUrl} mono placeholder="http://127.0.0.1:8080/v1" onCommit={(baseUrl) => set(ROWS.agentBaseUrl, { baseUrl })} />
+        </Row>
+      </div>
+      {!isLoopbackUrl(conn.baseUrl) && (
+        <Notice tone="warn" className="mt-3">
+          Only servers on this machine are supported. This address will not be kept — Sigma Oasis reverts to the default. The agent’s requests carry
+          your conversation in plaintext and are deliberately never proxied, so a non-loopback address would send them off-machine unprotected.
+        </Notice>
+      )}
+      {conn.enabled && (
+        <div className="mt-4">
+          <Row meta={ROWS.agentModel}>
+            <Select value={conn.model} onChange={(model) => set(ROWS.agentModel, { model }, model || 'the server’s model')} options={options} />
+          </Row>
+        </div>
+      )}
+    </Card>
   )
 }

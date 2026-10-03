@@ -1,6 +1,6 @@
 import { useAppStore } from '../../stores/appStore'
 import { agentSlot, updateAgentConfig } from '../../hooks/agentTasks'
-import type { AgentPermission, Conversation } from '../../types'
+import type { AgentConnectionSettings, AgentPermission, Conversation } from '../../types'
 import { PanelSection } from '../PanelSection'
 import { Select } from '../settings/kit'
 
@@ -18,10 +18,26 @@ const PERMISSIONS: { value: AgentPermission; label: string; hint: string }[] = [
   { value: 'readOnly', label: 'Read-only', hint: 'The agent can look but not touch: no edits, no commands. For questions and plans.' }
 ]
 
+/**
+ * 4.6 (J1): the agent connection, when it is on — then the agent runs on that
+ * server's model whichever slot the chat names, and the header says so.
+ */
+export function agentConnectionLabel(conn: AgentConnectionSettings | undefined): { model: string; baseUrl: string } | null {
+  return conn?.enabled ? { model: conn.model || 'the server’s model', baseUrl: conn.baseUrl } : null
+}
+
+function useAgentConnection(): { model: string; baseUrl: string } | null {
+  return agentConnectionLabel(useAppStore((s) => s.settings?.agentConnection))
+}
+
+export const connectionHint = (baseUrl: string): string =>
+  `Runs on the agent connection, ${baseUrl} (Settings → Connection). Chat, embeddings and titles stay on LM Studio.`
+
 export function AgentBar({ conversation }: { conversation: Conversation }): JSX.Element {
   const agent = conversation.agent!
   const running = useAppStore((s) => Boolean(s.agentRuns[conversation.id]))
   const models = useAppStore((s) => s.settings?.models ?? [])
+  const onAgent = useAgentConnection()
   const slot = agentSlot(conversation, models)
   const enabled = models.filter((m) => m.enabled && m.modelId)
   const current = PERMISSIONS.find((p) => p.value === agent.permission) ?? PERMISSIONS[0]!
@@ -64,7 +80,11 @@ export function AgentBar({ conversation }: { conversation: Conversation }): JSX.
         onChange={(v) => updateAgentConfig(conversation.id, { permission: v as AgentPermission })}
         options={PERMISSIONS.map((p) => ({ value: p.value, label: p.label }))}
       />
-      {enabled.length > 1 ? (
+      {onAgent ? (
+        <span className="ml-auto max-w-[45%] truncate font-mono text-ink-tertiary" title={connectionHint(onAgent.baseUrl)} data-testid="agent-connection-label">
+          {onAgent.model} · agent connection
+        </span>
+      ) : enabled.length > 1 ? (
         <Select
           compact
           label="Model"
@@ -90,6 +110,7 @@ export function AgentBar({ conversation }: { conversation: Conversation }): JSX.
 export function AgentPanelSection({ conversation }: { conversation: Conversation }): JSX.Element {
   const agent = conversation.agent!
   const models = useAppStore((s) => s.settings?.models ?? [])
+  const onAgent = useAgentConnection()
   const slot = agentSlot(conversation, models)
   const changed = [...new Set(conversation.messages.flatMap((m) => (m.agent && !m.agent.undo ? (m.agent.changedFiles ?? []) : [])))]
   const permission = PERMISSIONS.find((p) => p.value === agent.permission) ?? PERMISSIONS[0]!
@@ -106,10 +127,20 @@ export function AgentPanelSection({ conversation }: { conversation: Conversation
             {permission.label}
           </dd>
         </div>
-        <div>
-          <dt className="text-ink-tertiary">Model</dt>
-          <dd className="font-mono text-ink-secondary">{slot ? `${slot.roleName} · ${slot.modelId}` : '—'}</dd>
-        </div>
+        {onAgent ? (
+          <div>
+            <dt className="text-ink-tertiary">Model</dt>
+            <dd className="font-mono text-ink-secondary" title={connectionHint(onAgent.baseUrl)}>
+              {onAgent.model}
+              <span className="block break-all text-ink-tertiary">agent connection · {onAgent.baseUrl}</span>
+            </dd>
+          </div>
+        ) : (
+          <div>
+            <dt className="text-ink-tertiary">Model</dt>
+            <dd className="font-mono text-ink-secondary">{slot ? `${slot.roleName} · ${slot.modelId}` : '—'}</dd>
+          </div>
+        )}
         {changed.length > 0 && (
           <div>
             <dt className="text-ink-tertiary">Changed in this chat</dt>

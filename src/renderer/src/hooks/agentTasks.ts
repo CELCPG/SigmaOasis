@@ -76,11 +76,15 @@ export async function sendToAgent(conversationId: string, rawText: string): Prom
   }
 
   const taskId = uid()
+  // 4.6 (J1): on the agent connection the agent runs that server's model, not
+  // the slot's: the turn is labelled with it, and the slot's sampling recipe is
+  // read for it. Off, both are the slot's, as through 4.5.
+  const agentModel = settings.agentConnection?.enabled ? settings.agentConnection.model : ''
   const message: ChatMessage = {
     id: uid(),
     role: 'assistant',
     content: '',
-    modelId: slot.modelId,
+    modelId: agentModel || slot.modelId,
     roleName: slot.roleName,
     color: slot.color,
     toolCalls: [],
@@ -103,10 +107,14 @@ export async function sendToAgent(conversationId: string, rawText: string): Prom
     workspace: convo.agent.workspace,
     permission: convo.agent.permission,
     model: slot.modelId,
-    sampling: wireSampling(slot.sampling, slot.modelId),
+    sampling: wireSampling(slot.sampling, agentModel || slot.modelId),
     rules: slot.rules,
     history
   })
+  // The agent connection's check names the model it found (the server's own when none is set).
+  if (started.ok && started.model && started.model !== message.modelId) {
+    store.patchMessage(conversationId, message.id, { modelId: started.model })
+  }
   if (!started.ok) {
     store.setAgentRun(conversationId, null)
     store.patchMessage(conversationId, message.id, {
