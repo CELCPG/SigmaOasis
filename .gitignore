@@ -29,6 +29,7 @@ resources/pyodide
 
 # Answer-eval library cache (embedded packs; rebuild with scripts/eval-answers.sh)
 .eval-library/
+.eval-library-aids/
 .eval-library-synthesis/
 .h2h-build/
 .h2h-runs/
