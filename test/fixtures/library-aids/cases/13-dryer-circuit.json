@@ -1,0 +1,31 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-house",
+  "prompt": "What size breaker and wire does a new electric dryer need?",
+  "source": {
+    "doc": "electrical-panel-notes",
+    "section": "Circuit sizes and big appliances"
+  },
+  "decoys": [
+    {
+      "doc": "electrical-panel-notes",
+      "section": "Why a breaker trips"
+    },
+    {
+      "doc": "electrical-panel-notes",
+      "section": "Panel capacity and upgrades"
+    },
+    {
+      "doc": "electrical-panel-notes",
+      "section": "Working in the panel"
+    },
+    {
+      "doc": "homeowner-faq",
+      "section": "What size circuit does a new electric dryer need?"
+    }
+  ],
+  "mustInclude": [
+    "30[- ]?amp|30 amps|30A",
+    "240|10[- ]gauge"
+  ]
+}

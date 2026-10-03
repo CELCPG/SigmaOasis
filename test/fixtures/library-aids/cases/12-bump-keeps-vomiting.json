@@ -1,0 +1,31 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-health",
+  "prompt": "My son bumped his head on the playground and keeps throwing up. Is that a concussion thing or something worse?",
+  "source": {
+    "doc": "head-injuries-and-concussion",
+    "section": "Go to the emergency room if"
+  },
+  "decoys": [
+    {
+      "doc": "head-injuries-and-concussion",
+      "section": "Concussion signs"
+    },
+    {
+      "doc": "head-injuries-and-concussion",
+      "section": "Rest and recovery"
+    },
+    {
+      "doc": "head-injuries-and-concussion",
+      "section": "Bumps in toddlers"
+    },
+    {
+      "doc": "parenting-faq",
+      "section": "My child bumped their head, should I be worried?"
+    }
+  ],
+  "mustInclude": [
+    "emergency|911|\\bER\\b|immediately|right away",
+    "vomit"
+  ]
+}

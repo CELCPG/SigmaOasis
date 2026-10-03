@@ -1,0 +1,116 @@
+{
+  "formatVersion": 1,
+  "id": "aids-health",
+  "name": "Family health notes",
+  "description": "A household's own health binder: fever, medicine, cuts, stings, burns, sprains, allergies, head injuries, heat illness, and the babysitter sheet. Fixture text written for the library-aids eval suite.",
+  "version": "2026.10",
+  "license": "MIT (fixture text)",
+  "kind": "user",
+  "sourceNote": "Written for the library-aids eval suite (test/fixtures/library-aids); realistic personal-library material, not a real agency page. Figures are fixture figures.",
+  "docs": [
+    {
+      "id": "adult-health-faq",
+      "title": "Adult health questions we saved",
+      "source": "fixture://library-aids/aids-health/adult-health-faq.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "adult-health-faq.md"
+    },
+    {
+      "id": "allergies-and-asthma",
+      "title": "Allergies and asthma",
+      "source": "fixture://library-aids/aids-health/allergies-and-asthma.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "allergies-and-asthma.md"
+    },
+    {
+      "id": "babysitter-instructions",
+      "title": "Babysitter instructions",
+      "source": "fixture://library-aids/aids-health/babysitter-instructions.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "babysitter-instructions.md"
+    },
+    {
+      "id": "burns-and-scalds",
+      "title": "Burns and scalds",
+      "source": "fixture://library-aids/aids-health/burns-and-scalds.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "burns-and-scalds.md"
+    },
+    {
+      "id": "cuts-and-wounds",
+      "title": "Cuts and wounds",
+      "source": "fixture://library-aids/aids-health/cuts-and-wounds.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "cuts-and-wounds.md"
+    },
+    {
+      "id": "fever-and-flu-adults",
+      "title": "Fever, colds and flu in adults",
+      "source": "fixture://library-aids/aids-health/fever-and-flu-adults.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "fever-and-flu-adults.md"
+    },
+    {
+      "id": "fever-in-children",
+      "title": "Fever in children",
+      "source": "fixture://library-aids/aids-health/fever-in-children.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "fever-in-children.md"
+    },
+    {
+      "id": "head-injuries-and-concussion",
+      "title": "Head injuries and concussion",
+      "source": "fixture://library-aids/aids-health/head-injuries-and-concussion.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "head-injuries-and-concussion.md"
+    },
+    {
+      "id": "heat-and-dehydration",
+      "title": "Heat illness, dehydration and stomach bugs",
+      "source": "fixture://library-aids/aids-health/heat-and-dehydration.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "heat-and-dehydration.md"
+    },
+    {
+      "id": "medicine-cabinet-notes",
+      "title": "Medicine cabinet notes",
+      "source": "fixture://library-aids/aids-health/medicine-cabinet-notes.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "medicine-cabinet-notes.md"
+    },
+    {
+      "id": "parenting-faq",
+      "title": "Parenting questions we saved",
+      "source": "fixture://library-aids/aids-health/parenting-faq.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "parenting-faq.md"
+    },
+    {
+      "id": "sprains-and-strains",
+      "title": "Sprains and strains",
+      "source": "fixture://library-aids/aids-health/sprains-and-strains.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "sprains-and-strains.md"
+    },
+    {
+      "id": "stings-bites-and-ticks",
+      "title": "Stings, bites and ticks",
+      "source": "fixture://library-aids/aids-health/stings-bites-and-ticks.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "stings-bites-and-ticks.md"
+    }
+  ]
+}

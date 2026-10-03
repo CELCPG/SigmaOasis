@@ -1,0 +1,31 @@
+{
+  "kind": "near-tie",
+  "pack": "aids-health",
+  "prompt": "My ankle sprain is five days old and still stiff. Should I keep icing it or switch to heat?",
+  "source": {
+    "doc": "sprains-and-strains",
+    "section": "After the first few days"
+  },
+  "decoys": [
+    {
+      "doc": "sprains-and-strains",
+      "section": "The first 48 hours"
+    },
+    {
+      "doc": "sprains-and-strains",
+      "section": "Wraps and braces"
+    },
+    {
+      "doc": "sprains-and-strains",
+      "section": "Back strain"
+    },
+    {
+      "doc": "adult-health-faq",
+      "section": "Should I use ice or heat on an injury?"
+    }
+  ],
+  "mustInclude": [
+    "heat|warm",
+    "gentle|stretch|range[- ]of[- ]motion|move|walk"
+  ]
+}

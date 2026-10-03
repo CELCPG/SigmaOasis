@@ -1,0 +1,30 @@
+{
+  "kind": "near-tie",
+  "pack": "aids-house",
+  "prompt": "What temperature should I set the water heater to so nobody gets scalded?",
+  "source": {
+    "doc": "water-heater-notes",
+    "section": "Temperature setting"
+  },
+  "decoys": [
+    {
+      "doc": "burns-and-scalds",
+      "section": "Hot liquid scalds"
+    },
+    {
+      "doc": "water-heater-notes",
+      "section": "Flushing the tank"
+    },
+    {
+      "doc": "gas-appliance-notes",
+      "section": "Annual service"
+    },
+    {
+      "doc": "homeowner-faq",
+      "section": "What temperature should my water heater be set to?"
+    }
+  ],
+  "mustInclude": [
+    "120"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "kind": "near-tie",
+  "pack": "aids-health",
+  "prompt": "My 5-month-old has a fever of 101. Do I need to go to the emergency room tonight?",
+  "source": {
+    "doc": "fever-in-children",
+    "section": "Babies and toddlers from 3 months to 3 years"
+  },
+  "decoys": [
+    {
+      "doc": "fever-in-children",
+      "section": "Babies younger than 3 months"
+    },
+    {
+      "doc": "fever-in-children",
+      "section": "Fever seizures"
+    },
+    {
+      "doc": "parenting-faq",
+      "section": "My baby has a fever, when should I worry?"
+    },
+    {
+      "doc": "parenting-faq",
+      "section": "Should I take my child to the emergency room?"
+    }
+  ],
+  "mustInclude": [
+    "102|38\\.9|24 hours|(?:usually|generally) not an emergency|not (?:usually )?an emergency",
+    "pediatrician|doctor"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-health",
+  "prompt": "Is it okay to take my allergy medication together with a nighttime cold medicine?",
+  "source": {
+    "doc": "medicine-cabinet-notes",
+    "section": "Taking two medicines together"
+  },
+  "decoys": [
+    {
+      "doc": "medicine-cabinet-notes",
+      "section": "Acetaminophen"
+    },
+    {
+      "doc": "medicine-cabinet-notes",
+      "section": "Aspirin"
+    },
+    {
+      "doc": "medicine-cabinet-notes",
+      "section": "Ibuprofen"
+    },
+    {
+      "doc": "parenting-faq",
+      "section": "Can my child take cold medicine and allergy medicine together?"
+    },
+    {
+      "doc": "adult-health-faq",
+      "section": "Can I take two medicines at once?"
+    }
+  ],
+  "mustInclude": [
+    "antihistamine",
+    "drows|sedat|sleepy"
+  ]
+}

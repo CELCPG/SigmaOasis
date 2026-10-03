@@ -31,6 +31,14 @@
  *   EVAL_CONTROL=1                 v4.4 (G1): with EVAL_LIBRARY_ASSIST and EVAL_SUITES=library, the
  *                                  same-day control too — the aids off, a pass of each in turn (ABBA)
  *   EVAL_SESSION=<id>              v4.4 (G1): tag the results with a session (evalSession.ts)
+ *   EVAL_SUITES=library-aids       v4.5 (H5): the suite built for the aids (evalLibrarySuites.ts) — questions
+ *                                  inside the high-stakes domains where plain ranking may lead with the wrong
+ *                                  passage, over fixture packs of its own; read by eval:diff as the library
+ *                                  block, EVAL_CONTROL and EVAL_LIBRARY_ASSIST as for `library`. Alone.
+ *   EVAL_LIBRARY_KIND=near-tie     v4.5 (H5): only those kinds of library-aids (vocabulary, paraphrase,
+ *                                  near-tie, multi-document); EVAL_CASES slices what is left
+ *   EVAL_RETRIEVAL_ONLY=1          v4.5 (H5): no answering model — rank each case's passages with the app's own
+ *                                  lookup (the embedder only) and report where its source section lands
  *
  * Caveats, printed with every report: temperature is pinned to 0; the
  * library suite installs packs/ into a throwaway library; with one model
@@ -42,6 +50,16 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, exist
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { controlOrderFrom, sessionId, sidesForPass, type SessionRole } from '../src/main/agent/evalSession'
+import {
+  LIBRARY_SUITES,
+  headroom,
+  kindsFrom,
+  librarySuiteFrom,
+  sourceRank,
+  splitRanks,
+  type AidsCaseFields,
+  type LibrarySuiteConfig
+} from '../src/main/agent/evalLibrarySuites'
 
 // Isolate every store the app modules touch before any of them load.
 const SCRATCH = mkdtempSync(join(tmpdir(), 'sigma-eval-'))
@@ -59,8 +77,6 @@ process.env.SIGMA_WORKBENCH_PRELOAD =
   process.env.SIGMA_WORKBENCH_PRELOAD || join(__dirname, '..', 'src', 'preload', 'workbench.js')
 const RESULTS_DIR = join(REPO_ROOT, '.eval-results')
 const QUANT_DIR = join(REPO_ROOT, 'test', 'fixtures', 'quant')
-const LIBRARY_DIR = join(REPO_ROOT, 'test', 'fixtures', 'library')
-const PACKS_DIR = join(REPO_ROOT, 'packs')
 
 type Msg = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | null; tool_calls?: unknown; tool_call_id?: string }
 
@@ -74,7 +90,8 @@ interface QuantFixture {
   expect: { label: string; value: number; tolerance?: number }[]
   mustInclude?: string[]
 }
-interface LibraryFixture {
+/** The library suite's case; `library-aids` cases carry the extra fields too (evalLibrarySuites.ts). */
+interface LibraryFixture extends Partial<AidsCaseFields> {
   file: string
   prompt: string
   pack?: string
@@ -242,28 +259,28 @@ function setLibraryAssist(a: LibraryAssist): void {
   storeMod.writeSettings({ ...prev, grounding: { ...prev.grounding, libraryRerank: a.rerank, libraryHyde: a.hyde } })
 }
 
-async function runLibrarySuite(model: string): Promise<import('../src/renderer/src/lib/answerEval').LibraryCaseResult[]> {
+/**
+ * Install and embed a library suite's packs into its throwaway library, which persists so the
+ * (slow) embedding pass is paid once across runs — index.json is keyed to the embedding model,
+ * so a model change rebuilds it by itself. v4.5 (H5): the suite's config names the folders; a
+ * suite whose packs are fixtures someone edits (`refreshChangedPacks`) also reinstalls a pack
+ * whose source text no longer matches the installed copy — vectors stored for the old text
+ * would otherwise be attached to the new whenever the chunk count happened to match.
+ */
+async function prepareLibrary(suite: LibrarySuiteConfig): Promise<typeof import('../src/main/ipc/library')> {
   const lib = require('../src/main/ipc/library') as typeof import('../src/main/ipc/library')
-  const { scoreLibrary } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
-  const { buildLibraryContext } = require('../src/renderer/src/lib/libraryRecall') as typeof import('../src/renderer/src/lib/libraryRecall')
-  const { withGrounding, buildTurnContext, stripTurnNotesEcho } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
-  const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
-  const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
-  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
-  const libraryTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'reference_lookup')
-
-  // A persistent library so the (slow) embedding pass is paid once across
-  // runs — index.json is keyed to the embedding model, so a model change
-  // rebuilds it by itself.
-  const libDir = join(REPO_ROOT, '.eval-library')
+  const libDir = join(REPO_ROOT, suite.libDir)
+  const packsDir = join(REPO_ROOT, suite.packs)
   lib.setLibraryDirForTests(libDir)
-  const packs = existsSync(PACKS_DIR)
-    ? readdirSync(PACKS_DIR).filter((d) => d !== 'sources' && existsSync(join(PACKS_DIR, d, 'manifest.json')))
+  const packs = existsSync(packsDir)
+    ? readdirSync(packsDir).filter((d) => d !== 'sources' && existsSync(join(packsDir, d, 'manifest.json')))
     : []
-  if (packs.length === 0) throw new Error(`no built packs in ${PACKS_DIR} — run bash scripts/build-packs.sh`)
+  if (packs.length === 0) throw new Error(`no built packs in ${packsDir} — run bash scripts/build-packs.sh`)
   const installed = await lib.listPacks()
   for (const p of packs) {
-    if (!installed.some((x) => x.id === p)) await lib.installPackFromDirectory(join(PACKS_DIR, p), { replace: true })
+    const stale = suite.refreshChangedPacks && installed.some((x) => x.id === p) && packSourceChanged(join(packsDir, p), join(libDir, p))
+    if (stale) process.stdout.write(`  ${p}: the source text changed — reinstalling\n`)
+    if (stale || !installed.some((x) => x.id === p)) await lib.installPackFromDirectory(join(packsDir, p), { replace: true })
   }
   process.stdout.write(`  ${packs.length} pack(s) installed: ${packs.join(', ')}\n`)
 
@@ -282,6 +299,44 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
   } else {
     process.stdout.write('  EVAL_EMBED=0 — keyword-only retrieval\n')
   }
+  return lib
+}
+
+/** Does a fixture pack's source differ from its installed copy — its documents' normalized text, or the list of them? */
+function packSourceChanged(srcDir: string, installedDir: string): boolean {
+  try {
+    const { normalizeForChunking } = require('../src/main/ipc/embeddings') as typeof import('../src/main/ipc/embeddings')
+    type Manifest = { docs: { id: string; title: string; file: string }[] }
+    const src = JSON.parse(readFileSync(join(srcDir, 'manifest.json'), 'utf-8')) as Manifest
+    const was = JSON.parse(readFileSync(join(installedDir, 'manifest.json'), 'utf-8')) as Manifest
+    const shape = (m: Manifest): string => JSON.stringify(m.docs.map((d) => [d.id, d.title, d.file]))
+    if (shape(src) !== shape(was)) return true
+    return src.docs.some((d) => normalizeForChunking(readFileSync(join(srcDir, 'docs', d.file), 'utf-8')) !== readFileSync(join(installedDir, 'docs', d.file), 'utf-8'))
+  } catch {
+    return true
+  }
+}
+
+/** A library suite's cases, the kinds asked for (EVAL_LIBRARY_KIND) kept; EVAL_CASES slices what is left. */
+function libraryFixtures(suite: LibrarySuiteConfig): LibraryFixture[] {
+  const kinds = kindsFrom(process.env.EVAL_LIBRARY_KIND)
+  if (kinds && suite.name !== 'library-aids') throw new Error('EVAL_LIBRARY_KIND names the kinds of the library-aids suite: set EVAL_SUITES=library-aids')
+  const all = loadJson<LibraryFixture>(join(REPO_ROOT, suite.fixtures))
+  return kinds ? all.filter((f) => f.kind && kinds.includes(f.kind)) : all
+}
+
+async function runLibrarySuite(model: string, suite: LibrarySuiteConfig = LIBRARY_SUITES.library): Promise<import('../src/renderer/src/lib/answerEval').LibraryCaseResult[]> {
+  const lib = require('../src/main/ipc/library') as typeof import('../src/main/ipc/library')
+  const { scoreLibrary } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
+  const { buildLibraryContext } = require('../src/renderer/src/lib/libraryRecall') as typeof import('../src/renderer/src/lib/libraryRecall')
+  const { withGrounding, buildTurnContext, stripTurnNotesEcho } = require('../src/renderer/src/lib/grounding') as typeof import('../src/renderer/src/lib/grounding')
+  const { selectPlaybook, buildPlaybookContext } = require('../src/renderer/src/lib/playbooks') as typeof import('../src/renderer/src/lib/playbooks')
+  const { runAgentLoop } = require('../src/renderer/src/lib/agentLoop') as typeof import('../src/renderer/src/lib/agentLoop')
+  const { TOOL_SCHEMAS } = require('../src/shared/tools') as typeof import('../src/shared/tools')
+  const libraryTools = TOOL_SCHEMAS.filter((t) => t.function.name === 'reference_lookup')
+
+  const libDir = join(REPO_ROOT, suite.libDir)
+  await prepareLibrary(suite)
 
   // v2.8: EVAL_ZIM=<path to a .zim> registers a Kiwix file beside the packs —
   // WikiMed is the one the strategy names — and the summary reports how many
@@ -309,7 +364,7 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
     process.stdout.write(`  EVAL_ZIM — "${zp.name}" registered: ${zp.docs.toLocaleString('en-US')} entries, read on demand\n`)
   }
 
-  const fixtures = slice(loadJson<LibraryFixture>(LIBRARY_DIR))
+  const fixtures = slice(libraryFixtures(suite))
   const results: import('../src/renderer/src/lib/answerEval').LibraryCaseResult[] = []
   for (const [i, fx] of fixtures.entries()) {
     const started = Date.now()
@@ -317,6 +372,7 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
       file: fx.file,
       prompt: fx.prompt,
       pack: fx.pack,
+      ...(fx.kind ? { kind: fx.kind } : {}),
       passagesFound: 0,
       ms: 0
     }
@@ -330,6 +386,7 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
       out.passagesFound = lookup.passages.length
       out.retrieved = lookup.passages.map((p) => `${p.packName} › ${p.docTitle}${p.section ? ` › ${p.section}` : ''}`)
       out.mode = lookup.mode
+      if (fx.source) out.rank = sourceRank(lookup.passages, fx.source)
       if (lookup.rerank) out.rerank = lookup.rerank
       if (lookup.expanded) out.expanded = true
       if (process.env.EVAL_ZIM) out.zimPassages = lookup.passages.filter((p) => p.packId.startsWith('zim-')).length
@@ -399,13 +456,131 @@ async function runLibrarySuite(model: string): Promise<import('../src/renderer/s
     results.push(out)
     const s = out.score
     process.stdout.write(
-      `  ${out.error ? '!' : s?.answered ? '✓' : '✗'} ${fx.file}` +
+      `  ${out.error ? '!' : s?.answered ? '✓' : '✗'} ${fx.file}${out.rank !== undefined ? ` (source ${out.rank === 0 ? 'not retrieved' : `#${out.rank}`})` : ''}` +
         (s ? `  ${s.cited ? 'cited' : 'no citation'}${s.unsupported.length ? ` · unsupported: ${s.unsupported.join(', ')}` : ''}${s.missing.length ? ` · missing: ${s.missing.join(' | ')}` : ''}${s.forbidden.length ? ` · forbidden: ${s.forbidden.join(' | ')}` : ''}` : '') +
         (out.error ? `  ${out.error}` : '') +
         `  [${i + 1}/${fixtures.length}]\n`
     )
   }
   return results
+}
+
+/**
+ * v4.5 (H5): the retrieval-only dry check of a library suite — no answering model, no completion.
+ * Each case's question goes through the app's own lookup (hybrid keyword + nomic ranking, the
+ * relevance floor, the wrong-section guard, MMR; the aids off) at the app-initiated lookup's
+ * topK of 5 and at the most a lookup can return, 12, and the case's `source` section is looked
+ * for among the passages. A suite where plain ranking already puts every source first has no
+ * headroom for an aid: this says how many cases do, and which section outranks the source.
+ * Beside the rank the lookup gave it, three stages before the lookup's floor, guard and MMR are
+ * reported as diagnostics (the source section's rank by cosine alone, by BM25 alone, and by the
+ * two fused — the order the re-rank's pool of 15 is cut from).
+ */
+async function runLibraryRetrieval(suite: LibrarySuiteConfig): Promise<void> {
+  const lib = await prepareLibrary(suite)
+  const state = require('../src/main/ipc/library/state') as typeof import('../src/main/ipc/library/state')
+  const { sectionAt } = require('../src/main/ipc/library/loading') as typeof import('../src/main/ipc/library/loading')
+  const emb = require('../src/main/ipc/embeddings') as typeof import('../src/main/ipc/embeddings')
+  const { reciprocalRankFusion, tokenize } = require('../src/main/ipc/retrieval') as typeof import('../src/main/ipc/retrieval')
+  setLibraryAssist({ rerank: false, hyde: false })
+
+  const fixtures = slice(libraryFixtures(suite))
+  const sectionKey = (docId: string, section: string): string => `${docId}\u0000${section.trim().toLowerCase()}`
+  const entries = [...state.packs.values()].flatMap((p) =>
+    p.chunks.map((c) => {
+      const doc = p.docs.get(c.docId)!
+      return { chunk: c, key: sectionKey(c.docId, sectionAt(doc, c.offset, c.offset + c.text.length)) }
+    })
+  )
+  const keyOfId = new Map(entries.map((e) => [e.chunk.id, e.key]))
+  const sectionRank = (ids: string[], want: string): number => {
+    const seen = new Set<string>()
+    for (const id of ids) {
+      const k = keyOfId.get(id)
+      if (!k || seen.has(k)) continue
+      seen.add(k)
+      if (k === want) return seen.size
+    }
+    return 0
+  }
+  const label = (p: { docId: string; section: string }): string => `${p.docId} › ${p.section || '(intro)'}`
+
+  console.log(`\nretrieval-only dry check — ${suite.name}: ${fixtures.length} case(s), the aids off, embedder ${(await emb.resolveEmbeddingModel()) ?? 'none'}`)
+  console.log(`  ${entries.length} passages in ${state.packs.size} pack(s); rank = the source section's place among the passages a lookup returns (topK 5 · topK 12)\n`)
+  type Row = {
+    file: string
+    kind?: string
+    prompt: string
+    source: { doc: string; section: string }
+    rank5: number
+    rank12: number
+    cosRank: number
+    bm25Rank: number
+    fusedRank: number
+    top1: string
+    outranking: string[]
+    mode: string
+  }
+  const rows: Row[] = []
+  for (const [i, fx] of fixtures.entries()) {
+    if (!fx.source) {
+      process.stdout.write(`  - ${fx.file}: names no source section — skipped\n`)
+      continue
+    }
+    const five = await lib.lookupLibrary({ query: fx.prompt, topK: 5 })
+    const twelve = await lib.lookupLibrary({ query: fx.prompt, topK: 12 })
+    const qv = emb.toUnitVector((await emb.embedTexts([fx.prompt])).vectors[0])
+    const bySemantic = entries.filter((e) => e.chunk.vector).map((e) => ({ id: e.chunk.id, score: emb.unitDot(qv, e.chunk.vector!) })).sort((a, b) => b.score - a.score)
+    const byKeyword = state.bm25().search(tokenize(fx.prompt)).map((s) => s.id)
+    const fused = [...reciprocalRankFusion([byKeyword, bySemantic.map((s) => s.id)])].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+    const want = sectionKey(fx.source.doc, fx.source.section)
+    const rank5 = sourceRank(five.passages, fx.source)
+    const row: Row = {
+      file: fx.file,
+      kind: fx.kind,
+      prompt: fx.prompt,
+      source: fx.source,
+      rank5,
+      rank12: sourceRank(twelve.passages, fx.source),
+      cosRank: sectionRank(bySemantic.map((s) => s.id), want),
+      bm25Rank: sectionRank(byKeyword, want),
+      fusedRank: sectionRank(fused, want),
+      top1: five.passages[0] ? label(five.passages[0]) : '(nothing retrieved)',
+      outranking: rank5 === 1 ? [] : five.passages.slice(0, rank5 === 0 ? 5 : rank5 - 1).map(label),
+      mode: five.mode
+    }
+    rows.push(row)
+    const at = (n: number): string => (n === 0 ? '-' : `#${n}`)
+    process.stdout.write(
+      `  ${rank5 === 1 ? '✓' : rank5 === 0 ? '✗' : '◐'} ${fx.file.padEnd(38)} ${(fx.kind ?? '').padEnd(14)} lookup ${at(rank5).padEnd(3)} / ${at(row.rank12).padEnd(3)}` +
+        `  cosine ${at(row.cosRank).padEnd(4)} keyword ${at(row.bm25Rank).padEnd(4)} fused ${at(row.fusedRank).padEnd(4)}` +
+        (rank5 === 1 ? '' : `  first: ${row.top1}`) +
+        `  [${i + 1}/${fixtures.length}]\n`
+    )
+  }
+
+  // top-1, top-3 and top-5 read the app-initiated lookup (topK 5); "within 12" and "missed" the widest lookup there is.
+  const line = (name: string, of: Row[]): string => {
+    const five = splitRanks(of.map((r) => r.rank5))
+    const twelve = splitRanks(of.map((r) => r.rank12))
+    return (
+      `  ${name.padEnd(15)} ${String(five.of).padStart(2)} cases · first ${five.top1} · top-3 ${five.top3} · top-5 ${five.top5} · within 12 ${twelve.top12} · missed ${twelve.missed}` +
+      ` · headroom: ${headroom(of.map((r) => r.rank5))} at #2-#5, ${of.filter((r) => r.rank5 === 0 && r.rank12 > 0).length} outside the five`
+    )
+  }
+  const kinds = [...new Set(rows.map((r) => r.kind ?? ''))]
+  console.log('\n  ✓ first  ◐ retrieved, not first  ✗ not among the five (the number after the slash is the twelve-passage lookup)\n')
+  console.log(line('all', rows))
+  for (const k of kinds) if (k) console.log(line(k, rows.filter((r) => r.kind === k)))
+  const byRank = [1, 2, 3, 4, 5].map((n) => `#${n}: ${rows.filter((r) => r.rank5 === n).length}`).join(' · ')
+  console.log(`\n  where the source stood in the five — ${byRank} · outside: ${rows.filter((r) => r.rank5 === 0).length} (ranks ${rows.filter((r) => r.rank5 === 0).map((r) => r.rank12 || '-').join(', ') || 'none'} in the twelve)`)
+  console.log(`  fused order before the floor, guard and MMR (the order the re-rank's pool of 15 is cut from): the source is within 15 in ${rows.filter((r) => r.fusedRank >= 1 && r.fusedRank <= 15).length}/${rows.length}`)
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const outFile = join(RESULTS_DIR, `library-retrieval-${suite.name}-${stamp}.json`)
+  mkdirSync(RESULTS_DIR, { recursive: true })
+  writeFileSync(outFile, JSON.stringify({ suite: suite.name, ranAt: new Date().toISOString(), embeddingModel: await emb.resolveEmbeddingModel(), passages: entries.length, cases: rows, split: splitRanks(rows.map((r) => r.rank5)), split12: splitRanks(rows.map((r) => r.rank12)) }, null, 2))
+  console.log(`results: ${outFile}`)
 }
 
 /** Real Workbench execution for the agent loop — no stubs; that is the point. */
@@ -1858,13 +2033,22 @@ async function main(): Promise<void> {
     app.exit(0)
     return
   }
+  const want = (process.env.EVAL_SUITES ?? 'library,quant,deliberate').split(',').map((s) => s.trim())
+  // v4.5 (H5): the retrieval-only dry check needs the embedder and no answering model.
+  if (process.env.EVAL_RETRIEVAL_ONLY === '1') {
+    const name = librarySuiteFrom(want)
+    if (!name) throw new Error('EVAL_RETRIEVAL_ONLY ranks a library suite: set EVAL_SUITES=library-aids')
+    await runLibraryRetrieval(LIBRARY_SUITES[name])
+    setTimeout(() => app.exit(0), 200)
+    return
+  }
   const model = process.argv.slice(1).find((a) => !a.startsWith('-') && !/\.js$/.test(a) && a !== 'all')
   if (!model) {
     console.error('usage: LMSTUDIO_EVAL=1 npm run eval:answers -- <model-id>')
     app.exit(1)
     return
   }
-  const want = (process.env.EVAL_SUITES ?? 'library,quant,deliberate').split(',').map((s) => s.trim())
+  const librarySuite = librarySuiteFrom(want)
   const { summarizeLibrary, summarizeQuant, pct } = require('../src/renderer/src/lib/answerEval') as typeof import('../src/renderer/src/lib/answerEval')
 
   console.log(
@@ -1901,8 +2085,8 @@ async function main(): Promise<void> {
   const assist = libraryAssistFrom(process.env.EVAL_LIBRARY_ASSIST)
   const assistOn = assist.rerank || assist.hyde
   const controlOrder = controlOrderFrom(process.env.EVAL_CONTROL)
-  if (controlOrder && (!assistOn || want.join(',') !== 'library')) {
-    throw new Error('EVAL_CONTROL runs the library suite beside its control: set EVAL_SUITES=library and name the arm with EVAL_LIBRARY_ASSIST')
+  if (controlOrder && (!assistOn || !librarySuite || want.join(',') !== librarySuite)) {
+    throw new Error('EVAL_CONTROL runs the library suite beside its control: set EVAL_SUITES=library (or library-aids) and name the arm with EVAL_LIBRARY_ASSIST')
   }
   sessionId(process.env.EVAL_SESSION, 'check')
   const tagged = Boolean(controlOrder || process.env.EVAL_SESSION)
@@ -1913,8 +2097,10 @@ async function main(): Promise<void> {
   // With EVAL_CONTROL the control's passes are written to a file of their own.
   let controlReport: Record<string, unknown> | null = null
 
-  if (want.includes('library')) {
-    console.log('library grounding' + (assistOn ? ` — model aids on: ${assistArm(assist)} (${model}, by name)` : ''))
+  if (librarySuite) {
+    const suiteConfig = LIBRARY_SUITES[librarySuite]
+    if (librarySuite !== 'library') report.librarySuite = librarySuite
+    console.log((librarySuite === 'library' ? 'library grounding' : `${librarySuite}: the aids' own suite`) + (assistOn ? ` — model aids on: ${assistArm(assist)} (${model}, by name)` : ''))
     type LibraryPass = { summary: ReturnType<typeof summarizeLibrary>; runs: Awaited<ReturnType<typeof runLibrarySuite>> }
     const sides: { role: SessionRole; assist: LibraryAssist; passes: LibraryPass[] }[] = controlOrder
       ? [{ role: 'control', assist: { rerank: false, hyde: false }, passes: [] }, { role: 'arm', assist, passes: [] }]
@@ -1925,7 +2111,7 @@ async function main(): Promise<void> {
       for (const side of turn) {
         if (passesWanted > 1 || controlOrder) console.log(`  — pass ${pass + 1}/${passesWanted}${controlOrder ? ` · ${side.role}` : ''} —`)
         setLibraryAssist(side.assist)
-        const runs = await runLibrarySuite(model)
+        const runs = await runLibrarySuite(model, suiteConfig)
         side.passes.push({ summary: summarizeLibrary(runs), runs })
       }
     }
@@ -2460,11 +2646,12 @@ async function main(): Promise<void> {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const slug = model.replace(/[^a-z0-9._-]+/gi, '_')
   const armTag = typeof report.arm === 'string' ? `-${report.arm}` : ''
-  const outFile = join(RESULTS_DIR, `answers-${slug}${armTag}-${stamp}.json`)
+  const suiteTag = report.librarySuite === 'library-aids' ? '-aids' : ''
+  const outFile = join(RESULTS_DIR, `answers-${slug}${suiteTag}${armTag}-${stamp}.json`)
   writeFileSync(outFile, JSON.stringify(report, null, 2))
   console.log(`results: ${outFile}${report.session ? ` · session ${(report.session as { id: string }).id}, ${(report.session as { role: string }).role}` : ''}`)
   if (controlReport) {
-    const controlFile = join(RESULTS_DIR, `answers-${slug}-control-${stamp}.json`)
+    const controlFile = join(RESULTS_DIR, `answers-${slug}${suiteTag}-control-${stamp}.json`)
     writeFileSync(controlFile, JSON.stringify(controlReport, null, 2))
     console.log(`results (control): ${controlFile}`)
   }

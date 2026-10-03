@@ -1,0 +1,84 @@
+{
+  "formatVersion": 1,
+  "id": "aids-house",
+  "name": "House file",
+  "description": "A household's own house file: deck notes, load-bearing walls, electrical panel, gas appliances, permits, water heater, foundation and the home inspection report. Fixture text written for the library-aids eval suite.",
+  "version": "2026.10",
+  "license": "MIT (fixture text)",
+  "kind": "user",
+  "sourceNote": "Written for the library-aids eval suite (test/fixtures/library-aids); realistic personal-library material, not a real agency page. Figures are fixture figures.",
+  "docs": [
+    {
+      "id": "deck-building-notes",
+      "title": "Deck project notes",
+      "source": "fixture://library-aids/aids-house/deck-building-notes.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "deck-building-notes.md"
+    },
+    {
+      "id": "electrical-panel-notes",
+      "title": "Electrical panel and circuit notes",
+      "source": "fixture://library-aids/aids-house/electrical-panel-notes.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "electrical-panel-notes.md"
+    },
+    {
+      "id": "foundation-and-basement",
+      "title": "Foundation cracks and basement moisture",
+      "source": "fixture://library-aids/aids-house/foundation-and-basement.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "foundation-and-basement.md"
+    },
+    {
+      "id": "gas-appliance-notes",
+      "title": "Gas appliances and gas lines",
+      "source": "fixture://library-aids/aids-house/gas-appliance-notes.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "gas-appliance-notes.md"
+    },
+    {
+      "id": "home-inspection-report",
+      "title": "Home inspection report",
+      "source": "fixture://library-aids/aids-house/home-inspection-report.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "home-inspection-report.md"
+    },
+    {
+      "id": "homeowner-faq",
+      "title": "Homeowner questions we saved",
+      "source": "fixture://library-aids/aids-house/homeowner-faq.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "homeowner-faq.md"
+    },
+    {
+      "id": "load-bearing-walls",
+      "title": "Opening up a wall",
+      "source": "fixture://library-aids/aids-house/load-bearing-walls.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "load-bearing-walls.md"
+    },
+    {
+      "id": "permits-and-inspections",
+      "title": "Permits and inspections",
+      "source": "fixture://library-aids/aids-house/permits-and-inspections.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "permits-and-inspections.md"
+    },
+    {
+      "id": "water-heater-notes",
+      "title": "Water heater notes",
+      "source": "fixture://library-aids/aids-house/water-heater-notes.md",
+      "license": "Fixture text written for Sigma Oasis's eval (MIT)",
+      "date": "written 2026-10-03",
+      "file": "water-heater-notes.md"
+    }
+  ]
+}

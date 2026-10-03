@@ -1,0 +1,26 @@
+{
+  "kind": "near-tie",
+  "pack": "aids-money",
+  "prompt": "What's the most I can put into my IRA at age 55?",
+  "source": {
+    "doc": "retirement-account-rules",
+    "section": "IRA contribution limits"
+  },
+  "decoys": [
+    {
+      "doc": "retirement-account-rules",
+      "section": "401(k) contribution limits"
+    },
+    {
+      "doc": "employer-benefits-guide",
+      "section": "Savings and retirement"
+    },
+    {
+      "doc": "money-faq",
+      "section": "How much can I contribute to my retirement accounts?"
+    }
+  ],
+  "mustInclude": [
+    "8,000"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-health",
+  "prompt": "I've been throwing up since last night and I get dizzy when I stand up. When should I see a doctor instead of waiting it out?",
+  "source": {
+    "doc": "heat-and-dehydration",
+    "section": "Vomiting and diarrhea in adults"
+  },
+  "decoys": [
+    {
+      "doc": "heat-and-dehydration",
+      "section": "Dehydration in children"
+    },
+    {
+      "doc": "heat-and-dehydration",
+      "section": "Heat exhaustion"
+    },
+    {
+      "doc": "fever-and-flu-adults",
+      "section": "When an adult should call a doctor"
+    },
+    {
+      "doc": "adult-health-faq",
+      "section": "I have been throwing up and feel dizzy, should I see a doctor?"
+    }
+  ],
+  "mustInclude": [
+    "24 hours|twenty-four hours",
+    "blood|102|belly pain"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "kind": "vocabulary",
+  "pack": "aids-money",
+  "prompt": "We put down 10% on our house and the bank makes us pay extra insurance every month. When can we stop paying it?",
+  "source": {
+    "doc": "mortgage-notes",
+    "section": "Private mortgage insurance"
+  },
+  "decoys": [
+    {
+      "doc": "mortgage-notes",
+      "section": "Escrow account"
+    },
+    {
+      "doc": "mortgage-notes",
+      "section": "Refinancing: when it pays off"
+    }
+  ],
+  "mustInclude": [
+    "80 ?%|80 percent|eighty percent",
+    "78 ?%|78 percent|automatic"
+  ]
+}

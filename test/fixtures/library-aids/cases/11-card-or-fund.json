@@ -1,0 +1,31 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-money",
+  "prompt": "I have $4,000 on a credit card at 24% and nothing saved. Should I pay the card down first or start an emergency fund?",
+  "source": {
+    "doc": "emergency-fund-and-budget",
+    "section": "Debt or savings first"
+  },
+  "decoys": [
+    {
+      "doc": "credit-and-debt",
+      "section": "Paying down several balances"
+    },
+    {
+      "doc": "credit-and-debt",
+      "section": "Minimum payments"
+    },
+    {
+      "doc": "emergency-fund-and-budget",
+      "section": "How big an emergency fund"
+    },
+    {
+      "doc": "money-faq",
+      "section": "Should I pay off debt or build savings first?"
+    }
+  ],
+  "mustInclude": [
+    "1,000",
+    "then|after|once"
+  ]
+}

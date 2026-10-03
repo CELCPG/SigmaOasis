@@ -1,0 +1,32 @@
+{
+  "kind": "multi-document",
+  "pack": "aids-house",
+  "prompt": "Is the wall between our kitchen and the dining room load-bearing? We want to open it up.",
+  "source": {
+    "doc": "home-inspection-report",
+    "section": "Structure and framing"
+  },
+  "decoys": [
+    {
+      "doc": "load-bearing-walls",
+      "section": "How to tell whether a wall is load-bearing"
+    },
+    {
+      "doc": "load-bearing-walls",
+      "section": "Plan, permit and engineer"
+    },
+    {
+      "doc": "load-bearing-walls",
+      "section": "Non-bearing partitions"
+    },
+    {
+      "doc": "homeowner-faq",
+      "section": "Can I remove the wall between my kitchen and dining room?"
+    }
+  ],
+  "mustInclude": [
+    "load-bearing|bearing",
+    "second[- ]floor|steel beam",
+    "engineer"
+  ]
+}

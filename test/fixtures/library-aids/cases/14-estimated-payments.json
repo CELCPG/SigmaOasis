@@ -1,0 +1,27 @@
+{
+  "kind": "paraphrase",
+  "pack": "aids-money",
+  "prompt": "I do freelance work on the side. When do I have to send the IRS tax payments during the year instead of waiting until April?",
+  "source": {
+    "doc": "tax-prep-notes",
+    "section": "Estimated tax payments"
+  },
+  "decoys": [
+    {
+      "doc": "tax-prep-notes",
+      "section": "Documents to gather"
+    },
+    {
+      "doc": "tax-prep-notes",
+      "section": "Keeping records"
+    },
+    {
+      "doc": "tax-prep-notes",
+      "section": "Home office deduction"
+    }
+  ],
+  "mustInclude": [
+    "June 15|September 15|Sept(?:ember)?\\.? 15|quarter",
+    "90 ?%|100 ?%|four times"
+  ]
+}

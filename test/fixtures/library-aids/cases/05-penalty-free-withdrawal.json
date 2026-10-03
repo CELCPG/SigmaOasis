@@ -1,0 +1,31 @@
+{
+  "kind": "vocabulary",
+  "pack": "aids-money",
+  "prompt": "How long do I have to wait before I can take money out of my retirement account without paying a penalty?",
+  "source": {
+    "doc": "retirement-account-rules",
+    "section": "Early withdrawals"
+  },
+  "decoys": [
+    {
+      "doc": "retirement-account-rules",
+      "section": "Required minimum distributions"
+    },
+    {
+      "doc": "employer-benefits-guide",
+      "section": "Savings and retirement"
+    },
+    {
+      "doc": "retirement-account-rules",
+      "section": "Rolling over an old 401(k)"
+    },
+    {
+      "doc": "money-faq",
+      "section": "Can I take money out of my 401(k) early?"
+    }
+  ],
+  "mustInclude": [
+    "59",
+    "10 ?%|10 percent"
+  ]
+}
