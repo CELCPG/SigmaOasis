@@ -820,7 +820,7 @@ select alerts_sent, alert_cap, remaining, by_origin_agent from wos.v_alerts_toda
 | Ledger: `status` to `dropped` | Never on its own judgment. Only to apply the principal's or owner's `drop` reply, cited in `notes` | Yes | Reply verb `drop` |
 | Ledger: `priority`, `last_surfaced_at`, `surfaced_count`, `escalated_at`, `snoozed_until` | `chief_of_staff` only | Yes | Reply verb `snooze` sets `snoozed_until` through `chief_of_staff` |
 | Ledger: `nudged_at` | `chief_of_staff` (`aging-nudges`) only | Yes | |
-| Ledger: `owning_agent`, `routed_to` | Functional agents set themselves on create in their domain; `chief_of_staff` routes and reassigns | Yes | Reply verb `assign` changes `owner` |
+| Ledger: `owning_agent`, `routed_to` | Functional agents set themselves on create in their domain; `chief_of_staff` routes and reassigns. One exception: a cross-agent request (hold request, feasibility check, spend view) is a `task` row the requester creates with `owning_agent` set to the agent that must act and `requested_by: <agent>` in `notes`; if that agent is inactive, `owning_agent` is `chief_of_staff` and `routed_to` is the target | Yes | Reply verb `assign` changes `owner` |
 | Ledger: `created_at` | Never (store-set) | Never | Never |
 | Ledger: `last_touched` | On a substantive change only | Yes | |
 | Ledger: rows another agent owns | Append evidence to `notes` only (the dedupe upsert) | Yes | |

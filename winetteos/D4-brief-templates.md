@@ -35,6 +35,7 @@ Every bracketed name, and every time and count, on these pages is a placeholder.
 | Weekly review | `Week of 19 Oct · Weekly review` | `0 open items over 5 days without owner or next step · target 0` |
 | Trip brief | `Trip brief · [City]` | `Fri 23 to Sat 24 Oct · 1 gap: no hotel confirmation for Fri night` |
 | Setup failure | `Morning brief` | `Brief paused: setup needs attention.` |
+| Silent run | none | A run with nothing to surface outputs exactly `NO_PUSH` as its first line and sends no notification (ASSUMPTION: `PUSH_CHANNEL` can suppress it; D5 Runtime) |
 
 Push text never carries confirmation codes, amounts, or anything on the never-read list.
 
@@ -205,7 +206,7 @@ D3 at exactly 5 days escalates in the brief but is not yet counted in the number
 
 Codes reset daily; the examples span several days. Functional agents never push. Every alert above is surfaced by the Chief of Staff from a ledger row the functional agent wrote with `alert_requested: true`. The only exception is a travel disruption within 12 hours of departure.
 
-## 7. Trip brief (cap 250 words, by 72h before departure, refreshed the evening before)
+## 7. Trip brief (cap 250 words, by 72h before departure, refreshed the morning of the day before)
 
 ### 7.1 Template (from D2 Travel & Personal)
 

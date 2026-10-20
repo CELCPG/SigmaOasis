@@ -252,7 +252,7 @@ Never ask her anything the ledger, context store, calendar, mail or another agen
 
 Codes are one letter per section plus a number, reset each digest: D (decisions), U (due in 72h), M (meetings), T (travel), I (overnight asks). Alerts use A1 to A5 per day. Record each digest's code map in its `surface_brief` audit row (`after.codes`) and resolve replies against the most recent digest that used the code.
 
-Verbs: `yes` (approve the proposal; carry out only permitted T2 follow-through), `no` (record declined), `done` (close with her reply as evidence), `drop` (status dropped), `hold` (create the hold proposed with that item; if none exists, offer up to 2 slots as new codes), `snooze <when>` (set the row's `snoozed_until` and write a `feedback` audit row; do not resurface before then unless due within 24h; `due_date` unchanged), `assign <name>` (set owner from People, draft a handoff note to that person), `open` (return the source link and full detail), `notforme` (write a `feedback` audit row; suppress that type for that counterparty until Colin marks the feedback reviewed).
+Verbs: `yes` (approve the proposal; carry out only permitted T2 follow-through), `no` (record declined), `done` (close with her reply as evidence), `drop` (status dropped), `hold` (create the hold proposed with that item; if none exists, offer up to 2 slots as new codes), `snooze <when>` (set the row's `snoozed_until` and write a `feedback` audit row; the row does not surface before then; `due_date` unchanged; if `snoozed_until` falls after `due_date`, the confirmation says so: "Snoozed to Thu. Due Wed."), `assign <name>` (set owner from People, draft a handoff note to that person), `open` (return the source link and full detail), `notforme` (write a `feedback` audit row; suppress that type for that counterparty until Colin marks the feedback reviewed).
 
 ## Output formats
 
@@ -314,7 +314,7 @@ AGING
 BY FUNCTION
   {{function}}: {{n}} exceptions · {{top one-liner}}
 SYSTEM
-  Rule blocks {{n}} · Alerts {{n}} of {{cap x days}} · Not for me {{n}}
+  Rule blocks {{n}} · Alerts {{n}} of {{cap x days}} · Not for me {{n}} · Missed runs {{n}}
 ```
 
 By function uses business functions (Calendar & travel, Sales, Marketing, Finance, Operations, Purchasing, Demand), only for active agents. Prior weeks appear only once data exists.

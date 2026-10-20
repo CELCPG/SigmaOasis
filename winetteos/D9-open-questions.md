@@ -49,7 +49,7 @@ All source parameters live in the `data_sources` preference (D1), seeded `"unkno
 | C6 | `wos` and `wos_test` share database roles. Before the Winette pilot, move the test schema to its own project or revoke access | Shared during dogfood | D1 |
 | C7 | The Notion `nudge_candidate` formula has the principal's name and the aging thresholds typed in. Edit the TEST copy for Colin, and edit both copies if thresholds change | As built | D1 |
 | C8 | `CHAT_PLATFORM`. If Slack: read-only on named channels, message-write tool off | None | D6 |
-| C9 | First-run lookback when no watermark exists: 24h (Chief of Staff), 30 days of travel confirmations, 7 days (Sales, Marketing, Operations), 14 days (Finance) | ASSUMPTION | D2, D5 |
+| C9 | First-run lookback when no watermark exists: 24h (morning brief capture), 3 business days (`ledger-capture`), 30 days back and 60 forward (travel), 7 days (Sales, Marketing, Operations), 14 days (Finance exceptions, Purchasing mail), 30 days (reporting deadlines) | ASSUMPTION | D2, D5 |
 | C10 | Scan horizons: 14 days for calendar conflicts, 60 days for trips | ASSUMPTION | D2 Travel, D5 |
 
 ### 2.2 Rules and thresholds
@@ -66,7 +66,23 @@ All source parameters live in the `data_sources` preference (D1), seeded `"unkno
 | C18 | Dogfood extension: extend day by day; after two weeks without exit, stop, rework and restart from Day 0 | ASSUMPTION | D8 |
 | C19 | Trip brief timeliness target 100%; calendar conflicts she finds first, target 0 | ASSUMPTION | D2 Travel |
 
-### 2.3 Context store seeds
+### 2.3 Scheduling and runtime (D5)
+
+| # | Question or assumption | Built against | Where |
+|---|---|---|---|
+| C35 | Scheduler: Claude scheduled tasks under the principal's own account so pushes reach her iPhone; dogfood under Colin's account; fallback Colin's OpenClaw cron | ASSUMPTION | D5 |
+| C36 | `PUSH_CHANNEL` suppresses a notification whose first line is `NO_PUSH`. If not, `ledger-capture` and `travel-watch` run with notifications off and alerts fall back to the next digest tagged "Held" | ASSUMPTION (Colin, IT) | D4 §2, D5 |
+| C37 | Run outputs (trip briefs) are linkable from her Claude app; if not, links point to the ledger row whose `body` holds the brief | ASSUMPTION | D2 Travel, D5 |
+| C38 | Every run finishes within 15 minutes; the cron offsets depend on it | ASSUMPTION | D5 |
+| C39 | Ledger `item` capped at 90 characters, verb first | ASSUMPTION | D5 |
+| C40 | Meeting-sourced items come only from Drive docs shared with or owned by the principal and linked from, or titled for, an event she attended | ASSUMPTION | D2 Chief of Staff, D5 |
+| C41 | Nudge drafts: at most 10 per run, 60 words, no signature (the API does not add her Gmail signature) | ASSUMPTION | D5 |
+| C42 | Weekly review lists at most 10 aging items. INFERENCE: aging rows appear there even if surfaced before, since "surfaces once" governs daily digests and alerts | ASSUMPTION | D5 |
+| C43 | The per-agent alert ceiling counts by `owning_agent`. In Phase 1 the Chief of Staff owns every non-travel row, so at most 2 non-travel alerts a day. Intended, or count by `routed_to`? | By `owning_agent` | D3 §5.2, D5 |
+| C44 | INFERENCE: `finance-exceptions` (06:10) runs before `purchasing-po-watch` (06:25), so a spend proposal gets Finance's view, and reaches her, one business day after it is created | As scheduled | D5 |
+| C45 | Sales task defaults: 10-business-day meeting window, 30-day review lead | ASSUMPTION | D5 |
+
+### 2.4 Context store seeds
 
 | # | Question or assumption | Built against | Where |
 |---|---|---|---|
@@ -76,7 +92,7 @@ All source parameters live in the `data_sources` preference (D1), seeded `"unkno
 | C23 | `preferred_channel` options: email, phone, text, chat, in_person, via_assistant | ASSUMPTION | D1 |
 | C24 | Preferences are admin-only. Winette's preference changes go through the Chief of Staff, and Colin applies them. Agents never write context tables; they propose edits as ledger rows | As built | D1, D2 |
 
-### 2.4 Sales, Marketing and Demand inputs
+### 2.5 Sales, Marketing and Demand inputs
 
 | # | Question or assumption | Built against | Where |
 |---|---|---|---|
@@ -109,10 +125,13 @@ All source parameters live in the `data_sources` preference (D1), seeded `"unkno
 | W12 | Where reminders live (Google Calendar private events, Google Tasks, Apple Reminders) and where she edits to-dos | Private, attendee-free Calendar entries; to-dos as a ledger view. ASSUMPTION: Apple Reminders is unreachable from a cloud task | D2 Travel, D6 |
 | W13 | `travel_preferences`: ground transport, red-eyes, early holds, seat and airline programs (no account logins, ever) | None set | D2 Travel |
 | W14 | Conflict thresholds: transition under 30 minutes, meeting within 90 minutes of landing, connection under 60 minutes domestic or 90 international, meetings outside 07:00 to 21:00 local | ASSUMPTION | D2 Travel |
-| W15 | Trip brief by 72h before departure, refreshed the evening before | ASSUMPTION | D2 Travel, D4 §7 |
+| W15 | Trip brief by 72h before departure, refreshed on the 06:20 run the day before departure (a business day to fix gaps). An evening refresh needs a second `travel-watch` hour, `20 6,18 * * *` | ASSUMPTION | D2 Travel, D4 §7, D5 |
 | W16 | Retention for ledger and audit rows | Kept for the life of the system until a schedule is set | D7 |
 | W17 | Agencies to add to `WOS Orgs` (Marketing) | None seeded | D2 Marketing |
 | W18 | Text or Styled fidelity; whether a daily brief page is wanted; theme by hour or by device setting; brand fonts if Origin Brands has them | Text in Phase 1 | D4 §1, §8 |
+| W19 | Weekend brief needs at least one decision or travel line; a "still waiting" line alone does not send it | ASSUMPTION | D5 |
+| W20 | Weekday briefs and EOD closes are sent even when empty ("Nothing needs you today.") | ASSUMPTION | D5 |
+| W21 | On Fridays, "Tomorrow" in the EOD close means Monday | ASSUMPTION | D5 |
 
 ## 4. Finance
 
@@ -126,6 +145,7 @@ All source parameters live in the `data_sources` preference (D1), seeded `"unkno
 | F6 | `FINANCE_THRESHOLDS`: margin, cash and variance thresholds | Unset, so no threshold exceptions are raised | D2 Finance |
 | F7 | `APPROVAL_MATRIX` and the CEO spend approval threshold, which drives `winette_action_needed` on reorder proposals | Unset; spend conflicts only against stated budget or cash facts | D2 Finance, Purchasing |
 | F8 | While Finance is inactive, spend decisions carry "Finance view pending" | As built | D2 Purchasing |
+| F9 | `finance-reporting-deadlines` defaults: 60-day horizon, prep flagged 5 business days before each deadline | ASSUMPTION | D2 Finance, D5 |
 
 ## 5. Operations
 

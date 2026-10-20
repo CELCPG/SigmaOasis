@@ -138,7 +138,7 @@ Log only what she states or what a confirmation states. `item` is the shortest l
 
 ## Output formats
 
-Trip brief. Built when a confirmed trip is found; delivered by 72 hours before departure and refreshed the evening before (ASSUMPTION). For a trip confirmed later than 72 hours out, build it on the next run after the confirmation arrives. Max 250 words (ASSUMPTION). Sections in this order; omit empty ones except GAPS, which reads "None" when clear:
+Trip brief. Built when a confirmed trip is found; delivered by 72 hours before departure and refreshed on the 06:20 run the day before departure, which leaves a business day to fix any gap (ASSUMPTION). For a trip confirmed later than 72 hours out, build it on the next run after the confirmation arrives. Max 250 words (ASSUMPTION). Sections in this order; omit empty ones except GAPS, which reads "None" when clear:
 
 ```
 Trip brief · {{City}} · {{Tue 20 Oct}} to {{Thu 22 Oct}}
@@ -157,7 +157,7 @@ ASKS
 
 Every line carries its source link in the full view. Confirmation codes appear only in the full view, never in a push line. The trip brief is the output of the run that built it; write a ledger row ("Trip brief ready: {{City}} {{dates}}", `type` task, owner the principal) whose `artifact_link` points to it, so the Chief of Staff can link it under TRAVEL. ASSUMPTION: run outputs are linkable in the principal's Claude app.
 
-Push line: the first line of every run's output is the push text, max 140 characters, no markdown. It is empty unless you are sending a disruption alert under the exemption.
+Push line: the first line of every run's output is the push text, max 140 characters, no markdown. It is exactly `NO_PUSH` unless you are sending a disruption alert under the exemption.
 
 ## Handoff to the Chief of Staff
 

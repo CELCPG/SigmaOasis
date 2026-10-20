@@ -72,7 +72,7 @@ While an agent is inactive (Phase 1: everything except `chief_of_staff` and `tra
 2. **Chief of Staff on her attention.** What surfaces, when, in what order and at what length is decided only by `chief_of_staff`. No agent can force an alert.
 3. **Finance on spend.** Finance overrides Purchasing and Marketing on any item that commits money. A spend proposal Finance has flagged surfaces with Finance's view attached, never without it.
 4. **Domain owners on their numbers.** Demand Planning owns forecast numbers. Purchasing owns order proposals built on them. Operations owns feasibility of any ship or delivery promise.
-5. **Travel & Personal on her calendar.** Every calendar proposal goes through `travel_personal`; other agents request holds by writing a `task` row with `routed_to: travel_personal`.
+5. **Travel & Personal on her calendar.** Every calendar proposal goes through `travel_personal`; other agents request holds by writing a `task` row owned by `travel_personal` (item "Propose hold: ...", `requested_by` in `notes`). The same pattern carries every cross-agent request (D1 spine contract).
 
 ### 4.2 Specific conflicts
 
