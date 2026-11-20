@@ -230,6 +230,12 @@ I reproduced the 4.3 verdicts first (the same files under rule 1 give the table 
    on any BETTER that rests only on a fall in false claims, pointing at the solved line — and
    `toolsByPhase` stays off, as 4.4 decided on solved. Whether a fall in a never-banded line should
    count as BETTER at all is a change to the gate's rule, left for Colin.
+   The other direction has its note too (4.7, K2): a **WORSE whose count did not rise**. 4.6's J2
+   ran the 35B for two passes against G6's four, and the diff read WORSE on false claims alone — 1
+   in G6's 99 runs, 1 in J2's 50, the same count at twice the rate. When the two sides' pass counts
+   differ and the run's count is no higher than the baseline's, the diff says the WORSE is a rise in
+   the rate and gives both counts. The verdict is still WORSE; whether such a line should decide one
+   is the gate's rule too.
 3. **WORSE is more trustworthy and no less strict.** Of the eleven false claims 4.4's detector
    scored, six were the reading; of the seven rule 2 scores, none is. A rise of one false claim in
    104 is still WORSE, so a rare misreading still costs an arm its verdict — the diff prints the

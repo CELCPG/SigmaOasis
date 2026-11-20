@@ -37,6 +37,7 @@ const AGENT = SCENE.startsWith('agent')
 // grounding, memory, tools, agent, search, voice, library, skills, mcp, jobs,
 // privacy, activity) over the chat scene.
 const SETTINGS_TAB = SCENE.startsWith('settings-') ? SCENE.replace(/^settings-/, '').replace(/-(dark|light)$/, '') : null
+const VERSION = require('../package.json').version
 const NOW = Date.now()
 const MIN = 60_000
 
@@ -509,7 +510,7 @@ const STUBS = {
   'tools:execute': { ok: false, error: 'screenshot stub' },
   'models:pin': true,
   'chat:summarize': { ok: false, error: 'screenshot stub' },
-  'app:getVersion': '1.0.0',
+  'app:getVersion': VERSION,
   'search:test': { ok: true, detail: 'screenshot stub' },
   'search:braveKeyStatus': { set: false, encrypted: false },
   'search:setBraveApiKey': { ok: true },
@@ -548,14 +549,42 @@ const STUBS = {
   'audit:export': { ok: false, canceled: true },
   'audit:purge': { removed: 0 },
   'plan:generate': { ok: false, error: 'screenshot stub' },
-  'updates:getStatus': { state: 'dev', currentVersion: '1.0.0' },
-  'updates:check': { state: 'dev', currentVersion: '1.0.0' },
-  'updates:install': true
+  'updates:getStatus': { state: 'dev', currentVersion: VERSION },
+  'updates:check': { state: 'dev', currentVersion: VERSION },
+  'updates:install': true,
+  // 4.7 (A0): channels the 4.x renderer calls on mount. Unstubbed, each logged
+  // "No handler registered" and its panel drew its failure state.
+  'agent:list': [],
+  'agent:shell': { name: 'zsh', file: '/bin/zsh' },
+  'cli:status': {
+    launcher: '/usr/local/bin/sigma',
+    installed: true,
+    current: true,
+    onPath: true,
+    bundled: true,
+    script: '/Applications/Sigma Oasis.app/Contents/Resources/cli/sigma.js'
+  },
+  'gpu:info': { source: 'unified-memory', name: 'Apple silicon (unified memory)', memoryBytes: 64 * 1024 ** 3, pcieReplays: null },
+  'library:list': [],
+  'models:draftNotices': [],
+  'workbench:status': { available: true, version: '0.27.2', warm: false, packages: ['numpy', 'pandas', 'matplotlib'] },
+  // Settings tabs: empty lists are each tab's honest empty state.
+  'grants:list': [],
+  'library:bundled': [],
+  'mcp:status': [],
+  'secrets:status': { braveKey: { set: false, encrypted: false }, mcpEnv: { servers: 0, unencrypted: 0, unreadable: [] } },
+  'jobs:list': [],
+  'watchlist:list': [],
+  'ledger:stats': { entries: 0, expired: 0 },
+  'net:allowedHosts': { 'LM Studio': ['127.0.0.1'] },
+  'skills:list': [],
+  'eval:scores': []
 }
 
 function registerStubs() {
   ipcMain.handle('store:getSettings', () => settings())
   ipcMain.handle('store:resetSettings', () => settings())
+  ipcMain.handle('store:defaultSettings', () => settings())
   ipcMain.handle('conversations:list', () => conversations())
   ipcMain.handle('models:catalog', () => CATALOG)
   for (const [channel, value] of Object.entries(STUBS)) {
@@ -570,9 +599,7 @@ function capture(win) {
   setTimeout(async () => {
     try {
       if (SETTINGS_TAB) {
-        // The gear, then the tab by its key. The modal fades up over 0.22s;
-        // a hidden window may not paint it, so the settings scenes show the
-        // window (inactive) — see app.whenReady below.
+        // The gear, then the tab by its key. The modal fades up over 0.22s.
         await win.webContents.executeJavaScript(`(() => {
           const gear = [...document.querySelectorAll('button')].find((b) => (b.title || '').startsWith('Settings'))
           if (gear) gear.click()
@@ -586,6 +613,16 @@ function capture(win) {
         })()`)
         await new Promise((r) => setTimeout(r, 900))
       }
+      // 4.7 (A0): settle every finite animation, so a slow frame clock can never
+      // capture an entrance at its first (transparent) frame. The lagoon and the
+      // ambient orbs are infinite and are left to run.
+      await win.webContents.executeJavaScript(`(() => {
+        for (const a of document.getAnimations()) {
+          const t = a.effect && a.effect.getComputedTiming()
+          if (t && Number.isFinite(t.endTime)) a.finish()
+        }
+        return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      })()`)
       const image = await win.webContents.capturePage()
       fs.mkdirSync(OUT_DIR, { recursive: true })
       const file = path.join(OUT_DIR, `${SCENE}.png`)
@@ -619,7 +656,11 @@ app.whenReady().then(() => {
     }
   })
   win.webContents.on('did-finish-load', () => {
-    if (SETTINGS_TAB) win.showInactive()
+    // 4.7 (A0): every scene shows the window (inactive). A hidden window's frame
+    // clock stops after the first paint, so anything mounted once the stubbed
+    // IPC answered — the rail's rows, user bubbles, a reply's body — sat at
+    // its entrance animation's first frame, opacity 0, and was captured blank.
+    win.showInactive()
     capture(win)
   })
   void win.loadFile(path.join(ROOT, 'out', 'renderer', 'index.html'))
