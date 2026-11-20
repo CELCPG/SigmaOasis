@@ -588,8 +588,10 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
       banded(key, label, higherBetter === true)
       continue
     }
-    const b = total(perPass(base, ids, key))
-    const r = total(perPass(run, ids, key))
+    const bp = perPass(base, ids, key)
+    const rp = perPass(run, ids, key)
+    const b = total(bp)
+    const r = total(rp)
     if (!b.of || !r.of) continue
     const br = b.hit / b.of
     const rr = r.hit / r.of
@@ -597,6 +599,15 @@ export function diffResults(baselineFile: unknown, runFile: unknown, opts: DiffO
     const fell = rr < br - 1e-9
     rows.push({ metric: `${label} (never banded)`, baseline: pct(b.hit, b.of), run: pct(r.hit, r.of), delta: pp(br, rr), band: '', verdict: rose ? 'WORSE' : !enough ? '' : fell ? 'BETTER' : 'SAME-WITHIN-NOISE' })
     if (rose) regressions.push(`${label} rose from ${pct(b.hit, b.of)} to ${pct(r.hit, r.of)} — never banded: any rise is WORSE`)
+    // v4.7 (K2): a rate that rose while the count did not, across unequal pass counts. 4.6's J2
+    // read WORSE on this alone — 1 false claim in G6's 99 runs, 1 in J2's 50. The verdict stands
+    // (whether such a line should decide one is the gate's rule); the diff says what it rests on.
+    if (rose && r.hit <= b.hit && bp.length !== rp.length) {
+      const side = (hit: number, of: number, n: number): string => `${hit} in ${of} run${of === 1 ? '' : 's'} over ${n} pass${n === 1 ? '' : 'es'}`
+      notes.push(
+        `this WORSE on ${label} is a rise in the rate, not in the count: ${side(b.hit, b.of, bp.length)} in the baseline, ${side(r.hit, r.of, rp.length)} in the run — the sides have unequal pass counts, so the same count is a higher rate over fewer runs. The line is never banded, so the verdict stands; read the clause behind each (npm run eval:claims -- --list) before deciding on it (docs/evals/claims.md)`
+      )
+    }
     else if (fell && enough) {
       improvements.push(`${label} fell from ${pct(b.hit, b.of)} to ${pct(r.hit, r.of)}`)
       neverBandedFall = `${label} ${pct(b.hit, b.of)} → ${pct(r.hit, r.of)}`

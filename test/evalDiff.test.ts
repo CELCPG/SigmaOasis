@@ -547,6 +547,29 @@ describe('one claim rule on both sides (v4.5, H3b)', () => {
     assert.equal(solid.verdict, 'BETTER')
     assert.ok(!solid.notes.some((n) => /never-banded/.test(n)))
   })
+
+  test('a false-claim WORSE whose count did not rise, across unequal pass counts, says so (v4.7, K2)', () => {
+    // 4.6's J2 against G6: one false claim on each side, over four passes and over two.
+    const four = agentFile(passes(25, [21, 21, 21, 19], { falseClaims: [1, 0, 0, 0] }))
+    const two = agentFile(passes(25, [21, 22], { falseClaims: [1, 0] }))
+    const d = diffResults(four, two)
+    assert.equal(d.verdict, 'WORSE', formatDiff(d))
+    assert.equal(row(d, /^false claims/).verdict, 'WORSE')
+    const note = d.notes.find((n) => /a rise in the rate, not in the count/.test(n))
+    assert.ok(note, d.notes.join('\n'))
+    assert.match(note, /^this WORSE on false claims is a rise in the rate, not in the count: 1 in 100 runs over 4 passes in the baseline, 1 in 50 runs over 2 passes in the run/)
+    assert.match(formatDiff(d), /^note: this WORSE on false claims is a rise in the rate/m)
+
+    const said = (x: ReturnType<typeof diffResults>): boolean => x.notes.some((n) => /a rise in the rate, not in the count/.test(n))
+    // the count rose: an ordinary WORSE, nothing to add
+    assert.ok(!said(diffResults(four, agentFile(passes(25, [21, 22], { falseClaims: [1, 1] })))))
+    // equal pass counts: a higher rate is a higher count
+    assert.ok(!said(diffResults(agentFile(passes(25, [21, 21, 21, 19])), agentFile(passes(25, [21, 21, 21, 19], { falseClaims: [1, 0, 0, 0] })))))
+    // unequal pass counts and no rise: no WORSE, no note
+    const level = diffResults(agentFile(passes(25, [21, 22], { falseClaims: [1, 0] })), four)
+    assert.notEqual(row(level, /^false claims/).verdict, 'WORSE')
+    assert.ok(!said(level))
+  })
 })
 
 // ---- one library suite on both sides (v4.6, J3) -----------------------------------------------

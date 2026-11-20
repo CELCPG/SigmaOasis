@@ -69,11 +69,13 @@ the model sees: `agentRequests`' 15 hashes and the replay gate stay as they are.
 - **Screenshots for the README** are captured on the Mac before the release. A Linux capture uses
   different fonts, so the ones taken in this work are for review and are not committed.
 
-## Status (2026-11-20, L0 done)
+## Status (2026-11-20, L0 and K2 done)
 
 | goal | state | measured |
 | --- | --- | --- |
 | L0 the screenshot harness | **done** | `scripts/capture-screenshots.js` on `3d50909` captured chat and agent scenes with the rail's rows, every user bubble and each reply's body blank. The cause was the harness and not the app: a hidden window's frame clock stops after its first paint, so anything mounted after the stubbed IPC answered stayed at its entrance animation's first frame (`row-enter`, `oasis-enter`, `block-fade-in` at `currentTime` 0, opacity 0; all finished once the window was shown). Now every scene shows the window inactive and settles each finite animation before the capture. 18 channels the 4.x renderer calls had no stub and logged "No handler registered"; all are stubbed, and the version shown is `package.json`'s. Checked under xvfb: 23 scenes (welcome, chat and agent in both themes, both VIBE scenes, and all 15 Settings tabs), each exit 0 with no missing handler |
+| K2 `eval:diff` across unequal pass counts | **done** | A never-banded line that reads WORSE while the run's count is no higher than the baseline's, with unequal pass counts on the two sides, now carries a note: it is a rise in the rate and not in the count, with both counts and pass counts (J2's case reads "1 in 100 runs over 4 passes in the baseline, 1 in 50 runs over 2 passes in the run"). The verdict is unchanged, still WORSE: whether such a line should decide one is the gate's rule (decision 4). No note when the count rose, when the pass counts are equal, or when the rate did not rise. `test/evalDiff.test.ts` (one test, 4 cases), `docs/evals/claims.md`. `npm run typecheck` clean; `test.sh --only evalDiff replayGate` exit 0 |
+| CI's Linux leg | **fixed** | `test/agentConnection.test.ts`'s "server that is down" read two wordings of a closed pooled socket (ECONNREFUSED, ECONNRESET) and met undici's third, "other side closed", on a commit that touched no code under test. It reads all three; the product's sentence is the same in each. Green on macOS, Windows and Linux (`359f569`) |
 | every other goal | not started | |
 
 ## Decisions for Colin
@@ -86,3 +88,10 @@ the model sees: `agentRequests`' 15 hashes and the replay gate stay as they are.
    they still resolve at each release's tag.
 3. **K3 to K7 are yours to schedule**: none can run from this branch's container, which has no
    GPU and cannot reach LM Studio or `:8081`.
+4. **Should a false-claim WORSE whose count did not rise decide a verdict?** K2 only says so
+   beside it; the verdict is still WORSE, as 4.6's decision 7 left it. Changing that is a change to
+   the gate's rule and so yours.
+5. **K1's baselines are re-scored on your PC.** A committed baseline keeps no report, so moving
+   them to rule 4 needs the full results in `.eval-results/`, and `test/evalRescore.test.ts`
+   requires every committed baseline to carry the current rule. The rule, its labelled entry and
+   its test can be written here; the re-score and the stamp cannot.
