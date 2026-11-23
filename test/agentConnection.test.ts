@@ -445,9 +445,10 @@ describe('eval:agent through the agent connection', () => {
       server.closeAllConnections()
       await new Promise<void>((r) => server.close(() => r()))
     }
-    // Refused, or — a pooled keep-alive socket to the server just closed — reset.
+    // Refused, or — a pooled keep-alive socket to the server just closed — reset; undici words that
+    // same race "other side closed" when it sees the close before the write (CI's Linux leg, 4.7).
     const down = await checkAgentServer(routeAgent(MAIN, { enabled: true, baseUrl: url, model: '' }, 'x'))
-    assert.match((down as { error: string }).error, new RegExp(`^The agent connection \\(${url.replace(/[.]/g, '\\.')}, Settings → LM Studio\\) did not answer: .*(ECONNREFUSED|ECONNRESET).*\\. The agent does not fall back to LM Studio`))
+    assert.match((down as { error: string }).error, new RegExp(`^The agent connection \\(${url.replace(/[.]/g, '\\.')}, Settings → LM Studio\\) did not answer: .*(ECONNREFUSED|ECONNRESET|other side closed).*\\. The agent does not fall back to LM Studio`))
   })
 })
 
