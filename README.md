@@ -810,7 +810,7 @@ sigma-oasis/
 ├── scripts/test-render.sh
 ├── electron.vite.config.ts
 ├── electron-builder.yml
-├── tailwind.config.js
+├── postcss.config.js         # Tailwind 4 (its configuration is in src/renderer/src/assets/index.css)
 ├── package.json
 └── README.md
 ```
@@ -860,7 +860,7 @@ Both skip themselves, rather than failing, where no display is available.
 
 - **Electron** (desktop shell) + **electron-vite** (bundler/dev server) + **electron-builder** (packaging)
 - **React 18 + TypeScript** (renderer)
-- **Zustand** (state), **Tailwind CSS** (styling)
+- **Zustand** (state), **Tailwind CSS 4** (styling)
 - **marked** + **highlight.js** (markdown & code highlighting)
 - **electron-store** (settings persistence)
 
