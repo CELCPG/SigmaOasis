@@ -65,7 +65,7 @@ export function PlanBlockView({
     <div
       role="group"
       aria-labelledby={headerId}
-      className="my-2 overflow-hidden rounded-2xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] text-xs"
+      className="my-2 overflow-hidden rounded-2xl border border-black/10 dark:border-white/10 bg-black/3 dark:bg-white/3 text-xs"
     >
       <div id={headerId} className="flex items-center gap-2 px-3 py-1.5">
         <span aria-hidden="true">📋</span>

@@ -19,7 +19,7 @@ import type { Conversation, Project, ProjectColor } from '../types'
  * catch. Pinned by the raw-palette check in test/chromeContrastCheck.ts.
  */
 export const PROJECT_ACCENT: Record<ProjectColor, { dot: string; chip: string }> = {
-  teal: { dot: 'bg-[#00d4aa]', chip: 'bg-[rgba(0,212,170,0.15)] text-accent-ink' },
+  teal: { dot: 'bg-accent', chip: 'bg-[rgba(0,212,170,0.15)] text-accent-ink' },
   blue: { dot: 'bg-blue-500', chip: 'bg-blue-500/15 text-blue-700 dark:text-blue-400' },
   purple: { dot: 'bg-purple-500', chip: 'bg-purple-500/15 text-purple-700 dark:text-purple-400' },
   amber: { dot: 'bg-amber-500', chip: 'bg-amber-500/15 text-amber-800 dark:text-amber-400' },

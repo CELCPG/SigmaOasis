@@ -24,11 +24,12 @@ import { readSource } from './harness'
 import { messageBubbleSource } from './messageBubbleSource'
 import { ACCENT } from '../src/renderer/src/lib/colors'
 import { toolVisualForName } from '../src/renderer/src/lib/oasisRipple'
+import { CSS_COLOR_PARSE_JS } from './cssColor'
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const postcss = require('postcss')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const tailwindcss = require('tailwindcss')
+const tailwindcss = require('@tailwindcss/postcss')
 
 const REPO = join(__dirname, '..', '..')
 const CSS_PATH = join(REPO, 'src/renderer/src/assets/index.css')
@@ -117,7 +118,7 @@ const PICK: Record<string, { source: string; re: RegExp; wrap?: (s: string) => s
   },
   provenanceButton: {
     source: section('function MemoryContextLine', 'function formatStats'),
-    re: /className="(rounded px-1\.5[^"]*)"/
+    re: /className="(rounded-sm px-1\.5[^"]*)"/
   },
   // v1.17.2: the strip's three new pieces of information. The per-entry verdict
   // ("— not cited" / "— cannot tell") is the sentence a reader checks the
@@ -635,10 +636,8 @@ function fixture(dark: boolean): string {
  * ink rows come back byte-identical, because nothing else dims ink this way.
  */
 const MEASURE = `(() => {
-  const parse = (s) => {
-    const n = (s.match(/[\\d.]+/g) || []).map(Number)
-    return [n[0] || 0, n[1] || 0, n[2] || 0, n.length > 3 ? n[3] : 1]
-  }
+  // v4.7 (M1): Tailwind 4's oklab() included — test/cssColor.ts.
+  ${CSS_COLOR_PARSE_JS}
   const over = (fg, bg) => (fg[3] >= 1 ? fg.slice(0, 3) : [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3])))
   const chan = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
   const lum = (c) => 0.2126 * chan(c[0]) + 0.7152 * chan(c[1]) + 0.0722 * chan(c[2])
@@ -711,11 +710,12 @@ async function buildCss(): Promise<string> {
   //
   // The safelist is the fixture's, never the app's: it forces classes to exist
   // so they can be measured, and changes no colour the product ships.
-  const config = { ...require(join(REPO, 'tailwind.config.js')) }
-  config.safelist = [
-    ...new Set(rawInks.flatMap((r) => [`bg-${r.hue}-500/15`, r.cls]))
-  ]
-  const out = await postcss([tailwindcss(config)]).process(source, { from: CSS_PATH })
+  //
+  // v4.7 (M1): Tailwind 4 takes the configuration from the CSS, and a safelist
+  // is an inline source appended to it.
+  const safelist = [...new Set(rawInks.flatMap((r) => [`bg-${r.hue}-500/15`, r.cls]))]
+  const withSafelist = `${source}\n@source inline(${JSON.stringify(safelist.join(' '))});\n`
+  const out = await postcss([tailwindcss({ base: REPO })]).process(withSafelist, { from: CSS_PATH })
   return out.css as string
 }
 

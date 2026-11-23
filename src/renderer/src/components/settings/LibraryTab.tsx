@@ -261,7 +261,7 @@ export function LibraryTab(): JSX.Element {
                       </p>
                     )}
                     {progress && (
-                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-black/10 dark:bg-white/10" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-sm bg-black/10 dark:bg-white/10" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
                         <div className="h-full bg-accent transition-all" style={{ width: `${progress.total ? Math.round((100 * progress.done) / progress.total) : 0}%` }} />
                       </div>
                     )}

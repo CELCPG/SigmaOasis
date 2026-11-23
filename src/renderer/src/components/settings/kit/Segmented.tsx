@@ -100,7 +100,7 @@ export function Segmented<V extends string>({ value, onChange, options, variant 
             onClick={() => onChange(o.value)}
             onKeyDown={(e) => onKey(e, i)}
             className={`rounded-md px-3 py-1 transition-colors disabled:opacity-40 ${
-              selected ? 'bg-white text-ink-primary shadow-sm dark:bg-neutral-700' : 'text-ink-secondary hover:text-ink-primary'
+              selected ? 'bg-white text-ink-primary shadow-xs dark:bg-neutral-700' : 'text-ink-secondary hover:text-ink-primary'
             }`}
           >
             {o.label}

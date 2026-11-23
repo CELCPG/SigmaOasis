@@ -7,17 +7,17 @@
 
 /** A field, select or textarea: the surface, one padding, the ring from index.css. */
 export const FIELD =
-  'rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-ink-primary outline-none dark:border-white/10'
+  'rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-ink-primary outline-hidden dark:border-white/10'
 /** The same, sized for a control inside a list row. */
 export const FIELD_COMPACT =
-  'rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs text-ink-primary outline-none dark:border-white/10'
+  'rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs text-ink-primary outline-hidden dark:border-white/10'
 
 /** Labels: one size, one weight. */
 export const LABEL = 'text-sm font-medium text-ink-primary'
 /** Help under a label: one size, one ink. */
 export const HELP = 'text-xs leading-relaxed text-ink-secondary'
 /** A section's title. */
-export const SECTION_TITLE = 'text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary'
+export const SECTION_TITLE = 'text-[11px] font-semibold uppercase tracking-widest text-ink-tertiary'
 
 const BUTTON_BASE =
   'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40'
@@ -41,10 +41,10 @@ export function buttonClass(kind: ButtonKind = 'secondary', size: ButtonSize = '
 /** Status: one palette, through the ink variables so both themes read. */
 export type Tone = 'ok' | 'warn' | 'danger' | 'info' | 'muted'
 export const DOT_TONE: Record<Tone, string> = {
-  ok: 'bg-[var(--text-ok)]',
-  warn: 'bg-[var(--text-warn)]',
-  danger: 'bg-[var(--text-danger)]',
-  info: 'bg-[var(--text-info)]',
+  ok: 'bg-(--text-ok)',
+  warn: 'bg-(--text-warn)',
+  danger: 'bg-(--text-danger)',
+  info: 'bg-(--text-info)',
   muted: 'bg-ink-muted'
 }
 export const TEXT_TONE: Record<Tone, string> = {

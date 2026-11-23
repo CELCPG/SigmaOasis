@@ -158,7 +158,7 @@ export function FrontDoor({ conversation, onPick }: FrontDoorProps): JSX.Element
 
         {(left.recent.length > 0 || left.digest || running.length > 0) && (
           <section className="oasis-enter mt-6" style={{ animationDelay: '140ms' }} data-pick-up>
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">Pick up where you left off</h2>
+            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-ink-tertiary">Pick up where you left off</h2>
             <div className="mt-2 space-y-1">
               {running.map((r) => (
                 <button key={r.conversationId} type="button" onClick={() => setActiveConversationId(r.conversationId)} className="glass-panel glass-panel--hover flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left">
@@ -182,7 +182,7 @@ export function FrontDoor({ conversation, onPick }: FrontDoorProps): JSX.Element
         )}
 
         <section className="oasis-enter mt-6" style={{ animationDelay: '200ms' }} data-cards>
-          <h2 className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">{isAgent ? 'Tasks to start with' : 'Try what this machine can do'}</h2>
+          <h2 className="text-[10px] font-semibold uppercase tracking-widest text-ink-tertiary">{isAgent ? 'Tasks to start with' : 'Try what this machine can do'}</h2>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {(isAgent ? AGENT_STARTERS(Boolean(conversation?.agent?.workspace)) : cards).map((c, i) => (
               <button

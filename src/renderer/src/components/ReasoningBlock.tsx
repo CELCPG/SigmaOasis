@@ -34,7 +34,7 @@ export function ReasoningBlock({ reasoning, reasoningMs, isStreaming, defaultOpe
     : `Thought${reasoningMs ? ` for ${formatDuration(reasoningMs)}` : ''}`
 
   return (
-    <div className="my-2 overflow-hidden rounded-2xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] text-xs">
+    <div className="my-2 overflow-hidden rounded-2xl border border-black/10 dark:border-white/10 bg-black/3 dark:bg-white/3 text-xs">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

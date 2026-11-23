@@ -48,7 +48,7 @@ export function ActivityTab({ settings }: { settings: AppSettings }): JSX.Elemen
               {net.map((a, i) => (
                 <li key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
                   <StatusDot tone={a.blocked ? 'danger' : a.ok ? 'ok' : 'warn'} />
-                  <span className="shrink-0 rounded bg-black/5 px-1.5 py-0.5 font-mono dark:bg-white/10">{a.purpose}</span>
+                  <span className="shrink-0 rounded-sm bg-black/5 px-1.5 py-0.5 font-mono dark:bg-white/10">{a.purpose}</span>
                   <span className="min-w-0 flex-1 truncate font-mono" title={a.note ? `${a.origin}
 ${a.note}` : a.origin}>
                     {a.origin}

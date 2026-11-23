@@ -63,7 +63,7 @@ export function AgentBar({ conversation }: { conversation: Conversation }): JSX.
         <button
           type="button"
           onClick={() => updateAgentConfig(conversation.id, { workspace: null })}
-          className="rounded px-1 text-ink-tertiary hover:text-ink-primary"
+          className="rounded-sm px-1 text-ink-tertiary hover:text-ink-primary"
           title="Work without a folder: no files, no commands — the web, the library and Python only, as enabled under Tools"
           aria-label="Work without a folder"
         >

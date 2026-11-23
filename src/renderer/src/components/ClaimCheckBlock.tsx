@@ -60,7 +60,7 @@ export function ClaimCheckBlock({ check, isStreaming }: Props): JSX.Element {
   const unreachable = check.budgetNote === UNREACHABLE_NOTE || summary === UNREACHABLE_NOTE
 
   return (
-    <div className="my-2 overflow-hidden rounded-2xl border border-amber-400/25 bg-amber-400/[0.05] text-xs">
+    <div className="my-2 overflow-hidden rounded-2xl border border-amber-400/25 bg-amber-400/5 text-xs">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

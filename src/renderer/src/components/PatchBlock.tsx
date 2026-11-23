@@ -15,7 +15,7 @@ import { Disclosure } from './Disclosure'
 export function DiffView({ diff }: { diff: string }): JSX.Element {
   const lines = useMemo(() => diff.split('\n'), [diff])
   return (
-    <pre className="max-h-96 overflow-auto rounded bg-black/5 p-2 font-mono text-[11px] leading-snug dark:bg-white/5" data-testid="patch-diff">
+    <pre className="max-h-96 overflow-auto rounded-sm bg-black/5 p-2 font-mono text-[11px] leading-snug dark:bg-white/5" data-testid="patch-diff">
       {lines.map((l, i) => (
         <div
           key={i}
@@ -96,7 +96,7 @@ export function PatchBlock({ record }: { record: ToolCallRecord }): JSX.Element 
           <button
             type="button"
             onClick={() => setShowDiff((o) => !o)}
-            className="ml-auto rounded px-1.5 py-0.5 text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/10"
+            className="ml-auto rounded-sm px-1.5 py-0.5 text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/10"
             aria-expanded={showDiff}
           >
             {showDiff ? 'Hide diff' : 'Show diff'}

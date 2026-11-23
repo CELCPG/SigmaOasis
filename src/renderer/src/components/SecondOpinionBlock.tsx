@@ -27,7 +27,7 @@ export function SecondOpinionBlock({ opinion, isStreaming }: Props): JSX.Element
   const label = secondOpinionLabel(opinion, isStreaming)
 
   return (
-    <div className="my-2 overflow-hidden rounded-2xl border border-violet-400/25 bg-violet-400/[0.06] text-xs">
+    <div className="my-2 overflow-hidden rounded-2xl border border-violet-400/25 bg-violet-400/6 text-xs">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

@@ -550,7 +550,7 @@ export function InputBar(): JSX.Element {
                     : 'Tell the agent what to do…'
                   : 'Message Sigma Oasis…'
               }
-              className={`composer-input max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-tertiary ${
+              className={`composer-input max-h-[200px] resize-none bg-transparent px-2 py-1.5 text-sm outline-hidden placeholder:text-ink-tertiary ${
                 compact ? 'order-first w-full basis-full' : 'flex-1'
               }`}
             />
@@ -580,7 +580,7 @@ export function InputBar(): JSX.Element {
                 onClick={submit}
                 disabled={!text.trim() && attachments.length === 0}
                 title="Send (Enter) · Shift+Enter for a new line"
-                className="shrink-0 rounded-2xl border border-[rgba(0,212,170,0.4)] bg-gradient-to-br from-[rgba(0,212,170,0.25)] to-[rgba(0,143,107,0.25)] px-4 py-1.5 text-sm font-medium text-accent-ink shadow-[0_0_16px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_24px_rgba(0,212,170,0.35)] disabled:opacity-40 disabled:shadow-none"
+                className="shrink-0 rounded-2xl border border-[rgba(0,212,170,0.4)] bg-linear-to-br/srgb from-[rgba(0,212,170,0.25)] to-[rgba(0,143,107,0.25)] px-4 py-1.5 text-sm font-medium text-accent-ink shadow-[0_0_16px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_24px_rgba(0,212,170,0.35)] disabled:opacity-40 disabled:shadow-none"
               >
                 Send
               </button>

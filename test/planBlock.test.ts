@@ -257,7 +257,7 @@ describe('endPlan', () => {
 
 const REPO = join(__dirname, '..', '..')
 
-/** Tailwind v3 defaults, for every ink the plan block sets. */
+/** Tailwind 3's palette, for every ink the plan block sets — pinned in index.css's @theme since 4.7 (M1), so these are what renders. */
 const PALETTE: Record<string, string> = {
   'neutral-200': '#e5e5e5',
   'neutral-300': '#d4d4d4',
@@ -332,12 +332,13 @@ const STATUS_INK = (() => {
   return out
 })()
 
-/** The canvas the block sits on, read from the app's own Tailwind config. */
+/** The canvas the block sits on, read from the app's own Tailwind theme (index.css's @theme since 4.7, M1). */
 const CANVAS = (() => {
-  const cfg = readFileSync(join(REPO, 'tailwind.config.js'), 'utf8')
-  const m = cfg.match(/base:\s*\{\s*light:\s*'(#[0-9a-fA-F]{6})',\s*dark:\s*'(#[0-9a-fA-F]{6})'/)
-  assert.ok(m, 'tailwind.config.js no longer states the canvas colours')
-  return { light: m![1]!, dark: m![2]! }
+  const css = readFileSync(join(REPO, 'src/renderer/src/assets/index.css'), 'utf8')
+  const light = css.match(/--color-base-light:\s*(#[0-9a-fA-F]{6});/)
+  const dark = css.match(/--color-base-dark:\s*(#[0-9a-fA-F]{6});/)
+  assert.ok(light && dark, "index.css's @theme no longer states the canvas colours")
+  return { light: light![1]!, dark: dark![1]! }
 })()
 
 type RGB = [number, number, number]
@@ -363,11 +364,13 @@ function contrast(fg: RGB, bg: RGB): number {
 function background(html: string, dark: boolean): RGB {
   const open = html.indexOf('class="') + 7
   const root = html.slice(open, html.indexOf('"', open))
+  // An opacity as Tailwind writes it: `/[0.03]` (arbitrary) or `/3` (a percent,
+  // v4's canonical form since 4.7, M1). Both mean 3%.
   const m = dark
-    ? root.match(/dark:bg-white\/\[([\d.]+)\]/)
-    : root.match(/(?:^|\s)bg-black\/\[([\d.]+)\]/)
+    ? root.match(/dark:bg-white\/(?:\[([\d.]+)\]|(\d+))(?=\s|$)/)
+    : root.match(/(?:^|\s)bg-black\/(?:\[([\d.]+)\]|(\d+))(?=\s|$)/)
   assert.ok(m, `the plan block no longer states its ${dark ? 'dark' : 'light'} background`)
-  const alpha = Number(m![1])
+  const alpha = m![1] !== undefined ? Number(m![1]) : Number(m![2]) / 100
   const tint = dark ? 255 : 0
   return hex(dark ? CANVAS.dark : CANVAS.light).map((c) => c * (1 - alpha) + tint * alpha) as RGB
 }

@@ -117,7 +117,7 @@ export function MemoryContextLine({
       <button
         type="button"
         onClick={toggle}
-        className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
+        className="rounded-sm px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title={title}
       >
         {label}{' '}
@@ -128,7 +128,7 @@ export function MemoryContextLine({
         {note && <span className="text-ink-warn">{note} </span>}
         <span>{open ? '▾' : '▸'}</span>
       </button>
-      <Disclosure open={open} className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
+      <Disclosure open={open} className="mt-1 space-y-1.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/3 dark:bg-white/3 p-2.5">
           {groups
             ? groups.map((g, gi) => (
                 <div key={gi} className="space-y-1.5">
