@@ -194,7 +194,7 @@ function ProjectSection({ conversation }: { conversation: Conversation }): JSX.E
       <select
         value={current?.id ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-2.5 py-1.5 text-xs outline-none focus:border-accent"
+        className="w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-2.5 py-1.5 text-xs outline-hidden focus:border-accent"
         title="Which project this chat files under"
       >
         <option value="">No project</option>

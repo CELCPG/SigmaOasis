@@ -61,6 +61,7 @@ import { spawn } from 'child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { CSS_COLOR_PARSE_JS } from './cssColor'
 
 /** Below this, the text in a field is not a legibility problem — it is missing. */
 const FLOOR = 3
@@ -173,10 +174,8 @@ function seedProfile(theme: Theme): string {
  * returns them as JSON.
  */
 const READ_FIELDS = (surface: string, rootSel: string, probeHosts: string[]): string => `(() => {
-  const parse = (s) => {
-    const n = (s.match(/[\\d.]+/g) || []).map(Number)
-    return [n[0] || 0, n[1] || 0, n[2] || 0, n.length > 3 ? n[3] : 1]
-  }
+  // v4.7 (M1): Tailwind 4's oklab() included — test/cssColor.ts.
+  ${CSS_COLOR_PARSE_JS}
   const over = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3])).concat(1)
   const chan = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
   const lum = (c) => 0.2126 * chan(c[0]) + 0.7152 * chan(c[1]) + 0.0722 * chan(c[2])

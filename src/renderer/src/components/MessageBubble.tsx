@@ -238,10 +238,10 @@ export const MessageBubble = memo(function MessageBubble({
                 : '↪ steered in after the turn ended — answered next'}
           </span>
         )}
-        {/* break-words: a pasted path or key has no break opportunity of its
+        {/* wrap-break-word: a pasted path or key has no break opportunity of its
             own and would otherwise run straight out of the bubble. */}
         {message.content && (
-          <div className="oasis-enter max-w-[80%] whitespace-pre-wrap break-words rounded-3xl rounded-br-md px-4 py-2.5 text-sm border border-[rgba(0,212,170,0.18)] bg-[rgba(0,212,170,0.12)] backdrop-blur-xl">
+          <div className="oasis-enter max-w-[80%] whitespace-pre-wrap wrap-break-word rounded-3xl rounded-br-md px-4 py-2.5 text-sm border border-[rgba(0,212,170,0.18)] bg-[rgba(0,212,170,0.12)] backdrop-blur-xl">
             {message.content}
           </div>
         )}
@@ -352,7 +352,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <button
                   type="button"
                   onClick={copyMessage}
-                  className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
+                  className="rounded-sm px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
                   title="Copy message"
                 >
                   {copied ? '✓ Copied' : '📋 Copy'}
@@ -360,7 +360,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <button
                   type="button"
                   onClick={toggleSpeak}
-                  className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
+                  className="rounded-sm px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
                   title={speaking ? 'Stop reading' : 'Read aloud'}
                 >
                   {speaking ? '⏹ Stop' : '🔊 Listen'}
@@ -372,7 +372,7 @@ export const MessageBubble = memo(function MessageBubble({
                 type="button"
                 onClick={() => void regenerate()}
                 disabled={streaming || cannotRegenerate !== null}
-                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
+                className="rounded-sm px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
                 // Disabled with its reason attached, never silently: a control
                 // that greys out and says nothing is the same dead end as one
                 // that replays a failure (lib/replyRecovery.ts).
@@ -394,7 +394,7 @@ export const MessageBubble = memo(function MessageBubble({
                 type="button"
                 onClick={() => void secondOpinion(message.id)}
                 disabled={streaming}
-                className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-violet-600 dark:hover:text-violet-300 disabled:opacity-40"
+                className="rounded-sm px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-violet-600 dark:hover:text-violet-300 disabled:opacity-40"
                 title={`Have a different role review this reply and name the claims it could not verify${busyTitle}`}
               >
                 🔍 2nd opinion
@@ -416,7 +416,7 @@ export const MessageBubble = memo(function MessageBubble({
                   type="button"
                   onClick={() => void deliberate(message.id)}
                   disabled={streaming}
-                  className="rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
+                  className="rounded-sm px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary disabled:opacity-40"
                   title={
                     (message.deliberation
                       ? 'Retry: the last review came back empty, so no reviewer has read this reply. '
@@ -612,7 +612,7 @@ export const MessageBubble = memo(function MessageBubble({
                     <summary className="cursor-pointer text-ink-tertiary">
                       {attributionLabel(c.detail)}
                     </summary>
-                    <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/5 p-1.5 font-mono text-ink-secondary dark:bg-white/5">
+                    <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-sm bg-black/5 p-1.5 font-mono text-ink-secondary dark:bg-white/5">
                       {c.detail.text}
                     </pre>
                     {/* v2.5: and what those words mean. This is the surface

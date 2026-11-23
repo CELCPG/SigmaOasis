@@ -97,7 +97,7 @@ export function ToolsTab({ settings, apply, defaults }: ToolsTabProps): JSX.Elem
                       foot={
                         showIds || budget ? (
                           <span className="inline-flex flex-wrap items-center gap-1.5 text-[11px] text-ink-tertiary">
-                            {showIds && <code className="rounded bg-black/5 px-1 py-0.5 dark:bg-white/10">{name}</code>}
+                            {showIds && <code className="rounded-sm bg-black/5 px-1 py-0.5 dark:bg-white/10">{name}</code>}
                             {budget && <span className="rounded-full border border-black/10 px-1.5 py-0.5 dark:border-white/10">{budget} per turn</span>}
                           </span>
                         ) : undefined

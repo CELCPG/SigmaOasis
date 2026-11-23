@@ -156,7 +156,7 @@ export function Sidebar(): JSX.Element {
             if (e.key === 'Enter') commitRename(c.id)
             if (e.key === 'Escape') setEditingId(null)
           }}
-          className="min-w-0 flex-1 rounded border border-accent bg-transparent px-1 py-0.5 text-sm outline-none"
+          className="min-w-0 flex-1 rounded-sm border border-accent bg-transparent px-1 py-0.5 text-sm outline-hidden"
         />
       ) : (
         <button
@@ -197,7 +197,7 @@ export function Sidebar(): JSX.Element {
             <button
               type="button"
               onClick={() => openSplit(c.id)}
-              className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-accent-ink group-hover:block"
+              className="ml-1 hidden shrink-0 rounded-sm px-1 text-ink-tertiary hover:text-accent-ink group-hover:block"
               title="Open beside the current chat (⌘\)"
             >
               ⊞
@@ -207,7 +207,7 @@ export function Sidebar(): JSX.Element {
             <button
               type="button"
               onClick={() => setMoveMenuId(moveMenuId === c.id ? null : c.id)}
-              className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-ink-primary group-hover:block"
+              className="ml-1 hidden shrink-0 rounded-sm px-1 text-ink-tertiary hover:text-ink-primary group-hover:block"
               title="Move to project"
               aria-haspopup="menu"
               aria-expanded={moveMenuId === c.id}
@@ -221,7 +221,7 @@ export function Sidebar(): JSX.Element {
               setEditingId(c.id)
               setDraft(c.title)
             }}
-            className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-ink-primary group-hover:block"
+            className="ml-1 hidden shrink-0 rounded-sm px-1 text-ink-tertiary hover:text-ink-primary group-hover:block"
             title="Rename conversation"
           >
             ✏️
@@ -229,7 +229,7 @@ export function Sidebar(): JSX.Element {
           <button
             type="button"
             onClick={() => void removeConversation(c.id)}
-            className="ml-1 hidden shrink-0 rounded px-1 text-ink-tertiary hover:text-ink-danger group-hover:block"
+            className="ml-1 hidden shrink-0 rounded-sm px-1 text-ink-tertiary hover:text-ink-danger group-hover:block"
             title="Delete conversation"
           >
             ✕
@@ -442,7 +442,7 @@ export function Sidebar(): JSX.Element {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search conversations…"
-            className="w-full rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-1.5 text-xs outline-none placeholder:text-ink-tertiary focus:border-accent"
+            className="w-full rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-1.5 text-xs outline-hidden placeholder:text-ink-tertiary focus:border-accent"
           />
         </div>
       )}
@@ -486,7 +486,7 @@ export function Sidebar(): JSX.Element {
                             if (e.key === 'Enter') commitProjectRename(project.id)
                             if (e.key === 'Escape') setEditingProjectId(null)
                           }}
-                          className="min-w-0 flex-1 rounded border border-accent bg-transparent px-1 py-0.5 text-[11px] outline-none"
+                          className="min-w-0 flex-1 rounded-sm border border-accent bg-transparent px-1 py-0.5 text-[11px] outline-hidden"
                         />
                       ) : (
                         <span
@@ -508,7 +508,7 @@ export function Sidebar(): JSX.Element {
                           type="button"
                           onClick={() => createConversation({ projectId: project.id })}
                           disabled={streaming}
-                          className="rounded px-1 text-xs text-accent-ink hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
+                          className="rounded-sm px-1 text-xs text-accent-ink hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
                           title={`New chat in ${project.name}`}
                         >
                           +
@@ -516,7 +516,7 @@ export function Sidebar(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => useAppStore.getState().setProjectEditorId(project.id)}
-                          className="rounded px-1 text-xs text-ink-tertiary hover:text-ink-primary"
+                          className="rounded-sm px-1 text-xs text-ink-tertiary hover:text-ink-primary"
                           title="Project settings — instructions, pinned files, recall, defaults"
                         >
                           ⚙
@@ -527,7 +527,7 @@ export function Sidebar(): JSX.Element {
                             setEditingProjectId(project.id)
                             setProjectDraft(project.name)
                           }}
-                          className="rounded px-1 text-xs text-ink-tertiary hover:text-ink-primary"
+                          className="rounded-sm px-1 text-xs text-ink-tertiary hover:text-ink-primary"
                           title="Rename project"
                         >
                           ✏️
@@ -535,7 +535,7 @@ export function Sidebar(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => confirmDeleteProject(project, items.length)}
-                          className="rounded px-1 text-xs text-ink-tertiary hover:text-ink-danger"
+                          className="rounded-sm px-1 text-xs text-ink-tertiary hover:text-ink-danger"
                           title="Delete project (keeps its chats)"
                         >
                           ✕

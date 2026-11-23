@@ -115,7 +115,7 @@ function PaneHeader({
     <div className="flex items-center gap-2 px-4 pt-3 pb-1">
       <span
         className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-          focused ? 'bg-[#00d4aa] shadow-[0_0_8px_rgba(0,212,170,0.6)]' : 'bg-neutral-400/50'
+          focused ? 'bg-accent shadow-[0_0_8px_rgba(0,212,170,0.6)]' : 'bg-neutral-400/50'
         }`}
         title={focused ? 'Focused — your message goes here' : 'Click the pane to focus it'}
       />

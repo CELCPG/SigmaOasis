@@ -5,12 +5,13 @@
  * node:test of them would be a test of the fixture:
  *
  *   - a 220-character unbreakable token stays inside the chat column;
- *   - every control that clears its outline with `outline-none` gets a visible
+ *   - every control that clears its outline with `outline-hidden` (v3's
+ *     `outline-none`, renamed by Tailwind 4) gets a visible
  *     ring back on :focus-visible — and only on :focus-visible;
  *   - the prose ink tiers clear 4.5:1 on both canvases, and stay a ramp.
  *
  * The CSS is compiled the way the app compiles it (postcss + the project's own
- * tailwind.config.js over assets/index.css), and the focus probes are the actual
+ * Tailwind 4 over assets/index.css, its configuration included), and the focus probes are the actual
  * class strings scraped out of the components, so this measures what ships.
  * :focus-visible cannot be reached by focusing an element in a window that has
  * no OS focus, so the state is forced through CDP instead.
@@ -23,6 +24,7 @@ import { readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import type { AddressInfo } from 'net'
 import { messageBubbleSource } from './messageBubbleSource'
+import { parseCssColor } from './cssColor'
 
 const ROOT = join(__dirname, '..', '..')
 const COMPONENTS = join(ROOT, 'src', 'renderer', 'src', 'components')
@@ -73,16 +75,9 @@ function check(name: string, condition: boolean, detail = ''): void {
 
 type Rgba = [number, number, number, number]
 
+/** v4.7 (M1): every serialization the engine uses, Tailwind 4's oklab() included — see cssColor.ts. */
 function parseColor(value: string): Rgba {
-  const hex = value.trim().match(/^#([0-9a-f]{6})$/i)
-  if (hex) {
-    const n = parseInt(hex[1], 16)
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 1]
-  }
-  const nums = value.match(/[\d.]+/g)
-  if (!nums || nums.length < 3) throw new Error(`unparseable color: ${value}`)
-  const [r, g, b] = nums.slice(0, 3).map(Number)
-  return [r, g, b, nums.length > 3 ? Number(nums[3]) : 1]
+  return parseCssColor(value)
 }
 
 /** Source-over composite of a translucent colour onto an opaque one. */
@@ -120,17 +115,23 @@ function tsxFiles(dir: string): string[] {
 }
 
 /**
- * Every run of classes containing `outline-none`. The run ends at a quote or a
+ * Every run of classes containing `outline-hidden`. The run ends at a quote or a
  * `${` boundary, which is exactly the slice that lands on one element.
+ *
+ * v4.7 (M1): Tailwind 4 renamed v3's `outline-none` (a transparent outline,
+ * kept for forced-colors mode) to `outline-hidden`; v4's `outline-none` is
+ * `outline-style: none`. The controls are the same ones under the new name.
  */
-function outlineNoneClassLists(): string[] {
+const CLEARS_OUTLINE = 'outline-hidden'
+
+function outlineHiddenClassLists(): string[] {
   const lists: string[] = []
   for (const file of tsxFiles(COMPONENTS)) {
     const src = readFileSync(file, 'utf-8')
-    for (let i = src.indexOf('outline-none'); i !== -1; i = src.indexOf('outline-none', i + 1)) {
+    for (let i = src.indexOf(CLEARS_OUTLINE); i !== -1; i = src.indexOf(CLEARS_OUTLINE, i + 1)) {
       const stop = /['"`{}\n]/
       let a = i
-      let b = i + 'outline-none'.length
+      let b = i + CLEARS_OUTLINE.length
       while (a > 0 && !stop.test(src[a - 1])) a -= 1
       while (b < src.length && !stop.test(src[b])) b += 1
       const classes = src
@@ -263,7 +264,7 @@ function fixture(css: string, probes: string[]): string {
     </div>
   </div>
   <div class="column" style="justify-content: flex-end">
-    <div class="max-w-[80%] whitespace-pre-wrap break-words rounded-3xl px-4 py-2.5 text-sm" id="user-bubble"><span id="user-token">${BLOB}</span></div>
+    <div class="max-w-[80%] whitespace-pre-wrap wrap-break-word rounded-3xl px-4 py-2.5 text-sm" id="user-bubble"><span id="user-token">${BLOB}</span></div>
   </div>
   <div class="column">${reply('wide')}</div>
   <div class="column split">${reply('split')}</div>
@@ -570,21 +571,20 @@ interface Probe {
 async function buildCss(): Promise<string> {
   /* eslint-disable @typescript-eslint/no-var-requires */
   const postcss = require('postcss') as typeof import('postcss')
-  const tailwind = require('tailwindcss')
+  const tailwind = require('@tailwindcss/postcss')
   /* eslint-enable @typescript-eslint/no-var-requires */
-  const config = require(join(ROOT, 'tailwind.config.js'))
   const entry = CSS_ENTRY
-  // Same config the app builds with; the globs are anchored so the utility set
-  // does not depend on the cwd the check happens to run from.
-  const result = await postcss([
-    tailwind({ ...config, content: config.content.map((glob: string) => join(ROOT, glob)) })
-  ]).process(readFileSync(entry, 'utf-8'), { from: entry })
+  // The plugin the app builds with (postcss.config.js), on the app's own entry.
+  // v4.7 (M1): Tailwind 4 reads its configuration from the CSS, whose @source
+  // lines are relative to the file, so the utility set does not depend on the
+  // cwd the check happens to run from.
+  const result = await postcss([tailwind({ base: ROOT })]).process(readFileSync(entry, 'utf-8'), { from: entry })
   return result.css
 }
 
 async function main(): Promise<void> {
   const css = await buildCss()
-  const probes = outlineNoneClassLists()
+  const probes = outlineHiddenClassLists()
   const page = fixture(css, probes)
 
   const server = createServer((req, res) => {
@@ -934,7 +934,7 @@ async function main(): Promise<void> {
 
   console.log(`\nfocus rings on the ${probes.length} controls that clear their outline`)
   // v4.0: the Settings kit is one FIELD class list where fourteen tabs had thirty; a dozen distinct lists is the app now.
-  check('found the outline-none controls to probe', probes.length >= 10, `${probes.length} found`)
+  check('found the outline-hidden controls to probe', probes.length >= 10, `${probes.length} found`)
 
   const canvas = parseColor(light.canvas)
   const panel = over(parseColor(light.panel), canvas)

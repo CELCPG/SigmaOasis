@@ -105,6 +105,11 @@ Order: 14 first (rewrite the two renderers against token objects, prove with
    renamed (shadow/blur/rounded scales, `ring` width). The style, contrast and
    field checks under `scripts/test-render.sh` are the proof; expect visual
    diffs. Do it alone, not with the build chain.
+   **Done in 4.7 (M1)**, to v4.3.5: the configuration moved into
+   `src/renderer/src/assets/index.css` (`@theme`, no `@config`), with v3's
+   palette, line heights and preflight pinned where v4's differ, and no visual
+   diff in any of the 38 scenes. `ROADMAP-v4.7.md` has what was measured, and
+   `test/tailwindBuild.test.ts` pins what the build must keep.
 6. **electron-store 8 → 11.** 9+ is ESM only; the main process is bundled by
    electron-vite, which externalizes dependencies, so it loads through
    Electron's Node `require(esm)`. `store.ts` is the only importer; the node

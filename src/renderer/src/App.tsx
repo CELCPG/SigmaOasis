@@ -20,7 +20,7 @@ function PaneDivider(): JSX.Element {
   return (
     <div
       aria-hidden="true"
-      className="my-4 w-px shrink-0 bg-gradient-to-b from-transparent via-black/10 to-transparent dark:via-white/10"
+      className="my-4 w-px shrink-0 bg-linear-to-b/srgb from-transparent via-black/10 to-transparent dark:via-white/10"
     />
   )
 }

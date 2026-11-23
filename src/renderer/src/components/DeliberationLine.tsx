@@ -19,7 +19,7 @@ export function DeliberationLine({ record }: { record: DeliberationRecord }): JS
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="rounded px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
+        className="rounded-sm px-1.5 py-0.5 text-left hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink-primary"
         title={
           !busy && unreviewed
             ? `${record.reviewerRole} returned no review at all, so no reviewer read this reply. The figure checks above are a different pass and say nothing about it. Run Think harder again, or use 2nd opinion.`
@@ -30,7 +30,7 @@ export function DeliberationLine({ record }: { record: DeliberationRecord }): JS
       >
         {describeDeliberation(record)} {busy ? '' : <span>{open ? '▾' : '▸'}</span>}
       </button>
-      <Disclosure open={open && !busy} className="mt-1 space-y-2 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.03] p-2.5">
+      <Disclosure open={open && !busy} className="mt-1 space-y-2 rounded-xl border border-black/10 dark:border-white/10 bg-black/3 dark:bg-white/3 p-2.5">
           <div>
             <span className="font-medium text-ink-secondary">
               Review{record.self ? ' (self)' : ` by ${record.reviewerRole}`}

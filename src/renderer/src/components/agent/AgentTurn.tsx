@@ -130,7 +130,7 @@ export const AgentTurn = memo(function AgentTurn({ message, conversation }: { me
 
 function Checklist({ todos, done }: { todos: AgentTodo[]; done: number }): JSX.Element {
   return (
-    <div className="mb-2 rounded-xl border border-black/5 bg-black/[0.02] px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]" data-testid="agent-checklist">
+    <div className="mb-2 rounded-xl border border-black/5 bg-black/2 px-3 py-2 dark:border-white/10 dark:bg-white/3" data-testid="agent-checklist">
       <div className="mb-1 text-[11px] font-medium tracking-[0.06em] text-ink-secondary">
         CHECKLIST · {done}/{todos.length}
       </div>

@@ -173,7 +173,7 @@ export function SettingsModal(): JSX.Element | null {
                 if (items.length === 0) return null
                 return (
                   <div key={group} className="mt-2 first:mt-0">
-                    <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">{group}</div>
+                    <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-ink-tertiary">{group}</div>
                     {items.map((t) => {
                       const index = shown.indexOf(t)
                       const active = tab === t.key
@@ -214,7 +214,7 @@ export function SettingsModal(): JSX.Element | null {
                                   setTab(t.key)
                                   setPendingRow(r.id)
                                 }}
-                                className="block w-full truncate rounded px-2 py-0.5 text-left text-xs text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/5"
+                                className="block w-full truncate rounded-sm px-2 py-0.5 text-left text-xs text-ink-secondary hover:bg-black/5 hover:text-ink-primary dark:hover:bg-white/5"
                               >
                                 {r.label}
                               </button>
@@ -272,7 +272,7 @@ export function SettingsModal(): JSX.Element | null {
         </div>
 
         {/* Footer: what just changed, with Undo; and the one reset that takes everything. */}
-        <div className="flex min-h-[3.25rem] items-center gap-3 border-t border-black/10 px-6 py-2 dark:border-white/10">
+        <div className="flex min-h-13 items-center gap-3 border-t border-black/10 px-6 py-2 dark:border-white/10">
           <SettingsToasts />
           <div className="ml-auto shrink-0">
             <DangerRow variant="inline" label="" action="Reset to defaults" confirm="Reset everything?" onConfirm={reset} />

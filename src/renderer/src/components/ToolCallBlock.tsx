@@ -158,7 +158,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
             <div className="mb-1 font-medium text-ink-secondary">
               {isConsult ? 'Task delegated' : 'Arguments'}
             </div>
-            <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono">
+            <pre className="overflow-x-auto whitespace-pre-wrap rounded-sm bg-black/5 dark:bg-white/5 p-2 font-mono">
               {isConsult ? String(record.args.task ?? '') : JSON.stringify(record.args, null, 2)}
             </pre>
           </div>
@@ -167,7 +167,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
               <div className="mb-1 font-medium text-ink-secondary">
                 {isConsult ? 'Specialist reply' : 'Result'}
               </div>
-              <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono">
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-sm bg-black/5 dark:bg-white/5 p-2 font-mono">
                 {record.result}
               </pre>
             </div>
@@ -187,7 +187,7 @@ export function ToolCallBlock({ record }: { record: ToolCallRecord }): JSX.Eleme
                   <div className="mb-1 mt-2 font-medium text-ink-tertiary">
                     {failure.detail.source} reported
                   </div>
-                  <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-black/5 dark:bg-white/5 p-2 font-mono text-ink-secondary">
+                  <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-sm bg-black/5 dark:bg-white/5 p-2 font-mono text-ink-secondary">
                     {failure.detail.text}
                   </pre>
                   {/* v2.5: the same gloss the banner's disclosure carries. This

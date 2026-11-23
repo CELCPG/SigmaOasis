@@ -174,7 +174,7 @@ export function OnboardingModal(): JSX.Element | null {
         </div>
 
         {/* v3.0: the three ways in, said once at the start. */}
-        <div className="mt-5 rounded-xl border border-black/5 bg-black/[0.02] p-3 text-xs dark:border-white/10 dark:bg-white/[0.03]">
+        <div className="mt-5 rounded-xl border border-black/5 bg-black/2 p-3 text-xs dark:border-white/10 dark:bg-white/3">
           <p className="mb-1.5 font-medium text-ink-primary">Three ways to use it</p>
           <ul className="space-y-1 text-ink-secondary">
             <li>

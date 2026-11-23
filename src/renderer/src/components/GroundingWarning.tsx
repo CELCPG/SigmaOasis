@@ -136,7 +136,7 @@ export function GroundingWarning({ report }: { report: GroundingReport }): JSX.E
         narrow reads the passages under it as responsive to that query, so this
         sits beside the two lines above rather than under the figures.
 
-        `break-words` because a stated argument can be a URL, which has no space
+        `wrap-break-word` because a stated argument can be a URL, which has no space
         to wrap at; the 72-character cap bounds it but does not break it.
       */}
       {toolArgs.length > 0 && (
@@ -147,8 +147,8 @@ export function GroundingWarning({ report }: { report: GroundingReport }): JSX.E
             toolDenials.length > 0 ||
             toolDisclosure.length > 0 ||
             toolCounts.length > 0
-              ? 'mt-1 break-words'
-              : 'break-words'
+              ? 'mt-1 wrap-break-word'
+              : 'wrap-break-word'
           }
         >
           ⚠️ This reply states {toolArgs.length === 1 ? 'an argument' : 'arguments'} the{' '}

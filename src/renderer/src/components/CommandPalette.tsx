@@ -295,7 +295,7 @@ export function CommandPalette(): JSX.Element | null {
             onChange={e => setQuery(e.target.value)}
             placeholder="Type a command or search..."
             autoFocus
-            className="flex-1 bg-transparent text-base outline-none placeholder:text-ink-tertiary"
+            className="flex-1 bg-transparent text-base outline-hidden placeholder:text-ink-tertiary"
           />
           <kbd className="rounded-md bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-ink-secondary">
             ESC

@@ -25,7 +25,7 @@ const MODE_LABELS: Record<ChatMode, string> = {
 }
 
 const field =
-  'w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-sm outline-none focus:border-accent'
+  'w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-sm outline-hidden focus:border-accent'
 const label = 'mb-1 block text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary'
 
 /**
@@ -207,7 +207,7 @@ function ProjectEditor({
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
             }}
-            className="min-w-0 flex-1 bg-transparent text-base font-semibold outline-none"
+            className="min-w-0 flex-1 bg-transparent text-base font-semibold outline-hidden"
             aria-label="Project name"
           />
           <div className="flex items-center gap-1" title="Colour">
@@ -295,7 +295,7 @@ function ProjectEditor({
                         type="button"
                         onClick={() => void reindex(f)}
                         disabled={busyFileId === f.id}
-                        className="rounded px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-40"
+                        className="rounded-sm px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-40"
                         title="Read and index this file now (otherwise it happens on the first message that needs it)"
                       >
                         {busyFileId === f.id ? '…' : '⟳'}
@@ -304,7 +304,7 @@ function ProjectEditor({
                     <button
                       type="button"
                       onClick={() => onPatch({ files: project.files.filter((x) => x.id !== f.id) })}
-                      className="rounded px-1 text-ink-tertiary hover:text-ink-danger"
+                      className="rounded-sm px-1 text-ink-tertiary hover:text-ink-danger"
                       title="Unpin"
                     >
                       ✕

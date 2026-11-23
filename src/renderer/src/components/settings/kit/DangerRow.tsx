@@ -49,7 +49,7 @@ export function DangerRow({ label, detail, action, confirm, onConfirm, disabled,
     }
   }
   const button = (
-    <Button kind="danger" onClick={() => void click()} disabled={disabled} busy={busy ? '…' : undefined} aria-live="polite" className={state.armed ? 'border-[var(--text-danger)] bg-red-500/10' : ''}>
+    <Button kind="danger" onClick={() => void click()} disabled={disabled} busy={busy ? '…' : undefined} aria-live="polite" className={state.armed ? 'border-(--text-danger) bg-red-500/10' : ''}>
       {state.armed ? confirm : action}
     </Button>
   )
